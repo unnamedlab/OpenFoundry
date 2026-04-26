@@ -231,6 +231,10 @@ async fn main() {
             post(handlers::objects::simulate_object),
         )
         .route(
+            "/api/v1/ontology/types/{type_id}/objects/{obj_id}/scenarios/simulate",
+            post(handlers::objects::simulate_object_scenarios),
+        )
+        .route(
             "/api/v1/ontology/objects/{obj_id}/rule-runs",
             get(handlers::rules::list_object_rule_runs),
         )

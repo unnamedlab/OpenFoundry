@@ -106,6 +106,21 @@ class AdminUsersListResponse:
         return serialize_model(self)
 
 @dataclass(slots=True)
+class ApiError:
+    code: str | None = None
+    details: dict[str, Any] | None = None
+    message: str | None = None
+    request_id: str | None = None
+    status: int | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ApiError":
+        return deserialize_model(cls, data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return serialize_model(self)
+
+@dataclass(slots=True)
 class AppBrandingSettings:
     accent_color: str | None = None
     display_name: str | None = None

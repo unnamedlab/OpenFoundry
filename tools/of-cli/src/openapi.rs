@@ -7,12 +7,18 @@ use std::{
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenApiSpec {
     pub openapi: String,
     pub info: OpenApiInfo,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub servers: Vec<OpenApiServer>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub tags: Vec<OpenApiTag>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<Vec<BTreeMap<String, Vec<String>>>>,
     pub paths: BTreeMap<String, BTreeMap<String, OpenApiOperation>>,
     pub components: OpenApiComponents,
 }
@@ -25,8 +31,36 @@ pub struct OpenApiInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenApiServer {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenApiTag {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenApiComponents {
     pub schemas: BTreeMap<String, OpenApiSchema>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "securitySchemes")]
+    pub security_schemes: Option<BTreeMap<String, OpenApiSecurityScheme>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenApiSecurityScheme {
+    #[serde(rename = "type")]
+    pub scheme_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "bearerFormat")]
+    pub bearer_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,7 +70,11 @@ pub struct OpenApiSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<BTreeMap<String, OpenApiSchema>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<OpenApiSchema>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "$ref")]
@@ -46,11 +84,15 @@ pub struct OpenApiSchema {
         rename = "additionalProperties"
     )]
     pub additional_properties: Option<Box<OpenApiSchema>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "enum")]
+    pub enum_values: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenApiOperation {
     pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(rename = "operationId")]
     pub operation_id: String,
     pub tags: Vec<String>,
@@ -59,6 +101,30 @@ pub struct OpenApiOperation {
     #[serde(skip_serializing_if = "Option::is_none", rename = "requestBody")]
     pub request_body: Option<OpenApiRequestBody>,
     pub responses: BTreeMap<String, OpenApiResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<Vec<BTreeMap<String, Vec<String>>>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "x-openfoundry-sdk-namespace"
+    )]
+    pub x_openfoundry_sdk_namespace: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "x-openfoundry-api-version"
+    )]
+    pub x_openfoundry_api_version: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "x-openfoundry-mcp-tool"
+    )]
+    pub x_openfoundry_mcp_tool: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "x-openfoundry-stability"
+    )]
+    pub x_openfoundry_stability: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +133,8 @@ pub struct OpenApiParameter {
     #[serde(rename = "in")]
     pub location: String,
     pub required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub schema: OpenApiSchema,
 }
 
@@ -163,11 +231,30 @@ pub fn generate_spec(proto_dir: &Path) -> Result<OpenApiSpec> {
             let method = http_method_for_rpc(&rpc.name).to_string();
             let request_ref = schema_ref(&rpc.request);
             let response_ref = schema_ref(&rpc.response);
+            let parameters = if method == "get" || method == "delete" {
+                query_parameters_from_request_schema(&rpc.request, &schemas)
+            } else {
+                Vec::new()
+            };
+            let namespace = namespace_for_operation(
+                &service.package,
+                &rpc.name,
+                &path,
+                &[service.package.clone()],
+            );
             let operation = OpenApiOperation {
                 summary: format!("{} {}", service.name, rpc.name),
+                description: Some(format!(
+                    "Generated from `{}` RPC `{}` in service `{}`.",
+                    service.package, rpc.name, service.name
+                )),
                 operation_id: format!("{}.{}.{}", service.package, service.name, rpc.name),
                 tags: vec![service.package.clone()],
-                parameters: None,
+                parameters: if parameters.is_empty() {
+                    None
+                } else {
+                    Some(parameters)
+                },
                 request_body: if method == "get" || method == "delete" {
                     None
                 } else {
@@ -181,18 +268,13 @@ pub fn generate_spec(proto_dir: &Path) -> Result<OpenApiSpec> {
                         )]),
                     })
                 },
-                responses: BTreeMap::from([(
-                    "200".to_string(),
-                    OpenApiResponse {
-                        description: "Successful response".to_string(),
-                        content: BTreeMap::from([(
-                            "application/json".to_string(),
-                            OpenApiMediaType {
-                                schema: response_ref,
-                            },
-                        )]),
-                    },
-                )]),
+                responses: success_and_error_responses(response_ref),
+                deprecated: None,
+                security: bearer_auth_security(),
+                x_openfoundry_sdk_namespace: Some(namespace.clone()),
+                x_openfoundry_api_version: api_version_from_path(&path),
+                x_openfoundry_mcp_tool: Some(mcp_tool_name(&namespace, &rpc.name)),
+                x_openfoundry_stability: Some(stability_for_path(&path).to_string()),
             };
 
             paths
@@ -205,16 +287,29 @@ pub fn generate_spec(proto_dir: &Path) -> Result<OpenApiSpec> {
     let mut spec = OpenApiSpec {
         openapi: "3.1.0".to_string(),
         info: OpenApiInfo {
-            title: "OpenFoundry Proto-Derived API".to_string(),
+            title: "OpenFoundry API".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             description:
-                "Auto-generated JSON/HTTP contract derived from OpenFoundry proto services."
+                "Versioned OpenFoundry JSON/HTTP contract generated from proto services and curated REST overlays."
                     .to_string(),
         },
+        servers: vec![OpenApiServer {
+            url: "/".to_string(),
+            description: Some("OpenFoundry API gateway root".to_string()),
+        }],
+        tags: Vec::new(),
+        security: bearer_auth_security(),
         paths,
-        components: OpenApiComponents { schemas },
+        components: OpenApiComponents {
+            schemas,
+            security_schemes: Some(BTreeMap::from([(
+                "bearerAuth".to_string(),
+                bearer_security_scheme(),
+            )])),
+        },
     };
     augment_with_rest_overlays(&mut spec);
+    finalize_spec_metadata(&mut spec);
     Ok(spec)
 }
 
@@ -330,6 +425,179 @@ fn collect_proto_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+fn query_parameters_from_request_schema(
+    request_type: &str,
+    schemas: &BTreeMap<String, OpenApiSchema>,
+) -> Vec<OpenApiParameter> {
+    schemas
+        .get(request_type)
+        .and_then(|schema| schema.properties.as_ref())
+        .map(|properties| {
+            properties
+                .iter()
+                .map(|(name, schema)| OpenApiParameter {
+                    name: name.clone(),
+                    location: "query".to_string(),
+                    required: false,
+                    description: Some(format!(
+                        "Query parameter derived from `{request_type}.{name}`."
+                    )),
+                    schema: schema.clone(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn success_and_error_responses(
+    response_schema: OpenApiSchema,
+) -> BTreeMap<String, OpenApiResponse> {
+    BTreeMap::from([
+        (
+            "200".to_string(),
+            OpenApiResponse {
+                description: "Successful response".to_string(),
+                content: BTreeMap::from([(
+                    "application/json".to_string(),
+                    OpenApiMediaType {
+                        schema: response_schema,
+                    },
+                )]),
+            },
+        ),
+        (
+            "default".to_string(),
+            OpenApiResponse {
+                description: "Structured error response".to_string(),
+                content: BTreeMap::from([(
+                    "application/json".to_string(),
+                    OpenApiMediaType {
+                        schema: schema_ref("ApiError"),
+                    },
+                )]),
+            },
+        ),
+    ])
+}
+
+fn bearer_auth_security() -> Option<Vec<BTreeMap<String, Vec<String>>>> {
+    Some(vec![BTreeMap::from([(
+        "bearerAuth".to_string(),
+        Vec::<String>::new(),
+    )])])
+}
+
+fn bearer_security_scheme() -> OpenApiSecurityScheme {
+    OpenApiSecurityScheme {
+        scheme_type: "http".to_string(),
+        scheme: Some("bearer".to_string()),
+        bearer_format: Some("JWT".to_string()),
+        description: Some(
+            "Bearer token accepted by the OpenFoundry gateway. Session and personal access tokens share this scheme."
+                .to_string(),
+        ),
+    }
+}
+
+fn namespace_for_operation(package: &str, rpc_name: &str, path: &str, tags: &[String]) -> String {
+    if let Some(tag) = tags.first() {
+        let trimmed = tag
+            .trim_start_matches("open_foundry.")
+            .trim_start_matches("rest.");
+        if !trimmed.is_empty() {
+            return trimmed.replace('.', "_");
+        }
+    }
+
+    if let Some(segment) = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .nth(2)
+        .filter(|segment| !segment.is_empty())
+    {
+        return segment.replace('-', "_");
+    }
+
+    let leaf = package
+        .rsplit('.')
+        .next()
+        .unwrap_or("openfoundry")
+        .replace('-', "_");
+    if leaf.is_empty() {
+        rpc_name.to_ascii_lowercase()
+    } else {
+        leaf
+    }
+}
+
+fn api_version_from_path(path: &str) -> Option<String> {
+    path.split('/')
+        .find(|segment| {
+            segment.starts_with('v') && segment[1..].chars().all(|ch| ch.is_ascii_digit())
+        })
+        .map(str::to_string)
+}
+
+fn api_version_from_identifier(value: &str) -> Option<String> {
+    value
+        .split(['/', '.', '_'])
+        .find(|segment| {
+            segment.starts_with('v') && segment[1..].chars().all(|ch| ch.is_ascii_digit())
+        })
+        .map(str::to_string)
+}
+
+fn stability_for_path(path: &str) -> &'static str {
+    match api_version_from_path(path).as_deref() {
+        Some("v2") => "stable",
+        _ => "beta",
+    }
+}
+
+fn mcp_tool_name(namespace: &str, operation_name: &str) -> String {
+    format!(
+        "openfoundry.{}.{}",
+        to_camel_case(namespace),
+        to_camel_case(operation_name)
+    )
+}
+
+fn finalize_spec_metadata(spec: &mut OpenApiSpec) {
+    spec.components
+        .schemas
+        .entry("ApiError".to_string())
+        .or_insert_with(api_error_schema);
+
+    let mut tag_names = spec
+        .paths
+        .values()
+        .flat_map(|methods| methods.values())
+        .flat_map(|operation| operation.tags.iter().cloned())
+        .collect::<BTreeSet<_>>();
+
+    if tag_names.is_empty() {
+        tag_names.insert("open_foundry".to_string());
+    }
+
+    spec.tags = tag_names
+        .into_iter()
+        .map(|tag| OpenApiTag {
+            description: Some(format!("Operations generated for the `{tag}` namespace.")),
+            name: tag,
+        })
+        .collect();
+}
+
+fn api_error_schema() -> OpenApiSchema {
+    object_schema(BTreeMap::from([
+        ("code".to_string(), string_schema(None)),
+        ("message".to_string(), string_schema(None)),
+        ("status".to_string(), integer_schema()),
+        ("request_id".to_string(), string_schema(None)),
+        ("details".to_string(), any_value_schema()),
+    ]))
+}
+
 fn render_typescript_sdk(spec: &OpenApiSpec) -> Result<BTreeMap<PathBuf, String>> {
     let mut files = BTreeMap::new();
     files.insert(
@@ -342,6 +610,7 @@ fn render_typescript_sdk(spec: &OpenApiSpec) -> Result<BTreeMap<PathBuf, String>
         render_typescript_readme(&spec.info.version),
     );
     files.insert(PathBuf::from("src/index.ts"), render_typescript_index(spec));
+    files.insert(PathBuf::from("src/mcp.ts"), render_typescript_mcp(spec)?);
     files.insert(
         PathBuf::from("src/react.ts"),
         render_typescript_react_helper(),
@@ -414,6 +683,10 @@ fn render_typescript_package_json(version: &str) -> Result<String> {
             "./react": {
                 "import": "./dist/react.js",
                 "types": "./dist/react.d.ts"
+            },
+            "./mcp": {
+                "import": "./dist/mcp.js",
+                "types": "./dist/mcp.d.ts"
             }
         },
         "files": ["dist", "src", "README.md"],
@@ -446,7 +719,7 @@ fn render_typescript_tsconfig() -> String {
 
 fn render_typescript_readme(version: &str) -> String {
     format!(
-        "# OpenFoundry TypeScript SDK\n\nGenerated from `apps/web/static/generated/openapi/openfoundry.json`.\n\nVersion: `{version}`\n\n## Usage\n\n```ts\nimport {{ OpenFoundryClient }} from '@open-foundry/sdk';\n\nconst client = new OpenFoundryClient({{\n  baseUrl: 'https://platform.example.com',\n  headers: {{ authorization: 'Bearer <token>' }},\n}});\n\nconst me = await client.authAuthGetMe();\n```\n\n## React helpers\n\n```ts\nimport {{ OpenFoundryProvider, useOpenFoundry, useOpenFoundryQuery }} from '@open-foundry/sdk/react';\n\nfunction DatasetCount() {{\n  const client = useOpenFoundry();\n  const datasets = useOpenFoundryQuery(() => client.datasetDatasetListdatasets(), [client]);\n  return <div>{{datasets.data?.datasets?.length ?? 0}}</div>;\n}}\n\nfunction App() {{\n  return (\n    <OpenFoundryProvider options={{{{ baseUrl: 'https://platform.example.com' }}}}>\n      <DatasetCount />\n    </OpenFoundryProvider>\n  );\n}}\n```\n"
+        "# OpenFoundry TypeScript SDK\n\nGenerated from `apps/web/static/generated/openapi/openfoundry.json`.\n\nVersion: `{version}`\n\n## Usage\n\n```ts\nimport {{ OpenFoundryClient }} from '@open-foundry/sdk';\n\nconst client = new OpenFoundryClient({{\n  baseUrl: 'https://platform.example.com',\n  token: '<token>',\n  timeoutMs: 15_000,\n  retry: {{ maxAttempts: 2 }},\n}});\n\nconst me = await client.auth.authGetMe();\nconst datasets = await client.dataset.listDatasets({{ search: 'sales' }});\n```\n\n## MCP bridging\n\n```ts\nimport {{ OPENFOUNDRY_MCP_TOOLS, callOpenFoundryMcpTool }} from '@open-foundry/sdk/mcp';\n\nconst result = await callOpenFoundryMcpTool(client, OPENFOUNDRY_MCP_TOOLS[0].name, {{\n  query: {{ page: 1, per_page: 20 }},\n}});\n```\n\n## React helpers\n\n```ts\nimport {{ OpenFoundryProvider, useOpenFoundry, useOpenFoundryQuery }} from '@open-foundry/sdk/react';\n\nfunction DatasetCount() {{\n  const client = useOpenFoundry();\n  const datasets = useOpenFoundryQuery(() => client.dataset.listDatasets(), [client]);\n  return <div>{{datasets.data?.datasets?.length ?? 0}}</div>;\n}}\n\nfunction App() {{\n  return (\n    <OpenFoundryProvider options={{{{ baseUrl: 'https://platform.example.com', token: '<token>' }}}}>\n      <DatasetCount />\n    </OpenFoundryProvider>\n  );\n}}\n```\n"
     )
 }
 
@@ -647,22 +920,477 @@ fn render_typescript_react_shim() -> String {
     .join("\n")
 }
 
+#[derive(Debug, Clone)]
+struct OwnedParameter {
+    name: String,
+    required: bool,
+    schema: OpenApiSchema,
+}
+
+#[derive(Debug, Clone)]
+struct OperationRenderInfo {
+    path: String,
+    method: String,
+    operation_id: String,
+    summary: String,
+    description: Option<String>,
+    response_type: String,
+    request_type: Option<String>,
+    flat_method_name: String,
+    namespace_property: String,
+    namespace_member_name: String,
+    path_parameters: Vec<OwnedParameter>,
+    query_parameters: Vec<OwnedParameter>,
+    has_body: bool,
+    mcp_tool_name: String,
+    api_version: Option<String>,
+    stability: Option<String>,
+}
+
+fn collect_operation_render_infos(spec: &OpenApiSpec) -> Vec<OperationRenderInfo> {
+    let mut items = Vec::new();
+    let mut used_flat_method_names = BTreeMap::<String, usize>::new();
+    let mut namespace_method_counters = BTreeMap::<String, BTreeMap<String, usize>>::new();
+
+    for (path, methods) in &spec.paths {
+        for (method, operation) in methods {
+            let namespace_id = operation
+                .x_openfoundry_sdk_namespace
+                .clone()
+                .unwrap_or_else(|| {
+                    namespace_for_operation("", &operation.operation_id, path, &operation.tags)
+                });
+            let namespace_property = namespace_property_name(&namespace_id);
+            let namespace_member_seed = simple_operation_member_name(operation);
+            let namespace_member_name = unique_method_name(
+                namespace_member_seed,
+                namespace_method_counters
+                    .entry(namespace_property.clone())
+                    .or_default(),
+            );
+
+            items.push(OperationRenderInfo {
+                path: path.clone(),
+                method: method.to_uppercase(),
+                operation_id: operation.operation_id.clone(),
+                summary: operation.summary.clone(),
+                description: operation.description.clone(),
+                response_type: response_type_for_operation(operation),
+                request_type: request_type_for_operation(operation),
+                flat_method_name: unique_method_name(
+                    method_name_for_operation(operation),
+                    &mut used_flat_method_names,
+                ),
+                namespace_property: namespace_property.clone(),
+                namespace_member_name,
+                path_parameters: operation_path_parameters(operation)
+                    .into_iter()
+                    .map(|parameter| OwnedParameter {
+                        name: parameter.name.clone(),
+                        required: parameter.required,
+                        schema: parameter.schema.clone(),
+                    })
+                    .collect(),
+                query_parameters: operation_query_parameters(operation)
+                    .into_iter()
+                    .map(|parameter| OwnedParameter {
+                        name: parameter.name.clone(),
+                        required: parameter.required,
+                        schema: parameter.schema.clone(),
+                    })
+                    .collect(),
+                has_body: request_type_for_operation(operation).is_some(),
+                mcp_tool_name: operation.x_openfoundry_mcp_tool.clone().unwrap_or_else(|| {
+                    mcp_tool_name(
+                        &namespace_id,
+                        operation.operation_id.rsplit('.').next().unwrap_or("call"),
+                    )
+                }),
+                api_version: operation.x_openfoundry_api_version.clone(),
+                stability: operation.x_openfoundry_stability.clone(),
+            });
+        }
+    }
+
+    items
+}
+
+fn simple_operation_member_name(operation: &OpenApiOperation) -> String {
+    to_camel_case(operation.operation_id.rsplit('.').next().unwrap_or("call"))
+}
+
+fn namespace_property_name(namespace: &str) -> String {
+    let trimmed = namespace
+        .trim_start_matches("open_foundry.")
+        .trim_start_matches("rest.");
+    let tokens = trimmed
+        .split(['.', '_', '-'])
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return "defaultApi".to_string();
+    }
+
+    let mut property = String::new();
+    for (index, token) in tokens.into_iter().enumerate() {
+        let is_version = token.starts_with('v')
+            && token[1..]
+                .chars()
+                .all(|character| character.is_ascii_digit());
+        if index == 0 {
+            property.push_str(&token.to_ascii_lowercase());
+        } else if is_version {
+            property.push_str(&token.to_ascii_uppercase());
+        } else {
+            property.push_str(&to_pascal_case(token));
+        }
+    }
+    property
+}
+
+fn ordered_namespace_properties(operations: &[OperationRenderInfo]) -> Vec<String> {
+    operations
+        .iter()
+        .map(|operation| operation.namespace_property.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn build_mcp_input_schema_value(operation: &OperationRenderInfo) -> Value {
+    let mut properties = serde_json::Map::new();
+    let mut required = Vec::new();
+
+    if !operation.path_parameters.is_empty() {
+        let mut path_properties = serde_json::Map::new();
+        for parameter in &operation.path_parameters {
+            path_properties.insert(
+                parameter.name.clone(),
+                serde_json::to_value(&parameter.schema)
+                    .unwrap_or(Value::Object(serde_json::Map::new())),
+            );
+            if parameter.required {
+                required.push("path".to_string());
+            }
+        }
+        let mut path_schema = serde_json::Map::from_iter([
+            ("type".to_string(), Value::String("object".to_string())),
+            ("properties".to_string(), Value::Object(path_properties)),
+        ]);
+        let required_path = operation
+            .path_parameters
+            .iter()
+            .filter(|parameter| parameter.required)
+            .map(|parameter| Value::String(parameter.name.clone()))
+            .collect::<Vec<_>>();
+        if !required_path.is_empty() {
+            path_schema.insert("required".to_string(), Value::Array(required_path));
+        }
+        properties.insert("path".to_string(), Value::Object(path_schema));
+    }
+
+    if !operation.query_parameters.is_empty() {
+        let query_properties = operation
+            .query_parameters
+            .iter()
+            .map(|parameter| {
+                (
+                    parameter.name.clone(),
+                    serde_json::to_value(&parameter.schema)
+                        .unwrap_or(Value::Object(serde_json::Map::new())),
+                )
+            })
+            .collect::<serde_json::Map<String, Value>>();
+        properties.insert(
+            "query".to_string(),
+            Value::Object(serde_json::Map::from_iter([
+                ("type".to_string(), Value::String("object".to_string())),
+                ("properties".to_string(), Value::Object(query_properties)),
+            ])),
+        );
+    }
+
+    if let Some(request_type) = &operation.request_type {
+        properties.insert(
+            "body".to_string(),
+            json!({
+                "$ref": format!("#/components/schemas/{request_type}")
+            }),
+        );
+        if operation.has_body && operation.method != "GET" && operation.method != "DELETE" {
+            required.push("body".to_string());
+        }
+    }
+
+    let mut schema = serde_json::Map::from_iter([
+        ("type".to_string(), Value::String("object".to_string())),
+        ("properties".to_string(), Value::Object(properties)),
+    ]);
+    if !required.is_empty() {
+        required.sort();
+        required.dedup();
+        schema.insert(
+            "required".to_string(),
+            Value::Array(required.into_iter().map(Value::String).collect()),
+        );
+    }
+    Value::Object(schema)
+}
+
+fn render_typescript_query_fields(parameters: &[OwnedParameter]) -> String {
+    parameters
+        .iter()
+        .map(|parameter| {
+            format!(
+                "{}{}: {}",
+                render_property_name(&parameter.name),
+                if parameter.required { "" } else { "?" },
+                typescript_type(&parameter.schema)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn render_typescript_method_signature_owned(
+    path_parameters: &[OwnedParameter],
+    query_parameters: &[OwnedParameter],
+    request_type: Option<&str>,
+) -> String {
+    let mut parts = Vec::new();
+
+    for parameter in path_parameters {
+        parts.push(format!(
+            "{}: {}",
+            render_typescript_variable_name(&parameter.name),
+            typescript_type(&parameter.schema)
+        ));
+    }
+
+    if !query_parameters.is_empty() {
+        parts.push(format!(
+            "query: {{ {} }} = {{}}",
+            render_typescript_query_fields(query_parameters)
+        ));
+    }
+
+    if let Some(request_type) = request_type {
+        parts.push(format!("body: {request_type}"));
+    }
+
+    parts.push("init: OpenFoundryRequestInit = {}".to_string());
+    parts.join(", ")
+}
+
+fn render_typescript_path_argument_owned(path_parameters: &[OwnedParameter]) -> String {
+    let fields = path_parameters
+        .iter()
+        .map(|parameter| {
+            let variable_name = render_typescript_variable_name(&parameter.name);
+            format!("{:?}: {variable_name}", parameter.name)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{{ {fields} }}")
+}
+
+fn render_typescript_operation_call_arguments(operation: &OperationRenderInfo) -> String {
+    let mut parts = Vec::new();
+
+    for parameter in &operation.path_parameters {
+        parts.push(format!(
+            "(input.path?.{name} ?? this.requiredPathParam(input, {name:?})) as any",
+            name = render_property_name(&parameter.name)
+        ));
+    }
+
+    if !operation.query_parameters.is_empty() {
+        parts.push("((input.query ?? {}) as any)".to_string());
+    }
+
+    if operation.has_body {
+        if operation.path_parameters.is_empty() && operation.query_parameters.is_empty() {
+            parts.push("this.resolveBodyInput(input) as any".to_string());
+        } else {
+            parts.push("(input.body as any)".to_string());
+        }
+    }
+
+    parts.push("init".to_string());
+    parts.join(", ")
+}
+
+fn render_typescript_wrapper_call_arguments(operation: &OperationRenderInfo) -> String {
+    let mut parts = Vec::new();
+
+    for parameter in &operation.path_parameters {
+        parts.push(render_typescript_variable_name(&parameter.name));
+    }
+
+    if !operation.query_parameters.is_empty() {
+        parts.push("query".to_string());
+    }
+
+    if operation.has_body {
+        parts.push("body".to_string());
+    }
+
+    parts.push("init".to_string());
+    parts.join(", ")
+}
+
+fn render_python_method_signature_owned(
+    path_parameters: &[OwnedParameter],
+    query_parameters: &[OwnedParameter],
+    request_type: Option<&str>,
+) -> String {
+    let mut parts = vec!["self".to_string()];
+
+    for parameter in path_parameters {
+        parts.push(format!(
+            "{}: {}",
+            render_python_variable_name(&parameter.name),
+            python_type(&parameter.schema)
+        ));
+    }
+
+    for parameter in query_parameters {
+        parts.push(format!(
+            "{}: {} | None = None",
+            render_python_variable_name(&parameter.name),
+            python_type(&parameter.schema)
+        ));
+    }
+
+    if let Some(request_type) = request_type {
+        parts.push(format!("body: {request_type}"));
+    }
+
+    parts.push("headers: Mapping[str, str] | None = None".to_string());
+    parts.join(", ")
+}
+
+fn render_python_path_argument_owned(path_parameters: &[OwnedParameter]) -> String {
+    "{".to_string()
+        + &path_parameters
+            .iter()
+            .map(|parameter| {
+                let variable_name = render_python_variable_name(&parameter.name);
+                format!("{:?}: {variable_name}", parameter.name)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+        + "}"
+}
+
+fn render_python_operation_call_arguments(operation: &OperationRenderInfo) -> String {
+    let mut parts = Vec::new();
+
+    for parameter in &operation.path_parameters {
+        parts.push(format!(
+            "self._required_path_param(input, {name:?})",
+            name = parameter.name
+        ));
+    }
+
+    for parameter in &operation.query_parameters {
+        parts.push(format!(
+            "(input.get('query') or {{}}).get({name:?})",
+            name = parameter.name
+        ));
+    }
+
+    if operation.has_body {
+        if operation.path_parameters.is_empty() && operation.query_parameters.is_empty() {
+            parts.push("self._resolve_body_input(input)".to_string());
+        } else {
+            parts.push("input.get('body')".to_string());
+        }
+    }
+
+    parts.push("headers=headers".to_string());
+    parts.join(", ")
+}
+
 fn render_typescript_index(spec: &OpenApiSpec) -> String {
+    let operations = collect_operation_render_infos(spec);
+    let namespaces = ordered_namespace_properties(&operations);
     let mut lines = vec![
         "// This file is generated by `cargo run -p of-cli -- docs generate-sdk-typescript`.".to_string(),
         "// Do not edit manually.".to_string(),
         String::new(),
         format!("export const OPENFOUNDRY_SDK_VERSION = {:?};", spec.info.version),
         String::new(),
+        "export interface OpenFoundryRetryPolicy {".to_string(),
+        "  maxAttempts?: number;".to_string(),
+        "  backoffMs?: number;".to_string(),
+        "  retryOnStatus?: number[];".to_string(),
+        "  retryMethods?: string[];".to_string(),
+        "}".to_string(),
+        String::new(),
         "export interface OpenFoundryClientOptions {".to_string(),
         "  baseUrl: string;".to_string(),
         "  fetch?: typeof fetch;".to_string(),
         "  headers?: HeadersInit;".to_string(),
+        "  token?: string;".to_string(),
+        "  userAgent?: string;".to_string(),
+        "  timeoutMs?: number;".to_string(),
+        "  retry?: OpenFoundryRetryPolicy;".to_string(),
         "}".to_string(),
         String::new(),
-        "export type OpenFoundryRequestInit = Omit<RequestInit, 'body' | 'method'>;".to_string(),
+        "export interface OpenFoundryRequestInit extends Omit<RequestInit, 'body' | 'method' | 'signal'> {".to_string(),
+        "  headers?: HeadersInit;".to_string(),
+        "  timeoutMs?: number;".to_string(),
+        "  retry?: Partial<OpenFoundryRetryPolicy> | false;".to_string(),
+        "}".to_string(),
         "export type OpenFoundryPathParams = Record<string, string | number | boolean>;".to_string(),
-        "export type OpenFoundryQuery = Record<string, string | number | boolean | undefined | null>;".to_string(),
+        "export type OpenFoundryQueryPrimitive = string | number | boolean;".to_string(),
+        "export type OpenFoundryQueryValue = OpenFoundryQueryPrimitive | Array<OpenFoundryQueryPrimitive> | Record<string, unknown> | null | undefined;".to_string(),
+        "export type OpenFoundryQuery = Record<string, OpenFoundryQueryValue>;".to_string(),
+        "export interface OpenFoundryResponse<T> {".to_string(),
+        "  data: T;".to_string(),
+        "  status: number;".to_string(),
+        "  headers: Headers;".to_string(),
+        "  requestId: string | null;".to_string(),
+        "  raw: unknown;".to_string(),
+        "}".to_string(),
+        "export interface OpenFoundryOperationInput {".to_string(),
+        "  path?: OpenFoundryPathParams;".to_string(),
+        "  query?: OpenFoundryQuery;".to_string(),
+        "  body?: unknown;".to_string(),
+        "}".to_string(),
+        "export interface OpenFoundryOperationMeta {".to_string(),
+        "  operationId: string;".to_string(),
+        "  method: string;".to_string(),
+        "  path: string;".to_string(),
+        "  summary: string;".to_string(),
+        "  description?: string;".to_string(),
+        "  namespace: string;".to_string(),
+        "  namespaceMember: string;".to_string(),
+        "  apiVersion?: string;".to_string(),
+        "  stability?: string;".to_string(),
+        "  mcpTool: string;".to_string(),
+        "}".to_string(),
+        String::new(),
+        "export class OpenFoundryApiError extends Error {".to_string(),
+        "  readonly status: number;".to_string(),
+        "  readonly method: string;".to_string(),
+        "  readonly path: string;".to_string(),
+        "  readonly requestId: string | null;".to_string(),
+        "  readonly body: unknown;".to_string(),
+        "  readonly rawMessage: string;".to_string(),
+        String::new(),
+        "  constructor(input: { status: number; method: string; path: string; message: string; requestId?: string | null; body?: unknown; rawMessage?: string }) {".to_string(),
+        "    super(input.message);".to_string(),
+        "    this.name = 'OpenFoundryApiError';".to_string(),
+        "    this.status = input.status;".to_string(),
+        "    this.method = input.method;".to_string(),
+        "    this.path = input.path;".to_string(),
+        "    this.requestId = input.requestId ?? null;".to_string(),
+        "    this.body = input.body;".to_string(),
+        "    this.rawMessage = input.rawMessage ?? input.message;".to_string(),
+        "  }".to_string(),
+        "}".to_string(),
         String::new(),
     ];
 
@@ -685,101 +1413,351 @@ fn render_typescript_index(spec: &OpenApiSpec) -> String {
     }
 
     lines.extend([
+        "export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationMeta> = ["
+            .to_string(),
+    ]);
+    for operation in &operations {
+        lines.push("  {".to_string());
+        lines.push(format!("    operationId: {:?},", operation.operation_id));
+        lines.push(format!("    method: {:?},", operation.method));
+        lines.push(format!("    path: {:?},", operation.path));
+        lines.push(format!("    summary: {:?},", operation.summary));
+        if let Some(description) = &operation.description {
+            lines.push(format!("    description: {:?},", description));
+        }
+        lines.push(format!(
+            "    namespace: {:?},",
+            operation.namespace_property
+        ));
+        lines.push(format!(
+            "    namespaceMember: {:?},",
+            operation.namespace_member_name
+        ));
+        if let Some(api_version) = &operation.api_version {
+            lines.push(format!("    apiVersion: {:?},", api_version));
+        }
+        if let Some(stability) = &operation.stability {
+            lines.push(format!("    stability: {:?},", stability));
+        }
+        lines.push(format!("    mcpTool: {:?},", operation.mcp_tool_name));
+        lines.push("  },".to_string());
+    }
+    lines.extend([
+        "];".to_string(),
+        String::new(),
         "export class OpenFoundryClient {".to_string(),
         "  private readonly baseUrl: string;".to_string(),
         "  private readonly fetchImpl: typeof fetch;".to_string(),
-        "  private readonly defaultHeaders: HeadersInit;".to_string(),
+        "  private readonly defaultHeaders: Headers;".to_string(),
+        "  private token?: string;".to_string(),
+        "  private readonly userAgent?: string;".to_string(),
+        "  private readonly timeoutMs: number;".to_string(),
+        "  private readonly retryPolicy: OpenFoundryRetryPolicy;".to_string(),
         String::new(),
         "  constructor(options: OpenFoundryClientOptions) {".to_string(),
         "    this.baseUrl = options.baseUrl.replace(/\\/$/, '');".to_string(),
         "    this.fetchImpl = options.fetch ?? fetch;".to_string(),
-        "    this.defaultHeaders = options.headers ?? {};".to_string(),
+        "    this.defaultHeaders = new Headers(options.headers ?? {});".to_string(),
+        "    this.token = options.token;".to_string(),
+        "    this.userAgent = options.userAgent;".to_string(),
+        "    this.timeoutMs = options.timeoutMs ?? 30_000;".to_string(),
+        "    this.retryPolicy = {".to_string(),
+        "      maxAttempts: options.retry?.maxAttempts ?? 1,".to_string(),
+        "      backoffMs: options.retry?.backoffMs ?? 250,".to_string(),
+        "      retryOnStatus: options.retry?.retryOnStatus ?? [408, 429, 500, 502, 503, 504],"
+            .to_string(),
+        "      retryMethods: options.retry?.retryMethods ?? ['GET', 'HEAD', 'OPTIONS'],"
+            .to_string(),
+        "    };".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  clone(overrides: Partial<OpenFoundryClientOptions> = {}): OpenFoundryClient {"
+            .to_string(),
+        "    return new OpenFoundryClient({".to_string(),
+        "      baseUrl: overrides.baseUrl ?? this.baseUrl,".to_string(),
+        "      fetch: overrides.fetch ?? this.fetchImpl,".to_string(),
+        "      headers: overrides.headers ?? (() => { const copied: Record<string, string> = {}; this.defaultHeaders.forEach((value, key) => { copied[key] = value; }); return copied; })(),"
+            .to_string(),
+        "      token: overrides.token ?? this.token,".to_string(),
+        "      userAgent: overrides.userAgent ?? this.userAgent,".to_string(),
+        "      timeoutMs: overrides.timeoutMs ?? this.timeoutMs,".to_string(),
+        "      retry: overrides.retry ?? this.retryPolicy,".to_string(),
+        "    });".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  withBearerToken(token: string): OpenFoundryClient {".to_string(),
+        "    return this.clone({ token });".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  setBearerToken(token: string | undefined): void {".to_string(),
+        "    this.token = token;".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  setDefaultHeader(name: string, value: string): void {".to_string(),
+        "    this.defaultHeaders.set(name, value);".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  removeDefaultHeader(name: string): void {".to_string(),
+        "    this.defaultHeaders.delete(name);".to_string(),
         "  }".to_string(),
         String::new(),
     ]);
 
-    let mut used_method_names = BTreeMap::<String, usize>::new();
-    for (path, methods) in &spec.paths {
-        for (method, operation) in methods {
-            let method_name =
-                unique_method_name(method_name_for_operation(operation), &mut used_method_names);
-            let request_type = request_type_for_operation(operation);
-            let response_type = response_type_for_operation(operation);
-            let path_parameters = operation_path_parameters(operation);
-            let query_parameters = operation_query_parameters(operation);
-            let request_signature = render_typescript_method_signature(
-                &path_parameters,
-                &query_parameters,
-                request_type.as_deref(),
+    for namespace in &namespaces {
+        lines.push(format!("  readonly {namespace} = {{"));
+        for operation in operations
+            .iter()
+            .filter(|operation| &operation.namespace_property == namespace)
+        {
+            let request_signature = render_typescript_method_signature_owned(
+                &operation.path_parameters,
+                &operation.query_parameters,
+                operation
+                    .request_type
+                    .as_deref()
+                    .filter(|_| operation.has_body),
             );
-            let path_argument = if path_parameters.is_empty() {
-                "undefined".to_string()
-            } else {
-                render_typescript_path_argument(&path_parameters)
-            };
-            let query_argument = if query_parameters.is_empty() {
-                "undefined".to_string()
-            } else {
-                "query".to_string()
-            };
-            let body_argument = if request_type.is_some() {
-                "body"
-            } else {
-                "undefined"
-            };
-
             lines.push(format!(
-                "  async {method_name}({request_signature}): Promise<{response_type}> {{"
+                "    {}: ({}) => this.{}({}),",
+                operation.namespace_member_name,
+                request_signature,
+                operation.flat_method_name,
+                render_typescript_wrapper_call_arguments(operation),
             ));
-            lines.push(format!(
-                "    return this.request<{response_type}>({:?}, {:?}, {path_argument}, {query_argument}, {body_argument}, init);",
-                method.to_uppercase(),
-                path
-            ));
-            lines.push("  }".to_string());
-            lines.push(String::new());
         }
+        lines.push("  } as const;".to_string());
+        lines.push(String::new());
+    }
+
+    for operation in &operations {
+        let request_signature = render_typescript_method_signature_owned(
+            &operation.path_parameters,
+            &operation.query_parameters,
+            operation
+                .request_type
+                .as_deref()
+                .filter(|_| operation.has_body),
+        );
+        let path_argument = if operation.path_parameters.is_empty() {
+            "undefined".to_string()
+        } else {
+            render_typescript_path_argument_owned(&operation.path_parameters)
+        };
+        let query_argument = if operation.query_parameters.is_empty() {
+            "undefined".to_string()
+        } else {
+            "query as OpenFoundryQuery".to_string()
+        };
+        let body_argument = if operation.has_body {
+            "body"
+        } else {
+            "undefined"
+        };
+
+        lines.push(format!(
+            "  async {}({request_signature}): Promise<{}> {{",
+            operation.flat_method_name, operation.response_type
+        ));
+        lines.push(format!(
+            "    return this.request<{}>({:?}, {:?}, {path_argument}, {query_argument}, {body_argument}, init);",
+            operation.response_type, operation.method, operation.path
+        ));
+        lines.push("  }".to_string());
+        lines.push(String::new());
     }
 
     lines.extend([
-        "  private async request<TResponse>(".to_string(),
+        "  async callOperation(".to_string(),
+        "    operationId: string,".to_string(),
+        "    input: OpenFoundryOperationInput = {}, ".to_string(),
+        "    init: OpenFoundryRequestInit = {}, ".to_string(),
+        "  ): Promise<unknown> {".to_string(),
+        "    switch (operationId) {".to_string(),
+    ]);
+    for operation in &operations {
+        lines.push(format!("      case {:?}:", operation.operation_id));
+        lines.push(format!(
+            "        return this.{}({});",
+            operation.flat_method_name,
+            render_typescript_operation_call_arguments(operation),
+        ));
+    }
+    lines.extend([
+        "      default:".to_string(),
+        "        throw new Error(`Unknown OpenFoundry operation: ${operationId}`);".to_string(),
+        "    }".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  async request<TResponse>(".to_string(),
         "    method: string,".to_string(),
         "    pathTemplate: string,".to_string(),
         "    pathParams: OpenFoundryPathParams | undefined,".to_string(),
         "    query: OpenFoundryQuery | undefined,".to_string(),
         "    body: unknown,".to_string(),
-        "    init: OpenFoundryRequestInit,".to_string(),
+        "    init: OpenFoundryRequestInit = {}, ".to_string(),
         "  ): Promise<TResponse> {".to_string(),
+        "    const response = await this.requestRaw<TResponse>(method, pathTemplate, pathParams, query, body, init);".to_string(),
+        "    return response.data;".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  async requestRaw<TResponse>(".to_string(),
+        "    method: string,".to_string(),
+        "    pathTemplate: string,".to_string(),
+        "    pathParams: OpenFoundryPathParams | undefined,".to_string(),
+        "    query: OpenFoundryQuery | undefined,".to_string(),
+        "    body: unknown,".to_string(),
+        "    init: OpenFoundryRequestInit = {}, ".to_string(),
+        "  ): Promise<OpenFoundryResponse<TResponse>> {".to_string(),
         "    const path = this.interpolatePath(pathTemplate, pathParams);".to_string(),
         "    const url = new URL(`${this.baseUrl}${path}`);".to_string(),
         "    if (query) {".to_string(),
         "      for (const [key, value] of Object.entries(query)) {".to_string(),
-        "        if (value !== undefined && value !== null) {".to_string(),
-        "          url.searchParams.set(key, String(value));".to_string(),
+        "        this.appendQueryParam(url, key, value);".to_string(),
+        "      }".to_string(),
+        "    }".to_string(),
+        "    const retryPolicy = this.mergeRetryPolicy(init.retry);".to_string(),
+        "    const maxAttempts = retryPolicy.maxAttempts ?? 1;".to_string(),
+        "    let attempt = 0;".to_string(),
+        "    while (attempt < maxAttempts) {".to_string(),
+        "      attempt += 1;".to_string(),
+        "      const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;".to_string(),
+        "      const timeoutMs = init.timeoutMs ?? this.timeoutMs;".to_string(),
+        "      const timeoutHandle = controller && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;".to_string(),
+        "      try {".to_string(),
+        "        const headers = this.buildHeaders(init.headers, body !== undefined);".to_string(),
+        "        const response = await this.fetchImpl(url.toString(), {".to_string(),
+        "          ...init,".to_string(),
+        "          method,".to_string(),
+        "          headers,".to_string(),
+        "          signal: controller?.signal,".to_string(),
+        "          body: body === undefined ? undefined : JSON.stringify(body),".to_string(),
+        "        });".to_string(),
+        "        const raw = await this.parseResponsePayload(response);".to_string(),
+        "        const requestId = response.headers.get('x-request-id');".to_string(),
+        "        if (!response.ok) {".to_string(),
+        "          throw new OpenFoundryApiError({".to_string(),
+        "            status: response.status,".to_string(),
+        "            method,".to_string(),
+        "            path,".to_string(),
+        "            requestId,".to_string(),
+        "            body: raw,".to_string(),
+        "            rawMessage: typeof raw === 'string' ? raw : JSON.stringify(raw ?? null),".to_string(),
+        "            message: this.errorMessageFromPayload(raw, response.statusText),".to_string(),
+        "          });".to_string(),
+        "        }".to_string(),
+        "        return {".to_string(),
+        "          data: raw as TResponse,".to_string(),
+        "          status: response.status,".to_string(),
+        "          headers: response.headers,".to_string(),
+        "          requestId,".to_string(),
+        "          raw,".to_string(),
+        "        };".to_string(),
+        "      } catch (cause) {".to_string(),
+        "        const error = cause instanceof OpenFoundryApiError".to_string(),
+        "          ? cause".to_string(),
+        "          : new OpenFoundryApiError({".to_string(),
+        "              status: 0,".to_string(),
+        "              method,".to_string(),
+        "              path,".to_string(),
+        "              message: cause instanceof Error ? cause.message : 'OpenFoundry network request failed',".to_string(),
+        "              rawMessage: cause instanceof Error ? cause.message : String(cause),".to_string(),
+        "            });".to_string(),
+        "        if (attempt >= maxAttempts || !this.shouldRetry(method, error.status, retryPolicy)) {".to_string(),
+        "          throw error;".to_string(),
+        "        }".to_string(),
+        "        await this.wait((retryPolicy.backoffMs ?? 250) * attempt);".to_string(),
+        "      } finally {".to_string(),
+        "        if (timeoutHandle !== undefined) {".to_string(),
+        "          clearTimeout(timeoutHandle);".to_string(),
         "        }".to_string(),
         "      }".to_string(),
         "    }".to_string(),
-        "    const response = await this.fetchImpl(url.toString(), {".to_string(),
-        "      ...init,".to_string(),
-        "      method,".to_string(),
-        "      headers: {".to_string(),
-        "        'content-type': 'application/json',".to_string(),
-        "        ...this.defaultHeaders,".to_string(),
-        "        ...(init.headers ?? {}),".to_string(),
-        "      },".to_string(),
-        "      body: body === undefined ? undefined : JSON.stringify(body),".to_string(),
-        "    });".to_string(),
+        "    throw new OpenFoundryApiError({ status: 0, method, path, message: 'OpenFoundry request exhausted retries' });".to_string(),
+        "  }".to_string(),
         String::new(),
-        "    if (!response.ok) {".to_string(),
-        "      const message = await response.text();".to_string(),
-        "      throw new Error(`OpenFoundry request failed: ${response.status} ${message}`.trim());".to_string(),
+        "  private buildHeaders(headers: HeadersInit | undefined, hasJsonBody: boolean): Headers {".to_string(),
+        "    const merged = new Headers(this.defaultHeaders);".to_string(),
+        "    if (headers) {".to_string(),
+        "      new Headers(headers).forEach((value, key) => merged.set(key, value));".to_string(),
         "    }".to_string(),
+        "    if (this.token && !merged.has('authorization')) {".to_string(),
+        "      merged.set('authorization', `Bearer ${this.token}`);".to_string(),
+        "    }".to_string(),
+        "    if (this.userAgent && !merged.has('x-openfoundry-client')) {".to_string(),
+        "      merged.set('x-openfoundry-client', this.userAgent);".to_string(),
+        "    }".to_string(),
+        "    if (hasJsonBody && !merged.has('content-type')) {".to_string(),
+        "      merged.set('content-type', 'application/json');".to_string(),
+        "    }".to_string(),
+        "    return merged;".to_string(),
+        "  }".to_string(),
         String::new(),
+        "  private appendQueryParam(url: URL, key: string, value: OpenFoundryQueryValue): void {".to_string(),
+        "    for (const entry of this.serializeQueryValue(value)) {".to_string(),
+        "      url.searchParams.append(key, entry);".to_string(),
+        "    }".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private serializeQueryValue(value: OpenFoundryQueryValue): string[] {".to_string(),
+        "    if (value === undefined || value === null) {".to_string(),
+        "      return [];".to_string(),
+        "    }".to_string(),
+        "    if (Array.isArray(value)) {".to_string(),
+        "      return value.map((item) => String(item));".to_string(),
+        "    }".to_string(),
+        "    if (typeof value === 'object') {".to_string(),
+        "      return [JSON.stringify(value)];".to_string(),
+        "    }".to_string(),
+        "    return [String(value)];".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private mergeRetryPolicy(override: Partial<OpenFoundryRetryPolicy> | false | undefined): OpenFoundryRetryPolicy {".to_string(),
+        "    if (override === false) {".to_string(),
+        "      return { maxAttempts: 1, backoffMs: 0, retryOnStatus: [], retryMethods: [] };".to_string(),
+        "    }".to_string(),
+        "    return {".to_string(),
+        "      maxAttempts: override?.maxAttempts ?? this.retryPolicy.maxAttempts ?? 1,".to_string(),
+        "      backoffMs: override?.backoffMs ?? this.retryPolicy.backoffMs ?? 250,".to_string(),
+        "      retryOnStatus: override?.retryOnStatus ?? this.retryPolicy.retryOnStatus ?? [408, 429, 500, 502, 503, 504],".to_string(),
+        "      retryMethods: override?.retryMethods ?? this.retryPolicy.retryMethods ?? ['GET', 'HEAD', 'OPTIONS'],".to_string(),
+        "    };".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private shouldRetry(method: string, status: number, policy: OpenFoundryRetryPolicy): boolean {".to_string(),
+        "    const retryMethods = new Set((policy.retryMethods ?? []).map((entry) => entry.toUpperCase()));".to_string(),
+        "    const retryOnStatus = new Set(policy.retryOnStatus ?? []);".to_string(),
+        "    return retryMethods.has(method.toUpperCase()) && (status === 0 || retryOnStatus.has(status));".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private async parseResponsePayload(response: Response): Promise<unknown> {".to_string(),
         "    if (response.status === 204) {".to_string(),
-        "      return undefined as TResponse;".to_string(),
+        "      return undefined;".to_string(),
         "    }".to_string(),
+        "    const text = await response.text();".to_string(),
+        "    if (!text) {".to_string(),
+        "      return undefined;".to_string(),
+        "    }".to_string(),
+        "    try {".to_string(),
+        "      return JSON.parse(text) as unknown;".to_string(),
+        "    } catch (_error) {".to_string(),
+        "      return text;".to_string(),
+        "    }".to_string(),
+        "  }".to_string(),
         String::new(),
-        "    return (await response.json()) as TResponse;".to_string(),
+        "  private errorMessageFromPayload(payload: unknown, fallback: string): string {".to_string(),
+        "    if (typeof payload === 'string' && payload.trim()) {".to_string(),
+        "      return payload;".to_string(),
+        "    }".to_string(),
+        "    if (payload && typeof payload === 'object') {".to_string(),
+        "      const record = payload as Record<string, unknown>;".to_string(),
+        "      for (const key of ['message', 'error', 'detail', 'code']) {".to_string(),
+        "        const value = record[key];".to_string(),
+        "        if (typeof value === 'string' && value.trim()) {".to_string(),
+        "          return value;".to_string(),
+        "        }".to_string(),
+        "      }".to_string(),
+        "    }".to_string(),
+        "    return fallback || 'OpenFoundry request failed';".to_string(),
         "  }".to_string(),
         String::new(),
         "  private interpolatePath(pathTemplate: string, pathParams: OpenFoundryPathParams | undefined): string {".to_string(),
@@ -790,6 +1768,28 @@ fn render_typescript_index(spec: &OpenApiSpec) -> String {
         "      (path, [key, value]) => path.replace(`{${key}}`, encodeURIComponent(String(value))),".to_string(),
         "      pathTemplate,".to_string(),
         "    );".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private requiredPathParam(input: OpenFoundryOperationInput, name: string): string | number | boolean {".to_string(),
+        "    const value = input.path?.[name];".to_string(),
+        "    if (value === undefined || value === null) {".to_string(),
+        "      throw new Error(`Missing required path parameter: ${name}`);".to_string(),
+        "    }".to_string(),
+        "    return value;".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private resolveBodyInput(input: OpenFoundryOperationInput): unknown {".to_string(),
+        "    if (input.body !== undefined) {".to_string(),
+        "      return input.body;".to_string(),
+        "    }".to_string(),
+        "    if (input.path || input.query) {".to_string(),
+        "      return undefined;".to_string(),
+        "    }".to_string(),
+        "    return input;".to_string(),
+        "  }".to_string(),
+        String::new(),
+        "  private wait(ms: number): Promise<void> {".to_string(),
+        "    return new Promise((resolve) => setTimeout(resolve, ms));".to_string(),
         "  }".to_string(),
         "}".to_string(),
     ]);
@@ -819,6 +1819,10 @@ fn render_python_sdk(spec: &OpenApiSpec) -> Result<BTreeMap<PathBuf, String>> {
         PathBuf::from("openfoundry_sdk/client.py"),
         render_python_client(spec),
     );
+    files.insert(
+        PathBuf::from("openfoundry_sdk/mcp.py"),
+        render_python_mcp(spec)?,
+    );
     Ok(files)
 }
 
@@ -845,7 +1849,7 @@ include = ["openfoundry_sdk*"]
 
 fn render_python_readme(version: &str) -> String {
     format!(
-        "# OpenFoundry Python SDK\n\nGenerated from `apps/web/static/generated/openapi/openfoundry.json`.\n\nVersion: `{version}`\n\n## Usage\n\n```python\nfrom openfoundry_sdk import OpenFoundryClient\n\nclient = OpenFoundryClient(\n    base_url=\"https://platform.example.com\",\n    headers={{\"authorization\": \"Bearer <token>\"}},\n)\n```\n"
+        "# OpenFoundry Python SDK\n\nGenerated from `apps/web/static/generated/openapi/openfoundry.json`.\n\nVersion: `{version}`\n\n## Usage\n\n```python\nfrom openfoundry_sdk import OpenFoundryClient\n\nclient = OpenFoundryClient(\n    base_url=\"https://platform.example.com\",\n    token=\"<token>\",\n    timeout_seconds=15,\n    max_retries=2,\n)\n\nme = client.auth.auth_get_me()\ndatasets = client.dataset.listdatasets({{\"search\": \"sales\"}})\n```\n\n## MCP bridging\n\n```python\nfrom openfoundry_sdk.mcp import MCP_TOOL_REGISTRY, call_openfoundry_mcp_tool\n\nresult = call_openfoundry_mcp_tool(client, MCP_TOOL_REGISTRY[0][\"name\"], {{\"query\": {{\"page\": 1, \"per_page\": 20}}}})\n```\n"
     )
 }
 
@@ -856,8 +1860,9 @@ fn render_python_init() -> String {
         "",
         "from .client import OpenFoundryClient",
         "from . import models",
+        "from . import mcp",
         "",
-        "__all__ = [\"OpenFoundryClient\", \"models\"]",
+        "__all__ = [\"OpenFoundryClient\", \"models\", \"mcp\"]",
         "",
     ]
     .join("\n")
@@ -936,12 +1941,16 @@ fn render_python_models(spec: &OpenApiSpec) -> String {
 }
 
 fn render_python_client(spec: &OpenApiSpec) -> String {
+    let operations = collect_operation_render_infos(spec);
+    let namespaces = ordered_namespace_properties(&operations);
     let mut lines = vec![
-        "# This file is generated by `cargo run -p of-cli -- docs generate-sdk-python`.".to_string(),
+        "# This file is generated by `cargo run -p of-cli -- docs generate-sdk-python`."
+            .to_string(),
         "# Do not edit manually.".to_string(),
         "from __future__ import annotations".to_string(),
         String::new(),
         "import json".to_string(),
+        "import time".to_string(),
         "import urllib.error".to_string(),
         "import urllib.parse".to_string(),
         "import urllib.request".to_string(),
@@ -949,10 +1958,133 @@ fn render_python_client(spec: &OpenApiSpec) -> String {
         String::new(),
         "from . import models".to_string(),
         String::new(),
+        format!("OPENFOUNDRY_SDK_VERSION = {:?}", spec.info.version),
+        String::new(),
+        "OPENFOUNDRY_OPERATION_REGISTRY: list[dict[str, Any]] = [".to_string(),
+    ];
+
+    for operation in &operations {
+        lines.push("    {".to_string());
+        lines.push(format!(
+            "        \"operation_id\": {:?},",
+            operation.operation_id
+        ));
+        lines.push(format!("        \"method\": {:?},", operation.method));
+        lines.push(format!("        \"path\": {:?},", operation.path));
+        lines.push(format!("        \"summary\": {:?},", operation.summary));
+        if let Some(description) = &operation.description {
+            lines.push(format!("        \"description\": {:?},", description));
+        }
+        lines.push(format!(
+            "        \"namespace\": {:?},",
+            operation.namespace_property
+        ));
+        lines.push(format!(
+            "        \"namespace_member\": {:?},",
+            operation.namespace_member_name
+        ));
+        lines.push(format!(
+            "        \"mcp_tool\": {:?},",
+            operation.mcp_tool_name
+        ));
+        if let Some(api_version) = &operation.api_version {
+            lines.push(format!("        \"api_version\": {:?},", api_version));
+        }
+        if let Some(stability) = &operation.stability {
+            lines.push(format!("        \"stability\": {:?},", stability));
+        }
+        lines.push("    },".to_string());
+    }
+
+    lines.extend([
+        "]".to_string(),
+        String::new(),
+        "class OpenFoundryApiError(RuntimeError):".to_string(),
+        "    def __init__(".to_string(),
+        "        self,".to_string(),
+        "        status: int,".to_string(),
+        "        method: str,".to_string(),
+        "        path: str,".to_string(),
+        "        message: str,".to_string(),
+        "        request_id: str | None = None,".to_string(),
+        "        body: Any = None,".to_string(),
+        "        raw_message: str | None = None,".to_string(),
+        "    ) -> None:".to_string(),
+        "        super().__init__(message)".to_string(),
+        "        self.status = status".to_string(),
+        "        self.method = method".to_string(),
+        "        self.path = path".to_string(),
+        "        self.request_id = request_id".to_string(),
+        "        self.body = body".to_string(),
+        "        self.raw_message = raw_message or message".to_string(),
+        String::new(),
+        "class _OperationNamespace:".to_string(),
+        "    def __init__(self, **methods: Any) -> None:".to_string(),
+        "        for name, method in methods.items():".to_string(),
+        "            setattr(self, name, method)".to_string(),
+        String::new(),
         "class OpenFoundryClient:".to_string(),
-        "    def __init__(self, base_url: str, headers: Mapping[str, str] | None = None) -> None:".to_string(),
+        "    def __init__(".to_string(),
+        "        self,".to_string(),
+        "        base_url: str,".to_string(),
+        "        headers: Mapping[str, str] | None = None,".to_string(),
+        "        token: str | None = None,".to_string(),
+        "        timeout_seconds: float = 30.0,".to_string(),
+        "        max_retries: int = 1,".to_string(),
+        "        retry_backoff_seconds: float = 0.25,".to_string(),
+        "        user_agent: str | None = None,".to_string(),
+        "    ) -> None:".to_string(),
         "        self.base_url = base_url.rstrip('/')".to_string(),
         "        self.default_headers = dict(headers or {})".to_string(),
+        "        self.token = token".to_string(),
+        "        self.timeout_seconds = timeout_seconds".to_string(),
+        "        self.max_retries = max(1, max_retries)".to_string(),
+        "        self.retry_backoff_seconds = retry_backoff_seconds".to_string(),
+        "        self.user_agent = user_agent".to_string(),
+    ]);
+
+    for namespace in &namespaces {
+        let assignments = operations
+            .iter()
+            .filter(|operation| &operation.namespace_property == namespace)
+            .map(|operation| {
+                format!(
+                    "{}=self.{}",
+                    operation.namespace_member_name,
+                    python_method_name(&operation.flat_method_name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!(
+            "        self.{namespace} = _OperationNamespace({assignments})"
+        ));
+    }
+
+    lines.extend([
+        String::new(),
+        "    def clone(self, **overrides: Any) -> \"OpenFoundryClient\":".to_string(),
+        "        return OpenFoundryClient(".to_string(),
+        "            base_url=overrides.get(\"base_url\", self.base_url),".to_string(),
+        "            headers=overrides.get(\"headers\", self.default_headers),".to_string(),
+        "            token=overrides.get(\"token\", self.token),".to_string(),
+        "            timeout_seconds=overrides.get(\"timeout_seconds\", self.timeout_seconds),".to_string(),
+        "            max_retries=overrides.get(\"max_retries\", self.max_retries),".to_string(),
+        "            retry_backoff_seconds=overrides.get(\"retry_backoff_seconds\", self.retry_backoff_seconds),".to_string(),
+        "            user_agent=overrides.get(\"user_agent\", self.user_agent),".to_string(),
+        "        )".to_string(),
+        String::new(),
+        "    def with_bearer_token(self, token: str) -> \"OpenFoundryClient\":".to_string(),
+        "        return self.clone(token=token)".to_string(),
+        String::new(),
+        "    def set_bearer_token(self, token: str | None) -> None:".to_string(),
+        "        self.token = token".to_string(),
+        String::new(),
+        "    def set_default_header(self, name: str, value: str) -> None:".to_string(),
+        "        self.default_headers[name] = value".to_string(),
+        String::new(),
+        "    def remove_default_header(self, name: str) -> None:".to_string(),
+        "        self.default_headers.pop(name, None)".to_string(),
         String::new(),
         "    def _request(".to_string(),
         "        self,".to_string(),
@@ -963,92 +2095,408 @@ fn render_python_client(spec: &OpenApiSpec) -> String {
         "        body: Any = None,".to_string(),
         "        headers: Mapping[str, str] | None = None,".to_string(),
         "    ) -> Any:".to_string(),
+        "        return self._request_raw(method, path_template, path_params, query, body, headers=headers)[\"data\"]".to_string(),
+        String::new(),
+        "    def _request_raw(".to_string(),
+        "        self,".to_string(),
+        "        method: str,".to_string(),
+        "        path_template: str,".to_string(),
+        "        path_params: Mapping[str, Any] | None = None,".to_string(),
+        "        query: Mapping[str, Any] | None = None,".to_string(),
+        "        body: Any = None,".to_string(),
+        "        headers: Mapping[str, str] | None = None,".to_string(),
+        "    ) -> dict[str, Any]:".to_string(),
+        "        path = self._interpolate_path(path_template, path_params)".to_string(),
+        "        url = self._build_url(path, query)".to_string(),
+        "        payload = None".to_string(),
+        "        request_headers = self._build_headers(headers, body is not None)".to_string(),
+        "        if body is not None:".to_string(),
+        "            payload = json.dumps(models.serialize_model(body)).encode(\"utf-8\")".to_string(),
+        "        attempt = 0".to_string(),
+        "        while attempt < self.max_retries:".to_string(),
+        "            attempt += 1".to_string(),
+        "            request = urllib.request.Request(url=url, data=payload, method=method, headers=request_headers)".to_string(),
+        "            try:".to_string(),
+        "                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:".to_string(),
+        "                    raw = response.read()".to_string(),
+        "                    payload_value = self._parse_payload(raw) if response.status != 204 else None".to_string(),
+        "                    return {".to_string(),
+        "                        \"data\": payload_value,".to_string(),
+        "                        \"status\": response.status,".to_string(),
+        "                        \"headers\": dict(response.headers.items()),".to_string(),
+        "                        \"request_id\": response.headers.get(\"x-request-id\"),".to_string(),
+        "                        \"raw\": payload_value,".to_string(),
+        "                    }".to_string(),
+        "            except urllib.error.HTTPError as error:".to_string(),
+        "                message = error.read().decode(\"utf-8\", errors=\"replace\")".to_string(),
+        "                payload_value = self._parse_payload(message.encode(\"utf-8\")) if message else None".to_string(),
+        "                api_error = OpenFoundryApiError(".to_string(),
+        "                    status=error.code,".to_string(),
+        "                    method=method,".to_string(),
+        "                    path=path,".to_string(),
+        "                    message=self._error_message_from_payload(payload_value, error.reason or \"OpenFoundry request failed\"),".to_string(),
+        "                    request_id=error.headers.get(\"x-request-id\") if error.headers else None,".to_string(),
+        "                    body=payload_value,".to_string(),
+        "                    raw_message=message,".to_string(),
+        "                )".to_string(),
+        "                if attempt >= self.max_retries or not self._should_retry(method, api_error.status):".to_string(),
+        "                    raise api_error from error".to_string(),
+        "                time.sleep(self.retry_backoff_seconds * attempt)".to_string(),
+        "            except urllib.error.URLError as error:".to_string(),
+        "                api_error = OpenFoundryApiError(".to_string(),
+        "                    status=0,".to_string(),
+        "                    method=method,".to_string(),
+        "                    path=path,".to_string(),
+        "                    message=str(error.reason) if getattr(error, \"reason\", None) else str(error),".to_string(),
+        "                    raw_message=str(error),".to_string(),
+        "                )".to_string(),
+        "                if attempt >= self.max_retries or not self._should_retry(method, api_error.status):".to_string(),
+        "                    raise api_error from error".to_string(),
+        "                time.sleep(self.retry_backoff_seconds * attempt)".to_string(),
+        "        raise OpenFoundryApiError(0, method, path, \"OpenFoundry request exhausted retries\")".to_string(),
+        String::new(),
+    ]);
+
+    for operation in &operations {
+        let request_type = operation
+            .request_type
+            .as_ref()
+            .filter(|_| operation.has_body)
+            .map(|value| format!("models.{value}"));
+        let response_type = format!("models.{}", operation.response_type);
+        let signature = render_python_method_signature_owned(
+            &operation.path_parameters,
+            &operation.query_parameters,
+            request_type.as_deref(),
+        );
+        let path_argument = if operation.path_parameters.is_empty() {
+            "None".to_string()
+        } else {
+            render_python_path_argument_owned(&operation.path_parameters)
+        };
+        let query_argument = if operation.query_parameters.is_empty() {
+            "None".to_string()
+        } else {
+            "{".to_string()
+                + &operation
+                    .query_parameters
+                    .iter()
+                    .map(|parameter| {
+                        let variable_name = render_python_variable_name(&parameter.name);
+                        format!("{:?}: {variable_name}", parameter.name)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                + "}"
+        };
+        let body_argument = if operation.has_body { "body" } else { "None" };
+
+        lines.push(format!(
+            "    def {}({signature}) -> {response_type}:",
+            python_method_name(&operation.flat_method_name)
+        ));
+        lines.push(format!(
+            "        payload = self._request({:?}, {:?}, {}, {}, {}, headers=headers)",
+            operation.method, operation.path, path_argument, query_argument, body_argument
+        ));
+        lines.push(format!(
+            "        return models.deserialize_model({response_type}, payload)"
+        ));
+        lines.push(String::new());
+    }
+
+    lines.extend([
+        "    def call_operation(".to_string(),
+        "        self,".to_string(),
+        "        operation_id: str,".to_string(),
+        "        input: Mapping[str, Any] | None = None,".to_string(),
+        "        headers: Mapping[str, str] | None = None,".to_string(),
+        "    ) -> Any:".to_string(),
+        "        payload = dict(input or {})".to_string(),
+        "        match operation_id:".to_string(),
+    ]);
+
+    for operation in &operations {
+        lines.push(format!("            case {:?}:", operation.operation_id));
+        lines.push(format!(
+            "                return self.{}({})",
+            python_method_name(&operation.flat_method_name),
+            render_python_operation_call_arguments(operation),
+        ));
+    }
+
+    lines.extend([
+        "            case _:".to_string(),
+        "                raise ValueError(f\"Unknown OpenFoundry operation: {operation_id}\")".to_string(),
+        String::new(),
+        "    def _build_headers(".to_string(),
+        "        self, headers: Mapping[str, str] | None, has_json_body: bool".to_string(),
+        "    ) -> dict[str, str]:".to_string(),
+        "        merged = dict(self.default_headers)".to_string(),
+        "        if headers:".to_string(),
+        "            merged.update(dict(headers))".to_string(),
+        "        lowered = {key.lower() for key in merged}".to_string(),
+        "        if self.token and \"authorization\" not in lowered:".to_string(),
+        "            merged[\"authorization\"] = f\"Bearer {self.token}\"".to_string(),
+        "        if self.user_agent and \"x-openfoundry-client\" not in lowered:".to_string(),
+        "            merged[\"x-openfoundry-client\"] = self.user_agent".to_string(),
+        "        if has_json_body and \"content-type\" not in lowered:".to_string(),
+        "            merged[\"content-type\"] = \"application/json\"".to_string(),
+        "        return merged".to_string(),
+        String::new(),
+        "    def _build_url(self, path: str, query: Mapping[str, Any] | None) -> str:".to_string(),
+        "        if not query:".to_string(),
+        "            return f\"{self.base_url}{path}\"".to_string(),
+        "        pairs: list[tuple[str, str]] = []".to_string(),
+        "        for key, value in query.items():".to_string(),
+        "            for item in self._serialize_query_value(value):".to_string(),
+        "                pairs.append((key, item))".to_string(),
+        "        if not pairs:".to_string(),
+        "            return f\"{self.base_url}{path}\"".to_string(),
+        "        return f\"{self.base_url}{path}?{urllib.parse.urlencode(pairs)}\"".to_string(),
+        String::new(),
+        "    def _serialize_query_value(self, value: Any) -> list[str]:".to_string(),
+        "        if value is None:".to_string(),
+        "            return []".to_string(),
+        "        if isinstance(value, (list, tuple)):".to_string(),
+        "            return [str(item) for item in value]".to_string(),
+        "        if hasattr(value, \"to_dict\") and callable(value.to_dict):".to_string(),
+        "            return [json.dumps(value.to_dict())]".to_string(),
+        "        if isinstance(value, dict):".to_string(),
+        "            return [json.dumps(models.serialize_model(value))]".to_string(),
+        "        return [str(value)]".to_string(),
+        String::new(),
+        "    def _parse_payload(self, raw: bytes) -> Any:".to_string(),
+        "        if not raw:".to_string(),
+        "            return None".to_string(),
+        "        text = raw.decode(\"utf-8\", errors=\"replace\")".to_string(),
+        "        if not text:".to_string(),
+        "            return None".to_string(),
+        "        try:".to_string(),
+        "            return json.loads(text)".to_string(),
+        "        except json.JSONDecodeError:".to_string(),
+        "            return text".to_string(),
+        String::new(),
+        "    def _error_message_from_payload(self, payload: Any, fallback: str) -> str:".to_string(),
+        "        if isinstance(payload, str) and payload.strip():".to_string(),
+        "            return payload".to_string(),
+        "        if isinstance(payload, dict):".to_string(),
+        "            for key in (\"message\", \"error\", \"detail\", \"code\"):".to_string(),
+        "                value = payload.get(key)".to_string(),
+        "                if isinstance(value, str) and value.strip():".to_string(),
+        "                    return value".to_string(),
+        "        return fallback or \"OpenFoundry request failed\"".to_string(),
+        String::new(),
+        "    def _should_retry(self, method: str, status: int) -> bool:".to_string(),
+        "        return method.upper() in {\"GET\", \"HEAD\", \"OPTIONS\"} and status in {0, 408, 429, 500, 502, 503, 504}".to_string(),
+        String::new(),
+        "    def _interpolate_path(".to_string(),
+        "        self, path_template: str, path_params: Mapping[str, Any] | None".to_string(),
+        "    ) -> str:".to_string(),
         "        path = path_template".to_string(),
         "        for key, value in (path_params or {}).items():".to_string(),
         "            path = path.replace('{' + key + '}', urllib.parse.quote(str(value), safe=''))".to_string(),
-        "        url = f\"{self.base_url}{path}\"".to_string(),
-        "        if query:".to_string(),
-        "            filtered = {key: value for key, value in query.items() if value is not None}".to_string(),
-        "            if filtered:".to_string(),
-        "                url = f\"{url}?{urllib.parse.urlencode(filtered)}\"".to_string(),
-        "        payload = None".to_string(),
-        "        request_headers = {'content-type': 'application/json', **self.default_headers, **dict(headers or {})}".to_string(),
-        "        if body is not None:".to_string(),
-        "            payload = json.dumps(models.serialize_model(body)).encode('utf-8')".to_string(),
-        "        request = urllib.request.Request(url=url, data=payload, method=method, headers=request_headers)".to_string(),
-        "        try:".to_string(),
-        "            with urllib.request.urlopen(request) as response:".to_string(),
-        "                raw = response.read()".to_string(),
-        "                if response.status == 204 or not raw:".to_string(),
-        "                    return None".to_string(),
-        "                return json.loads(raw.decode('utf-8'))".to_string(),
-        "        except urllib.error.HTTPError as error:".to_string(),
-        "            message = error.read().decode('utf-8', errors='replace')".to_string(),
-        "            raise RuntimeError(f'OpenFoundry request failed: {error.code} {message}'.strip()) from error".to_string(),
+        "        return path".to_string(),
         String::new(),
-    ];
-
-    let mut used_method_names = BTreeMap::<String, usize>::new();
-    for (path, methods) in &spec.paths {
-        for (method, operation) in methods {
-            let method_name = unique_method_name(
-                python_method_name(&method_name_for_operation(operation)),
-                &mut used_method_names,
-            );
-            let request_type =
-                request_type_for_operation(operation).map(|value| format!("models.{value}"));
-            let response_type = format!("models.{}", response_type_for_operation(operation));
-            let path_parameters = operation_path_parameters(operation);
-            let query_parameters = operation_query_parameters(operation);
-            let signature = render_python_method_signature(
-                &path_parameters,
-                &query_parameters,
-                request_type.as_deref(),
-            );
-            let path_argument = if path_parameters.is_empty() {
-                "None".to_string()
-            } else {
-                render_python_path_argument(&path_parameters)
-            };
-            let query_argument = if query_parameters.is_empty() {
-                "None".to_string()
-            } else {
-                "{".to_string()
-                    + &query_parameters
-                        .iter()
-                        .map(|parameter| {
-                            let variable_name = render_python_variable_name(&parameter.name);
-                            format!("{:?}: {variable_name}", parameter.name)
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                    + "}"
-            };
-            let body_argument = if request_type.is_some() {
-                "body"
-            } else {
-                "None"
-            };
-
-            lines.push(format!(
-                "    def {method_name}({signature}) -> {response_type}:"
-            ));
-            lines.push(format!(
-                "        payload = self._request({:?}, {:?}, {}, {}, {}, headers=headers)",
-                method.to_uppercase(),
-                path,
-                path_argument,
-                query_argument,
-                body_argument
-            ));
-            lines.push(format!(
-                "        return models.deserialize_model({response_type}, payload)"
-            ));
-            lines.push(String::new());
-        }
-    }
+        "    def _required_path_param(self, input: Mapping[str, Any], name: str) -> Any:".to_string(),
+        "        path_params = input.get(\"path\") if isinstance(input.get(\"path\"), Mapping) else {}".to_string(),
+        "        if name not in path_params:".to_string(),
+        "            raise ValueError(f\"Missing required path parameter: {name}\")".to_string(),
+        "        return path_params[name]".to_string(),
+        String::new(),
+        "    def _resolve_body_input(self, input: Mapping[str, Any]) -> Any:".to_string(),
+        "        if \"body\" in input:".to_string(),
+        "            return input[\"body\"]".to_string(),
+        "        if \"path\" in input or \"query\" in input:".to_string(),
+        "            return None".to_string(),
+        "        return input".to_string(),
+    ]);
 
     lines.join("\n")
+}
+
+fn render_typescript_mcp(spec: &OpenApiSpec) -> Result<String> {
+    let operations = collect_operation_render_infos(spec);
+    let mut lines = vec![
+        "// This file is generated by `cargo run -p of-cli -- docs generate-sdk-typescript`."
+            .to_string(),
+        "// Do not edit manually.".to_string(),
+        String::new(),
+        "import {".to_string(),
+        "  OpenFoundryClient,".to_string(),
+        "  type OpenFoundryOperationInput,".to_string(),
+        "  type OpenFoundryRequestInit,".to_string(),
+        "} from './index';".to_string(),
+        String::new(),
+        "export interface OpenFoundryMcpTool {".to_string(),
+        "  name: string;".to_string(),
+        "  description: string;".to_string(),
+        "  operationId: string;".to_string(),
+        "  method: string;".to_string(),
+        "  path: string;".to_string(),
+        "  namespace: string;".to_string(),
+        "  namespaceMember: string;".to_string(),
+        "  inputSchema: Record<string, unknown>;".to_string(),
+        "  apiVersion?: string;".to_string(),
+        "  stability?: string;".to_string(),
+        "}".to_string(),
+        String::new(),
+        "export const OPENFOUNDRY_MCP_TOOLS: ReadonlyArray<OpenFoundryMcpTool> = [".to_string(),
+    ];
+
+    for operation in &operations {
+        let input_schema = serde_json::to_string_pretty(&build_mcp_input_schema_value(operation))
+            .context("failed to serialize TypeScript MCP input schema")?;
+        lines.push("  {".to_string());
+        lines.push(format!("    name: {:?},", operation.mcp_tool_name));
+        lines.push(format!(
+            "    description: {:?},",
+            operation
+                .description
+                .clone()
+                .unwrap_or_else(|| operation.summary.clone())
+        ));
+        lines.push(format!("    operationId: {:?},", operation.operation_id));
+        lines.push(format!("    method: {:?},", operation.method));
+        lines.push(format!("    path: {:?},", operation.path));
+        lines.push(format!(
+            "    namespace: {:?},",
+            operation.namespace_property
+        ));
+        lines.push(format!(
+            "    namespaceMember: {:?},",
+            operation.namespace_member_name
+        ));
+        lines.push("    inputSchema:".to_string());
+        for line in input_schema.lines() {
+            lines.push(format!("      {line}"));
+        }
+        lines.push("    ,".to_string());
+        if let Some(api_version) = &operation.api_version {
+            lines.push(format!("    apiVersion: {:?},", api_version));
+        }
+        if let Some(stability) = &operation.stability {
+            lines.push(format!("    stability: {:?},", stability));
+        }
+        lines.push("  },".to_string());
+    }
+
+    lines.extend([
+        "];".to_string(),
+        String::new(),
+        "export function listOpenFoundryMcpTools(): ReadonlyArray<OpenFoundryMcpTool> {"
+            .to_string(),
+        "  return OPENFOUNDRY_MCP_TOOLS;".to_string(),
+        "}".to_string(),
+        String::new(),
+        "export async function callOpenFoundryMcpTool(".to_string(),
+        "  client: OpenFoundryClient,".to_string(),
+        "  toolName: string,".to_string(),
+        "  input: OpenFoundryOperationInput = {}, ".to_string(),
+        "  init: OpenFoundryRequestInit = {}, ".to_string(),
+        "): Promise<unknown> {".to_string(),
+        "  const tool = OPENFOUNDRY_MCP_TOOLS.find((entry) => entry.name === toolName);"
+            .to_string(),
+        "  if (!tool) {".to_string(),
+        "    throw new Error(`Unknown OpenFoundry MCP tool: ${toolName}`);".to_string(),
+        "  }".to_string(),
+        "  return client.callOperation(tool.operationId, input, init);".to_string(),
+        "}".to_string(),
+    ]);
+
+    Ok(lines.join("\n"))
+}
+
+fn render_python_mcp(spec: &OpenApiSpec) -> Result<String> {
+    let operations = collect_operation_render_infos(spec);
+    let mut lines = vec![
+        "# This file is generated by `cargo run -p of-cli -- docs generate-sdk-python`."
+            .to_string(),
+        "# Do not edit manually.".to_string(),
+        "from __future__ import annotations".to_string(),
+        String::new(),
+        "from typing import Any, Mapping".to_string(),
+        String::new(),
+        "from .client import OpenFoundryClient".to_string(),
+        String::new(),
+        "MCP_TOOL_REGISTRY: list[dict[str, Any]] = [".to_string(),
+    ];
+
+    for operation in &operations {
+        let input_schema = serde_json::to_string_pretty(&build_mcp_input_schema_value(operation))
+            .context("failed to serialize Python MCP input schema")?;
+        lines.push("    {".to_string());
+        lines.push(format!("        \"name\": {:?},", operation.mcp_tool_name));
+        lines.push(format!(
+            "        \"description\": {:?},",
+            operation
+                .description
+                .clone()
+                .unwrap_or_else(|| operation.summary.clone())
+        ));
+        lines.push(format!(
+            "        \"operation_id\": {:?},",
+            operation.operation_id
+        ));
+        lines.push(format!("        \"method\": {:?},", operation.method));
+        lines.push(format!("        \"path\": {:?},", operation.path));
+        lines.push(format!(
+            "        \"namespace\": {:?},",
+            operation.namespace_property
+        ));
+        lines.push(format!(
+            "        \"namespace_member\": {:?},",
+            operation.namespace_member_name
+        ));
+        lines.push("        \"input_schema\":".to_string());
+        for line in input_schema.lines() {
+            lines.push(format!("            {line}"));
+        }
+        lines.push("        ,".to_string());
+        if let Some(api_version) = &operation.api_version {
+            lines.push(format!("        \"api_version\": {:?},", api_version));
+        }
+        if let Some(stability) = &operation.stability {
+            lines.push(format!("        \"stability\": {:?},", stability));
+        }
+        lines.push("    },".to_string());
+    }
+
+    lines.extend([
+        "]".to_string(),
+        "_MCP_TOOL_LOOKUP = {tool[\"name\"]: tool for tool in MCP_TOOL_REGISTRY}".to_string(),
+        String::new(),
+        "def list_openfoundry_mcp_tools() -> list[dict[str, Any]]:".to_string(),
+        "    return MCP_TOOL_REGISTRY".to_string(),
+        String::new(),
+        "def call_openfoundry_mcp_tool(".to_string(),
+        "    client: OpenFoundryClient,".to_string(),
+        "    tool_name: str,".to_string(),
+        "    input: Mapping[str, Any] | None = None,".to_string(),
+        "    headers: Mapping[str, str] | None = None,".to_string(),
+        ") -> Any:".to_string(),
+        "    tool = _MCP_TOOL_LOOKUP.get(tool_name)".to_string(),
+        "    if tool is None:".to_string(),
+        "        raise ValueError(f\"Unknown OpenFoundry MCP tool: {tool_name}\")".to_string(),
+        "    return client.call_operation(tool[\"operation_id\"], input=input or {}, headers=headers)".to_string(),
+        String::new(),
+        "class OpenFoundryMcpAdapter:".to_string(),
+        "    def __init__(self, client: OpenFoundryClient) -> None:".to_string(),
+        "        self.client = client".to_string(),
+        String::new(),
+        "    def list_tools(self) -> list[dict[str, Any]]:".to_string(),
+        "        return list_openfoundry_mcp_tools()".to_string(),
+        String::new(),
+        "    def call_tool(".to_string(),
+        "        self,".to_string(),
+        "        tool_name: str,".to_string(),
+        "        input: Mapping[str, Any] | None = None,".to_string(),
+        "        headers: Mapping[str, str] | None = None,".to_string(),
+        "    ) -> Any:".to_string(),
+        "        return call_openfoundry_mcp_tool(self.client, tool_name, input=input, headers=headers)".to_string(),
+    ]);
+
+    Ok(lines.join("\n"))
 }
 
 fn render_java_sdk(spec: &OpenApiSpec) -> Result<BTreeMap<PathBuf, String>> {
@@ -1274,50 +2722,6 @@ fn render_python_schema_declaration(name: &str, schema: &OpenApiSchema) -> Vec<S
     vec![format!("{} = {}", export_name, python_type(schema))]
 }
 
-fn render_python_method_signature(
-    path_parameters: &[&OpenApiParameter],
-    query_parameters: &[&OpenApiParameter],
-    request_type: Option<&str>,
-) -> String {
-    let mut parts = vec!["self".to_string()];
-
-    for parameter in path_parameters {
-        parts.push(format!(
-            "{}: {}",
-            render_python_variable_name(&parameter.name),
-            python_type(&parameter.schema)
-        ));
-    }
-
-    for parameter in query_parameters {
-        parts.push(format!(
-            "{}: {} | None = None",
-            render_python_variable_name(&parameter.name),
-            python_type(&parameter.schema)
-        ));
-    }
-
-    if let Some(request_type) = request_type {
-        parts.push(format!("body: {request_type}"));
-    }
-
-    parts.push("headers: Mapping[str, str] | None = None".to_string());
-    parts.join(", ")
-}
-
-fn render_python_path_argument(path_parameters: &[&OpenApiParameter]) -> String {
-    "{".to_string()
-        + &path_parameters
-            .iter()
-            .map(|parameter| {
-                let variable_name = render_python_variable_name(&parameter.name);
-                format!("{:?}: {variable_name}", parameter.name)
-            })
-            .collect::<Vec<_>>()
-            .join(", ")
-        + "}"
-}
-
 fn render_java_method_signature(
     path_parameters: &[&OpenApiParameter],
     query_parameters: &[&OpenApiParameter],
@@ -1516,57 +2920,6 @@ fn operation_query_parameters(operation: &OpenApiOperation) -> Vec<&OpenApiParam
         .flatten()
         .filter(|parameter| parameter.location == "query")
         .collect()
-}
-
-fn render_typescript_method_signature(
-    path_parameters: &[&OpenApiParameter],
-    query_parameters: &[&OpenApiParameter],
-    request_type: Option<&str>,
-) -> String {
-    let mut parts = Vec::new();
-
-    for parameter in path_parameters {
-        parts.push(format!(
-            "{}: {}",
-            render_typescript_variable_name(&parameter.name),
-            typescript_type(&parameter.schema)
-        ));
-    }
-
-    if !query_parameters.is_empty() {
-        let fields = query_parameters
-            .iter()
-            .map(|parameter| {
-                format!(
-                    "{}{}: {}",
-                    render_property_name(&parameter.name),
-                    if parameter.required { "" } else { "?" },
-                    typescript_type(&parameter.schema)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        parts.push(format!("query: {{ {fields} }} = {{}}"));
-    }
-
-    if let Some(request_type) = request_type {
-        parts.push(format!("body: {request_type}"));
-    }
-
-    parts.push("init: OpenFoundryRequestInit = {}".to_string());
-    parts.join(", ")
-}
-
-fn render_typescript_path_argument(path_parameters: &[&OpenApiParameter]) -> String {
-    let fields = path_parameters
-        .iter()
-        .map(|parameter| {
-            let variable_name = render_typescript_variable_name(&parameter.name);
-            format!("{:?}: {variable_name}", parameter.name)
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("{{ {fields} }}")
 }
 
 fn method_name_for_operation(operation: &OpenApiOperation) -> String {
@@ -2184,10 +3537,18 @@ fn manual_operation(
     response_schema: &str,
     parameters: Vec<OpenApiParameter>,
 ) -> OpenApiOperation {
+    let tag_values = tags.into_iter().map(str::to_string).collect::<Vec<_>>();
+    let namespace = namespace_for_operation(
+        operation_id,
+        operation_id.rsplit('.').next().unwrap_or("call"),
+        operation_id,
+        &tag_values,
+    );
     OpenApiOperation {
         summary: summary.to_string(),
+        description: Some(format!("Curated REST overlay for `{operation_id}`.")),
         operation_id: operation_id.to_string(),
-        tags: tags.into_iter().map(str::to_string).collect(),
+        tags: tag_values,
         parameters: if parameters.is_empty() {
             None
         } else {
@@ -2202,18 +3563,16 @@ fn manual_operation(
                 },
             )]),
         }),
-        responses: BTreeMap::from([(
-            "200".to_string(),
-            OpenApiResponse {
-                description: "Successful response".to_string(),
-                content: BTreeMap::from([(
-                    "application/json".to_string(),
-                    OpenApiMediaType {
-                        schema: schema_ref(response_schema),
-                    },
-                )]),
-            },
-        )]),
+        responses: success_and_error_responses(schema_ref(response_schema)),
+        deprecated: None,
+        security: bearer_auth_security(),
+        x_openfoundry_sdk_namespace: Some(namespace.clone()),
+        x_openfoundry_api_version: api_version_from_identifier(operation_id),
+        x_openfoundry_mcp_tool: Some(mcp_tool_name(
+            &namespace,
+            operation_id.rsplit('.').next().unwrap_or("call"),
+        )),
+        x_openfoundry_stability: Some("stable".to_string()),
     }
 }
 
@@ -2222,6 +3581,7 @@ fn path_parameter(name: &str) -> OpenApiParameter {
         name: name.to_string(),
         location: "path".to_string(),
         required: true,
+        description: Some(format!("Path parameter `{name}`.")),
         schema: string_schema(None),
     }
 }
@@ -2231,6 +3591,7 @@ fn query_parameter(name: &str) -> OpenApiParameter {
         name: name.to_string(),
         location: "query".to_string(),
         required: false,
+        description: Some(format!("Query parameter `{name}`.")),
         schema: string_schema(None),
     }
 }
@@ -2239,10 +3600,13 @@ fn object_schema(properties: BTreeMap<String, OpenApiSchema>) -> OpenApiSchema {
     OpenApiSchema {
         schema_type: Some("object".to_string()),
         format: None,
+        description: None,
         properties: Some(properties),
+        required: None,
         items: None,
         reference: None,
         additional_properties: None,
+        enum_values: None,
     }
 }
 
@@ -2250,10 +3614,13 @@ fn object_with_additional_properties(value_type: OpenApiSchema) -> OpenApiSchema
     OpenApiSchema {
         schema_type: Some("object".to_string()),
         format: None,
+        description: None,
         properties: None,
+        required: None,
         items: None,
         reference: None,
         additional_properties: Some(Box::new(value_type)),
+        enum_values: None,
     }
 }
 
@@ -2261,10 +3628,13 @@ fn string_schema(format: Option<&str>) -> OpenApiSchema {
     OpenApiSchema {
         schema_type: Some("string".to_string()),
         format: format.map(str::to_string),
+        description: None,
         properties: None,
+        required: None,
         items: None,
         reference: None,
         additional_properties: None,
+        enum_values: None,
     }
 }
 
@@ -2272,10 +3642,13 @@ fn integer_schema() -> OpenApiSchema {
     OpenApiSchema {
         schema_type: Some("integer".to_string()),
         format: Some("int64".to_string()),
+        description: None,
         properties: None,
+        required: None,
         items: None,
         reference: None,
         additional_properties: None,
+        enum_values: None,
     }
 }
 
@@ -2283,10 +3656,13 @@ fn boolean_schema() -> OpenApiSchema {
     OpenApiSchema {
         schema_type: Some("boolean".to_string()),
         format: None,
+        description: None,
         properties: None,
+        required: None,
         items: None,
         reference: None,
         additional_properties: None,
+        enum_values: None,
     }
 }
 
@@ -2294,10 +3670,13 @@ fn array_schema(item_schema: OpenApiSchema) -> OpenApiSchema {
     OpenApiSchema {
         schema_type: Some("array".to_string()),
         format: None,
+        description: None,
         properties: None,
+        required: None,
         items: Some(Box::new(item_schema)),
         reference: None,
         additional_properties: None,
+        enum_values: None,
     }
 }
 
@@ -2305,10 +3684,13 @@ fn any_value_schema() -> OpenApiSchema {
     object_with_additional_properties(OpenApiSchema {
         schema_type: None,
         format: None,
+        description: None,
         properties: None,
+        required: None,
         items: None,
         reference: None,
         additional_properties: None,
+        enum_values: None,
     })
 }
 
@@ -2651,10 +4033,13 @@ fn parse_message_schemas(content: &str) -> Result<BTreeMap<String, OpenApiSchema
             OpenApiSchema {
                 schema_type: Some("object".to_string()),
                 format: None,
+                description: None,
                 properties: Some(properties),
+                required: None,
                 items: None,
                 reference: None,
                 additional_properties: None,
+                enum_values: None,
             },
         );
     }
@@ -2669,10 +4054,13 @@ fn field_schema(field_type: &str, is_repeated: bool) -> OpenApiSchema {
         OpenApiSchema {
             schema_type: Some("object".to_string()),
             format: None,
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: Some(Box::new(field_schema(value_type, false))),
+            enum_values: None,
         }
     } else {
         primitive_or_ref(field_type)
@@ -2682,10 +4070,13 @@ fn field_schema(field_type: &str, is_repeated: bool) -> OpenApiSchema {
         OpenApiSchema {
             schema_type: Some("array".to_string()),
             format: None,
+            description: None,
             properties: None,
+            required: None,
             items: Some(Box::new(schema)),
             reference: None,
             additional_properties: None,
+            enum_values: None,
         }
     } else {
         schema
@@ -2697,50 +4088,68 @@ fn primitive_or_ref(field_type: &str) -> OpenApiSchema {
         "string" | "bytes" => OpenApiSchema {
             schema_type: Some("string".to_string()),
             format: None,
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: None,
+            enum_values: None,
         },
         "bool" => OpenApiSchema {
             schema_type: Some("boolean".to_string()),
             format: None,
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: None,
+            enum_values: None,
         },
         "float" | "double" => OpenApiSchema {
             schema_type: Some("number".to_string()),
             format: None,
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: None,
+            enum_values: None,
         },
         "int32" | "uint32" => OpenApiSchema {
             schema_type: Some("integer".to_string()),
             format: Some("int32".to_string()),
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: None,
+            enum_values: None,
         },
         "int64" | "uint64" => OpenApiSchema {
             schema_type: Some("integer".to_string()),
             format: Some("int64".to_string()),
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: None,
+            enum_values: None,
         },
         "google.protobuf.Timestamp" => OpenApiSchema {
             schema_type: Some("string".to_string()),
             format: Some("date-time".to_string()),
+            description: None,
             properties: None,
+            required: None,
             items: None,
             reference: None,
             additional_properties: None,
+            enum_values: None,
         },
         _ => schema_ref(field_type),
     }
@@ -2750,10 +4159,13 @@ fn schema_ref(name: &str) -> OpenApiSchema {
     OpenApiSchema {
         schema_type: None,
         format: None,
+        description: None,
         properties: None,
+        required: None,
         items: None,
         reference: Some(format!("#/components/schemas/{}", sanitize_type_name(name))),
         additional_properties: None,
+        enum_values: None,
     }
 }
 

@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::training,
+    domain::{interop, training},
     models::{
         model_version::ModelVersion,
         training_job::{CreateTrainingJobRequest, ListTrainingJobsResponse, TrainingJob},
@@ -52,6 +52,7 @@ struct ModelVersionRow {
 }
 
 fn to_training_job(row: TrainingJobRow) -> TrainingJob {
+    let external_training = interop::tracking_source_from_training_config(&row.training_config);
     TrainingJob {
         id: row.id,
         experiment_id: row.experiment_id,
@@ -64,6 +65,7 @@ fn to_training_job(row: TrainingJobRow) -> TrainingJob {
         objective_metric_name: row.objective_metric_name,
         trials: deserialize_json(row.trials),
         best_model_version_id: row.best_model_version_id,
+        external_training,
         submitted_at: row.submitted_at,
         started_at: row.started_at,
         completed_at: row.completed_at,
@@ -84,6 +86,9 @@ fn _to_model_version(row: ModelVersionRow) -> ModelVersion {
         hyperparameters: row.hyperparameters,
         metrics: deserialize_json(row.metrics),
         artifact_uri: row.artifact_uri,
+        model_adapter: interop::model_adapter_from_schema(&row.schema),
+        registry_source: interop::registry_source_from_schema(&row.schema),
+        external_tracking: interop::tracking_source_from_schema(&row.schema),
         schema: row.schema,
         created_at: row.created_at,
         promoted_at: row.promoted_at,
@@ -136,11 +141,15 @@ pub async fn create_training_job(
         .objective_metric_name
         .unwrap_or_else(|| "accuracy".to_string());
     let search = body.hyperparameter_search.unwrap_or_else(|| json!({}));
-    let resolved_training_config = if body.training_config.is_null() {
+    let base_training_config = if body.training_config.is_null() {
         json!({ "engine": "tabular-logistic" })
     } else {
         body.training_config
     };
+    let resolved_training_config = interop::merge_training_config_with_external(
+        base_training_config,
+        body.external_training.as_ref(),
+    );
     let execution = training::execute_training(
         &resolved_training_config,
         Some(&search),
@@ -208,30 +217,32 @@ pub async fn create_training_job(
             .bind(job_id)
             .bind(best_hyperparameters)
             .bind(to_json(&execution.best_metrics))
-            .bind(Some(format!(
-                "ml://models/{model_id}/versions/{next_version_number}"
-            )))
+            .bind(execution.best_artifact_uri.clone().or_else(|| {
+                Some(format!(
+                    "ml://models/{model_id}/versions/{next_version_number}"
+                ))
+            }))
             .bind(execution.best_schema.clone().unwrap_or_else(|| {
-                let engine = training_config_for_schema
-                    .get("engine")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tabular-logistic");
-                json!({
-                    "signature": "tabular",
-                    "engine": engine,
-                    "model_adapter": {
-                        "kind": "native",
-                        "framework": engine,
-                        "runtime": "in-process"
-                    },
-                    "objective_metric": objective_metric_name_for_schema,
-                    "generated_by": "training-orchestrator",
-                    "reproducibility": {
-                        "dataset_ids": dataset_ids_for_schema,
-                        "training_config": training_config_for_schema,
-                        "hyperparameter_search": search_for_schema
-                    }
-                })
+                let external_tracking =
+                    interop::tracking_source_from_training_config(&training_config_for_schema);
+                interop::normalize_model_version_schema(
+                    Some(json!({
+                        "signature": "tabular",
+                        "engine": interop::effective_framework(&training_config_for_schema),
+                        "objective_metric": objective_metric_name_for_schema.clone(),
+                        "generated_by": "training-orchestrator",
+                        "reproducibility": {
+                            "dataset_ids": dataset_ids_for_schema.clone(),
+                            "training_config": training_config_for_schema.clone(),
+                            "hyperparameter_search": search_for_schema.clone()
+                        }
+                    })),
+                    execution.best_artifact_uri.as_deref(),
+                    Some(&training_config_for_schema),
+                    None,
+                    None,
+                    external_tracking.as_ref(),
+                )
             }))
             .fetch_one(&state.db)
             .await

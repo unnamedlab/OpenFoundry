@@ -32,6 +32,10 @@ pub struct AppConfig {
     pub local_storage_root: Option<String>,
     #[serde(default = "default_distributed_pipeline_workers")]
     pub distributed_pipeline_workers: usize,
+    #[serde(default = "default_distributed_compute_poll_interval_ms")]
+    pub distributed_compute_poll_interval_ms: u64,
+    #[serde(default = "default_distributed_compute_timeout_secs")]
+    pub distributed_compute_timeout_secs: u64,
 }
 
 fn default_host() -> String {
@@ -60,6 +64,12 @@ fn default_storage_bucket() -> String {
 }
 fn default_distributed_pipeline_workers() -> usize {
     1
+}
+fn default_distributed_compute_poll_interval_ms() -> u64 {
+    5_000
+}
+fn default_distributed_compute_timeout_secs() -> u64 {
+    900
 }
 
 impl AppConfig {

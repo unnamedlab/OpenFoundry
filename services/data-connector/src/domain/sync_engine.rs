@@ -186,6 +186,42 @@ async fn fetch_source_payload(
             )
             .await
         }
+        "kinesis" => {
+            connectors::kinesis::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "jdbc" => {
+            connectors::jdbc::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "odbc" => {
+            connectors::odbc::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "power_bi" => {
+            connectors::power_bi::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
         "postgresql" => {
             connectors::postgres::fetch_dataset(&connection.config, &job.table_name).await
         }
@@ -220,6 +256,15 @@ async fn fetch_source_payload(
         }
         "snowflake" => {
             connectors::snowflake::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "tableau" => {
+            connectors::tableau::fetch_dataset(
                 state,
                 &connection.config,
                 &job.table_name,

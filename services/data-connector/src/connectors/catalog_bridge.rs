@@ -37,6 +37,10 @@ pub fn validate_tabular_connector_config(
     let has_base_url = string_field(config, "base_url").is_some();
     let has_catalog_path = string_field(config, "catalog_path").is_some();
     let has_resource_template = string_field(config, "resource_path_template")
+        .or_else(|| string_field(config, "stream_path_template"))
+        .or_else(|| string_field(config, "view_path_template"))
+        .or_else(|| string_field(config, "dataset_path_template"))
+        .or_else(|| string_field(config, "report_path_template"))
         .or_else(|| string_field(config, "query_path_template"))
         .is_some();
 
@@ -60,7 +64,7 @@ pub fn validate_tabular_connector_config(
     }
 
     Err(format!(
-        "{connector_name} connector requires inline 'tables' or 'base_url' plus 'catalog_path'/'resource_path_template'"
+        "{connector_name} connector requires an inline catalog in 'tables', 'views', 'datasets', 'streams' or 'reports', or 'base_url' plus 'catalog_path'/'resource_path_template'"
     ))
 }
 
@@ -288,12 +292,12 @@ fn inline_catalog_entries(
     connector_name: &str,
     default_source_kind: &str,
 ) -> Result<Vec<CatalogEntry>, String> {
-    let Some(entries) = config.get("tables") else {
+    let Some(entries) = catalog_entries_value(config) else {
         return Ok(Vec::new());
     };
-    let entries = entries
-        .as_array()
-        .ok_or_else(|| format!("{connector_name} connector expects 'tables' to be an array"))?;
+    let entries = entries.as_array().ok_or_else(|| {
+        format!("{connector_name} connector expects its inline catalog to be an array")
+    })?;
 
     let mut parsed = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
@@ -335,6 +339,11 @@ fn parse_catalog_entry(value: &Value, default_source_kind: &str) -> Option<Catal
         .get("selector")
         .or_else(|| value.get("name"))
         .or_else(|| value.get("table"))
+        .or_else(|| value.get("view"))
+        .or_else(|| value.get("dataset"))
+        .or_else(|| value.get("stream"))
+        .or_else(|| value.get("report"))
+        .or_else(|| value.get("asset"))
         .and_then(Value::as_str)?
         .trim()
         .to_string();
@@ -358,6 +367,10 @@ fn parse_catalog_entry(value: &Value, default_source_kind: &str) -> Option<Catal
     let path = value
         .get("path")
         .or_else(|| value.get("resource_path"))
+        .or_else(|| value.get("stream_path"))
+        .or_else(|| value.get("view_path"))
+        .or_else(|| value.get("dataset_path"))
+        .or_else(|| value.get("report_path"))
         .or_else(|| value.get("query_path"))
         .and_then(Value::as_str)
         .map(|value| value.to_string());
@@ -450,6 +463,10 @@ fn source_url(config: &Value, selector: &str, entry: Option<&CatalogEntry>) -> R
     let template = entry
         .and_then(|entry| entry.path.as_deref())
         .or_else(|| string_field(config, "resource_path_template"))
+        .or_else(|| string_field(config, "stream_path_template"))
+        .or_else(|| string_field(config, "view_path_template"))
+        .or_else(|| string_field(config, "dataset_path_template"))
+        .or_else(|| string_field(config, "report_path_template"))
         .or_else(|| string_field(config, "query_path_template"))
         .unwrap_or(selector);
     build_url(base_url, &interpolate_template(template, config, selector))
@@ -465,12 +482,35 @@ fn interpolate_template(template: &str, config: &Value, selector: &str) -> Strin
         "schema",
         "warehouse",
         "region",
+        "site_id",
+        "project_name",
+        "workspace_id",
+        "tenant_id",
+        "report_id",
+        "workbook_id",
+        "dsn",
+        "driver",
+        "connection_string",
+        "jdbc_url",
+        "driver_class",
+        "stream_name",
+        "consumer_name",
+        "catalog",
+        "workgroup",
     ] {
         if let Some(value) = string_field(config, field) {
             rendered = rendered.replace(&format!("{{{field}}}"), value);
         }
     }
     rendered
+}
+
+fn catalog_entries_value<'a>(config: &'a Value) -> Option<&'a Value> {
+    [
+        "tables", "views", "datasets", "streams", "reports", "entities",
+    ]
+    .into_iter()
+    .find_map(|field| config.get(field))
 }
 
 fn build_url(base_url: &str, path: &str) -> Result<Url, String> {
@@ -588,7 +628,7 @@ mod tests {
         let config = json!({ "project_id": "acme-warehouse" });
         let error = validate_tabular_connector_config(&config, "bigquery", &["project_id"])
             .expect_err("validation should fail");
-        assert!(error.contains("inline 'tables'"));
+        assert!(error.contains("inline catalog"));
     }
 
     #[test]
@@ -627,5 +667,30 @@ mod tests {
         assert_eq!(response.selector, "analytics.orders");
         assert_eq!(response.row_count, 1);
         assert_eq!(response.rows, vec![json!({ "id": 1 })]);
+    }
+
+    #[test]
+    fn accepts_stream_and_view_aliases_for_inline_catalogs() {
+        let stream_config = json!({
+            "streams": [
+                {
+                    "stream": "orders-stream",
+                    "sample_rows": [{ "order_id": "ord-1" }]
+                }
+            ]
+        });
+        let view_config = json!({
+            "views": [
+                {
+                    "view": "Executive Scorecard",
+                    "preview_rows": [{ "metric": "Revenue" }]
+                }
+            ]
+        });
+
+        assert!(
+            validate_tabular_connector_config(&stream_config, "kinesis", &["stream_name"]).is_ok()
+        );
+        assert!(validate_tabular_connector_config(&view_config, "tableau", &["site_id"]).is_ok());
     }
 }

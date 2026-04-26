@@ -3,15 +3,76 @@
 
 export const OPENFOUNDRY_SDK_VERSION = "0.1.0";
 
+export interface OpenFoundryRetryPolicy {
+  maxAttempts?: number;
+  backoffMs?: number;
+  retryOnStatus?: number[];
+  retryMethods?: string[];
+}
+
 export interface OpenFoundryClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
   headers?: HeadersInit;
+  token?: string;
+  userAgent?: string;
+  timeoutMs?: number;
+  retry?: OpenFoundryRetryPolicy;
 }
 
-export type OpenFoundryRequestInit = Omit<RequestInit, 'body' | 'method'>;
+export interface OpenFoundryRequestInit extends Omit<RequestInit, 'body' | 'method' | 'signal'> {
+  headers?: HeadersInit;
+  timeoutMs?: number;
+  retry?: Partial<OpenFoundryRetryPolicy> | false;
+}
 export type OpenFoundryPathParams = Record<string, string | number | boolean>;
-export type OpenFoundryQuery = Record<string, string | number | boolean | undefined | null>;
+export type OpenFoundryQueryPrimitive = string | number | boolean;
+export type OpenFoundryQueryValue = OpenFoundryQueryPrimitive | Array<OpenFoundryQueryPrimitive> | Record<string, unknown> | null | undefined;
+export type OpenFoundryQuery = Record<string, OpenFoundryQueryValue>;
+export interface OpenFoundryResponse<T> {
+  data: T;
+  status: number;
+  headers: Headers;
+  requestId: string | null;
+  raw: unknown;
+}
+export interface OpenFoundryOperationInput {
+  path?: OpenFoundryPathParams;
+  query?: OpenFoundryQuery;
+  body?: unknown;
+}
+export interface OpenFoundryOperationMeta {
+  operationId: string;
+  method: string;
+  path: string;
+  summary: string;
+  description?: string;
+  namespace: string;
+  namespaceMember: string;
+  apiVersion?: string;
+  stability?: string;
+  mcpTool: string;
+}
+
+export class OpenFoundryApiError extends Error {
+  readonly status: number;
+  readonly method: string;
+  readonly path: string;
+  readonly requestId: string | null;
+  readonly body: unknown;
+  readonly rawMessage: string;
+
+  constructor(input: { status: number; method: string; path: string; message: string; requestId?: string | null; body?: unknown; rawMessage?: string }) {
+    super(input.message);
+    this.name = 'OpenFoundryApiError';
+    this.status = input.status;
+    this.method = input.method;
+    this.path = input.path;
+    this.requestId = input.requestId ?? null;
+    this.body = input.body;
+    this.rawMessage = input.rawMessage ?? input.message;
+  }
+}
 
 export interface AdminGroupsListResponse {
   count?: number;
@@ -36,6 +97,14 @@ export interface AdminRolesListResponse {
 export interface AdminUsersListResponse {
   count?: number;
   items?: Array<UserResponse>;
+}
+
+export interface ApiError {
+  code?: string;
+  details?: Record<string, unknown>;
+  message?: string;
+  request_id?: string;
+  status?: number;
 }
 
 export interface AppBrandingSettings {
@@ -921,16 +990,1026 @@ export type FieldType = string;
 
 export type Value = unknown;
 
+export const OPENFOUNDRY_OPERATION_REGISTRY: ReadonlyArray<OpenFoundryOperationMeta> = [
+  {
+    operationId: "open_foundry.auth.RbacService.AssignRole",
+    method: "POST",
+    path: "/api/v1/auth/assign-role",
+    summary: "RbacService AssignRole",
+    description: "Generated from `open_foundry.auth` RPC `AssignRole` in service `RbacService`.",
+    namespace: "auth",
+    namespaceMember: "assignrole",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auth.assignrole",
+  },
+  {
+    operationId: "open_foundry.auth.AuthService.GetMe",
+    method: "GET",
+    path: "/api/v1/auth/get-me",
+    summary: "AuthService GetMe",
+    description: "Generated from `open_foundry.auth` RPC `GetMe` in service `AuthService`.",
+    namespace: "auth",
+    namespaceMember: "getme",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auth.getme",
+  },
+  {
+    operationId: "open_foundry.auth.RbacService.ListRoles",
+    method: "GET",
+    path: "/api/v1/auth/list-roles",
+    summary: "RbacService ListRoles",
+    description: "Generated from `open_foundry.auth` RPC `ListRoles` in service `RbacService`.",
+    namespace: "auth",
+    namespaceMember: "listroles",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auth.listroles",
+  },
+  {
+    operationId: "open_foundry.auth.AuthService.Login",
+    method: "POST",
+    path: "/api/v1/auth/login",
+    summary: "AuthService Login",
+    description: "Generated from `open_foundry.auth` RPC `Login` in service `AuthService`.",
+    namespace: "auth",
+    namespaceMember: "login",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auth.login",
+  },
+  {
+    operationId: "open_foundry.auth.AuthService.RefreshToken",
+    method: "POST",
+    path: "/api/v1/auth/refresh-token",
+    summary: "AuthService RefreshToken",
+    description: "Generated from `open_foundry.auth` RPC `RefreshToken` in service `AuthService`.",
+    namespace: "auth",
+    namespaceMember: "refreshtoken",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auth.refreshtoken",
+  },
+  {
+    operationId: "open_foundry.auth.AuthService.Register",
+    method: "POST",
+    path: "/api/v1/auth/register",
+    summary: "AuthService Register",
+    description: "Generated from `open_foundry.auth` RPC `Register` in service `AuthService`.",
+    namespace: "auth",
+    namespaceMember: "register",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.auth.register",
+  },
+  {
+    operationId: "open_foundry.common.HealthService.Check",
+    method: "POST",
+    path: "/api/v1/common/check",
+    summary: "HealthService Check",
+    description: "Generated from `open_foundry.common` RPC `Check` in service `HealthService`.",
+    namespace: "common",
+    namespaceMember: "check",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.common.check",
+  },
+  {
+    operationId: "open_foundry.data_integration.ConnectorService.CreateConnection",
+    method: "POST",
+    path: "/api/v1/data-integration/create-connection",
+    summary: "ConnectorService CreateConnection",
+    description: "Generated from `open_foundry.data_integration` RPC `CreateConnection` in service `ConnectorService`.",
+    namespace: "dataIntegration",
+    namespaceMember: "createconnection",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataIntegration.createconnection",
+  },
+  {
+    operationId: "open_foundry.data_integration.ConnectorService.DeleteConnection",
+    method: "DELETE",
+    path: "/api/v1/data-integration/delete-connection",
+    summary: "ConnectorService DeleteConnection",
+    description: "Generated from `open_foundry.data_integration` RPC `DeleteConnection` in service `ConnectorService`.",
+    namespace: "dataIntegration",
+    namespaceMember: "deleteconnection",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataIntegration.deleteconnection",
+  },
+  {
+    operationId: "open_foundry.data_integration.ConnectorService.InferSchema",
+    method: "POST",
+    path: "/api/v1/data-integration/infer-schema",
+    summary: "ConnectorService InferSchema",
+    description: "Generated from `open_foundry.data_integration` RPC `InferSchema` in service `ConnectorService`.",
+    namespace: "dataIntegration",
+    namespaceMember: "inferschema",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataIntegration.inferschema",
+  },
+  {
+    operationId: "open_foundry.data_integration.ConnectorService.ListConnections",
+    method: "GET",
+    path: "/api/v1/data-integration/list-connections",
+    summary: "ConnectorService ListConnections",
+    description: "Generated from `open_foundry.data_integration` RPC `ListConnections` in service `ConnectorService`.",
+    namespace: "dataIntegration",
+    namespaceMember: "listconnections",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataIntegration.listconnections",
+  },
+  {
+    operationId: "open_foundry.data_integration.ConnectorService.SyncConnection",
+    method: "POST",
+    path: "/api/v1/data-integration/sync-connection",
+    summary: "ConnectorService SyncConnection",
+    description: "Generated from `open_foundry.data_integration` RPC `SyncConnection` in service `ConnectorService`.",
+    namespace: "dataIntegration",
+    namespaceMember: "syncconnection",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataIntegration.syncconnection",
+  },
+  {
+    operationId: "open_foundry.data_integration.ConnectorService.TestConnection",
+    method: "POST",
+    path: "/api/v1/data-integration/test-connection",
+    summary: "ConnectorService TestConnection",
+    description: "Generated from `open_foundry.data_integration` RPC `TestConnection` in service `ConnectorService`.",
+    namespace: "dataIntegration",
+    namespaceMember: "testconnection",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataIntegration.testconnection",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.CreateDataset",
+    method: "POST",
+    path: "/api/v1/datasets/create-dataset",
+    summary: "DatasetService CreateDataset",
+    description: "Generated from `open_foundry.dataset` RPC `CreateDataset` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "createdataset",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.createdataset",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.DeleteDataset",
+    method: "DELETE",
+    path: "/api/v1/datasets/delete-dataset",
+    summary: "DatasetService DeleteDataset",
+    description: "Generated from `open_foundry.dataset` RPC `DeleteDataset` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "deletedataset",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.deletedataset",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.GetDataset",
+    method: "GET",
+    path: "/api/v1/datasets/get-dataset",
+    summary: "DatasetService GetDataset",
+    description: "Generated from `open_foundry.dataset` RPC `GetDataset` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "getdataset",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.getdataset",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.GetVersions",
+    method: "GET",
+    path: "/api/v1/datasets/get-versions",
+    summary: "DatasetService GetVersions",
+    description: "Generated from `open_foundry.dataset` RPC `GetVersions` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "getversions",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.getversions",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.ListDatasets",
+    method: "GET",
+    path: "/api/v1/datasets/list-datasets",
+    summary: "DatasetService ListDatasets",
+    description: "Generated from `open_foundry.dataset` RPC `ListDatasets` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "listdatasets",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.listdatasets",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.PreviewData",
+    method: "POST",
+    path: "/api/v1/datasets/preview-data",
+    summary: "DatasetService PreviewData",
+    description: "Generated from `open_foundry.dataset` RPC `PreviewData` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "previewdata",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.previewdata",
+  },
+  {
+    operationId: "open_foundry.dataset.DatasetService.UpdateDataset",
+    method: "PATCH",
+    path: "/api/v1/datasets/update-dataset",
+    summary: "DatasetService UpdateDataset",
+    description: "Generated from `open_foundry.dataset` RPC `UpdateDataset` in service `DatasetService`.",
+    namespace: "dataset",
+    namespaceMember: "updatedataset",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.dataset.updatedataset",
+  },
+  {
+    operationId: "notebook.NotebookService.CreateNotebook",
+    method: "POST",
+    path: "/api/v1/notebook/create-notebook",
+    summary: "NotebookService CreateNotebook",
+    description: "Generated from `notebook` RPC `CreateNotebook` in service `NotebookService`.",
+    namespace: "notebook",
+    namespaceMember: "createnotebook",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.createnotebook",
+  },
+  {
+    operationId: "notebook.KernelService.CreateSession",
+    method: "POST",
+    path: "/api/v1/notebook/create-session",
+    summary: "KernelService CreateSession",
+    description: "Generated from `notebook` RPC `CreateSession` in service `KernelService`.",
+    namespace: "notebook",
+    namespaceMember: "createsession",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.createsession",
+  },
+  {
+    operationId: "notebook.NotebookService.DeleteNotebook",
+    method: "DELETE",
+    path: "/api/v1/notebook/delete-notebook",
+    summary: "NotebookService DeleteNotebook",
+    description: "Generated from `notebook` RPC `DeleteNotebook` in service `NotebookService`.",
+    namespace: "notebook",
+    namespaceMember: "deletenotebook",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.deletenotebook",
+  },
+  {
+    operationId: "notebook.NotebookService.GetNotebook",
+    method: "GET",
+    path: "/api/v1/notebook/get-notebook",
+    summary: "NotebookService GetNotebook",
+    description: "Generated from `notebook` RPC `GetNotebook` in service `NotebookService`.",
+    namespace: "notebook",
+    namespaceMember: "getnotebook",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.getnotebook",
+  },
+  {
+    operationId: "notebook.NotebookService.ListNotebooks",
+    method: "GET",
+    path: "/api/v1/notebook/list-notebooks",
+    summary: "NotebookService ListNotebooks",
+    description: "Generated from `notebook` RPC `ListNotebooks` in service `NotebookService`.",
+    namespace: "notebook",
+    namespaceMember: "listnotebooks",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.listnotebooks",
+  },
+  {
+    operationId: "notebook.KernelService.ListSessions",
+    method: "GET",
+    path: "/api/v1/notebook/list-sessions",
+    summary: "KernelService ListSessions",
+    description: "Generated from `notebook` RPC `ListSessions` in service `KernelService`.",
+    namespace: "notebook",
+    namespaceMember: "listsessions",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.listsessions",
+  },
+  {
+    operationId: "notebook.KernelService.StopSession",
+    method: "POST",
+    path: "/api/v1/notebook/stop-session",
+    summary: "KernelService StopSession",
+    description: "Generated from `notebook` RPC `StopSession` in service `KernelService`.",
+    namespace: "notebook",
+    namespaceMember: "stopsession",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.stopsession",
+  },
+  {
+    operationId: "notebook.NotebookService.UpdateNotebook",
+    method: "PATCH",
+    path: "/api/v1/notebook/update-notebook",
+    summary: "NotebookService UpdateNotebook",
+    description: "Generated from `notebook` RPC `UpdateNotebook` in service `NotebookService`.",
+    namespace: "notebook",
+    namespaceMember: "updatenotebook",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.notebook.updatenotebook",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.CreateLinkType",
+    method: "POST",
+    path: "/api/v1/ontology/create-link-type",
+    summary: "OntologyService CreateLinkType",
+    description: "Generated from `open_foundry.ontology` RPC `CreateLinkType` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "createlinktype",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.createlinktype",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.CreateObjectType",
+    method: "POST",
+    path: "/api/v1/ontology/create-object-type",
+    summary: "OntologyService CreateObjectType",
+    description: "Generated from `open_foundry.ontology` RPC `CreateObjectType` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "createobjecttype",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.createobjecttype",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.CreateProperty",
+    method: "POST",
+    path: "/api/v1/ontology/create-property",
+    summary: "OntologyService CreateProperty",
+    description: "Generated from `open_foundry.ontology` RPC `CreateProperty` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "createproperty",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.createproperty",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.DeleteLinkType",
+    method: "DELETE",
+    path: "/api/v1/ontology/delete-link-type",
+    summary: "OntologyService DeleteLinkType",
+    description: "Generated from `open_foundry.ontology` RPC `DeleteLinkType` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "deletelinktype",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.deletelinktype",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.DeleteObjectType",
+    method: "DELETE",
+    path: "/api/v1/ontology/delete-object-type",
+    summary: "OntologyService DeleteObjectType",
+    description: "Generated from `open_foundry.ontology` RPC `DeleteObjectType` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "deleteobjecttype",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.deleteobjecttype",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.GetObjectType",
+    method: "GET",
+    path: "/api/v1/ontology/get-object-type",
+    summary: "OntologyService GetObjectType",
+    description: "Generated from `open_foundry.ontology` RPC `GetObjectType` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "getobjecttype",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.getobjecttype",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.ListLinkTypes",
+    method: "GET",
+    path: "/api/v1/ontology/list-link-types",
+    summary: "OntologyService ListLinkTypes",
+    description: "Generated from `open_foundry.ontology` RPC `ListLinkTypes` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "listlinktypes",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.listlinktypes",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.ListObjectTypes",
+    method: "GET",
+    path: "/api/v1/ontology/list-object-types",
+    summary: "OntologyService ListObjectTypes",
+    description: "Generated from `open_foundry.ontology` RPC `ListObjectTypes` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "listobjecttypes",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.listobjecttypes",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.ListProperties",
+    method: "GET",
+    path: "/api/v1/ontology/list-properties",
+    summary: "OntologyService ListProperties",
+    description: "Generated from `open_foundry.ontology` RPC `ListProperties` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "listproperties",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.listproperties",
+  },
+  {
+    operationId: "open_foundry.ontology.OntologyService.UpdateObjectType",
+    method: "PATCH",
+    path: "/api/v1/ontology/update-object-type",
+    summary: "OntologyService UpdateObjectType",
+    description: "Generated from `open_foundry.ontology` RPC `UpdateObjectType` in service `OntologyService`.",
+    namespace: "ontology",
+    namespaceMember: "updateobjecttype",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.ontology.updateobjecttype",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.CreatePipeline",
+    method: "POST",
+    path: "/api/v1/pipelines/create-pipeline",
+    summary: "PipelineService CreatePipeline",
+    description: "Generated from `open_foundry.pipeline` RPC `CreatePipeline` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "createpipeline",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.createpipeline",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.DeletePipeline",
+    method: "DELETE",
+    path: "/api/v1/pipelines/delete-pipeline",
+    summary: "PipelineService DeletePipeline",
+    description: "Generated from `open_foundry.pipeline` RPC `DeletePipeline` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "deletepipeline",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.deletepipeline",
+  },
+  {
+    operationId: "open_foundry.pipeline.LineageService.GetDatasetLineage",
+    method: "GET",
+    path: "/api/v1/pipelines/get-dataset-lineage",
+    summary: "LineageService GetDatasetLineage",
+    description: "Generated from `open_foundry.pipeline` RPC `GetDatasetLineage` in service `LineageService`.",
+    namespace: "pipeline",
+    namespaceMember: "getdatasetlineage",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.getdatasetlineage",
+  },
+  {
+    operationId: "open_foundry.pipeline.LineageService.GetFullLineage",
+    method: "GET",
+    path: "/api/v1/pipelines/get-full-lineage",
+    summary: "LineageService GetFullLineage",
+    description: "Generated from `open_foundry.pipeline` RPC `GetFullLineage` in service `LineageService`.",
+    namespace: "pipeline",
+    namespaceMember: "getfulllineage",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.getfulllineage",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.GetPipeline",
+    method: "GET",
+    path: "/api/v1/pipelines/get-pipeline",
+    summary: "PipelineService GetPipeline",
+    description: "Generated from `open_foundry.pipeline` RPC `GetPipeline` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "getpipeline",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.getpipeline",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.GetRun",
+    method: "GET",
+    path: "/api/v1/pipelines/get-run",
+    summary: "PipelineService GetRun",
+    description: "Generated from `open_foundry.pipeline` RPC `GetRun` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "getrun",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.getrun",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.ListPipelines",
+    method: "GET",
+    path: "/api/v1/pipelines/list-pipelines",
+    summary: "PipelineService ListPipelines",
+    description: "Generated from `open_foundry.pipeline` RPC `ListPipelines` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "listpipelines",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.listpipelines",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.ListRuns",
+    method: "GET",
+    path: "/api/v1/pipelines/list-runs",
+    summary: "PipelineService ListRuns",
+    description: "Generated from `open_foundry.pipeline` RPC `ListRuns` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "listruns",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.listruns",
+  },
+  {
+    operationId: "open_foundry.pipeline.LineageService.RecordLineage",
+    method: "POST",
+    path: "/api/v1/pipelines/record-lineage",
+    summary: "LineageService RecordLineage",
+    description: "Generated from `open_foundry.pipeline` RPC `RecordLineage` in service `LineageService`.",
+    namespace: "pipeline",
+    namespaceMember: "recordlineage",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.recordlineage",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.TriggerRun",
+    method: "POST",
+    path: "/api/v1/pipelines/trigger-run",
+    summary: "PipelineService TriggerRun",
+    description: "Generated from `open_foundry.pipeline` RPC `TriggerRun` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "triggerrun",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.triggerrun",
+  },
+  {
+    operationId: "open_foundry.pipeline.PipelineService.UpdatePipeline",
+    method: "PATCH",
+    path: "/api/v1/pipelines/update-pipeline",
+    summary: "PipelineService UpdatePipeline",
+    description: "Generated from `open_foundry.pipeline` RPC `UpdatePipeline` in service `PipelineService`.",
+    namespace: "pipeline",
+    namespaceMember: "updatepipeline",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.pipeline.updatepipeline",
+  },
+  {
+    operationId: "open_foundry.query.QueryService.DeleteSavedQuery",
+    method: "DELETE",
+    path: "/api/v1/queries/delete-saved-query",
+    summary: "QueryService DeleteSavedQuery",
+    description: "Generated from `open_foundry.query` RPC `DeleteSavedQuery` in service `QueryService`.",
+    namespace: "query",
+    namespaceMember: "deletesavedquery",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.query.deletesavedquery",
+  },
+  {
+    operationId: "open_foundry.query.QueryService.ExecuteQuery",
+    method: "POST",
+    path: "/api/v1/queries/execute-query",
+    summary: "QueryService ExecuteQuery",
+    description: "Generated from `open_foundry.query` RPC `ExecuteQuery` in service `QueryService`.",
+    namespace: "query",
+    namespaceMember: "executequery",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.query.executequery",
+  },
+  {
+    operationId: "open_foundry.query.QueryService.ExplainQuery",
+    method: "POST",
+    path: "/api/v1/queries/explain-query",
+    summary: "QueryService ExplainQuery",
+    description: "Generated from `open_foundry.query` RPC `ExplainQuery` in service `QueryService`.",
+    namespace: "query",
+    namespaceMember: "explainquery",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.query.explainquery",
+  },
+  {
+    operationId: "open_foundry.query.QueryService.ListSavedQueries",
+    method: "GET",
+    path: "/api/v1/queries/list-saved-queries",
+    summary: "QueryService ListSavedQueries",
+    description: "Generated from `open_foundry.query` RPC `ListSavedQueries` in service `QueryService`.",
+    namespace: "query",
+    namespaceMember: "listsavedqueries",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.query.listsavedqueries",
+  },
+  {
+    operationId: "open_foundry.query.QueryService.SaveQuery",
+    method: "POST",
+    path: "/api/v1/queries/save-query",
+    summary: "QueryService SaveQuery",
+    description: "Generated from `open_foundry.query` RPC `SaveQuery` in service `QueryService`.",
+    namespace: "query",
+    namespaceMember: "savequery",
+    apiVersion: "v1",
+    stability: "beta",
+    mcpTool: "openfoundry.query.savequery",
+  },
+  {
+    operationId: "rest.admin.v2.getControlPanel",
+    method: "GET",
+    path: "/api/v2/admin/control-panel",
+    summary: "Get control panel (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.getControlPanel`.",
+    namespace: "adminV2",
+    namespaceMember: "getcontrolpanel",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.getcontrolpanel",
+  },
+  {
+    operationId: "rest.admin.v2.updateControlPanel",
+    method: "PUT",
+    path: "/api/v2/admin/control-panel",
+    summary: "Update control panel (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.updateControlPanel`.",
+    namespace: "adminV2",
+    namespaceMember: "updatecontrolpanel",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.updatecontrolpanel",
+  },
+  {
+    operationId: "rest.admin.v2.listGroups",
+    method: "GET",
+    path: "/api/v2/admin/groups",
+    summary: "List groups (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.listGroups`.",
+    namespace: "adminV2",
+    namespaceMember: "listgroups",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.listgroups",
+  },
+  {
+    operationId: "rest.admin.v2.createGroup",
+    method: "POST",
+    path: "/api/v2/admin/groups",
+    summary: "Create group (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.createGroup`.",
+    namespace: "adminV2",
+    namespaceMember: "creategroup",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.creategroup",
+  },
+  {
+    operationId: "rest.admin.v2.updateGroup",
+    method: "PUT",
+    path: "/api/v2/admin/groups/{id}",
+    summary: "Update group (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.updateGroup`.",
+    namespace: "adminV2",
+    namespaceMember: "updategroup",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.updategroup",
+  },
+  {
+    operationId: "rest.admin.v2.listPermissions",
+    method: "GET",
+    path: "/api/v2/admin/permissions",
+    summary: "List permissions (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.listPermissions`.",
+    namespace: "adminV2",
+    namespaceMember: "listpermissions",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.listpermissions",
+  },
+  {
+    operationId: "rest.admin.v2.createPermission",
+    method: "POST",
+    path: "/api/v2/admin/permissions",
+    summary: "Create permission (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.createPermission`.",
+    namespace: "adminV2",
+    namespaceMember: "createpermission",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.createpermission",
+  },
+  {
+    operationId: "rest.admin.v2.listPolicies",
+    method: "GET",
+    path: "/api/v2/admin/policies",
+    summary: "List policies (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.listPolicies`.",
+    namespace: "adminV2",
+    namespaceMember: "listpolicies",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.listpolicies",
+  },
+  {
+    operationId: "rest.admin.v2.createPolicy",
+    method: "POST",
+    path: "/api/v2/admin/policies",
+    summary: "Create policy (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.createPolicy`.",
+    namespace: "adminV2",
+    namespaceMember: "createpolicy",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.createpolicy",
+  },
+  {
+    operationId: "rest.admin.v2.evaluatePolicy",
+    method: "POST",
+    path: "/api/v2/admin/policies/evaluate",
+    summary: "Evaluate policy (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.evaluatePolicy`.",
+    namespace: "adminV2",
+    namespaceMember: "evaluatepolicy",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.evaluatepolicy",
+  },
+  {
+    operationId: "rest.admin.v2.updatePolicy",
+    method: "PATCH",
+    path: "/api/v2/admin/policies/{id}",
+    summary: "Update policy (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.updatePolicy`.",
+    namespace: "adminV2",
+    namespaceMember: "updatepolicy",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.updatepolicy",
+  },
+  {
+    operationId: "rest.admin.v2.listRoles",
+    method: "GET",
+    path: "/api/v2/admin/roles",
+    summary: "List roles (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.listRoles`.",
+    namespace: "adminV2",
+    namespaceMember: "listroles",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.listroles",
+  },
+  {
+    operationId: "rest.admin.v2.createRole",
+    method: "POST",
+    path: "/api/v2/admin/roles",
+    summary: "Create role (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.createRole`.",
+    namespace: "adminV2",
+    namespaceMember: "createrole",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.createrole",
+  },
+  {
+    operationId: "rest.admin.v2.updateRole",
+    method: "PUT",
+    path: "/api/v2/admin/roles/{id}",
+    summary: "Update role (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.updateRole`.",
+    namespace: "adminV2",
+    namespaceMember: "updaterole",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.updaterole",
+  },
+  {
+    operationId: "rest.admin.v2.listUsers",
+    method: "GET",
+    path: "/api/v2/admin/users",
+    summary: "List admin users (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.listUsers`.",
+    namespace: "adminV2",
+    namespaceMember: "listusers",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.listusers",
+  },
+  {
+    operationId: "rest.admin.v2.getCurrentUser",
+    method: "GET",
+    path: "/api/v2/admin/users/me",
+    summary: "Get current admin user (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.getCurrentUser`.",
+    namespace: "adminV2",
+    namespaceMember: "getcurrentuser",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.getcurrentuser",
+  },
+  {
+    operationId: "rest.admin.v2.updateUser",
+    method: "PATCH",
+    path: "/api/v2/admin/users/{id}",
+    summary: "Update admin user (v2)",
+    description: "Curated REST overlay for `rest.admin.v2.updateUser`.",
+    namespace: "adminV2",
+    namespaceMember: "updateuser",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.adminV2.updateuser",
+  },
+  {
+    operationId: "rest.filesystem.v2.getDatasetFilesystem",
+    method: "GET",
+    path: "/api/v2/filesystem/datasets/{dataset_id}",
+    summary: "List dataset filesystem (v2)",
+    description: "Curated REST overlay for `rest.filesystem.v2.getDatasetFilesystem`.",
+    namespace: "filesystemV2",
+    namespaceMember: "getdatasetfilesystem",
+    apiVersion: "v2",
+    stability: "stable",
+    mcpTool: "openfoundry.filesystemV2.getdatasetfilesystem",
+  },
+];
+
 export class OpenFoundryClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
-  private readonly defaultHeaders: HeadersInit;
+  private readonly defaultHeaders: Headers;
+  private token?: string;
+  private readonly userAgent?: string;
+  private readonly timeoutMs: number;
+  private readonly retryPolicy: OpenFoundryRetryPolicy;
 
   constructor(options: OpenFoundryClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.fetchImpl = options.fetch ?? fetch;
-    this.defaultHeaders = options.headers ?? {};
+    this.defaultHeaders = new Headers(options.headers ?? {});
+    this.token = options.token;
+    this.userAgent = options.userAgent;
+    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.retryPolicy = {
+      maxAttempts: options.retry?.maxAttempts ?? 1,
+      backoffMs: options.retry?.backoffMs ?? 250,
+      retryOnStatus: options.retry?.retryOnStatus ?? [408, 429, 500, 502, 503, 504],
+      retryMethods: options.retry?.retryMethods ?? ['GET', 'HEAD', 'OPTIONS'],
+    };
   }
+
+  clone(overrides: Partial<OpenFoundryClientOptions> = {}): OpenFoundryClient {
+    return new OpenFoundryClient({
+      baseUrl: overrides.baseUrl ?? this.baseUrl,
+      fetch: overrides.fetch ?? this.fetchImpl,
+      headers: overrides.headers ?? (() => { const copied: Record<string, string> = {}; this.defaultHeaders.forEach((value, key) => { copied[key] = value; }); return copied; })(),
+      token: overrides.token ?? this.token,
+      userAgent: overrides.userAgent ?? this.userAgent,
+      timeoutMs: overrides.timeoutMs ?? this.timeoutMs,
+      retry: overrides.retry ?? this.retryPolicy,
+    });
+  }
+
+  withBearerToken(token: string): OpenFoundryClient {
+    return this.clone({ token });
+  }
+
+  setBearerToken(token: string | undefined): void {
+    this.token = token;
+  }
+
+  setDefaultHeader(name: string, value: string): void {
+    this.defaultHeaders.set(name, value);
+  }
+
+  removeDefaultHeader(name: string): void {
+    this.defaultHeaders.delete(name);
+  }
+
+  readonly adminV2 = {
+    getcontrolpanel: (init: OpenFoundryRequestInit = {}) => this.adminV2Getcontrolpanel(init),
+    updatecontrolpanel: (body: UpdateControlPanelRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Updatecontrolpanel(body, init),
+    listgroups: (init: OpenFoundryRequestInit = {}) => this.adminV2Listgroups(init),
+    creategroup: (body: CreateGroupRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Creategroup(body, init),
+    updategroup: (id: string, body: UpdateGroupRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Updategroup(id, body, init),
+    listpermissions: (init: OpenFoundryRequestInit = {}) => this.adminV2Listpermissions(init),
+    createpermission: (body: CreatePermissionRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Createpermission(body, init),
+    listpolicies: (init: OpenFoundryRequestInit = {}) => this.adminV2Listpolicies(init),
+    createpolicy: (body: UpsertPolicyRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Createpolicy(body, init),
+    evaluatepolicy: (body: EvaluatePolicyRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Evaluatepolicy(body, init),
+    updatepolicy: (id: string, body: UpsertPolicyRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Updatepolicy(id, body, init),
+    listroles: (init: OpenFoundryRequestInit = {}) => this.adminV2Listroles(init),
+    createrole: (body: CreateRoleRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Createrole(body, init),
+    updaterole: (id: string, body: UpdateRoleRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Updaterole(id, body, init),
+    listusers: (init: OpenFoundryRequestInit = {}) => this.adminV2Listusers(init),
+    getcurrentuser: (init: OpenFoundryRequestInit = {}) => this.adminV2Getcurrentuser(init),
+    updateuser: (id: string, body: UpdateUserRequest, init: OpenFoundryRequestInit = {}) => this.adminV2Updateuser(id, body, init),
+  } as const;
+
+  readonly auth = {
+    assignrole: (body: AssignRoleRequest, init: OpenFoundryRequestInit = {}) => this.authRbacAssignrole(body, init),
+    getme: (init: OpenFoundryRequestInit = {}) => this.authAuthGetme(init),
+    listroles: (init: OpenFoundryRequestInit = {}) => this.authRbacListroles(init),
+    login: (body: LoginRequest, init: OpenFoundryRequestInit = {}) => this.authAuthLogin(body, init),
+    refreshtoken: (body: RefreshRequest, init: OpenFoundryRequestInit = {}) => this.authAuthRefreshtoken(body, init),
+    register: (body: RegisterRequest, init: OpenFoundryRequestInit = {}) => this.authAuthRegister(body, init),
+  } as const;
+
+  readonly common = {
+    check: (body: HealthCheckRequest, init: OpenFoundryRequestInit = {}) => this.commonHealthCheck(body, init),
+  } as const;
+
+  readonly dataIntegration = {
+    createconnection: (body: CreateConnectionRequest, init: OpenFoundryRequestInit = {}) => this.dataIntegrationConnectorCreateconnection(body, init),
+    deleteconnection: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.dataIntegrationConnectorDeleteconnection(query, init),
+    inferschema: (body: InferSchemaRequest, init: OpenFoundryRequestInit = {}) => this.dataIntegrationConnectorInferschema(body, init),
+    listconnections: (query: { pagination?: PageRequest } = {}, init: OpenFoundryRequestInit = {}) => this.dataIntegrationConnectorListconnections(query, init),
+    syncconnection: (body: SyncConnectionRequest, init: OpenFoundryRequestInit = {}) => this.dataIntegrationConnectorSyncconnection(body, init),
+    testconnection: (body: TestConnectionRequest, init: OpenFoundryRequestInit = {}) => this.dataIntegrationConnectorTestconnection(body, init),
+  } as const;
+
+  readonly dataset = {
+    createdataset: (body: CreateDatasetRequest, init: OpenFoundryRequestInit = {}) => this.datasetDatasetCreatedataset(body, init),
+    deletedataset: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.datasetDatasetDeletedataset(query, init),
+    getdataset: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.datasetDatasetGetdataset(query, init),
+    getversions: (query: { dataset_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.datasetDatasetGetversions(query, init),
+    listdatasets: (query: { pagination?: PageRequest; search?: string; tags?: Array<string> } = {}, init: OpenFoundryRequestInit = {}) => this.datasetDatasetListdatasets(query, init),
+    previewdata: (body: PreviewDataRequest, init: OpenFoundryRequestInit = {}) => this.datasetDatasetPreviewdata(body, init),
+    updatedataset: (body: UpdateDatasetRequest, init: OpenFoundryRequestInit = {}) => this.datasetDatasetUpdatedataset(body, init),
+  } as const;
+
+  readonly filesystemV2 = {
+    getdatasetfilesystem: (dataset_id: string, query: { path?: string } = {}, init: OpenFoundryRequestInit = {}) => this.filesystemV2Getdatasetfilesystem(dataset_id, query, init),
+  } as const;
+
+  readonly notebook = {
+    createnotebook: (body: CreateNotebookRequest, init: OpenFoundryRequestInit = {}) => this.notebookNotebookCreatenotebook(body, init),
+    createsession: (body: CreateSessionRequest, init: OpenFoundryRequestInit = {}) => this.notebookKernelCreatesession(body, init),
+    deletenotebook: (query: { id?: string } = {}, init: OpenFoundryRequestInit = {}) => this.notebookNotebookDeletenotebook(query, init),
+    getnotebook: (query: { id?: string } = {}, init: OpenFoundryRequestInit = {}) => this.notebookNotebookGetnotebook(query, init),
+    listnotebooks: (query: { page?: number; per_page?: number; search?: string } = {}, init: OpenFoundryRequestInit = {}) => this.notebookNotebookListnotebooks(query, init),
+    listsessions: (query: { notebook_id?: string } = {}, init: OpenFoundryRequestInit = {}) => this.notebookKernelListsessions(query, init),
+    stopsession: (body: StopSessionRequest, init: OpenFoundryRequestInit = {}) => this.notebookKernelStopsession(body, init),
+    updatenotebook: (body: UpdateNotebookRequest, init: OpenFoundryRequestInit = {}) => this.notebookNotebookUpdatenotebook(body, init),
+  } as const;
+
+  readonly ontology = {
+    createlinktype: (body: CreateLinkTypeRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyCreatelinktype(body, init),
+    createobjecttype: (body: CreateObjectTypeRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyCreateobjecttype(body, init),
+    createproperty: (body: CreatePropertyRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyCreateproperty(body, init),
+    deletelinktype: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyDeletelinktype(query, init),
+    deleteobjecttype: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyDeleteobjecttype(query, init),
+    getobjecttype: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyGetobjecttype(query, init),
+    listlinktypes: (query: { object_type_id?: Uuid; pagination?: PageRequest } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyListlinktypes(query, init),
+    listobjecttypes: (query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyListobjecttypes(query, init),
+    listproperties: (query: { object_type_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyListproperties(query, init),
+    updateobjecttype: (body: UpdateObjectTypeRequest, init: OpenFoundryRequestInit = {}) => this.ontologyOntologyUpdateobjecttype(body, init),
+  } as const;
+
+  readonly pipeline = {
+    createpipeline: (body: CreatePipelineRequest, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineCreatepipeline(body, init),
+    deletepipeline: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineDeletepipeline(query, init),
+    getdatasetlineage: (query: { dataset_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.pipelineLineageGetdatasetlineage(query, init),
+    getfulllineage: (init: OpenFoundryRequestInit = {}) => this.pipelineLineageGetfulllineage(init),
+    getpipeline: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineGetpipeline(query, init),
+    getrun: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineGetrun(query, init),
+    listpipelines: (query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineListpipelines(query, init),
+    listruns: (query: { pagination?: PageRequest; pipeline_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineListruns(query, init),
+    recordlineage: (body: RecordLineageRequest, init: OpenFoundryRequestInit = {}) => this.pipelineLineageRecordlineage(body, init),
+    triggerrun: (body: TriggerRunRequest, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineTriggerrun(body, init),
+    updatepipeline: (body: UpdatePipelineRequest, init: OpenFoundryRequestInit = {}) => this.pipelinePipelineUpdatepipeline(body, init),
+  } as const;
+
+  readonly query = {
+    deletesavedquery: (query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}) => this.queryQueryDeletesavedquery(query, init),
+    executequery: (body: ExecuteQueryRequest, init: OpenFoundryRequestInit = {}) => this.queryQueryExecutequery(body, init),
+    explainquery: (body: ExplainQueryRequest, init: OpenFoundryRequestInit = {}) => this.queryQueryExplainquery(body, init),
+    listsavedqueries: (query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}) => this.queryQueryListsavedqueries(query, init),
+    savequery: (body: SaveQueryRequest, init: OpenFoundryRequestInit = {}) => this.queryQuerySavequery(body, init),
+  } as const;
 
   async authRbacAssignrole(body: AssignRoleRequest, init: OpenFoundryRequestInit = {}): Promise<AssignRoleResponse> {
     return this.request<AssignRoleResponse>("POST", "/api/v1/auth/assign-role", undefined, undefined, body, init);
@@ -964,16 +2043,16 @@ export class OpenFoundryClient {
     return this.request<Connection>("POST", "/api/v1/data-integration/create-connection", undefined, undefined, body, init);
   }
 
-  async dataIntegrationConnectorDeleteconnection(init: OpenFoundryRequestInit = {}): Promise<DeleteConnectionResponse> {
-    return this.request<DeleteConnectionResponse>("DELETE", "/api/v1/data-integration/delete-connection", undefined, undefined, undefined, init);
+  async dataIntegrationConnectorDeleteconnection(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteConnectionResponse> {
+    return this.request<DeleteConnectionResponse>("DELETE", "/api/v1/data-integration/delete-connection", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async dataIntegrationConnectorInferschema(body: InferSchemaRequest, init: OpenFoundryRequestInit = {}): Promise<InferSchemaResponse> {
     return this.request<InferSchemaResponse>("POST", "/api/v1/data-integration/infer-schema", undefined, undefined, body, init);
   }
 
-  async dataIntegrationConnectorListconnections(init: OpenFoundryRequestInit = {}): Promise<ListConnectionsResponse> {
-    return this.request<ListConnectionsResponse>("GET", "/api/v1/data-integration/list-connections", undefined, undefined, undefined, init);
+  async dataIntegrationConnectorListconnections(query: { pagination?: PageRequest } = {}, init: OpenFoundryRequestInit = {}): Promise<ListConnectionsResponse> {
+    return this.request<ListConnectionsResponse>("GET", "/api/v1/data-integration/list-connections", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async dataIntegrationConnectorSyncconnection(body: SyncConnectionRequest, init: OpenFoundryRequestInit = {}): Promise<SyncStatus> {
@@ -988,20 +2067,20 @@ export class OpenFoundryClient {
     return this.request<Dataset>("POST", "/api/v1/datasets/create-dataset", undefined, undefined, body, init);
   }
 
-  async datasetDatasetDeletedataset(init: OpenFoundryRequestInit = {}): Promise<DeleteDatasetResponse> {
-    return this.request<DeleteDatasetResponse>("DELETE", "/api/v1/datasets/delete-dataset", undefined, undefined, undefined, init);
+  async datasetDatasetDeletedataset(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteDatasetResponse> {
+    return this.request<DeleteDatasetResponse>("DELETE", "/api/v1/datasets/delete-dataset", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async datasetDatasetGetdataset(init: OpenFoundryRequestInit = {}): Promise<Dataset> {
-    return this.request<Dataset>("GET", "/api/v1/datasets/get-dataset", undefined, undefined, undefined, init);
+  async datasetDatasetGetdataset(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<Dataset> {
+    return this.request<Dataset>("GET", "/api/v1/datasets/get-dataset", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async datasetDatasetGetversions(init: OpenFoundryRequestInit = {}): Promise<GetVersionsResponse> {
-    return this.request<GetVersionsResponse>("GET", "/api/v1/datasets/get-versions", undefined, undefined, undefined, init);
+  async datasetDatasetGetversions(query: { dataset_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<GetVersionsResponse> {
+    return this.request<GetVersionsResponse>("GET", "/api/v1/datasets/get-versions", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async datasetDatasetListdatasets(init: OpenFoundryRequestInit = {}): Promise<ListDatasetsResponse> {
-    return this.request<ListDatasetsResponse>("GET", "/api/v1/datasets/list-datasets", undefined, undefined, undefined, init);
+  async datasetDatasetListdatasets(query: { pagination?: PageRequest; search?: string; tags?: Array<string> } = {}, init: OpenFoundryRequestInit = {}): Promise<ListDatasetsResponse> {
+    return this.request<ListDatasetsResponse>("GET", "/api/v1/datasets/list-datasets", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async datasetDatasetPreviewdata(body: PreviewDataRequest, init: OpenFoundryRequestInit = {}): Promise<PreviewDataResponse> {
@@ -1020,20 +2099,20 @@ export class OpenFoundryClient {
     return this.request<Session>("POST", "/api/v1/notebook/create-session", undefined, undefined, body, init);
   }
 
-  async notebookNotebookDeletenotebook(init: OpenFoundryRequestInit = {}): Promise<Notebook> {
-    return this.request<Notebook>("DELETE", "/api/v1/notebook/delete-notebook", undefined, undefined, undefined, init);
+  async notebookNotebookDeletenotebook(query: { id?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<Notebook> {
+    return this.request<Notebook>("DELETE", "/api/v1/notebook/delete-notebook", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async notebookNotebookGetnotebook(init: OpenFoundryRequestInit = {}): Promise<Notebook> {
-    return this.request<Notebook>("GET", "/api/v1/notebook/get-notebook", undefined, undefined, undefined, init);
+  async notebookNotebookGetnotebook(query: { id?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<Notebook> {
+    return this.request<Notebook>("GET", "/api/v1/notebook/get-notebook", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async notebookNotebookListnotebooks(init: OpenFoundryRequestInit = {}): Promise<ListNotebooksResponse> {
-    return this.request<ListNotebooksResponse>("GET", "/api/v1/notebook/list-notebooks", undefined, undefined, undefined, init);
+  async notebookNotebookListnotebooks(query: { page?: number; per_page?: number; search?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ListNotebooksResponse> {
+    return this.request<ListNotebooksResponse>("GET", "/api/v1/notebook/list-notebooks", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async notebookKernelListsessions(init: OpenFoundryRequestInit = {}): Promise<ListSessionsResponse> {
-    return this.request<ListSessionsResponse>("GET", "/api/v1/notebook/list-sessions", undefined, undefined, undefined, init);
+  async notebookKernelListsessions(query: { notebook_id?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ListSessionsResponse> {
+    return this.request<ListSessionsResponse>("GET", "/api/v1/notebook/list-sessions", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async notebookKernelStopsession(body: StopSessionRequest, init: OpenFoundryRequestInit = {}): Promise<Session> {
@@ -1056,28 +2135,28 @@ export class OpenFoundryClient {
     return this.request<Property>("POST", "/api/v1/ontology/create-property", undefined, undefined, body, init);
   }
 
-  async ontologyOntologyDeletelinktype(init: OpenFoundryRequestInit = {}): Promise<DeleteLinkTypeResponse> {
-    return this.request<DeleteLinkTypeResponse>("DELETE", "/api/v1/ontology/delete-link-type", undefined, undefined, undefined, init);
+  async ontologyOntologyDeletelinktype(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteLinkTypeResponse> {
+    return this.request<DeleteLinkTypeResponse>("DELETE", "/api/v1/ontology/delete-link-type", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async ontologyOntologyDeleteobjecttype(init: OpenFoundryRequestInit = {}): Promise<DeleteObjectTypeResponse> {
-    return this.request<DeleteObjectTypeResponse>("DELETE", "/api/v1/ontology/delete-object-type", undefined, undefined, undefined, init);
+  async ontologyOntologyDeleteobjecttype(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteObjectTypeResponse> {
+    return this.request<DeleteObjectTypeResponse>("DELETE", "/api/v1/ontology/delete-object-type", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async ontologyOntologyGetobjecttype(init: OpenFoundryRequestInit = {}): Promise<ObjectType> {
-    return this.request<ObjectType>("GET", "/api/v1/ontology/get-object-type", undefined, undefined, undefined, init);
+  async ontologyOntologyGetobjecttype(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<ObjectType> {
+    return this.request<ObjectType>("GET", "/api/v1/ontology/get-object-type", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async ontologyOntologyListlinktypes(init: OpenFoundryRequestInit = {}): Promise<ListLinkTypesResponse> {
-    return this.request<ListLinkTypesResponse>("GET", "/api/v1/ontology/list-link-types", undefined, undefined, undefined, init);
+  async ontologyOntologyListlinktypes(query: { object_type_id?: Uuid; pagination?: PageRequest } = {}, init: OpenFoundryRequestInit = {}): Promise<ListLinkTypesResponse> {
+    return this.request<ListLinkTypesResponse>("GET", "/api/v1/ontology/list-link-types", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async ontologyOntologyListobjecttypes(init: OpenFoundryRequestInit = {}): Promise<ListObjectTypesResponse> {
-    return this.request<ListObjectTypesResponse>("GET", "/api/v1/ontology/list-object-types", undefined, undefined, undefined, init);
+  async ontologyOntologyListobjecttypes(query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ListObjectTypesResponse> {
+    return this.request<ListObjectTypesResponse>("GET", "/api/v1/ontology/list-object-types", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async ontologyOntologyListproperties(init: OpenFoundryRequestInit = {}): Promise<ListPropertiesResponse> {
-    return this.request<ListPropertiesResponse>("GET", "/api/v1/ontology/list-properties", undefined, undefined, undefined, init);
+  async ontologyOntologyListproperties(query: { object_type_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<ListPropertiesResponse> {
+    return this.request<ListPropertiesResponse>("GET", "/api/v1/ontology/list-properties", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async ontologyOntologyUpdateobjecttype(body: UpdateObjectTypeRequest, init: OpenFoundryRequestInit = {}): Promise<ObjectType> {
@@ -1088,32 +2167,32 @@ export class OpenFoundryClient {
     return this.request<Pipeline>("POST", "/api/v1/pipelines/create-pipeline", undefined, undefined, body, init);
   }
 
-  async pipelinePipelineDeletepipeline(init: OpenFoundryRequestInit = {}): Promise<DeletePipelineResponse> {
-    return this.request<DeletePipelineResponse>("DELETE", "/api/v1/pipelines/delete-pipeline", undefined, undefined, undefined, init);
+  async pipelinePipelineDeletepipeline(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeletePipelineResponse> {
+    return this.request<DeletePipelineResponse>("DELETE", "/api/v1/pipelines/delete-pipeline", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async pipelineLineageGetdatasetlineage(init: OpenFoundryRequestInit = {}): Promise<LineageGraph> {
-    return this.request<LineageGraph>("GET", "/api/v1/pipelines/get-dataset-lineage", undefined, undefined, undefined, init);
+  async pipelineLineageGetdatasetlineage(query: { dataset_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<LineageGraph> {
+    return this.request<LineageGraph>("GET", "/api/v1/pipelines/get-dataset-lineage", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async pipelineLineageGetfulllineage(init: OpenFoundryRequestInit = {}): Promise<LineageGraph> {
     return this.request<LineageGraph>("GET", "/api/v1/pipelines/get-full-lineage", undefined, undefined, undefined, init);
   }
 
-  async pipelinePipelineGetpipeline(init: OpenFoundryRequestInit = {}): Promise<Pipeline> {
-    return this.request<Pipeline>("GET", "/api/v1/pipelines/get-pipeline", undefined, undefined, undefined, init);
+  async pipelinePipelineGetpipeline(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<Pipeline> {
+    return this.request<Pipeline>("GET", "/api/v1/pipelines/get-pipeline", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async pipelinePipelineGetrun(init: OpenFoundryRequestInit = {}): Promise<PipelineRun> {
-    return this.request<PipelineRun>("GET", "/api/v1/pipelines/get-run", undefined, undefined, undefined, init);
+  async pipelinePipelineGetrun(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<PipelineRun> {
+    return this.request<PipelineRun>("GET", "/api/v1/pipelines/get-run", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async pipelinePipelineListpipelines(init: OpenFoundryRequestInit = {}): Promise<ListPipelinesResponse> {
-    return this.request<ListPipelinesResponse>("GET", "/api/v1/pipelines/list-pipelines", undefined, undefined, undefined, init);
+  async pipelinePipelineListpipelines(query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ListPipelinesResponse> {
+    return this.request<ListPipelinesResponse>("GET", "/api/v1/pipelines/list-pipelines", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
-  async pipelinePipelineListruns(init: OpenFoundryRequestInit = {}): Promise<ListRunsResponse> {
-    return this.request<ListRunsResponse>("GET", "/api/v1/pipelines/list-runs", undefined, undefined, undefined, init);
+  async pipelinePipelineListruns(query: { pagination?: PageRequest; pipeline_id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<ListRunsResponse> {
+    return this.request<ListRunsResponse>("GET", "/api/v1/pipelines/list-runs", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async pipelineLineageRecordlineage(body: RecordLineageRequest, init: OpenFoundryRequestInit = {}): Promise<RecordLineageResponse> {
@@ -1128,8 +2207,8 @@ export class OpenFoundryClient {
     return this.request<Pipeline>("PATCH", "/api/v1/pipelines/update-pipeline", undefined, undefined, body, init);
   }
 
-  async queryQueryDeletesavedquery(init: OpenFoundryRequestInit = {}): Promise<DeleteSavedQueryResponse> {
-    return this.request<DeleteSavedQueryResponse>("DELETE", "/api/v1/queries/delete-saved-query", undefined, undefined, undefined, init);
+  async queryQueryDeletesavedquery(query: { id?: Uuid } = {}, init: OpenFoundryRequestInit = {}): Promise<DeleteSavedQueryResponse> {
+    return this.request<DeleteSavedQueryResponse>("DELETE", "/api/v1/queries/delete-saved-query", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async queryQueryExecutequery(body: ExecuteQueryRequest, init: OpenFoundryRequestInit = {}): Promise<QueryResult> {
@@ -1140,8 +2219,8 @@ export class OpenFoundryClient {
     return this.request<ExplainQueryResponse>("POST", "/api/v1/queries/explain-query", undefined, undefined, body, init);
   }
 
-  async queryQueryListsavedqueries(init: OpenFoundryRequestInit = {}): Promise<ListSavedQueriesResponse> {
-    return this.request<ListSavedQueriesResponse>("GET", "/api/v1/queries/list-saved-queries", undefined, undefined, undefined, init);
+  async queryQueryListsavedqueries(query: { pagination?: PageRequest; search?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<ListSavedQueriesResponse> {
+    return this.request<ListSavedQueriesResponse>("GET", "/api/v1/queries/list-saved-queries", undefined, query as OpenFoundryQuery, undefined, init);
   }
 
   async queryQuerySavequery(body: SaveQueryRequest, init: OpenFoundryRequestInit = {}): Promise<SavedQuery> {
@@ -1217,47 +2296,334 @@ export class OpenFoundryClient {
   }
 
   async filesystemV2Getdatasetfilesystem(dataset_id: string, query: { path?: string } = {}, init: OpenFoundryRequestInit = {}): Promise<FilesystemListResponse> {
-    return this.request<FilesystemListResponse>("GET", "/api/v2/filesystem/datasets/{dataset_id}", { "dataset_id": dataset_id }, query, undefined, init);
+    return this.request<FilesystemListResponse>("GET", "/api/v2/filesystem/datasets/{dataset_id}", { "dataset_id": dataset_id }, query as OpenFoundryQuery, undefined, init);
   }
 
-  private async request<TResponse>(
+  async callOperation(
+    operationId: string,
+    input: OpenFoundryOperationInput = {}, 
+    init: OpenFoundryRequestInit = {}, 
+  ): Promise<unknown> {
+    switch (operationId) {
+      case "open_foundry.auth.RbacService.AssignRole":
+        return this.authRbacAssignrole(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.auth.AuthService.GetMe":
+        return this.authAuthGetme(init);
+      case "open_foundry.auth.RbacService.ListRoles":
+        return this.authRbacListroles(init);
+      case "open_foundry.auth.AuthService.Login":
+        return this.authAuthLogin(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.auth.AuthService.RefreshToken":
+        return this.authAuthRefreshtoken(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.auth.AuthService.Register":
+        return this.authAuthRegister(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.common.HealthService.Check":
+        return this.commonHealthCheck(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.data_integration.ConnectorService.CreateConnection":
+        return this.dataIntegrationConnectorCreateconnection(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.data_integration.ConnectorService.DeleteConnection":
+        return this.dataIntegrationConnectorDeleteconnection(((input.query ?? {}) as any), init);
+      case "open_foundry.data_integration.ConnectorService.InferSchema":
+        return this.dataIntegrationConnectorInferschema(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.data_integration.ConnectorService.ListConnections":
+        return this.dataIntegrationConnectorListconnections(((input.query ?? {}) as any), init);
+      case "open_foundry.data_integration.ConnectorService.SyncConnection":
+        return this.dataIntegrationConnectorSyncconnection(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.data_integration.ConnectorService.TestConnection":
+        return this.dataIntegrationConnectorTestconnection(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.dataset.DatasetService.CreateDataset":
+        return this.datasetDatasetCreatedataset(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.dataset.DatasetService.DeleteDataset":
+        return this.datasetDatasetDeletedataset(((input.query ?? {}) as any), init);
+      case "open_foundry.dataset.DatasetService.GetDataset":
+        return this.datasetDatasetGetdataset(((input.query ?? {}) as any), init);
+      case "open_foundry.dataset.DatasetService.GetVersions":
+        return this.datasetDatasetGetversions(((input.query ?? {}) as any), init);
+      case "open_foundry.dataset.DatasetService.ListDatasets":
+        return this.datasetDatasetListdatasets(((input.query ?? {}) as any), init);
+      case "open_foundry.dataset.DatasetService.PreviewData":
+        return this.datasetDatasetPreviewdata(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.dataset.DatasetService.UpdateDataset":
+        return this.datasetDatasetUpdatedataset(this.resolveBodyInput(input) as any, init);
+      case "notebook.NotebookService.CreateNotebook":
+        return this.notebookNotebookCreatenotebook(this.resolveBodyInput(input) as any, init);
+      case "notebook.KernelService.CreateSession":
+        return this.notebookKernelCreatesession(this.resolveBodyInput(input) as any, init);
+      case "notebook.NotebookService.DeleteNotebook":
+        return this.notebookNotebookDeletenotebook(((input.query ?? {}) as any), init);
+      case "notebook.NotebookService.GetNotebook":
+        return this.notebookNotebookGetnotebook(((input.query ?? {}) as any), init);
+      case "notebook.NotebookService.ListNotebooks":
+        return this.notebookNotebookListnotebooks(((input.query ?? {}) as any), init);
+      case "notebook.KernelService.ListSessions":
+        return this.notebookKernelListsessions(((input.query ?? {}) as any), init);
+      case "notebook.KernelService.StopSession":
+        return this.notebookKernelStopsession(this.resolveBodyInput(input) as any, init);
+      case "notebook.NotebookService.UpdateNotebook":
+        return this.notebookNotebookUpdatenotebook(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyService.CreateLinkType":
+        return this.ontologyOntologyCreatelinktype(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyService.CreateObjectType":
+        return this.ontologyOntologyCreateobjecttype(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyService.CreateProperty":
+        return this.ontologyOntologyCreateproperty(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.ontology.OntologyService.DeleteLinkType":
+        return this.ontologyOntologyDeletelinktype(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyService.DeleteObjectType":
+        return this.ontologyOntologyDeleteobjecttype(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyService.GetObjectType":
+        return this.ontologyOntologyGetobjecttype(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyService.ListLinkTypes":
+        return this.ontologyOntologyListlinktypes(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyService.ListObjectTypes":
+        return this.ontologyOntologyListobjecttypes(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyService.ListProperties":
+        return this.ontologyOntologyListproperties(((input.query ?? {}) as any), init);
+      case "open_foundry.ontology.OntologyService.UpdateObjectType":
+        return this.ontologyOntologyUpdateobjecttype(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.pipeline.PipelineService.CreatePipeline":
+        return this.pipelinePipelineCreatepipeline(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.pipeline.PipelineService.DeletePipeline":
+        return this.pipelinePipelineDeletepipeline(((input.query ?? {}) as any), init);
+      case "open_foundry.pipeline.LineageService.GetDatasetLineage":
+        return this.pipelineLineageGetdatasetlineage(((input.query ?? {}) as any), init);
+      case "open_foundry.pipeline.LineageService.GetFullLineage":
+        return this.pipelineLineageGetfulllineage(init);
+      case "open_foundry.pipeline.PipelineService.GetPipeline":
+        return this.pipelinePipelineGetpipeline(((input.query ?? {}) as any), init);
+      case "open_foundry.pipeline.PipelineService.GetRun":
+        return this.pipelinePipelineGetrun(((input.query ?? {}) as any), init);
+      case "open_foundry.pipeline.PipelineService.ListPipelines":
+        return this.pipelinePipelineListpipelines(((input.query ?? {}) as any), init);
+      case "open_foundry.pipeline.PipelineService.ListRuns":
+        return this.pipelinePipelineListruns(((input.query ?? {}) as any), init);
+      case "open_foundry.pipeline.LineageService.RecordLineage":
+        return this.pipelineLineageRecordlineage(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.pipeline.PipelineService.TriggerRun":
+        return this.pipelinePipelineTriggerrun(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.pipeline.PipelineService.UpdatePipeline":
+        return this.pipelinePipelineUpdatepipeline(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.query.QueryService.DeleteSavedQuery":
+        return this.queryQueryDeletesavedquery(((input.query ?? {}) as any), init);
+      case "open_foundry.query.QueryService.ExecuteQuery":
+        return this.queryQueryExecutequery(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.query.QueryService.ExplainQuery":
+        return this.queryQueryExplainquery(this.resolveBodyInput(input) as any, init);
+      case "open_foundry.query.QueryService.ListSavedQueries":
+        return this.queryQueryListsavedqueries(((input.query ?? {}) as any), init);
+      case "open_foundry.query.QueryService.SaveQuery":
+        return this.queryQuerySavequery(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.getControlPanel":
+        return this.adminV2Getcontrolpanel(init);
+      case "rest.admin.v2.updateControlPanel":
+        return this.adminV2Updatecontrolpanel(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.listGroups":
+        return this.adminV2Listgroups(init);
+      case "rest.admin.v2.createGroup":
+        return this.adminV2Creategroup(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.updateGroup":
+        return this.adminV2Updategroup((input.path?.id ?? this.requiredPathParam(input, "id")) as any, (input.body as any), init);
+      case "rest.admin.v2.listPermissions":
+        return this.adminV2Listpermissions(init);
+      case "rest.admin.v2.createPermission":
+        return this.adminV2Createpermission(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.listPolicies":
+        return this.adminV2Listpolicies(init);
+      case "rest.admin.v2.createPolicy":
+        return this.adminV2Createpolicy(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.evaluatePolicy":
+        return this.adminV2Evaluatepolicy(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.updatePolicy":
+        return this.adminV2Updatepolicy((input.path?.id ?? this.requiredPathParam(input, "id")) as any, (input.body as any), init);
+      case "rest.admin.v2.listRoles":
+        return this.adminV2Listroles(init);
+      case "rest.admin.v2.createRole":
+        return this.adminV2Createrole(this.resolveBodyInput(input) as any, init);
+      case "rest.admin.v2.updateRole":
+        return this.adminV2Updaterole((input.path?.id ?? this.requiredPathParam(input, "id")) as any, (input.body as any), init);
+      case "rest.admin.v2.listUsers":
+        return this.adminV2Listusers(init);
+      case "rest.admin.v2.getCurrentUser":
+        return this.adminV2Getcurrentuser(init);
+      case "rest.admin.v2.updateUser":
+        return this.adminV2Updateuser((input.path?.id ?? this.requiredPathParam(input, "id")) as any, (input.body as any), init);
+      case "rest.filesystem.v2.getDatasetFilesystem":
+        return this.filesystemV2Getdatasetfilesystem((input.path?.dataset_id ?? this.requiredPathParam(input, "dataset_id")) as any, ((input.query ?? {}) as any), init);
+      default:
+        throw new Error(`Unknown OpenFoundry operation: ${operationId}`);
+    }
+  }
+
+  async request<TResponse>(
     method: string,
     pathTemplate: string,
     pathParams: OpenFoundryPathParams | undefined,
     query: OpenFoundryQuery | undefined,
     body: unknown,
-    init: OpenFoundryRequestInit,
+    init: OpenFoundryRequestInit = {}, 
   ): Promise<TResponse> {
+    const response = await this.requestRaw<TResponse>(method, pathTemplate, pathParams, query, body, init);
+    return response.data;
+  }
+
+  async requestRaw<TResponse>(
+    method: string,
+    pathTemplate: string,
+    pathParams: OpenFoundryPathParams | undefined,
+    query: OpenFoundryQuery | undefined,
+    body: unknown,
+    init: OpenFoundryRequestInit = {}, 
+  ): Promise<OpenFoundryResponse<TResponse>> {
     const path = this.interpolatePath(pathTemplate, pathParams);
     const url = new URL(`${this.baseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
-        if (value !== undefined && value !== null) {
-          url.searchParams.set(key, String(value));
+        this.appendQueryParam(url, key, value);
+      }
+    }
+    const retryPolicy = this.mergeRetryPolicy(init.retry);
+    const maxAttempts = retryPolicy.maxAttempts ?? 1;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+      const timeoutMs = init.timeoutMs ?? this.timeoutMs;
+      const timeoutHandle = controller && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+      try {
+        const headers = this.buildHeaders(init.headers, body !== undefined);
+        const response = await this.fetchImpl(url.toString(), {
+          ...init,
+          method,
+          headers,
+          signal: controller?.signal,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const raw = await this.parseResponsePayload(response);
+        const requestId = response.headers.get('x-request-id');
+        if (!response.ok) {
+          throw new OpenFoundryApiError({
+            status: response.status,
+            method,
+            path,
+            requestId,
+            body: raw,
+            rawMessage: typeof raw === 'string' ? raw : JSON.stringify(raw ?? null),
+            message: this.errorMessageFromPayload(raw, response.statusText),
+          });
+        }
+        return {
+          data: raw as TResponse,
+          status: response.status,
+          headers: response.headers,
+          requestId,
+          raw,
+        };
+      } catch (cause) {
+        const error = cause instanceof OpenFoundryApiError
+          ? cause
+          : new OpenFoundryApiError({
+              status: 0,
+              method,
+              path,
+              message: cause instanceof Error ? cause.message : 'OpenFoundry network request failed',
+              rawMessage: cause instanceof Error ? cause.message : String(cause),
+            });
+        if (attempt >= maxAttempts || !this.shouldRetry(method, error.status, retryPolicy)) {
+          throw error;
+        }
+        await this.wait((retryPolicy.backoffMs ?? 250) * attempt);
+      } finally {
+        if (timeoutHandle !== undefined) {
+          clearTimeout(timeoutHandle);
         }
       }
     }
-    const response = await this.fetchImpl(url.toString(), {
-      ...init,
-      method,
-      headers: {
-        'content-type': 'application/json',
-        ...this.defaultHeaders,
-        ...(init.headers ?? {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    throw new OpenFoundryApiError({ status: 0, method, path, message: 'OpenFoundry request exhausted retries' });
+  }
 
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(`OpenFoundry request failed: ${response.status} ${message}`.trim());
+  private buildHeaders(headers: HeadersInit | undefined, hasJsonBody: boolean): Headers {
+    const merged = new Headers(this.defaultHeaders);
+    if (headers) {
+      new Headers(headers).forEach((value, key) => merged.set(key, value));
     }
+    if (this.token && !merged.has('authorization')) {
+      merged.set('authorization', `Bearer ${this.token}`);
+    }
+    if (this.userAgent && !merged.has('x-openfoundry-client')) {
+      merged.set('x-openfoundry-client', this.userAgent);
+    }
+    if (hasJsonBody && !merged.has('content-type')) {
+      merged.set('content-type', 'application/json');
+    }
+    return merged;
+  }
 
+  private appendQueryParam(url: URL, key: string, value: OpenFoundryQueryValue): void {
+    for (const entry of this.serializeQueryValue(value)) {
+      url.searchParams.append(key, entry);
+    }
+  }
+
+  private serializeQueryValue(value: OpenFoundryQueryValue): string[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item));
+    }
+    if (typeof value === 'object') {
+      return [JSON.stringify(value)];
+    }
+    return [String(value)];
+  }
+
+  private mergeRetryPolicy(override: Partial<OpenFoundryRetryPolicy> | false | undefined): OpenFoundryRetryPolicy {
+    if (override === false) {
+      return { maxAttempts: 1, backoffMs: 0, retryOnStatus: [], retryMethods: [] };
+    }
+    return {
+      maxAttempts: override?.maxAttempts ?? this.retryPolicy.maxAttempts ?? 1,
+      backoffMs: override?.backoffMs ?? this.retryPolicy.backoffMs ?? 250,
+      retryOnStatus: override?.retryOnStatus ?? this.retryPolicy.retryOnStatus ?? [408, 429, 500, 502, 503, 504],
+      retryMethods: override?.retryMethods ?? this.retryPolicy.retryMethods ?? ['GET', 'HEAD', 'OPTIONS'],
+    };
+  }
+
+  private shouldRetry(method: string, status: number, policy: OpenFoundryRetryPolicy): boolean {
+    const retryMethods = new Set((policy.retryMethods ?? []).map((entry) => entry.toUpperCase()));
+    const retryOnStatus = new Set(policy.retryOnStatus ?? []);
+    return retryMethods.has(method.toUpperCase()) && (status === 0 || retryOnStatus.has(status));
+  }
+
+  private async parseResponsePayload(response: Response): Promise<unknown> {
     if (response.status === 204) {
-      return undefined as TResponse;
+      return undefined;
     }
+    const text = await response.text();
+    if (!text) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(text) as unknown;
+    } catch (_error) {
+      return text;
+    }
+  }
 
-    return (await response.json()) as TResponse;
+  private errorMessageFromPayload(payload: unknown, fallback: string): string {
+    if (typeof payload === 'string' && payload.trim()) {
+      return payload;
+    }
+    if (payload && typeof payload === 'object') {
+      const record = payload as Record<string, unknown>;
+      for (const key of ['message', 'error', 'detail', 'code']) {
+        const value = record[key];
+        if (typeof value === 'string' && value.trim()) {
+          return value;
+        }
+      }
+    }
+    return fallback || 'OpenFoundry request failed';
   }
 
   private interpolatePath(pathTemplate: string, pathParams: OpenFoundryPathParams | undefined): string {
@@ -1268,5 +2634,27 @@ export class OpenFoundryClient {
       (path, [key, value]) => path.replace(`{${key}}`, encodeURIComponent(String(value))),
       pathTemplate,
     );
+  }
+
+  private requiredPathParam(input: OpenFoundryOperationInput, name: string): string | number | boolean {
+    const value = input.path?.[name];
+    if (value === undefined || value === null) {
+      throw new Error(`Missing required path parameter: ${name}`);
+    }
+    return value;
+  }
+
+  private resolveBodyInput(input: OpenFoundryOperationInput): unknown {
+    if (input.body !== undefined) {
+      return input.body;
+    }
+    if (input.path || input.query) {
+      return undefined;
+    }
+    return input;
+  }
+
+  private wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

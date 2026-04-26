@@ -57,6 +57,7 @@ override.tf.json
 # Benchmarks and local runtime output
 benchmarks/results/*
 !benchmarks/results/.gitkeep
+.openfoundry/
 tmp/
 temp/
 .cache/

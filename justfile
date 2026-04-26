@@ -183,15 +183,15 @@ proto-breaking:
 
 # Start dev infrastructure (Postgres, Redis, NATS, MinIO, Meilisearch)
 infra-up:
-    docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
 
 # Stop dev infrastructure
 infra-down:
-    docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down
+    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down
 
 # Start with monitoring stack
 infra-up-full:
-    docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml -f infra/docker-compose.monitoring.yml up -d
+    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml -f infra/docker-compose.monitoring.yml up -d
 
 # Build all Docker images
 docker-build:
@@ -210,6 +210,18 @@ fe-install:
 # Run frontend dev server
 fe-dev:
     cd apps/web && pnpm dev
+
+# Start infra, backend services, and frontend together for manual local verification
+dev-stack:
+    ./infra/scripts/dev-stack.sh
+
+# Faster restart path when infra is already running and Rust binaries are already built
+dev-stack-fast:
+    OPENFOUNDRY_SKIP_INFRA=1 OPENFOUNDRY_SKIP_BUILD=1 ./infra/scripts/dev-stack.sh
+
+# Smoke-test gateway, auth, datasets, and ontology against a running local stack
+smoke:
+    ./infra/scripts/smoke.sh
 
 # Build frontend
 fe-build:

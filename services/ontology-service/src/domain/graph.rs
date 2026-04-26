@@ -74,7 +74,11 @@ fn classify_scope(
     }
 }
 
-fn summarize_graph(mode: &str, nodes: &[GraphNode], edges: &[GraphEdge]) -> GraphSummary {
+pub(crate) fn summarize_graph(
+    mode: &str,
+    nodes: &[GraphNode],
+    edges: &[GraphEdge],
+) -> GraphSummary {
     let mut node_kinds = BTreeMap::new();
     let mut edge_kinds = BTreeMap::new();
     let mut object_types = BTreeMap::new();

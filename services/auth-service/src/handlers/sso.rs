@@ -104,13 +104,21 @@ pub async fn start_login(
         "{}/auth/callback",
         state.public_web_origin.trim_end_matches('/')
     );
+    let saml_service_provider = saml::SamlServiceProviderConfig {
+        entity_id: state.saml_service_provider_entity_id.clone(),
+        assertion_consumer_service_url: redirect_uri.clone(),
+        allowed_clock_skew_secs: state.saml_allowed_clock_skew_secs,
+    };
     let authorization_url = match provider.provider_type.as_str() {
         "oidc" => {
             oauth::build_authorization_url(&state.jwt_config, &provider, &redirect_uri, Some("/"))
         }
-        "saml" => {
-            saml::build_authorization_url(&state.jwt_config, &provider, &redirect_uri, Some("/"))
-        }
+        "saml" => saml::build_authorization_url(
+            &state.jwt_config,
+            &provider,
+            &saml_service_provider,
+            Some("/"),
+        ),
         _ => Err("unsupported provider type".to_string()),
     };
 
@@ -153,7 +161,19 @@ pub async fn complete_login(
         let Some(saml_response) = body.saml_response.as_deref() else {
             return json_error(StatusCode::BAD_REQUEST, "missing saml_response");
         };
-        match saml::parse_saml_response(&provider, saml_response) {
+        let saml_validation = saml::SamlValidationContext {
+            service_provider: saml::SamlServiceProviderConfig {
+                entity_id: state.saml_service_provider_entity_id.clone(),
+                assertion_consumer_service_url: redirect_uri.clone(),
+                allowed_clock_skew_secs: state.saml_allowed_clock_skew_secs,
+            },
+            request_id: state_claims
+                .attributes
+                .get("saml_request_id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+        };
+        match saml::parse_saml_response(&provider, saml_response, &saml_validation) {
             Ok(identity) => (
                 identity.subject,
                 identity.email,
@@ -303,8 +323,27 @@ pub async fn create_provider(
         return response;
     }
 
-    let metadata_defaults = if body.provider_type == "saml" {
-        match body.saml_metadata_url.as_deref() {
+    let UpsertProviderRequest {
+        slug,
+        name,
+        provider_type,
+        enabled,
+        client_id,
+        client_secret,
+        issuer_url,
+        authorization_url,
+        token_url,
+        userinfo_url,
+        scopes,
+        saml_metadata_url,
+        saml_entity_id,
+        saml_sso_url,
+        saml_certificate,
+        attribute_mapping,
+    } = body;
+
+    let metadata_defaults = if provider_type == "saml" {
+        match saml_metadata_url.as_deref() {
             Some(metadata_url) => match saml::resolve_metadata_defaults(metadata_url).await {
                 Ok(defaults) => Some(defaults),
                 Err(error) => return json_error(StatusCode::BAD_REQUEST, error),
@@ -314,6 +353,46 @@ pub async fn create_provider(
     } else {
         None
     };
+    let resolved_saml_metadata_url = if provider_type == "saml" {
+        saml_metadata_url
+    } else {
+        None
+    };
+    let resolved_saml_entity_id = if provider_type == "saml" {
+        saml_entity_id.or_else(|| {
+            metadata_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.entity_id.clone())
+        })
+    } else {
+        None
+    };
+    let resolved_saml_sso_url = if provider_type == "saml" {
+        saml_sso_url.or_else(|| {
+            metadata_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.sso_url.clone())
+        })
+    } else {
+        None
+    };
+    let resolved_saml_certificate = if provider_type == "saml" {
+        saml_certificate.or_else(|| {
+            metadata_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.certificate.clone())
+        })
+    } else {
+        None
+    };
+    if let Err(error) = validate_saml_provider_configuration(
+        &provider_type,
+        resolved_saml_entity_id.as_deref(),
+        resolved_saml_sso_url.as_deref(),
+        resolved_saml_certificate.as_deref(),
+    ) {
+        return json_error(StatusCode::BAD_REQUEST, error);
+    }
 
     match sqlx::query_as::<_, SsoProvider>(
         r#"INSERT INTO sso_providers (id, slug, name, provider_type, enabled, client_id, client_secret, issuer_url, authorization_url, token_url, userinfo_url, scopes, saml_metadata_url, saml_entity_id, saml_sso_url, saml_certificate, attribute_mapping)
@@ -321,22 +400,22 @@ pub async fn create_provider(
            RETURNING id, slug, name, provider_type, enabled, client_id, client_secret, issuer_url, authorization_url, token_url, userinfo_url, scopes, saml_metadata_url, saml_entity_id, saml_sso_url, saml_certificate, attribute_mapping, created_at, updated_at"#,
     )
     .bind(Uuid::now_v7())
-    .bind(body.slug)
-    .bind(body.name)
-    .bind(body.provider_type)
-    .bind(body.enabled)
-    .bind(body.client_id)
-    .bind(body.client_secret)
-    .bind(body.issuer_url)
-    .bind(body.authorization_url)
-    .bind(body.token_url)
-    .bind(body.userinfo_url)
-    .bind(body.scopes)
-    .bind(body.saml_metadata_url)
-    .bind(body.saml_entity_id.or_else(|| metadata_defaults.as_ref().and_then(|defaults| defaults.entity_id.clone())))
-    .bind(body.saml_sso_url.or_else(|| metadata_defaults.as_ref().and_then(|defaults| defaults.sso_url.clone())))
-    .bind(body.saml_certificate.or_else(|| metadata_defaults.as_ref().and_then(|defaults| defaults.certificate.clone())))
-    .bind(body.attribute_mapping)
+    .bind(slug)
+    .bind(name)
+    .bind(provider_type)
+    .bind(enabled)
+    .bind(client_id)
+    .bind(client_secret)
+    .bind(issuer_url)
+    .bind(authorization_url)
+    .bind(token_url)
+    .bind(userinfo_url)
+    .bind(scopes)
+    .bind(resolved_saml_metadata_url)
+    .bind(resolved_saml_entity_id)
+    .bind(resolved_saml_sso_url)
+    .bind(resolved_saml_certificate)
+    .bind(attribute_mapping)
     .fetch_one(&state.db)
     .await
     {
@@ -367,9 +446,27 @@ pub async fn update_provider(
         }
     };
 
-    let metadata_defaults = if body.provider_type == "saml" {
-        match body
-            .saml_metadata_url
+    let UpsertProviderRequest {
+        slug,
+        name,
+        provider_type,
+        enabled,
+        client_id,
+        client_secret,
+        issuer_url,
+        authorization_url,
+        token_url,
+        userinfo_url,
+        scopes,
+        saml_metadata_url,
+        saml_entity_id,
+        saml_sso_url,
+        saml_certificate,
+        attribute_mapping,
+    } = body;
+
+    let metadata_defaults = if provider_type == "saml" {
+        match saml_metadata_url
             .as_deref()
             .or(existing.saml_metadata_url.as_deref())
         {
@@ -382,6 +479,46 @@ pub async fn update_provider(
     } else {
         None
     };
+    let resolved_saml_metadata_url = if provider_type == "saml" {
+        saml_metadata_url.or(existing.saml_metadata_url)
+    } else {
+        None
+    };
+    let resolved_saml_entity_id = if provider_type == "saml" {
+        saml_entity_id.or(existing.saml_entity_id).or_else(|| {
+            metadata_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.entity_id.clone())
+        })
+    } else {
+        None
+    };
+    let resolved_saml_sso_url = if provider_type == "saml" {
+        saml_sso_url.or(existing.saml_sso_url).or_else(|| {
+            metadata_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.sso_url.clone())
+        })
+    } else {
+        None
+    };
+    let resolved_saml_certificate = if provider_type == "saml" {
+        saml_certificate.or(existing.saml_certificate).or_else(|| {
+            metadata_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.certificate.clone())
+        })
+    } else {
+        None
+    };
+    if let Err(error) = validate_saml_provider_configuration(
+        &provider_type,
+        resolved_saml_entity_id.as_deref(),
+        resolved_saml_sso_url.as_deref(),
+        resolved_saml_certificate.as_deref(),
+    ) {
+        return json_error(StatusCode::BAD_REQUEST, error);
+    }
 
     match sqlx::query_as::<_, SsoProvider>(
         r#"UPDATE sso_providers
@@ -406,22 +543,22 @@ pub async fn update_provider(
            RETURNING id, slug, name, provider_type, enabled, client_id, client_secret, issuer_url, authorization_url, token_url, userinfo_url, scopes, saml_metadata_url, saml_entity_id, saml_sso_url, saml_certificate, attribute_mapping, created_at, updated_at"#,
     )
     .bind(provider_id)
-    .bind(body.slug)
-    .bind(body.name)
-    .bind(body.provider_type)
-    .bind(body.enabled)
-    .bind(body.client_id)
-    .bind(body.client_secret.or(existing.client_secret))
-    .bind(body.issuer_url)
-    .bind(body.authorization_url)
-    .bind(body.token_url)
-    .bind(body.userinfo_url)
-    .bind(body.scopes)
-    .bind(body.saml_metadata_url)
-    .bind(body.saml_entity_id.or(existing.saml_entity_id).or_else(|| metadata_defaults.as_ref().and_then(|defaults| defaults.entity_id.clone())))
-    .bind(body.saml_sso_url.or(existing.saml_sso_url).or_else(|| metadata_defaults.as_ref().and_then(|defaults| defaults.sso_url.clone())))
-    .bind(body.saml_certificate.or(existing.saml_certificate).or_else(|| metadata_defaults.as_ref().and_then(|defaults| defaults.certificate.clone())))
-    .bind(body.attribute_mapping)
+    .bind(slug)
+    .bind(name)
+    .bind(provider_type)
+    .bind(enabled)
+    .bind(client_id)
+    .bind(client_secret.or(existing.client_secret))
+    .bind(issuer_url)
+    .bind(authorization_url)
+    .bind(token_url)
+    .bind(userinfo_url)
+    .bind(scopes)
+    .bind(resolved_saml_metadata_url)
+    .bind(resolved_saml_entity_id)
+    .bind(resolved_saml_sso_url)
+    .bind(resolved_saml_certificate)
+    .bind(attribute_mapping)
     .fetch_optional(&state.db)
     .await
     {
@@ -501,6 +638,39 @@ async fn load_mfa_configuration(
     .bind(user_id)
     .fetch_optional(pool)
     .await
+}
+
+fn validate_saml_provider_configuration(
+    provider_type: &str,
+    saml_entity_id: Option<&str>,
+    saml_sso_url: Option<&str>,
+    saml_certificate: Option<&str>,
+) -> Result<(), String> {
+    if provider_type != "saml" {
+        return Ok(());
+    }
+    if saml_entity_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err("saml providers require saml_entity_id".to_string());
+    }
+    if saml_sso_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err("saml providers require saml_sso_url".to_string());
+    }
+    if saml_certificate
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err("saml providers require saml_certificate".to_string());
+    }
+    Ok(())
 }
 
 async fn build_sso_provisioning_profile(

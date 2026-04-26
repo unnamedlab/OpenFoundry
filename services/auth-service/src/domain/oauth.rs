@@ -109,6 +109,22 @@ pub fn issue_state(
     provider_id: uuid::Uuid,
     redirect_to: Option<&str>,
 ) -> Result<String, String> {
+    issue_state_with_attributes(config, provider_id, redirect_to, serde_json::Map::new())
+}
+
+pub fn issue_state_with_attributes(
+    config: &JwtConfig,
+    provider_id: uuid::Uuid,
+    redirect_to: Option<&str>,
+    extra_attributes: serde_json::Map<String, Value>,
+) -> Result<String, String> {
+    let mut attributes = serde_json::Map::new();
+    attributes.insert(
+        "redirect_to".to_string(),
+        Value::String(redirect_to.unwrap_or("/").to_string()),
+    );
+    attributes.extend(extra_attributes);
+
     let claims = Claims {
         sub: provider_id,
         iat: chrono::Utc::now().timestamp(),
@@ -121,9 +137,7 @@ pub fn issue_state(
         roles: vec![],
         permissions: vec![],
         org_id: None,
-        attributes: serde_json::json!({
-            "redirect_to": redirect_to.unwrap_or("/"),
-        }),
+        attributes: Value::Object(attributes),
         auth_methods: vec!["sso_state".to_string()],
         token_use: Some("sso_state".to_string()),
         api_key_id: None,

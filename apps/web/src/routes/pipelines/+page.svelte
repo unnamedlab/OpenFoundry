@@ -125,24 +125,46 @@
                 knowledge_base_id: '',
                 preferred_provider_id: '',
               }
-          : transformType === 'wasm'
-            ? { module: '(module (func (export "run") (result i32) i32.const 0))', function: 'run' }
+            : transformType === 'wasm'
+              ? { module: '(module (func (export "run") (result i32) i32.const 0))', function: 'run' }
             : transformType === 'spark' || transformType === 'pyspark'
               ? {
                   endpoint: '',
                   auth_mode: 'service_jwt',
                   job_type: 'spark-batch',
+                  execution_mode: 'async',
+                  input_mode: 'dataset_manifest',
+                  output_delivery: 'direct_upload',
                   cluster_profile: 'shared',
+                  namespace: 'analytics',
+                  queue: 'default',
                   entrypoint: 'main',
+                  status_endpoint: '',
+                  poll_interval_ms: 5000,
+                  timeout_secs: 900,
+                  driver_cores: 1,
+                  driver_memory: '2g',
+                  executor_cores: 2,
+                  executor_memory: '4g',
+                  executor_instances: 2,
+                  output_format: 'parquet',
                   runtime: transformType,
                   source:
-                    'from pyspark.sql import functions as F\n# Remote Spark runner receives config + prepared inputs.\n# Emit result_rows from the external compute service.',
+                    'from pyspark.sql import functions as F\n# Distributed runner receives dataset manifests + cluster config.\n# Upload large outputs directly to dataset-service and return output_dataset_version.',
                 }
               : transformType === 'external'
                 ? {
                     endpoint: '',
                     auth_mode: 'none',
                     job_type: 'external-job',
+                    execution_mode: 'sync',
+                    input_mode: 'inline_rows',
+                    output_delivery: 'pipeline_upload',
+                    entrypoint: 'main',
+                    status_endpoint: '',
+                    poll_interval_ms: 2000,
+                    timeout_secs: 300,
+                    output_format: 'json',
                     source: '{\n  "operation": "enrich",\n  "mode": "append"\n}',
                   }
                 : { identity_columns: [] };
@@ -1021,12 +1043,89 @@
                             </select>
                           </div>
                           <div>
-                            <label for={`profile-${node.id}`} class="mb-1 block text-sm font-medium">{isSparkFamily(node) ? 'Cluster profile' : 'Entrypoint'}</label>
-                            <input id={`profile-${node.id}`} value={stringConfig(node, isSparkFamily(node) ? 'cluster_profile' : 'entrypoint', isSparkFamily(node) ? 'shared' : 'main')} oninput={(event) => setNodeConfig(node.id, isSparkFamily(node) ? 'cluster_profile' : 'entrypoint', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            <label for={`execution-mode-${node.id}`} class="mb-1 block text-sm font-medium">Execution mode</label>
+                            <select id={`execution-mode-${node.id}`} value={stringConfig(node, 'execution_mode', isSparkFamily(node) ? 'async' : 'sync')} oninput={(event) => setNodeConfig(node.id, 'execution_mode', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+                              <option value="sync">Sync</option>
+                              <option value="async">Async</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label for={`input-mode-${node.id}`} class="mb-1 block text-sm font-medium">Input mode</label>
+                            <select id={`input-mode-${node.id}`} value={stringConfig(node, 'input_mode', isSparkFamily(node) ? 'dataset_manifest' : 'inline_rows')} oninput={(event) => setNodeConfig(node.id, 'input_mode', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+                              <option value="dataset_manifest">Dataset manifest</option>
+                              <option value="inline_rows">Inline rows</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label for={`output-delivery-${node.id}`} class="mb-1 block text-sm font-medium">Output delivery</label>
+                            <select id={`output-delivery-${node.id}`} value={stringConfig(node, 'output_delivery', isSparkFamily(node) ? 'direct_upload' : 'pipeline_upload')} oninput={(event) => setNodeConfig(node.id, 'output_delivery', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+                              <option value="direct_upload">Direct upload</option>
+                              <option value="pipeline_upload">Pipeline upload</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label for={`entrypoint-${node.id}`} class="mb-1 block text-sm font-medium">Entrypoint</label>
+                            <input id={`entrypoint-${node.id}`} value={stringConfig(node, 'entrypoint', 'main')} oninput={(event) => setNodeConfig(node.id, 'entrypoint', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                          </div>
+                          <div>
+                            <label for={`status-endpoint-${node.id}`} class="mb-1 block text-sm font-medium">Status endpoint</label>
+                            <input id={`status-endpoint-${node.id}`} value={stringConfig(node, 'status_endpoint')} oninput={(event) => setNodeConfig(node.id, 'status_endpoint', (event.currentTarget as HTMLInputElement).value)} placeholder={'jobs/{run_id}/status'} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                          </div>
+                          <div>
+                            <label for={`poll-interval-${node.id}`} class="mb-1 block text-sm font-medium">Poll interval (ms)</label>
+                            <input id={`poll-interval-${node.id}`} type="number" min="250" step="250" value={numericConfig(node, 'poll_interval_ms', isSparkFamily(node) ? 5000 : 2000)} oninput={(event) => setNodeConfig(node.id, 'poll_interval_ms', Number((event.currentTarget as HTMLInputElement).value || (isSparkFamily(node) ? 5000 : 2000)))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                          </div>
+                          <div>
+                            <label for={`timeout-${node.id}`} class="mb-1 block text-sm font-medium">Timeout (s)</label>
+                            <input id={`timeout-${node.id}`} type="number" min="30" step="30" value={numericConfig(node, 'timeout_secs', isSparkFamily(node) ? 900 : 300)} oninput={(event) => setNodeConfig(node.id, 'timeout_secs', Number((event.currentTarget as HTMLInputElement).value || (isSparkFamily(node) ? 900 : 300)))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                          </div>
+                          <div>
+                            <label for={`output-format-${node.id}`} class="mb-1 block text-sm font-medium">Output format</label>
+                            <select id={`output-format-${node.id}`} value={stringConfig(node, 'output_format', isSparkFamily(node) ? 'parquet' : 'json')} oninput={(event) => setNodeConfig(node.id, 'output_format', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+                              <option value="parquet">Parquet</option>
+                              <option value="json">JSON</option>
+                              <option value="csv">CSV</option>
+                            </select>
                           </div>
                         </div>
+                        {#if isSparkFamily(node)}
+                          <div class="mt-4 grid gap-4 md:grid-cols-2">
+                            <div>
+                              <label for={`cluster-profile-${node.id}`} class="mb-1 block text-sm font-medium">Cluster profile</label>
+                              <input id={`cluster-profile-${node.id}`} value={stringConfig(node, 'cluster_profile', 'shared')} oninput={(event) => setNodeConfig(node.id, 'cluster_profile', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`namespace-${node.id}`} class="mb-1 block text-sm font-medium">Namespace</label>
+                              <input id={`namespace-${node.id}`} value={stringConfig(node, 'namespace', 'analytics')} oninput={(event) => setNodeConfig(node.id, 'namespace', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`queue-${node.id}`} class="mb-1 block text-sm font-medium">Queue</label>
+                              <input id={`queue-${node.id}`} value={stringConfig(node, 'queue', 'default')} oninput={(event) => setNodeConfig(node.id, 'queue', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`driver-cores-${node.id}`} class="mb-1 block text-sm font-medium">Driver cores</label>
+                              <input id={`driver-cores-${node.id}`} type="number" min="1" value={numericConfig(node, 'driver_cores', 1)} oninput={(event) => setNodeConfig(node.id, 'driver_cores', Number((event.currentTarget as HTMLInputElement).value || 1))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`driver-memory-${node.id}`} class="mb-1 block text-sm font-medium">Driver memory</label>
+                              <input id={`driver-memory-${node.id}`} value={stringConfig(node, 'driver_memory', '2g')} oninput={(event) => setNodeConfig(node.id, 'driver_memory', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`executor-instances-${node.id}`} class="mb-1 block text-sm font-medium">Executor instances</label>
+                              <input id={`executor-instances-${node.id}`} type="number" min="1" value={numericConfig(node, 'executor_instances', 2)} oninput={(event) => setNodeConfig(node.id, 'executor_instances', Number((event.currentTarget as HTMLInputElement).value || 2))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`executor-cores-${node.id}`} class="mb-1 block text-sm font-medium">Executor cores</label>
+                              <input id={`executor-cores-${node.id}`} type="number" min="1" value={numericConfig(node, 'executor_cores', 2)} oninput={(event) => setNodeConfig(node.id, 'executor_cores', Number((event.currentTarget as HTMLInputElement).value || 2))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                            <div>
+                              <label for={`executor-memory-${node.id}`} class="mb-1 block text-sm font-medium">Executor memory</label>
+                              <input id={`executor-memory-${node.id}`} value={stringConfig(node, 'executor_memory', '4g')} oninput={(event) => setNodeConfig(node.id, 'executor_memory', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-900" />
+                            </div>
+                          </div>
+                        {/if}
                         <div class="mt-3 rounded-xl bg-slate-100 px-3 py-3 text-xs text-slate-600 dark:bg-slate-950/60 dark:text-slate-300">
-                          Remote compute contract: the builder posts `job_type`, full `config`, prepared input rows, and the optional `output_dataset_id`. The remote runner should return JSON with `status`, optional `output`, and optional `result_rows`.
+                          Distributed compute contract: the builder posts a versioned request with runtime, execution mode, resource profile, dataset manifests, optional inline rows, and direct-upload metadata for outputs. Remote runners can return `accepted`/`running` states plus `status_url`, then finish with `output_dataset_version` for large jobs or `result_rows` for small ones.
                         </div>
                       </div>
                     {/if}

@@ -88,11 +88,16 @@ pub fn connector_profiles() -> Vec<ConnectorContractProfile> {
     vec![
         sql_profile("postgresql", "PostgreSQL", false),
         sql_profile("mysql", "MySQL", false),
+        driver_profile("odbc", "ODBC"),
+        driver_profile("jdbc", "JDBC"),
         warehouse_profile("snowflake", "Snowflake"),
         warehouse_profile("bigquery", "BigQuery"),
         object_store_profile("s3", "Amazon S3"),
         event_bus_profile("kafka", "Kafka"),
+        event_bus_profile("kinesis", "Amazon Kinesis"),
         saas_profile("salesforce", "Salesforce"),
+        bi_profile("tableau", "Tableau"),
+        bi_profile("power_bi", "Power BI"),
         erp_profile("sap", "SAP"),
     ]
 }
@@ -412,6 +417,127 @@ fn saas_profile(connector_type: &str, display_name: &str) -> ConnectorContractPr
     }
 }
 
+fn bi_profile(connector_type: &str, display_name: &str) -> ConnectorContractProfile {
+    ConnectorContractProfile {
+        connector_type: connector_type.to_string(),
+        display_name: display_name.to_string(),
+        template_family: "bi_semantic".to_string(),
+        auth: ConnectorAuthProfile {
+            strategy: "oauth_bearer_or_service_principal".to_string(),
+            secret_fields: vec![
+                "client_id".to_string(),
+                "client_secret".to_string(),
+                "bearer_token".to_string(),
+            ],
+            supports_oauth: true,
+            supports_private_network_agent: true,
+        },
+        testing: ConnectorTestingProfile {
+            supports_connection_testing: true,
+            supports_discovery: true,
+            supports_schema_introspection: true,
+        },
+        sync: ConnectorSyncProfile {
+            modes: vec![
+                "batch".to_string(),
+                "incremental".to_string(),
+                "zero_copy".to_string(),
+            ],
+            supports_incremental: true,
+            supports_cdc: false,
+            supports_zero_copy: true,
+        },
+        observability: ConnectorObservabilityProfile {
+            retries: true,
+            status_tracking: true,
+            source_signatures: true,
+        },
+        builder: ConnectorBuilderProfile {
+            scaffold_kind: "bi_connector".to_string(),
+            reusable_components: vec![
+                "workspace_discovery".to_string(),
+                "semantic_model_projection".to_string(),
+                "dashboard_extracts".to_string(),
+            ],
+            example_targets: vec!["tableau".to_string(), "power_bi".to_string()],
+        },
+        certification: ConnectorCertificationProfile {
+            level: "advanced".to_string(),
+            runtime_depth: "batch_incremental_zero_copy".to_string(),
+            auth: "certified".to_string(),
+            observability: "advanced".to_string(),
+            schema_evolution: "baseline".to_string(),
+            performance_posture: "baseline".to_string(),
+            failure_handling: "advanced".to_string(),
+        },
+        notes: vec![
+            "Bridges BI semantic layers into discovery, virtual-table previews, and scheduled extracts."
+                .to_string(),
+        ],
+    }
+}
+
+fn driver_profile(connector_type: &str, display_name: &str) -> ConnectorContractProfile {
+    ConnectorContractProfile {
+        connector_type: connector_type.to_string(),
+        display_name: display_name.to_string(),
+        template_family: "sql_driver_bridge".to_string(),
+        auth: ConnectorAuthProfile {
+            strategy: "dsn_or_connection_string".to_string(),
+            secret_fields: vec![
+                "username".to_string(),
+                "password".to_string(),
+                "connection_string".to_string(),
+            ],
+            supports_oauth: false,
+            supports_private_network_agent: true,
+        },
+        testing: ConnectorTestingProfile {
+            supports_connection_testing: true,
+            supports_discovery: true,
+            supports_schema_introspection: true,
+        },
+        sync: ConnectorSyncProfile {
+            modes: vec![
+                "batch".to_string(),
+                "incremental".to_string(),
+                "zero_copy".to_string(),
+            ],
+            supports_incremental: true,
+            supports_cdc: false,
+            supports_zero_copy: true,
+        },
+        observability: ConnectorObservabilityProfile {
+            retries: true,
+            status_tracking: true,
+            source_signatures: true,
+        },
+        builder: ConnectorBuilderProfile {
+            scaffold_kind: "sql_driver_connector".to_string(),
+            reusable_components: vec![
+                "connection_testing".to_string(),
+                "schema_introspection".to_string(),
+                "virtual_tables".to_string(),
+                "private_network_bridge".to_string(),
+            ],
+            example_targets: vec!["odbc".to_string(), "jdbc".to_string()],
+        },
+        certification: ConnectorCertificationProfile {
+            level: "advanced".to_string(),
+            runtime_depth: "batch_incremental_zero_copy".to_string(),
+            auth: "advanced".to_string(),
+            observability: "advanced".to_string(),
+            schema_evolution: "advanced".to_string(),
+            performance_posture: "advanced".to_string(),
+            failure_handling: "advanced".to_string(),
+        },
+        notes: vec![
+            "Standardizes private-network SQL driver connectivity through DSNs, JDBC URLs, and remote bridge catalogs."
+                .to_string(),
+        ],
+    }
+}
+
 fn erp_profile(connector_type: &str, display_name: &str) -> ConnectorContractProfile {
     ConnectorContractProfile {
         connector_type: connector_type.to_string(),
@@ -478,15 +604,20 @@ mod tests {
     #[test]
     fn exposes_phase_one_high_value_connectors() {
         let profiles = connector_profiles();
-        assert!(profiles.len() >= 8);
+        assert!(profiles.len() >= 13);
         for connector in [
             "postgresql",
             "mysql",
+            "odbc",
+            "jdbc",
             "snowflake",
             "bigquery",
             "s3",
             "kafka",
+            "kinesis",
             "salesforce",
+            "tableau",
+            "power_bi",
             "sap",
         ] {
             assert!(

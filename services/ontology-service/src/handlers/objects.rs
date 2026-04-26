@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use uuid::Uuid;
 
 use auth_middleware::layer::AuthUser;
@@ -17,19 +17,27 @@ use crate::{
         access::{ensure_object_access, validate_marking},
         function_runtime::{load_accessible_object_set, load_linked_objects, object_to_json},
         graph,
-        rules::{evaluate_rules_for_object, load_recent_rule_runs},
+        rules::{
+            evaluate_rule_against_object, evaluate_rules_for_object, load_recent_rule_runs,
+            load_rules_for_object_type,
+        },
         schema::{load_effective_properties, validate_object_properties},
     },
     handlers::actions::preview_action_for_simulation,
     handlers::actions::{ensure_action_actor_permission, ensure_action_target_permission},
     models::{
         action_type::ActionType,
-        graph::{GraphQuery, GraphResponse},
+        graph::{GraphEdge, GraphNode, GraphQuery, GraphResponse},
+        object_type::ObjectType,
         object_view::{
+            ObjectScenarioSimulationRequest, ObjectScenarioSimulationResponse,
             ObjectSimulationImpactSummary, ObjectSimulationRequest, ObjectSimulationResponse,
-            ObjectViewResponse,
+            ObjectViewResponse, ScenarioGoalSpec, ScenarioLinkPreview, ScenarioMetricEvaluation,
+            ScenarioMetricSpec, ScenarioObjectChange, ScenarioRuleOutcome,
+            ScenarioSimulationCandidate, ScenarioSimulationOperation, ScenarioSimulationResult,
+            ScenarioSummary, ScenarioSummaryDelta,
         },
-        rule::RuleMatchResponse,
+        rule::{OntologyRule, RuleEvaluationMode, RuleMatchResponse},
     },
 };
 
@@ -85,6 +93,22 @@ pub struct QueryObjectsRequest {
     #[serde(default)]
     pub equals: Value,
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct ScenarioObjectState {
+    original: ObjectInstance,
+    current: Option<ObjectInstance>,
+    changed_properties: BTreeSet<String>,
+    sources: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ScenarioRuntimeState {
+    object_states: BTreeMap<Uuid, ScenarioObjectState>,
+    rule_outcomes: Vec<ScenarioRuleOutcome>,
+    link_previews: Vec<ScenarioLinkPreview>,
+    graph: GraphResponse,
 }
 
 pub async fn create_object(
@@ -820,6 +844,1401 @@ pub async fn simulate_object(
         timeline,
     })
     .into_response()
+}
+
+pub async fn simulate_object_scenarios(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((type_id, obj_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ObjectScenarioSimulationRequest>,
+) -> impl IntoResponse {
+    if body.scenarios.is_empty() {
+        return invalid("scenarios must contain at least one candidate scenario");
+    }
+
+    let root_object = match load_object_instance(&state.db, obj_id).await {
+        Ok(Some(object)) => object,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("scenario simulation lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if root_object.object_type_id != type_id {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if let Err(error) = ensure_object_access(&claims, &root_object) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
+    }
+
+    let depth = body.depth.unwrap_or(2).clamp(1, 4);
+    let max_iterations = body.max_iterations.unwrap_or(6).clamp(1, 24);
+    let (base_graph, base_object_states, mut type_labels) =
+        match load_scenario_context(&state, &claims, &root_object, depth, &body.scenarios).await {
+            Ok(context) => context,
+            Err(error) => return invalid(error),
+        };
+
+    let baseline = if body.include_baseline {
+        match run_object_scenario(
+            &state,
+            &claims,
+            &root_object,
+            &base_graph,
+            &base_object_states,
+            &mut type_labels,
+            None,
+            &body.constraints,
+            &body.goals,
+            max_iterations,
+        )
+        .await
+        {
+            Ok(result) => Some(result),
+            Err(error) => return invalid(error),
+        }
+    } else {
+        None
+    };
+
+    let mut scenarios = Vec::new();
+    for candidate in &body.scenarios {
+        let mut result = match run_object_scenario(
+            &state,
+            &claims,
+            &root_object,
+            &base_graph,
+            &base_object_states,
+            &mut type_labels,
+            Some(candidate),
+            &body.constraints,
+            &body.goals,
+            max_iterations,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => return invalid(error),
+        };
+        if let Some(baseline) = baseline.as_ref() {
+            result.delta_from_baseline =
+                Some(build_summary_delta(&result.summary, &baseline.summary));
+        }
+        scenarios.push(result);
+    }
+
+    Json(ObjectScenarioSimulationResponse {
+        root_object_id: root_object.id,
+        root_type_id: root_object.object_type_id,
+        compared_at: chrono::Utc::now(),
+        baseline,
+        scenarios,
+    })
+    .into_response()
+}
+
+async fn load_scenario_context(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    root_object: &ObjectInstance,
+    depth: usize,
+    scenarios: &[ScenarioSimulationCandidate],
+) -> Result<
+    (
+        GraphResponse,
+        BTreeMap<Uuid, ScenarioObjectState>,
+        HashMap<Uuid, String>,
+    ),
+    String,
+> {
+    let base_graph = graph::build_graph(
+        state,
+        claims,
+        &GraphQuery {
+            root_object_id: Some(root_object.id),
+            root_type_id: None,
+            depth: Some(depth),
+            limit: Some(80),
+        },
+    )
+    .await?;
+    let mut object_ids = extract_graph_object_ids(&base_graph)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    object_ids.insert(root_object.id);
+    for scenario in scenarios {
+        for operation in &scenario.operations {
+            if let Some(target_object_id) = operation.target_object_id {
+                object_ids.insert(target_object_id);
+            }
+        }
+    }
+
+    let mut object_states = BTreeMap::new();
+    let mut object_type_ids = BTreeSet::new();
+    for object_id in object_ids {
+        let object = load_object_instance(&state.db, object_id)
+            .await
+            .map_err(|error| format!("failed to load scenario object {object_id}: {error}"))?
+            .ok_or_else(|| format!("scenario object {object_id} was not found"))?;
+        ensure_object_access(claims, &object)?;
+        object_type_ids.insert(object.object_type_id);
+        object_states.insert(
+            object_id,
+            ScenarioObjectState {
+                original: object.clone(),
+                current: Some(object),
+                changed_properties: BTreeSet::new(),
+                sources: BTreeSet::new(),
+            },
+        );
+    }
+
+    let type_labels =
+        load_object_type_labels(state, &object_type_ids.into_iter().collect::<Vec<_>>()).await?;
+    Ok((base_graph, object_states, type_labels))
+}
+
+async fn run_object_scenario(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    root_object: &ObjectInstance,
+    base_graph: &GraphResponse,
+    base_object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    type_labels: &mut HashMap<Uuid, String>,
+    candidate: Option<&ScenarioSimulationCandidate>,
+    constraints: &[ScenarioMetricSpec],
+    goals: &[ScenarioGoalSpec],
+    max_iterations: usize,
+) -> Result<ScenarioSimulationResult, String> {
+    let mut runtime = ScenarioRuntimeState {
+        object_states: base_object_states.clone(),
+        rule_outcomes: Vec::new(),
+        link_previews: Vec::new(),
+        graph: base_graph.clone(),
+    };
+    let mut property_cache = HashMap::new();
+    let mut rule_cache = HashMap::new();
+
+    if let Some(candidate) = candidate {
+        for (index, operation) in candidate.operations.iter().enumerate() {
+            apply_scenario_operation(
+                state,
+                claims,
+                &mut runtime,
+                type_labels,
+                root_object.id,
+                operation,
+                index,
+                &mut property_cache,
+            )
+            .await?;
+        }
+    }
+
+    let mut queue = runtime
+        .object_states
+        .iter()
+        .map(|(object_id, object_state)| (*object_id, object_state.original.clone()))
+        .collect::<VecDeque<_>>();
+    let max_steps = max_iterations
+        .saturating_mul(runtime.object_states.len().max(1))
+        .saturating_mul(8);
+    let mut steps = 0usize;
+    let mut auto_applied_rules = HashSet::<(Uuid, Uuid)>::new();
+
+    while let Some((object_id, previous_snapshot)) = queue.pop_front() {
+        steps += 1;
+        if steps > max_steps {
+            return Err("scenario propagation reached the configured iteration limit".to_string());
+        }
+
+        let Some(current_snapshot) = runtime
+            .object_states
+            .get(&object_id)
+            .and_then(|entry| entry.current.clone())
+        else {
+            continue;
+        };
+
+        let properties_patch =
+            diff_properties_between_objects(&previous_snapshot, &current_snapshot);
+        let rules =
+            load_cached_rules(state, &mut rule_cache, current_snapshot.object_type_id).await?;
+        for rule in rules {
+            let match_result = evaluate_rule_against_object(
+                &rule,
+                &previous_snapshot,
+                if properties_patch.is_empty() {
+                    None
+                } else {
+                    Some(&properties_patch)
+                },
+            );
+            if !match_result.matched {
+                continue;
+            }
+
+            let auto_applied = if rule.evaluation_mode == RuleEvaluationMode::Automatic
+                && auto_applied_rules.insert((rule.id, object_id))
+            {
+                let before = current_snapshot.clone();
+                let applied = apply_rule_effect_preview_to_runtime(
+                    state,
+                    &mut runtime,
+                    type_labels,
+                    &before,
+                    &rule,
+                    &match_result.effect_preview,
+                    &mut property_cache,
+                )
+                .await?;
+                if applied {
+                    queue.push_back((object_id, before));
+                }
+                true
+            } else {
+                false
+            };
+
+            runtime.rule_outcomes.push(ScenarioRuleOutcome {
+                object_id,
+                rule_id: rule.id,
+                rule_name: rule.name.clone(),
+                rule_display_name: rule.display_name.clone(),
+                evaluation_mode: rule.evaluation_mode.to_string(),
+                matched: true,
+                auto_applied,
+                trigger_payload: match_result.trigger_payload,
+                effect_preview: match_result.effect_preview,
+            });
+        }
+    }
+
+    runtime.graph = build_scenario_graph(
+        &runtime.graph,
+        &runtime.object_states,
+        &runtime.link_previews,
+        type_labels,
+    );
+    let object_changes = build_scenario_object_changes(&runtime.object_states, type_labels);
+    let impacted_ids = collect_impacted_object_ids(
+        &object_changes,
+        &runtime.rule_outcomes,
+        &runtime.link_previews,
+    );
+    let constraint_results = evaluate_scenario_constraints(
+        &runtime.object_states,
+        &runtime.rule_outcomes,
+        &runtime.graph,
+        &runtime.link_previews,
+        constraints,
+        &impacted_ids,
+    )?;
+    let goal_results = evaluate_scenario_goals(
+        &runtime.object_states,
+        &runtime.rule_outcomes,
+        &runtime.graph,
+        &runtime.link_previews,
+        goals,
+        &impacted_ids,
+    )?;
+    let summary = build_scenario_summary(
+        &runtime.object_states,
+        &runtime.rule_outcomes,
+        &runtime.link_previews,
+        &runtime.graph,
+        &object_changes,
+        &constraint_results,
+        &goal_results,
+        &impacted_ids,
+        type_labels,
+    );
+
+    Ok(ScenarioSimulationResult {
+        scenario_id: candidate
+            .map(|_| {
+                format!(
+                    "scenario-{}",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+                )
+            })
+            .unwrap_or_else(|| "baseline".to_string()),
+        name: candidate
+            .map(|candidate| candidate.name.clone())
+            .unwrap_or_else(|| "Baseline".to_string()),
+        description: candidate.and_then(|candidate| candidate.description.clone()),
+        graph: runtime.graph,
+        object_changes,
+        rule_outcomes: runtime.rule_outcomes,
+        link_previews: runtime.link_previews,
+        constraints: constraint_results,
+        goals: goal_results,
+        summary,
+        delta_from_baseline: None,
+    })
+}
+
+async fn apply_scenario_operation(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    runtime: &mut ScenarioRuntimeState,
+    type_labels: &mut HashMap<Uuid, String>,
+    root_object_id: Uuid,
+    operation: &ScenarioSimulationOperation,
+    index: usize,
+    property_cache: &mut HashMap<Uuid, Vec<crate::domain::schema::EffectivePropertyDefinition>>,
+) -> Result<(), String> {
+    let target_object_id = operation.target_object_id.unwrap_or(root_object_id);
+    ensure_scenario_object_loaded(state, claims, runtime, type_labels, target_object_id).await?;
+    let source_label = operation
+        .label
+        .clone()
+        .unwrap_or_else(|| format!("scenario_operation_{}", index + 1));
+
+    if let Some(action_id) = operation.action_id {
+        let preview = preview_action_for_simulation(
+            state,
+            claims,
+            action_id,
+            Some(target_object_id),
+            operation.action_parameters.clone(),
+        )
+        .await?;
+        apply_action_preview_to_runtime(
+            state,
+            claims,
+            runtime,
+            type_labels,
+            &preview,
+            &source_label,
+            property_cache,
+        )
+        .await?;
+    }
+
+    let patch = match operation.properties_patch.as_object() {
+        Some(patch) => patch.clone(),
+        None if operation.properties_patch.is_null() => Map::new(),
+        None => return Err("scenario operation properties_patch must be a JSON object".to_string()),
+    };
+    if patch.is_empty() {
+        if let Some(entry) = runtime.object_states.get_mut(&target_object_id) {
+            entry.sources.insert(source_label);
+        }
+        return Ok(());
+    }
+
+    let current = runtime
+        .object_states
+        .get(&target_object_id)
+        .and_then(|entry| entry.current.clone())
+        .ok_or_else(|| {
+            format!("scenario target object {target_object_id} was deleted earlier in the scenario")
+        })?;
+    let next = apply_validated_patch_to_object(state, property_cache, &current, &patch).await?;
+    update_runtime_object_state(runtime, &current, Some(next), &source_label);
+    Ok(())
+}
+
+async fn apply_action_preview_to_runtime(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    runtime: &mut ScenarioRuntimeState,
+    type_labels: &mut HashMap<Uuid, String>,
+    preview: &Value,
+    source_label: &str,
+    property_cache: &mut HashMap<Uuid, Vec<crate::domain::schema::EffectivePropertyDefinition>>,
+) -> Result<(), String> {
+    let kind = preview
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    match kind {
+        "update_object" => {
+            let target_object_id = preview
+                .get("target_object_id")
+                .and_then(Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok())
+                .ok_or_else(|| "action preview is missing target_object_id".to_string())?;
+            let patch = preview
+                .get("patch")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            if patch.is_empty() {
+                if let Some(entry) = runtime.object_states.get_mut(&target_object_id) {
+                    entry.sources.insert(source_label.to_string());
+                }
+                return Ok(());
+            }
+            let current = runtime
+                .object_states
+                .get(&target_object_id)
+                .and_then(|entry| entry.current.clone())
+                .ok_or_else(|| "target object was deleted earlier in the scenario".to_string())?;
+            let next =
+                apply_validated_patch_to_object(state, property_cache, &current, &patch).await?;
+            update_runtime_object_state(runtime, &current, Some(next), source_label);
+        }
+        "delete_object" => {
+            let target_object_id = preview
+                .get("target_object_id")
+                .and_then(Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok())
+                .ok_or_else(|| "action preview is missing target_object_id".to_string())?;
+            let current = runtime
+                .object_states
+                .get(&target_object_id)
+                .and_then(|entry| entry.current.clone())
+                .ok_or_else(|| {
+                    "target object was already deleted earlier in the scenario".to_string()
+                })?;
+            update_runtime_object_state(runtime, &current, None, source_label);
+        }
+        "create_link" => {
+            let source_object_id = preview
+                .get("source_object_id")
+                .and_then(Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok());
+            let target_object_id = preview
+                .get("linked_object_id")
+                .and_then(Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok());
+            if let Some(source_object_id) = source_object_id {
+                ensure_scenario_object_loaded(
+                    state,
+                    claims,
+                    runtime,
+                    type_labels,
+                    source_object_id,
+                )
+                .await?;
+                if let Some(entry) = runtime.object_states.get_mut(&source_object_id) {
+                    entry.sources.insert(source_label.to_string());
+                }
+            }
+            if let Some(target_object_id) = target_object_id {
+                ensure_scenario_object_loaded(
+                    state,
+                    claims,
+                    runtime,
+                    type_labels,
+                    target_object_id,
+                )
+                .await?;
+                if let Some(entry) = runtime.object_states.get_mut(&target_object_id) {
+                    entry.sources.insert(source_label.to_string());
+                }
+            }
+            runtime.link_previews.push(ScenarioLinkPreview {
+                source_object_id,
+                target_object_id,
+                link_type_id: preview
+                    .get("link_type_id")
+                    .and_then(Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok()),
+                preview: preview.clone(),
+            });
+        }
+        _ => {
+            if let Some(target_object_id) = preview
+                .get("target_object_id")
+                .and_then(Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok())
+            {
+                ensure_scenario_object_loaded(
+                    state,
+                    claims,
+                    runtime,
+                    type_labels,
+                    target_object_id,
+                )
+                .await?;
+                if let Some(entry) = runtime.object_states.get_mut(&target_object_id) {
+                    entry.sources.insert(source_label.to_string());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn apply_rule_effect_preview_to_runtime(
+    state: &AppState,
+    runtime: &mut ScenarioRuntimeState,
+    type_labels: &mut HashMap<Uuid, String>,
+    current: &ObjectInstance,
+    rule: &OntologyRule,
+    effect_preview: &Value,
+    property_cache: &mut HashMap<Uuid, Vec<crate::domain::schema::EffectivePropertyDefinition>>,
+) -> Result<bool, String> {
+    let source_label = format!("rule:{}", rule.display_name);
+    if let Some(patch) = effect_preview
+        .get("object_patch")
+        .and_then(Value::as_object)
+        .cloned()
+    {
+        if !patch.is_empty() {
+            let next =
+                apply_validated_patch_to_object(state, property_cache, current, &patch).await?;
+            update_runtime_object_state(runtime, current, Some(next), &source_label);
+            return Ok(true);
+        }
+    }
+
+    if let Some(entry) = runtime.object_states.get_mut(&current.id) {
+        entry.sources.insert(source_label);
+    }
+    ensure_object_type_label(type_labels, state, current.object_type_id).await?;
+    Ok(false)
+}
+
+fn update_runtime_object_state(
+    runtime: &mut ScenarioRuntimeState,
+    previous: &ObjectInstance,
+    next: Option<ObjectInstance>,
+    source_label: &str,
+) {
+    let changed = match &next {
+        Some(next) => changed_properties_between(previous, next),
+        None => previous
+            .properties
+            .as_object()
+            .map(|properties| {
+                let mut keys = properties.keys().cloned().collect::<BTreeSet<_>>();
+                keys.insert("_deleted".to_string());
+                keys
+            })
+            .unwrap_or_else(|| BTreeSet::from(["_deleted".to_string()])),
+    };
+
+    let entry = runtime
+        .object_states
+        .entry(previous.id)
+        .or_insert_with(|| ScenarioObjectState {
+            original: previous.clone(),
+            current: Some(previous.clone()),
+            changed_properties: BTreeSet::new(),
+            sources: BTreeSet::new(),
+        });
+    entry.current = next;
+    entry.changed_properties.extend(changed);
+    entry.sources.insert(source_label.to_string());
+}
+
+async fn ensure_scenario_object_loaded(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    runtime: &mut ScenarioRuntimeState,
+    type_labels: &mut HashMap<Uuid, String>,
+    object_id: Uuid,
+) -> Result<(), String> {
+    if runtime.object_states.contains_key(&object_id) {
+        return Ok(());
+    }
+
+    let object = load_object_instance(&state.db, object_id)
+        .await
+        .map_err(|error| format!("failed to load scenario object {object_id}: {error}"))?
+        .ok_or_else(|| format!("scenario object {object_id} was not found"))?;
+    ensure_object_access(claims, &object)?;
+    ensure_object_type_label(type_labels, state, object.object_type_id).await?;
+    runtime.object_states.insert(
+        object_id,
+        ScenarioObjectState {
+            original: object.clone(),
+            current: Some(object),
+            changed_properties: BTreeSet::new(),
+            sources: BTreeSet::new(),
+        },
+    );
+    Ok(())
+}
+
+async fn ensure_object_type_label(
+    type_labels: &mut HashMap<Uuid, String>,
+    state: &AppState,
+    object_type_id: Uuid,
+) -> Result<(), String> {
+    if type_labels.contains_key(&object_type_id) {
+        return Ok(());
+    }
+
+    let display_name =
+        sqlx::query_scalar::<_, String>("SELECT display_name FROM object_types WHERE id = $1")
+            .bind(object_type_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|error| format!("failed to load object type label: {error}"))?
+            .unwrap_or_else(|| object_type_id.to_string());
+    type_labels.insert(object_type_id, display_name);
+    Ok(())
+}
+
+async fn load_object_type_labels(
+    state: &AppState,
+    type_ids: &[Uuid],
+) -> Result<HashMap<Uuid, String>, String> {
+    if type_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let labels = sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = ANY($1)")
+        .bind(type_ids)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|error| format!("failed to load object type labels: {error}"))?
+        .into_iter()
+        .map(|object_type| (object_type.id, object_type.display_name))
+        .collect::<HashMap<_, _>>();
+    Ok(labels)
+}
+
+async fn load_cached_rules(
+    state: &AppState,
+    cache: &mut HashMap<Uuid, Vec<OntologyRule>>,
+    object_type_id: Uuid,
+) -> Result<Vec<OntologyRule>, String> {
+    if let Some(rules) = cache.get(&object_type_id) {
+        return Ok(rules.clone());
+    }
+
+    let rules = load_rules_for_object_type(state, object_type_id).await?;
+    cache.insert(object_type_id, rules.clone());
+    Ok(rules)
+}
+
+async fn load_cached_effective_properties(
+    state: &AppState,
+    cache: &mut HashMap<Uuid, Vec<crate::domain::schema::EffectivePropertyDefinition>>,
+    object_type_id: Uuid,
+) -> Result<Vec<crate::domain::schema::EffectivePropertyDefinition>, String> {
+    if let Some(definitions) = cache.get(&object_type_id) {
+        return Ok(definitions.clone());
+    }
+
+    let definitions = load_effective_properties(&state.db, object_type_id)
+        .await
+        .map_err(|error| format!("failed to load property definitions: {error}"))?;
+    cache.insert(object_type_id, definitions.clone());
+    Ok(definitions)
+}
+
+async fn apply_validated_patch_to_object(
+    state: &AppState,
+    property_cache: &mut HashMap<Uuid, Vec<crate::domain::schema::EffectivePropertyDefinition>>,
+    current: &ObjectInstance,
+    patch: &Map<String, Value>,
+) -> Result<ObjectInstance, String> {
+    let definitions =
+        load_cached_effective_properties(state, property_cache, current.object_type_id).await?;
+    let mut merged = current.properties.as_object().cloned().unwrap_or_default();
+    for (key, value) in patch {
+        merged.insert(key.clone(), value.clone());
+    }
+    let normalized = validate_object_properties(&definitions, &Value::Object(merged))
+        .map_err(|error| format!("invalid scenario patch: {error}"))?;
+    let mut next = current.clone();
+    next.properties = normalized;
+    next.updated_at = chrono::Utc::now();
+    Ok(next)
+}
+
+fn diff_properties_between_objects(
+    previous: &ObjectInstance,
+    current: &ObjectInstance,
+) -> Map<String, Value> {
+    let previous_properties = previous.properties.as_object().cloned().unwrap_or_default();
+    let current_properties = current.properties.as_object().cloned().unwrap_or_default();
+    let mut diff = Map::new();
+
+    for (key, value) in &current_properties {
+        if previous_properties.get(key) != Some(value) {
+            diff.insert(key.clone(), value.clone());
+        }
+    }
+    for key in previous_properties.keys() {
+        if !current_properties.contains_key(key) {
+            diff.insert(key.clone(), Value::Null);
+        }
+    }
+
+    diff
+}
+
+fn changed_properties_between(
+    previous: &ObjectInstance,
+    current: &ObjectInstance,
+) -> BTreeSet<String> {
+    diff_properties_between_objects(previous, current)
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect::<BTreeSet<_>>()
+}
+
+fn build_scenario_object_changes(
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    type_labels: &HashMap<Uuid, String>,
+) -> Vec<ScenarioObjectChange> {
+    object_states
+        .values()
+        .filter(|entry| {
+            !entry.changed_properties.is_empty()
+                || entry.current.is_none()
+                || !entry.sources.is_empty()
+        })
+        .map(|entry| ScenarioObjectChange {
+            object_id: entry.original.id,
+            object_type_id: entry.original.object_type_id,
+            object_type_label: type_labels
+                .get(&entry.original.object_type_id)
+                .cloned()
+                .unwrap_or_else(|| entry.original.object_type_id.to_string()),
+            deleted: entry.current.is_none(),
+            changed_properties: entry.changed_properties.iter().cloned().collect(),
+            sources: entry.sources.iter().cloned().collect(),
+            before: object_to_json(entry.original.clone()),
+            after: entry.current.clone().map(object_to_json),
+        })
+        .collect()
+}
+
+fn collect_impacted_object_ids(
+    object_changes: &[ScenarioObjectChange],
+    rule_outcomes: &[ScenarioRuleOutcome],
+    link_previews: &[ScenarioLinkPreview],
+) -> BTreeSet<Uuid> {
+    let mut impacted = object_changes
+        .iter()
+        .map(|change| change.object_id)
+        .collect::<BTreeSet<_>>();
+    for outcome in rule_outcomes {
+        impacted.insert(outcome.object_id);
+    }
+    for link_preview in link_previews {
+        if let Some(source_object_id) = link_preview.source_object_id {
+            impacted.insert(source_object_id);
+        }
+        if let Some(target_object_id) = link_preview.target_object_id {
+            impacted.insert(target_object_id);
+        }
+    }
+    impacted
+}
+
+fn build_scenario_graph(
+    base_graph: &GraphResponse,
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    link_previews: &[ScenarioLinkPreview],
+    type_labels: &HashMap<Uuid, String>,
+) -> GraphResponse {
+    let mut graph = base_graph.clone();
+    graph.edges.retain(|edge| {
+        let source_deleted = edge
+            .source
+            .strip_prefix("object:")
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .and_then(|object_id| object_states.get(&object_id))
+            .is_some_and(|entry| entry.current.is_none());
+        let target_deleted = edge
+            .target
+            .strip_prefix("object:")
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .and_then(|object_id| object_states.get(&object_id))
+            .is_some_and(|entry| entry.current.is_none());
+        !source_deleted && !target_deleted
+    });
+
+    let mut node_ids = graph
+        .nodes
+        .iter()
+        .map(|node| node.id.clone())
+        .collect::<HashSet<_>>();
+    for entry in object_states.values() {
+        let node_id = scenario_object_node_id(entry.original.id);
+        if let Some(node) = graph.nodes.iter_mut().find(|node| node.id == node_id) {
+            if let Some(metadata) = node.metadata.as_object_mut() {
+                metadata.insert(
+                    "scenario_changed".to_string(),
+                    json!(!entry.changed_properties.is_empty()),
+                );
+                metadata.insert(
+                    "scenario_deleted".to_string(),
+                    json!(entry.current.is_none()),
+                );
+                metadata.insert(
+                    "scenario_changed_properties".to_string(),
+                    json!(entry.changed_properties.iter().cloned().collect::<Vec<_>>()),
+                );
+                metadata.insert(
+                    "scenario_sources".to_string(),
+                    json!(entry.sources.iter().cloned().collect::<Vec<_>>()),
+                );
+                if let Some(current) = &entry.current {
+                    metadata.insert("properties".to_string(), current.properties.clone());
+                    metadata.insert("marking".to_string(), json!(current.marking.clone()));
+                } else {
+                    metadata.insert("marking".to_string(), Value::Null);
+                }
+            }
+            if entry.current.is_none() {
+                node.kind = "deleted_object_instance".to_string();
+            }
+        } else if let Some(object) = entry.current.as_ref().or(Some(&entry.original)) {
+            graph.nodes.push(build_scenario_graph_node(
+                object,
+                type_labels
+                    .get(&object.object_type_id)
+                    .cloned()
+                    .unwrap_or_else(|| object.object_type_id.to_string()),
+                1,
+                entry.current.is_none(),
+                &entry.changed_properties,
+                &entry.sources,
+            ));
+            node_ids.insert(node_id);
+        }
+    }
+
+    let mut edge_ids = graph
+        .edges
+        .iter()
+        .map(|edge| edge.id.clone())
+        .collect::<HashSet<_>>();
+    for (index, link_preview) in link_previews.iter().enumerate() {
+        let (Some(source_object_id), Some(target_object_id)) =
+            (link_preview.source_object_id, link_preview.target_object_id)
+        else {
+            continue;
+        };
+        let edge = GraphEdge {
+            id: format!("scenario_link:{index}"),
+            kind: "scenario_link".to_string(),
+            source: scenario_object_node_id(source_object_id),
+            target: scenario_object_node_id(target_object_id),
+            label: "Simulated link".to_string(),
+            metadata: json!({
+                "simulated": true,
+                "link_type_id": link_preview.link_type_id,
+                "preview": link_preview.preview,
+            }),
+        };
+        if edge_ids.insert(edge.id.clone()) {
+            graph.edges.push(edge);
+        }
+    }
+
+    graph.nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    graph.edges.sort_by(|left, right| left.id.cmp(&right.id));
+    graph.summary = graph::summarize_graph("object", &graph.nodes, &graph.edges);
+    graph.total_nodes = graph.nodes.len();
+    graph.total_edges = graph.edges.len();
+    graph
+}
+
+fn build_scenario_graph_node(
+    object: &ObjectInstance,
+    type_label: String,
+    distance_from_root: usize,
+    deleted: bool,
+    changed_properties: &BTreeSet<String>,
+    sources: &BTreeSet<String>,
+) -> GraphNode {
+    GraphNode {
+        id: scenario_object_node_id(object.id),
+        kind: if deleted {
+            "deleted_object_instance".to_string()
+        } else {
+            "object_instance".to_string()
+        },
+        label: scenario_object_label(object),
+        secondary_label: Some(type_label),
+        color: None,
+        route: Some(format!(
+            "/ontology/{}#object-{}",
+            object.object_type_id, object.id
+        )),
+        metadata: json!({
+            "object_type_id": object.object_type_id,
+            "distance_from_root": distance_from_root,
+            "role": "scenario",
+            "organization_id": object.organization_id,
+            "marking": if deleted { Value::Null } else { json!(object.marking.clone()) },
+            "properties": object.properties,
+            "scenario_changed": !changed_properties.is_empty(),
+            "scenario_deleted": deleted,
+            "scenario_changed_properties": changed_properties.iter().cloned().collect::<Vec<_>>(),
+            "scenario_sources": sources.iter().cloned().collect::<Vec<_>>(),
+        }),
+    }
+}
+
+fn scenario_object_node_id(object_id: Uuid) -> String {
+    format!("object:{object_id}")
+}
+
+fn scenario_object_label(object: &ObjectInstance) -> String {
+    object
+        .properties
+        .get("name")
+        .or_else(|| object.properties.get("title"))
+        .or_else(|| object.properties.get("display_name"))
+        .and_then(|value| match value {
+            Value::String(value) if !value.trim().is_empty() => Some(value.clone()),
+            other => serde_json::to_string(other).ok(),
+        })
+        .unwrap_or_else(|| object.id.to_string())
+}
+
+fn evaluate_scenario_constraints(
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    rule_outcomes: &[ScenarioRuleOutcome],
+    graph: &GraphResponse,
+    link_previews: &[ScenarioLinkPreview],
+    constraints: &[ScenarioMetricSpec],
+    impacted_ids: &BTreeSet<Uuid>,
+) -> Result<Vec<ScenarioMetricEvaluation>, String> {
+    constraints
+        .iter()
+        .map(|constraint| {
+            evaluate_metric_spec(
+                object_states,
+                rule_outcomes,
+                graph,
+                link_previews,
+                impacted_ids,
+                &constraint.name,
+                &constraint.metric,
+                &constraint.comparator,
+                &constraint.target,
+                &constraint.config,
+                None,
+            )
+        })
+        .collect()
+}
+
+fn evaluate_scenario_goals(
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    rule_outcomes: &[ScenarioRuleOutcome],
+    graph: &GraphResponse,
+    link_previews: &[ScenarioLinkPreview],
+    goals: &[ScenarioGoalSpec],
+    impacted_ids: &BTreeSet<Uuid>,
+) -> Result<Vec<ScenarioMetricEvaluation>, String> {
+    goals
+        .iter()
+        .map(|goal| {
+            evaluate_metric_spec(
+                object_states,
+                rule_outcomes,
+                graph,
+                link_previews,
+                impacted_ids,
+                &goal.name,
+                &goal.metric,
+                &goal.comparator,
+                &goal.target,
+                &goal.config,
+                Some(goal.weight),
+            )
+        })
+        .collect()
+}
+
+fn evaluate_metric_spec(
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    rule_outcomes: &[ScenarioRuleOutcome],
+    graph: &GraphResponse,
+    link_previews: &[ScenarioLinkPreview],
+    impacted_ids: &BTreeSet<Uuid>,
+    name: &str,
+    metric: &str,
+    comparator: &str,
+    target: &Value,
+    config: &Value,
+    goal_weight: Option<f64>,
+) -> Result<ScenarioMetricEvaluation, String> {
+    let observed = compute_scenario_metric(
+        metric,
+        config,
+        object_states,
+        rule_outcomes,
+        graph,
+        link_previews,
+        impacted_ids,
+    )?;
+    let passed = compare_metric_values(&observed, comparator, target)?;
+    let score =
+        goal_weight.map(|weight| metric_score(&observed, comparator, target, passed, weight));
+    Ok(ScenarioMetricEvaluation {
+        name: name.to_string(),
+        metric: metric.to_string(),
+        comparator: comparator.to_string(),
+        target: target.clone(),
+        observed: observed.clone(),
+        passed,
+        score,
+        message: format!(
+            "Observed {} for {} against {} {}",
+            observed, metric, comparator, target
+        ),
+    })
+}
+
+fn compute_scenario_metric(
+    metric: &str,
+    config: &Value,
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    rule_outcomes: &[ScenarioRuleOutcome],
+    graph: &GraphResponse,
+    _link_previews: &[ScenarioLinkPreview],
+    impacted_ids: &BTreeSet<Uuid>,
+) -> Result<Value, String> {
+    match metric {
+        "impacted_object_count" => Ok(json!(impacted_ids.len())),
+        "changed_object_count" => Ok(json!(
+            object_states
+                .values()
+                .filter(|entry| !entry.changed_properties.is_empty() || entry.current.is_none())
+                .count()
+        )),
+        "deleted_object_count" => Ok(json!(
+            object_states
+                .values()
+                .filter(|entry| entry.current.is_none())
+                .count()
+        )),
+        "automatic_rule_matches" => Ok(json!(
+            rule_outcomes
+                .iter()
+                .filter(|outcome| outcome.evaluation_mode == "automatic")
+                .count()
+        )),
+        "automatic_rule_applications" => Ok(json!(
+            rule_outcomes
+                .iter()
+                .filter(|outcome| outcome.auto_applied)
+                .count()
+        )),
+        "advisory_rule_matches" => Ok(json!(
+            rule_outcomes
+                .iter()
+                .filter(|outcome| outcome.evaluation_mode == "advisory")
+                .count()
+        )),
+        "schedule_count" => Ok(json!(
+            filtered_schedule_outcomes(rule_outcomes, config).len()
+        )),
+        "boundary_crossings" => Ok(json!(graph.summary.boundary_crossings)),
+        "sensitive_objects" => Ok(json!(graph.summary.sensitive_objects)),
+        "property_equals_count" => {
+            let property_name = config
+                .get("property")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "property_equals_count requires config.property".to_string())?;
+            let expected = config
+                .get("value")
+                .ok_or_else(|| "property_equals_count requires config.value".to_string())?;
+            Ok(json!(
+                selected_metric_objects(object_states, config)
+                    .into_iter()
+                    .filter(|object| object.properties.get(property_name) == Some(expected))
+                    .count()
+            ))
+        }
+        "property_exists_count" => {
+            let property_name = config
+                .get("property")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "property_exists_count requires config.property".to_string())?;
+            Ok(json!(
+                selected_metric_objects(object_states, config)
+                    .into_iter()
+                    .filter(|object| object.properties.get(property_name).is_some())
+                    .count()
+            ))
+        }
+        "property_numeric_sum" => {
+            let property_name = config
+                .get("property")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "property_numeric_sum requires config.property".to_string())?;
+            let sum = selected_metric_objects(object_states, config)
+                .into_iter()
+                .filter_map(|object| object.properties.get(property_name).and_then(Value::as_f64))
+                .sum::<f64>();
+            Ok(json!(sum))
+        }
+        "property_numeric_average" => {
+            let property_name = config
+                .get("property")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "property_numeric_average requires config.property".to_string())?;
+            let values = selected_metric_objects(object_states, config)
+                .into_iter()
+                .filter_map(|object| object.properties.get(property_name).and_then(Value::as_f64))
+                .collect::<Vec<_>>();
+            let average = if values.is_empty() {
+                0.0
+            } else {
+                values.iter().sum::<f64>() / values.len() as f64
+            };
+            Ok(json!(average))
+        }
+        other => Err(format!("unsupported scenario metric '{other}'")),
+    }
+}
+
+fn selected_metric_objects<'a>(
+    object_states: &'a BTreeMap<Uuid, ScenarioObjectState>,
+    config: &Value,
+) -> Vec<&'a ObjectInstance> {
+    let filtered_ids = config
+        .get("object_ids")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(|value| Uuid::parse_str(value).ok())
+                .collect::<HashSet<_>>()
+        });
+    let filtered_type_id = config
+        .get("object_type_id")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let only_changed = config
+        .get("only_changed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let scope = config
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("current");
+
+    object_states
+        .iter()
+        .filter(|(object_id, entry)| {
+            filtered_ids
+                .as_ref()
+                .is_none_or(|ids| ids.contains(object_id))
+                && filtered_type_id.is_none_or(|type_id| entry.original.object_type_id == type_id)
+                && (!only_changed
+                    || !entry.changed_properties.is_empty()
+                    || entry.current.is_none())
+        })
+        .filter_map(|(_, entry)| match scope {
+            "original" => Some(&entry.original),
+            _ => entry.current.as_ref(),
+        })
+        .collect()
+}
+
+fn filtered_schedule_outcomes<'a>(
+    rule_outcomes: &'a [ScenarioRuleOutcome],
+    config: &Value,
+) -> Vec<&'a ScenarioRuleOutcome> {
+    let required_tag = config.get("constraint_tag").and_then(Value::as_str);
+    let required_capability = config.get("required_capability").and_then(Value::as_str);
+
+    rule_outcomes
+        .iter()
+        .filter(|outcome| outcome.auto_applied)
+        .filter(|outcome| outcome.effect_preview.get("schedule").is_some())
+        .filter(|outcome| {
+            let schedule = outcome.effect_preview.get("schedule");
+            let tag_matches = required_tag.is_none_or(|required_tag| {
+                schedule
+                    .and_then(|schedule| schedule.get("constraint_tags"))
+                    .and_then(Value::as_array)
+                    .is_some_and(|tags| {
+                        tags.iter()
+                            .filter_map(Value::as_str)
+                            .any(|tag| tag == required_tag)
+                    })
+            });
+            let capability_matches = required_capability.is_none_or(|required_capability| {
+                schedule
+                    .and_then(|schedule| schedule.get("required_capability"))
+                    .and_then(Value::as_str)
+                    == Some(required_capability)
+            });
+            tag_matches && capability_matches
+        })
+        .collect()
+}
+
+fn compare_metric_values(
+    observed: &Value,
+    comparator: &str,
+    target: &Value,
+) -> Result<bool, String> {
+    match comparator {
+        "eq" => Ok(observed == target),
+        "ne" => Ok(observed != target),
+        "gte" | "gt" | "lte" | "lt" => {
+            let observed = observed.as_f64().ok_or_else(|| {
+                format!("metric comparator '{comparator}' requires numeric observed values")
+            })?;
+            let target = target.as_f64().ok_or_else(|| {
+                format!("metric comparator '{comparator}' requires numeric target values")
+            })?;
+            Ok(match comparator {
+                "gte" => observed >= target,
+                "gt" => observed > target,
+                "lte" => observed <= target,
+                "lt" => observed < target,
+                _ => false,
+            })
+        }
+        "contains" => match (observed, target) {
+            (Value::Array(values), _) => Ok(values.iter().any(|value| value == target)),
+            (Value::String(observed), Value::String(target)) => Ok(observed.contains(target)),
+            _ => Err("contains comparator requires arrays or strings".to_string()),
+        },
+        other => Err(format!("unsupported comparator '{other}'")),
+    }
+}
+
+fn metric_score(
+    observed: &Value,
+    comparator: &str,
+    target: &Value,
+    passed: bool,
+    weight: f64,
+) -> f64 {
+    let weight = weight.max(0.0);
+    if weight == 0.0 {
+        return 0.0;
+    }
+
+    match comparator {
+        "gte" | "gt" => {
+            let observed = observed.as_f64().unwrap_or(0.0);
+            let target = target.as_f64().unwrap_or(0.0);
+            if target <= 0.0 {
+                return if passed { weight } else { 0.0 };
+            }
+            (observed / target).clamp(0.0, 1.0) * weight
+        }
+        "lte" | "lt" => {
+            let observed = observed.as_f64().unwrap_or(0.0);
+            let target = target.as_f64().unwrap_or(0.0);
+            if observed <= 0.0 || target <= 0.0 {
+                return if passed { weight } else { 0.0 };
+            }
+            if passed {
+                weight
+            } else {
+                (target / observed).clamp(0.0, 1.0) * weight
+            }
+        }
+        _ => {
+            if passed {
+                weight
+            } else {
+                0.0
+            }
+        }
+    }
+}
+
+fn build_scenario_summary(
+    object_states: &BTreeMap<Uuid, ScenarioObjectState>,
+    rule_outcomes: &[ScenarioRuleOutcome],
+    _link_previews: &[ScenarioLinkPreview],
+    graph: &GraphResponse,
+    object_changes: &[ScenarioObjectChange],
+    constraints: &[ScenarioMetricEvaluation],
+    goals: &[ScenarioMetricEvaluation],
+    impacted_ids: &BTreeSet<Uuid>,
+    type_labels: &HashMap<Uuid, String>,
+) -> ScenarioSummary {
+    let impacted_types = impacted_ids
+        .iter()
+        .filter_map(|object_id| object_states.get(object_id))
+        .map(|entry| {
+            type_labels
+                .get(&entry.original.object_type_id)
+                .cloned()
+                .unwrap_or_else(|| entry.original.object_type_id.to_string())
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let changed_properties = object_changes
+        .iter()
+        .flat_map(|change| change.changed_properties.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    ScenarioSummary {
+        impacted_object_count: impacted_ids.len(),
+        changed_object_count: object_changes
+            .iter()
+            .filter(|change| !change.changed_properties.is_empty())
+            .count(),
+        deleted_object_count: object_changes
+            .iter()
+            .filter(|change| change.deleted)
+            .count(),
+        automatic_rule_matches: rule_outcomes
+            .iter()
+            .filter(|outcome| outcome.evaluation_mode == "automatic")
+            .count(),
+        automatic_rule_applications: rule_outcomes
+            .iter()
+            .filter(|outcome| outcome.auto_applied)
+            .count(),
+        advisory_rule_matches: rule_outcomes
+            .iter()
+            .filter(|outcome| outcome.evaluation_mode == "advisory")
+            .count(),
+        schedule_count: rule_outcomes
+            .iter()
+            .filter(|outcome| {
+                outcome.auto_applied && outcome.effect_preview.get("schedule").is_some()
+            })
+            .count(),
+        impacted_types,
+        changed_properties,
+        boundary_crossings: graph.summary.boundary_crossings,
+        sensitive_objects: graph.summary.sensitive_objects,
+        failed_constraints: constraints
+            .iter()
+            .filter(|constraint| !constraint.passed)
+            .count(),
+        achieved_goals: goals.iter().filter(|goal| goal.passed).count(),
+        total_goals: goals.len(),
+        goal_score: goals.iter().filter_map(|goal| goal.score).sum::<f64>(),
+    }
+}
+
+fn build_summary_delta(
+    summary: &ScenarioSummary,
+    baseline: &ScenarioSummary,
+) -> ScenarioSummaryDelta {
+    ScenarioSummaryDelta {
+        impacted_object_count: summary.impacted_object_count as i64
+            - baseline.impacted_object_count as i64,
+        changed_object_count: summary.changed_object_count as i64
+            - baseline.changed_object_count as i64,
+        deleted_object_count: summary.deleted_object_count as i64
+            - baseline.deleted_object_count as i64,
+        automatic_rule_matches: summary.automatic_rule_matches as i64
+            - baseline.automatic_rule_matches as i64,
+        automatic_rule_applications: summary.automatic_rule_applications as i64
+            - baseline.automatic_rule_applications as i64,
+        advisory_rule_matches: summary.advisory_rule_matches as i64
+            - baseline.advisory_rule_matches as i64,
+        schedule_count: summary.schedule_count as i64 - baseline.schedule_count as i64,
+        failed_constraints: summary.failed_constraints as i64 - baseline.failed_constraints as i64,
+        goal_score: summary.goal_score - baseline.goal_score,
+    }
 }
 
 pub async fn load_object_instance(

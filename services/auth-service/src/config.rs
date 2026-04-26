@@ -15,6 +15,10 @@ pub struct AppConfig {
     #[serde(default = "default_public_web_origin")]
     pub public_web_origin: String,
     #[serde(default)]
+    pub saml_service_provider_entity_id: Option<String>,
+    #[serde(default = "default_saml_allowed_clock_skew_secs")]
+    pub saml_allowed_clock_skew_secs: i64,
+    #[serde(default)]
     pub nats_url: Option<String>,
     #[serde(default)]
     pub redis_url: Option<String>,
@@ -34,6 +38,9 @@ fn default_refresh_ttl() -> i64 {
 }
 fn default_public_web_origin() -> String {
     "http://localhost:5173".to_string()
+}
+fn default_saml_allowed_clock_skew_secs() -> i64 {
+    120
 }
 
 impl AppConfig {

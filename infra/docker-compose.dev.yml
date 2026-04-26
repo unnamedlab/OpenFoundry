@@ -1,12 +1,8 @@
-version: "3.9"
-
 # Dev overrides — lighter resource limits, extra debugging
 services:
   postgres:
     environment:
       POSTGRES_MULTIPLE_DATABASES: "openfoundry_auth,openfoundry_datasets,openfoundry_pipelines,openfoundry_ontology,openfoundry_audit"
-    ports:
-      - "5432:5432"
 
   redis:
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --loglevel verbose

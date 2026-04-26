@@ -237,12 +237,11 @@ pub(crate) async fn execute_node(
             }
         }
         "spark" | "pyspark" => {
-            match runtime::execute_remote_compute_transform(
+            match runtime::execute_distributed_compute_transform(
                 &env.state,
                 env.actor_id,
                 node,
                 &inputs,
-                "spark",
             )
             .await
             {

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::models::run::MetricValue;
+use crate::models::{interop::ExternalTrackingSource, run::MetricValue};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingTrial {
@@ -26,6 +26,8 @@ pub struct TrainingJob {
     pub objective_metric_name: String,
     pub trials: Vec<TrainingTrial>,
     pub best_model_version_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_training: Option<ExternalTrackingSource>,
     pub submitted_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -50,4 +52,6 @@ pub struct CreateTrainingJobRequest {
     pub objective_metric_name: Option<String>,
     #[serde(default)]
     pub auto_register_model_version: bool,
+    #[serde(default)]
+    pub external_training: Option<ExternalTrackingSource>,
 }

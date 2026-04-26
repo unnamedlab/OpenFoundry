@@ -2,6 +2,7 @@ pub mod asset_lineage;
 pub mod deployment;
 pub mod experiment;
 pub mod feature;
+pub mod interop;
 pub mod model;
 pub mod model_version;
 pub mod prediction;

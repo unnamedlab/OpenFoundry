@@ -3,5 +3,6 @@
 
 from .client import OpenFoundryClient
 from . import models
+from . import mcp
 
-__all__ = ["OpenFoundryClient", "models"]
+__all__ = ["OpenFoundryClient", "models", "mcp"]

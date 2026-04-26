@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
-use crate::models::{run::MetricValue, training_job::TrainingTrial};
+use crate::{
+    domain::interop,
+    models::{run::MetricValue, training_job::TrainingTrial},
+};
 
 use super::hyperparameter;
 
@@ -50,18 +53,11 @@ pub fn train_trial(
 
     let schema = json!({
         "signature": "tabular-binary",
-        "engine": training_config
-            .get("engine")
-            .and_then(Value::as_str)
-            .unwrap_or("tabular-logistic"),
-        "model_adapter": {
-            "kind": "native",
-            "framework": training_config
-                .get("engine")
-                .and_then(Value::as_str)
-                .unwrap_or("tabular-logistic"),
-            "runtime": "in-process",
-        },
+        "engine": interop::effective_framework(training_config),
+        "model_adapter": crate::handlers::to_json(&interop::infer_model_adapter(
+            Some(training_config),
+            None,
+        )),
         "model_state": {
             "feature_names": dataset.feature_names,
             "feature_means": dataset.feature_means,
@@ -78,10 +74,7 @@ pub fn train_trial(
             "feature_count": dataset.rows.first().map(|row| row.len()).unwrap_or(0),
             "objective_metric": objective_metric.name,
             "objective_value": objective_metric.value,
-            "framework": training_config
-                .get("engine")
-                .and_then(Value::as_str)
-                .unwrap_or("tabular-logistic"),
+            "framework": interop::effective_framework(training_config),
         }
     });
 

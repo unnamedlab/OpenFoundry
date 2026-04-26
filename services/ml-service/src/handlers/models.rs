@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    domain::interop,
     models::{
         model::{CreateModelRequest, ListModelsResponse, RegisteredModel, UpdateModelRequest},
         model_version::{
@@ -82,6 +83,9 @@ fn to_version(row: ModelVersionRow) -> ModelVersion {
         hyperparameters: row.hyperparameters,
         metrics: deserialize_json(row.metrics),
         artifact_uri: row.artifact_uri,
+        model_adapter: interop::model_adapter_from_schema(&row.schema),
+        registry_source: interop::registry_source_from_schema(&row.schema),
+        external_tracking: interop::tracking_source_from_schema(&row.schema),
         schema: row.schema,
         created_at: row.created_at,
         promoted_at: row.promoted_at,
@@ -367,6 +371,36 @@ pub async fn create_model_version(
     let version_label = body
         .version_label
         .unwrap_or_else(|| format!("v{next_version_number}"));
+    let external_tracking = body
+        .external_tracking
+        .filter(|tracking| tracking.has_signal())
+        .map(interop::normalize_tracking_source);
+    let metrics = interop::merge_metrics(
+        &body.metrics.clone().unwrap_or_default(),
+        external_tracking
+            .as_ref()
+            .map(|tracking| tracking.metrics.as_slice())
+            .unwrap_or(&[]),
+    );
+    let hyperparameters = body.hyperparameters.unwrap_or_else(|| {
+        external_tracking
+            .as_ref()
+            .map(|tracking| tracking.params.clone())
+            .filter(|params| matches!(params, Value::Object(_)))
+            .unwrap_or_else(|| json!({}))
+    });
+    let artifact_uri = body
+        .artifact_uri
+        .clone()
+        .or_else(|| interop::preferred_artifact_uri(external_tracking.as_ref(), None));
+    let schema = interop::normalize_model_version_schema(
+        body.schema,
+        artifact_uri.as_deref(),
+        None,
+        body.model_adapter.as_ref(),
+        body.registry_source.as_ref(),
+        external_tracking.as_ref(),
+    );
 
     let row = query_as::<_, ModelVersionRow>(
         r#"
@@ -408,10 +442,10 @@ pub async fn create_model_version(
     .bind(stage.clone())
     .bind(body.source_run_id)
     .bind(body.training_job_id)
-    .bind(body.hyperparameters.unwrap_or_else(|| json!({})))
-    .bind(to_json(&body.metrics.unwrap_or_default()))
-    .bind(body.artifact_uri)
-    .bind(body.schema.unwrap_or_else(|| json!({})))
+    .bind(hyperparameters)
+    .bind(to_json(&metrics))
+    .bind(artifact_uri)
+    .bind(schema)
     .bind(if stage == "production" || stage == "staging" {
         Some(Utc::now())
     } else {

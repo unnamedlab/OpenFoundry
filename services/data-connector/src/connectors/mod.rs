@@ -10,13 +10,18 @@ mod catalog_bridge;
 pub mod csv;
 pub mod http_runtime;
 pub mod iot;
+pub mod jdbc;
 pub mod json;
 pub mod kafka;
+pub mod kinesis;
+pub mod odbc;
 pub mod postgres;
+pub mod power_bi;
 pub mod rest_api;
 pub mod salesforce;
 pub mod sap;
 pub mod snowflake;
+pub mod tableau;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectionTestResult {

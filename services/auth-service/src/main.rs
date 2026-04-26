@@ -17,6 +17,8 @@ pub struct AppState {
     pub db: sqlx::PgPool,
     pub jwt_config: JwtConfig,
     pub public_web_origin: String,
+    pub saml_service_provider_entity_id: String,
+    pub saml_allowed_clock_skew_secs: i64,
 }
 
 #[tokio::main]
@@ -49,11 +51,20 @@ async fn main() {
         .with_access_ttl(cfg.jwt_access_ttl_secs)
         .with_refresh_ttl(cfg.jwt_refresh_ttl_secs)
         .with_env_defaults();
+    let saml_service_provider_entity_id =
+        cfg.saml_service_provider_entity_id.unwrap_or_else(|| {
+            format!(
+                "{}/auth/saml/metadata",
+                cfg.public_web_origin.trim_end_matches('/')
+            )
+        });
 
     let state = AppState {
         db: pool,
         jwt_config: jwt_config.clone(),
         public_web_origin: cfg.public_web_origin.clone(),
+        saml_service_provider_entity_id,
+        saml_allowed_clock_skew_secs: cfg.saml_allowed_clock_skew_secs,
     };
 
     // Public routes (no auth required)

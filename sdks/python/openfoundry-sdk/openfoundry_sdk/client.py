@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,10 +11,950 @@ from typing import Any, Mapping
 
 from . import models
 
+OPENFOUNDRY_SDK_VERSION = "0.1.0"
+
+OPENFOUNDRY_OPERATION_REGISTRY: list[dict[str, Any]] = [
+    {
+        "operation_id": "open_foundry.auth.RbacService.AssignRole",
+        "method": "POST",
+        "path": "/api/v1/auth/assign-role",
+        "summary": "RbacService AssignRole",
+        "description": "Generated from `open_foundry.auth` RPC `AssignRole` in service `RbacService`.",
+        "namespace": "auth",
+        "namespace_member": "assignrole",
+        "mcp_tool": "openfoundry.auth.assignrole",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.auth.AuthService.GetMe",
+        "method": "GET",
+        "path": "/api/v1/auth/get-me",
+        "summary": "AuthService GetMe",
+        "description": "Generated from `open_foundry.auth` RPC `GetMe` in service `AuthService`.",
+        "namespace": "auth",
+        "namespace_member": "getme",
+        "mcp_tool": "openfoundry.auth.getme",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.auth.RbacService.ListRoles",
+        "method": "GET",
+        "path": "/api/v1/auth/list-roles",
+        "summary": "RbacService ListRoles",
+        "description": "Generated from `open_foundry.auth` RPC `ListRoles` in service `RbacService`.",
+        "namespace": "auth",
+        "namespace_member": "listroles",
+        "mcp_tool": "openfoundry.auth.listroles",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.auth.AuthService.Login",
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "summary": "AuthService Login",
+        "description": "Generated from `open_foundry.auth` RPC `Login` in service `AuthService`.",
+        "namespace": "auth",
+        "namespace_member": "login",
+        "mcp_tool": "openfoundry.auth.login",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.auth.AuthService.RefreshToken",
+        "method": "POST",
+        "path": "/api/v1/auth/refresh-token",
+        "summary": "AuthService RefreshToken",
+        "description": "Generated from `open_foundry.auth` RPC `RefreshToken` in service `AuthService`.",
+        "namespace": "auth",
+        "namespace_member": "refreshtoken",
+        "mcp_tool": "openfoundry.auth.refreshtoken",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.auth.AuthService.Register",
+        "method": "POST",
+        "path": "/api/v1/auth/register",
+        "summary": "AuthService Register",
+        "description": "Generated from `open_foundry.auth` RPC `Register` in service `AuthService`.",
+        "namespace": "auth",
+        "namespace_member": "register",
+        "mcp_tool": "openfoundry.auth.register",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.common.HealthService.Check",
+        "method": "POST",
+        "path": "/api/v1/common/check",
+        "summary": "HealthService Check",
+        "description": "Generated from `open_foundry.common` RPC `Check` in service `HealthService`.",
+        "namespace": "common",
+        "namespace_member": "check",
+        "mcp_tool": "openfoundry.common.check",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.data_integration.ConnectorService.CreateConnection",
+        "method": "POST",
+        "path": "/api/v1/data-integration/create-connection",
+        "summary": "ConnectorService CreateConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `CreateConnection` in service `ConnectorService`.",
+        "namespace": "dataIntegration",
+        "namespace_member": "createconnection",
+        "mcp_tool": "openfoundry.dataIntegration.createconnection",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.data_integration.ConnectorService.DeleteConnection",
+        "method": "DELETE",
+        "path": "/api/v1/data-integration/delete-connection",
+        "summary": "ConnectorService DeleteConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `DeleteConnection` in service `ConnectorService`.",
+        "namespace": "dataIntegration",
+        "namespace_member": "deleteconnection",
+        "mcp_tool": "openfoundry.dataIntegration.deleteconnection",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.data_integration.ConnectorService.InferSchema",
+        "method": "POST",
+        "path": "/api/v1/data-integration/infer-schema",
+        "summary": "ConnectorService InferSchema",
+        "description": "Generated from `open_foundry.data_integration` RPC `InferSchema` in service `ConnectorService`.",
+        "namespace": "dataIntegration",
+        "namespace_member": "inferschema",
+        "mcp_tool": "openfoundry.dataIntegration.inferschema",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.data_integration.ConnectorService.ListConnections",
+        "method": "GET",
+        "path": "/api/v1/data-integration/list-connections",
+        "summary": "ConnectorService ListConnections",
+        "description": "Generated from `open_foundry.data_integration` RPC `ListConnections` in service `ConnectorService`.",
+        "namespace": "dataIntegration",
+        "namespace_member": "listconnections",
+        "mcp_tool": "openfoundry.dataIntegration.listconnections",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.data_integration.ConnectorService.SyncConnection",
+        "method": "POST",
+        "path": "/api/v1/data-integration/sync-connection",
+        "summary": "ConnectorService SyncConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `SyncConnection` in service `ConnectorService`.",
+        "namespace": "dataIntegration",
+        "namespace_member": "syncconnection",
+        "mcp_tool": "openfoundry.dataIntegration.syncconnection",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.data_integration.ConnectorService.TestConnection",
+        "method": "POST",
+        "path": "/api/v1/data-integration/test-connection",
+        "summary": "ConnectorService TestConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `TestConnection` in service `ConnectorService`.",
+        "namespace": "dataIntegration",
+        "namespace_member": "testconnection",
+        "mcp_tool": "openfoundry.dataIntegration.testconnection",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.CreateDataset",
+        "method": "POST",
+        "path": "/api/v1/datasets/create-dataset",
+        "summary": "DatasetService CreateDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `CreateDataset` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "createdataset",
+        "mcp_tool": "openfoundry.dataset.createdataset",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.DeleteDataset",
+        "method": "DELETE",
+        "path": "/api/v1/datasets/delete-dataset",
+        "summary": "DatasetService DeleteDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `DeleteDataset` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "deletedataset",
+        "mcp_tool": "openfoundry.dataset.deletedataset",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.GetDataset",
+        "method": "GET",
+        "path": "/api/v1/datasets/get-dataset",
+        "summary": "DatasetService GetDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `GetDataset` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "getdataset",
+        "mcp_tool": "openfoundry.dataset.getdataset",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.GetVersions",
+        "method": "GET",
+        "path": "/api/v1/datasets/get-versions",
+        "summary": "DatasetService GetVersions",
+        "description": "Generated from `open_foundry.dataset` RPC `GetVersions` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "getversions",
+        "mcp_tool": "openfoundry.dataset.getversions",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.ListDatasets",
+        "method": "GET",
+        "path": "/api/v1/datasets/list-datasets",
+        "summary": "DatasetService ListDatasets",
+        "description": "Generated from `open_foundry.dataset` RPC `ListDatasets` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "listdatasets",
+        "mcp_tool": "openfoundry.dataset.listdatasets",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.PreviewData",
+        "method": "POST",
+        "path": "/api/v1/datasets/preview-data",
+        "summary": "DatasetService PreviewData",
+        "description": "Generated from `open_foundry.dataset` RPC `PreviewData` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "previewdata",
+        "mcp_tool": "openfoundry.dataset.previewdata",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.dataset.DatasetService.UpdateDataset",
+        "method": "PATCH",
+        "path": "/api/v1/datasets/update-dataset",
+        "summary": "DatasetService UpdateDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `UpdateDataset` in service `DatasetService`.",
+        "namespace": "dataset",
+        "namespace_member": "updatedataset",
+        "mcp_tool": "openfoundry.dataset.updatedataset",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.NotebookService.CreateNotebook",
+        "method": "POST",
+        "path": "/api/v1/notebook/create-notebook",
+        "summary": "NotebookService CreateNotebook",
+        "description": "Generated from `notebook` RPC `CreateNotebook` in service `NotebookService`.",
+        "namespace": "notebook",
+        "namespace_member": "createnotebook",
+        "mcp_tool": "openfoundry.notebook.createnotebook",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.KernelService.CreateSession",
+        "method": "POST",
+        "path": "/api/v1/notebook/create-session",
+        "summary": "KernelService CreateSession",
+        "description": "Generated from `notebook` RPC `CreateSession` in service `KernelService`.",
+        "namespace": "notebook",
+        "namespace_member": "createsession",
+        "mcp_tool": "openfoundry.notebook.createsession",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.NotebookService.DeleteNotebook",
+        "method": "DELETE",
+        "path": "/api/v1/notebook/delete-notebook",
+        "summary": "NotebookService DeleteNotebook",
+        "description": "Generated from `notebook` RPC `DeleteNotebook` in service `NotebookService`.",
+        "namespace": "notebook",
+        "namespace_member": "deletenotebook",
+        "mcp_tool": "openfoundry.notebook.deletenotebook",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.NotebookService.GetNotebook",
+        "method": "GET",
+        "path": "/api/v1/notebook/get-notebook",
+        "summary": "NotebookService GetNotebook",
+        "description": "Generated from `notebook` RPC `GetNotebook` in service `NotebookService`.",
+        "namespace": "notebook",
+        "namespace_member": "getnotebook",
+        "mcp_tool": "openfoundry.notebook.getnotebook",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.NotebookService.ListNotebooks",
+        "method": "GET",
+        "path": "/api/v1/notebook/list-notebooks",
+        "summary": "NotebookService ListNotebooks",
+        "description": "Generated from `notebook` RPC `ListNotebooks` in service `NotebookService`.",
+        "namespace": "notebook",
+        "namespace_member": "listnotebooks",
+        "mcp_tool": "openfoundry.notebook.listnotebooks",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.KernelService.ListSessions",
+        "method": "GET",
+        "path": "/api/v1/notebook/list-sessions",
+        "summary": "KernelService ListSessions",
+        "description": "Generated from `notebook` RPC `ListSessions` in service `KernelService`.",
+        "namespace": "notebook",
+        "namespace_member": "listsessions",
+        "mcp_tool": "openfoundry.notebook.listsessions",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.KernelService.StopSession",
+        "method": "POST",
+        "path": "/api/v1/notebook/stop-session",
+        "summary": "KernelService StopSession",
+        "description": "Generated from `notebook` RPC `StopSession` in service `KernelService`.",
+        "namespace": "notebook",
+        "namespace_member": "stopsession",
+        "mcp_tool": "openfoundry.notebook.stopsession",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "notebook.NotebookService.UpdateNotebook",
+        "method": "PATCH",
+        "path": "/api/v1/notebook/update-notebook",
+        "summary": "NotebookService UpdateNotebook",
+        "description": "Generated from `notebook` RPC `UpdateNotebook` in service `NotebookService`.",
+        "namespace": "notebook",
+        "namespace_member": "updatenotebook",
+        "mcp_tool": "openfoundry.notebook.updatenotebook",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.CreateLinkType",
+        "method": "POST",
+        "path": "/api/v1/ontology/create-link-type",
+        "summary": "OntologyService CreateLinkType",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateLinkType` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "createlinktype",
+        "mcp_tool": "openfoundry.ontology.createlinktype",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.CreateObjectType",
+        "method": "POST",
+        "path": "/api/v1/ontology/create-object-type",
+        "summary": "OntologyService CreateObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateObjectType` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "createobjecttype",
+        "mcp_tool": "openfoundry.ontology.createobjecttype",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.CreateProperty",
+        "method": "POST",
+        "path": "/api/v1/ontology/create-property",
+        "summary": "OntologyService CreateProperty",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateProperty` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "createproperty",
+        "mcp_tool": "openfoundry.ontology.createproperty",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.DeleteLinkType",
+        "method": "DELETE",
+        "path": "/api/v1/ontology/delete-link-type",
+        "summary": "OntologyService DeleteLinkType",
+        "description": "Generated from `open_foundry.ontology` RPC `DeleteLinkType` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "deletelinktype",
+        "mcp_tool": "openfoundry.ontology.deletelinktype",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.DeleteObjectType",
+        "method": "DELETE",
+        "path": "/api/v1/ontology/delete-object-type",
+        "summary": "OntologyService DeleteObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `DeleteObjectType` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "deleteobjecttype",
+        "mcp_tool": "openfoundry.ontology.deleteobjecttype",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.GetObjectType",
+        "method": "GET",
+        "path": "/api/v1/ontology/get-object-type",
+        "summary": "OntologyService GetObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `GetObjectType` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "getobjecttype",
+        "mcp_tool": "openfoundry.ontology.getobjecttype",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.ListLinkTypes",
+        "method": "GET",
+        "path": "/api/v1/ontology/list-link-types",
+        "summary": "OntologyService ListLinkTypes",
+        "description": "Generated from `open_foundry.ontology` RPC `ListLinkTypes` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "listlinktypes",
+        "mcp_tool": "openfoundry.ontology.listlinktypes",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.ListObjectTypes",
+        "method": "GET",
+        "path": "/api/v1/ontology/list-object-types",
+        "summary": "OntologyService ListObjectTypes",
+        "description": "Generated from `open_foundry.ontology` RPC `ListObjectTypes` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "listobjecttypes",
+        "mcp_tool": "openfoundry.ontology.listobjecttypes",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.ListProperties",
+        "method": "GET",
+        "path": "/api/v1/ontology/list-properties",
+        "summary": "OntologyService ListProperties",
+        "description": "Generated from `open_foundry.ontology` RPC `ListProperties` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "listproperties",
+        "mcp_tool": "openfoundry.ontology.listproperties",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.ontology.OntologyService.UpdateObjectType",
+        "method": "PATCH",
+        "path": "/api/v1/ontology/update-object-type",
+        "summary": "OntologyService UpdateObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `UpdateObjectType` in service `OntologyService`.",
+        "namespace": "ontology",
+        "namespace_member": "updateobjecttype",
+        "mcp_tool": "openfoundry.ontology.updateobjecttype",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.CreatePipeline",
+        "method": "POST",
+        "path": "/api/v1/pipelines/create-pipeline",
+        "summary": "PipelineService CreatePipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `CreatePipeline` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "createpipeline",
+        "mcp_tool": "openfoundry.pipeline.createpipeline",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.DeletePipeline",
+        "method": "DELETE",
+        "path": "/api/v1/pipelines/delete-pipeline",
+        "summary": "PipelineService DeletePipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `DeletePipeline` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "deletepipeline",
+        "mcp_tool": "openfoundry.pipeline.deletepipeline",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.LineageService.GetDatasetLineage",
+        "method": "GET",
+        "path": "/api/v1/pipelines/get-dataset-lineage",
+        "summary": "LineageService GetDatasetLineage",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetDatasetLineage` in service `LineageService`.",
+        "namespace": "pipeline",
+        "namespace_member": "getdatasetlineage",
+        "mcp_tool": "openfoundry.pipeline.getdatasetlineage",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.LineageService.GetFullLineage",
+        "method": "GET",
+        "path": "/api/v1/pipelines/get-full-lineage",
+        "summary": "LineageService GetFullLineage",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetFullLineage` in service `LineageService`.",
+        "namespace": "pipeline",
+        "namespace_member": "getfulllineage",
+        "mcp_tool": "openfoundry.pipeline.getfulllineage",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.GetPipeline",
+        "method": "GET",
+        "path": "/api/v1/pipelines/get-pipeline",
+        "summary": "PipelineService GetPipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetPipeline` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "getpipeline",
+        "mcp_tool": "openfoundry.pipeline.getpipeline",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.GetRun",
+        "method": "GET",
+        "path": "/api/v1/pipelines/get-run",
+        "summary": "PipelineService GetRun",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetRun` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "getrun",
+        "mcp_tool": "openfoundry.pipeline.getrun",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.ListPipelines",
+        "method": "GET",
+        "path": "/api/v1/pipelines/list-pipelines",
+        "summary": "PipelineService ListPipelines",
+        "description": "Generated from `open_foundry.pipeline` RPC `ListPipelines` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "listpipelines",
+        "mcp_tool": "openfoundry.pipeline.listpipelines",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.ListRuns",
+        "method": "GET",
+        "path": "/api/v1/pipelines/list-runs",
+        "summary": "PipelineService ListRuns",
+        "description": "Generated from `open_foundry.pipeline` RPC `ListRuns` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "listruns",
+        "mcp_tool": "openfoundry.pipeline.listruns",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.LineageService.RecordLineage",
+        "method": "POST",
+        "path": "/api/v1/pipelines/record-lineage",
+        "summary": "LineageService RecordLineage",
+        "description": "Generated from `open_foundry.pipeline` RPC `RecordLineage` in service `LineageService`.",
+        "namespace": "pipeline",
+        "namespace_member": "recordlineage",
+        "mcp_tool": "openfoundry.pipeline.recordlineage",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.TriggerRun",
+        "method": "POST",
+        "path": "/api/v1/pipelines/trigger-run",
+        "summary": "PipelineService TriggerRun",
+        "description": "Generated from `open_foundry.pipeline` RPC `TriggerRun` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "triggerrun",
+        "mcp_tool": "openfoundry.pipeline.triggerrun",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.pipeline.PipelineService.UpdatePipeline",
+        "method": "PATCH",
+        "path": "/api/v1/pipelines/update-pipeline",
+        "summary": "PipelineService UpdatePipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `UpdatePipeline` in service `PipelineService`.",
+        "namespace": "pipeline",
+        "namespace_member": "updatepipeline",
+        "mcp_tool": "openfoundry.pipeline.updatepipeline",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.query.QueryService.DeleteSavedQuery",
+        "method": "DELETE",
+        "path": "/api/v1/queries/delete-saved-query",
+        "summary": "QueryService DeleteSavedQuery",
+        "description": "Generated from `open_foundry.query` RPC `DeleteSavedQuery` in service `QueryService`.",
+        "namespace": "query",
+        "namespace_member": "deletesavedquery",
+        "mcp_tool": "openfoundry.query.deletesavedquery",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.query.QueryService.ExecuteQuery",
+        "method": "POST",
+        "path": "/api/v1/queries/execute-query",
+        "summary": "QueryService ExecuteQuery",
+        "description": "Generated from `open_foundry.query` RPC `ExecuteQuery` in service `QueryService`.",
+        "namespace": "query",
+        "namespace_member": "executequery",
+        "mcp_tool": "openfoundry.query.executequery",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.query.QueryService.ExplainQuery",
+        "method": "POST",
+        "path": "/api/v1/queries/explain-query",
+        "summary": "QueryService ExplainQuery",
+        "description": "Generated from `open_foundry.query` RPC `ExplainQuery` in service `QueryService`.",
+        "namespace": "query",
+        "namespace_member": "explainquery",
+        "mcp_tool": "openfoundry.query.explainquery",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.query.QueryService.ListSavedQueries",
+        "method": "GET",
+        "path": "/api/v1/queries/list-saved-queries",
+        "summary": "QueryService ListSavedQueries",
+        "description": "Generated from `open_foundry.query` RPC `ListSavedQueries` in service `QueryService`.",
+        "namespace": "query",
+        "namespace_member": "listsavedqueries",
+        "mcp_tool": "openfoundry.query.listsavedqueries",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "open_foundry.query.QueryService.SaveQuery",
+        "method": "POST",
+        "path": "/api/v1/queries/save-query",
+        "summary": "QueryService SaveQuery",
+        "description": "Generated from `open_foundry.query` RPC `SaveQuery` in service `QueryService`.",
+        "namespace": "query",
+        "namespace_member": "savequery",
+        "mcp_tool": "openfoundry.query.savequery",
+        "api_version": "v1",
+        "stability": "beta",
+    },
+    {
+        "operation_id": "rest.admin.v2.getControlPanel",
+        "method": "GET",
+        "path": "/api/v2/admin/control-panel",
+        "summary": "Get control panel (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.getControlPanel`.",
+        "namespace": "adminV2",
+        "namespace_member": "getcontrolpanel",
+        "mcp_tool": "openfoundry.adminV2.getcontrolpanel",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.updateControlPanel",
+        "method": "PUT",
+        "path": "/api/v2/admin/control-panel",
+        "summary": "Update control panel (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateControlPanel`.",
+        "namespace": "adminV2",
+        "namespace_member": "updatecontrolpanel",
+        "mcp_tool": "openfoundry.adminV2.updatecontrolpanel",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.listGroups",
+        "method": "GET",
+        "path": "/api/v2/admin/groups",
+        "summary": "List groups (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listGroups`.",
+        "namespace": "adminV2",
+        "namespace_member": "listgroups",
+        "mcp_tool": "openfoundry.adminV2.listgroups",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.createGroup",
+        "method": "POST",
+        "path": "/api/v2/admin/groups",
+        "summary": "Create group (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createGroup`.",
+        "namespace": "adminV2",
+        "namespace_member": "creategroup",
+        "mcp_tool": "openfoundry.adminV2.creategroup",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.updateGroup",
+        "method": "PUT",
+        "path": "/api/v2/admin/groups/{id}",
+        "summary": "Update group (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateGroup`.",
+        "namespace": "adminV2",
+        "namespace_member": "updategroup",
+        "mcp_tool": "openfoundry.adminV2.updategroup",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.listPermissions",
+        "method": "GET",
+        "path": "/api/v2/admin/permissions",
+        "summary": "List permissions (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listPermissions`.",
+        "namespace": "adminV2",
+        "namespace_member": "listpermissions",
+        "mcp_tool": "openfoundry.adminV2.listpermissions",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.createPermission",
+        "method": "POST",
+        "path": "/api/v2/admin/permissions",
+        "summary": "Create permission (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createPermission`.",
+        "namespace": "adminV2",
+        "namespace_member": "createpermission",
+        "mcp_tool": "openfoundry.adminV2.createpermission",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.listPolicies",
+        "method": "GET",
+        "path": "/api/v2/admin/policies",
+        "summary": "List policies (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listPolicies`.",
+        "namespace": "adminV2",
+        "namespace_member": "listpolicies",
+        "mcp_tool": "openfoundry.adminV2.listpolicies",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.createPolicy",
+        "method": "POST",
+        "path": "/api/v2/admin/policies",
+        "summary": "Create policy (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createPolicy`.",
+        "namespace": "adminV2",
+        "namespace_member": "createpolicy",
+        "mcp_tool": "openfoundry.adminV2.createpolicy",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.evaluatePolicy",
+        "method": "POST",
+        "path": "/api/v2/admin/policies/evaluate",
+        "summary": "Evaluate policy (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.evaluatePolicy`.",
+        "namespace": "adminV2",
+        "namespace_member": "evaluatepolicy",
+        "mcp_tool": "openfoundry.adminV2.evaluatepolicy",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.updatePolicy",
+        "method": "PATCH",
+        "path": "/api/v2/admin/policies/{id}",
+        "summary": "Update policy (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updatePolicy`.",
+        "namespace": "adminV2",
+        "namespace_member": "updatepolicy",
+        "mcp_tool": "openfoundry.adminV2.updatepolicy",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.listRoles",
+        "method": "GET",
+        "path": "/api/v2/admin/roles",
+        "summary": "List roles (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listRoles`.",
+        "namespace": "adminV2",
+        "namespace_member": "listroles",
+        "mcp_tool": "openfoundry.adminV2.listroles",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.createRole",
+        "method": "POST",
+        "path": "/api/v2/admin/roles",
+        "summary": "Create role (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createRole`.",
+        "namespace": "adminV2",
+        "namespace_member": "createrole",
+        "mcp_tool": "openfoundry.adminV2.createrole",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.updateRole",
+        "method": "PUT",
+        "path": "/api/v2/admin/roles/{id}",
+        "summary": "Update role (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateRole`.",
+        "namespace": "adminV2",
+        "namespace_member": "updaterole",
+        "mcp_tool": "openfoundry.adminV2.updaterole",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.listUsers",
+        "method": "GET",
+        "path": "/api/v2/admin/users",
+        "summary": "List admin users (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listUsers`.",
+        "namespace": "adminV2",
+        "namespace_member": "listusers",
+        "mcp_tool": "openfoundry.adminV2.listusers",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.getCurrentUser",
+        "method": "GET",
+        "path": "/api/v2/admin/users/me",
+        "summary": "Get current admin user (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.getCurrentUser`.",
+        "namespace": "adminV2",
+        "namespace_member": "getcurrentuser",
+        "mcp_tool": "openfoundry.adminV2.getcurrentuser",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.admin.v2.updateUser",
+        "method": "PATCH",
+        "path": "/api/v2/admin/users/{id}",
+        "summary": "Update admin user (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateUser`.",
+        "namespace": "adminV2",
+        "namespace_member": "updateuser",
+        "mcp_tool": "openfoundry.adminV2.updateuser",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+    {
+        "operation_id": "rest.filesystem.v2.getDatasetFilesystem",
+        "method": "GET",
+        "path": "/api/v2/filesystem/datasets/{dataset_id}",
+        "summary": "List dataset filesystem (v2)",
+        "description": "Curated REST overlay for `rest.filesystem.v2.getDatasetFilesystem`.",
+        "namespace": "filesystemV2",
+        "namespace_member": "getdatasetfilesystem",
+        "mcp_tool": "openfoundry.filesystemV2.getdatasetfilesystem",
+        "api_version": "v2",
+        "stability": "stable",
+    },
+]
+
+class OpenFoundryApiError(RuntimeError):
+    def __init__(
+        self,
+        status: int,
+        method: str,
+        path: str,
+        message: str,
+        request_id: str | None = None,
+        body: Any = None,
+        raw_message: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.method = method
+        self.path = path
+        self.request_id = request_id
+        self.body = body
+        self.raw_message = raw_message or message
+
+class _OperationNamespace:
+    def __init__(self, **methods: Any) -> None:
+        for name, method in methods.items():
+            setattr(self, name, method)
+
 class OpenFoundryClient:
-    def __init__(self, base_url: str, headers: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        headers: Mapping[str, str] | None = None,
+        token: str | None = None,
+        timeout_seconds: float = 30.0,
+        max_retries: int = 1,
+        retry_backoff_seconds: float = 0.25,
+        user_agent: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip('/')
         self.default_headers = dict(headers or {})
+        self.token = token
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max(1, max_retries)
+        self.retry_backoff_seconds = retry_backoff_seconds
+        self.user_agent = user_agent
+        self.adminV2 = _OperationNamespace(getcontrolpanel=self.admin_v2_getcontrolpanel, updatecontrolpanel=self.admin_v2_updatecontrolpanel, listgroups=self.admin_v2_listgroups, creategroup=self.admin_v2_creategroup, updategroup=self.admin_v2_updategroup, listpermissions=self.admin_v2_listpermissions, createpermission=self.admin_v2_createpermission, listpolicies=self.admin_v2_listpolicies, createpolicy=self.admin_v2_createpolicy, evaluatepolicy=self.admin_v2_evaluatepolicy, updatepolicy=self.admin_v2_updatepolicy, listroles=self.admin_v2_listroles, createrole=self.admin_v2_createrole, updaterole=self.admin_v2_updaterole, listusers=self.admin_v2_listusers, getcurrentuser=self.admin_v2_getcurrentuser, updateuser=self.admin_v2_updateuser)
+        self.auth = _OperationNamespace(assignrole=self.auth_rbac_assignrole, getme=self.auth_auth_getme, listroles=self.auth_rbac_listroles, login=self.auth_auth_login, refreshtoken=self.auth_auth_refreshtoken, register=self.auth_auth_register)
+        self.common = _OperationNamespace(check=self.common_health_check)
+        self.dataIntegration = _OperationNamespace(createconnection=self.data_integration_connector_createconnection, deleteconnection=self.data_integration_connector_deleteconnection, inferschema=self.data_integration_connector_inferschema, listconnections=self.data_integration_connector_listconnections, syncconnection=self.data_integration_connector_syncconnection, testconnection=self.data_integration_connector_testconnection)
+        self.dataset = _OperationNamespace(createdataset=self.dataset_dataset_createdataset, deletedataset=self.dataset_dataset_deletedataset, getdataset=self.dataset_dataset_getdataset, getversions=self.dataset_dataset_getversions, listdatasets=self.dataset_dataset_listdatasets, previewdata=self.dataset_dataset_previewdata, updatedataset=self.dataset_dataset_updatedataset)
+        self.filesystemV2 = _OperationNamespace(getdatasetfilesystem=self.filesystem_v2_getdatasetfilesystem)
+        self.notebook = _OperationNamespace(createnotebook=self.notebook_notebook_createnotebook, createsession=self.notebook_kernel_createsession, deletenotebook=self.notebook_notebook_deletenotebook, getnotebook=self.notebook_notebook_getnotebook, listnotebooks=self.notebook_notebook_listnotebooks, listsessions=self.notebook_kernel_listsessions, stopsession=self.notebook_kernel_stopsession, updatenotebook=self.notebook_notebook_updatenotebook)
+        self.ontology = _OperationNamespace(createlinktype=self.ontology_ontology_createlinktype, createobjecttype=self.ontology_ontology_createobjecttype, createproperty=self.ontology_ontology_createproperty, deletelinktype=self.ontology_ontology_deletelinktype, deleteobjecttype=self.ontology_ontology_deleteobjecttype, getobjecttype=self.ontology_ontology_getobjecttype, listlinktypes=self.ontology_ontology_listlinktypes, listobjecttypes=self.ontology_ontology_listobjecttypes, listproperties=self.ontology_ontology_listproperties, updateobjecttype=self.ontology_ontology_updateobjecttype)
+        self.pipeline = _OperationNamespace(createpipeline=self.pipeline_pipeline_createpipeline, deletepipeline=self.pipeline_pipeline_deletepipeline, getdatasetlineage=self.pipeline_lineage_getdatasetlineage, getfulllineage=self.pipeline_lineage_getfulllineage, getpipeline=self.pipeline_pipeline_getpipeline, getrun=self.pipeline_pipeline_getrun, listpipelines=self.pipeline_pipeline_listpipelines, listruns=self.pipeline_pipeline_listruns, recordlineage=self.pipeline_lineage_recordlineage, triggerrun=self.pipeline_pipeline_triggerrun, updatepipeline=self.pipeline_pipeline_updatepipeline)
+        self.query = _OperationNamespace(deletesavedquery=self.query_query_deletesavedquery, executequery=self.query_query_executequery, explainquery=self.query_query_explainquery, listsavedqueries=self.query_query_listsavedqueries, savequery=self.query_query_savequery)
+
+    def clone(self, **overrides: Any) -> "OpenFoundryClient":
+        return OpenFoundryClient(
+            base_url=overrides.get("base_url", self.base_url),
+            headers=overrides.get("headers", self.default_headers),
+            token=overrides.get("token", self.token),
+            timeout_seconds=overrides.get("timeout_seconds", self.timeout_seconds),
+            max_retries=overrides.get("max_retries", self.max_retries),
+            retry_backoff_seconds=overrides.get("retry_backoff_seconds", self.retry_backoff_seconds),
+            user_agent=overrides.get("user_agent", self.user_agent),
+        )
+
+    def with_bearer_token(self, token: str) -> "OpenFoundryClient":
+        return self.clone(token=token)
+
+    def set_bearer_token(self, token: str | None) -> None:
+        self.token = token
+
+    def set_default_header(self, name: str, value: str) -> None:
+        self.default_headers[name] = value
+
+    def remove_default_header(self, name: str) -> None:
+        self.default_headers.pop(name, None)
 
     def _request(
         self,
@@ -24,28 +965,65 @@ class OpenFoundryClient:
         body: Any = None,
         headers: Mapping[str, str] | None = None,
     ) -> Any:
-        path = path_template
-        for key, value in (path_params or {}).items():
-            path = path.replace('{' + key + '}', urllib.parse.quote(str(value), safe=''))
-        url = f"{self.base_url}{path}"
-        if query:
-            filtered = {key: value for key, value in query.items() if value is not None}
-            if filtered:
-                url = f"{url}?{urllib.parse.urlencode(filtered)}"
+        return self._request_raw(method, path_template, path_params, query, body, headers=headers)["data"]
+
+    def _request_raw(
+        self,
+        method: str,
+        path_template: str,
+        path_params: Mapping[str, Any] | None = None,
+        query: Mapping[str, Any] | None = None,
+        body: Any = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        path = self._interpolate_path(path_template, path_params)
+        url = self._build_url(path, query)
         payload = None
-        request_headers = {'content-type': 'application/json', **self.default_headers, **dict(headers or {})}
+        request_headers = self._build_headers(headers, body is not None)
         if body is not None:
-            payload = json.dumps(models.serialize_model(body)).encode('utf-8')
-        request = urllib.request.Request(url=url, data=payload, method=method, headers=request_headers)
-        try:
-            with urllib.request.urlopen(request) as response:
-                raw = response.read()
-                if response.status == 204 or not raw:
-                    return None
-                return json.loads(raw.decode('utf-8'))
-        except urllib.error.HTTPError as error:
-            message = error.read().decode('utf-8', errors='replace')
-            raise RuntimeError(f'OpenFoundry request failed: {error.code} {message}'.strip()) from error
+            payload = json.dumps(models.serialize_model(body)).encode("utf-8")
+        attempt = 0
+        while attempt < self.max_retries:
+            attempt += 1
+            request = urllib.request.Request(url=url, data=payload, method=method, headers=request_headers)
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                    raw = response.read()
+                    payload_value = self._parse_payload(raw) if response.status != 204 else None
+                    return {
+                        "data": payload_value,
+                        "status": response.status,
+                        "headers": dict(response.headers.items()),
+                        "request_id": response.headers.get("x-request-id"),
+                        "raw": payload_value,
+                    }
+            except urllib.error.HTTPError as error:
+                message = error.read().decode("utf-8", errors="replace")
+                payload_value = self._parse_payload(message.encode("utf-8")) if message else None
+                api_error = OpenFoundryApiError(
+                    status=error.code,
+                    method=method,
+                    path=path,
+                    message=self._error_message_from_payload(payload_value, error.reason or "OpenFoundry request failed"),
+                    request_id=error.headers.get("x-request-id") if error.headers else None,
+                    body=payload_value,
+                    raw_message=message,
+                )
+                if attempt >= self.max_retries or not self._should_retry(method, api_error.status):
+                    raise api_error from error
+                time.sleep(self.retry_backoff_seconds * attempt)
+            except urllib.error.URLError as error:
+                api_error = OpenFoundryApiError(
+                    status=0,
+                    method=method,
+                    path=path,
+                    message=str(error.reason) if getattr(error, "reason", None) else str(error),
+                    raw_message=str(error),
+                )
+                if attempt >= self.max_retries or not self._should_retry(method, api_error.status):
+                    raise api_error from error
+                time.sleep(self.retry_backoff_seconds * attempt)
+        raise OpenFoundryApiError(0, method, path, "OpenFoundry request exhausted retries")
 
     def auth_rbac_assignrole(self, body: models.AssignRoleRequest, headers: Mapping[str, str] | None = None) -> models.AssignRoleResponse:
         payload = self._request("POST", "/api/v1/auth/assign-role", None, None, body, headers=headers)
@@ -79,16 +1057,16 @@ class OpenFoundryClient:
         payload = self._request("POST", "/api/v1/data-integration/create-connection", None, None, body, headers=headers)
         return models.deserialize_model(models.Connection, payload)
 
-    def data_integration_connector_deleteconnection(self, headers: Mapping[str, str] | None = None) -> models.DeleteConnectionResponse:
-        payload = self._request("DELETE", "/api/v1/data-integration/delete-connection", None, None, None, headers=headers)
+    def data_integration_connector_deleteconnection(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.DeleteConnectionResponse:
+        payload = self._request("DELETE", "/api/v1/data-integration/delete-connection", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.DeleteConnectionResponse, payload)
 
     def data_integration_connector_inferschema(self, body: models.InferSchemaRequest, headers: Mapping[str, str] | None = None) -> models.InferSchemaResponse:
         payload = self._request("POST", "/api/v1/data-integration/infer-schema", None, None, body, headers=headers)
         return models.deserialize_model(models.InferSchemaResponse, payload)
 
-    def data_integration_connector_listconnections(self, headers: Mapping[str, str] | None = None) -> models.ListConnectionsResponse:
-        payload = self._request("GET", "/api/v1/data-integration/list-connections", None, None, None, headers=headers)
+    def data_integration_connector_listconnections(self, pagination: PageRequest | None = None, headers: Mapping[str, str] | None = None) -> models.ListConnectionsResponse:
+        payload = self._request("GET", "/api/v1/data-integration/list-connections", None, {"pagination": pagination}, None, headers=headers)
         return models.deserialize_model(models.ListConnectionsResponse, payload)
 
     def data_integration_connector_syncconnection(self, body: models.SyncConnectionRequest, headers: Mapping[str, str] | None = None) -> models.SyncStatus:
@@ -103,20 +1081,20 @@ class OpenFoundryClient:
         payload = self._request("POST", "/api/v1/datasets/create-dataset", None, None, body, headers=headers)
         return models.deserialize_model(models.Dataset, payload)
 
-    def dataset_dataset_deletedataset(self, headers: Mapping[str, str] | None = None) -> models.DeleteDatasetResponse:
-        payload = self._request("DELETE", "/api/v1/datasets/delete-dataset", None, None, None, headers=headers)
+    def dataset_dataset_deletedataset(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.DeleteDatasetResponse:
+        payload = self._request("DELETE", "/api/v1/datasets/delete-dataset", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.DeleteDatasetResponse, payload)
 
-    def dataset_dataset_getdataset(self, headers: Mapping[str, str] | None = None) -> models.Dataset:
-        payload = self._request("GET", "/api/v1/datasets/get-dataset", None, None, None, headers=headers)
+    def dataset_dataset_getdataset(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.Dataset:
+        payload = self._request("GET", "/api/v1/datasets/get-dataset", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.Dataset, payload)
 
-    def dataset_dataset_getversions(self, headers: Mapping[str, str] | None = None) -> models.GetVersionsResponse:
-        payload = self._request("GET", "/api/v1/datasets/get-versions", None, None, None, headers=headers)
+    def dataset_dataset_getversions(self, dataset_id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.GetVersionsResponse:
+        payload = self._request("GET", "/api/v1/datasets/get-versions", None, {"dataset_id": dataset_id}, None, headers=headers)
         return models.deserialize_model(models.GetVersionsResponse, payload)
 
-    def dataset_dataset_listdatasets(self, headers: Mapping[str, str] | None = None) -> models.ListDatasetsResponse:
-        payload = self._request("GET", "/api/v1/datasets/list-datasets", None, None, None, headers=headers)
+    def dataset_dataset_listdatasets(self, pagination: PageRequest | None = None, search: str | None = None, tags: list[str] | None = None, headers: Mapping[str, str] | None = None) -> models.ListDatasetsResponse:
+        payload = self._request("GET", "/api/v1/datasets/list-datasets", None, {"pagination": pagination, "search": search, "tags": tags}, None, headers=headers)
         return models.deserialize_model(models.ListDatasetsResponse, payload)
 
     def dataset_dataset_previewdata(self, body: models.PreviewDataRequest, headers: Mapping[str, str] | None = None) -> models.PreviewDataResponse:
@@ -135,20 +1113,20 @@ class OpenFoundryClient:
         payload = self._request("POST", "/api/v1/notebook/create-session", None, None, body, headers=headers)
         return models.deserialize_model(models.Session, payload)
 
-    def notebook_notebook_deletenotebook(self, headers: Mapping[str, str] | None = None) -> models.Notebook:
-        payload = self._request("DELETE", "/api/v1/notebook/delete-notebook", None, None, None, headers=headers)
+    def notebook_notebook_deletenotebook(self, id: str | None = None, headers: Mapping[str, str] | None = None) -> models.Notebook:
+        payload = self._request("DELETE", "/api/v1/notebook/delete-notebook", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.Notebook, payload)
 
-    def notebook_notebook_getnotebook(self, headers: Mapping[str, str] | None = None) -> models.Notebook:
-        payload = self._request("GET", "/api/v1/notebook/get-notebook", None, None, None, headers=headers)
+    def notebook_notebook_getnotebook(self, id: str | None = None, headers: Mapping[str, str] | None = None) -> models.Notebook:
+        payload = self._request("GET", "/api/v1/notebook/get-notebook", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.Notebook, payload)
 
-    def notebook_notebook_listnotebooks(self, headers: Mapping[str, str] | None = None) -> models.ListNotebooksResponse:
-        payload = self._request("GET", "/api/v1/notebook/list-notebooks", None, None, None, headers=headers)
+    def notebook_notebook_listnotebooks(self, page: int | None = None, per_page: int | None = None, search: str | None = None, headers: Mapping[str, str] | None = None) -> models.ListNotebooksResponse:
+        payload = self._request("GET", "/api/v1/notebook/list-notebooks", None, {"page": page, "per_page": per_page, "search": search}, None, headers=headers)
         return models.deserialize_model(models.ListNotebooksResponse, payload)
 
-    def notebook_kernel_listsessions(self, headers: Mapping[str, str] | None = None) -> models.ListSessionsResponse:
-        payload = self._request("GET", "/api/v1/notebook/list-sessions", None, None, None, headers=headers)
+    def notebook_kernel_listsessions(self, notebook_id: str | None = None, headers: Mapping[str, str] | None = None) -> models.ListSessionsResponse:
+        payload = self._request("GET", "/api/v1/notebook/list-sessions", None, {"notebook_id": notebook_id}, None, headers=headers)
         return models.deserialize_model(models.ListSessionsResponse, payload)
 
     def notebook_kernel_stopsession(self, body: models.StopSessionRequest, headers: Mapping[str, str] | None = None) -> models.Session:
@@ -171,28 +1149,28 @@ class OpenFoundryClient:
         payload = self._request("POST", "/api/v1/ontology/create-property", None, None, body, headers=headers)
         return models.deserialize_model(models.Property, payload)
 
-    def ontology_ontology_deletelinktype(self, headers: Mapping[str, str] | None = None) -> models.DeleteLinkTypeResponse:
-        payload = self._request("DELETE", "/api/v1/ontology/delete-link-type", None, None, None, headers=headers)
+    def ontology_ontology_deletelinktype(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.DeleteLinkTypeResponse:
+        payload = self._request("DELETE", "/api/v1/ontology/delete-link-type", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.DeleteLinkTypeResponse, payload)
 
-    def ontology_ontology_deleteobjecttype(self, headers: Mapping[str, str] | None = None) -> models.DeleteObjectTypeResponse:
-        payload = self._request("DELETE", "/api/v1/ontology/delete-object-type", None, None, None, headers=headers)
+    def ontology_ontology_deleteobjecttype(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.DeleteObjectTypeResponse:
+        payload = self._request("DELETE", "/api/v1/ontology/delete-object-type", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.DeleteObjectTypeResponse, payload)
 
-    def ontology_ontology_getobjecttype(self, headers: Mapping[str, str] | None = None) -> models.ObjectType:
-        payload = self._request("GET", "/api/v1/ontology/get-object-type", None, None, None, headers=headers)
+    def ontology_ontology_getobjecttype(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.ObjectType:
+        payload = self._request("GET", "/api/v1/ontology/get-object-type", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.ObjectType, payload)
 
-    def ontology_ontology_listlinktypes(self, headers: Mapping[str, str] | None = None) -> models.ListLinkTypesResponse:
-        payload = self._request("GET", "/api/v1/ontology/list-link-types", None, None, None, headers=headers)
+    def ontology_ontology_listlinktypes(self, object_type_id: Uuid | None = None, pagination: PageRequest | None = None, headers: Mapping[str, str] | None = None) -> models.ListLinkTypesResponse:
+        payload = self._request("GET", "/api/v1/ontology/list-link-types", None, {"object_type_id": object_type_id, "pagination": pagination}, None, headers=headers)
         return models.deserialize_model(models.ListLinkTypesResponse, payload)
 
-    def ontology_ontology_listobjecttypes(self, headers: Mapping[str, str] | None = None) -> models.ListObjectTypesResponse:
-        payload = self._request("GET", "/api/v1/ontology/list-object-types", None, None, None, headers=headers)
+    def ontology_ontology_listobjecttypes(self, pagination: PageRequest | None = None, search: str | None = None, headers: Mapping[str, str] | None = None) -> models.ListObjectTypesResponse:
+        payload = self._request("GET", "/api/v1/ontology/list-object-types", None, {"pagination": pagination, "search": search}, None, headers=headers)
         return models.deserialize_model(models.ListObjectTypesResponse, payload)
 
-    def ontology_ontology_listproperties(self, headers: Mapping[str, str] | None = None) -> models.ListPropertiesResponse:
-        payload = self._request("GET", "/api/v1/ontology/list-properties", None, None, None, headers=headers)
+    def ontology_ontology_listproperties(self, object_type_id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.ListPropertiesResponse:
+        payload = self._request("GET", "/api/v1/ontology/list-properties", None, {"object_type_id": object_type_id}, None, headers=headers)
         return models.deserialize_model(models.ListPropertiesResponse, payload)
 
     def ontology_ontology_updateobjecttype(self, body: models.UpdateObjectTypeRequest, headers: Mapping[str, str] | None = None) -> models.ObjectType:
@@ -203,32 +1181,32 @@ class OpenFoundryClient:
         payload = self._request("POST", "/api/v1/pipelines/create-pipeline", None, None, body, headers=headers)
         return models.deserialize_model(models.Pipeline, payload)
 
-    def pipeline_pipeline_deletepipeline(self, headers: Mapping[str, str] | None = None) -> models.DeletePipelineResponse:
-        payload = self._request("DELETE", "/api/v1/pipelines/delete-pipeline", None, None, None, headers=headers)
+    def pipeline_pipeline_deletepipeline(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.DeletePipelineResponse:
+        payload = self._request("DELETE", "/api/v1/pipelines/delete-pipeline", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.DeletePipelineResponse, payload)
 
-    def pipeline_lineage_getdatasetlineage(self, headers: Mapping[str, str] | None = None) -> models.LineageGraph:
-        payload = self._request("GET", "/api/v1/pipelines/get-dataset-lineage", None, None, None, headers=headers)
+    def pipeline_lineage_getdatasetlineage(self, dataset_id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.LineageGraph:
+        payload = self._request("GET", "/api/v1/pipelines/get-dataset-lineage", None, {"dataset_id": dataset_id}, None, headers=headers)
         return models.deserialize_model(models.LineageGraph, payload)
 
     def pipeline_lineage_getfulllineage(self, headers: Mapping[str, str] | None = None) -> models.LineageGraph:
         payload = self._request("GET", "/api/v1/pipelines/get-full-lineage", None, None, None, headers=headers)
         return models.deserialize_model(models.LineageGraph, payload)
 
-    def pipeline_pipeline_getpipeline(self, headers: Mapping[str, str] | None = None) -> models.Pipeline:
-        payload = self._request("GET", "/api/v1/pipelines/get-pipeline", None, None, None, headers=headers)
+    def pipeline_pipeline_getpipeline(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.Pipeline:
+        payload = self._request("GET", "/api/v1/pipelines/get-pipeline", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.Pipeline, payload)
 
-    def pipeline_pipeline_getrun(self, headers: Mapping[str, str] | None = None) -> models.PipelineRun:
-        payload = self._request("GET", "/api/v1/pipelines/get-run", None, None, None, headers=headers)
+    def pipeline_pipeline_getrun(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.PipelineRun:
+        payload = self._request("GET", "/api/v1/pipelines/get-run", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.PipelineRun, payload)
 
-    def pipeline_pipeline_listpipelines(self, headers: Mapping[str, str] | None = None) -> models.ListPipelinesResponse:
-        payload = self._request("GET", "/api/v1/pipelines/list-pipelines", None, None, None, headers=headers)
+    def pipeline_pipeline_listpipelines(self, pagination: PageRequest | None = None, search: str | None = None, headers: Mapping[str, str] | None = None) -> models.ListPipelinesResponse:
+        payload = self._request("GET", "/api/v1/pipelines/list-pipelines", None, {"pagination": pagination, "search": search}, None, headers=headers)
         return models.deserialize_model(models.ListPipelinesResponse, payload)
 
-    def pipeline_pipeline_listruns(self, headers: Mapping[str, str] | None = None) -> models.ListRunsResponse:
-        payload = self._request("GET", "/api/v1/pipelines/list-runs", None, None, None, headers=headers)
+    def pipeline_pipeline_listruns(self, pagination: PageRequest | None = None, pipeline_id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.ListRunsResponse:
+        payload = self._request("GET", "/api/v1/pipelines/list-runs", None, {"pagination": pagination, "pipeline_id": pipeline_id}, None, headers=headers)
         return models.deserialize_model(models.ListRunsResponse, payload)
 
     def pipeline_lineage_recordlineage(self, body: models.RecordLineageRequest, headers: Mapping[str, str] | None = None) -> models.RecordLineageResponse:
@@ -243,8 +1221,8 @@ class OpenFoundryClient:
         payload = self._request("PATCH", "/api/v1/pipelines/update-pipeline", None, None, body, headers=headers)
         return models.deserialize_model(models.Pipeline, payload)
 
-    def query_query_deletesavedquery(self, headers: Mapping[str, str] | None = None) -> models.DeleteSavedQueryResponse:
-        payload = self._request("DELETE", "/api/v1/queries/delete-saved-query", None, None, None, headers=headers)
+    def query_query_deletesavedquery(self, id: Uuid | None = None, headers: Mapping[str, str] | None = None) -> models.DeleteSavedQueryResponse:
+        payload = self._request("DELETE", "/api/v1/queries/delete-saved-query", None, {"id": id}, None, headers=headers)
         return models.deserialize_model(models.DeleteSavedQueryResponse, payload)
 
     def query_query_executequery(self, body: models.ExecuteQueryRequest, headers: Mapping[str, str] | None = None) -> models.QueryResult:
@@ -255,8 +1233,8 @@ class OpenFoundryClient:
         payload = self._request("POST", "/api/v1/queries/explain-query", None, None, body, headers=headers)
         return models.deserialize_model(models.ExplainQueryResponse, payload)
 
-    def query_query_listsavedqueries(self, headers: Mapping[str, str] | None = None) -> models.ListSavedQueriesResponse:
-        payload = self._request("GET", "/api/v1/queries/list-saved-queries", None, None, None, headers=headers)
+    def query_query_listsavedqueries(self, pagination: PageRequest | None = None, search: str | None = None, headers: Mapping[str, str] | None = None) -> models.ListSavedQueriesResponse:
+        payload = self._request("GET", "/api/v1/queries/list-saved-queries", None, {"pagination": pagination, "search": search}, None, headers=headers)
         return models.deserialize_model(models.ListSavedQueriesResponse, payload)
 
     def query_query_savequery(self, body: models.SaveQueryRequest, headers: Mapping[str, str] | None = None) -> models.SavedQuery:
@@ -334,3 +1312,240 @@ class OpenFoundryClient:
     def filesystem_v2_getdatasetfilesystem(self, dataset_id: str, path: str | None = None, headers: Mapping[str, str] | None = None) -> models.FilesystemListResponse:
         payload = self._request("GET", "/api/v2/filesystem/datasets/{dataset_id}", {"dataset_id": dataset_id}, {"path": path}, None, headers=headers)
         return models.deserialize_model(models.FilesystemListResponse, payload)
+
+    def call_operation(
+        self,
+        operation_id: str,
+        input: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        payload = dict(input or {})
+        match operation_id:
+            case "open_foundry.auth.RbacService.AssignRole":
+                return self.auth_rbac_assignrole(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.auth.AuthService.GetMe":
+                return self.auth_auth_getme(headers=headers)
+            case "open_foundry.auth.RbacService.ListRoles":
+                return self.auth_rbac_listroles(headers=headers)
+            case "open_foundry.auth.AuthService.Login":
+                return self.auth_auth_login(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.auth.AuthService.RefreshToken":
+                return self.auth_auth_refreshtoken(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.auth.AuthService.Register":
+                return self.auth_auth_register(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.common.HealthService.Check":
+                return self.common_health_check(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.data_integration.ConnectorService.CreateConnection":
+                return self.data_integration_connector_createconnection(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.data_integration.ConnectorService.DeleteConnection":
+                return self.data_integration_connector_deleteconnection((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.data_integration.ConnectorService.InferSchema":
+                return self.data_integration_connector_inferschema(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.data_integration.ConnectorService.ListConnections":
+                return self.data_integration_connector_listconnections((input.get('query') or {}).get("pagination"), headers=headers)
+            case "open_foundry.data_integration.ConnectorService.SyncConnection":
+                return self.data_integration_connector_syncconnection(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.data_integration.ConnectorService.TestConnection":
+                return self.data_integration_connector_testconnection(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.dataset.DatasetService.CreateDataset":
+                return self.dataset_dataset_createdataset(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.dataset.DatasetService.DeleteDataset":
+                return self.dataset_dataset_deletedataset((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.dataset.DatasetService.GetDataset":
+                return self.dataset_dataset_getdataset((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.dataset.DatasetService.GetVersions":
+                return self.dataset_dataset_getversions((input.get('query') or {}).get("dataset_id"), headers=headers)
+            case "open_foundry.dataset.DatasetService.ListDatasets":
+                return self.dataset_dataset_listdatasets((input.get('query') or {}).get("pagination"), (input.get('query') or {}).get("search"), (input.get('query') or {}).get("tags"), headers=headers)
+            case "open_foundry.dataset.DatasetService.PreviewData":
+                return self.dataset_dataset_previewdata(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.dataset.DatasetService.UpdateDataset":
+                return self.dataset_dataset_updatedataset(self._resolve_body_input(input), headers=headers)
+            case "notebook.NotebookService.CreateNotebook":
+                return self.notebook_notebook_createnotebook(self._resolve_body_input(input), headers=headers)
+            case "notebook.KernelService.CreateSession":
+                return self.notebook_kernel_createsession(self._resolve_body_input(input), headers=headers)
+            case "notebook.NotebookService.DeleteNotebook":
+                return self.notebook_notebook_deletenotebook((input.get('query') or {}).get("id"), headers=headers)
+            case "notebook.NotebookService.GetNotebook":
+                return self.notebook_notebook_getnotebook((input.get('query') or {}).get("id"), headers=headers)
+            case "notebook.NotebookService.ListNotebooks":
+                return self.notebook_notebook_listnotebooks((input.get('query') or {}).get("page"), (input.get('query') or {}).get("per_page"), (input.get('query') or {}).get("search"), headers=headers)
+            case "notebook.KernelService.ListSessions":
+                return self.notebook_kernel_listsessions((input.get('query') or {}).get("notebook_id"), headers=headers)
+            case "notebook.KernelService.StopSession":
+                return self.notebook_kernel_stopsession(self._resolve_body_input(input), headers=headers)
+            case "notebook.NotebookService.UpdateNotebook":
+                return self.notebook_notebook_updatenotebook(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.ontology.OntologyService.CreateLinkType":
+                return self.ontology_ontology_createlinktype(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.ontology.OntologyService.CreateObjectType":
+                return self.ontology_ontology_createobjecttype(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.ontology.OntologyService.CreateProperty":
+                return self.ontology_ontology_createproperty(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.ontology.OntologyService.DeleteLinkType":
+                return self.ontology_ontology_deletelinktype((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.ontology.OntologyService.DeleteObjectType":
+                return self.ontology_ontology_deleteobjecttype((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.ontology.OntologyService.GetObjectType":
+                return self.ontology_ontology_getobjecttype((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.ontology.OntologyService.ListLinkTypes":
+                return self.ontology_ontology_listlinktypes((input.get('query') or {}).get("object_type_id"), (input.get('query') or {}).get("pagination"), headers=headers)
+            case "open_foundry.ontology.OntologyService.ListObjectTypes":
+                return self.ontology_ontology_listobjecttypes((input.get('query') or {}).get("pagination"), (input.get('query') or {}).get("search"), headers=headers)
+            case "open_foundry.ontology.OntologyService.ListProperties":
+                return self.ontology_ontology_listproperties((input.get('query') or {}).get("object_type_id"), headers=headers)
+            case "open_foundry.ontology.OntologyService.UpdateObjectType":
+                return self.ontology_ontology_updateobjecttype(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.pipeline.PipelineService.CreatePipeline":
+                return self.pipeline_pipeline_createpipeline(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.pipeline.PipelineService.DeletePipeline":
+                return self.pipeline_pipeline_deletepipeline((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.pipeline.LineageService.GetDatasetLineage":
+                return self.pipeline_lineage_getdatasetlineage((input.get('query') or {}).get("dataset_id"), headers=headers)
+            case "open_foundry.pipeline.LineageService.GetFullLineage":
+                return self.pipeline_lineage_getfulllineage(headers=headers)
+            case "open_foundry.pipeline.PipelineService.GetPipeline":
+                return self.pipeline_pipeline_getpipeline((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.pipeline.PipelineService.GetRun":
+                return self.pipeline_pipeline_getrun((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.pipeline.PipelineService.ListPipelines":
+                return self.pipeline_pipeline_listpipelines((input.get('query') or {}).get("pagination"), (input.get('query') or {}).get("search"), headers=headers)
+            case "open_foundry.pipeline.PipelineService.ListRuns":
+                return self.pipeline_pipeline_listruns((input.get('query') or {}).get("pagination"), (input.get('query') or {}).get("pipeline_id"), headers=headers)
+            case "open_foundry.pipeline.LineageService.RecordLineage":
+                return self.pipeline_lineage_recordlineage(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.pipeline.PipelineService.TriggerRun":
+                return self.pipeline_pipeline_triggerrun(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.pipeline.PipelineService.UpdatePipeline":
+                return self.pipeline_pipeline_updatepipeline(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.query.QueryService.DeleteSavedQuery":
+                return self.query_query_deletesavedquery((input.get('query') or {}).get("id"), headers=headers)
+            case "open_foundry.query.QueryService.ExecuteQuery":
+                return self.query_query_executequery(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.query.QueryService.ExplainQuery":
+                return self.query_query_explainquery(self._resolve_body_input(input), headers=headers)
+            case "open_foundry.query.QueryService.ListSavedQueries":
+                return self.query_query_listsavedqueries((input.get('query') or {}).get("pagination"), (input.get('query') or {}).get("search"), headers=headers)
+            case "open_foundry.query.QueryService.SaveQuery":
+                return self.query_query_savequery(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.getControlPanel":
+                return self.admin_v2_getcontrolpanel(headers=headers)
+            case "rest.admin.v2.updateControlPanel":
+                return self.admin_v2_updatecontrolpanel(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.listGroups":
+                return self.admin_v2_listgroups(headers=headers)
+            case "rest.admin.v2.createGroup":
+                return self.admin_v2_creategroup(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.updateGroup":
+                return self.admin_v2_updategroup(self._required_path_param(input, "id"), input.get('body'), headers=headers)
+            case "rest.admin.v2.listPermissions":
+                return self.admin_v2_listpermissions(headers=headers)
+            case "rest.admin.v2.createPermission":
+                return self.admin_v2_createpermission(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.listPolicies":
+                return self.admin_v2_listpolicies(headers=headers)
+            case "rest.admin.v2.createPolicy":
+                return self.admin_v2_createpolicy(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.evaluatePolicy":
+                return self.admin_v2_evaluatepolicy(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.updatePolicy":
+                return self.admin_v2_updatepolicy(self._required_path_param(input, "id"), input.get('body'), headers=headers)
+            case "rest.admin.v2.listRoles":
+                return self.admin_v2_listroles(headers=headers)
+            case "rest.admin.v2.createRole":
+                return self.admin_v2_createrole(self._resolve_body_input(input), headers=headers)
+            case "rest.admin.v2.updateRole":
+                return self.admin_v2_updaterole(self._required_path_param(input, "id"), input.get('body'), headers=headers)
+            case "rest.admin.v2.listUsers":
+                return self.admin_v2_listusers(headers=headers)
+            case "rest.admin.v2.getCurrentUser":
+                return self.admin_v2_getcurrentuser(headers=headers)
+            case "rest.admin.v2.updateUser":
+                return self.admin_v2_updateuser(self._required_path_param(input, "id"), input.get('body'), headers=headers)
+            case "rest.filesystem.v2.getDatasetFilesystem":
+                return self.filesystem_v2_getdatasetfilesystem(self._required_path_param(input, "dataset_id"), (input.get('query') or {}).get("path"), headers=headers)
+            case _:
+                raise ValueError(f"Unknown OpenFoundry operation: {operation_id}")
+
+    def _build_headers(
+        self, headers: Mapping[str, str] | None, has_json_body: bool
+    ) -> dict[str, str]:
+        merged = dict(self.default_headers)
+        if headers:
+            merged.update(dict(headers))
+        lowered = {key.lower() for key in merged}
+        if self.token and "authorization" not in lowered:
+            merged["authorization"] = f"Bearer {self.token}"
+        if self.user_agent and "x-openfoundry-client" not in lowered:
+            merged["x-openfoundry-client"] = self.user_agent
+        if has_json_body and "content-type" not in lowered:
+            merged["content-type"] = "application/json"
+        return merged
+
+    def _build_url(self, path: str, query: Mapping[str, Any] | None) -> str:
+        if not query:
+            return f"{self.base_url}{path}"
+        pairs: list[tuple[str, str]] = []
+        for key, value in query.items():
+            for item in self._serialize_query_value(value):
+                pairs.append((key, item))
+        if not pairs:
+            return f"{self.base_url}{path}"
+        return f"{self.base_url}{path}?{urllib.parse.urlencode(pairs)}"
+
+    def _serialize_query_value(self, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value]
+        if hasattr(value, "to_dict") and callable(value.to_dict):
+            return [json.dumps(value.to_dict())]
+        if isinstance(value, dict):
+            return [json.dumps(models.serialize_model(value))]
+        return [str(value)]
+
+    def _parse_payload(self, raw: bytes) -> Any:
+        if not raw:
+            return None
+        text = raw.decode("utf-8", errors="replace")
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+
+    def _error_message_from_payload(self, payload: Any, fallback: str) -> str:
+        if isinstance(payload, str) and payload.strip():
+            return payload
+        if isinstance(payload, dict):
+            for key in ("message", "error", "detail", "code"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+        return fallback or "OpenFoundry request failed"
+
+    def _should_retry(self, method: str, status: int) -> bool:
+        return method.upper() in {"GET", "HEAD", "OPTIONS"} and status in {0, 408, 429, 500, 502, 503, 504}
+
+    def _interpolate_path(
+        self, path_template: str, path_params: Mapping[str, Any] | None
+    ) -> str:
+        path = path_template
+        for key, value in (path_params or {}).items():
+            path = path.replace('{' + key + '}', urllib.parse.quote(str(value), safe=''))
+        return path
+
+    def _required_path_param(self, input: Mapping[str, Any], name: str) -> Any:
+        path_params = input.get("path") if isinstance(input.get("path"), Mapping) else {}
+        if name not in path_params:
+            raise ValueError(f"Missing required path parameter: {name}")
+        return path_params[name]
+
+    def _resolve_body_input(self, input: Mapping[str, Any]) -> Any:
+        if "body" in input:
+            return input["body"]
+        if "path" in input or "query" in input:
+            return None
+        return input

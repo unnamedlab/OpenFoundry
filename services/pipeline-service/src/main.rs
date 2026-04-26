@@ -21,7 +21,14 @@ pub struct AppState {
     pub workflow_service_url: String,
     pub ai_service_url: String,
     pub storage: std::sync::Arc<dyn StorageBackend>,
+    pub storage_backend: String,
+    pub storage_bucket: String,
+    pub s3_endpoint: Option<String>,
+    pub s3_region: Option<String>,
+    pub local_storage_root: Option<String>,
     pub distributed_pipeline_workers: usize,
+    pub distributed_compute_poll_interval_ms: u64,
+    pub distributed_compute_timeout_secs: u64,
 }
 
 impl axum::extract::FromRef<AppState> for JwtConfig {
@@ -63,7 +70,14 @@ async fn main() {
         workflow_service_url: cfg.workflow_service_url.clone(),
         ai_service_url: cfg.ai_service_url.clone(),
         storage,
+        storage_backend: cfg.storage_backend.clone(),
+        storage_bucket: cfg.storage_bucket.clone(),
+        s3_endpoint: cfg.s3_endpoint.clone(),
+        s3_region: cfg.s3_region.clone(),
+        local_storage_root: cfg.local_storage_root.clone(),
         distributed_pipeline_workers: cfg.distributed_pipeline_workers.max(1),
+        distributed_compute_poll_interval_ms: cfg.distributed_compute_poll_interval_ms.max(250),
+        distributed_compute_timeout_secs: cfg.distributed_compute_timeout_secs.max(30),
     };
 
     let scheduler_state = state.clone();

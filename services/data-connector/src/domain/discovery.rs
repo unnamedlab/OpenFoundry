@@ -26,6 +26,22 @@ pub async fn discover_sources(
             connectors::kafka::discover_sources(state, &connection.config, agent_url.as_deref())
                 .await
         }
+        "kinesis" => {
+            connectors::kinesis::discover_sources(state, &connection.config, agent_url.as_deref())
+                .await
+        }
+        "jdbc" => {
+            connectors::jdbc::discover_sources(state, &connection.config, agent_url.as_deref())
+                .await
+        }
+        "odbc" => {
+            connectors::odbc::discover_sources(state, &connection.config, agent_url.as_deref())
+                .await
+        }
+        "power_bi" => {
+            connectors::power_bi::discover_sources(state, &connection.config, agent_url.as_deref())
+                .await
+        }
         "postgresql" => connectors::postgres::discover_sources(&connection.config).await,
         "rest_api" => {
             connectors::rest_api::discover_sources(state, &connection.config, agent_url.as_deref())
@@ -44,6 +60,10 @@ pub async fn discover_sources(
         }
         "snowflake" => {
             connectors::snowflake::discover_sources(state, &connection.config, agent_url.as_deref())
+                .await
+        }
+        "tableau" => {
+            connectors::tableau::discover_sources(state, &connection.config, agent_url.as_deref())
                 .await
         }
         "iot" => {
@@ -91,6 +111,42 @@ pub async fn query_virtual_table(
             )
             .await
         }
+        "kinesis" => {
+            connectors::kinesis::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "jdbc" => {
+            connectors::jdbc::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "odbc" => {
+            connectors::odbc::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "power_bi" => {
+            connectors::power_bi::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
         "postgresql" => {
             connectors::postgres::query_virtual_table(&connection.config, request).await
         }
@@ -123,6 +179,15 @@ pub async fn query_virtual_table(
         }
         "snowflake" => {
             connectors::snowflake::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "tableau" => {
+            connectors::tableau::query_virtual_table(
                 state,
                 &connection.config,
                 request,

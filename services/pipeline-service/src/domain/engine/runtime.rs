@@ -15,6 +15,7 @@ use datafusion::{
 use pyo3::{prelude::*, types::PyDict};
 use query_engine::context::QueryContext;
 use reqwest::{
+    Url,
     header::{HeaderName, HeaderValue},
     multipart::{Form, Part},
 };
@@ -99,6 +100,40 @@ struct PreparedInput {
 }
 
 #[derive(Debug, Serialize)]
+struct RemoteStorageReference {
+    backend: String,
+    bucket: Option<String>,
+    path: String,
+    region: Option<String>,
+    endpoint: Option<String>,
+    local_root: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RemoteDatasetInput {
+    alias: String,
+    metadata: DatasetInputMetadata,
+    storage: RemoteStorageReference,
+}
+
+#[derive(Debug, Serialize)]
+struct RemoteComputeResourceProfile {
+    driver_cores: u32,
+    driver_memory: String,
+    executor_cores: u32,
+    executor_memory: String,
+    executor_instances: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct RemoteComputeOutputTarget {
+    dataset_id: Uuid,
+    upload_url: String,
+    auth_token: String,
+    file_name: String,
+}
+
+#[derive(Debug, Serialize)]
 struct ChatCompletionRequestPayload {
     conversation_id: Option<Uuid>,
     system_prompt: Option<String>,
@@ -132,13 +167,25 @@ struct ChatCompletionCache {
 
 #[derive(Debug, Serialize)]
 struct RemoteComputeRequest {
+    contract_version: String,
+    runtime: String,
+    execution_mode: String,
+    input_mode: String,
+    output_delivery: String,
     job_type: String,
     pipeline_node_id: String,
     pipeline_node_label: String,
     transform_type: String,
+    entrypoint: Option<String>,
+    cluster_profile: Option<String>,
+    namespace: Option<String>,
+    queue: Option<String>,
+    resource_profile: Option<RemoteComputeResourceProfile>,
     config: Value,
     inputs: Vec<PreparedInput>,
+    dataset_inputs: Vec<RemoteDatasetInput>,
     output_dataset_id: Option<Uuid>,
+    output_target: Option<RemoteComputeOutputTarget>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +196,10 @@ struct RemoteComputeResponse {
     result_rows: Option<Value>,
     run_id: Option<String>,
     worker_id: Option<String>,
+    output_dataset_version: Option<i32>,
+    status_url: Option<String>,
+    poll_after_ms: Option<u64>,
+    error: Option<String>,
 }
 
 struct PreparedQueryContext {
@@ -163,6 +214,7 @@ pub async fn load_node_inputs(
 ) -> Result<Vec<LoadedDataset>, String> {
     let token = issue_service_token(state, actor_id)?;
     let mut inputs = Vec::new();
+    let load_bytes = remote_compute_should_load_input_bytes(node);
 
     for dataset_id in &node.input_dataset_ids {
         let url = format!(
@@ -188,11 +240,15 @@ pub async fn load_node_inputs(
         let remote =
             serde_json::from_str::<RemoteDataset>(&body).map_err(|error| error.to_string())?;
         let storage_path = format!("{}/v{}", remote.storage_path, remote.current_version);
-        let bytes = state
-            .storage
-            .get(&storage_path)
-            .await
-            .map_err(|error| error.to_string())?;
+        let bytes = if load_bytes {
+            state
+                .storage
+                .get(&storage_path)
+                .await
+                .map_err(|error| error.to_string())?
+        } else {
+            Bytes::new()
+        };
 
         inputs.push(LoadedDataset {
             metadata: DatasetInputMetadata {
@@ -623,6 +679,27 @@ pub async fn execute_passthrough_transform(
     ))
 }
 
+pub async fn execute_distributed_compute_transform(
+    state: &AppState,
+    actor_id: Uuid,
+    node: &PipelineNode,
+    inputs: &[LoadedDataset],
+) -> Result<RemoteComputeExecutionResult, String> {
+    execute_remote_compute_job(
+        state,
+        actor_id,
+        node,
+        inputs,
+        "spark-batch",
+        RemoteComputeDefaults {
+            execution_mode: "async",
+            input_mode: "dataset_manifest",
+            output_delivery: "direct_upload",
+        },
+    )
+    .await
+}
+
 pub async fn execute_remote_compute_transform(
     state: &AppState,
     actor_id: Uuid,
@@ -630,65 +707,19 @@ pub async fn execute_remote_compute_transform(
     inputs: &[LoadedDataset],
     default_job_type: &str,
 ) -> Result<RemoteComputeExecutionResult, String> {
-    let prepared_inputs = prepare_python_inputs(node, inputs).await?;
-    let (endpoint, request_payload) =
-        build_remote_compute_request(node, prepared_inputs, default_job_type)?;
-
-    let mut request = state.http_client.post(&endpoint).json(&request_payload);
-    if node
-        .config
-        .get("auth_mode")
-        .and_then(Value::as_str)
-        .unwrap_or("none")
-        == "service_jwt"
-    {
-        request = request.bearer_auth(issue_service_token(state, actor_id)?);
-    }
-    if let Some(headers) = node.config.get("headers").and_then(Value::as_object) {
-        for (name, value) in headers {
-            let header_value = value
-                .as_str()
-                .ok_or_else(|| format!("header '{name}' must be a string"))?;
-            let header_name =
-                HeaderName::from_bytes(name.as_bytes()).map_err(|error| error.to_string())?;
-            let header_value =
-                HeaderValue::from_str(header_value).map_err(|error| error.to_string())?;
-            request = request.header(header_name, header_value);
-        }
-    }
-
-    let response = request.send().await.map_err(|error| error.to_string())?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!(
-            "remote compute request failed with HTTP {status}: {body}"
-        ));
-    }
-
-    let payload =
-        serde_json::from_str::<RemoteComputeResponse>(&body).map_err(|error| error.to_string())?;
-    let (rows_affected, output, result_rows) =
-        prepare_remote_compute_output(payload, &endpoint, &request_payload.job_type)?;
-
-    let output_dataset_version = match (node.output_dataset_id, result_rows.as_ref()) {
-        (Some(dataset_id), Some(rows)) => {
-            Some(upload_json_rows(state, actor_id, dataset_id, &node.id, rows).await?)
-        }
-        (Some(_), None) => {
-            return Err(
-                "remote compute transform with output_dataset_id must return 'result_rows'"
-                    .to_string(),
-            );
-        }
-        (None, _) => None,
-    };
-
-    Ok(RemoteComputeExecutionResult {
-        rows_affected,
-        output,
-        output_dataset_version,
-    })
+    execute_remote_compute_job(
+        state,
+        actor_id,
+        node,
+        inputs,
+        default_job_type,
+        RemoteComputeDefaults {
+            execution_mode: "sync",
+            input_mode: "inline_rows",
+            output_delivery: "pipeline_upload",
+        },
+    )
+    .await
 }
 
 async fn request_llm_completion(
@@ -925,6 +956,26 @@ fn config_f32(node: &PipelineNode, keys: &[&str], default: f32) -> f32 {
         .unwrap_or(default)
 }
 
+fn config_u32(node: &PipelineNode, keys: &[&str], default: u32) -> u32 {
+    keys.iter()
+        .find_map(|key| match node.config.get(*key) {
+            Some(Value::Number(value)) => value.as_u64().map(|value| value as u32),
+            Some(Value::String(value)) => value.trim().parse::<u32>().ok(),
+            _ => None,
+        })
+        .unwrap_or(default)
+}
+
+fn config_u64(node: &PipelineNode, keys: &[&str], default: u64) -> u64 {
+    keys.iter()
+        .find_map(|key| match node.config.get(*key) {
+            Some(Value::Number(value)) => value.as_u64(),
+            Some(Value::String(value)) => value.trim().parse::<u64>().ok(),
+            _ => None,
+        })
+        .unwrap_or(default)
+}
+
 fn config_uuid(node: &PipelineNode, keys: &[&str]) -> Result<Option<Uuid>, String> {
     for key in keys {
         let Some(value) = node.config.get(*key) else {
@@ -959,10 +1010,87 @@ fn value_to_prompt_text(value: &Value) -> String {
     }
 }
 
-fn build_remote_compute_request(
+#[derive(Clone, Copy)]
+struct RemoteComputeDefaults {
+    execution_mode: &'static str,
+    input_mode: &'static str,
+    output_delivery: &'static str,
+}
+
+async fn execute_remote_compute_job(
+    state: &AppState,
+    actor_id: Uuid,
     node: &PipelineNode,
+    inputs: &[LoadedDataset],
+    default_job_type: &str,
+    defaults: RemoteComputeDefaults,
+) -> Result<RemoteComputeExecutionResult, String> {
+    let input_mode = remote_compute_input_mode(node, defaults.input_mode);
+    let output_delivery = remote_compute_output_delivery(node, defaults.output_delivery);
+    let service_token =
+        if remote_compute_uses_service_auth(node) || output_delivery == "direct_upload" {
+            Some(issue_service_token(state, actor_id)?)
+        } else {
+            None
+        };
+    let prepared_inputs = if remote_compute_should_inline_rows(&input_mode) {
+        prepare_python_inputs(node, inputs).await?
+    } else {
+        Vec::new()
+    };
+    let (endpoint, request_payload) = build_remote_compute_request(
+        state,
+        node,
+        inputs,
+        prepared_inputs,
+        default_job_type,
+        defaults,
+        service_token.as_deref(),
+    )?;
+    let response = execute_remote_compute_request(
+        state,
+        node,
+        &endpoint,
+        &request_payload,
+        service_token.as_deref(),
+    )
+    .await?;
+    let (rows_affected, output, result_rows, returned_output_dataset_version) =
+        prepare_remote_compute_output(response, &endpoint, &request_payload.job_type)?;
+
+    let output_dataset_version = match (
+        node.output_dataset_id,
+        returned_output_dataset_version,
+        result_rows.as_ref(),
+    ) {
+        (Some(_), Some(version), _) => Some(version),
+        (Some(dataset_id), None, Some(rows)) => {
+            Some(upload_json_rows(state, actor_id, dataset_id, &node.id, rows).await?)
+        }
+        (Some(_), None, None) => {
+            return Err(
+                "remote compute transform with output_dataset_id must return 'output_dataset_version' or 'result_rows'"
+                    .to_string(),
+            );
+        }
+        (None, _, _) => None,
+    };
+
+    Ok(RemoteComputeExecutionResult {
+        rows_affected,
+        output,
+        output_dataset_version,
+    })
+}
+
+fn build_remote_compute_request(
+    state: &AppState,
+    node: &PipelineNode,
+    inputs: &[LoadedDataset],
     prepared_inputs: Vec<PreparedInput>,
     default_job_type: &str,
+    defaults: RemoteComputeDefaults,
+    service_token: Option<&str>,
 ) -> Result<(String, RemoteComputeRequest), String> {
     let endpoint = node
         .config
@@ -973,6 +1101,8 @@ fn build_remote_compute_request(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("{default_job_type} transform has no 'endpoint' or 'url' config"))?
         .to_string();
+    let input_mode = remote_compute_input_mode(node, defaults.input_mode);
+    let output_delivery = remote_compute_output_delivery(node, defaults.output_delivery);
     let job_type = node
         .config
         .get("job_type")
@@ -981,26 +1111,207 @@ fn build_remote_compute_request(
         .filter(|value| !value.is_empty())
         .unwrap_or(default_job_type)
         .to_string();
+    let runtime = config_string(node, &["runtime"])
+        .unwrap_or(node.transform_type.as_str())
+        .to_string();
+    let output_target = if output_delivery == "direct_upload" {
+        build_remote_compute_output_target(state, node, service_token)?
+    } else {
+        None
+    };
 
     Ok((
         endpoint,
         RemoteComputeRequest {
+            contract_version: "openfoundry/distributed-compute.v1".to_string(),
+            runtime,
+            execution_mode: remote_compute_execution_mode(node, defaults.execution_mode),
+            input_mode: input_mode.clone(),
+            output_delivery,
             job_type,
             pipeline_node_id: node.id.clone(),
             pipeline_node_label: node.label.clone(),
             transform_type: node.transform_type.clone(),
+            entrypoint: config_string(node, &["entrypoint"]).map(str::to_string),
+            cluster_profile: config_string(node, &["cluster_profile"]).map(str::to_string),
+            namespace: config_string(node, &["namespace"]).map(str::to_string),
+            queue: config_string(node, &["queue"]).map(str::to_string),
+            resource_profile: build_remote_compute_resource_profile(node),
             config: node.config.clone(),
             inputs: prepared_inputs,
+            dataset_inputs: build_remote_dataset_inputs(state, node, inputs),
             output_dataset_id: node.output_dataset_id,
+            output_target,
         },
     ))
+}
+
+async fn execute_remote_compute_request(
+    state: &AppState,
+    node: &PipelineNode,
+    endpoint: &str,
+    request_payload: &RemoteComputeRequest,
+    service_token: Option<&str>,
+) -> Result<RemoteComputeResponse, String> {
+    let request = apply_remote_compute_headers(
+        state.http_client.post(endpoint).json(request_payload),
+        node,
+        service_token,
+    )?;
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "remote compute request failed with HTTP {status}: {body}"
+        ));
+    }
+
+    let payload =
+        serde_json::from_str::<RemoteComputeResponse>(&body).map_err(|error| error.to_string())?;
+    await_remote_compute_completion(state, node, endpoint, payload, service_token).await
+}
+
+async fn await_remote_compute_completion(
+    state: &AppState,
+    node: &PipelineNode,
+    endpoint: &str,
+    mut payload: RemoteComputeResponse,
+    service_token: Option<&str>,
+) -> Result<RemoteComputeResponse, String> {
+    let timeout = std::time::Duration::from_secs(remote_compute_timeout_secs(state, node));
+    let poll_interval =
+        std::time::Duration::from_millis(remote_compute_poll_interval_ms(state, node));
+    let start = std::time::Instant::now();
+
+    loop {
+        let normalized_status = payload
+            .status
+            .as_deref()
+            .map(|status| status.trim().to_ascii_lowercase());
+        match normalized_status.as_deref() {
+            None | Some("completed" | "success" | "ok") => return Ok(payload),
+            Some("accepted" | "submitted" | "queued" | "pending" | "running" | "in_progress") => {
+                if start.elapsed() >= timeout {
+                    return Err(format!(
+                        "remote compute job timed out after {} seconds",
+                        timeout.as_secs()
+                    ));
+                }
+
+                let status_url = resolve_remote_compute_status_url(node, endpoint, &payload)?;
+                let sleep_for = std::time::Duration::from_millis(
+                    payload
+                        .poll_after_ms
+                        .unwrap_or(poll_interval.as_millis() as u64),
+                );
+                tokio::time::sleep(sleep_for).await;
+                payload =
+                    fetch_remote_compute_status(state, node, &status_url, service_token).await?;
+            }
+            Some("failed" | "error" | "cancelled" | "canceled" | "aborted") => {
+                let detail = payload
+                    .error
+                    .clone()
+                    .or_else(|| payload.output.as_ref().and_then(extract_error_message))
+                    .unwrap_or_else(|| "remote compute job failed".to_string());
+                return Err(detail);
+            }
+            Some(other) => {
+                return Err(format!(
+                    "remote compute job reported unsupported status '{other}'"
+                ));
+            }
+        }
+    }
+}
+
+async fn fetch_remote_compute_status(
+    state: &AppState,
+    node: &PipelineNode,
+    status_url: &str,
+    service_token: Option<&str>,
+) -> Result<RemoteComputeResponse, String> {
+    let request =
+        apply_remote_compute_headers(state.http_client.get(status_url), node, service_token)?;
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "remote compute status request failed with HTTP {status}: {body}"
+        ));
+    }
+
+    serde_json::from_str::<RemoteComputeResponse>(&body).map_err(|error| error.to_string())
+}
+
+fn apply_remote_compute_headers(
+    mut request: reqwest::RequestBuilder,
+    node: &PipelineNode,
+    service_token: Option<&str>,
+) -> Result<reqwest::RequestBuilder, String> {
+    if remote_compute_uses_service_auth(node) {
+        let token = service_token
+            .ok_or_else(|| "remote compute auth requires a service token".to_string())?;
+        request = request.bearer_auth(token);
+    }
+    if let Some(headers) = node.config.get("headers").and_then(Value::as_object) {
+        for (name, value) in headers {
+            let header_value = value
+                .as_str()
+                .ok_or_else(|| format!("header '{name}' must be a string"))?;
+            let header_name =
+                HeaderName::from_bytes(name.as_bytes()).map_err(|error| error.to_string())?;
+            let header_value =
+                HeaderValue::from_str(header_value).map_err(|error| error.to_string())?;
+            request = request.header(header_name, header_value);
+        }
+    }
+
+    Ok(request)
+}
+
+fn resolve_remote_compute_status_url(
+    node: &PipelineNode,
+    endpoint: &str,
+    payload: &RemoteComputeResponse,
+) -> Result<String, String> {
+    let candidate = payload
+        .status_url
+        .as_deref()
+        .or_else(|| config_string(node, &["status_endpoint", "status_url"]));
+    let candidate = if let Some(candidate) = candidate {
+        if candidate.contains("{run_id}") {
+            let run_id = payload.run_id.as_deref().ok_or_else(|| {
+                "remote compute status endpoint template requires a 'run_id'".to_string()
+            })?;
+            candidate.replace("{run_id}", run_id)
+        } else {
+            candidate.to_string()
+        }
+    } else {
+        return Err(
+            "remote compute job requires a 'status_url' response field or node 'status_endpoint' config"
+                .to_string(),
+        );
+    };
+
+    if let Ok(url) = Url::parse(&candidate) {
+        return Ok(url.to_string());
+    }
+
+    let base = Url::parse(endpoint).map_err(|error| error.to_string())?;
+    base.join(&candidate)
+        .map(|url| url.to_string())
+        .map_err(|error| error.to_string())
 }
 
 fn prepare_remote_compute_output(
     payload: RemoteComputeResponse,
     endpoint: &str,
     job_type: &str,
-) -> Result<(Option<u64>, Value, Option<Vec<Value>>), String> {
+) -> Result<(Option<u64>, Value, Option<Vec<Value>>, Option<i32>), String> {
     if let Some(remote_status) = payload.status.as_deref() {
         let normalized = remote_status.to_ascii_lowercase();
         if !matches!(normalized.as_str(), "completed" | "success" | "ok") {
@@ -1014,6 +1325,7 @@ fn prepare_remote_compute_output(
     let rows_affected = payload
         .rows_affected
         .or_else(|| result_rows.as_ref().map(|rows| rows.len() as u64));
+    let output_dataset_version = payload.output_dataset_version;
 
     let mut output = payload.output.unwrap_or_else(|| {
         json!({
@@ -1033,9 +1345,181 @@ fn prepare_remote_compute_output(
                 .entry("worker_id".to_string())
                 .or_insert_with(|| json!(worker_id));
         }
+        if let Some(output_dataset_version) = output_dataset_version {
+            object
+                .entry("output_dataset_version".to_string())
+                .or_insert_with(|| json!(output_dataset_version));
+        }
     }
 
-    Ok((rows_affected, output, result_rows))
+    Ok((rows_affected, output, result_rows, output_dataset_version))
+}
+
+fn remote_compute_should_load_input_bytes(node: &PipelineNode) -> bool {
+    match node.transform_type.as_str() {
+        "spark" | "pyspark" => {
+            remote_compute_should_inline_rows(&remote_compute_input_mode(node, "dataset_manifest"))
+        }
+        "external" | "remote" => {
+            remote_compute_should_inline_rows(&remote_compute_input_mode(node, "inline_rows"))
+        }
+        _ => true,
+    }
+}
+
+fn remote_compute_should_inline_rows(input_mode: &str) -> bool {
+    !matches!(
+        input_mode,
+        "dataset_manifest" | "storage_manifest" | "manifest" | "dataset_reference"
+    )
+}
+
+fn remote_compute_execution_mode(node: &PipelineNode, default: &str) -> String {
+    config_string(node, &["execution_mode"])
+        .unwrap_or(default)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn remote_compute_input_mode(node: &PipelineNode, default: &str) -> String {
+    config_string(node, &["input_mode"])
+        .unwrap_or(default)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn remote_compute_output_delivery(node: &PipelineNode, default: &str) -> String {
+    config_string(node, &["output_delivery"])
+        .unwrap_or(default)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn remote_compute_uses_service_auth(node: &PipelineNode) -> bool {
+    config_string(node, &["auth_mode"])
+        .unwrap_or("none")
+        .eq_ignore_ascii_case("service_jwt")
+}
+
+fn remote_compute_poll_interval_ms(state: &AppState, node: &PipelineNode) -> u64 {
+    config_u64(
+        node,
+        &["poll_interval_ms"],
+        state.distributed_compute_poll_interval_ms,
+    )
+    .max(250)
+}
+
+fn remote_compute_timeout_secs(state: &AppState, node: &PipelineNode) -> u64 {
+    config_u64(
+        node,
+        &["timeout_secs"],
+        state.distributed_compute_timeout_secs,
+    )
+    .max(30)
+}
+
+fn build_remote_compute_resource_profile(
+    node: &PipelineNode,
+) -> Option<RemoteComputeResourceProfile> {
+    let configured = [
+        "driver_cores",
+        "driver_memory",
+        "executor_cores",
+        "executor_memory",
+        "executor_instances",
+    ]
+    .iter()
+    .any(|key| node.config.get(*key).is_some());
+
+    if !configured && !matches!(node.transform_type.as_str(), "spark" | "pyspark") {
+        return None;
+    }
+
+    Some(RemoteComputeResourceProfile {
+        driver_cores: config_u32(node, &["driver_cores"], 1).max(1),
+        driver_memory: config_string(node, &["driver_memory"])
+            .unwrap_or("2g")
+            .to_string(),
+        executor_cores: config_u32(node, &["executor_cores"], 2).max(1),
+        executor_memory: config_string(node, &["executor_memory"])
+            .unwrap_or("4g")
+            .to_string(),
+        executor_instances: config_u32(node, &["executor_instances"], 2).max(1),
+    })
+}
+
+fn build_remote_dataset_inputs(
+    state: &AppState,
+    node: &PipelineNode,
+    inputs: &[LoadedDataset],
+) -> Vec<RemoteDatasetInput> {
+    inputs
+        .iter()
+        .enumerate()
+        .map(|(index, input)| RemoteDatasetInput {
+            alias: preferred_alias(node, index, input),
+            metadata: input.metadata.clone(),
+            storage: RemoteStorageReference {
+                backend: state.storage_backend.clone(),
+                bucket: if state.storage_backend.eq_ignore_ascii_case("s3") {
+                    Some(state.storage_bucket.clone())
+                } else {
+                    None
+                },
+                path: input.storage_path.clone(),
+                region: state.s3_region.clone(),
+                endpoint: state.s3_endpoint.clone(),
+                local_root: state.local_storage_root.clone(),
+            },
+        })
+        .collect()
+}
+
+fn build_remote_compute_output_target(
+    state: &AppState,
+    node: &PipelineNode,
+    service_token: Option<&str>,
+) -> Result<Option<RemoteComputeOutputTarget>, String> {
+    let Some(dataset_id) = node.output_dataset_id else {
+        return Ok(None);
+    };
+    let auth_token = service_token.ok_or_else(|| {
+        "direct output delivery requires a service token to upload the remote result".to_string()
+    })?;
+    let output_format = config_string(node, &["output_format"])
+        .unwrap_or(
+            if matches!(node.transform_type.as_str(), "spark" | "pyspark") {
+                "parquet"
+            } else {
+                "json"
+            },
+        )
+        .to_ascii_lowercase();
+
+    Ok(Some(RemoteComputeOutputTarget {
+        dataset_id,
+        upload_url: format!(
+            "{}/api/v1/datasets/{dataset_id}/upload",
+            state.dataset_service_url.trim_end_matches('/')
+        ),
+        auth_token: auth_token.to_string(),
+        file_name: format!("{}.{}", node.id, file_extension(&output_format)),
+    }))
+}
+
+fn extract_error_message(value: &Value) -> Option<String> {
+    match value {
+        Value::String(message) if !message.trim().is_empty() => Some(message.trim().to_string()),
+        Value::Object(object) => object
+            .get("error")
+            .or_else(|| object.get("message"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|message| !message.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
 }
 
 pub fn execute_wasm_transform(node: &PipelineNode) -> Result<(Option<u64>, Value), String> {
@@ -1478,22 +1962,196 @@ async fn cleanup_paths(paths: Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::sync::Arc;
+    use storage_abstraction::local::LocalStorage;
 
-    #[test]
-    fn remote_compute_request_uses_node_config_and_inputs() {
+    fn test_app_state() -> AppState {
+        let storage_root = std::env::temp_dir().join(format!(
+            "openfoundry-pipeline-runtime-tests-{}",
+            Uuid::now_v7()
+        ));
+        let storage_root_str = storage_root.to_string_lossy().to_string();
+        std::fs::create_dir_all(&storage_root).expect("test storage directory should exist");
+
+        AppState {
+            db: PgPoolOptions::new()
+                .connect_lazy("postgres://postgres:postgres@localhost/openfoundry")
+                .expect("lazy pool should build"),
+            jwt_config: auth_middleware::jwt::JwtConfig::new("test-secret").with_env_defaults(),
+            http_client: reqwest::Client::new(),
+            dataset_service_url: "http://dataset.local".to_string(),
+            workflow_service_url: "http://workflow.local".to_string(),
+            ai_service_url: "http://ai.local".to_string(),
+            storage: Arc::new(
+                LocalStorage::new(&storage_root_str).expect("local storage should initialize"),
+            ),
+            storage_backend: "s3".to_string(),
+            storage_bucket: "datasets".to_string(),
+            s3_endpoint: Some("http://minio.local".to_string()),
+            s3_region: Some("us-east-1".to_string()),
+            local_storage_root: Some(storage_root_str),
+            distributed_pipeline_workers: 1,
+            distributed_compute_poll_interval_ms: 5_000,
+            distributed_compute_timeout_secs: 900,
+        }
+    }
+
+    fn test_loaded_dataset() -> LoadedDataset {
+        LoadedDataset {
+            metadata: DatasetInputMetadata {
+                dataset_id: Uuid::nil(),
+                name: "orders".to_string(),
+                format: "parquet".to_string(),
+                version: 3,
+                row_count: 42,
+                size_bytes: 1_024,
+            },
+            bytes: Bytes::new(),
+            storage_path: "datasets/orders/v3".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn distributed_compute_request_uses_manifests_and_direct_upload() {
+        let state = test_app_state();
         let node = PipelineNode {
             id: "node_spark".to_string(),
             label: "Remote Spark".to_string(),
             transform_type: "spark".to_string(),
             config: json!({
                 "endpoint": "http://compute.local/jobs/run",
-                "job_type": "spark-batch"
+                "job_type": "spark-batch",
+                "namespace": "analytics",
+                "queue": "priority",
+                "output_format": "parquet"
             }),
+            depends_on: Vec::new(),
+            input_dataset_ids: Vec::new(),
+            output_dataset_id: Some(Uuid::now_v7()),
+        };
+
+        let (endpoint, request) = build_remote_compute_request(
+            &state,
+            &node,
+            &[test_loaded_dataset()],
+            Vec::new(),
+            "spark-batch",
+            RemoteComputeDefaults {
+                execution_mode: "async",
+                input_mode: "dataset_manifest",
+                output_delivery: "direct_upload",
+            },
+            Some("service-token"),
+        )
+        .expect("request should build");
+        assert_eq!(endpoint, "http://compute.local/jobs/run");
+        assert_eq!(request.job_type, "spark-batch");
+        assert_eq!(request.runtime, "spark");
+        assert_eq!(request.execution_mode, "async");
+        assert_eq!(request.input_mode, "dataset_manifest");
+        assert_eq!(request.output_delivery, "direct_upload");
+        assert_eq!(request.pipeline_node_id, "node_spark");
+        assert_eq!(request.transform_type, "spark");
+        assert!(request.inputs.is_empty());
+        assert_eq!(request.dataset_inputs.len(), 1);
+        assert_eq!(request.dataset_inputs[0].alias, "orders");
+        assert_eq!(
+            request.dataset_inputs[0].storage.bucket.as_deref(),
+            Some("datasets")
+        );
+        assert_eq!(
+            request
+                .output_target
+                .as_ref()
+                .map(|target| target.auth_token.as_str()),
+            Some("service-token")
+        );
+        assert_eq!(
+            request
+                .output_target
+                .as_ref()
+                .map(|target| target.file_name.as_str()),
+            Some("node_spark.parquet")
+        );
+        assert_eq!(request.namespace.as_deref(), Some("analytics"));
+        assert_eq!(request.queue.as_deref(), Some("priority"));
+        assert!(request.resource_profile.is_some());
+    }
+
+    #[test]
+    fn remote_compute_output_parses_rows_and_metadata() {
+        let payload = RemoteComputeResponse {
+            status: Some("completed".to_string()),
+            rows_affected: Some(2),
+            output: Some(json!({ "engine": "spark" })),
+            result_rows: Some(json!([{ "value": 1 }, { "value": 2 }])),
+            run_id: Some("spark-run-1".to_string()),
+            worker_id: Some("executor-a".to_string()),
+            output_dataset_version: Some(7),
+            status_url: None,
+            poll_after_ms: None,
+            error: None,
+        };
+
+        let (rows_affected, output, rows, output_dataset_version) =
+            prepare_remote_compute_output(payload, "http://compute.local/jobs/run", "spark")
+                .expect("output should parse");
+        assert_eq!(rows_affected, Some(2));
+        assert_eq!(output["engine"], json!("spark"));
+        assert_eq!(output["run_id"], json!("spark-run-1"));
+        assert_eq!(output["worker_id"], json!("executor-a"));
+        assert_eq!(output["output_dataset_version"], json!(7));
+        assert_eq!(output_dataset_version, Some(7));
+        assert_eq!(rows.expect("rows should exist").len(), 2);
+    }
+
+    #[tokio::test]
+    async fn remote_compute_request_requires_endpoint() {
+        let state = test_app_state();
+        let node = PipelineNode {
+            id: "node_external".to_string(),
+            label: "External compute".to_string(),
+            transform_type: "external".to_string(),
+            config: json!({}),
             depends_on: Vec::new(),
             input_dataset_ids: Vec::new(),
             output_dataset_id: None,
         };
 
+        let error = build_remote_compute_request(
+            &state,
+            &node,
+            &[],
+            Vec::new(),
+            "external",
+            RemoteComputeDefaults {
+                execution_mode: "sync",
+                input_mode: "inline_rows",
+                output_delivery: "pipeline_upload",
+            },
+            None,
+        )
+        .expect_err("missing endpoint should fail");
+
+        assert!(error.contains("endpoint"));
+    }
+
+    #[tokio::test]
+    async fn remote_compute_request_keeps_inline_rows_for_external_jobs() {
+        let state = test_app_state();
+        let node = PipelineNode {
+            id: "node_external".to_string(),
+            label: "External compute".to_string(),
+            transform_type: "external".to_string(),
+            config: json!({
+                "endpoint": "http://compute.local/jobs/run",
+                "job_type": "external-job"
+            }),
+            depends_on: Vec::new(),
+            input_dataset_ids: Vec::new(),
+            output_dataset_id: None,
+        };
         let prepared_inputs = vec![PreparedInput {
             alias: "orders".to_string(),
             metadata: DatasetInputMetadata {
@@ -1507,53 +2165,25 @@ mod tests {
             rows: vec![json!({ "order_id": 1 })],
         }];
 
-        let (endpoint, request) = build_remote_compute_request(&node, prepared_inputs, "spark")
-            .expect("request should build");
-        assert_eq!(endpoint, "http://compute.local/jobs/run");
-        assert_eq!(request.job_type, "spark-batch");
-        assert_eq!(request.pipeline_node_id, "node_spark");
-        assert_eq!(request.transform_type, "spark");
+        let (_, request) = build_remote_compute_request(
+            &state,
+            &node,
+            &[test_loaded_dataset()],
+            prepared_inputs,
+            "external",
+            RemoteComputeDefaults {
+                execution_mode: "sync",
+                input_mode: "inline_rows",
+                output_delivery: "pipeline_upload",
+            },
+            None,
+        )
+        .expect("request should build");
+
+        assert_eq!(request.input_mode, "inline_rows");
         assert_eq!(request.inputs.len(), 1);
-        assert_eq!(request.inputs[0].alias, "orders");
-    }
-
-    #[test]
-    fn remote_compute_output_parses_rows_and_metadata() {
-        let payload = RemoteComputeResponse {
-            status: Some("completed".to_string()),
-            rows_affected: Some(2),
-            output: Some(json!({ "engine": "spark" })),
-            result_rows: Some(json!([{ "value": 1 }, { "value": 2 }])),
-            run_id: Some("spark-run-1".to_string()),
-            worker_id: Some("executor-a".to_string()),
-        };
-
-        let (rows_affected, output, rows) =
-            prepare_remote_compute_output(payload, "http://compute.local/jobs/run", "spark")
-                .expect("output should parse");
-        assert_eq!(rows_affected, Some(2));
-        assert_eq!(output["engine"], json!("spark"));
-        assert_eq!(output["run_id"], json!("spark-run-1"));
-        assert_eq!(output["worker_id"], json!("executor-a"));
-        assert_eq!(rows.expect("rows should exist").len(), 2);
-    }
-
-    #[test]
-    fn remote_compute_request_requires_endpoint() {
-        let node = PipelineNode {
-            id: "node_external".to_string(),
-            label: "External compute".to_string(),
-            transform_type: "external".to_string(),
-            config: json!({}),
-            depends_on: Vec::new(),
-            input_dataset_ids: Vec::new(),
-            output_dataset_id: None,
-        };
-
-        let error = build_remote_compute_request(&node, Vec::new(), "external")
-            .expect_err("missing endpoint should fail");
-
-        assert!(error.contains("endpoint"));
+        assert_eq!(request.dataset_inputs.len(), 1);
+        assert!(request.output_target.is_none());
     }
 
     #[test]

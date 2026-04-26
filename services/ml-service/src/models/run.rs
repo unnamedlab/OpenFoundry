@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::models::interop::ExternalTrackingSource;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricValue {
     pub name: String,
@@ -30,6 +32,8 @@ pub struct ExperimentRun {
     pub notes: String,
     pub source_dataset_ids: Vec<Uuid>,
     pub model_version_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_tracking: Option<ExternalTrackingSource>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -57,6 +61,8 @@ pub struct CreateExperimentRunRequest {
     #[serde(default)]
     pub source_dataset_ids: Vec<Uuid>,
     #[serde(default)]
+    pub external_tracking: Option<ExternalTrackingSource>,
+    #[serde(default)]
     pub started_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub finished_at: Option<DateTime<Utc>>,
@@ -70,6 +76,7 @@ pub struct UpdateExperimentRunRequest {
     pub artifacts: Option<Vec<ArtifactReference>>,
     pub notes: Option<String>,
     pub model_version_id: Option<Uuid>,
+    pub external_tracking: Option<ExternalTrackingSource>,
     pub finished_at: Option<DateTime<Utc>>,
 }
 

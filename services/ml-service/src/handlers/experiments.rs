@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    domain::interop,
     models::{
         asset_lineage::{
             ExperimentAssetLineageResponse, ModelAssetEdge, ModelAssetLineageSummary,
@@ -161,6 +162,7 @@ fn to_experiment(row: ExperimentRow) -> Experiment {
 }
 
 fn to_run(row: RunRow) -> ExperimentRun {
+    let external_tracking = interop::tracking_source_from_params(&row.params);
     ExperimentRun {
         id: row.id,
         experiment_id: row.experiment_id,
@@ -172,6 +174,7 @@ fn to_run(row: RunRow) -> ExperimentRun {
         notes: row.notes,
         source_dataset_ids: deserialize_json(row.source_dataset_ids),
         model_version_id: row.model_version_id,
+        external_tracking,
         started_at: row.started_at,
         finished_at: row.finished_at,
         created_at: row.created_at,
@@ -208,6 +211,9 @@ fn to_model_version(row: ModelVersionRow) -> ModelVersion {
         hyperparameters: row.hyperparameters,
         metrics: deserialize_json(row.metrics),
         artifact_uri: row.artifact_uri,
+        model_adapter: interop::model_adapter_from_schema(&row.schema),
+        registry_source: interop::registry_source_from_schema(&row.schema),
+        external_tracking: interop::tracking_source_from_schema(&row.schema),
         schema: row.schema,
         created_at: row.created_at,
         promoted_at: row.promoted_at,
@@ -215,6 +221,7 @@ fn to_model_version(row: ModelVersionRow) -> ModelVersion {
 }
 
 fn to_training_job(row: TrainingJobRow) -> TrainingJob {
+    let external_training = interop::tracking_source_from_training_config(&row.training_config);
     TrainingJob {
         id: row.id,
         experiment_id: row.experiment_id,
@@ -227,6 +234,7 @@ fn to_training_job(row: TrainingJobRow) -> TrainingJob {
         objective_metric_name: row.objective_metric_name,
         trials: deserialize_json(row.trials),
         best_model_version_id: row.best_model_version_id,
+        external_training,
         submitted_at: row.submitted_at,
         started_at: row.started_at,
         completed_at: row.completed_at,
@@ -608,6 +616,11 @@ pub async fn get_experiment_asset_lineage(
         for dataset_id in &run.source_dataset_ids {
             dataset_ids.insert(*dataset_id);
         }
+        if let Some(external_tracking) = &run.external_tracking
+            && !external_tracking.framework.is_empty()
+        {
+            frameworks.insert(external_tracking.framework.clone());
+        }
         if let Some(model_version_id) = run.model_version_id {
             version_ids.insert(model_version_id);
         }
@@ -621,6 +634,11 @@ pub async fn get_experiment_asset_lineage(
         }
         if let Some(best_model_version_id) = job.best_model_version_id {
             version_ids.insert(best_model_version_id);
+        }
+        if let Some(external_training) = &job.external_training
+            && !external_training.framework.is_empty()
+        {
+            frameworks.insert(external_training.framework.clone());
         }
         if let Some(engine) = job.training_config.get("engine").and_then(Value::as_str) {
             frameworks.insert(engine.to_string());
@@ -785,6 +803,7 @@ pub async fn get_experiment_asset_lineage(
                 "artifacts": run.artifacts,
                 "notes": run.notes,
                 "source_dataset_ids": run.source_dataset_ids,
+                "external_tracking": run.external_tracking,
             }),
         });
         edges.push(ModelAssetEdge {
@@ -821,6 +840,7 @@ pub async fn get_experiment_asset_lineage(
                 "hyperparameter_search": job.hyperparameter_search,
                 "dataset_ids": job.dataset_ids,
                 "trial_count": job.trials.len(),
+                "external_training": job.external_training,
             }),
         });
         edges.push(ModelAssetEdge {
@@ -884,6 +904,9 @@ pub async fn get_experiment_asset_lineage(
                 "artifact_uri": version.artifact_uri,
                 "metrics": version.metrics,
                 "hyperparameters": version.hyperparameters,
+                "model_adapter": version.model_adapter,
+                "registry_source": version.registry_source,
+                "external_tracking": version.external_tracking,
                 "schema": version.schema,
             }),
         });
@@ -1016,6 +1039,19 @@ pub async fn create_run(
             None
         }
     });
+    let external_tracking = body
+        .external_tracking
+        .filter(|tracking| tracking.has_signal())
+        .map(interop::normalize_tracking_source);
+    let metrics = interop::merge_metrics(
+        &body.metrics,
+        external_tracking
+            .as_ref()
+            .map(|tracking| tracking.metrics.as_slice())
+            .unwrap_or(&[]),
+    );
+    let params = interop::merge_run_params(body.params, external_tracking.as_ref());
+    let artifacts = interop::merge_run_artifacts(body.artifacts, external_tracking.as_ref());
 
     let row = query_as::<_, RunRow>(
         r#"
@@ -1054,13 +1090,9 @@ pub async fn create_run(
     .bind(experiment_id)
     .bind(body.name.trim())
     .bind(status)
-    .bind(if body.params.is_null() {
-        json!({})
-    } else {
-        body.params
-    })
-    .bind(to_json(&body.metrics))
-    .bind(to_json(&body.artifacts))
+    .bind(params)
+    .bind(to_json(&metrics))
+    .bind(to_json(&artifacts))
     .bind(body.notes.unwrap_or_default())
     .bind(to_json(&body.source_dataset_ids))
     .bind(started_at)
@@ -1089,15 +1121,27 @@ pub async fn update_run(
     };
 
     let status = body.status.unwrap_or(current.status);
-    let params = body.params.unwrap_or(current.params);
-    let metrics = body
-        .metrics
-        .map(|metrics| to_json(&metrics))
-        .unwrap_or(current.metrics);
-    let artifacts = body
-        .artifacts
-        .map(|artifacts| to_json(&artifacts))
-        .unwrap_or(current.artifacts);
+    let existing_metrics = deserialize_json(current.metrics.clone());
+    let existing_artifacts = deserialize_json(current.artifacts.clone());
+    let external_tracking = body
+        .external_tracking
+        .filter(|tracking| tracking.has_signal())
+        .map(interop::normalize_tracking_source);
+    let params = interop::merge_run_params(
+        body.params.unwrap_or(current.params),
+        external_tracking.as_ref(),
+    );
+    let metrics = to_json(&interop::merge_metrics(
+        &body.metrics.unwrap_or(existing_metrics),
+        external_tracking
+            .as_ref()
+            .map(|tracking| tracking.metrics.as_slice())
+            .unwrap_or(&[]),
+    ));
+    let artifacts = to_json(&interop::merge_run_artifacts(
+        body.artifacts.unwrap_or(existing_artifacts),
+        external_tracking.as_ref(),
+    ));
 
     let row = query_as::<_, RunRow>(
         r#"

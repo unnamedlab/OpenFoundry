@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::models::run::MetricValue;
+use crate::models::{
+    interop::{ExternalTrackingSource, ModelAdapterDescriptor, RegistrySourceDescriptor},
+    run::MetricValue,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelVersion {
@@ -18,6 +21,12 @@ pub struct ModelVersion {
     pub metrics: Vec<MetricValue>,
     pub artifact_uri: Option<String>,
     pub schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_adapter: Option<ModelAdapterDescriptor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry_source: Option<RegistrySourceDescriptor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_tracking: Option<ExternalTrackingSource>,
     pub created_at: DateTime<Utc>,
     pub promoted_at: Option<DateTime<Utc>>,
 }
@@ -37,6 +46,9 @@ pub struct CreateModelVersionRequest {
     pub metrics: Option<Vec<MetricValue>>,
     pub artifact_uri: Option<String>,
     pub schema: Option<Value>,
+    pub model_adapter: Option<ModelAdapterDescriptor>,
+    pub registry_source: Option<RegistrySourceDescriptor>,
+    pub external_tracking: Option<ExternalTrackingSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

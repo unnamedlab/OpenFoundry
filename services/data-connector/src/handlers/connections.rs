@@ -30,6 +30,10 @@ pub async fn create_connection(
     let validation = match body.connector_type.as_str() {
         "bigquery" => connectors::bigquery::validate_config(&body.config),
         "kafka" => connectors::kafka::validate_config(&body.config),
+        "kinesis" => connectors::kinesis::validate_config(&body.config),
+        "jdbc" => connectors::jdbc::validate_config(&body.config),
+        "odbc" => connectors::odbc::validate_config(&body.config),
+        "power_bi" => connectors::power_bi::validate_config(&body.config),
         "postgresql" => connectors::postgres::validate_config(&body.config),
         "csv" => connectors::csv::validate_config(&body.config),
         "json" => connectors::json::validate_config(&body.config),
@@ -37,6 +41,7 @@ pub async fn create_connection(
         "salesforce" => connectors::salesforce::validate_config(&body.config),
         "sap" => connectors::sap::validate_config(&body.config),
         "snowflake" => connectors::snowflake::validate_config(&body.config),
+        "tableau" => connectors::tableau::validate_config(&body.config),
         "iot" => connectors::iot::validate_config(&body.config),
         _ => Ok(()),
     };
@@ -169,6 +174,18 @@ pub async fn test_connection(
         "kafka" => {
             connectors::kafka::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
+        "kinesis" => {
+            connectors::kinesis::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
+        "jdbc" => {
+            connectors::jdbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
+        "odbc" => {
+            connectors::odbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
+        "power_bi" => {
+            connectors::power_bi::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
         "postgresql" => connectors::postgres::test_connection(&conn.config).await,
         "csv" => connectors::csv::test_connection(&state, &conn.config).await,
         "json" => connectors::json::test_connection(&state, &conn.config).await,
@@ -182,6 +199,9 @@ pub async fn test_connection(
         "sap" => connectors::sap::test_connection(&state, &conn.config, agent_url.as_deref()).await,
         "snowflake" => {
             connectors::snowflake::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
+        "tableau" => {
+            connectors::tableau::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
         "iot" => connectors::iot::test_connection(&state, &conn.config, agent_url.as_deref()).await,
         other => Err(format!("unsupported connector type: {other}")),

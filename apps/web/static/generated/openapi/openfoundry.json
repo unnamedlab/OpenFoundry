@@ -1,14 +1,68 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "OpenFoundry Proto-Derived API",
+    "title": "OpenFoundry API",
     "version": "0.1.0",
-    "description": "Auto-generated JSON/HTTP contract derived from OpenFoundry proto services."
+    "description": "Versioned OpenFoundry JSON/HTTP contract generated from proto services and curated REST overlays."
   },
+  "servers": [
+    {
+      "url": "/",
+      "description": "OpenFoundry API gateway root"
+    }
+  ],
+  "tags": [
+    {
+      "name": "notebook",
+      "description": "Operations generated for the `notebook` namespace."
+    },
+    {
+      "name": "open_foundry.auth",
+      "description": "Operations generated for the `open_foundry.auth` namespace."
+    },
+    {
+      "name": "open_foundry.common",
+      "description": "Operations generated for the `open_foundry.common` namespace."
+    },
+    {
+      "name": "open_foundry.data_integration",
+      "description": "Operations generated for the `open_foundry.data_integration` namespace."
+    },
+    {
+      "name": "open_foundry.dataset",
+      "description": "Operations generated for the `open_foundry.dataset` namespace."
+    },
+    {
+      "name": "open_foundry.ontology",
+      "description": "Operations generated for the `open_foundry.ontology` namespace."
+    },
+    {
+      "name": "open_foundry.pipeline",
+      "description": "Operations generated for the `open_foundry.pipeline` namespace."
+    },
+    {
+      "name": "open_foundry.query",
+      "description": "Operations generated for the `open_foundry.query` namespace."
+    },
+    {
+      "name": "rest.admin.v2",
+      "description": "Operations generated for the `rest.admin.v2` namespace."
+    },
+    {
+      "name": "rest.filesystem.v2",
+      "description": "Operations generated for the `rest.filesystem.v2` namespace."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "paths": {
     "/api/v1/auth/assign-role": {
       "post": {
         "summary": "RbacService AssignRole",
+        "description": "Generated from `open_foundry.auth` RPC `AssignRole` in service `RbacService`.",
         "operationId": "open_foundry.auth.RbacService.AssignRole",
         "tags": [
           "open_foundry.auth"
@@ -33,13 +87,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "auth",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auth.assignrole",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/auth/get-me": {
       "get": {
         "summary": "AuthService GetMe",
+        "description": "Generated from `open_foundry.auth` RPC `GetMe` in service `AuthService`.",
         "operationId": "open_foundry.auth.AuthService.GetMe",
         "tags": [
           "open_foundry.auth"
@@ -54,13 +128,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "auth",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auth.getme",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/auth/list-roles": {
       "get": {
         "summary": "RbacService ListRoles",
+        "description": "Generated from `open_foundry.auth` RPC `ListRoles` in service `RbacService`.",
         "operationId": "open_foundry.auth.RbacService.ListRoles",
         "tags": [
           "open_foundry.auth"
@@ -75,13 +169,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "auth",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auth.listroles",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/auth/login": {
       "post": {
         "summary": "AuthService Login",
+        "description": "Generated from `open_foundry.auth` RPC `Login` in service `AuthService`.",
         "operationId": "open_foundry.auth.AuthService.Login",
         "tags": [
           "open_foundry.auth"
@@ -106,13 +220,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "auth",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auth.login",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/auth/refresh-token": {
       "post": {
         "summary": "AuthService RefreshToken",
+        "description": "Generated from `open_foundry.auth` RPC `RefreshToken` in service `AuthService`.",
         "operationId": "open_foundry.auth.AuthService.RefreshToken",
         "tags": [
           "open_foundry.auth"
@@ -137,13 +271,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "auth",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auth.refreshtoken",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/auth/register": {
       "post": {
         "summary": "AuthService Register",
+        "description": "Generated from `open_foundry.auth` RPC `Register` in service `AuthService`.",
         "operationId": "open_foundry.auth.AuthService.Register",
         "tags": [
           "open_foundry.auth"
@@ -168,13 +322,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "auth",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.auth.register",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/common/check": {
       "post": {
         "summary": "HealthService Check",
+        "description": "Generated from `open_foundry.common` RPC `Check` in service `HealthService`.",
         "operationId": "open_foundry.common.HealthService.Check",
         "tags": [
           "open_foundry.common"
@@ -199,13 +373,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "common",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.common.check",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/data-integration/create-connection": {
       "post": {
         "summary": "ConnectorService CreateConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `CreateConnection` in service `ConnectorService`.",
         "operationId": "open_foundry.data_integration.ConnectorService.CreateConnection",
         "tags": [
           "open_foundry.data_integration"
@@ -230,16 +424,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "data_integration",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataIntegration.createconnection",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/data-integration/delete-connection": {
       "delete": {
         "summary": "ConnectorService DeleteConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `DeleteConnection` in service `ConnectorService`.",
         "operationId": "open_foundry.data_integration.ConnectorService.DeleteConnection",
         "tags": [
           "open_foundry.data_integration"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteConnectionRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -251,13 +476,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "data_integration",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataIntegration.deleteconnection",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/data-integration/infer-schema": {
       "post": {
         "summary": "ConnectorService InferSchema",
+        "description": "Generated from `open_foundry.data_integration` RPC `InferSchema` in service `ConnectorService`.",
         "operationId": "open_foundry.data_integration.ConnectorService.InferSchema",
         "tags": [
           "open_foundry.data_integration"
@@ -282,16 +527,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "data_integration",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataIntegration.inferschema",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/data-integration/list-connections": {
       "get": {
         "summary": "ConnectorService ListConnections",
+        "description": "Generated from `open_foundry.data_integration` RPC `ListConnections` in service `ConnectorService`.",
         "operationId": "open_foundry.data_integration.ConnectorService.ListConnections",
         "tags": [
           "open_foundry.data_integration"
+        ],
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListConnectionsRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -303,13 +579,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "data_integration",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataIntegration.listconnections",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/data-integration/sync-connection": {
       "post": {
         "summary": "ConnectorService SyncConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `SyncConnection` in service `ConnectorService`.",
         "operationId": "open_foundry.data_integration.ConnectorService.SyncConnection",
         "tags": [
           "open_foundry.data_integration"
@@ -334,13 +630,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "data_integration",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataIntegration.syncconnection",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/data-integration/test-connection": {
       "post": {
         "summary": "ConnectorService TestConnection",
+        "description": "Generated from `open_foundry.data_integration` RPC `TestConnection` in service `ConnectorService`.",
         "operationId": "open_foundry.data_integration.ConnectorService.TestConnection",
         "tags": [
           "open_foundry.data_integration"
@@ -365,13 +681,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "data_integration",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataIntegration.testconnection",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/create-dataset": {
       "post": {
         "summary": "DatasetService CreateDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `CreateDataset` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.CreateDataset",
         "tags": [
           "open_foundry.dataset"
@@ -396,16 +732,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.createdataset",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/delete-dataset": {
       "delete": {
         "summary": "DatasetService DeleteDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `DeleteDataset` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.DeleteDataset",
         "tags": [
           "open_foundry.dataset"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteDatasetRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -417,16 +784,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.deletedataset",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/get-dataset": {
       "get": {
         "summary": "DatasetService GetDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `GetDataset` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.GetDataset",
         "tags": [
           "open_foundry.dataset"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetDatasetRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -438,16 +836,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.getdataset",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/get-versions": {
       "get": {
         "summary": "DatasetService GetVersions",
+        "description": "Generated from `open_foundry.dataset` RPC `GetVersions` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.GetVersions",
         "tags": [
           "open_foundry.dataset"
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetVersionsRequest.dataset_id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -459,16 +888,68 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.getversions",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/list-datasets": {
       "get": {
         "summary": "DatasetService ListDatasets",
+        "description": "Generated from `open_foundry.dataset` RPC `ListDatasets` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.ListDatasets",
         "tags": [
           "open_foundry.dataset"
+        ],
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListDatasetsRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListDatasetsRequest.search`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListDatasetsRequest.tags`.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -480,13 +961,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.listdatasets",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/preview-data": {
       "post": {
         "summary": "DatasetService PreviewData",
+        "description": "Generated from `open_foundry.dataset` RPC `PreviewData` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.PreviewData",
         "tags": [
           "open_foundry.dataset"
@@ -511,13 +1012,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.previewdata",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/datasets/update-dataset": {
       "patch": {
         "summary": "DatasetService UpdateDataset",
+        "description": "Generated from `open_foundry.dataset` RPC `UpdateDataset` in service `DatasetService`.",
         "operationId": "open_foundry.dataset.DatasetService.UpdateDataset",
         "tags": [
           "open_foundry.dataset"
@@ -542,13 +1063,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "dataset",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.dataset.updatedataset",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/create-notebook": {
       "post": {
         "summary": "NotebookService CreateNotebook",
+        "description": "Generated from `notebook` RPC `CreateNotebook` in service `NotebookService`.",
         "operationId": "notebook.NotebookService.CreateNotebook",
         "tags": [
           "notebook"
@@ -573,13 +1114,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.createnotebook",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/create-session": {
       "post": {
         "summary": "KernelService CreateSession",
+        "description": "Generated from `notebook` RPC `CreateSession` in service `KernelService`.",
         "operationId": "notebook.KernelService.CreateSession",
         "tags": [
           "notebook"
@@ -604,16 +1165,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.createsession",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/delete-notebook": {
       "delete": {
         "summary": "NotebookService DeleteNotebook",
+        "description": "Generated from `notebook` RPC `DeleteNotebook` in service `NotebookService`.",
         "operationId": "notebook.NotebookService.DeleteNotebook",
         "tags": [
           "notebook"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteNotebookRequest.id`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -625,16 +1217,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.deletenotebook",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/get-notebook": {
       "get": {
         "summary": "NotebookService GetNotebook",
+        "description": "Generated from `notebook` RPC `GetNotebook` in service `NotebookService`.",
         "operationId": "notebook.NotebookService.GetNotebook",
         "tags": [
           "notebook"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetNotebookRequest.id`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -646,16 +1269,67 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.getnotebook",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/list-notebooks": {
       "get": {
         "summary": "NotebookService ListNotebooks",
+        "description": "Generated from `notebook` RPC `ListNotebooks` in service `NotebookService`.",
         "operationId": "notebook.NotebookService.ListNotebooks",
         "tags": [
           "notebook"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListNotebooksRequest.page`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListNotebooksRequest.per_page`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListNotebooksRequest.search`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -667,16 +1341,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.listnotebooks",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/list-sessions": {
       "get": {
         "summary": "KernelService ListSessions",
+        "description": "Generated from `notebook` RPC `ListSessions` in service `KernelService`.",
         "operationId": "notebook.KernelService.ListSessions",
         "tags": [
           "notebook"
+        ],
+        "parameters": [
+          {
+            "name": "notebook_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListSessionsRequest.notebook_id`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -688,13 +1393,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.listsessions",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/stop-session": {
       "post": {
         "summary": "KernelService StopSession",
+        "description": "Generated from `notebook` RPC `StopSession` in service `KernelService`.",
         "operationId": "notebook.KernelService.StopSession",
         "tags": [
           "notebook"
@@ -719,13 +1444,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.stopsession",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/notebook/update-notebook": {
       "patch": {
         "summary": "NotebookService UpdateNotebook",
+        "description": "Generated from `notebook` RPC `UpdateNotebook` in service `NotebookService`.",
         "operationId": "notebook.NotebookService.UpdateNotebook",
         "tags": [
           "notebook"
@@ -750,13 +1495,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "notebook",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.notebook.updatenotebook",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/create-link-type": {
       "post": {
         "summary": "OntologyService CreateLinkType",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateLinkType` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.CreateLinkType",
         "tags": [
           "open_foundry.ontology"
@@ -781,13 +1546,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.createlinktype",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/create-object-type": {
       "post": {
         "summary": "OntologyService CreateObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateObjectType` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.CreateObjectType",
         "tags": [
           "open_foundry.ontology"
@@ -812,13 +1597,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.createobjecttype",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/create-property": {
       "post": {
         "summary": "OntologyService CreateProperty",
+        "description": "Generated from `open_foundry.ontology` RPC `CreateProperty` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.CreateProperty",
         "tags": [
           "open_foundry.ontology"
@@ -843,16 +1648,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.createproperty",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/delete-link-type": {
       "delete": {
         "summary": "OntologyService DeleteLinkType",
+        "description": "Generated from `open_foundry.ontology` RPC `DeleteLinkType` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.DeleteLinkType",
         "tags": [
           "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteLinkTypeRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -864,16 +1700,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.deletelinktype",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/delete-object-type": {
       "delete": {
         "summary": "OntologyService DeleteObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `DeleteObjectType` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.DeleteObjectType",
         "tags": [
           "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteObjectTypeRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -885,16 +1752,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.deleteobjecttype",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/get-object-type": {
       "get": {
         "summary": "OntologyService GetObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `GetObjectType` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.GetObjectType",
         "tags": [
           "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetObjectTypeRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -906,16 +1804,56 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.getobjecttype",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/list-link-types": {
       "get": {
         "summary": "OntologyService ListLinkTypes",
+        "description": "Generated from `open_foundry.ontology` RPC `ListLinkTypes` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.ListLinkTypes",
         "tags": [
           "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "object_type_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListLinkTypesRequest.object_type_id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListLinkTypesRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -927,16 +1865,56 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.listlinktypes",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/list-object-types": {
       "get": {
         "summary": "OntologyService ListObjectTypes",
+        "description": "Generated from `open_foundry.ontology` RPC `ListObjectTypes` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.ListObjectTypes",
         "tags": [
           "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectTypesRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListObjectTypesRequest.search`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -948,16 +1926,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.listobjecttypes",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/list-properties": {
       "get": {
         "summary": "OntologyService ListProperties",
+        "description": "Generated from `open_foundry.ontology` RPC `ListProperties` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.ListProperties",
         "tags": [
           "open_foundry.ontology"
+        ],
+        "parameters": [
+          {
+            "name": "object_type_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListPropertiesRequest.object_type_id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -969,13 +1978,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.listproperties",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/ontology/update-object-type": {
       "patch": {
         "summary": "OntologyService UpdateObjectType",
+        "description": "Generated from `open_foundry.ontology` RPC `UpdateObjectType` in service `OntologyService`.",
         "operationId": "open_foundry.ontology.OntologyService.UpdateObjectType",
         "tags": [
           "open_foundry.ontology"
@@ -1000,13 +2029,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "ontology",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.ontology.updateobjecttype",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/create-pipeline": {
       "post": {
         "summary": "PipelineService CreatePipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `CreatePipeline` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.CreatePipeline",
         "tags": [
           "open_foundry.pipeline"
@@ -1031,16 +2080,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.createpipeline",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/delete-pipeline": {
       "delete": {
         "summary": "PipelineService DeletePipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `DeletePipeline` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.DeletePipeline",
         "tags": [
           "open_foundry.pipeline"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeletePipelineRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1052,16 +2132,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.deletepipeline",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/get-dataset-lineage": {
       "get": {
         "summary": "LineageService GetDatasetLineage",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetDatasetLineage` in service `LineageService`.",
         "operationId": "open_foundry.pipeline.LineageService.GetDatasetLineage",
         "tags": [
           "open_foundry.pipeline"
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetDatasetLineageRequest.dataset_id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1073,13 +2184,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.getdatasetlineage",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/get-full-lineage": {
       "get": {
         "summary": "LineageService GetFullLineage",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetFullLineage` in service `LineageService`.",
         "operationId": "open_foundry.pipeline.LineageService.GetFullLineage",
         "tags": [
           "open_foundry.pipeline"
@@ -1094,16 +2225,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.getfulllineage",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/get-pipeline": {
       "get": {
         "summary": "PipelineService GetPipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetPipeline` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.GetPipeline",
         "tags": [
           "open_foundry.pipeline"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetPipelineRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1115,16 +2277,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.getpipeline",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/get-run": {
       "get": {
         "summary": "PipelineService GetRun",
+        "description": "Generated from `open_foundry.pipeline` RPC `GetRun` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.GetRun",
         "tags": [
           "open_foundry.pipeline"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `GetRunRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1136,16 +2329,56 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.getrun",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/list-pipelines": {
       "get": {
         "summary": "PipelineService ListPipelines",
+        "description": "Generated from `open_foundry.pipeline` RPC `ListPipelines` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.ListPipelines",
         "tags": [
           "open_foundry.pipeline"
+        ],
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListPipelinesRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListPipelinesRequest.search`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1157,16 +2390,56 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.listpipelines",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/list-runs": {
       "get": {
         "summary": "PipelineService ListRuns",
+        "description": "Generated from `open_foundry.pipeline` RPC `ListRuns` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.ListRuns",
         "tags": [
           "open_foundry.pipeline"
+        ],
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListRunsRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          },
+          {
+            "name": "pipeline_id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListRunsRequest.pipeline_id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1178,13 +2451,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.listruns",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/record-lineage": {
       "post": {
         "summary": "LineageService RecordLineage",
+        "description": "Generated from `open_foundry.pipeline` RPC `RecordLineage` in service `LineageService`.",
         "operationId": "open_foundry.pipeline.LineageService.RecordLineage",
         "tags": [
           "open_foundry.pipeline"
@@ -1209,13 +2502,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.recordlineage",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/trigger-run": {
       "post": {
         "summary": "PipelineService TriggerRun",
+        "description": "Generated from `open_foundry.pipeline` RPC `TriggerRun` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.TriggerRun",
         "tags": [
           "open_foundry.pipeline"
@@ -1240,13 +2553,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.triggerrun",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/pipelines/update-pipeline": {
       "patch": {
         "summary": "PipelineService UpdatePipeline",
+        "description": "Generated from `open_foundry.pipeline` RPC `UpdatePipeline` in service `PipelineService`.",
         "operationId": "open_foundry.pipeline.PipelineService.UpdatePipeline",
         "tags": [
           "open_foundry.pipeline"
@@ -1271,16 +2604,47 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "pipeline",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.pipeline.updatepipeline",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/queries/delete-saved-query": {
       "delete": {
         "summary": "QueryService DeleteSavedQuery",
+        "description": "Generated from `open_foundry.query` RPC `DeleteSavedQuery` in service `QueryService`.",
         "operationId": "open_foundry.query.QueryService.DeleteSavedQuery",
         "tags": [
           "open_foundry.query"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `DeleteSavedQueryRequest.id`.",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1292,13 +2656,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "query",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.query.deletesavedquery",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/queries/execute-query": {
       "post": {
         "summary": "QueryService ExecuteQuery",
+        "description": "Generated from `open_foundry.query` RPC `ExecuteQuery` in service `QueryService`.",
         "operationId": "open_foundry.query.QueryService.ExecuteQuery",
         "tags": [
           "open_foundry.query"
@@ -1323,13 +2707,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "query",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.query.executequery",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/queries/explain-query": {
       "post": {
         "summary": "QueryService ExplainQuery",
+        "description": "Generated from `open_foundry.query` RPC `ExplainQuery` in service `QueryService`.",
         "operationId": "open_foundry.query.QueryService.ExplainQuery",
         "tags": [
           "open_foundry.query"
@@ -1354,16 +2758,56 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "query",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.query.explainquery",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/queries/list-saved-queries": {
       "get": {
         "summary": "QueryService ListSavedQueries",
+        "description": "Generated from `open_foundry.query` RPC `ListSavedQueries` in service `QueryService`.",
         "operationId": "open_foundry.query.QueryService.ListSavedQueries",
         "tags": [
           "open_foundry.query"
+        ],
+        "parameters": [
+          {
+            "name": "pagination",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListSavedQueriesRequest.pagination`.",
+            "schema": {
+              "$ref": "#/components/schemas/PageRequest"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Query parameter derived from `ListSavedQueriesRequest.search`.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -1375,13 +2819,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "query",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.query.listsavedqueries",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v1/queries/save-query": {
       "post": {
         "summary": "QueryService SaveQuery",
+        "description": "Generated from `open_foundry.query` RPC `SaveQuery` in service `QueryService`.",
         "operationId": "open_foundry.query.QueryService.SaveQuery",
         "tags": [
           "open_foundry.query"
@@ -1406,13 +2870,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "query",
+        "x-openfoundry-api-version": "v1",
+        "x-openfoundry-mcp-tool": "openfoundry.query.savequery",
+        "x-openfoundry-stability": "beta"
       }
     },
     "/api/v2/admin/control-panel": {
       "get": {
         "summary": "Get control panel (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.getControlPanel`.",
         "operationId": "rest.admin.v2.getControlPanel",
         "tags": [
           "rest.admin.v2"
@@ -1427,11 +2911,31 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.getcontrolpanel",
+        "x-openfoundry-stability": "stable"
       },
       "put": {
         "summary": "Update control panel (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateControlPanel`.",
         "operationId": "rest.admin.v2.updateControlPanel",
         "tags": [
           "rest.admin.v2"
@@ -1456,13 +2960,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.updatecontrolpanel",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/groups": {
       "get": {
         "summary": "List groups (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listGroups`.",
         "operationId": "rest.admin.v2.listGroups",
         "tags": [
           "rest.admin.v2"
@@ -1477,11 +3001,31 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.listgroups",
+        "x-openfoundry-stability": "stable"
       },
       "post": {
         "summary": "Create group (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createGroup`.",
         "operationId": "rest.admin.v2.createGroup",
         "tags": [
           "rest.admin.v2"
@@ -1506,13 +3050,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.creategroup",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/groups/{id}": {
       "put": {
         "summary": "Update group (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateGroup`.",
         "operationId": "rest.admin.v2.updateGroup",
         "tags": [
           "rest.admin.v2"
@@ -1522,6 +3086,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "Path parameter `id`.",
             "schema": {
               "type": "string"
             }
@@ -1547,13 +3112,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.updategroup",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/permissions": {
       "get": {
         "summary": "List permissions (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listPermissions`.",
         "operationId": "rest.admin.v2.listPermissions",
         "tags": [
           "rest.admin.v2"
@@ -1568,11 +3153,31 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.listpermissions",
+        "x-openfoundry-stability": "stable"
       },
       "post": {
         "summary": "Create permission (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createPermission`.",
         "operationId": "rest.admin.v2.createPermission",
         "tags": [
           "rest.admin.v2"
@@ -1597,13 +3202,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.createpermission",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/policies": {
       "get": {
         "summary": "List policies (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listPolicies`.",
         "operationId": "rest.admin.v2.listPolicies",
         "tags": [
           "rest.admin.v2"
@@ -1618,11 +3243,31 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.listpolicies",
+        "x-openfoundry-stability": "stable"
       },
       "post": {
         "summary": "Create policy (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createPolicy`.",
         "operationId": "rest.admin.v2.createPolicy",
         "tags": [
           "rest.admin.v2"
@@ -1647,13 +3292,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.createpolicy",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/policies/evaluate": {
       "post": {
         "summary": "Evaluate policy (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.evaluatePolicy`.",
         "operationId": "rest.admin.v2.evaluatePolicy",
         "tags": [
           "rest.admin.v2"
@@ -1678,13 +3343,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.evaluatepolicy",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/policies/{id}": {
       "patch": {
         "summary": "Update policy (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updatePolicy`.",
         "operationId": "rest.admin.v2.updatePolicy",
         "tags": [
           "rest.admin.v2"
@@ -1694,6 +3379,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "Path parameter `id`.",
             "schema": {
               "type": "string"
             }
@@ -1719,13 +3405,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.updatepolicy",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/roles": {
       "get": {
         "summary": "List roles (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listRoles`.",
         "operationId": "rest.admin.v2.listRoles",
         "tags": [
           "rest.admin.v2"
@@ -1740,11 +3446,31 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.listroles",
+        "x-openfoundry-stability": "stable"
       },
       "post": {
         "summary": "Create role (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.createRole`.",
         "operationId": "rest.admin.v2.createRole",
         "tags": [
           "rest.admin.v2"
@@ -1769,13 +3495,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.createrole",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/roles/{id}": {
       "put": {
         "summary": "Update role (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateRole`.",
         "operationId": "rest.admin.v2.updateRole",
         "tags": [
           "rest.admin.v2"
@@ -1785,6 +3531,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "Path parameter `id`.",
             "schema": {
               "type": "string"
             }
@@ -1810,13 +3557,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.updaterole",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/users": {
       "get": {
         "summary": "List admin users (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.listUsers`.",
         "operationId": "rest.admin.v2.listUsers",
         "tags": [
           "rest.admin.v2"
@@ -1831,13 +3598,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.listusers",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/users/me": {
       "get": {
         "summary": "Get current admin user (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.getCurrentUser`.",
         "operationId": "rest.admin.v2.getCurrentUser",
         "tags": [
           "rest.admin.v2"
@@ -1852,13 +3639,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.getcurrentuser",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/admin/users/{id}": {
       "patch": {
         "summary": "Update admin user (v2)",
+        "description": "Curated REST overlay for `rest.admin.v2.updateUser`.",
         "operationId": "rest.admin.v2.updateUser",
         "tags": [
           "rest.admin.v2"
@@ -1868,6 +3675,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "Path parameter `id`.",
             "schema": {
               "type": "string"
             }
@@ -1893,13 +3701,33 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "admin_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.adminV2.updateuser",
+        "x-openfoundry-stability": "stable"
       }
     },
     "/api/v2/filesystem/datasets/{dataset_id}": {
       "get": {
         "summary": "List dataset filesystem (v2)",
+        "description": "Curated REST overlay for `rest.filesystem.v2.getDatasetFilesystem`.",
         "operationId": "rest.filesystem.v2.getDatasetFilesystem",
         "tags": [
           "rest.filesystem.v2"
@@ -1909,6 +3737,7 @@
             "name": "dataset_id",
             "in": "path",
             "required": true,
+            "description": "Path parameter `dataset_id`.",
             "schema": {
               "type": "string"
             }
@@ -1917,6 +3746,7 @@
             "name": "path",
             "in": "query",
             "required": false,
+            "description": "Query parameter `path`.",
             "schema": {
               "type": "string"
             }
@@ -1932,8 +3762,27 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Structured error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-openfoundry-sdk-namespace": "filesystem_v2",
+        "x-openfoundry-api-version": "v2",
+        "x-openfoundry-mcp-tool": "openfoundry.filesystemV2.getdatasetfilesystem",
+        "x-openfoundry-stability": "stable"
       }
     }
   },
@@ -2011,6 +3860,28 @@
             "items": {
               "$ref": "#/components/schemas/UserResponse"
             }
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -4334,6 +6205,14 @@
             "type": "string"
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Bearer token accepted by the OpenFoundry gateway. Session and personal access tokens share this scheme."
       }
     }
   }

@@ -490,6 +490,125 @@ export interface ObjectSimulationResponse {
   timeline: Array<Record<string, unknown>>;
 }
 
+export interface ScenarioSimulationOperation {
+  label?: string | null;
+  target_object_id?: string | null;
+  action_id?: string | null;
+  action_parameters?: Record<string, unknown>;
+  properties_patch?: Record<string, unknown>;
+}
+
+export interface ScenarioSimulationCandidate {
+  name: string;
+  description?: string | null;
+  operations: ScenarioSimulationOperation[];
+}
+
+export interface ScenarioMetricSpec {
+  name: string;
+  metric: string;
+  comparator: string;
+  target?: unknown;
+  config?: Record<string, unknown>;
+}
+
+export interface ScenarioGoalSpec extends ScenarioMetricSpec {
+  weight?: number;
+}
+
+export interface ScenarioObjectChange {
+  object_id: string;
+  object_type_id: string;
+  object_type_label: string;
+  deleted: boolean;
+  changed_properties: string[];
+  sources: string[];
+  before: Record<string, unknown>;
+  after: Record<string, unknown> | null;
+}
+
+export interface ScenarioRuleOutcome {
+  object_id: string;
+  rule_id: string;
+  rule_name: string;
+  rule_display_name: string;
+  evaluation_mode: string;
+  matched: boolean;
+  auto_applied: boolean;
+  trigger_payload: Record<string, unknown>;
+  effect_preview: Record<string, unknown>;
+}
+
+export interface ScenarioLinkPreview {
+  source_object_id: string | null;
+  target_object_id: string | null;
+  link_type_id: string | null;
+  preview: Record<string, unknown>;
+}
+
+export interface ScenarioMetricEvaluation {
+  name: string;
+  metric: string;
+  comparator: string;
+  target: unknown;
+  observed: unknown;
+  passed: boolean;
+  score: number | null;
+  message: string;
+}
+
+export interface ScenarioSummary {
+  impacted_object_count: number;
+  changed_object_count: number;
+  deleted_object_count: number;
+  automatic_rule_matches: number;
+  automatic_rule_applications: number;
+  advisory_rule_matches: number;
+  schedule_count: number;
+  impacted_types: string[];
+  changed_properties: string[];
+  boundary_crossings: number;
+  sensitive_objects: number;
+  failed_constraints: number;
+  achieved_goals: number;
+  total_goals: number;
+  goal_score: number;
+}
+
+export interface ScenarioSummaryDelta {
+  impacted_object_count: number;
+  changed_object_count: number;
+  deleted_object_count: number;
+  automatic_rule_matches: number;
+  automatic_rule_applications: number;
+  advisory_rule_matches: number;
+  schedule_count: number;
+  failed_constraints: number;
+  goal_score: number;
+}
+
+export interface ScenarioSimulationResult {
+  scenario_id: string;
+  name: string;
+  description: string | null;
+  graph: GraphResponse;
+  object_changes: ScenarioObjectChange[];
+  rule_outcomes: ScenarioRuleOutcome[];
+  link_previews: ScenarioLinkPreview[];
+  constraints: ScenarioMetricEvaluation[];
+  goals: ScenarioMetricEvaluation[];
+  summary: ScenarioSummary;
+  delta_from_baseline: ScenarioSummaryDelta | null;
+}
+
+export interface ObjectScenarioSimulationResponse {
+  root_object_id: string;
+  root_type_id: string;
+  compared_at: string;
+  baseline: ScenarioSimulationResult | null;
+  scenarios: ScenarioSimulationResult[];
+}
+
 export interface CreateActionTypeBody {
   name: string;
   display_name?: string;
@@ -875,6 +994,24 @@ export function simulateObject(
   },
 ) {
   return api.post<ObjectSimulationResponse>(`/ontology/types/${typeId}/objects/${objectId}/simulate`, body);
+}
+
+export function simulateObjectScenarios(
+  typeId: string,
+  objectId: string,
+  body: {
+    scenarios: ScenarioSimulationCandidate[];
+    constraints?: ScenarioMetricSpec[];
+    goals?: ScenarioGoalSpec[];
+    depth?: number;
+    max_iterations?: number;
+    include_baseline?: boolean;
+  },
+) {
+  return api.post<ObjectScenarioSimulationResponse>(
+    `/ontology/types/${typeId}/objects/${objectId}/scenarios/simulate`,
+    body,
+  );
 }
 
 // Properties

@@ -30,6 +30,7 @@
     listTypeSharedPropertyTypes,
     simulateFunctionPackage,
     simulateObject,
+    simulateObjectScenarios,
     simulateRule,
     updateMachineryQueueItem,
     validateAction,
@@ -45,11 +46,16 @@
     type MachineryInsight,
     type MachineryQueueResponse,
     type ObjectInstance,
+    type ObjectScenarioSimulationResponse,
     type ObjectSimulationResponse,
     type ObjectViewResponse,
     type ObjectType,
     type OntologyRule,
     type Property,
+    type ScenarioGoalSpec,
+    type ScenarioMetricSpec,
+    type ScenarioSimulationCandidate,
+    type ScenarioSimulationResult,
     type SharedPropertyType,
     type ValidateActionResponse,
   } from '$lib/api/ontology';
@@ -270,9 +276,11 @@
   let machineryQueue = $state<MachineryQueueResponse | null>(null);
   let objectView = $state<ObjectViewResponse | null>(null);
   let simulation = $state<ObjectSimulationResponse | null>(null);
+  let scenarioComparison = $state<ObjectScenarioSimulationResponse | null>(null);
 
   let objectViewLoading = $state(false);
   let simulationLoading = $state(false);
+  let scenarioLoading = $state(false);
   let creatingFunctionPackage = $state(false);
   let creatingRule = $state(false);
   let functionRuntimeLoading = $state(false);
@@ -345,6 +353,77 @@
   );
 
   let simulationPatchText = $state('{}');
+  let scenarioCandidatesText = $state(
+    JSON.stringify(
+      [
+        {
+          name: 'Candidate scenario',
+          description: 'Compare a candidate operating state against the baseline graph neighborhood.',
+          operations: [
+            {
+              label: 'root_patch',
+              target_object_id: null,
+              action_id: null,
+              action_parameters: {},
+              properties_patch: {},
+            },
+          ],
+        },
+      ] satisfies ScenarioSimulationCandidate[],
+      null,
+      2,
+    ),
+  );
+  let scenarioConstraintsText = $state(
+    JSON.stringify(
+      [
+        {
+          name: 'Keep blast radius contained',
+          metric: 'changed_object_count',
+          comparator: 'lte',
+          target: 5,
+          config: {},
+        },
+        {
+          name: 'No overloaded schedule queue',
+          metric: 'schedule_count',
+          comparator: 'lte',
+          target: 4,
+          config: {},
+        },
+      ] satisfies ScenarioMetricSpec[],
+      null,
+      2,
+    ),
+  );
+  let scenarioGoalsText = $state(
+    JSON.stringify(
+      [
+        {
+          name: 'Reach active state on the selected root',
+          metric: 'property_equals_count',
+          comparator: 'gte',
+          target: 1,
+          config: {
+            property: 'status',
+            value: 'active',
+            only_changed: true,
+          },
+          weight: 1.5,
+        },
+        {
+          name: 'Minimize automatic rule churn',
+          metric: 'automatic_rule_applications',
+          comparator: 'lte',
+          target: 2,
+          config: {},
+          weight: 1,
+        },
+      ] satisfies ScenarioGoalSpec[],
+      null,
+      2,
+    ),
+  );
 
   let actionName = $state('');
   let actionDisplayName = $state('');
@@ -438,6 +517,80 @@
     return parsed as Record<string, unknown>;
   }
 
+  function scenarioDeltaClass(
+    value: number | undefined,
+    preference: 'higher' | 'lower' | 'neutral' = 'neutral',
+  ) {
+    if (!value || value === 0) return 'text-slate-500 dark:text-slate-400';
+    if (preference === 'higher') {
+      return value > 0
+        ? 'text-emerald-700 dark:text-emerald-300'
+        : 'text-rose-700 dark:text-rose-300';
+    }
+    if (preference === 'lower') {
+      return value < 0
+        ? 'text-emerald-700 dark:text-emerald-300'
+        : 'text-rose-700 dark:text-rose-300';
+    }
+    return value > 0
+      ? 'text-sky-700 dark:text-sky-300'
+      : 'text-amber-700 dark:text-amber-300';
+  }
+
+  function scenarioDeltaPrefix(value: number | undefined) {
+    return value && value > 0 ? '+' : '';
+  }
+
+  function scenarioGoalScore(result: ScenarioSimulationResult) {
+    return Number(result.summary.goal_score ?? 0).toFixed(2);
+  }
+
+  function formatScenarioMetricValue(value: unknown): string {
+    if (value === null || value === undefined) return 'n/a';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  }
+
+  function scenarioMetricToneClass(passed: boolean) {
+    return passed
+      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+      : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300';
+  }
+
+  function scenarioObjectLabel(change: ScenarioSimulationResult['object_changes'][number]) {
+    const candidate = change.after ?? change.before;
+    for (const key of ['display_name', 'name', 'title', 'label']) {
+      const value = candidate?.[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value;
+      }
+    }
+    return change.object_id;
+  }
+
+  function seedScenarioDraftFromSelection() {
+    runtimeError = '';
+    try {
+      scenarioCandidatesText = formatJson([
+        {
+          name: 'Seeded candidate',
+          description: 'Generated from the current object/action selection in Object View.',
+          operations: [
+            {
+              label: 'selected_operation',
+              target_object_id: selectedTargetObjectId || null,
+              action_id: selectedActionId || null,
+              action_parameters: parseJsonObject(actionParametersText, 'Scenario seed action parameters'),
+              properties_patch: parseJsonObject(simulationPatchText, 'Scenario seed patch'),
+            },
+          ],
+        },
+      ] satisfies ScenarioSimulationCandidate[]);
+    } catch (cause) {
+      runtimeError = cause instanceof Error ? cause.message : 'Failed to seed scenario draft';
+    }
+  }
+
   function getSelectedAction(): ActionType | null {
     return actions.find((action) => action.id === selectedActionId) ?? null;
   }
@@ -506,10 +659,12 @@
   async function loadObjectInspector(objectId: string) {
     if (!objectTypeId || !objectId) {
       objectView = null;
+      scenarioComparison = null;
       return;
     }
 
     objectViewLoading = true;
+    scenarioComparison = null;
     try {
       objectView = await getObjectView(objectTypeId, objectId);
     } catch (cause) {
@@ -1039,6 +1194,32 @@
       runtimeError = cause instanceof Error ? cause.message : 'Failed to simulate object';
     } finally {
       simulationLoading = false;
+    }
+  }
+
+  async function handleSimulateScenarios() {
+    if (!objectTypeId || !selectedTargetObjectId) {
+      runtimeError = 'Select a target object first';
+      return;
+    }
+
+    scenarioLoading = true;
+    runtimeError = '';
+    scenarioComparison = null;
+
+    try {
+      scenarioComparison = await simulateObjectScenarios(objectTypeId, selectedTargetObjectId, {
+        scenarios: parseJsonArray<ScenarioSimulationCandidate>(scenarioCandidatesText, 'Scenario candidates'),
+        constraints: parseJsonArray<ScenarioMetricSpec>(scenarioConstraintsText, 'Scenario constraints'),
+        goals: parseJsonArray<ScenarioGoalSpec>(scenarioGoalsText, 'Scenario goals'),
+        depth: 2,
+        max_iterations: 6,
+        include_baseline: true,
+      });
+    } catch (cause) {
+      runtimeError = cause instanceof Error ? cause.message : 'Failed to compare scenarios';
+    } finally {
+      scenarioLoading = false;
     }
   }
 
@@ -2424,6 +2605,483 @@
               </details>
             </div>
           {/if}
+
+          <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 class="font-medium text-slate-900 dark:text-slate-100">Scenario Lab</h3>
+                <p class="mt-1 text-sm text-slate-500">
+                  Compare multi-object scenarios, propagate automatic rules across the graph neighborhood, and
+                  score each candidate against constraints and goals. Use `null` as `target_object_id` to target
+                  the selected root object.
+                </p>
+              </div>
+              {#if scenarioComparison}
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                  Compared {formatTimestamp(scenarioComparison.compared_at)}
+                </span>
+              {/if}
+            </div>
+
+            <div class="mt-4 grid gap-4 xl:grid-cols-3">
+              <div>
+                <label for="scenario-candidates" class="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Scenario candidates</label>
+                <textarea
+                  id="scenario-candidates"
+                  bind:value={scenarioCandidatesText}
+                  rows={18}
+                  class="w-full rounded-2xl border border-slate-300 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100 dark:border-slate-700"
+                  spellcheck="false"
+                ></textarea>
+              </div>
+              <div>
+                <label for="scenario-constraints" class="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Constraints</label>
+                <textarea
+                  id="scenario-constraints"
+                  bind:value={scenarioConstraintsText}
+                  rows={18}
+                  class="w-full rounded-2xl border border-slate-300 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100 dark:border-slate-700"
+                  spellcheck="false"
+                ></textarea>
+              </div>
+              <div>
+                <label for="scenario-goals" class="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Goals</label>
+                <textarea
+                  id="scenario-goals"
+                  bind:value={scenarioGoalsText}
+                  rows={18}
+                  class="w-full rounded-2xl border border-slate-300 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100 dark:border-slate-700"
+                  spellcheck="false"
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                class="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                onclick={seedScenarioDraftFromSelection}
+              >
+                Seed from current selection
+              </button>
+              <button
+                type="button"
+                disabled={!selectedTargetObjectId || scenarioLoading}
+                class="rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                onclick={handleSimulateScenarios}
+              >
+                {scenarioLoading ? 'Comparing scenarios...' : 'Compare scenarios'}
+              </button>
+            </div>
+
+            {#if scenarioComparison}
+              <div class="mt-4 space-y-4">
+                {#if scenarioComparison.baseline}
+                  <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h4 class="font-medium text-slate-900 dark:text-slate-100">Baseline neighborhood</h4>
+                        <p class="mt-1 text-sm text-slate-500">
+                          Current propagated state before applying any candidate scenario.
+                        </p>
+                      </div>
+                      <span class="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        Goal score {scenarioGoalScore(scenarioComparison.baseline)}
+                      </span>
+                    </div>
+
+                    <div class="mt-4 grid gap-3 md:grid-cols-5">
+                      <div class="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Impacted</div>
+                        <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                          {scenarioComparison.baseline.summary.impacted_object_count}
+                        </div>
+                      </div>
+                      <div class="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Changed</div>
+                        <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                          {scenarioComparison.baseline.summary.changed_object_count}
+                        </div>
+                      </div>
+                      <div class="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Auto rules</div>
+                        <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                          {scenarioComparison.baseline.summary.automatic_rule_applications}
+                        </div>
+                      </div>
+                      <div class="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Failed constraints</div>
+                        <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                          {scenarioComparison.baseline.summary.failed_constraints}
+                        </div>
+                      </div>
+                      <div class="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                        <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Schedules</div>
+                        <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                          {scenarioComparison.baseline.summary.schedule_count}
+                        </div>
+                      </div>
+                    </div>
+
+                    {#if scenarioComparison.baseline.summary.impacted_types.length > 0}
+                      <div class="mt-4">
+                        <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Impacted types</p>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                          {#each scenarioComparison.baseline.summary.impacted_types as impactedType}
+                            <span class="rounded-full bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">
+                              {impactedType}
+                            </span>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+
+                {#if scenarioComparison.scenarios.length === 0}
+                  <div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700">
+                    No scenarios were returned. Add at least one candidate in the editor above.
+                  </div>
+                {:else}
+                  {#each scenarioComparison.scenarios as result (result.scenario_id)}
+                    <article class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                      <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <h4 class="font-medium text-slate-900 dark:text-slate-100">{result.name}</h4>
+                            <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                              Goal score {scenarioGoalScore(result)}
+                            </span>
+                            <span class={`rounded-full px-3 py-1 text-xs font-medium ${result.summary.failed_constraints === 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'}`}>
+                              {result.summary.failed_constraints} failed constraints
+                            </span>
+                            {#if result.summary.deleted_object_count > 0}
+                              <span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                {result.summary.deleted_object_count} deleted objects
+                              </span>
+                            {/if}
+                          </div>
+                          {#if result.description}
+                            <p class="mt-1 text-sm text-slate-500">{result.description}</p>
+                          {/if}
+                        </div>
+                        <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                          {formatScope(result.graph.summary.scope)}
+                        </span>
+                      </div>
+
+                      <div class="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                        <div class="rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/70">
+                          <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Impacted</div>
+                          <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                            {result.summary.impacted_object_count}
+                          </div>
+                          {#if result.delta_from_baseline}
+                            <div class={`mt-1 text-xs ${scenarioDeltaClass(result.delta_from_baseline.impacted_object_count, 'lower')}`}>
+                              {scenarioDeltaPrefix(result.delta_from_baseline.impacted_object_count)}{result.delta_from_baseline.impacted_object_count} vs baseline
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/70">
+                          <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Changed</div>
+                          <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                            {result.summary.changed_object_count}
+                          </div>
+                          {#if result.delta_from_baseline}
+                            <div class={`mt-1 text-xs ${scenarioDeltaClass(result.delta_from_baseline.changed_object_count, 'lower')}`}>
+                              {scenarioDeltaPrefix(result.delta_from_baseline.changed_object_count)}{result.delta_from_baseline.changed_object_count} vs baseline
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/70">
+                          <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Auto apps</div>
+                          <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                            {result.summary.automatic_rule_applications}
+                          </div>
+                          {#if result.delta_from_baseline}
+                            <div class={`mt-1 text-xs ${scenarioDeltaClass(result.delta_from_baseline.automatic_rule_applications, 'lower')}`}>
+                              {scenarioDeltaPrefix(result.delta_from_baseline.automatic_rule_applications)}{result.delta_from_baseline.automatic_rule_applications} vs baseline
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/70">
+                          <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Schedules</div>
+                          <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                            {result.summary.schedule_count}
+                          </div>
+                          {#if result.delta_from_baseline}
+                            <div class={`mt-1 text-xs ${scenarioDeltaClass(result.delta_from_baseline.schedule_count, 'lower')}`}>
+                              {scenarioDeltaPrefix(result.delta_from_baseline.schedule_count)}{result.delta_from_baseline.schedule_count} vs baseline
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/70">
+                          <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Failed constraints</div>
+                          <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                            {result.summary.failed_constraints}
+                          </div>
+                          {#if result.delta_from_baseline}
+                            <div class={`mt-1 text-xs ${scenarioDeltaClass(result.delta_from_baseline.failed_constraints, 'lower')}`}>
+                              {scenarioDeltaPrefix(result.delta_from_baseline.failed_constraints)}{result.delta_from_baseline.failed_constraints} vs baseline
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/70">
+                          <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Goal score</div>
+                          <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                            {scenarioGoalScore(result)}
+                          </div>
+                          {#if result.delta_from_baseline}
+                            <div class={`mt-1 text-xs ${scenarioDeltaClass(result.delta_from_baseline.goal_score, 'higher')}`}>
+                              {scenarioDeltaPrefix(result.delta_from_baseline.goal_score)}{Number(result.delta_from_baseline.goal_score ?? 0).toFixed(2)} vs baseline
+                            </div>
+                          {/if}
+                        </div>
+                      </div>
+
+                      {#if result.summary.impacted_types.length > 0}
+                        <div class="mt-4">
+                          <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Impacted types</p>
+                          <div class="mt-2 flex flex-wrap gap-2">
+                            {#each result.summary.impacted_types as impactedType}
+                              <span class="rounded-full bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">
+                                {impactedType}
+                              </span>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+
+                      {#if result.summary.changed_properties.length > 0}
+                        <div class="mt-4">
+                          <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Changed properties</p>
+                          <div class="mt-2 flex flex-wrap gap-2">
+                            {#each result.summary.changed_properties as propertyName}
+                              <span class="rounded-full bg-slate-100 px-3 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {propertyName}
+                              </span>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+
+                      <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                        <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                          <div class="flex items-center justify-between gap-3">
+                            <h5 class="font-medium text-slate-900 dark:text-slate-100">Constraints</h5>
+                            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                              {result.constraints.length}
+                            </span>
+                          </div>
+                          {#if result.constraints.length === 0}
+                            <p class="mt-3 text-sm text-slate-500">No constraints were evaluated for this scenario.</p>
+                          {:else}
+                            <div class="mt-3 space-y-3">
+                              {#each result.constraints as metric}
+                                <div class={`rounded-2xl px-3 py-3 ${scenarioMetricToneClass(metric.passed)}`}>
+                                  <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <p class="font-medium">{metric.name}</p>
+                                    <span class="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium dark:bg-slate-900/40">
+                                      {metric.passed ? 'pass' : 'fail'}
+                                    </span>
+                                  </div>
+                                  <p class="mt-1 text-xs">
+                                    {metric.metric} {metric.comparator} {formatScenarioMetricValue(metric.target)}
+                                  </p>
+                                  <p class="mt-2 text-sm">{metric.message}</p>
+                                  <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                                    <span class="rounded-full bg-white/70 px-2 py-0.5 font-mono dark:bg-slate-900/40">
+                                      observed {formatScenarioMetricValue(metric.observed)}
+                                    </span>
+                                    {#if metric.score !== null}
+                                      <span class="rounded-full bg-white/70 px-2 py-0.5 font-mono dark:bg-slate-900/40">
+                                        score {Number(metric.score).toFixed(2)}
+                                      </span>
+                                    {/if}
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                          <div class="flex items-center justify-between gap-3">
+                            <h5 class="font-medium text-slate-900 dark:text-slate-100">Goals</h5>
+                            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                              {result.summary.achieved_goals}/{result.summary.total_goals} achieved
+                            </span>
+                          </div>
+                          {#if result.goals.length === 0}
+                            <p class="mt-3 text-sm text-slate-500">No goals were evaluated for this scenario.</p>
+                          {:else}
+                            <div class="mt-3 space-y-3">
+                              {#each result.goals as metric}
+                                <div class={`rounded-2xl px-3 py-3 ${scenarioMetricToneClass(metric.passed)}`}>
+                                  <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <p class="font-medium">{metric.name}</p>
+                                    <span class="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium dark:bg-slate-900/40">
+                                      {metric.passed ? 'achieved' : 'missed'}
+                                    </span>
+                                  </div>
+                                  <p class="mt-1 text-xs">
+                                    {metric.metric} {metric.comparator} {formatScenarioMetricValue(metric.target)}
+                                  </p>
+                                  <p class="mt-2 text-sm">{metric.message}</p>
+                                  <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                                    <span class="rounded-full bg-white/70 px-2 py-0.5 font-mono dark:bg-slate-900/40">
+                                      observed {formatScenarioMetricValue(metric.observed)}
+                                    </span>
+                                    {#if metric.score !== null}
+                                      <span class="rounded-full bg-white/70 px-2 py-0.5 font-mono dark:bg-slate-900/40">
+                                        score {Number(metric.score).toFixed(2)}
+                                      </span>
+                                    {/if}
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+                      </div>
+
+                      <div class="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                        <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                          <div class="flex items-center justify-between gap-3">
+                            <h5 class="font-medium text-slate-900 dark:text-slate-100">Changed objects</h5>
+                            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                              {result.object_changes.length}
+                            </span>
+                          </div>
+                          {#if result.object_changes.length === 0}
+                            <p class="mt-3 text-sm text-slate-500">This scenario did not mutate any objects.</p>
+                          {:else}
+                            <div class="mt-3 space-y-3">
+                              {#each result.object_changes as change (change.object_id)}
+                                <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                                  <div class="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <div class="flex flex-wrap items-center gap-2">
+                                        <h6 class="font-medium text-slate-900 dark:text-slate-100">{scenarioObjectLabel(change)}</h6>
+                                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                          {change.object_type_label}
+                                        </span>
+                                        {#if change.deleted}
+                                          <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                            deleted
+                                          </span>
+                                        {/if}
+                                      </div>
+                                      <p class="mt-1 font-mono text-xs text-slate-500">{change.object_id}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                      {#each change.sources as source}
+                                        <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                                          {source}
+                                        </span>
+                                      {/each}
+                                    </div>
+                                  </div>
+
+                                  {#if change.changed_properties.length > 0}
+                                    <div class="mt-3 flex flex-wrap gap-2">
+                                      {#each change.changed_properties as propertyName}
+                                        <span class="rounded-full bg-slate-100 px-3 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                          {propertyName}
+                                        </span>
+                                      {/each}
+                                    </div>
+                                  {/if}
+
+                                  <details class="mt-3 rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
+                                    <summary class="cursor-pointer text-sm font-medium text-slate-900 dark:text-slate-100">Before / after payload</summary>
+                                    <pre class="mt-3 overflow-x-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100">{formatJson({ before: change.before, after: change.after })}</pre>
+                                  </details>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+
+                        <div class="space-y-4">
+                          <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                            <div class="flex items-center justify-between gap-3">
+                              <h5 class="font-medium text-slate-900 dark:text-slate-100">Rule outcomes</h5>
+                              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {result.rule_outcomes.length}
+                              </span>
+                            </div>
+                            {#if result.rule_outcomes.length === 0}
+                              <p class="mt-3 text-sm text-slate-500">No rule evaluations were emitted for this scenario.</p>
+                            {:else}
+                              <div class="mt-3 space-y-3">
+                                {#each result.rule_outcomes as rule, index (`${rule.rule_id}-${rule.object_id}-${index}`)}
+                                  <div class="rounded-2xl bg-slate-50 px-3 py-3 dark:bg-slate-950/40">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                      <p class="font-medium text-slate-900 dark:text-slate-100">{rule.rule_display_name || rule.rule_name}</p>
+                                      <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${rule.matched ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+                                        {rule.matched ? 'matched' : 'not matched'}
+                                      </span>
+                                      {#if rule.auto_applied}
+                                        <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                                          auto applied
+                                        </span>
+                                      {/if}
+                                    </div>
+                                    <p class="mt-1 font-mono text-xs text-slate-500">{rule.object_id}</p>
+                                    <p class="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">{rule.evaluation_mode}</p>
+                                    <details class="mt-3 rounded-2xl border border-slate-200 px-3 py-2 dark:border-slate-800">
+                                      <summary class="cursor-pointer text-sm text-slate-700 dark:text-slate-200">Trigger & effect preview</summary>
+                                      <pre class="mt-3 overflow-x-auto rounded-2xl bg-slate-950 p-3 text-xs text-slate-100">{formatJson({ trigger: rule.trigger_payload, effect: rule.effect_preview })}</pre>
+                                    </details>
+                                  </div>
+                                {/each}
+                              </div>
+                            {/if}
+                          </div>
+
+                          <div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                            <div class="flex items-center justify-between gap-3">
+                              <h5 class="font-medium text-slate-900 dark:text-slate-100">Link previews</h5>
+                              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {result.link_previews.length}
+                              </span>
+                            </div>
+                            {#if result.link_previews.length === 0}
+                              <p class="mt-3 text-sm text-slate-500">This scenario did not stage any link changes.</p>
+                            {:else}
+                              <div class="mt-3 space-y-3">
+                                {#each result.link_previews as preview, index (`${preview.link_type_id ?? 'link'}-${index}`)}
+                                  <div class="rounded-2xl bg-slate-50 px-3 py-3 dark:bg-slate-950/40">
+                                    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                      <span class="rounded-full bg-slate-200 px-2 py-0.5 font-mono dark:bg-slate-800">
+                                        {preview.source_object_id ?? 'n/a'}
+                                      </span>
+                                      <span>→</span>
+                                      <span class="rounded-full bg-slate-200 px-2 py-0.5 font-mono dark:bg-slate-800">
+                                        {preview.target_object_id ?? 'n/a'}
+                                      </span>
+                                    </div>
+                                    <p class="mt-2 font-mono text-xs text-slate-500">{preview.link_type_id ?? 'link type unavailable'}</p>
+                                    <pre class="mt-3 overflow-x-auto rounded-2xl bg-slate-950 p-3 text-xs text-slate-100">{formatJson(preview.preview)}</pre>
+                                  </div>
+                                {/each}
+                              </div>
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+
+                      <details class="mt-4 rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-800">
+                        <summary class="cursor-pointer font-medium text-slate-900 dark:text-slate-100">Raw scenario payload</summary>
+                        <pre class="mt-3 overflow-x-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100">{formatJson(result)}</pre>
+                      </details>
+                    </article>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </div>
         </div>
 
         <div class="space-y-4">
