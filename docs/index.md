@@ -4,44 +4,58 @@ layout: home
 hero:
   name: OpenFoundry
   text: Technical Documentation
-  tagline: Architecture, repository layout, delivery pipelines, and operating model for the OpenFoundry monorepo.
+  tagline: "Capability-oriented documentation for an open-source operational data platform inspired by the information architecture of Foundry docs."
   image:
-    src: /logo.svg
+    src: /logo.png
     alt: OpenFoundry
   actions:
     - theme: brand
-      text: Start Here
-      link: /guide/
+      text: Explore capabilities
+      link: /ontology-building/
     - theme: alt
-      text: Architecture
-      link: /architecture/
+      text: Getting started
+      link: /getting-started/
     - theme: alt
-      text: CI/CD
-      link: /operations/ci-cd
+      text: Architecture center
+      link: /architecture-center/
 
 features:
-  - title: Monorepo Map
-    details: Understand where the frontend, Rust services, shared crates, protobuf contracts, SDKs, infra, smoke tests, and benchmarks live.
-  - title: Executable Architecture
-    details: Use the smoke suites, generated contracts, and workspace automation as the source of truth for how the platform fits together.
-  - title: Operations Ready
-    details: Follow documented deployment modes, CI workflows, runbooks, and GitHub Pages automation for ongoing maintenance.
+  - title: Capability-based structure
+    details: "Browse docs the same way platform teams think about the product: AI, data connectivity, ontology, developer workflows, analytics, governance, and delivery."
+  - title: OpenFoundry-specific mapping
+    details: "Each section maps the capability model onto the actual services, contracts, SDKs, infra, and frontend modules present in this repository."
+  - title: Built in phases
+    details: "The information architecture is being expanded iteratively, starting with the highest-signal sections such as Ontology building and platform architecture."
 ---
+
+## Capability Areas
+
+OpenFoundry now organizes its official documentation around these top-level capability areas:
+
+- [AI Platform (AIP)](/ai-platform/)
+- [Data connectivity & integration](/data-connectivity/)
+- [Model connectivity & development](/model-connectivity/)
+- [Ontology building](/ontology-building/)
+- [Developer toolchain](/developer-toolchain/)
+- [Use case development](/use-case-development/)
+- [Observability](/observability/)
+- [Analytics](/analytics/)
+- [Product delivery](/product-delivery/)
+- [Security & governance](/security-governance/)
+- [Management & enablement](/management-enablement/)
 
 ## What This Site Covers
 
-This documentation is focused on the repository itself rather than on end-user product usage.
+This documentation still stays grounded in the repository itself:
 
-It answers four practical questions:
-
-- How is the monorepo organized?
-- How do the services and contracts fit together?
-- How do contributors run, test, and validate changes?
-- How does the project publish artifacts such as docs, SDKs, and release outputs?
+- how platform capabilities map onto `services/*`, `libs/*`, `apps/web`, `proto/*`, and `infra/*`
+- how contributors build, test, and ship changes
+- how ontology-centric workflows fit into the current OpenFoundry architecture
+- how docs, contracts, SDKs, and deployment assets are delivered
 
 ## Recommended Reading Order
 
-1. [Guide](/guide/) for contributor orientation.
-2. [Repository Map](/guide/repository-map) for folder-level navigation.
-3. [Architecture Overview](/architecture/) for runtime and contract boundaries.
-4. [CI/CD](/operations/ci-cd) for delivery and release automation.
+1. [Getting started](/getting-started/) for contributor orientation.
+2. [Ontology building](/ontology-building/) for the core platform semantics.
+3. [Architecture center](/architecture-center/) for runtime and contract boundaries.
+4. [Platform updates](/platform-updates/) for release-facing changes in the docs set.

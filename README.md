@@ -10,8 +10,9 @@
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen.svg)](#-product-status)
 [![Open Source](https://img.shields.io/badge/open%20source-yes-success.svg)](LICENSE)
 [![Contributions](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Documentation](https://img.shields.io/badge/docs-official%20documentation-0ea5e9.svg)](https://diocrafts.github.io/OpenFoundry/)
 
-[See what you can build](#-what-you-can-do-with-openfoundry) · [Why teams choose OpenFoundry](#-why-openfoundry) · [Quick start](#-get-started) · [Roadmap](#-roadmap) · [Community](#-community)
+[Official documentation](https://diocrafts.github.io/OpenFoundry/) · [See what you can build](#-what-you-can-do-with-openfoundry) · [Why teams choose OpenFoundry](#-why-openfoundry) · [Quick start](#-get-started) · [Roadmap](#-roadmap) · [Community](#-community)
 
 ---
 
