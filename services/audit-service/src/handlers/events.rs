@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::{
     AppState,
-    domain::{alerting, collector, immutable_log, sds, security},
+    domain::{alerting, collector, immutable_log, security},
     handlers::{
         ServiceResult, bad_request, db_error, internal_error, load_event_row, load_events,
         load_policies,
@@ -17,7 +17,6 @@ use crate::{
         audit_event::{AppendAuditEventRequest, AuditEvent, AuditOverview, EventListResponse},
         data_classification::AnomalyAlert,
         policy::CollectorStatus,
-        sensitive_data::{SensitiveDataScanRequest, SensitiveDataScanResponse},
     },
 };
 
@@ -216,13 +215,4 @@ pub async fn list_anomalies(State(state): State<AppState>) -> ServiceResult<Vec<
         .await
         .map_err(|cause| db_error(&cause))?;
     Ok(Json(alerting::detect_anomalies(&events)))
-}
-
-pub async fn scan_sensitive_data(
-    Json(request): Json<SensitiveDataScanRequest>,
-) -> ServiceResult<SensitiveDataScanResponse> {
-    if request.content.trim().is_empty() {
-        return Err(bad_request("content is required"));
-    }
-    Ok(Json(sds::scan(&request)))
 }

@@ -185,6 +185,10 @@ proto-breaking:
 infra-up:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
 
+# Start dev infrastructure plus containerized auth/gateway/web stack
+app-up:
+    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile app up -d
+
 # Stop dev infrastructure
 infra-down:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down

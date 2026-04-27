@@ -211,26 +211,6 @@ async fn main() {
                 .delete(handlers::policy_mgmt::delete_policy),
         )
         .route(
-            "/api/v1/restricted-views",
-            get(handlers::restricted_views::list_restricted_views)
-                .post(handlers::restricted_views::create_restricted_view),
-        )
-        .route(
-            "/api/v2/admin/restricted-views",
-            get(handlers::restricted_views::list_restricted_views)
-                .post(handlers::restricted_views::create_restricted_view),
-        )
-        .route(
-            "/api/v1/restricted-views/{id}",
-            put(handlers::restricted_views::update_restricted_view)
-                .delete(handlers::restricted_views::delete_restricted_view),
-        )
-        .route(
-            "/api/v2/admin/restricted-views/{id}",
-            patch(handlers::restricted_views::update_restricted_view)
-                .delete(handlers::restricted_views::delete_restricted_view),
-        )
-        .route(
             "/api/v1/api-keys",
             get(handlers::api_key_mgmt::list_api_keys).post(handlers::api_key_mgmt::create_api_key),
         )
@@ -251,34 +231,6 @@ async fn main() {
         .route(
             "/api/v1/auth/sso/providers/{id}",
             put(handlers::sso::update_provider).delete(handlers::sso::delete_provider),
-        )
-        .route(
-            "/api/v1/auth/sessions",
-            get(handlers::sessions::list_scoped_sessions),
-        )
-        .route(
-            "/api/v1/auth/sessions/scoped",
-            post(handlers::sessions::create_scoped_session),
-        )
-        .route(
-            "/api/v1/auth/sessions/guest",
-            post(handlers::sessions::create_guest_session),
-        )
-        .route(
-            "/api/v1/auth/sessions/{id}",
-            delete(handlers::sessions::revoke_scoped_session),
-        )
-        .route(
-            "/api/v1/auth/cipher/hash",
-            post(handlers::security_ops::hash_content),
-        )
-        .route(
-            "/api/v1/auth/cipher/sign",
-            post(handlers::security_ops::sign_content),
-        )
-        .route(
-            "/api/v1/auth/cipher/verify",
-            post(handlers::security_ops::verify_signature),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

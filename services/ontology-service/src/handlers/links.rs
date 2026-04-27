@@ -121,6 +121,51 @@ pub async fn delete_link_type(
     }
 }
 
+pub async fn update_link_type(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateLinkTypeRequest>,
+) -> impl IntoResponse {
+    let existing = match sqlx::query_as::<_, LinkType>("SELECT * FROM link_types WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(Some(link_type)) => link_type,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let cardinality = body
+        .cardinality
+        .unwrap_or_else(|| existing.cardinality.clone());
+    if let Err(error) = validate_cardinality(&cardinality) {
+        return (StatusCode::BAD_REQUEST, error).into_response();
+    }
+
+    match sqlx::query_as::<_, LinkType>(
+        r#"UPDATE link_types
+           SET display_name = COALESCE($2, display_name),
+               description = COALESCE($3, description),
+               cardinality = $4,
+               updated_at = NOW()
+           WHERE id = $1
+           RETURNING *"#,
+    )
+    .bind(id)
+    .bind(body.display_name)
+    .bind(body.description)
+    .bind(cardinality)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(link_type)) => Json(serde_json::json!(link_type)).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 // --- Link Instance CRUD ---
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]

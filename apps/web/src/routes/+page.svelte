@@ -63,10 +63,65 @@
         <h2 class="font-semibold">Ontology</h2>
         <p class="text-sm text-gray-500 mt-1">Define object types and relationships</p>
       </a>
+      <a href="/ontology-manager" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🗂️</div>
+        <h2 class="font-semibold">Ontology Manager</h2>
+        <p class="text-sm text-gray-500 mt-1">Review ontology working state, manage schema resources, import and export JSON, and scope permissions by project</p>
+      </a>
+      <a href="/ontologies" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🧭</div>
+        <h2 class="font-semibold">Ontologies</h2>
+        <p class="text-sm text-gray-500 mt-1">Operate ontology spaces with branch lifecycle, proposals, preview checks, migration flows, and shared collaboration posture</p>
+      </a>
+      <a href="/ontology-design" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🧪</div>
+        <h2 class="font-semibold">Ontology Design Review</h2>
+        <p class="text-sm text-gray-500 mt-1">Score ontology quality, detect anti-patterns, and turn best-practice guidance into concrete remediation work</p>
+      </a>
+      <a href="/ontology-indexing" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🗃️</div>
+        <h2 class="font-semibold">Ontology Indexing</h2>
+        <p class="text-sm text-gray-500 mt-1">Manage Funnel sources, health, runs, batch and streaming posture, replacement pipelines, and indexing restrictions</p>
+      </a>
+      <a href="/object-databases" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🛢️</div>
+        <h2 class="font-semibold">Object Databases</h2>
+        <p class="text-sm text-gray-500 mt-1">Inspect PostgreSQL-backed object rows, graph edges, search projections, Funnel hydration, and the indexed access paths behind ontology runtime</p>
+      </a>
+      <a href="/object-link-types" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🧱</div>
+        <h2 class="font-semibold">Object and Link Types</h2>
+        <p class="text-sm text-gray-500 mt-1">Model object types, link types, shared properties, value contracts, structs, metadata, and derived fields from one dedicated ontology studio</p>
+      </a>
+      <a href="/action-types" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🎛️</div>
+        <h2 class="font-semibold">Action Types</h2>
+        <p class="text-sm text-gray-500 mt-1">Author governed actions with parameter sections, side effects, inline edits, batch runs, and action-log monitoring</p>
+      </a>
+      <a href="/functions" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🧪</div>
+        <h2 class="font-semibold">Functions</h2>
+        <p class="text-sm text-gray-500 mt-1">Author reusable TypeScript and Python packages with testing, release workflows, SDK scaffolds, and function-run monitoring</p>
+      </a>
+      <a href="/interfaces" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🧬</div>
+        <h2 class="font-semibold">Interfaces</h2>
+        <p class="text-sm text-gray-500 mt-1">Manage reusable ontology contracts, canonical interface properties, and implementation bindings across object types</p>
+      </a>
       <a href="/object-explorer" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
         <div class="text-2xl mb-2">🧭</div>
         <h2 class="font-semibold">Object Explorer</h2>
         <p class="text-sm text-gray-500 mt-1">Search ontology objects, pivot across links, compare lists, and reopen saved explorations</p>
+      </a>
+      <a href="/object-monitors" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🔔</div>
+        <h2 class="font-semibold">Object Monitors</h2>
+        <p class="text-sm text-gray-500 mt-1">Watch saved explorations, alert subscribers, and trigger remediation actions when ontology conditions change</p>
+      </a>
+      <a href="/object-views" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🪟</div>
+        <h2 class="font-semibold">Object Views</h2>
+        <p class="text-sm text-gray-500 mt-1">Configure standard and curated object views, manage versions, and preview full or panel form factors</p>
       </a>
       <a href="/dynamic-scheduling" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
         <div class="text-2xl mb-2">🗓️</div>
@@ -82,6 +137,11 @@
         <div class="text-2xl mb-2">🏭</div>
         <h2 class="font-semibold">Machinery</h2>
         <p class="text-sm text-gray-500 mt-1">Model processes, mine operational behavior, and monitor live interventions across workflows and queues</p>
+      </a>
+      <a href="/vertex" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
+        <div class="text-2xl mb-2">🕸️</div>
+        <h2 class="font-semibold">Vertex</h2>
+        <p class="text-sm text-gray-500 mt-1">Operate a dedicated graph product with reusable templates, event timelines, media overlays, and what-if digital twin scenarios</p>
       </a>
       <a href="/notebooks" class="block p-6 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 hover:border-indigo-300 transition-colors">
         <div class="text-2xl mb-2">📓</div>

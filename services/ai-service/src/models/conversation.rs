@@ -184,11 +184,13 @@ pub struct CopilotResponse {
     pub created_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluateGuardrailsRequest {
     pub content: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluateGuardrailsResponse {
     pub verdict: GuardrailVerdict,
@@ -196,6 +198,7 @@ pub struct EvaluateGuardrailsResponse {
     pub recommendations: Vec<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderBenchmarkRequest {
     pub prompt: String,
@@ -214,6 +217,7 @@ pub struct ProviderBenchmarkRequest {
     pub require_private_network: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderBenchmarkScore {
     pub quality: f32,
@@ -223,6 +227,7 @@ pub struct ProviderBenchmarkScore {
     pub overall: f32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderBenchmarkResult {
     pub provider_id: Uuid,
@@ -240,6 +245,7 @@ pub struct ProviderBenchmarkResult {
     pub error: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderBenchmarkResponse {
     pub benchmark_group_id: Uuid,
@@ -299,6 +305,7 @@ fn default_true() -> bool {
     true
 }
 
+#[allow(dead_code)]
 fn default_benchmark_use_case() -> String {
     "chat".to_string()
 }

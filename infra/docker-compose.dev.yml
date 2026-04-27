@@ -2,7 +2,7 @@
 services:
   postgres:
     environment:
-      POSTGRES_MULTIPLE_DATABASES: "openfoundry_auth,openfoundry_datasets,openfoundry_pipelines,openfoundry_ontology,openfoundry_audit"
+      POSTGRES_MULTIPLE_DATABASES: "openfoundry_auth_service,openfoundry_dataset_service,openfoundry_pipeline_service,openfoundry_ontology_service,openfoundry_audit_service,openfoundry_ai_service,openfoundry_app_builder_service,openfoundry_code_repo_service,openfoundry_data_connector,openfoundry_fusion_service,openfoundry_geospatial_service,openfoundry_marketplace_service,openfoundry_ml_service,openfoundry_nexus_service,openfoundry_notebook_service,openfoundry_notification_service,openfoundry_query_service,openfoundry_report_service,openfoundry_streaming_service,openfoundry_workflow_service"
 
   redis:
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --loglevel verbose

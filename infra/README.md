@@ -4,7 +4,7 @@ This directory contains the deployment artifacts used to run OpenFoundry locally
 
 ## Deployment modes
 
-- `docker-compose.yml`: local control-plane dependencies, with image overrides such as `OPENFOUNDRY_POSTGRES_IMAGE` for mirrored or air-gapped registries.
+- `docker-compose.yml`: local control-plane dependencies plus optional `app` profile for `auth-service`, `gateway`, `web`, and an `nginx` edge proxy, with image overrides such as `OPENFOUNDRY_POSTGRES_IMAGE` for mirrored or air-gapped registries.
 - `k8s/helm/open-foundry/values-multicloud.yaml`: multi-cloud SaaS topology with workload identity and Apollo-driven gated fleet sync.
 - `k8s/helm/open-foundry/values-airgap.yaml`: air-gapped / sovereign deployment posture with private registry mirroring and public-egress shutdown.
 - `k8s/helm/open-foundry/values-sovereign-eu.yaml`: EU-only residency profile with ingress allowlists, node residency labels, and egress fencing.

@@ -1,0 +1,14 @@
+#[path = "../../../dataset-service/src/handlers/catalog.rs"]
+pub mod catalog;
+#[path = "../../../dataset-service/src/handlers/crud.rs"]
+pub mod crud;
+#[path = "../../../dataset-service/src/handlers/export.rs"]
+pub mod export;
+#[path = "../../../dataset-service/src/handlers/internal.rs"]
+pub mod internal;
+#[path = "../../../dataset-service/src/handlers/preview.rs"]
+pub mod preview;
+#[path = "../../../dataset-service/src/handlers/upload.rs"]
+pub mod upload;
+#[path = "../../../dataset-service/src/handlers/views.rs"]
+pub mod views;

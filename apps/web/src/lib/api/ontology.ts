@@ -51,6 +51,67 @@ export interface SharedPropertyType {
   updated_at: string;
 }
 
+export interface OntologyInterface {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InterfaceProperty {
+  id: string;
+  interface_id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  property_type: string;
+  required: boolean;
+  unique_constraint: boolean;
+  time_dependent: boolean;
+  default_value: unknown;
+  validation_rules: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ObjectTypeInterfaceBinding {
+  object_type_id: string;
+  interface_id: string;
+  created_at: string;
+}
+
+export type OntologyProjectRole = 'viewer' | 'editor' | 'owner';
+
+export interface OntologyProject {
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string;
+  workspace_slug: string | null;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OntologyProjectMembership {
+  project_id: string;
+  user_id: string;
+  role: OntologyProjectRole;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OntologyProjectResourceBinding {
+  project_id: string;
+  resource_kind: string;
+  resource_id: string;
+  bound_by: string;
+  created_at: string;
+}
+
 export interface LinkType {
   id: string;
   name: string;
@@ -366,6 +427,14 @@ export interface ExecuteActionResponse {
   result: unknown | null;
 }
 
+export interface ExecuteBatchActionResponse {
+  action: ActionType;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<Record<string, unknown>>;
+}
+
 export interface FunctionCapabilities {
   allow_ontology_read: boolean;
   allow_ontology_write: boolean;
@@ -479,6 +548,48 @@ export interface OntologyFunnelRun {
   error_message: string | null;
   started_at: string;
   finished_at: string | null;
+}
+
+export interface OntologyStorageTableMetric {
+  key: string;
+  table_name: string;
+  label: string;
+  role: string;
+  record_count: number;
+}
+
+export interface OntologyStorageIndexDefinition {
+  table_name: string;
+  index_name: string;
+  index_definition: string;
+}
+
+export interface OntologyStorageDistributionMetric {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface OntologyStorageSearchKindMetric {
+  kind: string;
+  count: number;
+}
+
+export interface OntologyStorageInsights {
+  database_backend: string;
+  access_driver: string;
+  graph_projection: string;
+  search_projection: string;
+  funnel_runtime: string;
+  table_metrics: OntologyStorageTableMetric[];
+  index_definitions: OntologyStorageIndexDefinition[];
+  object_type_distribution: OntologyStorageDistributionMetric[];
+  link_type_distribution: OntologyStorageDistributionMetric[];
+  search_documents_total: number;
+  search_documents_by_kind: OntologyStorageSearchKindMetric[];
+  latest_object_write_at: string | null;
+  latest_link_write_at: string | null;
+  latest_funnel_run_at: string | null;
 }
 
 export interface OntologyFunnelSourceHealth {
@@ -881,6 +992,7 @@ export function createObjectType(body: {
   name: string;
   display_name?: string;
   description?: string;
+  primary_key_property?: string;
   icon?: string;
   color?: string;
 }) {
@@ -890,6 +1002,7 @@ export function createObjectType(body: {
 export function updateObjectType(id: string, body: {
   display_name?: string;
   description?: string;
+  primary_key_property?: string;
   icon?: string;
   color?: string;
 }) {
@@ -1055,6 +1168,14 @@ export function executeAction(id: string, body: {
   return api.post<ExecuteActionResponse>(`/ontology/actions/${id}/execute`, body);
 }
 
+export function executeActionBatch(id: string, body: {
+  target_object_ids: string[];
+  parameters?: Record<string, unknown>;
+  justification?: string;
+}) {
+  return api.post<ExecuteBatchActionResponse>(`/ontology/actions/${id}/execute-batch`, body);
+}
+
 export function listActionWhatIfBranches(
   id: string,
   params?: { target_object_id?: string; page?: number; per_page?: number },
@@ -1111,6 +1232,25 @@ export function createFunctionPackage(body: {
   capabilities?: Partial<FunctionCapabilities>;
 }) {
   return api.post<FunctionPackage>('/ontology/functions', body);
+}
+
+export function getFunctionPackage(id: string) {
+  return api.get<FunctionPackage>(`/ontology/functions/${id}`);
+}
+
+export function updateFunctionPackage(id: string, body: {
+  display_name?: string;
+  description?: string;
+  runtime?: string;
+  source?: string;
+  entrypoint?: string;
+  capabilities?: Partial<FunctionCapabilities>;
+}) {
+  return api.patch<FunctionPackage>(`/ontology/functions/${id}`, body);
+}
+
+export function deleteFunctionPackage(id: string) {
+  return api.delete(`/ontology/functions/${id}`);
 }
 
 export function getFunctionAuthoringSurface() {
@@ -1174,12 +1314,99 @@ export function getOntologyFunnelHealth(params?: {
   return api.get<OntologyFunnelHealthSummary>(`/ontology/funnel/health?${qs}`);
 }
 
+export function getOntologyStorageInsights() {
+  return api.get<OntologyStorageInsights>('/ontology/storage/insights');
+}
+
 export function getOntologyFunnelSourceHealth(id: string, params?: { stale_after_hours?: number }) {
   const qs = new URLSearchParams();
   if (params?.stale_after_hours) qs.set('stale_after_hours', String(params.stale_after_hours));
   return api.get<{ stale_after_hours: number; source_health: OntologyFunnelSourceHealth }>(
     `/ontology/funnel/sources/${id}/health?${qs}`,
   );
+}
+
+export function listOntologyFunnelSources(params?: {
+  object_type_id?: string;
+  status?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.status) qs.set('status', params.status);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: OntologyFunnelSource[]; total: number; page: number; per_page: number }>(
+    `/ontology/funnel/sources?${qs}`,
+  );
+}
+
+export function createOntologyFunnelSource(body: {
+  name: string;
+  description?: string;
+  object_type_id: string;
+  dataset_id: string;
+  pipeline_id?: string | null;
+  dataset_branch?: string | null;
+  dataset_version?: number | null;
+  preview_limit?: number;
+  default_marking?: string;
+  status?: string;
+  property_mappings?: OntologyFunnelPropertyMapping[];
+  trigger_context?: Record<string, unknown>;
+}) {
+  return api.post<OntologyFunnelSource>('/ontology/funnel/sources', body);
+}
+
+export function getOntologyFunnelSource(id: string) {
+  return api.get<OntologyFunnelSource>(`/ontology/funnel/sources/${id}`);
+}
+
+export function updateOntologyFunnelSource(id: string, body: {
+  name?: string;
+  description?: string;
+  pipeline_id?: string | null;
+  dataset_branch?: string | null;
+  dataset_version?: number | null;
+  preview_limit?: number;
+  default_marking?: string;
+  status?: string;
+  property_mappings?: OntologyFunnelPropertyMapping[];
+  trigger_context?: Record<string, unknown>;
+}) {
+  return api.patch<OntologyFunnelSource>(`/ontology/funnel/sources/${id}`, body);
+}
+
+export function deleteOntologyFunnelSource(id: string) {
+  return api.delete(`/ontology/funnel/sources/${id}`);
+}
+
+export function triggerOntologyFunnelRun(id: string, body?: {
+  limit?: number;
+  dataset_branch?: string;
+  dataset_version?: number;
+  skip_pipeline?: boolean;
+  dry_run?: boolean;
+  trigger_context?: Record<string, unknown>;
+}) {
+  return api.post<OntologyFunnelRun>(`/ontology/funnel/sources/${id}/run`, body ?? {});
+}
+
+export function listOntologyFunnelRuns(id: string, params?: {
+  page?: number;
+  per_page?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: OntologyFunnelRun[]; total: number; page: number; per_page: number }>(
+    `/ontology/funnel/sources/${id}/runs?${qs}`,
+  );
+}
+
+export function getOntologyFunnelRun(sourceId: string, runId: string) {
+  return api.get<OntologyFunnelRun>(`/ontology/funnel/sources/${sourceId}/runs/${runId}`);
 }
 
 export function listRules(params?: {
@@ -1334,6 +1561,10 @@ export function updateProperty(typeId: string, propertyId: string, body: {
   return api.patch<Property>(`/ontology/types/${typeId}/properties/${propertyId}`, body);
 }
 
+export function deleteProperty(typeId: string, propertyId: string) {
+  return api.delete(`/ontology/types/${typeId}/properties/${propertyId}`);
+}
+
 export function listSharedPropertyTypes(params?: {
   page?: number;
   per_page?: number;
@@ -1362,6 +1593,22 @@ export function createSharedPropertyType(body: {
   return api.post<SharedPropertyType>('/ontology/shared-property-types', body);
 }
 
+export function updateSharedPropertyType(id: string, body: {
+  display_name?: string;
+  description?: string;
+  required?: boolean;
+  unique_constraint?: boolean;
+  time_dependent?: boolean;
+  default_value?: unknown;
+  validation_rules?: unknown;
+}) {
+  return api.patch<SharedPropertyType>(`/ontology/shared-property-types/${id}`, body);
+}
+
+export function deleteSharedPropertyType(id: string) {
+  return api.delete(`/ontology/shared-property-types/${id}`);
+}
+
 export function listTypeSharedPropertyTypes(typeId: string) {
   return api
     .get<{ data: SharedPropertyType[] }>(`/ontology/types/${typeId}/shared-property-types`)
@@ -1377,6 +1624,93 @@ export function attachSharedPropertyType(typeId: string, sharedPropertyTypeId: s
 
 export function detachSharedPropertyType(typeId: string, sharedPropertyTypeId: string) {
   return api.delete(`/ontology/types/${typeId}/shared-property-types/${sharedPropertyTypeId}`);
+}
+
+// Interfaces
+export function listInterfaces(params?: { page?: number; per_page?: number; search?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  if (params?.search) qs.set('search', params.search);
+  return api.get<{ data: OntologyInterface[]; total: number; page: number; per_page: number }>(
+    `/ontology/interfaces?${qs}`,
+  );
+}
+
+export function createInterface(body: {
+  name: string;
+  display_name?: string;
+  description?: string;
+}) {
+  return api.post<OntologyInterface>('/ontology/interfaces', body);
+}
+
+export function getInterface(id: string) {
+  return api.get<OntologyInterface>(`/ontology/interfaces/${id}`);
+}
+
+export function updateInterface(id: string, body: {
+  display_name?: string;
+  description?: string;
+}) {
+  return api.patch<OntologyInterface>(`/ontology/interfaces/${id}`, body);
+}
+
+export function deleteInterface(id: string) {
+  return api.delete(`/ontology/interfaces/${id}`);
+}
+
+export function listInterfaceProperties(id: string) {
+  return api
+    .get<{ data: InterfaceProperty[] }>(`/ontology/interfaces/${id}/properties`)
+    .then((response) => response.data);
+}
+
+export function createInterfaceProperty(id: string, body: {
+  name: string;
+  display_name?: string;
+  description?: string;
+  property_type: string;
+  required?: boolean;
+  unique_constraint?: boolean;
+  time_dependent?: boolean;
+  default_value?: unknown;
+  validation_rules?: unknown;
+}) {
+  return api.post<InterfaceProperty>(`/ontology/interfaces/${id}/properties`, body);
+}
+
+export function updateInterfaceProperty(id: string, propertyId: string, body: {
+  display_name?: string;
+  description?: string;
+  required?: boolean;
+  unique_constraint?: boolean;
+  time_dependent?: boolean;
+  default_value?: unknown;
+  validation_rules?: unknown;
+}) {
+  return api.patch<InterfaceProperty>(`/ontology/interfaces/${id}/properties/${propertyId}`, body);
+}
+
+export function deleteInterfaceProperty(id: string, propertyId: string) {
+  return api.delete(`/ontology/interfaces/${id}/properties/${propertyId}`);
+}
+
+export function listTypeInterfaces(typeId: string) {
+  return api
+    .get<{ data: OntologyInterface[] }>(`/ontology/types/${typeId}/interfaces`)
+    .then((response) => response.data);
+}
+
+export function attachInterfaceToType(typeId: string, interfaceId: string) {
+  return api.post<ObjectTypeInterfaceBinding>(
+    `/ontology/types/${typeId}/interfaces/${interfaceId}`,
+    {},
+  );
+}
+
+export function detachInterfaceFromType(typeId: string, interfaceId: string) {
+  return api.delete(`/ontology/types/${typeId}/interfaces/${interfaceId}`);
 }
 
 // Link Types
@@ -1397,6 +1731,14 @@ export function createLinkType(body: {
   cardinality?: string;
 }) {
   return api.post<LinkType>('/ontology/links', body);
+}
+
+export function updateLinkType(id: string, body: {
+  display_name?: string;
+  description?: string;
+  cardinality?: string;
+}) {
+  return api.patch<LinkType>(`/ontology/links/${id}`, body);
 }
 
 export function deleteLinkType(id: string) {
@@ -1527,4 +1869,77 @@ export function evaluateObjectSet(id: string, body?: { limit?: number }) {
 
 export function materializeObjectSet(id: string, body?: { limit?: number }) {
   return api.post<ObjectSetEvaluationResponse>(`/ontology/object-sets/${id}/materialize`, body ?? {});
+}
+
+// Projects
+export function listProjects(params?: { page?: number; per_page?: number; search?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  if (params?.search) qs.set('search', params.search);
+  return api.get<{ data: OntologyProject[]; total: number; page: number; per_page: number }>(
+    `/ontology/projects?${qs}`,
+  );
+}
+
+export function createProject(body: {
+  slug: string;
+  display_name?: string;
+  description?: string;
+  workspace_slug?: string;
+}) {
+  return api.post<OntologyProject>('/ontology/projects', body);
+}
+
+export function getProject(id: string) {
+  return api.get<OntologyProject>(`/ontology/projects/${id}`);
+}
+
+export function updateProject(id: string, body: {
+  display_name?: string;
+  description?: string;
+  workspace_slug?: string | null;
+}) {
+  return api.patch<OntologyProject>(`/ontology/projects/${id}`, {
+    ...body,
+    workspace_slug: typeof body.workspace_slug === 'undefined' ? undefined : body.workspace_slug,
+  });
+}
+
+export function deleteProject(id: string) {
+  return api.delete(`/ontology/projects/${id}`);
+}
+
+export function listProjectMemberships(id: string) {
+  return api
+    .get<{ data: OntologyProjectMembership[] }>(`/ontology/projects/${id}/memberships`)
+    .then((response) => response.data);
+}
+
+export function upsertProjectMembership(id: string, body: {
+  user_id: string;
+  role: OntologyProjectRole;
+}) {
+  return api.post<OntologyProjectMembership>(`/ontology/projects/${id}/memberships`, body);
+}
+
+export function deleteProjectMembership(id: string, userId: string) {
+  return api.delete(`/ontology/projects/${id}/memberships/${userId}`);
+}
+
+export function listProjectResources(id: string) {
+  return api
+    .get<{ data: OntologyProjectResourceBinding[] }>(`/ontology/projects/${id}/resources`)
+    .then((response) => response.data);
+}
+
+export function bindProjectResource(id: string, body: {
+  resource_kind: string;
+  resource_id: string;
+}) {
+  return api.post<OntologyProjectResourceBinding>(`/ontology/projects/${id}/resources`, body);
+}
+
+export function unbindProjectResource(id: string, resourceKind: string, resourceId: string) {
+  return api.delete(`/ontology/projects/${id}/resources/${resourceKind}/${resourceId}`);
 }

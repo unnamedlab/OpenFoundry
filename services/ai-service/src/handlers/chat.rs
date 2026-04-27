@@ -417,6 +417,7 @@ fn summarize_title(content: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn preview_text(content: &str, limit: usize) -> String {
     let mut chars = content.trim().chars();
     let preview = chars.by_ref().take(limit).collect::<String>();
@@ -1484,6 +1485,7 @@ pub async fn ask_copilot(
     }))
 }
 
+#[allow(dead_code)]
 pub async fn benchmark_providers(
     State(state): State<AppState>,
     Json(body): Json<ProviderBenchmarkRequest>,
@@ -1713,6 +1715,7 @@ pub async fn benchmark_providers(
     }))
 }
 
+#[allow(dead_code)]
 pub async fn evaluate_guardrails(
     State(_state): State<AppState>,
     Json(body): Json<EvaluateGuardrailsRequest>,

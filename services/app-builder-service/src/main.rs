@@ -76,10 +76,6 @@ async fn main() {
             get(handlers::apps::list_templates),
         )
         .route(
-            "/api/v1/widgets/catalog",
-            get(handlers::widgets::list_widget_catalog),
-        )
-        .route(
             "/api/v1/apps/{id}",
             get(handlers::apps::get_app)
                 .patch(handlers::apps::update_app)

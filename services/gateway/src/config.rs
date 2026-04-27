@@ -15,10 +15,18 @@ pub struct GatewayConfig {
     pub cors_origins: Vec<String>,
     #[serde(default = "default_auth_url")]
     pub auth_service_url: String,
+    #[serde(default = "default_session_governance_service_url")]
+    pub session_governance_service_url: String,
+    #[serde(default = "default_cipher_service_url")]
+    pub cipher_service_url: String,
     #[serde(default = "default_data_connector_url")]
     pub data_connector_service_url: String,
-    #[serde(default = "default_dataset_url")]
-    pub dataset_service_url: String,
+    #[serde(default = "default_dataset_versioning_service_url")]
+    pub dataset_versioning_service_url: String,
+    #[serde(default = "default_data_asset_catalog_service_url")]
+    pub data_asset_catalog_service_url: String,
+    #[serde(default = "default_dataset_quality_service_url")]
+    pub dataset_quality_service_url: String,
     #[serde(default = "default_query_url")]
     pub query_service_url: String,
     #[serde(default = "default_pipeline_url")]
@@ -27,16 +35,22 @@ pub struct GatewayConfig {
     pub ontology_service_url: String,
     #[serde(default = "default_workflow_url")]
     pub workflow_service_url: String,
+    #[serde(default = "default_approvals_service_url")]
+    pub approvals_service_url: String,
     #[serde(default = "default_notebook_service_url")]
     pub notebook_service_url: String,
     #[serde(default = "default_notification_url")]
     pub notification_service_url: String,
     #[serde(default = "default_app_builder_url")]
     pub app_builder_service_url: String,
+    #[serde(default = "default_widget_registry_service_url")]
+    pub widget_registry_service_url: String,
     #[serde(default = "default_ml_service_url")]
     pub ml_service_url: String,
     #[serde(default = "default_ai_service_url")]
     pub ai_service_url: String,
+    #[serde(default = "default_ai_evaluation_service_url")]
+    pub ai_evaluation_service_url: String,
     #[serde(default = "default_fusion_service_url")]
     pub fusion_service_url: String,
     #[serde(default = "default_streaming_service_url")]
@@ -51,6 +65,8 @@ pub struct GatewayConfig {
     pub marketplace_service_url: String,
     #[serde(default = "default_audit_service_url")]
     pub audit_service_url: String,
+    #[serde(default = "default_sds_service_url")]
+    pub sds_service_url: String,
     #[serde(default = "default_nexus_service_url")]
     pub nexus_service_url: String,
     #[serde(default)]
@@ -66,11 +82,23 @@ fn default_port() -> u16 {
 fn default_auth_url() -> String {
     "http://localhost:50051".to_string()
 }
+fn default_session_governance_service_url() -> String {
+    "http://localhost:50074".to_string()
+}
+fn default_cipher_service_url() -> String {
+    "http://localhost:50073".to_string()
+}
 fn default_data_connector_url() -> String {
     "http://localhost:50052".to_string()
 }
-fn default_dataset_url() -> String {
-    "http://localhost:50053".to_string()
+fn default_dataset_versioning_service_url() -> String {
+    "http://localhost:50078".to_string()
+}
+fn default_data_asset_catalog_service_url() -> String {
+    "http://localhost:50079".to_string()
+}
+fn default_dataset_quality_service_url() -> String {
+    "http://localhost:50072".to_string()
 }
 fn default_query_url() -> String {
     "http://localhost:50055".to_string()
@@ -84,6 +112,9 @@ fn default_ontology_url() -> String {
 fn default_workflow_url() -> String {
     "http://localhost:50061".to_string()
 }
+fn default_approvals_service_url() -> String {
+    "http://localhost:50071".to_string()
+}
 fn default_notebook_service_url() -> String {
     "http://localhost:50062".to_string()
 }
@@ -93,11 +124,17 @@ fn default_notification_url() -> String {
 fn default_app_builder_url() -> String {
     "http://localhost:50063".to_string()
 }
+fn default_widget_registry_service_url() -> String {
+    "http://localhost:50077".to_string()
+}
 fn default_ml_service_url() -> String {
     "http://localhost:50059".to_string()
 }
 fn default_ai_service_url() -> String {
     "http://localhost:50060".to_string()
+}
+fn default_ai_evaluation_service_url() -> String {
+    "http://localhost:50075".to_string()
 }
 fn default_fusion_service_url() -> String {
     "http://localhost:50058".to_string()
@@ -125,6 +162,10 @@ fn default_marketplace_service_url() -> String {
 
 fn default_audit_service_url() -> String {
     "http://localhost:50070".to_string()
+}
+
+fn default_sds_service_url() -> String {
+    "http://localhost:50076".to_string()
 }
 
 fn default_nexus_service_url() -> String {

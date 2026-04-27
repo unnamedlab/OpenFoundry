@@ -3,7 +3,6 @@ pub mod pages;
 pub mod preview;
 pub mod publish;
 pub mod slate;
-pub mod widgets;
 
 use axum::http::StatusCode;
 use sqlx::types::Json;

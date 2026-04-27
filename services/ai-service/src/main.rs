@@ -130,14 +130,6 @@ async fn main() {
             post(handlers::chat::create_chat_completion),
         )
         .route("/api/v1/ai/copilot/ask", post(handlers::chat::ask_copilot))
-        .route(
-            "/api/v1/ai/guardrails/evaluate",
-            post(handlers::chat::evaluate_guardrails),
-        )
-        .route(
-            "/api/v1/ai/evaluations/benchmarks",
-            post(handlers::chat::benchmark_providers),
-        )
         .layer(middleware::from_fn_with_state(
             jwt_config,
             auth_middleware::auth_layer,

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::{quality::profiler, runtime, transactions},
+    domain::{runtime, transactions},
     models::dataset::Dataset,
 };
 
@@ -235,13 +235,8 @@ pub async fn upload_data(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    let refreshed_dataset = load_dataset(&state, dataset_id).await.ok().flatten();
-    if let Some(dataset) = refreshed_dataset {
-        if let Err(error) =
-            profiler::refresh_dataset_quality(&state, &dataset, Some(data.clone())).await
-        {
-            tracing::warn!(dataset_id = %dataset_id, "quality refresh failed after upload: {error}");
-        }
+    if let Err(error) = trigger_quality_refresh(&state, dataset_id).await {
+        tracing::warn!(dataset_id = %dataset_id, "quality refresh failed after upload: {error}");
     }
 
     tracing::info!(dataset_id = %dataset_id, version = new_version, "data uploaded");
@@ -275,6 +270,27 @@ async fn load_dataset(state: &AppState, dataset_id: Uuid) -> Result<Option<Datas
         .bind(dataset_id)
         .fetch_optional(&state.db)
         .await
+}
+
+async fn trigger_quality_refresh(state: &AppState, dataset_id: Uuid) -> Result<(), String> {
+    let url = format!(
+        "{}/internal/datasets/{dataset_id}/quality/refresh",
+        state.dataset_quality_service_url.trim_end_matches('/')
+    );
+    let response = state
+        .http_client
+        .post(url)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        Err(format!("dataset-quality-service returned {status}: {body}"))
+    }
 }
 
 async fn lock_dataset(

@@ -1,0 +1,27 @@
+[package]
+name = "dataset-quality-service"
+description = "Dataset quality profiling, rules, alerts, and expectations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+core-models = { workspace = true }
+auth-middleware = { workspace = true }
+storage-abstraction = { workspace = true }
+query-engine = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+config = { workspace = true }
+bytes = { workspace = true }
+datafusion = { workspace = true }
+regex = { workspace = true }
+arrow = { version = "53" }
+

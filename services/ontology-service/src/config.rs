@@ -38,7 +38,7 @@ fn default_audit_service_url() -> String {
 }
 
 fn default_dataset_service_url() -> String {
-    "http://localhost:50053".to_string()
+    "http://localhost:50079".to_string()
 }
 
 fn default_ontology_service_url() -> String {

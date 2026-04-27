@@ -29,7 +29,14 @@ pub async fn proxy_handler(
     }
     let tenant = claims.as_ref().map(TenantContext::from_claims);
 
-    let upstream_base = if path.starts_with("/api/v1/auth")
+    let upstream_base = if path.starts_with("/api/v1/auth/cipher") {
+        &config.cipher_service_url
+    } else if path.starts_with("/api/v1/auth/sessions")
+        || path.starts_with("/api/v1/restricted-views")
+        || path.starts_with("/api/v2/admin/restricted-views")
+    {
+        &config.session_governance_service_url
+    } else if path.starts_with("/api/v1/auth")
         || path.starts_with("/api/v1/users")
         || path.starts_with("/api/v1/roles")
         || path.starts_with("/api/v1/permissions")
@@ -45,8 +52,19 @@ pub async fn proxy_handler(
         || path.starts_with("/api/v1/connector-agents")
     {
         &config.data_connector_service_url
+    } else if path.starts_with("/api/v1/datasets/")
+        && (path.ends_with("/quality") || path.contains("/quality/") || path.ends_with("/lint"))
+    {
+        &config.dataset_quality_service_url
+    } else if path.starts_with("/api/v1/datasets/")
+        && (path.ends_with("/versions")
+            || path.ends_with("/transactions")
+            || path.ends_with("/branches")
+            || path.contains("/branches/"))
+    {
+        &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/datasets") || path.starts_with("/api/v2/filesystem") {
-        &config.dataset_service_url
+        &config.data_asset_catalog_service_url
     } else if path.starts_with("/api/v1/queries") {
         &config.query_service_url
     } else if path.starts_with("/api/v1/pipelines") {
@@ -55,6 +73,10 @@ pub async fn proxy_handler(
         &config.pipeline_service_url
     } else if path.starts_with("/api/v1/ontology") {
         &config.ontology_service_url
+    } else if path.starts_with("/api/v1/workflows/approvals")
+        || path.starts_with("/api/v1/approvals")
+    {
+        &config.approvals_service_url
     } else if path.starts_with("/api/v1/workflows") {
         &config.workflow_service_url
     } else if path.starts_with("/api/v1/notebooks") || path.starts_with("/api/v1/notepad") {
@@ -63,6 +85,10 @@ pub async fn proxy_handler(
         &config.notification_service_url
     } else if path.starts_with("/api/v1/ml") {
         &config.ml_service_url
+    } else if path.starts_with("/api/v1/ai/guardrails/evaluate")
+        || path.starts_with("/api/v1/ai/evaluations")
+    {
+        &config.ai_evaluation_service_url
     } else if path.starts_with("/api/v1/ai") {
         &config.ai_service_url
     } else if path.starts_with("/api/v1/fusion") {
@@ -77,11 +103,15 @@ pub async fn proxy_handler(
         &config.code_repo_service_url
     } else if path.starts_with("/api/v1/marketplace") {
         &config.marketplace_service_url
+    } else if path.starts_with("/api/v1/audit/sds") {
+        &config.sds_service_url
     } else if path.starts_with("/api/v1/audit") {
         &config.audit_service_url
     } else if path.starts_with("/api/v1/nexus") {
         &config.nexus_service_url
-    } else if path.starts_with("/api/v1/apps") || path.starts_with("/api/v1/widgets") {
+    } else if path.starts_with("/api/v1/widgets") {
+        &config.widget_registry_service_url
+    } else if path.starts_with("/api/v1/apps") {
         &config.app_builder_service_url
     } else {
         return gateway_error(

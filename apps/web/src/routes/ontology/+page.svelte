@@ -51,11 +51,88 @@
 
   const applicationSurfaces = [
     {
+      name: 'Action Types',
+      route: '/action-types',
+      glyph: 'run' as const,
+      tone: 'bg-[#e7f8f2] text-[#0f766e]',
+      summary: 'Author action types with parameter sections, permissions, side effects, inline edit bindings, action logs, batch execution, and what-if previews from a dedicated product.'
+    },
+    {
+      name: 'Functions',
+      route: '/functions',
+      glyph: 'code' as const,
+      tone: 'bg-[#e8efff] text-[#2458b8]',
+      summary: 'Build reusable TypeScript and Python function packages with authoring kits, validation, simulation, run monitoring, and release workflows from a dedicated product.'
+    },
+    {
+      name: 'Indexing',
+      route: '/ontology-indexing',
+      glyph: 'graph' as const,
+      tone: 'bg-[#e7f8f2] text-[#0f766e]',
+      summary: 'Operate Funnel indexing with source health, live versus replacement pipelines, batch and streaming posture, restrictions, and run history.'
+    },
+    {
+      name: 'Object Databases',
+      route: '/object-databases',
+      glyph: 'database' as const,
+      tone: 'bg-[#edf4ff] text-[#2458b8]',
+      summary: 'Inspect the real object store behind the ontology runtime: PostgreSQL rows, graph edges, search projections, Funnel hydration, and indexed access paths.'
+    },
+    {
+      name: 'Ontology Design Review',
+      route: '/ontology-design',
+      glyph: 'bookmark' as const,
+      tone: 'bg-[#f0f4fb] text-[#183d70]',
+      summary: 'Run an ontology design scorecard and anti-pattern review against current types, properties, links, actions, interfaces, and collaboration posture.'
+    },
+    {
+      name: 'Ontologies',
+      route: '/ontologies',
+      glyph: 'folder' as const,
+      tone: 'bg-[#eef4ff] text-[#1d4f91]',
+      summary: 'Manage ontology spaces as products with branch lifecycle, proposals, preview status, changelog, migration operations, and shared-ontology posture.'
+    },
+    {
+      name: 'Object and Link Types',
+      route: '/object-link-types',
+      glyph: 'cube' as const,
+      tone: 'bg-[#e9f2ff] text-[#2458b8]',
+      summary: 'Model object types, link types, shared properties, value contracts, structs, metadata, derived properties, and Marketplace packaging from one dedicated ontology studio.'
+    },
+    {
+      name: 'Interfaces',
+      route: '/interfaces',
+      glyph: 'link' as const,
+      tone: 'bg-[#edf8ef] text-[#2f6d35]',
+      summary: 'Define reusable ontology contracts, curate interface properties, and bind implementations across object types from a dedicated product.'
+    },
+    {
       name: 'Object Explorer',
       route: '/object-explorer',
       glyph: 'search' as const,
       tone: 'bg-[#e8f2ff] text-[#2458b8]',
       summary: 'Search objects, pivot across linked entities, compare saved lists, and reopen explorations from a dedicated walk-up product.'
+    },
+    {
+      name: 'Object Monitors',
+      route: '/object-monitors',
+      glyph: 'bell' as const,
+      tone: 'bg-[#fff4d6] text-[#8f5a00]',
+      summary: 'Track watched searches, trigger notifications, and automate action remediation when ontology conditions change.'
+    },
+    {
+      name: 'Object Views',
+      route: '/object-views',
+      glyph: 'object' as const,
+      tone: 'bg-[#edf4ff] text-[#2458b8]',
+      summary: 'Configure standard versus configured object views, manage versions, and preview full or panel form factors.'
+    },
+    {
+      name: 'Ontology Manager',
+      route: '/ontology-manager',
+      glyph: 'settings' as const,
+      tone: 'bg-[#f3efe7] text-[#6e5330]',
+      summary: 'Curate object types, interfaces, shared properties, project permissions, and import or export ontology working state from a dedicated manager.'
     },
     {
       name: 'Object workbench',
@@ -112,6 +189,13 @@
       glyph: 'graph' as const,
       tone: 'bg-[#eef5e8] text-[#356b3c]',
       summary: 'Model process graphs, mine operational behavior, and supervise live flow with path and duration analytics.'
+    },
+    {
+      name: 'Vertex',
+      route: '/vertex',
+      glyph: 'graph' as const,
+      tone: 'bg-[#e8edf9] text-[#183d70]',
+      summary: 'Explore system graphs, save reusable graph templates, annotate media layers, inspect event timelines, and run what-if scenarios from one dedicated product.'
     }
   ];
 

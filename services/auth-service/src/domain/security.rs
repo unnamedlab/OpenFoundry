@@ -20,6 +20,7 @@ pub fn hash_token(value: &str) -> String {
     URL_SAFE_NO_PAD.encode(digest)
 }
 
+#[allow(dead_code)]
 pub fn hash_content(content: &str, salt: Option<&str>) -> String {
     let mut hasher = Sha256::new();
     if let Some(salt) = salt {
@@ -29,6 +30,7 @@ pub fn hash_content(content: &str, salt: Option<&str>) -> String {
     URL_SAFE_NO_PAD.encode(hasher.finalize())
 }
 
+#[allow(dead_code)]
 pub fn sign_content(content: &str, key_material: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(key_material.as_bytes())
         .expect("hmac accepts arbitrary key sizes");
@@ -36,6 +38,7 @@ pub fn sign_content(content: &str, key_material: &str) -> String {
     URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
 }
 
+#[allow(dead_code)]
 pub fn verify_signature(content: &str, key_material: &str, signature: &str) -> bool {
     sign_content(content, key_material) == signature
 }

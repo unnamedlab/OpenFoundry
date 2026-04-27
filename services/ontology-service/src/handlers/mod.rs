@@ -10,4 +10,5 @@ pub mod projects;
 pub mod rules;
 pub mod search;
 pub mod shared_properties;
+pub mod storage;
 pub mod types;

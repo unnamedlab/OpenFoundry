@@ -1,0 +1,17 @@
+[package]
+name = "sds-service"
+description = "Sensitive data scanning and redaction"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+core-models = { workspace = true }
+auth-middleware = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+config = { workspace = true }
+regex = { workspace = true }

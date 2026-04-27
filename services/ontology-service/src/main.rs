@@ -157,6 +157,10 @@ async fn main() {
             get(handlers::funnel::get_funnel_health),
         )
         .route(
+            "/api/v1/ontology/storage/insights",
+            get(handlers::storage::get_storage_insights),
+        )
+        .route(
             "/api/v1/ontology/funnel/sources",
             get(handlers::funnel::list_funnel_sources)
                 .post(handlers::funnel::create_funnel_source),
@@ -365,7 +369,10 @@ async fn main() {
         // Link types
         .route("/api/v1/ontology/links", post(handlers::links::create_link_type))
         .route("/api/v1/ontology/links", get(handlers::links::list_link_types))
-        .route("/api/v1/ontology/links/{id}", delete(handlers::links::delete_link_type))
+        .route(
+            "/api/v1/ontology/links/{id}",
+            patch(handlers::links::update_link_type).delete(handlers::links::delete_link_type),
+        )
         // Link instances
         .route("/api/v1/ontology/links/{link_type_id}/instances", post(handlers::links::create_link))
         .route("/api/v1/ontology/links/{link_type_id}/instances", get(handlers::links::list_links))

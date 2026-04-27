@@ -85,6 +85,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-evaluation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "ai-service"
 version = "0.1.0"
 dependencies = [
@@ -216,6 +234,24 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "approvals-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -1341,6 +1377,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cipher-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "base64 0.22.1",
+ "config",
+ "core-models",
+ "hmac 0.12.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1967,6 +2020,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "data-asset-catalog-service"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "bytes",
+ "chrono",
+ "config",
+ "core-models",
+ "csv",
+ "datafusion",
+ "futures",
+ "query-engine",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "data-connector"
 version = "0.1.0"
 dependencies = [
@@ -2425,6 +2507,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "dataset-quality-service"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "bytes",
+ "chrono",
+ "config",
+ "core-models",
+ "datafusion",
+ "query-engine",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dataset-service"
 version = "0.1.0"
 dependencies = [
@@ -2442,6 +2547,7 @@ dependencies = [
  "futures",
  "query-engine",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
@@ -2450,6 +2556,23 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "dataset-versioning-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -6015,6 +6138,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sds-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "config",
+ "core-models",
+ "regex",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sec1"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6213,6 +6350,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "session-governance-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -8163,6 +8317,20 @@ checksum = "5d4a4db5077702ca3015d3d02d74974948aba2ad9e12ab7df718ee64ccd7e97d"
 dependencies = [
  "libredox",
  "wasite",
+]
+
+[[package]]
+name = "widget-registry-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

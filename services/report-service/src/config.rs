@@ -42,7 +42,7 @@ fn default_port() -> u16 {
 }
 
 fn default_dataset_service_url() -> String {
-    "http://localhost:50053".to_string()
+    "http://localhost:50079".to_string()
 }
 
 fn default_geospatial_service_url() -> String {

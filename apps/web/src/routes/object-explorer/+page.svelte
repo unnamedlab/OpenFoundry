@@ -626,6 +626,14 @@
             <span>Manage lists</span>
             <Glyph name="bookmark" size={15} />
           </a>
+          <a href={`/object-monitors${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''}`} class="flex items-center justify-between rounded-[14px] px-3 py-2 hover:bg-[var(--bg-hover)]">
+            <span>Create monitor</span>
+            <Glyph name="bell" size={15} />
+          </a>
+          <a href="/object-views" class="flex items-center justify-between rounded-[14px] px-3 py-2 hover:bg-[var(--bg-hover)]">
+            <span>Edit object views</span>
+            <Glyph name="object" size={15} />
+          </a>
         </div>
       </div>
     </aside>

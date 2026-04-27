@@ -80,10 +80,6 @@ async fn main() {
             get(handlers::events::list_anomalies),
         )
         .route(
-            "/api/v1/audit/sds/scan",
-            axum::routing::post(handlers::events::scan_sensitive_data),
-        )
-        .route(
             "/api/v1/audit/classifications",
             get(handlers::policies::list_classifications),
         )

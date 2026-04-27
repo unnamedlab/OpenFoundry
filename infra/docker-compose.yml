@@ -6,6 +6,10 @@ x-common: &common
       max-size: "10m"
       max-file: "3"
 
+x-app-common: &app-common
+  <<: *common
+  profiles: ["app"]
+
 services:
   # ── PostgreSQL ──────────────────────────────────────────────
   postgres:
@@ -122,6 +126,752 @@ services:
       timeout: 5s
       retries: 5
 
+  auth-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50051
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      PUBLIC_WEB_ORIGIN: ${OPENFOUNDRY_PUBLIC_WEB_ORIGIN:-http://localhost:3000}
+      REDIS_URL: redis://redis:6379
+      NATS_URL: nats://nats:4222
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_AUTH_HOST_PORT:-50051}:50051"
+
+  cipher-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/cipher-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50073
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    ports:
+      - "${OPENFOUNDRY_CIPHER_HOST_PORT:-50073}:50073"
+
+  session-governance-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/session-governance-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50074
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_SESSION_GOVERNANCE_HOST_PORT:-50074}:50074"
+
+  data-connector:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/data-connector/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50052
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+      ALLOW_PRIVATE_NETWORK_EGRESS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+      pipeline-service:
+        condition: service_started
+      ontology-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_DATA_CONNECTOR_HOST_PORT:-50052}:50052"
+
+  dataset-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/dataset-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50053
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_DATASET_HOST_PORT:-50053}:50053"
+
+  dataset-versioning-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/dataset-versioning-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50078
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dataset-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_DATASET_VERSIONING_HOST_PORT:-50078}:50078"
+
+  data-asset-catalog-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/data-asset-catalog-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50079
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_started
+      dataset-service:
+        condition: service_started
+      dataset-quality-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_DATASET_CATALOG_HOST_PORT:-50079}:50079"
+
+  dataset-quality-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/dataset-quality-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50072
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_DATASET_QUALITY_HOST_PORT:-50072}:50072"
+
+  streaming-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/streaming-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50054
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_streaming_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      ARCHIVE_DIR: /var/lib/openfoundry/streaming-archive
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+    volumes:
+      - streaming_archive_data:/var/lib/openfoundry/streaming-archive
+    ports:
+      - "${OPENFOUNDRY_STREAMING_HOST_PORT:-50054}:50054"
+
+  query-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/query-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50055
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_query_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/query-data
+      DISTRIBUTED_QUERY_WORKERS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - query_data:/var/lib/openfoundry/query-data
+    ports:
+      - "${OPENFOUNDRY_QUERY_HOST_PORT:-50055}:50055"
+
+  pipeline-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/pipeline-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50056
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/pipeline-data
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      AI_SERVICE_URL: http://ai-service:50060
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DISTRIBUTED_PIPELINE_WORKERS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+      workflow-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+    volumes:
+      - pipeline_data:/var/lib/openfoundry/pipeline-data
+    ports:
+      - "${OPENFOUNDRY_PIPELINE_HOST_PORT:-50056}:50056"
+
+  ontology-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/ontology-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50057
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      AUDIT_SERVICE_URL: http://audit-service:50070
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      AI_SERVICE_URL: http://ai-service:50060
+      NOTIFICATION_SERVICE_URL: http://notification-service:50069
+      NODE_RUNTIME_COMMAND: node
+      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
+    depends_on:
+      postgres:
+        condition: service_healthy
+      audit-service:
+        condition: service_started
+      data-asset-catalog-service:
+        condition: service_started
+      pipeline-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_ONTOLOGY_HOST_PORT:-50057}:50057"
+
+  fusion-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/fusion-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50058
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_fusion_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_FUSION_HOST_PORT:-50058}:50058"
+
+  ml-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/ml-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50059
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_ML_HOST_PORT:-50059}:50059"
+
+  ai-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/ai-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50060
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ai_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OPENFOUNDRY_API_BASE_URL: http://gateway:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_AI_HOST_PORT:-50060}:50060"
+
+  ai-evaluation-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/ai-evaluation-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50075
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ai_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_AI_EVALUATION_HOST_PORT:-50075}:50075"
+
+  workflow-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/workflow-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50061
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_workflow_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NOTIFICATION_SERVICE_URL: http://notification-service:50069
+      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notification-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_WORKFLOW_HOST_PORT:-50061}:50061"
+
+  approvals-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/approvals-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50071
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_workflow_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+    depends_on:
+      postgres:
+        condition: service_healthy
+      workflow-service:
+        condition: service_started
+      ontology-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_APPROVALS_HOST_PORT:-50071}:50071"
+
+  notebook-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/notebook-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50062
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_notebook_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/notebook-data
+      QUERY_SERVICE_URL: http://query-service:50055
+      AI_SERVICE_URL: http://ai-service:50060
+    depends_on:
+      postgres:
+        condition: service_healthy
+      query-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+    volumes:
+      - notebook_data:/var/lib/openfoundry/notebook-data
+    ports:
+      - "${OPENFOUNDRY_NOTEBOOK_HOST_PORT:-50062}:50062"
+
+  app-builder-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/app-builder-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50063
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_app_builder_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      PUBLIC_BASE_URL: ${OPENFOUNDRY_PUBLIC_BASE_URL:-http://localhost:3000/apps/runtime}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_APP_BUILDER_HOST_PORT:-50063}:50063"
+
+  widget-registry-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/widget-registry-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50077
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OPENFOUNDRY_ENV: development
+    ports:
+      - "${OPENFOUNDRY_WIDGET_REGISTRY_HOST_PORT:-50077}:50077"
+
+  report-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/report-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50064
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_report_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      GEOSPATIAL_SERVICE_URL: http://geospatial-service:50068
+      OBJECT_STORAGE_BACKEND: local
+      LOCAL_DELIVERY_ROOT: /var/lib/openfoundry/report-delivery
+      REPORT_DELIVERY_TIMEOUT_SECS: "10"
+      REPORT_DELIVERY_MAX_RETRIES: "2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+      geospatial-service:
+        condition: service_started
+    volumes:
+      - report_delivery_data:/var/lib/openfoundry/report-delivery
+    ports:
+      - "${OPENFOUNDRY_REPORT_HOST_PORT:-50064}:50064"
+
+  code-repo-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/code-repo-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50065
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_code_repo_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      REPO_STORAGE_ROOT: /var/lib/openfoundry/code-repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - code_repo_data:/var/lib/openfoundry/code-repos
+    ports:
+      - "${OPENFOUNDRY_CODE_REPO_HOST_PORT:-50065}:50065"
+
+  marketplace-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/marketplace-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50066
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      DEVOPS_RECONCILER_INTERVAL_SECONDS: "300"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app-builder-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_MARKETPLACE_HOST_PORT:-50066}:50066"
+
+  nexus-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/nexus-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50067
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_nexus_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_NEXUS_HOST_PORT:-50067}:50067"
+
+  geospatial-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/geospatial-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50068
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_geospatial_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_GEOSPATIAL_HOST_PORT:-50068}:50068"
+
+  notification-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/notification-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50069
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_notification_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_NOTIFICATION_HOST_PORT:-50069}:50069"
+
+  audit-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/audit-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50070
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_audit_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_AUDIT_HOST_PORT:-50070}:50070"
+
+  sds-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/sds-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50076
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OPENFOUNDRY_ENV: development
+    ports:
+      - "${OPENFOUNDRY_SDS_HOST_PORT:-50076}:50076"
+
+  gateway:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 8080
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      REDIS_URL: redis://redis:6379
+      AUTH_SERVICE_URL: http://auth-service:50051
+      SESSION_GOVERNANCE_SERVICE_URL: http://session-governance-service:50074
+      CIPHER_SERVICE_URL: http://cipher-service:50073
+      DATA_CONNECTOR_SERVICE_URL: http://data-connector:50052
+      DATASET_VERSIONING_SERVICE_URL: http://dataset-versioning-service:50078
+      DATA_ASSET_CATALOG_SERVICE_URL: http://data-asset-catalog-service:50079
+      DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
+      STREAMING_SERVICE_URL: http://streaming-service:50054
+      QUERY_SERVICE_URL: http://query-service:50055
+      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+      FUSION_SERVICE_URL: http://fusion-service:50058
+      ML_SERVICE_URL: http://ml-service:50059
+      AI_SERVICE_URL: http://ai-service:50060
+      AI_EVALUATION_SERVICE_URL: http://ai-evaluation-service:50075
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      APPROVALS_SERVICE_URL: http://approvals-service:50071
+      NOTEBOOK_SERVICE_URL: http://notebook-service:50062
+      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      WIDGET_REGISTRY_SERVICE_URL: http://widget-registry-service:50077
+      REPORT_SERVICE_URL: http://report-service:50064
+      CODE_REPO_SERVICE_URL: http://code-repo-service:50065
+      MARKETPLACE_SERVICE_URL: http://marketplace-service:50066
+      NEXUS_SERVICE_URL: http://nexus-service:50067
+      GEOSPATIAL_SERVICE_URL: http://geospatial-service:50068
+      NOTIFICATION_SERVICE_URL: http://notification-service:50069
+      AUDIT_SERVICE_URL: http://audit-service:50070
+      SDS_SERVICE_URL: http://sds-service:50076
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      cipher-service:
+        condition: service_started
+      session-governance-service:
+        condition: service_started
+      data-connector:
+        condition: service_started
+      dataset-service:
+        condition: service_started
+      dataset-versioning-service:
+        condition: service_started
+      data-asset-catalog-service:
+        condition: service_started
+      dataset-quality-service:
+        condition: service_started
+      streaming-service:
+        condition: service_started
+      query-service:
+        condition: service_started
+      pipeline-service:
+        condition: service_started
+      ontology-service:
+        condition: service_started
+      fusion-service:
+        condition: service_started
+      ml-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+      ai-evaluation-service:
+        condition: service_started
+      workflow-service:
+        condition: service_started
+      approvals-service:
+        condition: service_started
+      notebook-service:
+        condition: service_started
+      app-builder-service:
+        condition: service_started
+      widget-registry-service:
+        condition: service_started
+      report-service:
+        condition: service_started
+      code-repo-service:
+        condition: service_started
+      marketplace-service:
+        condition: service_started
+      nexus-service:
+        condition: service_started
+      geospatial-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+      sds-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_GATEWAY_HOST_PORT:-8080}:8080"
+
+  web:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+    depends_on:
+      gateway:
+        condition: service_started
+    expose:
+      - "3000"
+
+  app:
+    <<: *app-common
+    image: ${OPENFOUNDRY_NGINX_IMAGE:-nginx:1.27-alpine}
+    depends_on:
+      web:
+        condition: service_started
+      gateway:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_APP_HOST_PORT:-3000}:80"
+    volumes:
+      - ./nginx/openfoundry.conf:/etc/nginx/conf.d/default.conf:ro
+
 volumes:
   postgres_data:
   redis_data:
@@ -129,3 +879,9 @@ volumes:
   minio_data:
   meilisearch_data:
   qdrant_data:
+  streaming_archive_data:
+  query_data:
+  pipeline_data:
+  notebook_data:
+  report_delivery_data:
+  code_repo_data:

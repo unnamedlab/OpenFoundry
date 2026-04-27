@@ -1,6 +1,6 @@
 [package]
 name = "workflow-service"
-description = "Human-in-the-loop workflow engine and approvals"
+description = "Workflow automation engine and execution runtime"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,4 +23,3 @@ chrono = { workspace = true }
 config = { workspace = true }
 reqwest = { workspace = true }
 cron = "0.12"
-

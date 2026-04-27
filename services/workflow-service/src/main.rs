@@ -79,6 +79,10 @@ async fn main() {
             post(handlers::execute::start_internal_lineage_run),
         )
         .route(
+            "/internal/workflows/approvals/{id}/continue",
+            post(handlers::approvals::continue_after_approval),
+        )
+        .route(
             "/api/v1/workflows/webhooks/{id}",
             post(handlers::execute::trigger_webhook),
         );
@@ -87,14 +91,6 @@ async fn main() {
         .route(
             "/api/v1/workflows",
             get(handlers::crud::list_workflows).post(handlers::crud::create_workflow),
-        )
-        .route(
-            "/api/v1/workflows/approvals",
-            get(handlers::approvals::list_approvals),
-        )
-        .route(
-            "/api/v1/workflows/approvals/{id}/decision",
-            post(handlers::approvals::decide_approval),
         )
         .route(
             "/api/v1/workflows/events/{event_name}",

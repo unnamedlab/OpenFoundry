@@ -1,6 +1,7 @@
 pub mod branch;
 pub mod dataset;
 pub mod lint;
+#[allow(dead_code)]
 pub mod quality;
 pub mod schema;
 pub mod transaction;

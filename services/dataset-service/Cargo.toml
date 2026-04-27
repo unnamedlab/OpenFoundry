@@ -28,5 +28,6 @@ futures = { workspace = true }
 datafusion = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
+reqwest = { workspace = true }
 arrow = { version = "53" }
 csv = "1.3"

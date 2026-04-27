@@ -22,18 +22,8 @@ pub struct WorkflowApproval {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ListApprovalsQuery {
-    pub page: Option<i64>,
-    pub per_page: Option<i64>,
-    pub status: Option<String>,
-    pub assigned_to: Option<Uuid>,
-    pub workflow_id: Option<Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ApprovalDecisionRequest {
+pub struct InternalApprovalContinuationRequest {
     pub decision: String,
-    pub comment: Option<String>,
     #[serde(default)]
-    pub payload: Value,
+    pub context: Value,
 }

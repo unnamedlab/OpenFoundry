@@ -4,7 +4,6 @@ pub mod data_classification;
 pub mod governance_posture;
 pub mod governance_template;
 pub mod policy;
-pub mod sensitive_data;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 

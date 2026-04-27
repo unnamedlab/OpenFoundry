@@ -22,6 +22,8 @@ pub struct AppConfig {
     pub s3_secret_key: Option<String>,
     #[serde(default)]
     pub local_storage_root: Option<String>,
+    #[serde(default = "default_dataset_quality_service_url")]
+    pub dataset_quality_service_url: String,
 }
 
 fn default_host() -> String {
@@ -35,6 +37,9 @@ fn default_storage_backend() -> String {
 }
 fn default_storage_bucket() -> String {
     "datasets".to_string()
+}
+fn default_dataset_quality_service_url() -> String {
+    "http://localhost:50072".to_string()
 }
 
 impl AppConfig {

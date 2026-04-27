@@ -4,6 +4,5 @@ pub mod export;
 pub mod gdpr;
 pub mod governance;
 pub mod immutable_log;
-pub mod sds;
 pub mod security;
 pub mod templates;
