@@ -1,6 +1,6 @@
 [package]
 name = "pipeline-schedule-service"
-description = "Pipeline schedule orchestration and cron triggering"
+description = "Shared schedule orchestration for pipelines and workflows"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

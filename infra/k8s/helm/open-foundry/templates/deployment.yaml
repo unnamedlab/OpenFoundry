@@ -124,7 +124,7 @@ spec:
             - name: REPORT_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "report-service" "port" 50064) | quote }}
             - name: GEOSPATIAL_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-service" "port" 50068) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-intelligence-service" "port" 50068) | quote }}
             - name: NEXUS_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "nexus-service" "port" 50067) | quote }}
 {{- end }}
@@ -136,7 +136,7 @@ spec:
             - name: DATASET_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "dataset-service" "port" 50053) | quote }}
             - name: GEOSPATIAL_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-service" "port" 50068) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-intelligence-service" "port" 50068) | quote }}
 {{- end }}
           volumeMounts:
             - name: tmp

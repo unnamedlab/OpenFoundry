@@ -6,8 +6,11 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 
 | Path | What Lives There |
 | --- | --- |
-| `services/gateway` | edge routing and proxy logic |
-| `services/auth-service` | identity, sessions, policy, SSO, MFA |
+| `services/edge-gateway-service` | edge routing, HTTP compatibility, tenant resolution, and rate limiting |
+| `services/gateway` | legacy gateway source kept temporarily for migration compatibility |
+| `services/identity-federation-service` | login, MFA, SSO/OIDC/SAML/OAuth flows, service accounts, session authentication |
+| `services/auth-service` | user administration and temporary legacy auth compatibility |
+| `services/tenancy-organizations-service` | tenant resolution, organizations, enrollments, spaces, projects, and sharing boundaries |
 | `services/data-connector` | connectors, discovery, sync |
 | `services/dataset-service` | datasets, versions, files, quality |
 | `services/query-service` | query execution |
@@ -23,7 +26,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/geospatial-service` | geospatial APIs |
 | `services/code-repo-service` | repository APIs |
 | `services/marketplace-service` | marketplace APIs |
-| `services/nexus-service` | sharing and federation APIs |
+| `services/nexus-service` | federation and sharing runtime outside tenancy-owned spaces |
 | `services/notification-service` | notifications |
 | `services/audit-service` | audit ingestion and export |
 

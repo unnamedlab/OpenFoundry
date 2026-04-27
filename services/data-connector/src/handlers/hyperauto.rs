@@ -29,7 +29,6 @@ use crate::{
         },
         registration::DiscoveredSource,
         sync_job::SyncJob,
-        sync_status::SyncStatus,
     },
 };
 
@@ -335,15 +334,6 @@ pub async fn generate_erp_assets(
         }
     }
 
-    if !sync_jobs.is_empty() {
-        let scheduler_state = state.clone();
-        tokio::spawn(async move {
-            if let Err(error) = crate::domain::scheduler::tick(&scheduler_state).await {
-                tracing::warn!("hyperauto sync trigger failed: {error}");
-            }
-        });
-    }
-
     let response = HyperAutoErpGenerateResponse {
         preview,
         raw_datasets,
@@ -586,31 +576,32 @@ async fn queue_sync_job(
     target_dataset_id: Uuid,
     selector: &str,
 ) -> Result<SyncJob, String> {
-    let job_id = Uuid::now_v7();
-    let scheduled_at = Utc::now();
+    let url = format!(
+        "{}/internal/sync-jobs",
+        state
+            .ingestion_replication_service_url
+            .trim_end_matches('/'),
+    );
+    let response = state
+        .http_client
+        .post(url)
+        .json(&json!({
+            "connection_id": connection.id,
+            "target_dataset_id": target_dataset_id,
+            "table_name": selector,
+            "schedule_at": Utc::now(),
+            "max_attempts": 3,
+            "sync_metadata": {
+                "selector": selector,
+                "connector_type": connection.connector_type,
+                "hyperauto": true,
+            },
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
 
-    sqlx::query_as::<_, SyncJob>(
-        r#"INSERT INTO sync_jobs (
-               id, connection_id, target_dataset_id, table_name, status, scheduled_at, max_attempts, sync_metadata
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-           RETURNING *"#,
-    )
-    .bind(job_id)
-    .bind(connection.id)
-    .bind(target_dataset_id)
-    .bind(selector)
-    .bind(SyncStatus::Pending.as_str())
-    .bind(scheduled_at)
-    .bind(3_i32)
-    .bind(json!({
-        "selector": selector,
-        "connector_type": connection.connector_type,
-        "hyperauto": true,
-    }))
-    .fetch_one(&state.db)
-    .await
-    .map_err(|error| error.to_string())
+    read_json_response(response, "sync job queue").await
 }
 
 async fn find_dataset_by_name(

@@ -19,7 +19,7 @@
     "src",
     "README.md"
   ],
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "main": "./dist/index.js",
   "name": "@open-foundry/sdk",
   "private": true,

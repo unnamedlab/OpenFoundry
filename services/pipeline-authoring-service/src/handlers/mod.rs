@@ -1,2 +1,2 @@
-#[path = "../../../pipeline-service/src/handlers/crud.rs"]
+pub mod compiler;
 pub mod crud;

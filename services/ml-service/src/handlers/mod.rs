@@ -1,9 +1,12 @@
+#[allow(dead_code)]
 pub mod deployments;
 #[allow(dead_code)]
 pub mod experiments;
 pub mod features;
+#[allow(dead_code)]
 pub mod models;
 pub mod overview;
+#[allow(dead_code)]
 pub mod predictions;
 pub mod training;
 
@@ -66,7 +69,7 @@ where
 
 pub fn to_json<T>(value: &T) -> Value
 where
-    T: Serialize,
+    T: Serialize + ?Sized,
 {
     serde_json::to_value(value).unwrap_or_else(|_| json!(null))
 }

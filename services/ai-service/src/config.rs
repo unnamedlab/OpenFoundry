@@ -8,6 +8,8 @@ pub struct AppConfig {
     pub port: u16,
     pub database_url: String,
     pub jwt_secret: String,
+    #[serde(default = "default_checkpoints_purpose_service_url")]
+    pub checkpoints_purpose_service_url: String,
 }
 
 fn default_host() -> String {
@@ -16,6 +18,10 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     50060
+}
+
+fn default_checkpoints_purpose_service_url() -> String {
+    "http://localhost:50116".to_string()
 }
 
 impl AppConfig {

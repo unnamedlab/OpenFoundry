@@ -127,7 +127,7 @@ pub async fn list_interfaces(
     let offset = (page - 1) * per_page;
     let search_pattern = format!("%{}%", params.search.unwrap_or_default());
 
-    let total = sqlx::query_scalar::<_, i64>(
+    let _total = sqlx::query_scalar::<_, i64>(
         r#"SELECT COUNT(*) FROM ontology_interfaces
            WHERE name ILIKE $1 OR display_name ILIKE $1"#,
     )

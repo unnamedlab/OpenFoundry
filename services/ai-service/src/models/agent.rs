@@ -90,6 +90,8 @@ pub struct ExecuteAgentRequest {
     pub user_message: String,
     pub objective: Option<String>,
     pub knowledge_base_id: Option<Uuid>,
+    #[serde(default)]
+    pub purpose_justification: Option<String>,
     #[serde(default = "default_json_object")]
     pub context: Value,
 }

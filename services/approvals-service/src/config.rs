@@ -27,7 +27,7 @@ fn default_workflow_service_url() -> String {
 }
 
 fn default_ontology_service_url() -> String {
-    "http://localhost:50057".to_string()
+    "http://localhost:50106".to_string()
 }
 
 impl AppConfig {

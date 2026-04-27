@@ -13,21 +13,17 @@ SERVICES=(
   audit-service
   data-connector
   dataset-service
-  streaming-service
   query-service
   pipeline-service
   ontology-service
-  fusion-service
   ml-service
   ai-service
   workflow-service
   notebook-service
   app-builder-service
   report-service
-  code-repo-service
   marketplace-service
   nexus-service
-  geospatial-service
   notification-service
   gateway
 )

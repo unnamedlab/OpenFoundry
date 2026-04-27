@@ -1,0 +1,7 @@
+host = "0.0.0.0"
+port = 50051
+public_web_origin = "https://app.openfoundry.example"
+jwt_access_ttl_secs = 900
+jwt_refresh_ttl_secs = 86400
+saml_service_provider_entity_id = "https://app.openfoundry.example/auth/saml/metadata"
+saml_allowed_clock_skew_secs = 120

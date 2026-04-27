@@ -55,22 +55,6 @@ async fn main() {
     let protected = Router::new()
         .route("/api/v1/ml/overview", get(handlers::overview::get_overview))
         .route(
-            "/api/v1/ml/models",
-            get(handlers::models::list_models).post(handlers::models::create_model),
-        )
-        .route(
-            "/api/v1/ml/models/{id}",
-            axum::routing::patch(handlers::models::update_model),
-        )
-        .route(
-            "/api/v1/ml/models/{id}/versions",
-            get(handlers::models::list_model_versions).post(handlers::models::create_model_version),
-        )
-        .route(
-            "/api/v1/ml/model-versions/{id}/transition",
-            post(handlers::models::transition_model_version),
-        )
-        .route(
             "/api/v1/ml/features",
             get(handlers::features::list_features).post(handlers::features::create_feature),
         )
@@ -90,28 +74,6 @@ async fn main() {
             "/api/v1/ml/training-jobs",
             get(handlers::training::list_training_jobs)
                 .post(handlers::training::create_training_job),
-        )
-        .route(
-            "/api/v1/ml/deployments",
-            get(handlers::deployments::list_deployments)
-                .post(handlers::deployments::create_deployment),
-        )
-        .route(
-            "/api/v1/ml/deployments/{id}",
-            axum::routing::patch(handlers::deployments::update_deployment),
-        )
-        .route(
-            "/api/v1/ml/deployments/{id}/drift",
-            post(handlers::deployments::generate_drift_report),
-        )
-        .route(
-            "/api/v1/ml/deployments/{id}/predict",
-            post(handlers::predictions::realtime_predict),
-        )
-        .route(
-            "/api/v1/ml/batch-predictions",
-            get(handlers::predictions::list_batch_predictions)
-                .post(handlers::predictions::create_batch_prediction),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

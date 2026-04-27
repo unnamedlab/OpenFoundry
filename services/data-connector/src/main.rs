@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod config;
 mod connectors;
 mod domain;
@@ -7,7 +9,7 @@ mod models;
 use auth_middleware::jwt::JwtConfig;
 use axum::{
     Router, middleware,
-    routing::{delete, get, post},
+    routing::{get, post},
 };
 use core_models::{health::HealthStatus, observability};
 use sqlx::postgres::PgPoolOptions;
@@ -21,6 +23,8 @@ pub struct AppState {
     pub dataset_service_url: String,
     pub pipeline_service_url: String,
     pub ontology_service_url: String,
+    pub ingestion_replication_service_url: String,
+    pub network_boundary_service_url: String,
     pub allowed_egress_hosts: Vec<String>,
     pub allow_private_network_egress: bool,
     pub agent_stale_after: chrono::Duration,
@@ -62,19 +66,12 @@ async fn main() {
         dataset_service_url: cfg.dataset_service_url.clone(),
         pipeline_service_url: cfg.pipeline_service_url.clone(),
         ontology_service_url: cfg.ontology_service_url.clone(),
+        ingestion_replication_service_url: cfg.ingestion_replication_service_url.clone(),
+        network_boundary_service_url: cfg.network_boundary_service_url.clone(),
         allowed_egress_hosts: cfg.allowed_egress_hosts.clone(),
         allow_private_network_egress: cfg.allow_private_network_egress,
         agent_stale_after: chrono::Duration::seconds(cfg.agent_stale_after_secs.max(15) as i64),
     };
-
-    let scheduler_state = state.clone();
-    tokio::spawn(async move {
-        crate::domain::scheduler::run_scheduler(
-            scheduler_state,
-            Duration::from_secs(cfg.sync_poll_interval_secs.max(1)),
-        )
-        .await;
-    });
 
     let public = Router::new().route(
         "/health",
@@ -83,76 +80,12 @@ async fn main() {
 
     let protected = Router::new()
         .route(
-            "/api/v1/connectors/catalog",
-            get(handlers::catalog::get_connector_catalog),
-        )
-        .route(
-            "/api/v1/connector-agents",
-            post(handlers::agents::register_agent).get(handlers::agents::list_agents),
-        )
-        .route(
-            "/api/v1/connector-agents/{id}/heartbeat",
-            post(handlers::agents::heartbeat_agent),
-        )
-        .route(
-            "/api/v1/connections",
-            post(handlers::connections::create_connection),
-        )
-        .route(
-            "/api/v1/connections",
-            get(handlers::connections::list_connections),
-        )
-        .route(
-            "/api/v1/connections/{id}",
-            get(handlers::connections::get_connection),
-        )
-        .route(
-            "/api/v1/connections/{id}/capabilities",
-            get(handlers::catalog::get_connection_capabilities),
-        )
-        .route(
-            "/api/v1/connections/{id}",
-            delete(handlers::connections::delete_connection),
-        )
-        .route(
-            "/api/v1/connections/{id}/test",
-            post(handlers::connections::test_connection),
-        )
-        .route(
-            "/api/v1/connections/{id}/discover",
-            post(handlers::registrations::discover_connection_sources),
-        )
-        .route(
-            "/api/v1/connections/{id}/registrations",
-            get(handlers::registrations::list_registrations),
-        )
-        .route(
-            "/api/v1/connections/{id}/registrations/auto",
-            post(handlers::registrations::auto_register_sources),
-        )
-        .route(
-            "/api/v1/connections/{id}/registrations/bulk",
-            post(handlers::registrations::bulk_register_sources),
-        )
-        .route(
-            "/api/v1/connections/{id}/virtual-tables/query",
-            post(handlers::registrations::query_virtual_table),
-        )
-        .route(
             "/api/v1/connections/{id}/hyperauto/erp/preview",
             post(handlers::hyperauto::preview_erp_generation),
         )
         .route(
             "/api/v1/connections/{id}/hyperauto/erp/generate",
             post(handlers::hyperauto::generate_erp_assets),
-        )
-        .route(
-            "/api/v1/connections/{id}/sync",
-            post(handlers::sync_ops::sync_connection),
-        )
-        .route(
-            "/api/v1/connections/{id}/sync-jobs",
-            get(handlers::sync_ops::list_sync_jobs),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

@@ -2,100 +2,161 @@
 
 ## Objetivo
 
-Este documento traduce el estado actual de `services/` a la taxonomia de bounded contexts definida en `microservicios-derivados-desde-foundry-docs.md`.
+Este documento actualiza la guia original para reflejar el estado real de `services/` a fecha `2026-04-27`.
 
-La idea no es redibujar Foundry en abstracto, sino responder a una pregunta concreta:
+Ya no parte de una foto teorica donde solo existen 21 macroservicios. Parte de un estado transicional donde conviven servicios legacy y extracciones ya materializadas.
 
-**si partiamos el codigo actual de OpenFoundry segun las responsabilidades que ya existen en Rust, en que microservicios objetivo deberia terminar cada servicio actual, y en que orden conviene extraerlos.**
+La pregunta que responde ahora es esta:
+
+**dado el arbol real de `services/`, que ownership conserva cada macroservicio legacy, que bounded contexts ya tienen servicio dedicado, y que queda pendiente para cerrar la migracion hacia la taxonomia objetivo.**
 
 ## Metodo usado
 
-El analisis se ha hecho leyendo el codigo real de cada servicio actual:
+Esta version combina cuatro fuentes de evidencia:
 
-- `Cargo.toml` de cada servicio
-- `src/main.rs` para entender el contrato HTTP y el surface publico
-- `src/domain`, `src/handlers` y `src/models` para detectar bounded contexts mezclados
-- numero de ficheros Rust, migraciones y volumen aproximado de codigo para estimar riesgo de particion
+- la taxonomia objetivo definida en `microservicios-derivados-desde-foundry-docs.md`
+- la lectura original del codigo de los 21 macroservicios legacy que sostiene el analisis detallado mas abajo
+- el inventario actual de `services/`, que hoy contiene `65` directorios de servicio con `Cargo.toml`
+- una medida aproximada de peso por servicio usando numero de ficheros `.rs`, `.sql` y `.toml`, util solo como senal de transicion, no como medida de complejidad absoluta
 
 ## Foto actual de `services/`
 
-Hoy `services/` no contiene microservicios finos. Contiene **21 macroservicios** con varios bounded contexts mezclados:
+Hoy `services/` contiene **65 servicios Rust reales** con `Cargo.toml`.
 
-1. `gateway`
-2. `auth-service`
-3. `audit-service`
-4. `data-connector`
-5. `dataset-service`
-6. `streaming-service`
-7. `query-service`
-8. `pipeline-service`
-9. `ontology-service`
-10. `fusion-service`
-11. `ml-service`
-12. `ai-service`
-13. `workflow-service`
-14. `notebook-service`
-15. `app-builder-service`
-16. `report-service`
-17. `code-repo-service`
-18. `marketplace-service`
-19. `nexus-service`
-20. `geospatial-service`
-21. `notification-service`
+La foto vigente es esta:
+
+- **21 servicios legacy** que siguen presentes como macrodominios historicos: `gateway`, `auth-service`, `audit-service`, `data-connector`, `dataset-service`, `streaming-service`, `query-service`, `pipeline-service`, `ontology-service`, `fusion-service`, `ml-service`, `ai-service`, `workflow-service`, `notebook-service`, `app-builder-service`, `report-service`, `code-repo-service`, `marketplace-service`, `nexus-service`, `geospatial-service`, `notification-service`
+- **46 servicios ya extraidos o materializados** en el arbol actual: `approvals-service`, `authorization-policy-service`, `cipher-service`, `oauth-integration-service`, `session-governance-service`, `sds-service`, `connector-management-service`, `ingestion-replication-service`, `virtual-table-service`, `data-asset-catalog-service`, `dataset-versioning-service`, `dataset-quality-service`, `sql-warehousing-service`, `time-series-data-service`, `lineage-service`, `pipeline-authoring-service`, `pipeline-build-service`, `pipeline-schedule-service`, `object-database-service`, `ontology-actions-service`, `ontology-definition-service`, `ontology-functions-service`, `ontology-funnel-service`, `ontology-query-service`, `ontology-security-service`, `ml-experiments-service`, `model-catalog-service`, `model-deployment-service`, `model-evaluation-service`, `model-inference-history-service`, `model-serving-service`, `llm-catalog-service`, `prompt-workflow-service`, `knowledge-index-service`, `retrieval-context-service`, `conversation-state-service`, `tool-registry-service`, `ai-evaluation-service`, `application-curation-service`, `document-reporting-service`, `marketplace-catalog-service`, `product-distribution-service`, `widget-registry-service`, `entity-resolution-service`, `geospatial-intelligence-service`, `global-branch-service`
+
+La implicacion arquitectonica es importante: OpenFoundry ya no esta en una fase “21 macroservicios vs 85 objetivos”, sino en una fase intermedia donde muchos bounded contexts ya tienen nombre y proceso propio, pero el ownership funcional todavia sigue bastante concentrado en los servicios legacy.
 
 ## Servicios con mayor sobrecarga estructural
 
-Tomando como referencia numero aproximado de ficheros Rust, migraciones y volumen de codigo, los mayores candidatos a particion son estos:
+Tomando como referencia numero aproximado de ficheros `.rs`, `.sql` y `.toml` en los **21 servicios legacy**, hoy los mayores candidatos a cierre de ownership o particion adicional son estos:
 
-| Servicio | Rust files aprox. | Migraciones aprox. | LOC aprox. | Lectura arquitectonica |
-| --- | --- | --- | --- | --- |
-| `ontology-service` | 53 | 15 | 21k | gran macrodominio operacional |
-| `auth-service` | 43 | 6 | 8.6k | identidad, policy, sesiones y admin mezclados |
-| `data-connector` | 56 | 3 | 8.3k | conectividad, sync y virtual tables juntos |
-| `ai-service` | 33 | 5 | 7.2k | prompts, RAG, tools, agents y evals juntos |
-| `pipeline-service` | 30 | 3 | 6.3k | authoring, builds, schedules y lineage juntos |
-| `ml-service` | 41 | 2 | 6.0k | registry, experiments, serving y monitoring juntos |
-| `dataset-service` | 41 | 6 | 5.4k | catalogo, versionado, branching y calidad juntos |
+| Servicio legacy | Ficheros aprox. | Lectura arquitectonica |
+| --- | --- | --- |
+| `ontology-service` | `72` | sigue siendo el macrodominio operacional con mayor blast radius |
+| `data-connector` | `60` | aun concentra conectividad, sync, discovery y virtual tables |
+| `auth-service` | `53` | mezcla identidad, autorizacion, sesiones, admin y seguridad |
+| `dataset-service` | `51` | mantiene catalogo, CRUD, upload, branches y storage |
+| `ml-service` | `47` | conserva overview, features, training y partes de serving |
+| `ai-service` | `42` | sigue mezclando chat, providers, agents y runtime conversacional |
+| `pipeline-service` | `37` | aun centraliza ejecucion, runs, retries y triggers |
+| `marketplace-service` | `36` | catalogo, installs y rollout siguen sin cerrarse del todo |
 
-Esto no significa que los servicios pequenos esten perfectamente diseniados. Significa que, en terminos de retorno por particion, estos siete son donde mas valor arquitectonico vas a recuperar primero.
+Esto no significa que los servicios con menos ficheros sean shells. Significa que estos ocho legacy son donde mas valor arquitectonico se recupera si se termina de mover ownership hacia los servicios ya extraidos.
 
 ## Conclusion ejecutiva
 
-La conclusion fuerte del analisis es esta:
+La conclusion fuerte hoy es esta:
 
-- `gateway`, `query-service` y `notification-service` ya estan relativamente bien cortados.
-- `dataset-service`, `pipeline-service`, `auth-service`, `ml-service`, `ai-service`, `workflow-service`, `app-builder-service` y sobre todo `ontology-service` son **macrodominios**.
-- `fusion-service`, `geospatial-service` y `code-repo-service` expresan dominios reales del codigo que **no quedan bien cubiertos** por la taxonomia derivada solo desde documentacion. Conviene tratarlos como extensiones code-first.
+- la version anterior de esta guia quedo desactualizada en su “foto actual”: `services/` ya no contiene solo `21` macroservicios, sino `65` servicios reales
+- la mayor parte de las extracciones faciles y de alto valor **ya existe** como servicio con nombre propio
+- el trabajo pendiente ya no es “crear directorios”, sino **mover ownership funcional, rutas, handlers y contratos** fuera de los legacy
+- ningun servicio legacy puede considerarse todavia un shell puro solo por el estado del arbol actual; incluso los candidatos mas evidentes a shell siguen conservando peso no trivial
+- `fusion-service`, `geospatial-service` y `code-repo-service` siguen siendo extensiones code-first validas respecto a la taxonomia derivada solo desde documentacion
 
 ## Mapeo resumido
 
-| Servicio actual | Estado | Microservicios objetivo principales |
-| --- | --- | --- |
-| `gateway` | Mantener | `1. Edge Gateway Service` |
-| `auth-service` | Partir | `2`, `3`, `5`, `11`, `14`, `15` |
-| `audit-service` | Partir | `7`, `10`, `12`, `13` parcial, `6` parcial |
-| `data-connector` | Partir | `18`, `19`, `26`, `27`, `5` parcial |
-| `dataset-service` | Partir | `20`, `21`, `12`, `30`, `31` parcial |
-| `streaming-service` | Afinar | `25`, `27` parcial |
-| `query-service` | Mantener | `60` |
-| `pipeline-service` | Partir | `22`, `23`, `24`, `31` |
-| `ontology-service` | Partir fuerte | `32`, `33`, `34`, `35`, `36`, `37`, `38`, `71` parcial |
-| `fusion-service` | Renombrar o extender taxonomia | extension code-first: `Entity Resolution and Golden Record Service` |
-| `ml-service` | Partir | `39`, `40`, `41`, `42`, `43`, `44`, `45`, `46` |
-| `ai-service` | Partir | `47`, `48`, `49`, `50`, `51`, `52`, `53`, `54`, `55` parcial |
-| `workflow-service` | Partir | `8`, `65`, `66`, `67` parcial |
-| `notebook-service` | Partir ligero | `61`, `62`, `75` parcial |
-| `app-builder-service` | Partir | `56` parcial, `68`, `69`, `70`, `73` parcial, `76` parcial |
-| `report-service` | Afinar | `62`, `17` parcial |
-| `code-repo-service` | Renombrar o extender taxonomia | `78` parcial, extension code-first: `Code Repository and Review Service` |
-| `marketplace-service` | Partir o reubicar | `16`, `69` parcial, `73` parcial |
-| `nexus-service` | Afinar | `16` |
-| `geospatial-service` | Mantener transicional | extension code-first: `Geospatial Intelligence Service` |
-| `notification-service` | Mantener | `17` |
+La tabla de abajo reemplaza el mapeo resumido original. Ya no indica solo “partir o mantener”, sino el estado real de la migracion servicio por servicio.
+
+### Leyenda de estado
+
+- `Alineado`: el servicio legacy ya representa bastante bien el bounded context principal y no necesita particion urgente.
+- `Particion inicial`: existe alguna extraccion real, pero el legacy sigue siendo claramente el centro del dominio.
+- `Particion avanzada`: existen varias extracciones reales, pero el legacy todavia conserva ownership significativo.
+- `Transicion iniciada`: ya existe un sucesor claro para el dominio, pero el legacy aun no es shell ni se puede retirar.
+
+### Matriz completa de estado actual
+
+| Servicio legacy | Peso aprox. | Objetivo documental | Servicios reales relacionados | Estado | Pendiente exacto |
+| --- | --- | --- | --- | --- | --- |
+| `gateway` | `17` | `1` | `gateway` | `Alineado` | mantenerlo como entrypoint y solo crecer hacia `76` si se materializan custom endpoints versionados |
+| `auth-service` | `53` | `2`, `3`, `5`, `11`, `14`, `15` | `auth-service`, `authorization-policy-service`, `cipher-service`, `oauth-integration-service`, `session-governance-service` | `Particion avanzada` | falta un `Identity Federation Service` dedicado; mover login, MFA, SSO y `api_keys`; decidir si `auth-service` queda como facade transitoria o se retira |
+| `audit-service` | `30` | `7`, `10`, `6` parcial, `12` parcial, `13` parcial | `audit-service`, `sds-service` | `Particion inicial` | falta separar governance/constraints, retention y deletion; dejar `audit-service` con audit core o partirlo mas |
+| `data-connector` | `60` | `18`, `19`, `26`, `27`, `5` parcial | `data-connector`, `connector-management-service`, `ingestion-replication-service`, `virtual-table-service` | `Particion avanzada` | falta `CDC Metadata and Resolution Service`; mover discovery, schema inference, agents y credenciales restantes fuera del legacy |
+| `dataset-service` | `51` | `20`, `21`, `12`, `30`, `31` | `dataset-service`, `data-asset-catalog-service`, `dataset-versioning-service`, `dataset-quality-service`, `lineage-service` | `Particion avanzada` | quality, lint, profile, expectations y rules ya viven en `dataset-quality-service`; falta `Retention Policy Service`; mover CRUD, upload, views, export y branches restantes; cerrar dependencia funcional del legacy sobre lineage |
+| `streaming-service` | `29` | `25`, `27` parcial, `29` parcial | `streaming-service`, `event-streaming-service`, `cdc-metadata-service`, `time-series-data-service` | `Particion iniciada` | runtime delegado a `event-streaming-service`; CDC metadata en `cdc-metadata-service`; modelado time-series en `time-series-data-service`; cerrar replay/windows residuales antes del retiro |
+| `query-service` | `22` | `28`, `60` | `query-service`, `sql-warehousing-service` | `Particion iniciada` | jobs y storage intermedio de SQL warehousing ya en `sql-warehousing-service`; vigilar solo si `saved queries` y `60` necesitan separacion hacia analitica |
+| `pipeline-service` | `37` | `22`, `23`, `24`, `31` | `pipeline-service`, `pipeline-authoring-service`, `pipeline-build-service`, `pipeline-schedule-service`, `lineage-service` | `Particion avanzada` | scheduling, due runs y backfills ya viven en `pipeline-schedule-service`; cerrar workers y compatibilidad temporal de runs/retries antes del retiro |
+| `ontology-service` | `72` | `32`, `33`, `34`, `35`, `36`, `37`, `38`, `71` parcial | `ontology-service`, `ontology-definition-service`, `object-database-service`, `ontology-query-service`, `ontology-actions-service`, `ontology-funnel-service`, `ontology-functions-service`, `ontology-security-service` | `Particion avanzada` | falta `Scenario Simulation Service`; mover projects, access, rules y rutas residuales; reducir el ownership central del legacy |
+| `fusion-service` | `27` | extension code-first `Entity Resolution and Golden Record Service` | `fusion-service`, `entity-resolution-service` | `Transicion iniciada` | completar el rename funcional y mover matching, merge, jobs, review y golden records al nuevo servicio; `fusion-service` aun no es shell |
+| `ml-service` | `47` | `39`, `40`, `41`, `42`, `43`, `44`, `45`, `46` | `ml-service`, `ml-experiments-service`, `model-catalog-service`, `model-deployment-service`, `model-evaluation-service`, `model-inference-history-service`, `model-serving-service` | `Particion avanzada` | faltan `Model Adapter and Packaging Service` y `Model Lifecycle, Submissions and Objectives Service`; mover features, training y overview restantes |
+| `ai-service` | `42` | `47`, `48`, `49`, `50`, `51`, `52`, `53`, `54`, `55` parcial | `ai-service`, `llm-catalog-service`, `prompt-workflow-service`, `knowledge-index-service`, `retrieval-context-service`, `conversation-state-service`, `tool-registry-service`, `ai-evaluation-service` | `Particion avanzada` | faltan `Agent Runtime and Chatbot Orchestration Service` y `Document Intelligence Service`; mover chat, providers y agents restantes fuera del legacy |
+| `workflow-service` | `27` | `8`, `65`, `66`, `67` | `workflow-service`, `approvals-service`, `pipeline-schedule-service` | `Particion inicial` | scheduling cron/event y due runs ya salen por `pipeline-schedule-service`; faltan `Workflow Automation Service`, `Automation Operations Control Plane Service` y `Workflow Lineage and Trace Service`, ademas de sacar `approvals` completamente del legacy |
+| `notebook-service` | `32` | `61`, `62`, `75` parcial | `notebook-service`, `document-reporting-service` | `Particion inicial` | falta `Managed Workspace Orchestration Service`; separar `notepad`/reporting documental y workspace orchestration |
+| `app-builder-service` | `31` | `56` parcial, `68`, `69`, `70`, `73` parcial, `76` parcial | `app-builder-service`, `application-curation-service`, `widget-registry-service` | `Particion inicial` | faltan `Application Composition Service`, `Developer Console and Application Control Plane Service`, `Custom Endpoints Publishing and Gateway Service` y una decision clara sobre `56` |
+| `report-service` | `28` | `62`, `17` parcial | `report-service`, `document-reporting-service`, `notification-service` | `Particion inicial` | consolidar reporting en `document-reporting-service` y decidir si el delivery sale por completo hacia notifications |
+| `code-repo-service` | `33` | `78` parcial + extension code-first `Code Repository and Review Service` | `code-repo-service`, `global-branch-service` | `Transicion iniciada` | separar branch orchestration transversal del dominio Git/CI/review; `code-repo-service` aun mantiene bastante logica propia |
+| `marketplace-service` | `36` | `16`, `69` parcial, `73` parcial | `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` | `Transicion iniciada` | mover catalogo, installs, reviews, rollout y promotion; resolver fleets y enrollment branches; el legacy aun no es shell |
+| `nexus-service` | `29` | `16` | `nexus-service` | `Alineado` | mantenerlo como nucleo tecnico de federacion y extraer `audit_bridge` o telemetry solo si ganan peso propio |
+| `geospatial-service` | `23` | extension code-first `Geospatial Intelligence Service` | `geospatial-service`, `geospatial-intelligence-service` | `Transicion iniciada` | mover layers, query, clustering, routing, geocode y tiles al nuevo servicio; `geospatial-service` aun no es shell |
+| `notification-service` | `29` | `17` | `notification-service` | `Alineado` | mantenerlo y extraer `digest` o `rules_engine` solo si se convierten en dominio propio |
+
+### Clasificacion practica de los 21 macroservicios legacy
+
+#### Shell transicional claro hoy
+
+- ninguno
+
+#### Candidatos a quedar como shell o a retirarse en la siguiente iteracion
+
+- `fusion-service`
+- `geospatial-service`
+- `marketplace-service`
+- `code-repo-service`
+
+#### Servicios legacy que siguen teniendo logica de negocio fuerte
+
+- `auth-service`
+- `audit-service`
+- `data-connector`
+- `dataset-service`
+- `pipeline-service`
+- `ontology-service`
+- `ml-service`
+- `ai-service`
+- `workflow-service`
+- `notebook-service`
+- `app-builder-service`
+
+#### Servicios legacy alineados que no conviene llamar shell
+
+- `gateway`
+- `streaming-service`
+- `query-service`
+- `report-service`
+- `nexus-service`
+- `notification-service`
 
 ## Gaps entre la taxonomia documental y el codigo real
 
-Antes de entrar servicio por servicio, hay tres tensiones que conviene dejar explicitas:
+Antes de entrar servicio por servicio, hay cuatro tensiones que conviene dejar explicitas:
+
+### 0. La taxonomia documental sigue teniendo bounded contexts sin servicio dedicado en el arbol
+
+Aunque hoy ya existen `44` extracciones materializadas, todavia hay objetivos documentales que no aparecen como servicio dedicado con nombre propio. Los gaps mas claros son estos:
+
+- `Identity Federation Service`
+- `Tenancy, Organizations, Spaces and Projects Service`
+- `Security Governance and Constraint Service`
+- `Retention Policy Service`
+- `Lineage-aware Deletion Service`
+- `CDC Metadata and Resolution Service`
+- `Model Adapter and Packaging Service`
+- `Model Lifecycle, Submissions and Objectives Service`
+- `Agent Runtime and Chatbot Orchestration Service`
+- `Document Intelligence Service`
+- `Workflow Automation Service`, `Automation Operations Control Plane Service` y `Workflow Lineage and Trace Service` como servicios dedicados separados del legacy
+- `Application Composition Service`, `Developer Console and Application Control Plane Service`, `Custom Endpoints Publishing and Gateway Service` y `Managed Workspace Orchestration Service`
+- `AI Application Generation Service` como runtime o control plane propio, no solo como consumer indirecto
+- `Scenario Simulation Service`
+- `MCP Orchestration and Exposure Service`
+- `Compute Modules Control Plane Service` y `Compute Modules Runtime Service`
+- `Monitoring Rules and Scope Engine Service`, `Health Check Evaluation Service`, `Execution Observability Service`, `Telemetry Governance and Export Service` y `Code Security Scanning Service`
+
+El arbol actual, por tanto, ya no esta “antes de empezar”, pero tampoco cubre todavia toda la taxonomia documental como ownership operativo separado.
 
 ### 1. `fusion-service` no es Fusion tipo spreadsheet
 
@@ -843,55 +904,48 @@ Recomendacion:
 
 ## Orden recomendado de migracion
 
-### Fase 1. Extracciones faciles con valor alto
+## Estado actualizado de la migracion
 
-- `auth-service` -> sacar `security_ops`, `sessions`, `restricted_views`
-- `audit-service` -> sacar `sds`
-- `workflow-service` -> sacar `approvals`
-- `app-builder-service` -> sacar `widgets`
-- `dataset-service` -> sacar `quality`
-- `ai-service` -> sacar `evaluations`
+### Lo que ya esta materializado en el arbol actual
 
-### Fase 2. Romper los macrodominios de datos y ML
+- la antigua **Fase 1** esta muy avanzada: ya existen `cipher-service`, `session-governance-service`, `sds-service`, `approvals-service`, `widget-registry-service`, `dataset-quality-service` y `ai-evaluation-service`
+- la antigua **Fase 2** ya existe como arbol de servicios, aunque no como ownership totalmente cerrado: `data-asset-catalog-service`, `dataset-versioning-service`, `lineage-service`, `pipeline-authoring-service`, `pipeline-build-service`, `pipeline-schedule-service`, `connector-management-service`, `ingestion-replication-service` y `virtual-table-service`
+- la antigua **Fase 3** esta tambien materializada en nombres de servicio: `authorization-policy-service`, `oauth-integration-service`, `llm-catalog-service`, `prompt-workflow-service`, `knowledge-index-service`, `retrieval-context-service`, `conversation-state-service`, `tool-registry-service`, `application-curation-service` y `widget-registry-service`
+- la antigua **Fase 4** ya empezo de verdad: existen `ontology-definition-service`, `object-database-service`, `ontology-query-service`, `ontology-actions-service`, `ontology-funnel-service`, `ontology-functions-service` y `ontology-security-service`
+- la antigua **Fase 5** tambien esta iniciada: existen `entity-resolution-service`, `geospatial-intelligence-service`, `global-branch-service`, `marketplace-catalog-service` y `product-distribution-service`
 
-- `dataset-service` -> `20`, `21`, `30`
-- `pipeline-service` -> `22`, `23`, `24`, `31`
-- `ml-service` -> `40`, `41`, `43`, `44`, `45`, `46`
-- `data-connector` -> `18`, `19`, `26`
+La lectura correcta hoy no es “hay que crear las fases 1 a 5”, sino “hay que cerrar el ownership y retirar la autoridad residual de los legacy”.
 
-### Fase 3. Romper los macrodominios de plataforma operacional
+### Lo que sigue pendiente por cerrar
 
-- `auth-service` -> `2`, `3`, `5`, `11`, `15`
-- `ai-service` -> `47`, `48`, `49`, `50`, `51`, `52`, `53`, `54`
-- `app-builder-service` -> `68`, `69`, `70`
-- `notebook-service` -> `61`, `62`
+1. cerrar `auth-service` en torno a `authorization-policy-service`, `cipher-service`, `oauth-integration-service` y `session-governance-service`, y decidir si falta un `identity-federation-service` dedicado
+2. cerrar `data-connector`, `dataset-service` y `pipeline-service` para que los servicios ya extraidos sean la fuente de verdad operativa y no solo slices auxiliares
+3. cerrar `ontology-service`, que es el legacy con mas peso y el mayor riesgo de ownership compartido
+4. cerrar `ai-service` y `ml-service` introduciendo los dos gaps mas claros de cada dominio: `agent-runtime` y `model-lifecycle/adapter`
+5. decidir si `workflow-service`, `app-builder-service`, `notebook-service` y `report-service` terminan en servicios nuevos adicionales o si se consolidan como bounded contexts mas gruesos
+6. convertir `fusion-service`, `geospatial-service`, `marketplace-service` y `code-repo-service` en shells reales de compatibilidad o retirarlos del todo cuando el sucesor absorba el runtime
 
-### Fase 4. Particion grande de ontologia
+## Reglas practicas para ejecutar la migracion desde el estado actual
 
-- `ontology-service` -> `32`, `33`, `34`, `35`, `36`, `37`, `38`
+### 1. Primero mover ownership, luego apagar legacy
 
-Esta fase debe ir tarde porque es la de mayor blast radius.
+La migracion ya no consiste solo en “crear un servicio nuevo”. Consiste en que el servicio nuevo pase a ser la fuente de verdad de rutas, handlers, tablas y contratos de su bounded context.
 
-### Fase 5. Ajuste de dominios especiales
+### 2. Mantener `gateway` como capa de compatibilidad
 
-- renombrar `fusion-service` a `entity-resolution-service`
-- formalizar `code-repo-service` como dominio Git propio mas `78`
-- formalizar `geospatial-service` como dominio propio
-- separar en `marketplace-service` la parte de catalogo frente a la de rollout y promotion
+Cada cierre de ownership debe seguir escondiendose detras de `gateway` para no romper `web` ni clientes internos mientras los legacy se vacian.
 
-## Reglas practicas para ejecutar la migracion
+### 3. Separar modulos internos antes de separar bases de datos
 
-### 1. Primero separar modulos internos, luego procesos
+Durante una iteracion de cierre conviene:
 
-Antes de crear procesos nuevos:
+- mover cada bounded context a crates o modulos claros dentro del dominio
+- dejar APIs explicitas entre contextos legacy y extraidos
+- partir esquemas logicos antes de partir fisicamente la base de datos
 
-- mover cada bounded context a crates internos o modulos independientes
-- dejar APIs explicitas entre contextos
-- evitar acceder a tablas de otro dominio desde handlers cruzados
+### 4. Extraer por prefijos de rutas ya existentes
 
-### 2. Extraer por rutas ya existentes
-
-El codigo actual ya ayuda mucho porque la mayoria de bounded contexts aparecen por prefijos de rutas:
+El codigo sigue dando buenas fronteras de extraccion por prefijo HTTP, por ejemplo:
 
 - `/api/v1/ai/prompts`
 - `/api/v1/ai/tools`
@@ -901,67 +955,53 @@ El codigo actual ya ayuda mucho porque la mayoria de bounded contexts aparecen p
 - `/api/v1/workflows/approvals`
 - `/api/v1/datasets/{id}/quality`
 
-Cuando ya existe un prefijo claro, la extraccion es mucho menos traumática.
+Cuando la ruta ya existe, la extraccion sigue siendo menos traumática que una rotura basada solo en capas internas.
 
-### 3. No partir bases de datos al principio
+### 5. Separar control plane de runtime cuando todavia esten mezclados
 
-Durante una primera migracion:
-
-- mantener una BD compartida por dominio grande
-- partir esquemas logicos primero
-- pasar a BD fisica por servicio solo cuando el contrato API ya este estable
-
-### 4. Usar `gateway` como capa de compatibilidad
-
-Cada extraccion debe esconderse detras de `gateway` para no romper a `web` ni a clientes internos.
-
-### 5. Separar primero control plane de runtime cuando aplique
-
-Aplica especialmente a:
+Sigue aplicando especialmente a:
 
 - ML
 - AI
 - pipeline execution
-- compute-style runtimes
 - ontology functions
+- app publishing y product rollout
 
-## Propuesta de estado intermedio realista
+## Propuesta actualizada de estado intermedio realista
 
-No recomiendo pasar de 21 servicios actuales a 85 despliegues.
+No recomiendo pasar de `65` servicios en el arbol a `85` despliegues independientes. Lo que si recomiendo es agrupar ownership y despliegue alrededor de macrodominios claros como estos:
 
-El mejor estado intermedio para OpenFoundry seria algo parecido a esto:
+1. `edge-gateway`: `gateway`
+2. `platform-security-core`: `auth-service`, `authorization-policy-service`, `cipher-service`, `oauth-integration-service`, `session-governance-service`, `approvals-service`
+3. `audit-governance`: `audit-service`, `sds-service`
+4. `data-connectivity`: `data-connector`, `connector-management-service`, `ingestion-replication-service`, `virtual-table-service`
+5. `data-assets`: `dataset-service`, `data-asset-catalog-service`, `dataset-versioning-service`, `dataset-quality-service`
+6. `pipeline-lineage`: `pipeline-service`, `pipeline-authoring-service`, `pipeline-build-service`, `pipeline-schedule-service`, `lineage-service`
+7. `streaming`: `streaming-service`
+8. `ontology-core`: `ontology-service`, `ontology-definition-service`, `object-database-service`, `ontology-query-service`, `ontology-actions-service`, `ontology-funnel-service`, `ontology-functions-service`, `ontology-security-service`
+9. `ml-platform`: `ml-service`, `ml-experiments-service`, `model-catalog-service`, `model-deployment-service`, `model-evaluation-service`, `model-inference-history-service`, `model-serving-service`
+10. `aip-platform`: `ai-service`, `llm-catalog-service`, `prompt-workflow-service`, `knowledge-index-service`, `retrieval-context-service`, `conversation-state-service`, `tool-registry-service`, `ai-evaluation-service`
+11. `workflow-automation`: `workflow-service`, `approvals-service`
+12. `notebook-reporting`: `notebook-service`, `report-service`, `document-reporting-service`
+13. `app-composition`: `app-builder-service`, `application-curation-service`, `widget-registry-service`
+14. `marketplace-federation`: `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service`, `nexus-service`
+15. `notifications`: `notification-service`
+16. `query-bi`: `query-service`
+17. `entity-resolution`: `fusion-service`, `entity-resolution-service`
+18. `code-repo`: `code-repo-service`, `global-branch-service`
+19. `geospatial`: `geospatial-service`, `geospatial-intelligence-service`
 
-1. `edge-gateway`
-2. `platform-security-core`
-3. `audit-governance`
-4. `data-connectivity`
-5. `data-assets`
-6. `pipeline-lineage`
-7. `streaming`
-8. `ontology-core`
-9. `ml-platform`
-10. `aip-platform`
-11. `workflow-automation`
-12. `notebook-reporting`
-13. `app-composition`
-14. `marketplace-federation`
-15. `notifications`
-16. `query-bi`
-17. `entity-resolution`
-18. `code-repo`
-19. `geospatial`
+Este es el estado intermedio mas realista: muchos nombres de servicio ya existen, pero todavia conviene pensar en ownership y despliegue por macrodominio antes de empujar una explosion operacional.
 
-Eso ya te acerca mucho al mapa definitivo sin convertir la operacion en una explosion de despliegues.
+## Recomendacion final actualizada
 
-## Recomendacion final
+Si tuviera que priorizar el siguiente tramo de trabajo, el orden seria este:
 
-Si tuviera que elegir donde empezar, empezaria aqui:
+1. `ontology-service`, porque es el legacy mas pesado y el mas peligroso si sigue como centro del ownership
+2. `auth-service`, porque ya tiene varias extracciones alrededor y aun concentra demasiadas responsabilidades incompatibles
+3. `ai-service`, porque el arbol ya materializo casi todo el dominio salvo el runtime conversacional fuerte
+4. `dataset-service` y `pipeline-service`, porque ya tienen slices claros y el retorno de cerrar ownership es alto
+5. `ml-service`, para completar lifecycle/adapter y vaciar el legacy hacia catalog, experiments, deployment, serving y evaluation
+6. `fusion-service`, `geospatial-service`, `marketplace-service` y `code-repo-service`, para decidir si de verdad pasan a shell o si siguen siendo dominios legacy con nombre viejo
 
-1. `ontology-service`
-2. `ai-service`
-3. `auth-service`
-4. `pipeline-service`
-5. `dataset-service`
-6. `ml-service`
-
-Son los servicios donde el codigo actual muestra mas mezcla de responsabilidades y donde la particion te devuelve mas claridad arquitectonica por unidad de esfuerzo.
+La definicion de hecho para esta migracion no es “existe una carpeta nueva en `services/`”. La definicion de hecho es que el servicio nuevo deja al legacy sin ownership real sobre ese bounded context.

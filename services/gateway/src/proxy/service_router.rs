@@ -29,28 +29,102 @@ pub async fn proxy_handler(
     }
     let tenant = claims.as_ref().map(TenantContext::from_claims);
 
-    let upstream_base = if path.starts_with("/api/v1/auth/cipher") {
+    let upstream_base = if path.starts_with("/api/v1/auth/sso")
+        || path.starts_with("/api/v1/api-keys")
+        || path.starts_with("/api/v1/applications")
+        || path.starts_with("/api/v1/oauth/clients")
+        || path.starts_with("/api/v1/external-integrations")
+    {
+        &config.oauth_integration_service_url
+    } else if path.starts_with("/api/v1/auth/register")
+        || path.starts_with("/api/v1/auth/login")
+        || path.starts_with("/api/v1/auth/refresh")
+        || path.starts_with("/api/v1/auth/mfa")
+        || path.starts_with("/api/v1/auth/sessions")
+        || path == "/api/v1/users/me"
+        || path == "/api/v2/admin/users/me"
+    {
+        &config.identity_federation_service_url
+    } else if path.starts_with("/api/v1/auth/cipher") {
         &config.cipher_service_url
-    } else if path.starts_with("/api/v1/auth/sessions")
-        || path.starts_with("/api/v1/restricted-views")
-        || path.starts_with("/api/v2/admin/restricted-views")
+    } else if path.starts_with("/api/v1/control-panel")
+        || path.starts_with("/api/v2/admin/control-panel")
     {
         &config.session_governance_service_url
-    } else if path.starts_with("/api/v1/auth")
-        || path.starts_with("/api/v1/users")
-        || path.starts_with("/api/v1/roles")
+    } else if path.starts_with("/api/v1/users/")
+        && (path.contains("/roles") || path.contains("/groups"))
+    {
+        &config.authorization_policy_service_url
+    } else if path.starts_with("/api/v1/roles")
         || path.starts_with("/api/v1/permissions")
         || path.starts_with("/api/v1/groups")
         || path.starts_with("/api/v1/policies")
         || path.starts_with("/api/v1/restricted-views")
-        || path.starts_with("/api/v1/api-keys")
-        || path.starts_with("/api/v1/control-panel")
+        || path.starts_with("/api/v2/admin/roles")
+        || path.starts_with("/api/v2/admin/permissions")
+        || path.starts_with("/api/v2/admin/groups")
+        || path.starts_with("/api/v2/admin/policies")
+        || path.starts_with("/api/v2/admin/restricted-views")
+    {
+        &config.authorization_policy_service_url
+    } else if path.starts_with("/api/v1/security-governance")
+        || path == "/api/v1/audit/classifications"
+        || path.starts_with("/api/v1/audit/governance/")
+        || path == "/api/v1/audit/compliance/posture"
+    {
+        &config.security_governance_service_url
+    } else if path.starts_with("/api/v1/network-boundaries") {
+        &config.network_boundary_service_url
+    } else if path.starts_with("/api/v1/checkpoints-purpose") {
+        &config.checkpoints_purpose_service_url
+    } else if path.starts_with("/api/v1/retention")
+        || path.ends_with("/retention")
+        || path.contains("/transactions/") && path.ends_with("/retention")
+    {
+        &config.retention_policy_service_url
+    } else if path.starts_with("/api/v1/lineage-deletions") || path == "/api/v1/audit/gdpr/erase" {
+        &config.lineage_deletion_service_url
+    } else if path == "/api/v1/audit/overview"
+        || path == "/api/v1/audit/events"
+        || path.starts_with("/api/v1/audit/events/")
+        || path == "/api/v1/audit/collectors"
+        || path == "/api/v1/audit/anomalies"
+        || path == "/api/v1/audit/reports"
+        || path == "/api/v1/audit/reports/generate"
+    {
+        &config.audit_compliance_service_url
+    } else if path.starts_with("/api/v1/tenancy")
+        || path.starts_with("/api/v1/organizations")
+        || path.starts_with("/api/v1/enrollments")
+        || path.starts_with("/api/v1/spaces")
+        || path.starts_with("/api/v1/projects")
+        || path.starts_with("/api/v1/nexus/spaces")
+        || path.starts_with("/api/v1/ontology/projects")
+    {
+        &config.tenancy_organizations_service_url
+    } else if path.starts_with("/api/v1/auth")
+        || path.starts_with("/api/v1/users")
         || path.starts_with("/api/v2/admin")
     {
         &config.auth_service_url
-    } else if path.starts_with("/api/v1/connections")
-        || path.starts_with("/api/v1/connector-agents")
+    } else if path.starts_with("/api/v1/connector-agents")
+        || (path.starts_with("/api/v1/connections/")
+            && (path.ends_with("/sync") || path.ends_with("/sync-jobs")))
     {
+        &config.ingestion_replication_service_url
+    } else if path.starts_with("/api/v1/connections/")
+        && (path.ends_with("/discover")
+            || path.contains("/registrations")
+            || path.ends_with("/virtual-tables/query"))
+    {
+        &config.virtual_table_service_url
+    } else if path.starts_with("/api/v1/connections/") && path.contains("/hyperauto/") {
+        &config.data_connector_service_url
+    } else if path.starts_with("/api/v1/connectors/catalog")
+        || path.starts_with("/api/v1/connections")
+    {
+        &config.connector_management_service_url
+    } else if path.starts_with("/api/v1/connections") {
         &config.data_connector_service_url
     } else if path.starts_with("/api/v1/datasets/")
         && (path.ends_with("/quality") || path.contains("/quality/") || path.ends_with("/lint"))
@@ -65,9 +139,18 @@ pub async fn proxy_handler(
         &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/datasets") || path.starts_with("/api/v2/filesystem") {
         &config.data_asset_catalog_service_url
+    } else if path.starts_with("/api/v1/sql-warehouse") {
+        &config.sql_warehousing_service_url
+    } else if path.starts_with("/api/v1/timeseries") {
+        &config.time_series_data_service_url
     } else if path.starts_with("/api/v1/queries") {
         &config.query_service_url
     } else if path.starts_with("/api/v1/pipelines/triggers/cron/") {
+        &config.pipeline_schedule_service_url
+    } else if path.starts_with("/api/v1/workflows/events/")
+        || path.starts_with("/api/v1/workflows/triggers/cron/")
+        || path.starts_with("/api/v1/schedules/")
+    {
         &config.pipeline_schedule_service_url
     } else if path.starts_with("/api/v1/pipelines/")
         && (path.ends_with("/run") || path.contains("/runs/") || path.ends_with("/runs"))
@@ -77,6 +160,41 @@ pub async fn proxy_handler(
         &config.pipeline_authoring_service_url
     } else if path.starts_with("/api/v1/lineage") {
         &config.lineage_service_url
+    } else if path.starts_with("/api/v1/ontology/functions") {
+        &config.ontology_functions_service_url
+    } else if path.starts_with("/api/v1/ontology/funnel")
+        || path.starts_with("/api/v1/ontology/storage/insights")
+    {
+        &config.ontology_funnel_service_url
+    } else if path.starts_with("/api/v1/ontology/actions")
+        || (path.starts_with("/api/v1/ontology/types/")
+            && path.contains("/objects/")
+            && path.contains("/inline-edit/"))
+    {
+        &config.ontology_actions_service_url
+    } else if path.starts_with("/api/v1/ontology/rules")
+        || (path.starts_with("/api/v1/ontology/types/") && path.ends_with("/rules"))
+        || (path.starts_with("/api/v1/ontology/objects/") && path.ends_with("/rule-runs"))
+    {
+        &config.ontology_security_service_url
+    } else if path.starts_with("/api/v1/ontology/search")
+        || path.starts_with("/api/v1/ontology/graph")
+        || path.starts_with("/api/v1/ontology/quiver")
+        || path.starts_with("/api/v1/ontology/object-sets")
+        || (path.starts_with("/api/v1/ontology/types/")
+            && (path.ends_with("/objects/query") || path.ends_with("/objects/knn")))
+    {
+        &config.ontology_query_service_url
+    } else if path.starts_with("/api/v1/ontology/links/") && path.contains("/instances") {
+        &config.object_database_service_url
+    } else if path.starts_with("/api/v1/ontology/types/") && path.contains("/objects") {
+        &config.object_database_service_url
+    } else if path.starts_with("/api/v1/ontology/interfaces")
+        || path.starts_with("/api/v1/ontology/shared-property-types")
+        || path.starts_with("/api/v1/ontology/links")
+        || path.starts_with("/api/v1/ontology/types")
+    {
+        &config.ontology_definition_service_url
     } else if path.starts_with("/api/v1/ontology") {
         &config.ontology_service_url
     } else if path.starts_with("/api/v1/workflows/approvals")
@@ -85,40 +203,147 @@ pub async fn proxy_handler(
         &config.approvals_service_url
     } else if path.starts_with("/api/v1/workflows") {
         &config.workflow_service_url
-    } else if path.starts_with("/api/v1/notebooks") || path.starts_with("/api/v1/notepad") {
+    } else if path.starts_with("/api/v1/notebooks") {
         &config.notebook_service_url
+    } else if path.starts_with("/api/v1/notepad") {
+        &config.document_reporting_service_url
     } else if path.starts_with("/api/v1/notifications") {
         &config.notification_service_url
     } else if path.starts_with("/api/v1/ml/experiments") || path.starts_with("/api/v1/ml/runs") {
         &config.ml_experiments_service_url
+    } else if path.starts_with("/api/v1/ml/models") || path.starts_with("/api/v1/ml/model-versions")
+    {
+        &config.model_catalog_service_url
+    } else if path.starts_with("/api/v1/ml/deployments/") && path.ends_with("/drift") {
+        &config.model_evaluation_service_url
+    } else if path.starts_with("/api/v1/ml/deployments/") && path.ends_with("/predict") {
+        &config.model_serving_service_url
+    } else if path.starts_with("/api/v1/ml/batch-predictions") {
+        &config.model_inference_history_service_url
+    } else if path.starts_with("/api/v1/ml/adapters") {
+        &config.model_adapter_service_url
+    } else if path.starts_with("/api/v1/ml/lifecycle") {
+        &config.model_lifecycle_service_url
+    } else if path.starts_with("/api/v1/ml/deployments") {
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml") {
         &config.ml_service_url
     } else if path.starts_with("/api/v1/ai/guardrails/evaluate")
         || path.starts_with("/api/v1/ai/evaluations")
     {
         &config.ai_evaluation_service_url
+    } else if path.starts_with("/api/v1/ai/providers") {
+        &config.llm_catalog_service_url
+    } else if path.starts_with("/api/v1/ai/prompts") {
+        &config.prompt_workflow_service_url
+    } else if path.starts_with("/api/v1/ai/knowledge-bases/") && path.ends_with("/search") {
+        &config.retrieval_context_service_url
+    } else if path.starts_with("/api/v1/ai/knowledge-bases") {
+        &config.knowledge_index_service_url
+    } else if path.starts_with("/api/v1/ai/conversations") {
+        &config.conversation_state_service_url
+    } else if path.starts_with("/api/v1/ai/tools") {
+        &config.tool_registry_service_url
+    } else if path.starts_with("/api/v1/ai/agents") {
+        &config.agent_runtime_service_url
+    } else if path.starts_with("/api/v1/ai/chat") || path.starts_with("/api/v1/ai/copilot") {
+        &config.agent_runtime_service_url
+    } else if path.starts_with("/api/v1/ai/document-intelligence") {
+        &config.document_intelligence_service_url
+    } else if path.starts_with("/api/v1/ai/app-generation") {
+        &config.ai_application_generation_service_url
     } else if path.starts_with("/api/v1/ai") {
         &config.ai_service_url
-    } else if path.starts_with("/api/v1/fusion") {
-        &config.fusion_service_url
+    } else if path.starts_with("/api/v1/tabular-analysis") {
+        &config.tabular_analysis_service_url
+    } else if path.starts_with("/api/v1/ontology-exploration") {
+        &config.ontology_exploratory_analysis_service_url
+    } else if path.starts_with("/api/v1/ontology-timeseries") {
+        &config.ontology_timeseries_analytics_service_url
+    } else if path.starts_with("/api/v1/sql-bi") {
+        &config.sql_bi_gateway_service_url
+    } else if path.starts_with("/api/v1/notebook-runtime") {
+        &config.notebook_runtime_service_url
+    } else if path.starts_with("/api/v1/spreadsheets") {
+        &config.spreadsheet_computation_service_url
+    } else if path.starts_with("/api/v1/analytical-logic") {
+        &config.analytical_logic_service_url
+    } else if path.starts_with("/api/v1/workflow-automations") {
+        &config.workflow_automation_service_url
+    } else if path.starts_with("/api/v1/automation-ops") {
+        &config.automation_operations_service_url
+    } else if path.starts_with("/api/v1/workflow-traces") {
+        &config.workflow_trace_service_url
+    } else if path.starts_with("/api/v1/app-composition") {
+        &config.application_composition_service_url
+    } else if path.starts_with("/api/v1/scenarios") {
+        &config.scenario_simulation_service_url
+    } else if path.starts_with("/api/v1/solution-design") {
+        &config.solution_design_service_url
+    } else if path.starts_with("/api/v1/developer-console") {
+        &config.developer_console_service_url
+    } else if path.starts_with("/api/v1/sdk-generation") {
+        &config.sdk_generation_service_url
+    } else if path.starts_with("/api/v1/managed-workspaces") {
+        &config.managed_workspace_service_url
+    } else if path.starts_with("/api/v1/custom-endpoints") {
+        &config.custom_endpoints_service_url
+    } else if path.starts_with("/api/v1/mcp") {
+        &config.mcp_orchestration_service_url
+    } else if path.starts_with("/api/v1/compute-modules/runs")
+        || path.starts_with("/api/v1/compute-modules/runtime")
+    {
+        &config.compute_modules_runtime_service_url
+    } else if path.starts_with("/api/v1/compute-modules") {
+        &config.compute_modules_control_plane_service_url
+    } else if path.starts_with("/api/v1/monitoring") {
+        &config.monitoring_rules_service_url
+    } else if path.starts_with("/api/v1/health-checks") {
+        &config.health_check_service_url
+    } else if path.starts_with("/api/v1/execution-observability") {
+        &config.execution_observability_service_url
+    } else if path.starts_with("/api/v1/telemetry-governance") {
+        &config.telemetry_governance_service_url
+    } else if path.starts_with("/api/v1/code-security") {
+        &config.code_security_scanning_service_url
+    } else if path.starts_with("/api/v1/entity-resolution") || path.starts_with("/api/v1/fusion") {
+        &config.entity_resolution_service_url
+    } else if path.starts_with("/api/v1/cdc-metadata") {
+        &config.cdc_metadata_service_url
     } else if path.starts_with("/api/v1/streaming") {
-        &config.streaming_service_url
+        &config.event_streaming_service_url
     } else if path.starts_with("/api/v1/reports") {
         &config.report_service_url
     } else if path.starts_with("/api/v1/geospatial") {
-        &config.geospatial_service_url
+        &config.geospatial_intelligence_service_url
+    } else if path.starts_with("/api/v1/code-repos/repositories/") && path.ends_with("/branches") {
+        &config.global_branch_service_url
     } else if path.starts_with("/api/v1/code-repos") {
-        &config.code_repo_service_url
+        &config.code_repository_review_service_url
+    } else if path.starts_with("/api/v1/federation-product-exchange")
+        || path.starts_with("/api/v1/nexus")
+        || path == "/api/v1/marketplace/installs"
+        || path == "/api/v1/marketplace/devops/branches"
+    {
+        &config.federation_product_exchange_service_url
+    } else if path.starts_with("/api/v1/marketplace/devops") {
+        &config.product_distribution_service_url
     } else if path.starts_with("/api/v1/marketplace") {
-        &config.marketplace_service_url
+        &config.marketplace_catalog_service_url
     } else if path.starts_with("/api/v1/audit/sds") {
         &config.sds_service_url
     } else if path.starts_with("/api/v1/audit") {
         &config.audit_service_url
-    } else if path.starts_with("/api/v1/nexus") {
-        &config.nexus_service_url
     } else if path.starts_with("/api/v1/widgets") {
         &config.widget_registry_service_url
+    } else if path.starts_with("/api/v1/apps/public/")
+        || path == "/api/v1/apps/templates"
+        || path == "/api/v1/apps/from-template"
+        || (path.starts_with("/api/v1/apps/") && path.ends_with("/slate-package"))
+        || (path.starts_with("/api/v1/apps/") && path.ends_with("/versions"))
+        || (path.starts_with("/api/v1/apps/") && path.ends_with("/publish"))
+    {
+        &config.application_curation_service_url
     } else if path.starts_with("/api/v1/apps") {
         &config.app_builder_service_url
     } else {

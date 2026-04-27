@@ -52,7 +52,7 @@ OpenFoundry aims to deliver **25 core capabilities** that match Palantir Foundry
 | 11 | Workflows / Actions | `workflow-service` | ✅ Done | Phase 2 |
 | 12 | Notifications | `notification-service` | ✅ Done | Phase 2 |
 | 13 | Data Catalog | `dataset-service/catalog` | ✅ Done | Phase 2 |
-| 14 | Data Quality | `dataset-service/quality` | ✅ Done | Phase 2 |
+| 14 | Data Quality | `dataset-quality-service` | ✅ Done | Phase 2 |
 | 15 | Slate/Workshop (App Builder) | `app-builder-service` | ✅ Done | Phase 3 |
 | 16 | ML / Model Management | `ml-service` | ✅ Done | Phase 3 |
 | 17 | AIP (GenAI / LLM / Copilot) | `ai-service` | ✅ Done | Phase 3 |

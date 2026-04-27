@@ -4,9 +4,7 @@ pub mod branch;
 #[allow(dead_code)]
 #[path = "../../../dataset-service/src/models/dataset.rs"]
 pub mod dataset;
-#[path = "../../../dataset-service/src/models/lint.rs"]
 pub mod lint;
-#[path = "../../../dataset-service/src/models/quality.rs"]
 pub mod quality;
 #[allow(dead_code)]
 #[path = "../../../dataset-service/src/models/schema.rs"]

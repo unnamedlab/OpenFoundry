@@ -14,6 +14,10 @@ pub struct AppConfig {
     pub pipeline_service_url: String,
     #[serde(default = "default_ontology_service_url")]
     pub ontology_service_url: String,
+    #[serde(default = "default_ingestion_replication_service_url")]
+    pub ingestion_replication_service_url: String,
+    #[serde(default = "default_network_boundary_service_url")]
+    pub network_boundary_service_url: String,
     #[serde(default = "default_sync_poll_interval_secs")]
     pub sync_poll_interval_secs: u64,
     #[serde(default = "default_allow_private_network_egress")]
@@ -37,7 +41,13 @@ fn default_pipeline_service_url() -> String {
     "http://localhost:50080".to_string()
 }
 fn default_ontology_service_url() -> String {
-    "http://localhost:50057".to_string()
+    "http://localhost:50103".to_string()
+}
+fn default_ingestion_replication_service_url() -> String {
+    "http://localhost:50090".to_string()
+}
+fn default_network_boundary_service_url() -> String {
+    "http://localhost:50119".to_string()
 }
 fn default_sync_poll_interval_secs() -> u64 {
     2

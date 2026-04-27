@@ -58,7 +58,7 @@ fn default_search_embedding_provider() -> String {
 }
 
 fn default_notification_service_url() -> String {
-    "http://localhost:50062".to_string()
+    "http://localhost:50114".to_string()
 }
 
 fn default_node_runtime_command() -> String {

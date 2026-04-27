@@ -1,4 +1,5 @@
 mod config;
+mod domain;
 mod handlers;
 mod models;
 
@@ -56,6 +57,22 @@ async fn main() {
         .route(
             "/api/v1/datasets/{id}/transactions",
             get(handlers::transactions::list_transactions),
+        )
+        .route(
+            "/api/v1/datasets/{id}/snapshots",
+            post(handlers::lifecycle::create_snapshot),
+        )
+        .route(
+            "/api/v1/datasets/{id}/transactions/append",
+            post(handlers::lifecycle::append_rows),
+        )
+        .route(
+            "/api/v1/datasets/{id}/transactions/update",
+            post(handlers::lifecycle::update_rows),
+        )
+        .route(
+            "/api/v1/datasets/{id}/transactions/delete",
+            post(handlers::lifecycle::delete_rows),
         )
         .route(
             "/api/v1/datasets/{id}/branches",

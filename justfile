@@ -65,7 +65,7 @@ run svc:
 
 # Run the gateway
 run-gateway:
-    cargo run -p gateway
+    cargo run -p edge-gateway-service
 
 # Run the OpenFoundry CLI
 of args='':

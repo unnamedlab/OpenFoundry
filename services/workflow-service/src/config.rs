@@ -8,6 +8,8 @@ pub struct AppConfig {
     pub port: u16,
     pub database_url: String,
     pub jwt_secret: String,
+    #[serde(default = "default_approvals_service_url")]
+    pub approvals_service_url: String,
     #[serde(default = "default_notification_service_url")]
     pub notification_service_url: String,
     #[serde(default = "default_ontology_service_url")]
@@ -24,12 +26,16 @@ fn default_port() -> u16 {
     50061
 }
 
+fn default_approvals_service_url() -> String {
+    "http://localhost:50071".to_string()
+}
+
 fn default_notification_service_url() -> String {
-    "http://localhost:50069".to_string()
+    "http://localhost:50114".to_string()
 }
 
 fn default_ontology_service_url() -> String {
-    "http://localhost:50057".to_string()
+    "http://localhost:50106".to_string()
 }
 
 fn default_pipeline_service_url() -> String {

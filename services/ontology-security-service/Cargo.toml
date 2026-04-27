@@ -1,0 +1,29 @@
+[package]
+name = "ontology-security-service"
+description = "Ontology security and permission resolution service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+core-models = { workspace = true }
+auth-middleware = { workspace = true }
+event-bus = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+config = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+pyo3 = { workspace = true, features = ["abi3-py311"] }
+semver = { workspace = true }
+futures = { workspace = true }

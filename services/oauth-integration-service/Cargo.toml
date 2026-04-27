@@ -1,0 +1,31 @@
+[package]
+name = "oauth-integration-service"
+description = "API keys and outbound integration credentials"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+core-models = { workspace = true }
+auth-middleware = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jsonwebtoken = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+config = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+url = { workspace = true }
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+base32 = "0.4"
+bergshamra = "0.4.0"
+roxmltree = "0.20"

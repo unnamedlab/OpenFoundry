@@ -21,6 +21,24 @@ pub struct WorkflowApproval {
     pub decided_by: Option<Uuid>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateApprovalRequest {
+    pub workflow_id: Uuid,
+    pub workflow_run_id: Uuid,
+    pub step_id: String,
+    pub title: String,
+    pub instructions: String,
+    pub assigned_to: Option<Uuid>,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateApprovalResponse {
+    pub approval: WorkflowApproval,
+    pub created: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListApprovalsQuery {
     pub page: Option<i64>,

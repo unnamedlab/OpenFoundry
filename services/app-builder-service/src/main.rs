@@ -51,29 +51,12 @@ async fn main() {
         public_base_url: cfg.public_base_url.clone(),
     };
 
-    let public = Router::new()
-        .route("/health", get(|| async { "ok" }))
-        .route(
-            "/api/v1/apps/public/{slug}",
-            get(handlers::preview::get_published_app),
-        )
-        .route(
-            "/api/v1/apps/public/{slug}/embed",
-            get(handlers::preview::get_embed_info),
-        );
+    let public = Router::new().route("/health", get(|| async { "ok" }));
 
     let protected = Router::new()
         .route(
             "/api/v1/apps",
             get(handlers::apps::list_apps).post(handlers::apps::create_app),
-        )
-        .route(
-            "/api/v1/apps/from-template",
-            post(handlers::apps::create_from_template),
-        )
-        .route(
-            "/api/v1/apps/templates",
-            get(handlers::apps::list_templates),
         )
         .route(
             "/api/v1/apps/{id}",
@@ -86,24 +69,12 @@ async fn main() {
             get(handlers::preview::preview_app),
         )
         .route(
-            "/api/v1/apps/{id}/slate-package",
-            get(handlers::slate::export_slate_package).post(handlers::slate::import_slate_package),
-        )
-        .route(
             "/api/v1/apps/{id}/pages",
             post(handlers::pages::create_page),
         )
         .route(
             "/api/v1/apps/{app_id}/pages/{page_id}",
             axum::routing::patch(handlers::pages::update_page).delete(handlers::pages::delete_page),
-        )
-        .route(
-            "/api/v1/apps/{id}/versions",
-            get(handlers::publish::list_versions),
-        )
-        .route(
-            "/api/v1/apps/{id}/publish",
-            post(handlers::publish::publish_app),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

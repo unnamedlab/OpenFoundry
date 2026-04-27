@@ -1,0 +1,22 @@
+[package]
+name = "execution-observability-service"
+description = "Run history, log search, distributed tracing and execution debug"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+core-models = { workspace = true }
+auth-middleware = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+config = { workspace = true }
+reqwest = { workspace = true }

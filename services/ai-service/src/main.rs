@@ -18,6 +18,7 @@ pub struct AppState {
     pub db: sqlx::PgPool,
     pub jwt_config: JwtConfig,
     pub http_client: reqwest::Client,
+    pub checkpoints_purpose_service_url: String,
 }
 
 impl FromRef<AppState> for JwtConfig {
@@ -54,82 +55,13 @@ async fn main() {
         db: pool,
         jwt_config: jwt_config.clone(),
         http_client,
+        checkpoints_purpose_service_url: cfg.checkpoints_purpose_service_url.clone(),
     };
 
     let public = Router::new().route("/health", get(|| async { "ok" }));
 
     let protected = Router::new()
         .route("/api/v1/ai/overview", get(handlers::chat::get_overview))
-        .route(
-            "/api/v1/ai/providers",
-            get(handlers::chat::list_providers).post(handlers::chat::create_provider),
-        )
-        .route(
-            "/api/v1/ai/providers/{id}",
-            axum::routing::patch(handlers::chat::update_provider),
-        )
-        .route(
-            "/api/v1/ai/prompts",
-            get(handlers::prompts::list_prompts).post(handlers::prompts::create_prompt),
-        )
-        .route(
-            "/api/v1/ai/prompts/{id}",
-            axum::routing::patch(handlers::prompts::update_prompt),
-        )
-        .route(
-            "/api/v1/ai/prompts/{id}/render",
-            post(handlers::prompts::render_prompt),
-        )
-        .route(
-            "/api/v1/ai/knowledge-bases",
-            get(handlers::knowledge::list_knowledge_bases)
-                .post(handlers::knowledge::create_knowledge_base),
-        )
-        .route(
-            "/api/v1/ai/knowledge-bases/{id}",
-            axum::routing::patch(handlers::knowledge::update_knowledge_base),
-        )
-        .route(
-            "/api/v1/ai/knowledge-bases/{id}/documents",
-            get(handlers::knowledge::list_documents).post(handlers::knowledge::create_document),
-        )
-        .route(
-            "/api/v1/ai/knowledge-bases/{id}/search",
-            post(handlers::knowledge::search_knowledge_base),
-        )
-        .route(
-            "/api/v1/ai/tools",
-            get(handlers::tools::list_tools).post(handlers::tools::create_tool),
-        )
-        .route(
-            "/api/v1/ai/tools/{id}",
-            axum::routing::patch(handlers::tools::update_tool),
-        )
-        .route(
-            "/api/v1/ai/agents",
-            get(handlers::agents::list_agents).post(handlers::agents::create_agent),
-        )
-        .route(
-            "/api/v1/ai/agents/{id}",
-            axum::routing::patch(handlers::agents::update_agent),
-        )
-        .route(
-            "/api/v1/ai/agents/{id}/execute",
-            post(handlers::agents::execute_agent),
-        )
-        .route(
-            "/api/v1/ai/conversations",
-            get(handlers::chat::list_conversations),
-        )
-        .route(
-            "/api/v1/ai/conversations/{id}",
-            get(handlers::chat::get_conversation),
-        )
-        .route(
-            "/api/v1/ai/chat/completions",
-            post(handlers::chat::create_chat_completion),
-        )
-        .route("/api/v1/ai/copilot/ask", post(handlers::chat::ask_copilot))
         .layer(middleware::from_fn_with_state(
             jwt_config,
             auth_middleware::auth_layer,

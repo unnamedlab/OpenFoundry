@@ -18,3 +18,17 @@ pub fn bad_request(message: impl Into<String>) -> (StatusCode, Json<ErrorRespons
         }),
     )
 }
+
+pub fn internal_error(message: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse {
+            error: message.into(),
+        }),
+    )
+}
+
+pub fn db_error(cause: &sqlx::Error) -> (StatusCode, Json<ErrorResponse>) {
+    tracing::error!("sds-service database error: {cause}");
+    internal_error("database operation failed")
+}

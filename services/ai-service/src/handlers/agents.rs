@@ -1,3 +1,4 @@
+use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Path, State},
@@ -21,7 +22,9 @@ use crate::{
     },
 };
 
-use super::{ServiceResult, bad_request, db_error, internal_error, not_found};
+use super::{
+    ServiceResult, bad_request, db_error, enforce_purpose_checkpoint, internal_error, not_found,
+};
 
 async fn load_agent_row(
     db: &sqlx::PgPool,
@@ -297,6 +300,7 @@ pub async fn execute_agent(
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
     headers: HeaderMap,
+    AuthUser(claims): AuthUser,
     Json(body): Json<ExecuteAgentRequest>,
 ) -> ServiceResult<AgentExecutionResponse> {
     if body.user_message.trim().is_empty() {
@@ -314,6 +318,59 @@ pub async fn execute_agent(
     let tools = load_tools(&state.db, &agent.tool_ids)
         .await
         .map_err(|cause| db_error(&cause))?;
+    let requires_sensitive_approval = tools.iter().any(|tool| {
+        tool.execution_config
+            .get("requires_approval")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or_else(|| {
+                matches!(
+                    tool.execution_config
+                        .get("sensitivity")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("normal"),
+                    "high" | "mutating" | "admin"
+                )
+            })
+    });
+    if requires_sensitive_approval {
+        enforce_purpose_checkpoint(
+            &state.http_client,
+            &state.checkpoints_purpose_service_url,
+            "ai_agent_execution",
+            Some(claims.sub),
+            body.purpose_justification.clone(),
+            false,
+            true,
+            vec![
+                "ai".to_string(),
+                "agent".to_string(),
+                "approval".to_string(),
+            ],
+            serde_json::json!({
+                "agent_id": agent.id,
+                "tool_count": tools.len(),
+                "sensitive_tool_names": tools
+                    .iter()
+                    .filter(|tool| {
+                        tool.execution_config
+                            .get("requires_approval")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or_else(|| {
+                                matches!(
+                                    tool.execution_config
+                                        .get("sensitivity")
+                                        .and_then(serde_json::Value::as_str)
+                                        .unwrap_or("normal"),
+                                    "high" | "mutating" | "admin"
+                                )
+                            })
+                    })
+                    .map(|tool| tool.name.clone())
+                    .collect::<Vec<_>>(),
+            }),
+        )
+        .await?;
+    }
 
     let knowledge_hits = if let Some(knowledge_base_id) = body.knowledge_base_id {
         let documents = load_documents(&state.db, knowledge_base_id)

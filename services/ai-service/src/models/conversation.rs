@@ -122,6 +122,8 @@ pub struct ChatCompletionRequest {
     pub conversation_id: Option<Uuid>,
     pub system_prompt: Option<String>,
     pub user_message: String,
+    #[serde(default)]
+    pub purpose_justification: Option<String>,
     pub prompt_template_id: Option<Uuid>,
     #[serde(default)]
     pub prompt_variables: Value,
@@ -158,6 +160,8 @@ pub struct ChatCompletionResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CopilotRequest {
     pub question: String,
+    #[serde(default)]
+    pub purpose_justification: Option<String>,
     #[serde(default)]
     pub dataset_ids: Vec<Uuid>,
     #[serde(default)]

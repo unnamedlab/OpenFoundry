@@ -230,19 +230,23 @@ pub async fn fail_run(
 
 pub async fn continue_workflow_after_approval(
     state: &AppState,
-    approval_id: Uuid,
+    approval: &crate::models::approval::WorkflowApproval,
     decision: &str,
     context: &Value,
 ) -> Result<WorkflowRun, String> {
     let endpoint = format!(
-        "{}/internal/workflows/approvals/{approval_id}/continue",
-        state.workflow_service_url.trim_end_matches('/')
+        "{}/internal/workflows/approvals/{}/continue",
+        state.workflow_service_url.trim_end_matches('/'),
+        approval.id,
     );
 
     let response = state
         .http_client
         .post(endpoint)
         .json(&json!({
+            "workflow_id": approval.workflow_id,
+            "workflow_run_id": approval.workflow_run_id,
+            "step_id": approval.step_id,
             "decision": decision,
             "context": context,
         }))

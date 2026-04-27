@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 pub struct AppState {
     pub db: sqlx::PgPool,
     pub jwt_config: JwtConfig,
+    pub approvals_service_url: String,
     pub notification_service_url: String,
     pub ontology_service_url: String,
     pub pipeline_service_url: String,
@@ -55,28 +56,22 @@ async fn main() {
     let state = AppState {
         db: pool,
         jwt_config: jwt_config.clone(),
+        approvals_service_url: cfg.approvals_service_url.clone(),
         notification_service_url: cfg.notification_service_url.clone(),
         ontology_service_url: cfg.ontology_service_url.clone(),
         pipeline_service_url: cfg.pipeline_service_url.clone(),
         http_client,
     };
 
-    let cron_state = state.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            if let Err(error) = domain::executor::run_due_cron_workflows(&cron_state).await {
-                tracing::warn!("cron evaluation failed: {error}");
-            }
-        }
-    });
-
     let public = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route(
             "/internal/workflows/{id}/runs/lineage",
             post(handlers::execute::start_internal_lineage_run),
+        )
+        .route(
+            "/internal/workflows/{id}/runs/trigger",
+            post(handlers::execute::start_internal_triggered_run),
         )
         .route(
             "/internal/workflows/approvals/{id}/continue",
@@ -91,14 +86,6 @@ async fn main() {
         .route(
             "/api/v1/workflows",
             get(handlers::crud::list_workflows).post(handlers::crud::create_workflow),
-        )
-        .route(
-            "/api/v1/workflows/events/{event_name}",
-            post(handlers::execute::trigger_event),
-        )
-        .route(
-            "/api/v1/workflows/triggers/cron/run-due",
-            post(handlers::execute::run_due_cron_workflows),
         )
         .route(
             "/api/v1/workflows/{id}",

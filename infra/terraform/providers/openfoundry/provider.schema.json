@@ -16,7 +16,7 @@
         "ci_trigger_strategy": "github_actions, gitlab_ci, or webhook.",
         "external_project": "Remote project or repository slug.",
         "provider": "git provider: github or gitlab.",
-        "repository_id": "UUID of the repository managed by code-repo-service.",
+        "repository_id": "UUID of the repository managed by code-repository-review-service.",
         "sync_mode": "push_mirror, bidirectional_mirror, or query_only."
       }
     },

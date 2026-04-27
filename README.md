@@ -6,7 +6,7 @@
 
 **A unified platform to connect operations, teams, systems, and AI — so your organization can act faster, with less chaos and more confidence.**
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen.svg)](#-product-status)
 [![Open Source](https://img.shields.io/badge/open%20source-yes-success.svg)](LICENSE)
 [![Contributions](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -490,6 +490,6 @@ It helps more people discover it — and helps us keep building.
 
 ## 📄 License
 
-OpenFoundry is licensed under the [Apache License 2.0](LICENSE).
+OpenFoundry is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
 </div>

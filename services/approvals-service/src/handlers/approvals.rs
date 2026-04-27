@@ -10,10 +10,73 @@ use crate::{
     AppState,
     domain::runtime,
     models::{
-        approval::{ApprovalDecisionRequest, ListApprovalsQuery, WorkflowApproval},
+        approval::{
+            ApprovalDecisionRequest, CreateApprovalRequest, CreateApprovalResponse,
+            ListApprovalsQuery, WorkflowApproval,
+        },
         execution::WorkflowRun,
     },
 };
+
+pub async fn create_approval(
+    State(state): State<AppState>,
+    Json(body): Json<CreateApprovalRequest>,
+) -> impl IntoResponse {
+    let existing = sqlx::query_as::<_, WorkflowApproval>(
+        r#"SELECT * FROM workflow_approvals
+           WHERE workflow_run_id = $1 AND step_id = $2 AND status = 'pending'
+           ORDER BY requested_at DESC
+           LIMIT 1"#,
+    )
+    .bind(body.workflow_run_id)
+    .bind(&body.step_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let approval = match existing {
+        Ok(Some(approval)) => {
+            return Json(CreateApprovalResponse {
+                approval,
+                created: false,
+            })
+            .into_response();
+        }
+        Ok(None) => match sqlx::query_as::<_, WorkflowApproval>(
+            r#"INSERT INTO workflow_approvals (
+                   id, workflow_id, workflow_run_id, step_id, title, instructions, assigned_to, payload
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               RETURNING *"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(body.workflow_id)
+        .bind(body.workflow_run_id)
+        .bind(&body.step_id)
+        .bind(&body.title)
+        .bind(&body.instructions)
+        .bind(body.assigned_to)
+        .bind(&body.payload)
+        .fetch_one(&state.db)
+        .await
+        {
+            Ok(approval) => approval,
+            Err(error) => {
+                tracing::error!("approval creation failed: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        },
+        Err(error) => {
+            tracing::error!("approval lookup before create failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    Json(CreateApprovalResponse {
+        approval,
+        created: true,
+    })
+    .into_response()
+}
 
 pub async fn list_approvals(
     State(state): State<AppState>,
@@ -258,7 +321,7 @@ pub async fn decide_approval(
 
     match runtime::continue_workflow_after_approval(
         &state,
-        updated_approval.id,
+        &updated_approval,
         normalized_decision,
         &context,
     )

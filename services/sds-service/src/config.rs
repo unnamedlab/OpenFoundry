@@ -6,6 +6,7 @@ pub struct AppConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    pub database_url: String,
     pub jwt_secret: String,
 }
 

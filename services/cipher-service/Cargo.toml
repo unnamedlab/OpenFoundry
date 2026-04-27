@@ -16,6 +16,9 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 config = { workspace = true }
 base64 = { workspace = true }
-sha2 = "0.10"
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
 hmac = "0.12"
-
+rand = { workspace = true }
+sha2 = "0.10"

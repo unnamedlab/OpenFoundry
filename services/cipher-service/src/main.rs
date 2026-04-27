@@ -1,6 +1,7 @@
 mod config;
 mod domain;
 mod handlers;
+mod models;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
@@ -10,9 +11,11 @@ use axum::{
     routing::{get, post},
 };
 use core_models::{health::HealthStatus, observability};
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub db: sqlx::PgPool,
     pub jwt_config: JwtConfig,
 }
 
@@ -27,9 +30,21 @@ async fn main() {
     observability::init_tracing("cipher-service");
 
     let cfg = config::AppConfig::from_env().expect("failed to load config");
+    let pool = PgPoolOptions::new()
+        .max_connections(20)
+        .connect(&cfg.database_url)
+        .await
+        .expect("failed to connect to database");
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
     let jwt_config = JwtConfig::new(&cfg.jwt_secret).with_env_defaults();
 
     let state = AppState {
+        db: pool,
         jwt_config: jwt_config.clone(),
     };
 
@@ -50,6 +65,26 @@ async fn main() {
         .route(
             "/api/v1/auth/cipher/verify",
             post(handlers::cipher::verify_signature),
+        )
+        .route(
+            "/api/v1/auth/cipher/encrypt",
+            post(handlers::cipher::encrypt_content),
+        )
+        .route(
+            "/api/v1/auth/cipher/decrypt",
+            post(handlers::cipher::decrypt_content),
+        )
+        .route(
+            "/api/v1/auth/cipher/permissions",
+            get(handlers::cipher::list_permissions),
+        )
+        .route(
+            "/api/v1/auth/cipher/channels",
+            get(handlers::cipher::list_channels).post(handlers::cipher::create_channel),
+        )
+        .route(
+            "/api/v1/auth/cipher/licenses",
+            get(handlers::cipher::list_licenses).post(handlers::cipher::create_license),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

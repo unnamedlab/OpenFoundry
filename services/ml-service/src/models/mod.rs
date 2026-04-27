@@ -1,12 +1,17 @@
 #[allow(dead_code)]
 pub mod asset_lineage;
+#[allow(dead_code)]
 pub mod deployment;
 #[allow(dead_code)]
 pub mod experiment;
 pub mod feature;
+#[allow(dead_code)]
 pub mod interop;
+#[allow(dead_code)]
 pub mod model;
+#[allow(dead_code)]
 pub mod model_version;
+#[allow(dead_code)]
 pub mod prediction;
 #[allow(dead_code)]
 pub mod run;

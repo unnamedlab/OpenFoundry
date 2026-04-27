@@ -88,6 +88,9 @@ async fn main() {
             {
                 tracing::warn!("pipeline scheduling evaluation failed: {error}");
             }
+            if let Err(error) = domain::workflow::run_due_cron_workflows(&scheduler_state).await {
+                tracing::warn!("workflow scheduling evaluation failed: {error}");
+            }
         }
     });
 
@@ -100,6 +103,26 @@ async fn main() {
         .route(
             "/api/v1/pipelines/triggers/cron/run-due",
             post(handlers::execute::run_due_scheduled_pipelines),
+        )
+        .route(
+            "/api/v1/workflows/events/{event_name}",
+            post(handlers::workflow::trigger_event),
+        )
+        .route(
+            "/api/v1/workflows/triggers/cron/run-due",
+            post(handlers::workflow::run_due_cron_workflows),
+        )
+        .route(
+            "/api/v1/schedules/due-runs",
+            get(handlers::schedule::list_due_runs),
+        )
+        .route(
+            "/api/v1/schedules/windows/preview",
+            post(handlers::schedule::preview_windows),
+        )
+        .route(
+            "/api/v1/schedules/backfills",
+            post(handlers::schedule::backfill_runs),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

@@ -11,9 +11,11 @@ use axum::{
     routing::{get, post},
 };
 use core_models::{health::HealthStatus, observability};
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub db: sqlx::PgPool,
     pub jwt_config: JwtConfig,
 }
 
@@ -28,9 +30,21 @@ async fn main() {
     observability::init_tracing("sds-service");
 
     let cfg = config::AppConfig::from_env().expect("failed to load config");
+    let pool = PgPoolOptions::new()
+        .max_connections(20)
+        .connect(&cfg.database_url)
+        .await
+        .expect("failed to connect to database");
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
     let jwt_config = JwtConfig::new(&cfg.jwt_secret).with_env_defaults();
 
     let state = AppState {
+        db: pool,
         jwt_config: jwt_config.clone(),
     };
 
@@ -43,6 +57,19 @@ async fn main() {
         .route(
             "/api/v1/audit/sds/scan",
             post(handlers::sds::scan_sensitive_data),
+        )
+        .route(
+            "/api/v1/audit/sds/scan-jobs",
+            get(handlers::sds::list_scan_jobs).post(handlers::sds::run_scan_job),
+        )
+        .route("/api/v1/audit/sds/issues", get(handlers::sds::list_issues))
+        .route(
+            "/api/v1/audit/sds/issues/{id}/markings",
+            post(handlers::sds::mark_issue),
+        )
+        .route(
+            "/api/v1/audit/sds/remediation-rules",
+            get(handlers::sds::list_remediation_rules).post(handlers::sds::create_remediation_rule),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,

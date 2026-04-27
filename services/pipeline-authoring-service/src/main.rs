@@ -53,6 +53,11 @@ async fn main() {
         .await
         .expect("failed to connect to database");
 
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
     let jwt_config = JwtConfig::new(&cfg.jwt_secret).with_env_defaults();
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -84,6 +89,18 @@ async fn main() {
     );
 
     let protected = Router::new()
+        .route(
+            "/api/v1/pipelines/validate",
+            post(handlers::compiler::validate_pipeline),
+        )
+        .route(
+            "/api/v1/pipelines/compile",
+            post(handlers::compiler::compile_pipeline),
+        )
+        .route(
+            "/api/v1/pipelines/prune",
+            post(handlers::compiler::prune_pipeline),
+        )
         .route("/api/v1/pipelines", post(handlers::crud::create_pipeline))
         .route("/api/v1/pipelines", get(handlers::crud::list_pipelines))
         .route("/api/v1/pipelines/{id}", get(handlers::crud::get_pipeline))

@@ -326,10 +326,10 @@ services:
         cooldownPeriod: 120
         triggers: []
 
-  geospatial-service:
+  geospatial-intelligence-service:
     enabled: true
     image:
-      repository: ghcr.io/open-foundry/geospatial-service
+      repository: ghcr.io/open-foundry/geospatial-intelligence-service
       tag: latest
     port: 50068
     replicas: 2

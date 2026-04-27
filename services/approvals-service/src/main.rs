@@ -54,10 +54,15 @@ async fn main() {
         ontology_service_url: cfg.ontology_service_url.clone(),
     };
 
-    let public = Router::new().route(
-        "/health",
-        get(|| async { axum::Json(HealthStatus::ok("approvals-service")) }),
-    );
+    let public = Router::new()
+        .route(
+            "/health",
+            get(|| async { axum::Json(HealthStatus::ok("approvals-service")) }),
+        )
+        .route(
+            "/internal/approvals",
+            post(handlers::approvals::create_approval),
+        );
 
     let protected = Router::new()
         .route(

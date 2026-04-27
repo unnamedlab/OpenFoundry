@@ -51,6 +51,32 @@ async fn main() {
 
     let protected = Router::new()
         .route(
+            "/api/v1/control-panel",
+            get(handlers::control_panel::get_control_panel)
+                .put(handlers::control_panel::update_control_panel),
+        )
+        .route(
+            "/api/v1/control-panel/upgrade-readiness",
+            get(handlers::control_panel::get_upgrade_readiness),
+        )
+        .route(
+            "/api/v1/control-panel/identity-provider-mappings/preview",
+            post(handlers::control_panel::preview_identity_provider_mapping),
+        )
+        .route(
+            "/api/v2/admin/control-panel",
+            get(handlers::control_panel::get_control_panel)
+                .put(handlers::control_panel::update_control_panel),
+        )
+        .route(
+            "/api/v2/admin/control-panel/upgrade-readiness",
+            get(handlers::control_panel::get_upgrade_readiness),
+        )
+        .route(
+            "/api/v2/admin/control-panel/identity-provider-mappings/preview",
+            post(handlers::control_panel::preview_identity_provider_mapping),
+        )
+        .route(
             "/api/v1/restricted-views",
             get(handlers::restricted_views::list_restricted_views)
                 .post(handlers::restricted_views::create_restricted_view),

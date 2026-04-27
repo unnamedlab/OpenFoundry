@@ -60,6 +60,39 @@ fn to_batch_job(row: BatchPredictionRow) -> BatchPredictionJob {
     }
 }
 
+async fn persist_realtime_inference(
+    db: &sqlx::PgPool,
+    deployment_id: Uuid,
+    outputs: &[crate::models::prediction::PredictionOutput],
+    predicted_at: chrono::DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+		INSERT INTO ml_batch_predictions (
+			id,
+			deployment_id,
+			status,
+			record_count,
+			output_destination,
+			outputs,
+			created_at,
+			completed_at
+		)
+		VALUES ($1, $2, 'realtime', $3, NULL, $4, $5, $6)
+		"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(deployment_id)
+    .bind(outputs.len() as i64)
+    .bind(to_json(outputs))
+    .bind(predicted_at)
+    .bind(Some(predicted_at))
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
 async fn load_deployment(
     db: &sqlx::PgPool,
     deployment_id: Uuid,
@@ -143,12 +176,22 @@ pub async fn realtime_predict(
                 index,
             ))
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    let predicted_at = Utc::now();
+    if let Err(error) =
+        persist_realtime_inference(&state.db, deployment_id, &outputs, predicted_at).await
+    {
+        tracing::warn!(
+            deployment_id = %deployment_id,
+            "failed to persist realtime inference history: {error}"
+        );
+    }
 
     Ok(Json(RealtimePredictionResponse {
         deployment_id,
         outputs,
-        predicted_at: Utc::now(),
+        predicted_at,
     }))
 }
 

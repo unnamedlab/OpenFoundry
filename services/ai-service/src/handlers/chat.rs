@@ -1,5 +1,6 @@
 use std::{collections::BTreeSet, time::Instant};
 
+use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Path, State},
@@ -32,7 +33,9 @@ use crate::{
     },
 };
 
-use super::{ServiceResult, bad_request, db_error, internal_error, not_found};
+use super::{
+    ServiceResult, bad_request, db_error, enforce_purpose_checkpoint, internal_error, not_found,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedChatPayload {
@@ -928,6 +931,7 @@ pub async fn get_conversation(
 
 pub async fn create_chat_completion(
     State(state): State<AppState>,
+    AuthUser(claims): AuthUser,
     Json(body): Json<ChatCompletionRequest>,
 ) -> ServiceResult<ChatCompletionResponse> {
     if body.user_message.trim().is_empty() {
@@ -973,6 +977,31 @@ pub async fn create_chat_completion(
     let required_modalities = required_modalities(&body.attachments);
     let privacy_reason = privacy_reason(&guardrail, body.require_private_network);
     let prefer_private_network = privacy_reason.is_some();
+    if body.require_private_network || privacy_reason.is_some() {
+        let mut tags = vec!["ai".to_string(), "chat".to_string()];
+        if body.require_private_network {
+            tags.push("private-network".to_string());
+        }
+        if privacy_reason.is_some() {
+            tags.push("sensitive".to_string());
+        }
+        enforce_purpose_checkpoint(
+            &state.http_client,
+            &state.checkpoints_purpose_service_url,
+            "ai_chat_completion",
+            Some(claims.sub),
+            body.purpose_justification.clone(),
+            body.require_private_network,
+            false,
+            tags,
+            json!({
+                "privacy_reason": privacy_reason,
+                "guardrail_status": guardrail.status,
+                "flag_count": guardrail.flags.len(),
+            }),
+        )
+        .await?;
+    }
     let knowledge_hits = if let Some(knowledge_base_id) = body.knowledge_base_id {
         let documents = load_documents_for_bases(&state.db, &[knowledge_base_id])
             .await

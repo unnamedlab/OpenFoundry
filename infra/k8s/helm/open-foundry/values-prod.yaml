@@ -56,7 +56,7 @@ services:
     autoscaling:
       minReplicas: 3
       maxReplicas: 8
-  geospatial-service:
+  geospatial-intelligence-service:
     replicas: 3
     autoscaling:
       minReplicas: 3

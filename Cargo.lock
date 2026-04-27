@@ -62,6 +62,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-runtime-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -82,6 +101,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "ai-application-generation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -144,6 +182,25 @@ name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+
+[[package]]
+name = "analytical-logic-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "android-tzdata"
@@ -234,6 +291,45 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "application-composition-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "application-curation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
  "uuid",
 ]
 
@@ -638,6 +734,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "audit-compliance-service"
+version = "0.1.0"
+dependencies = [
+ "audit-trail",
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "audit-service"
 version = "0.1.0"
 dependencies = [
@@ -727,10 +846,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "authorization-policy-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+
+[[package]]
+name = "automation-operations-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "axum"
@@ -1330,6 +1485,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cdc-metadata-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1340,6 +1514,24 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "checkpoints-purpose-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "chrono"
@@ -1383,14 +1575,18 @@ dependencies = [
  "auth-middleware",
  "axum 0.8.9",
  "base64 0.22.1",
+ "chrono",
  "config",
  "core-models",
  "hmac 0.12.1",
+ "rand 0.8.6",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1461,22 +1657,38 @@ dependencies = [
 ]
 
 [[package]]
-name = "code-repo-service"
+name = "code-repository-review-service"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "auth-middleware",
  "axum 0.8.9",
  "chrono",
  "config",
  "core-models",
- "event-bus",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
- "storage-abstraction",
  "tokio",
- "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "code-security-scanning-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1513,6 +1725,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "compute-modules-control-plane-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "compute-modules-runtime-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1538,6 +1788,33 @@ dependencies = [
  "serde_json",
  "toml",
  "yaml-rust2",
+]
+
+[[package]]
+name = "connector-management-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "auth-middleware",
+ "axum 0.8.9",
+ "base64 0.22.1",
+ "chrono",
+ "config",
+ "core-models",
+ "csv",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1577,6 +1854,25 @@ name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+
+[[package]]
+name = "conversation-state-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "vector-store",
+]
 
 [[package]]
 name = "convert_case"
@@ -1969,6 +2265,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "custom-endpoints-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -2565,6 +2880,7 @@ version = "0.1.0"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
+ "bytes",
  "chrono",
  "config",
  "core-models",
@@ -2657,6 +2973,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "developer-console-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2732,6 +3067,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "document-intelligence-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "document-reporting-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2797,6 +3170,27 @@ dependencies = [
  "signature 2.2.0",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "edge-gateway-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "config",
+ "core-models",
+ "hyper",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -2867,6 +3261,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "entity-resolution-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2921,6 +3335,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-streaming-service"
+version = "0.1.0"
+dependencies = [
+ "async-nats",
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "execution-observability-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2931,6 +3386,27 @@ name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+
+[[package]]
+name = "federation-product-exchange-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "ff"
@@ -3042,26 +3518,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fusion-service"
-version = "0.1.0"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tonic",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -3229,7 +3685,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "geospatial-service"
+name = "geospatial-intelligence-service"
 version = "0.1.0"
 dependencies = [
  "auth-middleware",
@@ -3315,6 +3771,27 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
+name = "global-branch-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "group"
@@ -3451,6 +3928,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
 dependencies = [
  "http",
+]
+
+[[package]]
+name = "health-check-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -3797,6 +4293,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
+name = "identity-federation-service"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "auth-middleware",
+ "axum 0.8.9",
+ "base32",
+ "base64 0.22.1",
+ "bergshamra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "hmac 0.12.1",
+ "jsonwebtoken",
+ "rand 0.8.6",
+ "regex",
+ "reqwest",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3847,6 +4376,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79cf5c93f93228cf8efb3ba362535fb11199ac548a09ce117c9b1adc3030d706"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "ingestion-replication-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "auth-middleware",
+ "axum 0.8.9",
+ "base64 0.22.1",
+ "chrono",
+ "config",
+ "core-models",
+ "csv",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3996,6 +4552,25 @@ checksum = "9e24a010dd405bd7ed803e5253182815b41bf2e6a80cc3bfc066658e03a198aa"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
+]
+
+[[package]]
+name = "knowledge-index-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "vector-store",
 ]
 
 [[package]]
@@ -4186,6 +4761,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lineage-deletion-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "lineage-service"
 version = "0.1.0"
 dependencies = [
@@ -4234,6 +4828,25 @@ name = "litemap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
+
+[[package]]
+name = "llm-catalog-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "vector-store",
+]
 
 [[package]]
 name = "lock_api"
@@ -4286,6 +4899,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "managed-workspace-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "marketplace-catalog-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "marketplace-service"
 version = "0.1.0"
 dependencies = [
@@ -4328,6 +4983,25 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "mcp-orchestration-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "md-5"
@@ -4462,6 +5136,129 @@ dependencies = [
 ]
 
 [[package]]
+name = "model-adapter-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "model-catalog-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "model-deployment-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "model-evaluation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "model-inference-history-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "model-lifecycle-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "model-serving-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "module-lattice"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4469,6 +5266,25 @@ checksum = "6dfecc750073acc09af2f8899b2342d520d570392ba1c3aed53eeb0d84ca4103"
 dependencies = [
  "hybrid-array",
  "num-traits",
+]
+
+[[package]]
+name = "monitoring-rules-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -4503,6 +5319,24 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "network-boundary-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4561,6 +5395,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "notebook-runtime-service"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "pyo3",
+ "query-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "notebook-service"
 version = "0.1.0"
 dependencies = [
@@ -4580,6 +5441,28 @@ dependencies = [
  "sqlx",
  "storage-abstraction",
  "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "notification-alerting-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "lettre",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
  "tokio",
  "tonic",
  "tracing",
@@ -4735,6 +5618,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth-integration-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "base32",
+ "base64 0.22.1",
+ "bergshamra",
+ "chrono",
+ "config",
+ "core-models",
+ "hmac 0.12.1",
+ "jsonwebtoken",
+ "rand 0.8.6",
+ "reqwest",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "object"
 version = "0.36.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4753,6 +5664,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "object-database-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -4815,6 +5752,181 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "ontology-actions-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-definition-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-exploratory-analysis-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-functions-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-funnel-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-query-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-security-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "ontology-service"
 version = "0.1.0"
 dependencies = [
@@ -4835,6 +5947,25 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "ontology-timeseries-analytics-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -5480,6 +6611,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-distribution-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "prompt-workflow-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "vector-store",
+]
+
+[[package]]
 name = "prost"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5989,6 +7162,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "retention-policy-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "retrieval-context-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "vector-store",
+]
+
+[[package]]
 name = "rfc6979"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6235,6 +7444,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "scenario-simulation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6285,17 +7513,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdk-generation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "sds-service"
 version = "0.1.0"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
+ "chrono",
  "config",
  "core-models",
  "regex",
  "serde",
+ "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -6355,6 +7606,24 @@ checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "security-governance-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -6744,6 +8013,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "solution-design-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6773,10 +8061,72 @@ dependencies = [
 ]
 
 [[package]]
+name = "spreadsheet-computation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "sptr"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b9b39299b249ad65f3b7e96443bad61c02ca5cd3589f46cb6d610a0fd6c0d6a"
+
+[[package]]
+name = "sql-bi-gateway-service"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "datafusion",
+ "event-bus",
+ "futures",
+ "query-engine",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "sql-warehousing-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "sqlparser"
@@ -7038,28 +8388,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "streaming-service"
-version = "0.1.0"
-dependencies = [
- "async-nats",
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tonic",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7137,10 +8465,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "tabular-analysis-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
+
+[[package]]
+name = "telemetry-governance-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "tempfile"
@@ -7153,6 +8519,24 @@ dependencies = [
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tenancy-organizations-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -7295,6 +8679,25 @@ checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "time-series-data-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -7543,6 +8946,25 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "tool-registry-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "vector-store",
 ]
 
 [[package]]
@@ -7933,6 +9355,33 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "virtual-table-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "auth-middleware",
+ "axum 0.8.9",
+ "base64 0.22.1",
+ "chrono",
+ "config",
+ "core-models",
+ "csv",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
 
 [[package]]
 name = "walkdir"
@@ -8963,6 +10412,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "workflow-automation-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "cron",
+ "event-bus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "workflow-service"
 version = "0.1.0"
 dependencies = [
@@ -8979,6 +10450,25 @@ dependencies = [
  "sqlx",
  "tokio",
  "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "workflow-trace-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
