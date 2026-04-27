@@ -46,7 +46,7 @@ fn default_ontology_service_url() -> String {
 }
 
 fn default_pipeline_service_url() -> String {
-    "http://localhost:50056".to_string()
+    "http://localhost:50081".to_string()
 }
 
 fn default_ai_service_url() -> String {

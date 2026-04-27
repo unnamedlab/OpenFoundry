@@ -1,8 +1,6 @@
 use std::str::FromStr;
 
-use auth_middleware::{
-    jwt::{build_access_claims, encode_token},
-};
+use auth_middleware::jwt::{build_access_claims, encode_token};
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use serde::{Deserialize, Serialize};

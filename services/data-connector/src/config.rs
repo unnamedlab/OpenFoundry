@@ -34,7 +34,7 @@ fn default_dataset_service_url() -> String {
     "http://localhost:50079".to_string()
 }
 fn default_pipeline_service_url() -> String {
-    "http://localhost:50056".to_string()
+    "http://localhost:50080".to_string()
 }
 fn default_ontology_service_url() -> String {
     "http://localhost:50057".to_string()

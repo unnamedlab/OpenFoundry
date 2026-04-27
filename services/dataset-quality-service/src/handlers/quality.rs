@@ -22,4 +22,3 @@ pub async fn refresh_dataset_quality_internal(
         .await
         .into_response()
 }
-

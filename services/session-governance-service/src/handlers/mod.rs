@@ -3,4 +3,3 @@ pub mod common;
 pub mod restricted_views;
 #[path = "../../../auth-service/src/handlers/sessions.rs"]
 pub mod sessions;
-

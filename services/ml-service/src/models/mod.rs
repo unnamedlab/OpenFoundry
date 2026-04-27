@@ -1,11 +1,14 @@
+#[allow(dead_code)]
 pub mod asset_lineage;
 pub mod deployment;
+#[allow(dead_code)]
 pub mod experiment;
 pub mod feature;
 pub mod interop;
 pub mod model;
 pub mod model_version;
 pub mod prediction;
+#[allow(dead_code)]
 pub mod run;
 pub mod training_job;
 

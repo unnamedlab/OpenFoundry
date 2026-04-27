@@ -1,0 +1,8 @@
+host = "0.0.0.0"
+port = 50083
+storage_backend = "s3"
+storage_bucket = "datasets"
+s3_region = "us-east-1"
+distributed_pipeline_workers = 4
+distributed_compute_poll_interval_ms = 5000
+distributed_compute_timeout_secs = 1800

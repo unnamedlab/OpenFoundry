@@ -316,7 +316,9 @@ pub async fn get_storage_insights(
 
     let index_definitions = match load_index_definitions(&state).await {
         Ok(definitions) => definitions,
-        Err(error) => return db_error(format!("failed to load storage index definitions: {error}")),
+        Err(error) => {
+            return db_error(format!("failed to load storage index definitions: {error}"));
+        }
     };
 
     let object_type_distribution = match load_object_type_distribution(&state).await {
@@ -332,7 +334,9 @@ pub async fn get_storage_insights(
     let (search_documents_total, search_documents_by_kind) =
         match load_search_document_metrics(&state, &claims).await {
             Ok(metrics) => metrics,
-            Err(error) => return db_error(format!("failed to load search document metrics: {error}")),
+            Err(error) => {
+                return db_error(format!("failed to load search document metrics: {error}"));
+            }
         };
 
     let latest_object_write_at = match sqlx::query_scalar::<_, Option<DateTime<Utc>>>(

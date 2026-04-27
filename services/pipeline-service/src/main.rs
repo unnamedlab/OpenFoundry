@@ -1,13 +1,12 @@
+#![allow(dead_code)]
+
 mod config;
 mod domain;
 mod handlers;
 mod models;
 
 use auth_middleware::jwt::JwtConfig;
-use axum::{
-    Router, middleware,
-    routing::{delete, get, post, put},
-};
+use axum::{Router, routing::get};
 use core_models::{health::HealthStatus, observability};
 use sqlx::postgres::PgPoolOptions;
 use storage_abstraction::StorageBackend;
@@ -31,18 +30,11 @@ pub struct AppState {
     pub distributed_compute_timeout_secs: u64,
 }
 
-impl axum::extract::FromRef<AppState> for JwtConfig {
-    fn from_ref(state: &AppState) -> Self {
-        state.jwt_config.clone()
-    }
-}
-
 #[tokio::main]
 async fn main() {
     observability::init_tracing("pipeline-service");
 
     let cfg = config::AppConfig::from_env().expect("failed to load config");
-    tracing::info!(data_dir = %cfg.data_dir, "pipeline-service data directory configured");
 
     let pool = PgPoolOptions::new()
         .max_connections(20)
@@ -55,21 +47,16 @@ async fn main() {
         .await
         .expect("failed to run migrations");
 
-    let jwt_config = JwtConfig::new(&cfg.jwt_secret).with_env_defaults();
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .expect("failed to build HTTP client");
-    let storage = build_storage_backend(&cfg);
-
-    let state = AppState {
+    let _migration_owner_state = AppState {
         db: pool,
-        jwt_config: jwt_config.clone(),
-        http_client,
+        jwt_config: JwtConfig::new(&cfg.jwt_secret).with_env_defaults(),
+        http_client: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .expect("failed to build HTTP client"),
         dataset_service_url: cfg.dataset_service_url.clone(),
         workflow_service_url: cfg.workflow_service_url.clone(),
         ai_service_url: cfg.ai_service_url.clone(),
-        storage,
         storage_backend: cfg.storage_backend.clone(),
         storage_bucket: cfg.storage_bucket.clone(),
         s3_endpoint: cfg.s3_endpoint.clone(),
@@ -78,123 +65,28 @@ async fn main() {
         distributed_pipeline_workers: cfg.distributed_pipeline_workers.max(1),
         distributed_compute_poll_interval_ms: cfg.distributed_compute_poll_interval_ms.max(250),
         distributed_compute_timeout_secs: cfg.distributed_compute_timeout_secs.max(30),
+        storage: std::sync::Arc::new(
+            storage_abstraction::local::LocalStorage::new(
+                cfg.local_storage_root
+                    .as_deref()
+                    .unwrap_or("/tmp/openfoundry-pipeline-shell"),
+            )
+            .expect("failed to init migration-owner local storage"),
+        ),
     };
 
-    let scheduler_state = state.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            if let Err(error) =
-                domain::executor::run_due_scheduled_pipelines(&scheduler_state).await
-            {
-                tracing::warn!("pipeline scheduling evaluation failed: {error}");
-            }
-        }
-    });
-
-    let public = Router::new()
-        .route(
-            "/health",
-            get(|| async { axum::Json(HealthStatus::ok("pipeline-service")) }),
-        )
-        .route(
-            "/internal/lineage/workflows/{workflow_id}/sync",
-            post(handlers::lineage::sync_workflow_lineage),
-        )
-        .route(
-            "/internal/lineage/workflows/{workflow_id}",
-            delete(handlers::lineage::delete_workflow_lineage),
-        );
-
-    let protected = Router::new()
-        // Pipeline CRUD
-        .route("/api/v1/pipelines", post(handlers::crud::create_pipeline))
-        .route("/api/v1/pipelines", get(handlers::crud::list_pipelines))
-        .route("/api/v1/pipelines/{id}", get(handlers::crud::get_pipeline))
-        .route("/api/v1/pipelines/{id}", put(handlers::crud::update_pipeline))
-        .route("/api/v1/pipelines/{id}", delete(handlers::crud::delete_pipeline))
-        // Execution
-        .route("/api/v1/pipelines/{id}/run", post(handlers::execute::trigger_run))
-        .route(
-            "/api/v1/pipelines/triggers/cron/run-due",
-            post(handlers::execute::run_due_scheduled_pipelines),
-        )
-        // Runs
-        .route("/api/v1/pipelines/{id}/runs", get(handlers::runs::list_runs))
-        .route("/api/v1/pipelines/{pipeline_id}/runs/{run_id}", get(handlers::runs::get_run))
-        .route(
-            "/api/v1/pipelines/{pipeline_id}/runs/{run_id}/retry",
-            post(handlers::execute::retry_run),
-        )
-        // Lineage
-        .route("/api/v1/lineage/datasets/{dataset_id}", get(handlers::lineage::get_dataset_lineage))
-        .route(
-            "/api/v1/lineage/datasets/{dataset_id}/columns",
-            get(handlers::lineage::get_dataset_column_lineage),
-        )
-        .route(
-            "/api/v1/lineage/datasets/{dataset_id}/impact",
-            get(handlers::lineage::get_dataset_lineage_impact),
-        )
-        .route(
-            "/api/v1/lineage/datasets/{dataset_id}/builds",
-            post(handlers::lineage::trigger_dataset_lineage_builds),
-        )
-        .route("/api/v1/lineage", get(handlers::lineage::get_full_lineage))
-        .layer(middleware::from_fn_with_state(
-            jwt_config,
-            auth_middleware::auth_layer,
-        ));
-
-    let app = Router::new()
-        .merge(public)
-        .merge(protected)
-        .with_state(state);
+    let app = Router::new().route(
+        "/health",
+        get(|| async { axum::Json(HealthStatus::ok("pipeline-service")) }),
+    );
 
     let addr = format!("{}:{}", cfg.host, cfg.port);
     tracing::info!("starting pipeline-service on {addr}");
+    tracing::info!("pipeline-service now acts as migration owner and compatibility shell");
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind");
 
     axum::serve(listener, app).await.expect("server error");
-}
-
-fn build_storage_backend(cfg: &config::AppConfig) -> std::sync::Arc<dyn StorageBackend> {
-    match cfg.storage_backend.as_str() {
-        "local" => {
-            let root = cfg
-                .local_storage_root
-                .as_deref()
-                .unwrap_or("/tmp/of-datasets");
-            std::sync::Arc::new(
-                storage_abstraction::local::LocalStorage::new(root)
-                    .expect("failed to init local storage"),
-            )
-        }
-        "s3" => {
-            let access_key = cfg
-                .s3_access_key
-                .as_deref()
-                .expect("s3_access_key must be configured when storage_backend=s3");
-            let secret_key = cfg
-                .s3_secret_key
-                .as_deref()
-                .expect("s3_secret_key must be configured when storage_backend=s3");
-
-            std::sync::Arc::new(
-                storage_abstraction::s3::S3Storage::new(
-                    &cfg.storage_bucket,
-                    cfg.s3_region.as_deref().unwrap_or("us-east-1"),
-                    cfg.s3_endpoint.as_deref(),
-                    access_key,
-                    secret_key,
-                )
-                .expect("failed to init S3 storage"),
-            )
-        }
-        other => panic!("unsupported storage backend '{other}'"),
-    }
 }

@@ -73,7 +73,8 @@ pub async fn continue_after_approval(
                 .into_response();
         }
     };
-    let Some(step): Option<&WorkflowStep> = steps.iter().find(|step| step.id == approval.step_id) else {
+    let Some(step): Option<&WorkflowStep> = steps.iter().find(|step| step.id == approval.step_id)
+    else {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "approval step not found in workflow" })),

@@ -1,12 +1,12 @@
 pub mod actions;
-pub mod funnel;
 pub mod functions;
+pub mod funnel;
 pub mod interfaces;
 pub mod links;
 pub mod object_sets;
 pub mod objects;
-pub mod properties;
 pub mod projects;
+pub mod properties;
 pub mod rules;
 pub mod search;
 pub mod shared_properties;

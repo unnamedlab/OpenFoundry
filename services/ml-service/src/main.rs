@@ -55,31 +55,6 @@ async fn main() {
     let protected = Router::new()
         .route("/api/v1/ml/overview", get(handlers::overview::get_overview))
         .route(
-            "/api/v1/ml/experiments",
-            get(handlers::experiments::list_experiments)
-                .post(handlers::experiments::create_experiment),
-        )
-        .route(
-            "/api/v1/ml/experiments/{id}",
-            axum::routing::patch(handlers::experiments::update_experiment),
-        )
-        .route(
-            "/api/v1/ml/experiments/{id}/asset-lineage",
-            get(handlers::experiments::get_experiment_asset_lineage),
-        )
-        .route(
-            "/api/v1/ml/experiments/{id}/runs",
-            get(handlers::experiments::list_runs).post(handlers::experiments::create_run),
-        )
-        .route(
-            "/api/v1/ml/runs/{id}",
-            axum::routing::patch(handlers::experiments::update_run),
-        )
-        .route(
-            "/api/v1/ml/runs/compare",
-            post(handlers::experiments::compare_runs),
-        )
-        .route(
             "/api/v1/ml/models",
             get(handlers::models::list_models).post(handlers::models::create_model),
         )

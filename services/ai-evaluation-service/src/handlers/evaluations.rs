@@ -1,9 +1,6 @@
 use std::{collections::BTreeSet, time::Instant};
 
-use axum::{
-    Json,
-    extract::State,
-};
+use axum::{Json, extract::State};
 use chrono::Utc;
 use serde_json::{Value, json};
 use sqlx::{query_as, types::Json as SqlJson};
@@ -15,8 +12,8 @@ use crate::{
     models::{
         conversation::{
             ChatAttachment, EvaluateGuardrailsRequest, EvaluateGuardrailsResponse,
-            GuardrailVerdict, LlmUsageSummary, ProviderBenchmarkRequest,
-            ProviderBenchmarkResponse, ProviderBenchmarkResult, ProviderBenchmarkScore,
+            GuardrailVerdict, LlmUsageSummary, ProviderBenchmarkRequest, ProviderBenchmarkResponse,
+            ProviderBenchmarkResult, ProviderBenchmarkScore,
         },
         provider::{LlmProvider, ProviderRow},
     },

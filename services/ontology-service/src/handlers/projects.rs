@@ -75,7 +75,10 @@ fn normalize_slug(value: &str, field_name: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-fn normalize_optional_slug(value: Option<&str>, field_name: &str) -> Result<Option<String>, String> {
+fn normalize_optional_slug(
+    value: Option<&str>,
+    field_name: &str,
+) -> Result<Option<String>, String> {
     match value.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => normalize_slug(value, field_name).map(Some),
         None => Ok(None),
@@ -94,7 +97,10 @@ async fn load_project(state: &AppState, id: Uuid) -> Result<Option<OntologyProje
     .map_err(|error| format!("failed to load ontology project: {error}"))
 }
 
-fn ensure_project_owner_or_admin(project: &OntologyProject, claims: &auth_middleware::Claims) -> Result<(), String> {
+fn ensure_project_owner_or_admin(
+    project: &OntologyProject,
+    claims: &auth_middleware::Claims,
+) -> Result<(), String> {
     if claims.has_role("admin") || project.owner_id == claims.sub {
         Ok(())
     } else {
@@ -165,10 +171,11 @@ pub async fn create_project(
         Ok(slug) => slug,
         Err(error) => return invalid(error),
     };
-    let workspace_slug = match normalize_optional_slug(body.workspace_slug.as_deref(), "workspace_slug") {
-        Ok(workspace_slug) => workspace_slug,
-        Err(error) => return invalid(error),
-    };
+    let workspace_slug =
+        match normalize_optional_slug(body.workspace_slug.as_deref(), "workspace_slug") {
+            Ok(workspace_slug) => workspace_slug,
+            Err(error) => return invalid(error),
+        };
     let display_name = body.display_name.unwrap_or_else(|| slug.clone());
     let description = body.description.unwrap_or_default();
 
@@ -228,10 +235,12 @@ pub async fn update_project(
     }
 
     let workspace_slug = match body.workspace_slug {
-        Some(Some(value)) => match normalize_optional_slug(Some(value.as_str()), "workspace_slug") {
-            Ok(workspace_slug) => workspace_slug,
-            Err(error) => return invalid(error),
-        },
+        Some(Some(value)) => {
+            match normalize_optional_slug(Some(value.as_str()), "workspace_slug") {
+                Ok(workspace_slug) => workspace_slug,
+                Err(error) => return invalid(error),
+            }
+        }
         Some(None) => None,
         None => existing.workspace_slug.clone(),
     };
@@ -312,7 +321,9 @@ pub async fn list_project_memberships(
     .await
     {
         Ok(data) => Json(ListOntologyProjectMembershipsResponse { data }).into_response(),
-        Err(error) => db_error(format!("failed to list ontology project memberships: {error}")),
+        Err(error) => db_error(format!(
+            "failed to list ontology project memberships: {error}"
+        )),
     }
 }
 
@@ -347,7 +358,9 @@ pub async fn upsert_project_membership(
     .await
     {
         Ok(membership) => Json(membership).into_response(),
-        Err(error) => db_error(format!("failed to upsert ontology project membership: {error}")),
+        Err(error) => db_error(format!(
+            "failed to upsert ontology project membership: {error}"
+        )),
     }
 }
 
@@ -378,7 +391,9 @@ pub async fn delete_project_membership(
     {
         Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
         Ok(_) => not_found("ontology project membership not found"),
-        Err(error) => db_error(format!("failed to delete ontology project membership: {error}")),
+        Err(error) => db_error(format!(
+            "failed to delete ontology project membership: {error}"
+        )),
     }
 }
 
@@ -409,7 +424,9 @@ pub async fn list_project_resources(
     .await
     {
         Ok(data) => Json(ListOntologyProjectResourcesResponse { data }).into_response(),
-        Err(error) => db_error(format!("failed to list ontology project resources: {error}")),
+        Err(error) => db_error(format!(
+            "failed to list ontology project resources: {error}"
+        )),
     }
 }
 
@@ -435,17 +452,22 @@ pub async fn bind_project_resource(
         return forbidden(error);
     }
 
-    let Some(owner_id) = (match load_resource_owner_id(&state.db, resource_kind, body.resource_id).await {
-        Ok(owner_id) => owner_id,
-        Err(error) => return db_error(error),
-    }) else {
+    let Some(owner_id) =
+        (match load_resource_owner_id(&state.db, resource_kind, body.resource_id).await {
+            Ok(owner_id) => owner_id,
+            Err(error) => return db_error(error),
+        })
+    else {
         return not_found("ontology resource not found");
     };
 
-    let existing_project_id = match load_resource_project_id(&state.db, resource_kind, body.resource_id).await {
-        Ok(project_id) => project_id,
-        Err(error) => return db_error(format!("failed to load ontology resource binding: {error}")),
-    };
+    let existing_project_id =
+        match load_resource_project_id(&state.db, resource_kind, body.resource_id).await {
+            Ok(project_id) => project_id,
+            Err(error) => {
+                return db_error(format!("failed to load ontology resource binding: {error}"));
+            }
+        };
 
     if let Err(error) =
         ensure_resource_manage_access(&state.db, &claims, owner_id, existing_project_id).await
@@ -499,10 +521,15 @@ pub async fn unbind_project_resource(
     {
         Ok(Some(binding)) => binding,
         Ok(None) => return not_found("ontology project resource binding not found"),
-        Err(error) => return db_error(format!("failed to load ontology project resource binding: {error}")),
+        Err(error) => {
+            return db_error(format!(
+                "failed to load ontology project resource binding: {error}"
+            ));
+        }
     };
 
-    let Some(owner_id) = (match load_resource_owner_id(&state.db, resource_kind, resource_id).await {
+    let Some(owner_id) = (match load_resource_owner_id(&state.db, resource_kind, resource_id).await
+    {
         Ok(owner_id) => owner_id,
         Err(error) => return db_error(error),
     }) else {
@@ -527,6 +554,8 @@ pub async fn unbind_project_resource(
     {
         Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
         Ok(_) => not_found("ontology project resource binding not found"),
-        Err(error) => db_error(format!("failed to unbind ontology resource from project: {error}")),
+        Err(error) => db_error(format!(
+            "failed to unbind ontology resource from project: {error}"
+        )),
     }
 }

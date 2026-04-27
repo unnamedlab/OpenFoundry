@@ -598,7 +598,7 @@ mod tests {
             jwt_config: JwtConfig::new("secret"),
             http_client: reqwest::Client::new(),
             dataset_service_url: "http://localhost:50053".to_string(),
-            pipeline_service_url: "http://localhost:50056".to_string(),
+            pipeline_service_url: "http://localhost:50080".to_string(),
             ontology_service_url: "http://localhost:50057".to_string(),
             allowed_egress_hosts: Vec::new(),
             allow_private_network_egress: true,

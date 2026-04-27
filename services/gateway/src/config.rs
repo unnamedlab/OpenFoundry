@@ -29,8 +29,14 @@ pub struct GatewayConfig {
     pub dataset_quality_service_url: String,
     #[serde(default = "default_query_url")]
     pub query_service_url: String,
-    #[serde(default = "default_pipeline_url")]
-    pub pipeline_service_url: String,
+    #[serde(default = "default_pipeline_authoring_service_url")]
+    pub pipeline_authoring_service_url: String,
+    #[serde(default = "default_pipeline_build_service_url")]
+    pub pipeline_build_service_url: String,
+    #[serde(default = "default_pipeline_schedule_service_url")]
+    pub pipeline_schedule_service_url: String,
+    #[serde(default = "default_lineage_service_url")]
+    pub lineage_service_url: String,
     #[serde(default = "default_ontology_url")]
     pub ontology_service_url: String,
     #[serde(default = "default_workflow_url")]
@@ -47,6 +53,8 @@ pub struct GatewayConfig {
     pub widget_registry_service_url: String,
     #[serde(default = "default_ml_service_url")]
     pub ml_service_url: String,
+    #[serde(default = "default_ml_experiments_service_url")]
+    pub ml_experiments_service_url: String,
     #[serde(default = "default_ai_service_url")]
     pub ai_service_url: String,
     #[serde(default = "default_ai_evaluation_service_url")]
@@ -103,8 +111,17 @@ fn default_dataset_quality_service_url() -> String {
 fn default_query_url() -> String {
     "http://localhost:50055".to_string()
 }
-fn default_pipeline_url() -> String {
-    "http://localhost:50056".to_string()
+fn default_pipeline_authoring_service_url() -> String {
+    "http://localhost:50080".to_string()
+}
+fn default_pipeline_build_service_url() -> String {
+    "http://localhost:50081".to_string()
+}
+fn default_pipeline_schedule_service_url() -> String {
+    "http://localhost:50082".to_string()
+}
+fn default_lineage_service_url() -> String {
+    "http://localhost:50083".to_string()
 }
 fn default_ontology_url() -> String {
     "http://localhost:50057".to_string()
@@ -129,6 +146,9 @@ fn default_widget_registry_service_url() -> String {
 }
 fn default_ml_service_url() -> String {
     "http://localhost:50059".to_string()
+}
+fn default_ml_experiments_service_url() -> String {
+    "http://localhost:50084".to_string()
 }
 fn default_ai_service_url() -> String {
     "http://localhost:50060".to_string()

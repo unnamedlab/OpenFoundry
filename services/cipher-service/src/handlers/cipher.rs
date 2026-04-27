@@ -115,14 +115,6 @@ fn require_security_write(claims: &Claims) -> Result<(), axum::response::Respons
     }
 }
 
-fn json_error(
-    status: StatusCode,
-    message: impl Into<String>,
-) -> axum::response::Response {
-    (
-        status,
-        Json(serde_json::json!({ "error": message.into() })),
-    )
-        .into_response()
+fn json_error(status: StatusCode, message: impl Into<String>) -> axum::response::Response {
+    (status, Json(serde_json::json!({ "error": message.into() }))).into_response()
 }
-

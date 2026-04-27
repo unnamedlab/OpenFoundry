@@ -4186,6 +4186,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "lineage-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "config",
+ "core-models",
+ "cron",
+ "datafusion",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "query-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasmtime",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4387,6 +4419,25 @@ dependencies = [
  "rand_core 0.10.1",
  "sha3 0.11.0",
  "signature 3.0.0-rc.10",
+]
+
+[[package]]
+name = "ml-experiments-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "chrono",
+ "config",
+ "core-models",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -5146,6 +5197,102 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "pipeline-authoring-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "config",
+ "core-models",
+ "cron",
+ "datafusion",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "query-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasmtime",
+]
+
+[[package]]
+name = "pipeline-build-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "config",
+ "core-models",
+ "cron",
+ "datafusion",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "query-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasmtime",
+]
+
+[[package]]
+name = "pipeline-schedule-service"
+version = "0.1.0"
+dependencies = [
+ "auth-middleware",
+ "axum 0.8.9",
+ "axum-extra",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "config",
+ "core-models",
+ "cron",
+ "datafusion",
+ "event-bus",
+ "futures",
+ "pyo3",
+ "query-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "storage-abstraction",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasmtime",
+]
 
 [[package]]
 name = "pipeline-service"

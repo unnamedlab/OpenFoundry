@@ -33,7 +33,7 @@ fn default_ontology_service_url() -> String {
 }
 
 fn default_pipeline_service_url() -> String {
-    "http://localhost:50056".to_string()
+    "http://localhost:50083".to_string()
 }
 
 impl AppConfig {

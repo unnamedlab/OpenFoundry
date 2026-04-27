@@ -20,4 +20,3 @@ pub fn require_permission(claims: &Claims, resource: &str, action: &str) -> Resu
         ))
     }
 }
-

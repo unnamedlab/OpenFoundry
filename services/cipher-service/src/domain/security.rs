@@ -33,4 +33,3 @@ mod tests {
         assert!(!verify_signature("payload", "wrong", &signature));
     }
 }
-

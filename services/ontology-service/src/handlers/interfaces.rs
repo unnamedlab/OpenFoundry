@@ -159,7 +159,10 @@ pub async fn list_interfaces(
             let project_map = match load_resource_project_map(
                 &state.db,
                 OntologyResourceKind::Interface,
-                &data.iter().map(|interface| interface.id).collect::<Vec<_>>(),
+                &data
+                    .iter()
+                    .map(|interface| interface.id)
+                    .collect::<Vec<_>>(),
             )
             .await
             {
@@ -185,12 +188,12 @@ pub async fn list_interfaces(
                 .take(per_page as usize)
                 .collect::<Vec<_>>();
             Json(ListInterfacesResponse {
-            data,
-            total,
-            page,
-            per_page,
-        })
-        .into_response()
+                data,
+                total,
+                page,
+                per_page,
+            })
+            .into_response()
         }
         Err(error) => {
             tracing::error!("list interfaces failed: {error}");
@@ -211,11 +214,7 @@ pub async fn get_interface(
     {
         Ok(Some(interface)) => {
             if let Err(error) = ensure_interface_view_access(&state, &claims, interface_id).await {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({ "error": error })),
-                )
-                    .into_response();
+                return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
             }
             Json(json!(interface)).into_response()
         }
@@ -295,11 +294,7 @@ pub async fn list_interface_properties(
     Path(interface_id): Path<Uuid>,
 ) -> impl IntoResponse {
     if let Err(error) = ensure_interface_view_access(&state, &claims, interface_id).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "error": error })),
-        )
-            .into_response();
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
     match sqlx::query_as::<_, InterfaceProperty>(
         r#"SELECT * FROM interface_properties
@@ -537,11 +532,7 @@ pub async fn list_type_interfaces(
     Path(type_id): Path<Uuid>,
 ) -> impl IntoResponse {
     if let Err(error) = ensure_object_type_view_access(&state, &claims, type_id).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "error": error })),
-        )
-            .into_response();
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
     match sqlx::query_as::<_, OntologyInterface>(
         r#"SELECT i.*

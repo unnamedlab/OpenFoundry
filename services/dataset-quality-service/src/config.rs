@@ -70,4 +70,3 @@ fn runtime_env_name() -> String {
         other => other.to_string(),
     }
 }
-

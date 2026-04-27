@@ -29,8 +29,8 @@ use crate::{
             OntologyFunnelHealthResponse, OntologyFunnelPropertyMapping, OntologyFunnelRun,
             OntologyFunnelSource, OntologyFunnelSourceHealth, OntologyFunnelSourceHealthResponse,
             OntologyFunnelSourceRow, TriggerOntologyFunnelRunRequest,
-            UpdateOntologyFunnelSourceRequest, normalize_default_marking,
-            normalize_funnel_status, normalize_preview_limit, normalize_stale_after_hours,
+            UpdateOntologyFunnelSourceRequest, normalize_default_marking, normalize_funnel_status,
+            normalize_preview_limit, normalize_stale_after_hours,
         },
         object_type::ObjectType,
     },
@@ -173,7 +173,10 @@ async fn load_source(state: &AppState, id: Uuid) -> Result<Option<OntologyFunnel
     .map_err(|error| format!("failed to decode ontology funnel source: {error}"))
 }
 
-async fn load_object_type(state: &AppState, object_type_id: Uuid) -> Result<Option<ObjectType>, String> {
+async fn load_object_type(
+    state: &AppState,
+    object_type_id: Uuid,
+) -> Result<Option<ObjectType>, String> {
     sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
         .bind(object_type_id)
         .fetch_optional(&state.db)
@@ -243,7 +246,10 @@ fn build_source_health(
             "never_run".to_string(),
             "source has not executed any funnel run yet".to_string(),
         )
-    } else if metrics.last_run_at.is_some_and(|last_run_at| last_run_at < stale_cutoff) {
+    } else if metrics
+        .last_run_at
+        .is_some_and(|last_run_at| last_run_at < stale_cutoff)
+    {
         (
             "stale".to_string(),
             format!(
@@ -318,7 +324,10 @@ fn funnel_health_sort_rank(status: &str) -> i32 {
 }
 
 fn merge_contexts(base: &Value, override_context: Option<&Value>) -> Value {
-    match (base.as_object(), override_context.and_then(Value::as_object)) {
+    match (
+        base.as_object(),
+        override_context.and_then(Value::as_object),
+    ) {
         (Some(base), Some(override_context)) => {
             let mut merged = base.clone();
             for (key, value) in override_context {
@@ -342,11 +351,11 @@ async fn trigger_pipeline_run(
     };
 
     let auth_header = issue_service_token(state, claims)?;
-    let url = format!("{}/api/v1/pipelines/{pipeline_id}/run", state.pipeline_service_url);
-    let context = merge_contexts(
-        &source.trigger_context,
-        override_context,
+    let url = format!(
+        "{}/api/v1/pipelines/{pipeline_id}/run",
+        state.pipeline_service_url
     );
+    let context = merge_contexts(&source.trigger_context, override_context);
     let payload = json!({
         "skip_unchanged": true,
         "context": {
@@ -468,7 +477,9 @@ fn primary_key_value(properties: &Value, primary_key_property: &str) -> Result<S
         .get(primary_key_property)
         .ok_or_else(|| format!("missing primary key property '{primary_key_property}'"))?;
     match value {
-        Value::Null => Err(format!("primary key property '{primary_key_property}' cannot be null")),
+        Value::Null => Err(format!(
+            "primary key property '{primary_key_property}' cannot be null"
+        )),
         Value::String(value) => Ok(value.clone()),
         other => serde_json::to_string(other)
             .map_err(|error| format!("failed to serialize primary key property: {error}")),
@@ -551,10 +562,9 @@ async fn execute_source_run(
     let Some(object_type) = load_object_type(state, source.object_type_id).await? else {
         return Err("object type for funnel source was not found".to_string());
     };
-    let primary_key_property = object_type
-        .primary_key_property
-        .clone()
-        .ok_or_else(|| "object type must define primary_key_property for ontology funnel sync".to_string())?;
+    let primary_key_property = object_type.primary_key_property.clone().ok_or_else(|| {
+        "object type must define primary_key_property for ontology funnel sync".to_string()
+    })?;
     let definitions = load_effective_properties(&state.db, source.object_type_id)
         .await
         .map_err(|error| format!("failed to load object type properties: {error}"))?;
@@ -615,9 +625,13 @@ async fn execute_source_run(
             }
         };
 
-        let existing_id =
-            find_existing_object_id(state, source.object_type_id, &primary_key_property, &primary_key_value)
-                .await?;
+        let existing_id = find_existing_object_id(
+            state,
+            source.object_type_id,
+            &primary_key_property,
+            &primary_key_value,
+        )
+        .await?;
 
         if request.dry_run {
             if existing_id.is_some() {
@@ -630,12 +644,19 @@ async fn execute_source_run(
 
         match existing_id {
             Some(object_id) => {
-                update_object_instance(state, object_id, &normalized, &source.default_marking).await?;
+                update_object_instance(state, object_id, &normalized, &source.default_marking)
+                    .await?;
                 updated_count += 1;
             }
             None => {
-                insert_object_instance(state, claims, source.object_type_id, &normalized, &source.default_marking)
-                    .await?;
+                insert_object_instance(
+                    state,
+                    claims,
+                    source.object_type_id,
+                    &normalized,
+                    &source.default_marking,
+                )
+                .await?;
                 inserted_count += 1;
             }
         }
@@ -733,7 +754,9 @@ pub async fn list_funnel_sources(
     for row in rows {
         match OntologyFunnelSource::try_from(row) {
             Ok(source) => data.push(source),
-            Err(error) => return db_error(format!("failed to decode ontology funnel source: {error}")),
+            Err(error) => {
+                return db_error(format!("failed to decode ontology funnel source: {error}"));
+            }
         }
     }
 
@@ -769,14 +792,20 @@ pub async fn get_funnel_health(
     .await
     {
         Ok(rows) => rows,
-        Err(error) => return db_error(format!("failed to list ontology funnel sources for health: {error}")),
+        Err(error) => {
+            return db_error(format!(
+                "failed to list ontology funnel sources for health: {error}"
+            ));
+        }
     };
 
     let mut sources = Vec::new();
     for row in rows {
         let source = match OntologyFunnelSource::try_from(row) {
             Ok(source) => source,
-            Err(error) => return db_error(format!("failed to decode ontology funnel source: {error}")),
+            Err(error) => {
+                return db_error(format!("failed to decode ontology funnel source: {error}"));
+            }
         };
         let metrics = match load_funnel_health_metrics(&state, source.id).await {
             Ok(metrics) => metrics,
@@ -821,17 +850,26 @@ pub async fn get_funnel_health(
         .filter(|source_health| source_health.health_status == "never_run")
         .count() as i64;
 
-    let total_runs = sources.iter().map(|source_health| source_health.total_runs).sum::<i64>();
+    let total_runs = sources
+        .iter()
+        .map(|source_health| source_health.total_runs)
+        .sum::<i64>();
     let successful_runs = sources
         .iter()
         .map(|source_health| source_health.successful_runs)
         .sum::<i64>();
-    let failed_runs = sources.iter().map(|source_health| source_health.failed_runs).sum::<i64>();
+    let failed_runs = sources
+        .iter()
+        .map(|source_health| source_health.failed_runs)
+        .sum::<i64>();
     let warning_runs = sources
         .iter()
         .map(|source_health| source_health.warning_runs)
         .sum::<i64>();
-    let rows_read = sources.iter().map(|source_health| source_health.rows_read).sum::<i64>();
+    let rows_read = sources
+        .iter()
+        .map(|source_health| source_health.rows_read)
+        .sum::<i64>();
     let inserted_count = sources
         .iter()
         .map(|source_health| source_health.inserted_count)
@@ -844,8 +882,14 @@ pub async fn get_funnel_health(
         .iter()
         .map(|source_health| source_health.skipped_count)
         .sum::<i64>();
-    let error_count = sources.iter().map(|source_health| source_health.error_count).sum::<i64>();
-    let last_run_at = sources.iter().filter_map(|source_health| source_health.last_run_at).max();
+    let error_count = sources
+        .iter()
+        .map(|source_health| source_health.error_count)
+        .sum::<i64>();
+    let last_run_at = sources
+        .iter()
+        .filter_map(|source_health| source_health.last_run_at)
+        .max();
     let success_rate = if total_runs > 0 {
         successful_runs as f64 / total_runs as f64
     } else {
@@ -915,10 +959,16 @@ pub async fn create_funnel_source(
     if body.name.trim().is_empty() {
         return invalid("name is required");
     }
-    if !object_type_exists(&state, body.object_type_id).await.unwrap_or(false) {
+    if !object_type_exists(&state, body.object_type_id)
+        .await
+        .unwrap_or(false)
+    {
         return invalid("object_type_id does not exist");
     }
-    if !dataset_exists(&state, body.dataset_id).await.unwrap_or(false) {
+    if !dataset_exists(&state, body.dataset_id)
+        .await
+        .unwrap_or(false)
+    {
         return invalid("dataset_id does not exist");
     }
     if let Some(pipeline_id) = body.pipeline_id
@@ -959,7 +1009,10 @@ pub async fn create_funnel_source(
     .bind(preview_limit)
     .bind(default_marking)
     .bind(status)
-    .bind(serde_json::to_value(body.property_mappings.unwrap_or_default()).unwrap_or_else(|_| json!([])))
+    .bind(
+        serde_json::to_value(body.property_mappings.unwrap_or_default())
+            .unwrap_or_else(|_| json!([])),
+    )
     .bind(body.trigger_context.unwrap_or_else(|| json!({})))
     .bind(claims.sub)
     .fetch_one(&state.db)
@@ -1016,12 +1069,17 @@ pub async fn update_funnel_source(
         return invalid("pipeline_id does not exist");
     }
 
-    let preview_limit = body.preview_limit.unwrap_or(existing.preview_limit).clamp(1, 1_000);
+    let preview_limit = body
+        .preview_limit
+        .unwrap_or(existing.preview_limit)
+        .clamp(1, 1_000);
     let status = body.status.unwrap_or(existing.status.clone());
     if let Err(error) = validate_source_status(&status) {
         return invalid(error);
     }
-    let default_marking = body.default_marking.unwrap_or(existing.default_marking.clone());
+    let default_marking = body
+        .default_marking
+        .unwrap_or(existing.default_marking.clone());
     if let Err(error) = validate_marking(&default_marking) {
         return invalid(error);
     }
@@ -1345,8 +1403,15 @@ mod tests {
             } else {
                 0
             },
-            failed_runs: if latest_run_status == Some("failed") { 1 } else { 0 },
-            warning_runs: if matches!(latest_run_status, Some("completed_with_errors" | "dry_run_with_errors")) {
+            failed_runs: if latest_run_status == Some("failed") {
+                1
+            } else {
+                0
+            },
+            warning_runs: if matches!(
+                latest_run_status,
+                Some("completed_with_errors" | "dry_run_with_errors")
+            ) {
                 1
             } else {
                 0
@@ -1366,7 +1431,10 @@ mod tests {
             } else {
                 None
             },
-            last_warning_at: if matches!(latest_run_status, Some("completed_with_errors" | "dry_run_with_errors")) {
+            last_warning_at: if matches!(
+                latest_run_status,
+                Some("completed_with_errors" | "dry_run_with_errors")
+            ) {
                 last_run_at
             } else {
                 None

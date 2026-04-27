@@ -193,7 +193,7 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
       ONTOLOGY_SERVICE_URL: http://ontology-service:50057
       ALLOW_PRIVATE_NETWORK_EGRESS: "true"
     depends_on:
@@ -201,7 +201,7 @@ services:
         condition: service_healthy
       data-asset-catalog-service:
         condition: service_started
-      pipeline-service:
+      pipeline-authoring-service:
         condition: service_started
       ontology-service:
         condition: service_started
@@ -394,6 +394,148 @@ services:
     ports:
       - "${OPENFOUNDRY_PIPELINE_HOST_PORT:-50056}:50056"
 
+  pipeline-authoring-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/pipeline-authoring-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50080
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/pipeline-data
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      AI_SERVICE_URL: http://ai-service:50060
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DISTRIBUTED_PIPELINE_WORKERS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pipeline_data:/var/lib/openfoundry/pipeline-data
+    ports:
+      - "${OPENFOUNDRY_PIPELINE_AUTHORING_HOST_PORT:-50080}:50080"
+
+  pipeline-build-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/pipeline-build-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50081
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/pipeline-data
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      AI_SERVICE_URL: http://ai-service:50060
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DISTRIBUTED_PIPELINE_WORKERS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+      workflow-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+    volumes:
+      - pipeline_data:/var/lib/openfoundry/pipeline-data
+    ports:
+      - "${OPENFOUNDRY_PIPELINE_BUILD_HOST_PORT:-50081}:50081"
+
+  pipeline-schedule-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/pipeline-schedule-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50082
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/pipeline-data
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      AI_SERVICE_URL: http://ai-service:50060
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DISTRIBUTED_PIPELINE_WORKERS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+      workflow-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+    volumes:
+      - pipeline_data:/var/lib/openfoundry/pipeline-data
+    ports:
+      - "${OPENFOUNDRY_PIPELINE_SCHEDULE_HOST_PORT:-50082}:50082"
+
+  lineage-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/lineage-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50083
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/pipeline-data
+      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      AI_SERVICE_URL: http://ai-service:50060
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: datasets
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      DISTRIBUTED_PIPELINE_WORKERS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      data-asset-catalog-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+    volumes:
+      - pipeline_data:/var/lib/openfoundry/pipeline-data
+    ports:
+      - "${OPENFOUNDRY_LINEAGE_HOST_PORT:-50083}:50083"
+
   ontology-service:
     <<: *app-common
     build:
@@ -407,7 +549,7 @@ services:
       AUDIT_SERVICE_URL: http://audit-service:50070
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://ontology-service:50057
-      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       AI_SERVICE_URL: http://ai-service:50060
       NOTIFICATION_SERVICE_URL: http://notification-service:50069
       NODE_RUNTIME_COMMAND: node
@@ -419,7 +561,7 @@ services:
         condition: service_started
       data-asset-catalog-service:
         condition: service_started
-      pipeline-service:
+      pipeline-build-service:
         condition: service_started
       ai-service:
         condition: service_started
@@ -459,6 +601,25 @@ services:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_ML_HOST_PORT:-50059}:50059"
+
+  ml-experiments-service:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: services/ml-experiments-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50084
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OPENFOUNDRY_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_ML_EXPERIMENTS_HOST_PORT:-50084}:50084"
 
   ai-service:
     <<: *app-common
@@ -507,11 +668,13 @@ services:
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       NOTIFICATION_SERVICE_URL: http://notification-service:50069
       ONTOLOGY_SERVICE_URL: http://ontology-service:50057
-      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      PIPELINE_SERVICE_URL: http://lineage-service:50083
     depends_on:
       postgres:
         condition: service_healthy
       notification-service:
+        condition: service_started
+      lineage-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_WORKFLOW_HOST_PORT:-50061}:50061"
@@ -761,10 +924,14 @@ services:
       DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
       STREAMING_SERVICE_URL: http://streaming-service:50054
       QUERY_SERVICE_URL: http://query-service:50055
-      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      PIPELINE_AUTHORING_SERVICE_URL: http://pipeline-authoring-service:50080
+      PIPELINE_BUILD_SERVICE_URL: http://pipeline-build-service:50081
+      PIPELINE_SCHEDULE_SERVICE_URL: http://pipeline-schedule-service:50082
+      LINEAGE_SERVICE_URL: http://lineage-service:50083
       ONTOLOGY_SERVICE_URL: http://ontology-service:50057
       FUSION_SERVICE_URL: http://fusion-service:50058
       ML_SERVICE_URL: http://ml-service:50059
+      ML_EXPERIMENTS_SERVICE_URL: http://ml-experiments-service:50084
       AI_SERVICE_URL: http://ai-service:50060
       AI_EVALUATION_SERVICE_URL: http://ai-evaluation-service:50075
       WORKFLOW_SERVICE_URL: http://workflow-service:50061
@@ -803,13 +970,21 @@ services:
         condition: service_started
       query-service:
         condition: service_started
-      pipeline-service:
+      pipeline-authoring-service:
+        condition: service_started
+      pipeline-build-service:
+        condition: service_started
+      pipeline-schedule-service:
+        condition: service_started
+      lineage-service:
         condition: service_started
       ontology-service:
         condition: service_started
       fusion-service:
         condition: service_started
       ml-service:
+        condition: service_started
+      ml-experiments-service:
         condition: service_started
       ai-service:
         condition: service_started

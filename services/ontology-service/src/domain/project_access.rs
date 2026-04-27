@@ -87,7 +87,11 @@ pub fn claims_workspace_slug(claims: &Claims) -> Option<String> {
         .as_ref()
         .and_then(|scope| scope.workspace.as_deref())
         .or_else(|| claims.attribute("workspace").and_then(Value::as_str))
-        .or_else(|| claims.attribute("default_workspace").and_then(Value::as_str))
+        .or_else(|| {
+            claims
+                .attribute("default_workspace")
+                .and_then(Value::as_str)
+        })
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
@@ -322,6 +326,9 @@ mod tests {
     #[test]
     fn workspace_slug_prefers_session_scope_over_attributes() {
         let claims = workspace_claims();
-        assert_eq!(claims_workspace_slug(&claims).as_deref(), Some("project-alpha"));
+        assert_eq!(
+            claims_workspace_slug(&claims).as_deref(),
+            Some("project-alpha")
+        );
     }
 }

@@ -4,7 +4,9 @@ mod handlers;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
-    Router, extract::FromRef, middleware,
+    Router,
+    extract::FromRef,
+    middleware,
     routing::{get, post},
 };
 use core_models::{health::HealthStatus, observability};

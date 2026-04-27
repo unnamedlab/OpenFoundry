@@ -6,6 +6,7 @@ use axum::{
 };
 use uuid::Uuid;
 
+use crate::models::object_type::*;
 use crate::{
     AppState,
     domain::project_access::{
@@ -14,7 +15,6 @@ use crate::{
         resource_is_visible,
     },
 };
-use crate::models::object_type::*;
 use auth_middleware::layer::AuthUser;
 
 fn forbidden(message: impl Into<String>) -> Response {
@@ -86,7 +86,10 @@ pub async fn list_object_types(
     let project_map = match load_resource_project_map(
         &state.db,
         OntologyResourceKind::ObjectType,
-        &types.iter().map(|object_type| object_type.id).collect::<Vec<_>>(),
+        &types
+            .iter()
+            .map(|object_type| object_type.id)
+            .collect::<Vec<_>>(),
     )
     .await
     {
@@ -160,27 +163,30 @@ pub async fn update_object_type(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateObjectTypeRequest>,
 ) -> impl IntoResponse {
-    let Some(existing) = (match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(existing) => existing,
-        Err(error) => {
-            tracing::error!("update object type lookup: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
+    let Some(existing) =
+        (match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(existing) => existing,
+            Err(error) => {
+                tracing::error!("update object type lookup: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        })
+    else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    let project_id = match load_resource_project_id(&state.db, OntologyResourceKind::ObjectType, id).await {
-        Ok(project_id) => project_id,
-        Err(error) => {
-            tracing::error!("update object type project binding: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let project_id =
+        match load_resource_project_id(&state.db, OntologyResourceKind::ObjectType, id).await {
+            Ok(project_id) => project_id,
+            Err(error) => {
+                tracing::error!("update object type project binding: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
     if let Err(error) =
         ensure_resource_manage_access(&state.db, &claims, existing.owner_id, project_id).await
     {
@@ -219,26 +225,29 @@ pub async fn delete_object_type(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let Some(existing) = (match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(existing) => existing,
-        Err(error) => {
-            tracing::error!("delete object type lookup: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
+    let Some(existing) =
+        (match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(existing) => existing,
+            Err(error) => {
+                tracing::error!("delete object type lookup: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        })
+    else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let project_id = match load_resource_project_id(&state.db, OntologyResourceKind::ObjectType, id).await {
-        Ok(project_id) => project_id,
-        Err(error) => {
-            tracing::error!("delete object type project binding: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let project_id =
+        match load_resource_project_id(&state.db, OntologyResourceKind::ObjectType, id).await {
+            Ok(project_id) => project_id,
+            Err(error) => {
+                tracing::error!("delete object type project binding: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
     if let Err(error) =
         ensure_resource_manage_access(&state.db, &claims, existing.owner_id, project_id).await
     {
