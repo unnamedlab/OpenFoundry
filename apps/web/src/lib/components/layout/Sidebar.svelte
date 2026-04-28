@@ -1,21 +1,24 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import Glyph from '$components/ui/Glyph.svelte';
+  import { createTranslator, currentLocale } from '$lib/i18n/store';
 
-  const primaryNav = [
-    { href: '/', label: 'Home', icon: 'home' as const },
-    { href: '/ontology', label: 'Ontology', icon: 'ontology' as const },
-    { href: '/queries', label: 'Queries', icon: 'query' as const },
-    { href: '/datasets', label: 'Datasets', icon: 'database' as const },
-    { href: '/pipelines', label: 'Pipelines', icon: 'graph' as const },
-    { href: '/reports', label: 'Artifacts', icon: 'artifact' as const }
-  ];
+  const t = $derived.by(() => createTranslator($currentLocale));
 
-  const secondaryNav = [
-    { href: '/history', label: 'History', icon: 'history' as const },
-    { href: '/search', label: 'Search', icon: 'search' as const },
-    { href: '/settings', label: 'Settings', icon: 'settings' as const }
-  ];
+  const primaryNav = $derived.by(() => [
+    { href: '/', label: t('nav.home'), icon: 'home' as const },
+    { href: '/ontology', label: t('nav.ontology'), icon: 'ontology' as const },
+    { href: '/queries', label: t('nav.queries'), icon: 'query' as const },
+    { href: '/datasets', label: t('nav.datasets'), icon: 'database' as const },
+    { href: '/pipelines', label: t('nav.pipelines'), icon: 'graph' as const },
+    { href: '/reports', label: t('nav.artifacts'), icon: 'artifact' as const }
+  ]);
+
+  const secondaryNav = $derived.by(() => [
+    { href: '/history', label: t('nav.history'), icon: 'history' as const },
+    { href: '/search', label: t('nav.search'), icon: 'search' as const },
+    { href: '/settings', label: t('nav.settings'), icon: 'settings' as const }
+  ]);
 
   function isActive(href: string, pathname: string) {
     return href === '/'
@@ -39,7 +42,7 @@
   </div>
 
   <div class="flex flex-1 flex-col items-center gap-2 px-3 py-4">
-    <button type="button" class="of-sidebar-icon-btn" title="Navigation">
+    <button type="button" class="of-sidebar-icon-btn" title={t('nav.navigation')}>
       <Glyph name="menu" size={19} />
     </button>
 
@@ -71,12 +74,12 @@
   </div>
 
   <div class="flex flex-col items-center gap-2 border-t border-white/10 px-3 py-4">
-    <a href="/help" class="of-sidebar-icon-btn" title="Help" aria-label="Help">
+    <a href="/help" class="of-sidebar-icon-btn" title={t('nav.help')} aria-label={t('nav.help')}>
       <Glyph name="help" size={18} />
     </a>
     <div
       class="flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/8 text-[11px] font-semibold text-white/90"
-      title="Current user"
+      title={t('nav.currentUser')}
     >
       OF
     </div>

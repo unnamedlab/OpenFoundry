@@ -45,17 +45,21 @@
     type SsoProviderRecord,
     type UserProfile,
   } from '$api/auth';
+  import { createTranslator, currentLocale, getLocaleLabel, setLocale, supportedLocales, type AppLocale } from '$lib/i18n/store';
   import { auth } from '$stores/auth';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
 
   const currentUser = auth.user;
   const isAuthenticated = auth.isAuthenticated;
+  const t = $derived.by(() => createTranslator($currentLocale));
+  const languageOptions = supportedLocales;
 
   let loading = $state(true);
   let error = $state('');
   let notice = $state('');
   let saving = $state<string | null>(null);
+  let selectedLocale = $state<AppLocale>('en');
 
   let users = $state<UserProfile[]>([]);
   let permissions = $state<PermissionRecord[]>([]);
@@ -129,6 +133,13 @@
     saml_certificate: '',
     attribute_mapping: '{\n  "subject": "sub",\n  "email": "email",\n  "name": "name"\n}',
   });
+
+  function mergeCurrentUserAttributes(nextLocale: AppLocale) {
+    return {
+      ...(get(currentUser)?.attributes ?? {}),
+      locale: nextLocale,
+    };
+  }
 
   function hasPermission(permission: string) {
     return get(currentUser)?.permissions.includes(permission) ?? false;
@@ -306,6 +317,7 @@
         refreshApiKeys(),
         refreshSsoProviders(),
       ]);
+      selectedLocale = get(currentLocale);
     } catch (err: any) {
       error = err.message ?? 'Failed to load enterprise settings';
     } finally {
@@ -325,6 +337,20 @@
     } finally {
       saving = null;
     }
+  }
+
+  async function handleSaveLanguagePreference() {
+    const user = get(currentUser);
+    if (!user) return;
+
+    await withSaving('language', async () => {
+      const updated = await updateUser(user.id, {
+        attributes: mergeCurrentUserAttributes(selectedLocale),
+      });
+      auth.updateCurrentUserProfile(updated);
+      setLocale(selectedLocale);
+      notice = t('settings.language.saved');
+    });
   }
 
   async function handleCreatePermission() {
@@ -632,7 +658,7 @@
 </script>
 
 <svelte:head>
-  <title>Enterprise Auth Settings — OpenFoundry</title>
+  <title>{t('settings.title')}</title>
 </svelte:head>
 
 {#if loading}
@@ -649,16 +675,16 @@
     <section class="rounded-[2rem] border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div class="text-xs uppercase tracking-[0.3em] text-indigo-500">Phase 2.1</div>
-          <h1 class="mt-3 text-3xl font-bold tracking-tight">Enterprise Authentication Control Plane</h1>
+          <div class="text-xs uppercase tracking-[0.3em] text-indigo-500">{t('settings.heroPhase')}</div>
+          <h1 class="mt-3 text-3xl font-bold tracking-tight">{t('settings.heroHeading')}</h1>
           <p class="mt-3 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
-            Manage platform access across RBAC, ABAC, MFA, API keys, and OIDC providers from a single surface.
+            {t('settings.heroSubtitle')}
           </p>
         </div>
 
         <div class="rounded-2xl bg-gray-50 px-5 py-4 text-sm dark:bg-gray-950">
-          <div class="text-xs uppercase tracking-[0.24em] text-gray-400">Signed in as</div>
-          <div class="mt-2 font-semibold">{$currentUser?.name ?? 'Unknown user'}</div>
+          <div class="text-xs uppercase tracking-[0.24em] text-gray-400">{t('settings.signedInAs')}</div>
+          <div class="mt-2 font-semibold">{$currentUser?.name ?? t('settings.unknownUser')}</div>
           <div class="text-gray-500">{$currentUser?.email ?? ''}</div>
         </div>
       </div>
@@ -670,6 +696,43 @@
       {#if notice}
         <div class="mt-6 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">{notice}</div>
       {/if}
+    </section>
+
+    <section class="rounded-[2rem] border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div class="text-xs uppercase tracking-[0.24em] text-indigo-500">{t('settings.language.badge')}</div>
+          <h2 class="mt-2 text-2xl font-semibold">{t('settings.language.heading')}</h2>
+          <p class="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+            {t('settings.language.description')}
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick={handleSaveLanguagePreference}
+          disabled={saving === 'language' || !$currentUser}
+          class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+        >
+          {saving === 'language' ? t('common.saving') : t('settings.language.save')}
+        </button>
+      </div>
+
+      <div class="mt-6 grid gap-4 md:grid-cols-[minmax(0,22rem)_1fr]">
+        <label class="block text-sm">
+          <span class="mb-2 block font-medium">{t('settings.language.selectLabel')}</span>
+          <select
+            bind:value={selectedLocale}
+            class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900"
+          >
+            {#each $languageOptions as locale}
+              <option value={locale}>{getLocaleLabel(locale, $currentLocale)}</option>
+            {/each}
+          </select>
+        </label>
+        <div class="rounded-2xl border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+          {t('settings.language.help')}
+        </div>
+      </div>
     </section>
 
     <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

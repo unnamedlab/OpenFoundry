@@ -1,5 +1,7 @@
 import api from './client';
 
+export type SupportedLocale = 'en' | 'es';
+
 export interface AppBrandingSettings {
 	display_name: string;
 	primary_color: string;
@@ -137,6 +139,8 @@ export interface ControlPanelSettings {
 	default_region: string;
 	deployment_mode: string;
 	allow_self_signup: boolean;
+	supported_locales: SupportedLocale[];
+	default_locale: SupportedLocale;
 	allowed_email_domains: string[];
 	default_app_branding: AppBrandingSettings;
 	restricted_operations: string[];
@@ -158,6 +162,8 @@ export type UpdateControlPanelRequest = Partial<{
 	default_region: string;
 	deployment_mode: string;
 	allow_self_signup: boolean;
+	supported_locales: SupportedLocale[];
+	default_locale: SupportedLocale;
 	allowed_email_domains: string[];
 	default_app_branding: AppBrandingSettings;
 	restricted_operations: string[];

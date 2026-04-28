@@ -6,10 +6,14 @@
   import Sidebar from '$components/layout/Sidebar.svelte';
   import TopBar from '$components/layout/TopBar.svelte';
   import CopilotPanel from '$components/ai/CopilotPanel.svelte';
+  import { initializeLocale, restoreLocale } from '$lib/i18n/store';
 
-  let { children } = $props();
+  let { children, data } = $props();
+
+  initializeLocale(data.initialLocale);
 
   onMount(() => {
+    restoreLocale(data.initialLocale);
     auth.restore();
   });
 

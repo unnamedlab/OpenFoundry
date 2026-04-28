@@ -12,6 +12,7 @@ import {
   type TokenResponse,
   type UserProfile,
 } from '$api/auth';
+import { applyUserLocalePreference } from '$lib/i18n/store';
 
 const ACCESS_TOKEN_KEY = 'of_access_token';
 const REFRESH_TOKEN_KEY = 'of_refresh_token';
@@ -122,8 +123,7 @@ function createAuthStore() {
 
   async function finalizeSession(resp: TokenResponse) {
     setSession(resp);
-    const profile = await getMe();
-    user.set(profile);
+    updateCurrentUserProfile(await getMe());
     clearPendingChallenge();
   }
 
@@ -148,6 +148,11 @@ function createAuthStore() {
     }
   }
 
+  function updateCurrentUserProfile(profile: UserProfile) {
+    user.set(profile);
+    applyUserLocalePreference(profile.attributes);
+  }
+
   async function restore() {
     if (restorePromise) {
       return restorePromise;
@@ -167,7 +172,7 @@ function createAuthStore() {
         token.set(savedAccessToken);
         api.setToken(savedAccessToken);
         try {
-          user.set(await getMe());
+          updateCurrentUserProfile(await getMe());
           return;
         } catch {
           token.set(null);
@@ -204,6 +209,7 @@ function createAuthStore() {
     clearPendingChallenge,
     logout,
     restore,
+    updateCurrentUserProfile,
   };
 }
 

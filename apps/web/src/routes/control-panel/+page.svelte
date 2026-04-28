@@ -16,6 +16,13 @@
 		type UpgradeAssistantSettings,
 		type UpgradeReadinessResponse,
 	} from '$lib/api/control-panel';
+	import {
+		createTranslator,
+		currentLocale,
+		getLocaleLabel,
+		setPlatformLocaleSettings,
+		type AppLocale,
+	} from '$lib/i18n/store';
 	import { listSsoProviders, type SsoProviderRecord } from '$lib/api/auth';
 	import { auth } from '$stores/auth';
 	import { notifications } from '$stores/notifications';
@@ -31,6 +38,8 @@
 		default_region: string;
 		deployment_mode: string;
 		allow_self_signup: boolean;
+		supported_locales: AppLocale[];
+		default_locale: AppLocale;
 		allowed_email_domains_text: string;
 		restricted_operations_text: string;
 		branding_display_name: string;
@@ -46,6 +55,7 @@
 
 	const currentUser = auth.user;
 	const isAuthenticated = auth.isAuthenticated;
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	let loading = $state(true);
 	let saving = $state(false);
@@ -78,6 +88,8 @@
 			default_region: 'eu-west-1',
 			deployment_mode: 'self-hosted',
 			allow_self_signup: false,
+			supported_locales: ['en', 'es'],
+			default_locale: 'en',
 			allowed_email_domains_text: '',
 			restricted_operations_text: '',
 			branding_display_name: 'OpenFoundry',
@@ -126,6 +138,8 @@
 			default_region: value.default_region,
 			deployment_mode: value.deployment_mode,
 			allow_self_signup: value.allow_self_signup,
+			supported_locales: value.supported_locales,
+			default_locale: value.default_locale,
 			allowed_email_domains_text: value.allowed_email_domains.join(', '),
 			restricted_operations_text: value.restricted_operations.join(', '),
 			branding_display_name: value.default_app_branding.display_name,
@@ -189,6 +203,18 @@
 			const detail = error instanceof Error ? error.message : 'Invalid JSON';
 			throw new Error(`${label} contains invalid JSON: ${detail}`);
 		}
+	}
+
+	function toggleSupportedLocale(locale: AppLocale, checked: boolean) {
+		const nextLocales = checked
+			? Array.from(new Set([...draft.supported_locales, locale]))
+			: draft.supported_locales.filter((entry) => entry !== locale);
+		const supported = nextLocales.length > 0 ? nextLocales : [draft.default_locale];
+		draft = {
+			...draft,
+			supported_locales: supported,
+			default_locale: supported.includes(draft.default_locale) ? draft.default_locale : supported[0]!,
+		};
 	}
 
 	function setPreviewDefaults(nextSettings: ControlPanelSettings, providers: SsoProviderRecord[]) {
@@ -268,7 +294,7 @@
 				return;
 			}
 			if (!canReadControlPanel()) {
-				uiError = 'Your session cannot read the platform control panel.';
+				uiError = t('controlPanel.readDenied');
 				return;
 			}
 
@@ -281,12 +307,19 @@
 			ssoProviders = providers;
 			upgradeReadiness = readiness;
 			draft = toDraft(nextSettings);
+			setPlatformLocaleSettings(
+				{
+					supported_locales: nextSettings.supported_locales,
+					default_locale: nextSettings.default_locale,
+				},
+				{ persist: true },
+			);
 			setPreviewDefaults(nextSettings, providers);
 		} catch (error: unknown) {
 			if (error instanceof ApiError && error.status === 403) {
-				uiError = 'Your session cannot read the platform control panel.';
+				uiError = t('controlPanel.readDenied');
 			} else {
-				uiError = error instanceof Error ? error.message : 'Unable to load the control panel';
+				uiError = error instanceof Error ? error.message : t('controlPanel.loadFailed');
 			}
 		} finally {
 			loading = false;
@@ -295,7 +328,7 @@
 
 	async function saveControlPanel() {
 		if (!canWriteControlPanel()) {
-			uiError = 'Your session cannot modify the platform control panel.';
+			uiError = t('controlPanel.writeDenied');
 			return;
 		}
 
@@ -315,6 +348,8 @@
 				default_region: draft.default_region.trim(),
 				deployment_mode: draft.deployment_mode.trim(),
 				allow_self_signup: draft.allow_self_signup,
+				supported_locales: draft.supported_locales,
+				default_locale: draft.default_locale,
 				allowed_email_domains: parseCsv(draft.allowed_email_domains_text),
 				default_app_branding: buildBranding(),
 				restricted_operations: parseCsv(draft.restricted_operations_text),
@@ -325,11 +360,18 @@
 			settings = nextSettings;
 			upgradeReadiness = await getUpgradeReadiness();
 			draft = toDraft(nextSettings);
+			setPlatformLocaleSettings(
+				{
+					supported_locales: nextSettings.supported_locales,
+					default_locale: nextSettings.default_locale,
+				},
+				{ persist: true },
+			);
 			setPreviewDefaults(nextSettings, ssoProviders);
-			notice = 'Platform control panel updated.';
+			notice = t('controlPanel.saved');
 			notifications.success(notice);
 		} catch (error: unknown) {
-			uiError = error instanceof Error ? error.message : 'Unable to save the control panel';
+			uiError = error instanceof Error ? error.message : t('controlPanel.saveFailed');
 			notifications.error(uiError);
 		} finally {
 			saving = false;
@@ -338,31 +380,31 @@
 </script>
 
 <svelte:head>
-	<title>OpenFoundry — Control Panel</title>
+	<title>{t('controlPanel.title')}</title>
 </svelte:head>
 
 <div class="mx-auto max-w-6xl space-y-6">
 	<section class="overflow-hidden rounded-[2rem] border border-slate-200 bg-gradient-to-br from-emerald-950 via-slate-950 to-amber-950 px-6 py-8 text-white shadow-xl shadow-emerald-950/20">
 		<div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
 			<div class="max-w-3xl">
-				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200">Platform Control</p>
-				<h1 class="mt-3 text-3xl font-semibold tracking-tight">{draft.platform_name || 'OpenFoundry'} Control Panel</h1>
+				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200">{t('controlPanel.heroBadge')}</p>
+				<h1 class="mt-3 text-3xl font-semibold tracking-tight">{t('controlPanel.heroTitle', { name: draft.platform_name || 'OpenFoundry' })}</h1>
 				<p class="mt-3 max-w-2xl text-sm leading-6 text-slate-200">
-					Gestiona branding, comunicaciones operativas, canal de release, restricciones de plataforma y postura de self-signup desde una superficie única.
+					{t('controlPanel.heroSubtitle')}
 				</p>
 			</div>
 			<div class="grid gap-3 sm:grid-cols-3">
 				<div class="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
-					<div class="text-[11px] uppercase tracking-[0.24em] text-emerald-200">Release</div>
+					<div class="text-[11px] uppercase tracking-[0.24em] text-emerald-200">{t('controlPanel.summary.release')}</div>
 					<div class="mt-2 text-lg font-semibold">{draft.release_channel || 'stable'}</div>
 				</div>
 				<div class="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
-					<div class="text-[11px] uppercase tracking-[0.24em] text-emerald-200">Deployment</div>
+					<div class="text-[11px] uppercase tracking-[0.24em] text-emerald-200">{t('controlPanel.summary.deployment')}</div>
 					<div class="mt-2 text-lg font-semibold">{draft.deployment_mode || 'self-hosted'}</div>
 				</div>
 				<div class="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
-					<div class="text-[11px] uppercase tracking-[0.24em] text-emerald-200">Status</div>
-					<div class="mt-2 text-lg font-semibold">{draft.maintenance_mode ? 'Maintenance' : 'Operational'}</div>
+					<div class="text-[11px] uppercase tracking-[0.24em] text-emerald-200">{t('controlPanel.summary.status')}</div>
+					<div class="mt-2 text-lg font-semibold">{draft.maintenance_mode ? t('controlPanel.status.maintenance') : t('controlPanel.status.operational')}</div>
 				</div>
 			</div>
 		</div>
@@ -370,7 +412,7 @@
 
 	{#if loading}
 		<section class="rounded-3xl border border-slate-200 bg-white px-6 py-8 text-sm text-slate-500 shadow-sm">
-			Loading platform control plane...
+			{t('controlPanel.loading')}
 		</section>
 	{:else if uiError && !settings && !canReadControlPanel()}
 		<section class="rounded-3xl border border-amber-200 bg-amber-50 px-6 py-8 text-sm text-amber-800 shadow-sm">
@@ -388,68 +430,93 @@
 			<section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
 				<div class="flex items-center justify-between gap-4">
 					<div>
-						<p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Operations</p>
-						<h2 class="mt-2 text-xl font-semibold text-slate-900">Platform administration</h2>
+						<p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t('controlPanel.operationsBadge')}</p>
+						<h2 class="mt-2 text-xl font-semibold text-slate-900">{t('controlPanel.operationsHeading')}</h2>
 					</div>
 					<button
 						class="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
 						onclick={saveControlPanel}
 						disabled={saving || !canWriteControlPanel()}
 					>
-						{saving ? 'Saving...' : 'Save changes'}
+						{saving ? t('common.saving') : t('common.saveChanges')}
 					</button>
 				</div>
 
 				<div class="mt-6 grid gap-4 md:grid-cols-2">
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Platform name</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.platformName')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.platform_name} />
 					</label>
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Support email</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.supportEmail')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.support_email} />
 					</label>
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Docs URL</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.docsUrl')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.docs_url} />
 					</label>
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Status page URL</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.statusPageUrl')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.status_page_url} />
 					</label>
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Release channel</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.releaseChannel')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.release_channel} />
 					</label>
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Default region</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.defaultRegion')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.default_region} />
 					</label>
 					<label class="block text-sm">
-						<span class="mb-2 block font-medium text-slate-700">Deployment mode</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.deploymentMode')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.deployment_mode} />
 					</label>
 					<label class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
 						<input type="checkbox" bind:checked={draft.maintenance_mode} />
-						Maintenance mode
+						{t('controlPanel.fields.maintenanceMode')}
 					</label>
 					<label class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 md:col-span-2">
 						<input type="checkbox" bind:checked={draft.allow_self_signup} />
-						Allow self-signup for new enrollments
+						{t('controlPanel.fields.allowSelfSignup')}
 					</label>
 					<label class="block text-sm md:col-span-2">
-						<span class="mb-2 block font-medium text-slate-700">Announcement banner</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.announcementBanner')}</span>
 						<textarea class="min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.announcement_banner}></textarea>
 					</label>
 					<label class="block text-sm md:col-span-2">
-						<span class="mb-2 block font-medium text-slate-700">Allowed email domains</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.allowedEmailDomains')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.allowed_email_domains_text} />
-						<p class="mt-2 text-xs text-slate-500">Comma-separated domains used to constrain self-signup and external invites.</p>
+						<p class="mt-2 text-xs text-slate-500">{t('controlPanel.fields.allowedEmailDomainsHelp')}</p>
 					</label>
 					<label class="block text-sm md:col-span-2">
-						<span class="mb-2 block font-medium text-slate-700">Restricted operations</span>
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.restrictedOperations')}</span>
 						<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.restricted_operations_text} />
-						<p class="mt-2 text-xs text-slate-500">Comma-separated operations to slow down during incidents, freezes or upgrade windows.</p>
+						<p class="mt-2 text-xs text-slate-500">{t('controlPanel.fields.restrictedOperationsHelp')}</p>
+					</label>
+					<label class="block text-sm md:col-span-2">
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.supportedLanguages')}</span>
+						<div class="grid gap-3 rounded-2xl border border-slate-200 px-4 py-3 md:grid-cols-2">
+							{#each ['en', 'es'] as locale}
+								<label class="flex items-center gap-3 text-sm text-slate-700">
+									<input
+										type="checkbox"
+										checked={draft.supported_locales.includes(locale as AppLocale)}
+										onchange={(event) => toggleSupportedLocale(locale as AppLocale, (event.currentTarget as HTMLInputElement).checked)}
+									/>
+									{getLocaleLabel(locale as AppLocale, $currentLocale)}
+								</label>
+							{/each}
+						</div>
+						<p class="mt-2 text-xs text-slate-500">{t('controlPanel.fields.supportedLanguagesHelp')}</p>
+					</label>
+					<label class="block text-sm md:col-span-2">
+						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.defaultLanguage')}</span>
+						<select class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.default_locale}>
+							{#each draft.supported_locales as locale}
+								<option value={locale}>{getLocaleLabel(locale, $currentLocale)}</option>
+							{/each}
+						</select>
+						<p class="mt-2 text-xs text-slate-500">{t('controlPanel.fields.defaultLanguageHelp')}</p>
 					</label>
 					<label class="block text-sm md:col-span-2">
 						<span class="mb-2 block font-medium text-slate-700">Identity provider mappings JSON</span>
@@ -472,35 +539,35 @@
 			<div class="space-y-6">
 				<section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
 					<div class="border-b border-slate-200 px-6 py-4">
-						<p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Branding</p>
-						<h2 class="mt-2 text-xl font-semibold text-slate-900">Workspace identity</h2>
+						<p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t('controlPanel.brandingBadge')}</p>
+						<h2 class="mt-2 text-xl font-semibold text-slate-900">{t('controlPanel.brandingHeading')}</h2>
 					</div>
 					<div class="space-y-4 px-6 py-5">
 						<label class="block text-sm">
-							<span class="mb-2 block font-medium text-slate-700">Display name</span>
+							<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.displayName')}</span>
 							<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.branding_display_name} />
 						</label>
 						<div class="grid gap-4 md:grid-cols-2">
 							<label class="block text-sm">
-								<span class="mb-2 block font-medium text-slate-700">Primary color</span>
+								<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.primaryColor')}</span>
 								<input type="color" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-2 py-2" bind:value={draft.branding_primary_color} />
 							</label>
 							<label class="block text-sm">
-								<span class="mb-2 block font-medium text-slate-700">Accent color</span>
+								<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.accentColor')}</span>
 								<input type="color" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-2 py-2" bind:value={draft.branding_accent_color} />
 							</label>
 						</div>
 						<label class="block text-sm">
-							<span class="mb-2 block font-medium text-slate-700">Logo URL</span>
+							<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.logoUrl')}</span>
 							<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.branding_logo_url} />
 						</label>
 						<label class="block text-sm">
-							<span class="mb-2 block font-medium text-slate-700">Favicon URL</span>
+							<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.faviconUrl')}</span>
 							<input class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500" bind:value={draft.branding_favicon_url} />
 						</label>
 						<label class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
 							<input type="checkbox" bind:checked={draft.branding_show_powered_by} />
-							Show powered-by footer in published apps
+							{t('controlPanel.fields.showPoweredBy')}
 						</label>
 					</div>
 				</section>
@@ -510,10 +577,10 @@
 						class="px-6 py-5 text-white"
 						style={`background: linear-gradient(140deg, ${draft.branding_primary_color}, ${draft.branding_accent_color});`}
 					>
-						<p class="text-xs font-semibold uppercase tracking-[0.24em] text-white/75">Preview</p>
+						<p class="text-xs font-semibold uppercase tracking-[0.24em] text-white/75">{t('controlPanel.previewBadge')}</p>
 						<h3 class="mt-3 text-2xl font-semibold">{draft.branding_display_name || draft.platform_name || 'OpenFoundry'}</h3>
 						<p class="mt-2 max-w-sm text-sm text-white/85">
-							{draft.announcement_banner || 'Platform announcements, rollout windows and support links will surface here for operators and builders.'}
+							{draft.announcement_banner || t('controlPanel.previewFallback')}
 						</p>
 					</div>
 					<div class="bg-white px-6 py-5 text-sm text-slate-600">
@@ -523,12 +590,12 @@
 								<div class="mt-1">{draft.default_region || 'global'} • {draft.release_channel || 'stable'}</div>
 							</div>
 							<div class={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${draft.maintenance_mode ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-								{draft.maintenance_mode ? 'Maintenance' : 'Healthy'}
+								{draft.maintenance_mode ? t('controlPanel.status.maintenance') : t('controlPanel.previewHealthy')}
 							</div>
 						</div>
 						{#if draft.branding_show_powered_by}
 							<div class="mt-4 rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-xs uppercase tracking-[0.24em] text-slate-400">
-								Powered by {draft.platform_name || 'OpenFoundry'}
+								{t('controlPanel.previewPoweredBy', { name: draft.platform_name || 'OpenFoundry' })}
 							</div>
 						{/if}
 					</div>
