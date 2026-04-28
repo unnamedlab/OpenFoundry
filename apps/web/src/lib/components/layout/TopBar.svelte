@@ -9,7 +9,7 @@
   const user = auth.user;
 
   const titleMap: Record<string, string> = {
-    '/': 'Projects & files',
+    '/': 'Home',
     '/apps': 'Applications',
     '/dashboards': 'Recent',
     '/datasets': 'Datasets',

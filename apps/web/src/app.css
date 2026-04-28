@@ -530,7 +530,7 @@ button {
 .of-sidebar__brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   min-height: 52px;
   padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
