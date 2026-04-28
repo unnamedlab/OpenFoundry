@@ -2,23 +2,38 @@
   import { page } from '$app/stores';
   import Glyph from '$components/ui/Glyph.svelte';
 
+  type NavIcon =
+    | 'home'
+    | 'search'
+    | 'bell'
+    | 'history'
+    | 'folder'
+    | 'cube'
+    | 'object'
+    | 'ontology'
+    | 'code'
+    | 'graph'
+    | 'help'
+    | 'settings'
+    | 'sparkles';
+
   type NavItem = {
     href: string;
     label: string;
-    icon: 'home' | 'search' | 'bell' | 'history' | 'folder' | 'cube' | 'object' | 'ontology' | 'code' | 'graph' | 'help' | 'settings' | 'sparkles';
+    icon: NavIcon;
     hint?: string;
   };
 
   const workspaceNav: NavItem[] = [
     { href: '/', label: 'Home', icon: 'home' },
-    { href: '/object-explorer', label: 'Search...', icon: 'search', hint: 'Ctrl + J' },
+    { href: '/search', label: 'Search...', icon: 'search', hint: 'Ctrl + J' },
     { href: '/object-monitors', label: 'Notifications', icon: 'bell' },
     { href: '/dashboards', label: 'Recent', icon: 'history' },
     { href: '/reports', label: 'Files', icon: 'folder' }
   ];
 
   const applicationNav: NavItem[] = [
-    { href: '/', label: 'Projects & files', icon: 'folder' },
+    { href: '/projects', label: 'Projects & files', icon: 'folder' },
     { href: '/object-explorer', label: 'Object Explorer', icon: 'object' },
     { href: '/ontology-manager', label: 'Ontology Manager', icon: 'ontology' },
     { href: '/notebooks', label: 'Workshop', icon: 'code' },

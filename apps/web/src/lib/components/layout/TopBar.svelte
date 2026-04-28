@@ -20,8 +20,10 @@
     '/ontology': 'Ontology',
     '/ontology-manager': 'Ontology Manager',
     '/pipelines': 'Pipeline Builder',
+    '/projects': 'Projects & files',
     '/queries': 'Queries',
     '/reports': 'Files',
+    '/search': 'Search',
     '/settings': 'Account'
   };
 
