@@ -71,6 +71,7 @@
     name: LocalizedCopy;
     description: LocalizedCopy;
     badge: LocalizedCopy;
+    // Keep 'all' first when present so the launcher can prefer the first specific bucket for selection.
     categoryIds: LauncherCategoryId[];
     createHref?: string;
     browseHref?: string;
@@ -366,7 +367,7 @@
   });
   const selectedLauncherApp = $derived.by(
     () =>
-      visibleLauncherApps.find((item: LauncherApp) => item.id === selectedLauncherAppId) ??
+      visibleLauncherApps.find((item) => item.id === selectedLauncherAppId) ??
       visibleLauncherApps[0] ??
       null
   );
