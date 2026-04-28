@@ -60,6 +60,8 @@
 
   const currentUser = auth.user;
   const isAuthenticated = auth.isAuthenticated;
+  const PROJECT_VIEW_SEED = 4;
+  const PROJECT_VIEW_MODULO = 12;
 
   const viewTabs: Array<{ id: WorkspaceView; label: string }> = [
     { id: 'portfolios', label: 'Portfolios' },
@@ -224,9 +226,20 @@
     starterFolderName: 'Learning',
   });
 
-  const selectedSpace = $derived.by(
-    () => spaceOptions.find((option) => option.id === draft.spaceId) ?? spaceOptions[0],
-  );
+  const selectedSpace = $derived.by(() => {
+    const match = spaceOptions.find((option) => option.id === draft.spaceId);
+    if (match) {
+      return match;
+    }
+
+    if (draft.spaceId) {
+      console.warn(`Unknown project space "${draft.spaceId}", falling back to a default space.`);
+    }
+
+    return (
+      spaceOptions.find((option) => option.id === $currentUser?.organization_id) ?? spaceOptions[0]
+    );
+  });
   const selectedTemplate = $derived.by(
     () => projectTemplates.find((option) => option.id === draft.templateId) ?? projectTemplates[0],
   );
@@ -318,7 +331,10 @@
       role: project.owner_id === $currentUser?.id ? 'Owner' : 'Editor',
       tags: ['project', template.label],
       portfolio: template.suggestedPortfolio,
-      views: Math.max(4, ((project.display_name || project.slug).length % 12) + 4),
+      views: Math.max(
+        PROJECT_VIEW_SEED,
+        ((project.display_name || project.slug).length % PROJECT_VIEW_MODULO) + PROJECT_VIEW_SEED,
+      ),
       modifiedAt: project.updated_at,
       spaceId: meta.spaceId,
       view: 'projects',
@@ -331,7 +347,7 @@
 
   function createFolderRow(project: OntologyProject, folderName: string, meta: ProjectMeta): WorkspaceRow {
     return {
-      id: `folder-${project.id}-${normalizeSlug(folderName)}-${crypto.randomUUID()}`,
+      id: `folder-${project.id}-${crypto.randomUUID()}`,
       name: folderName,
       kind: 'folder',
       role: 'Owner',
@@ -395,10 +411,11 @@
 
   function handleNameInput(event: Event) {
     const value = (event.currentTarget as HTMLInputElement).value;
+    const previousName = draft.name;
     const shouldSyncFolderName =
       draft.starterFolderName.trim().length === 0 ||
       draft.starterFolderName === 'Learning' ||
-      draft.starterFolderName === draft.name;
+      draft.starterFolderName === previousName;
 
     draft = {
       ...draft,
