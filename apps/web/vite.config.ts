@@ -4,7 +4,12 @@ import { defineConfig } from 'vite';
 export default defineConfig({
 	plugins: [sveltekit()],
 	build: {
-		chunkSizeWarningLimit: 2600
+		chunkSizeWarningLimit: 2600,
+		rolldownOptions: {
+			checks: {
+				pluginTimings: false
+			}
+		}
 	},
 	server: {
 		host: '0.0.0.0',
