@@ -326,7 +326,7 @@
   }
 
   function localize(copy: LocalizedCopy) {
-    return ($currentLocale === 'es' ? copy.es : copy.en) as string;
+    return $currentLocale === 'es' ? copy.es : copy.en;
   }
 
   function getPreferredCategory(app: LauncherApp | undefined) {
@@ -368,12 +368,6 @@
       visibleLauncherApps[0] ??
       null
   );
-
-  $effect(() => {
-    if (selectedLauncherApp?.id !== selectedLauncherAppId) {
-      selectedLauncherAppId = selectedLauncherApp?.id ?? '';
-    }
-  });
 
   function closeApplicationsLauncher() {
     applicationsLauncherOpen = false;
