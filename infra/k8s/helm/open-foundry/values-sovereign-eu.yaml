@@ -42,7 +42,7 @@ global:
 services:
   gateway:
     replicas: 3
-  dataset-service:
+  data-asset-catalog-service:
     replicas: 3
-  query-service:
+  sql-bi-gateway-service:
     replicas: 3

@@ -9,17 +9,18 @@ REPORT_DELIVERY_ROOT="${OPENFOUNDRY_REPORT_DELIVERY_ROOT:-$ROOT_DIR/.openfoundry
 BUILD_LOG="$LOG_DIR/cargo-build.log"
 WEB_LOG="$LOG_DIR/web.log"
 SERVICES=(
-  auth-service
-  audit-service
-  data-connector
-  dataset-service
-  query-service
-  pipeline-service
-  ontology-service
-  ml-service
-  ai-service
-  workflow-service
-  notebook-service
+  identity-federation-service
+  audit-compliance-service
+  connector-management-service
+  data-asset-catalog-service
+  sql-bi-gateway-service
+  pipeline-authoring-service
+  ontology-definition-service
+  model-catalog-service
+  agent-runtime-service
+  workflow-automation-service
+  notebook-runtime-service
+  document-reporting-service
   app-builder-service
   report-service
   marketplace-service

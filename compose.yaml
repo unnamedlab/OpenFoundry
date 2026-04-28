@@ -1,0 +1,12 @@
+# Top-level Docker Compose entrypoint for OpenFoundry.
+#
+# Allows `docker compose up -d` from the repo root without -f flags.
+# Delegates to the real compose files under infra/ via `include:`.
+#
+# Default stack: core platform (infra/docker-compose.yml).
+# To layer dev or monitoring extras, use:
+#   docker compose -f compose.yaml -f infra/docker-compose.dev.yml up -d
+#   docker compose -f compose.yaml -f infra/docker-compose.monitoring.yml up -d
+
+include:
+  - path: infra/docker-compose.yml

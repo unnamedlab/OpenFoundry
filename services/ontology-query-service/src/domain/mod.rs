@@ -1,36 +1,36 @@
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/access.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/access.rs"]
 pub mod access;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/function_metrics.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/function_metrics.rs"]
 pub mod function_metrics;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/function_runtime.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/function_runtime.rs"]
 pub mod function_runtime;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/graph.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/graph.rs"]
 pub mod graph;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/indexer.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/indexer.rs"]
 pub mod indexer;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/object_sets.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/object_sets.rs"]
 pub mod object_sets;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/project_access.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/project_access.rs"]
 pub mod project_access;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/rules.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/rules.rs"]
 pub mod rules;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/schema.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/schema.rs"]
 pub mod schema;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/search/mod.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/search/mod.rs"]
 pub mod search;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/time_series.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/time_series.rs"]
 pub mod time_series;
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/domain/type_system.rs"]
+#[path = "../../../../libs/ontology-kernel/src/domain/type_system.rs"]
 pub mod type_system;

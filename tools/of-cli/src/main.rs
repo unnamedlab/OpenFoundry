@@ -581,7 +581,7 @@ fn generate_terraform_schema(output: &Path) -> Result<()> {
                 attributes: BTreeMap::from([
                     (
                         "repository_id",
-                        "UUID of the repository managed by code-repo-service.",
+                        "UUID of the repository managed by code-repository-review-service.",
                     ),
                     ("provider", "git provider: github or gitlab."),
                     ("external_project", "Remote project or repository slug."),
@@ -597,7 +597,7 @@ fn generate_terraform_schema(output: &Path) -> Result<()> {
             },
             ResourceDefinition {
                 name: "openfoundry_audit_policy",
-                description: "Manage retention and purge policies through audit-service.",
+                description: "Manage retention and purge policies through audit-compliance-service.",
                 attributes: BTreeMap::from([
                     ("name", "Human-friendly policy name."),
                     ("classification", "public, confidential, or pii."),

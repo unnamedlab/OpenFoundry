@@ -75,7 +75,7 @@ The same area is also becoming the natural observability surface for ontology in
 
 Ontology reads naturally span:
 
-- `services/query-service`
+- `services/sql-bi-gateway-service`
 - `services/ontology-service`
 - `services/geospatial-service`
 - `services/gateway`
@@ -87,7 +87,7 @@ This is the layer that should eventually serve object loading, graph traversal, 
 Controlled writes already map well to:
 
 - `services/ontology-service`
-- `services/workflow-service`
+- `services/workflow-automation-service`
 - `services/notification-service`
 - `services/audit-service`
 
@@ -109,7 +109,7 @@ The programmable and AI-aware layer is implied by:
 
 - `services/ai-service`
 - `services/ml-service`
-- `services/notebook-service`
+- `services/notebook-runtime-service`
 - `libs/vector-store`
 - `tools/of-cli`
 

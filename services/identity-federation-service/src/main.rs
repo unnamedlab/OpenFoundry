@@ -6,7 +6,7 @@ mod models;
 use auth_middleware::jwt::JwtConfig;
 use axum::{
     Router, middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
@@ -75,6 +75,16 @@ async fn main() {
     let protected = Router::new()
         .route("/api/v1/users/me", get(handlers::user_mgmt::me))
         .route("/api/v2/admin/users/me", get(handlers::user_mgmt::me))
+        .route("/api/v1/users", get(handlers::user_mgmt::list_users))
+        .route("/api/v2/admin/users", get(handlers::user_mgmt::list_users))
+        .route(
+            "/api/v1/users/{id}",
+            patch(handlers::user_mgmt::update_user).delete(handlers::user_mgmt::deactivate_user),
+        )
+        .route(
+            "/api/v2/admin/users/{id}",
+            patch(handlers::user_mgmt::update_user).delete(handlers::user_mgmt::deactivate_user),
+        )
         .route(
             "/api/v1/auth/sessions",
             get(handlers::sessions::list_scoped_sessions),

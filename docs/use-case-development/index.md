@@ -5,9 +5,10 @@ This section covers how platform capabilities become workflow-ready applications
 ## OpenFoundry mapping
 
 - `services/app-builder-service`
-- `services/workflow-service`
+- `services/workflow-automation-service`
 - `services/report-service`
-- `services/notebook-service`
+- `services/notebook-runtime-service`
+- `services/document-reporting-service`
 - `apps/web/src/routes/apps`
 - `apps/web/src/routes/workflows`
 

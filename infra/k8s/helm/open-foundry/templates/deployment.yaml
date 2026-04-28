@@ -108,19 +108,19 @@ spec:
             - name: {{ $envKey }}
               value: {{ $envValue | quote }}
 {{- end }}
-{{- if eq $serviceName "auth-service" }}
+{{- if eq $serviceName "identity-federation-service" }}
             - name: PUBLIC_WEB_ORIGIN
               value: {{ $.Values.global.publicWebOrigin | quote }}
 {{- end }}
 {{- if eq $serviceName "gateway" }}
             - name: AUTH_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "auth-service" "port" 50051) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "identity-federation-service" "port" 50112) | quote }}
             - name: DATASET_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "dataset-service" "port" 50053) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "data-asset-catalog-service" "port" 50079) | quote }}
             - name: QUERY_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "query-service" "port" 50055) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "sql-bi-gateway-service" "port" 50133) | quote }}
             - name: PIPELINE_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "pipeline-service" "port" 50056) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "pipeline-authoring-service" "port" 50080) | quote }}
             - name: REPORT_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "report-service" "port" 50064) | quote }}
             - name: GEOSPATIAL_SERVICE_URL
@@ -128,13 +128,13 @@ spec:
             - name: NEXUS_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "nexus-service" "port" 50067) | quote }}
 {{- end }}
-{{- if eq $serviceName "pipeline-service" }}
+{{- if eq $serviceName "pipeline-authoring-service" }}
             - name: DATASET_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "dataset-service" "port" 50053) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "data-asset-catalog-service" "port" 50079) | quote }}
 {{- end }}
 {{- if eq $serviceName "report-service" }}
             - name: DATASET_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "dataset-service" "port" 50053) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "data-asset-catalog-service" "port" 50079) | quote }}
             - name: GEOSPATIAL_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-intelligence-service" "port" 50068) | quote }}
 {{- end }}

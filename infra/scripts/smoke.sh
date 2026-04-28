@@ -240,8 +240,8 @@ main() {
   echo "Ontology: $ONTOLOGY_URL"
 
   check_health "gateway" "$GATEWAY_URL/health"
-  check_health "auth-service" "$AUTH_URL/health"
-  check_health "dataset-service" "$DATASET_URL/health"
+  check_health "identity-federation-service" "$AUTH_URL/health"
+  check_health "data-asset-catalog-service" "$DATASET_URL/health"
   check_health "ontology-service" "$ONTOLOGY_URL/health"
 
   authenticate

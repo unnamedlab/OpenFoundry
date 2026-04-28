@@ -25,7 +25,7 @@ fn default_port() -> u16 {
 }
 
 fn default_data_connector_url() -> String {
-    "http://localhost:50052".to_string()
+    "http://localhost:50088".to_string()
 }
 
 fn default_event_streaming_service_url() -> String {

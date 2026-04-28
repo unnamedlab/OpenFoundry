@@ -1,2 +1,2 @@
-#[path = "../../../ml-service/src/domain/drift.rs"]
+#[path = "../../../../libs/ml-kernel/src/domain/drift.rs"]
 pub mod drift;

@@ -15,7 +15,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `ingestion-replication-service` | `50090` | Sync jobs, batch and micro-batch ingestion, export flows, refresh policies, connector agents, and scheduler runtime |
 | `dataset-service` | `50053` | Datasets, versions, branches, filesystem, quality, linting |
 | `streaming-service` | `50054` | Streaming pipelines and archive management |
-| `query-service` | `50055` | Query execution surface |
+| `sql-bi-gateway-service` | `50133` | Query execution surface and SQL/BI compatibility gateway |
 | `pipeline-service` | `50056` | Pipeline compatibility shell during service decomposition |
 | `pipeline-authoring-service` | `50080` | Pipeline definitions, validation, compilation, pruning, and executable plan generation |
 | `pipeline-build-service` | `50081` | Pipeline run execution and retry orchestration |
@@ -25,8 +25,9 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `fusion-service` | `50058` | Fusion and spreadsheet-oriented interactions |
 | `ml-service` | `50059` | Experiments, training, registry, model lifecycle |
 | `ai-service` | `50060` | AI providers, chat, tools, workflows |
-| `workflow-service` | `50061` | Workflow orchestration |
-| `notebook-service` | `50062` | Notebook and notepad runtimes |
+| `workflow-automation-service` | `50137` | Workflow orchestration and execution runtime |
+| `notebook-runtime-service` | `50134` | Notebook kernels, cells, sessions, and interactive execution |
+| `document-reporting-service` | `50102` | Notepad-style documents and document reporting surfaces |
 | `app-builder-service` | `50063` | App composition and runtime surfaces |
 | `report-service` | `50064` | Report generation and delivery |
 | `code-repo-service` | `50065` | Code repository APIs |
@@ -69,10 +70,10 @@ Configuration files show explicit service-to-service defaults for several domain
 - `pipeline-build-service` depends on dataset, workflow, and AI services
 - `pipeline-schedule-service` depends on dataset, workflow, and AI services to own shared scheduling while delegating workflow execution to the workflow runtime
 - `lineage-service` depends on dataset, workflow, and AI services
-- `workflow-service` depends on notification, ontology, and pipeline services
+- `workflow-automation-service` depends on notification, ontology, and pipeline services
 - `ontology-service` depends on audit and AI services
 - `report-service` depends on dataset and geospatial services
-- `notebook-service` depends on query and AI services
+- `notebook-runtime-service` depends on query and AI services
 - `marketplace-service` depends on app-builder
 
 ## Health Convention

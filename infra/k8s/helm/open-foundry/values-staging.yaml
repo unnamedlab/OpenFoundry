@@ -13,15 +13,15 @@ services:
     autoscaling:
       minReplicas: 2
       maxReplicas: 5
-  auth-service:
+  identity-federation-service:
     autoscaling:
       minReplicas: 2
       maxReplicas: 4
-  dataset-service:
+  data-asset-catalog-service:
     autoscaling:
       minReplicas: 2
       maxReplicas: 5
-  query-service:
+  sql-bi-gateway-service:
     env:
       DISTRIBUTED_QUERY_WORKERS: "4"
     autoscaling:
@@ -29,14 +29,10 @@ services:
       maxReplicas: 8
       keda:
         enabled: true
-  pipeline-service:
-    env:
-      DISTRIBUTED_PIPELINE_WORKERS: "4"
+  pipeline-authoring-service:
     autoscaling:
       minReplicas: 2
       maxReplicas: 6
-      keda:
-        enabled: true
   report-service:
     autoscaling:
       minReplicas: 2

@@ -31,8 +31,8 @@ Recuperar OpenFoundry ante pérdida parcial o total del plano de control, minimi
 4. Levantar `docker compose` con los mismos perfiles usados antes del incidente
 5. Verificar salud de:
    - `gateway`
-   - `auth-service`
-   - `dataset-service`
+   - `identity-federation-service`
+   - `data-asset-catalog-service`
    - `ontology-service`
    - `marketplace-service`
 

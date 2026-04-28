@@ -40,7 +40,7 @@ The custom provider directory also contains `provider.schema.json`, which is tre
 
 ## Docker Images
 
-Selected services are published through `docker-publish.yml` using their service-local Dockerfiles. The workflow currently focuses on a subset of core services such as `gateway`, `auth-service`, `dataset-service`, `query-service`, `pipeline-service`, and `ontology-service`.
+Selected services are published through `docker-publish.yml` using their service-local Dockerfiles. The workflow currently focuses on a subset of core services such as `gateway`, `auth-service`, `dataset-service`, `sql-bi-gateway-service`, `pipeline-service`, and `ontology-service`.
 
 ## Release Model
 

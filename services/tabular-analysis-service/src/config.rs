@@ -17,7 +17,7 @@ pub struct AppConfig {
 fn default_host() -> String { "0.0.0.0".to_string() }
 fn default_port() -> u16 { 50130 }
 fn default_dataset_service_url() -> String { "http://localhost:50053".to_string() }
-fn default_query_service_url() -> String { "http://localhost:50054".to_string() }
+fn default_query_service_url() -> String { "http://localhost:50133".to_string() }
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, config::ConfigError> {

@@ -15,6 +15,10 @@ use tracing_subscriber::EnvFilter;
 pub struct AppState {
     pub db: sqlx::PgPool,
     pub jwt_config: JwtConfig,
+    pub approvals_service_url: String,
+    pub notification_service_url: String,
+    pub ontology_service_url: String,
+    pub pipeline_service_url: String,
     pub http_client: reqwest::Client,
 }
 

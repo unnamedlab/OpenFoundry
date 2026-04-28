@@ -126,30 +126,6 @@ services:
       timeout: 5s
       retries: 5
 
-  auth-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/auth-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50051
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      PUBLIC_WEB_ORIGIN: ${OPENFOUNDRY_PUBLIC_WEB_ORIGIN:-http://localhost:3000}
-      REDIS_URL: redis://redis:6379
-      NATS_URL: nats://nats:4222
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_AUTH_HOST_PORT:-50051}:50051"
-
   identity-federation-service:
     <<: *app-common
     build:
@@ -171,8 +147,6 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
-      auth-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_IDENTITY_FEDERATION_HOST_PORT:-50112}:50112"
 
@@ -207,8 +181,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      auth-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_SESSION_GOVERNANCE_HOST_PORT:-50074}:50074"
 
@@ -226,8 +198,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      auth-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_AUTHORIZATION_POLICY_HOST_PORT:-50093}:50093"
 
@@ -247,8 +217,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      audit-service:
-        condition: service_started
       authorization-policy-service:
         condition: service_started
     ports:
@@ -270,11 +238,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      auth-service:
-        condition: service_started
       nexus-service:
-        condition: service_started
-      ontology-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_TENANCY_ORGANIZATIONS_HOST_PORT:-50113}:50113"
@@ -293,8 +257,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      auth-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_OAUTH_INTEGRATION_HOST_PORT:-50094}:50094"
 
@@ -312,42 +274,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      auth-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_NETWORK_BOUNDARY_HOST_PORT:-50119}:50119"
-
-  data-connector:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/data-connector/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50052
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
-      ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
-      INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
-      NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:50119
-      ALLOW_PRIVATE_NETWORK_EGRESS: "true"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
-      pipeline-authoring-service:
-        condition: service_started
-      ontology-definition-service:
-        condition: service_started
-      ingestion-replication-service:
-        condition: service_started
-      network-boundary-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_DATA_CONNECTOR_HOST_PORT:-50052}:50052"
 
   connector-management-service:
     <<: *app-common
@@ -362,11 +290,17 @@ services:
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
+      INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
+      NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:50119
       ALLOW_PRIVATE_NETWORK_EGRESS: "true"
     depends_on:
       postgres:
         condition: service_healthy
       ontology-definition-service:
+        condition: service_started
+      ingestion-replication-service:
+        condition: service_started
+      network-boundary-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_CONNECTOR_MANAGEMENT_HOST_PORT:-50088}:50088"
@@ -417,34 +351,6 @@ services:
     ports:
       - "${OPENFOUNDRY_INGESTION_REPLICATION_HOST_PORT:-50090}:50090"
 
-  dataset-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/dataset-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50053
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_dataset_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      STORAGE_BACKEND: s3
-      STORAGE_BUCKET: datasets
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_DATASET_HOST_PORT:-50053}:50053"
-
   dataset-versioning-service:
     <<: *app-common
     build:
@@ -459,8 +365,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      dataset-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_DATASET_VERSIONING_HOST_PORT:-50078}:50078"
 
@@ -488,8 +392,6 @@ services:
       minio:
         condition: service_healthy
       minio-init:
-        condition: service_started
-      dataset-service:
         condition: service_started
       dataset-quality-service:
         condition: service_started
@@ -555,9 +457,9 @@ services:
       PORT: 50122
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cdc_metadata_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_CONNECTOR_URL: http://data-connector:50052
+      DATA_CONNECTOR_URL: http://connector-management-service:50088
       EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
-      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
     depends_on:
       postgres:
         condition: service_healthy
@@ -574,8 +476,8 @@ services:
       PORT: 50123
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_sql_warehousing_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      QUERY_SERVICE_URL: http://query-service:50055
-      PIPELINE_SERVICE_URL: http://pipeline-service:50056
+      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
+      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
     depends_on:
       postgres:
@@ -594,7 +496,7 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_time_series_data_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
-      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+      ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       GEOSPATIAL_SERVICE_URL: http://geospatial-intelligence-service:50068
     depends_on:
       postgres:
@@ -708,7 +610,7 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_tabular_analysis_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      QUERY_SERVICE_URL: http://query-service:50055
+      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
     depends_on:
       postgres:
         condition: service_healthy
@@ -757,11 +659,15 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50133
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_sql_bi_gateway
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_query_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/query-data
+      DISTRIBUTED_QUERY_WORKERS: "1"
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - query_data:/var/lib/openfoundry/query-data
     ports:
       - "${OPENFOUNDRY_SQL_BI_GATEWAY_HOST_PORT:-50133}:50133"
 
@@ -773,11 +679,20 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50134
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_notebook_runtime
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_notebook_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      DATA_DIR: /var/lib/openfoundry/notebook-data
+      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
+      AI_SERVICE_URL: http://agent-runtime-service:50127
     depends_on:
       postgres:
         condition: service_healthy
+      sql-bi-gateway-service:
+        condition: service_started
+      agent-runtime-service:
+        condition: service_started
+    volumes:
+      - notebook_data:/var/lib/openfoundry/notebook-data
     ports:
       - "${OPENFOUNDRY_NOTEBOOK_RUNTIME_HOST_PORT:-50134}:50134"
 
@@ -821,11 +736,21 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50137
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_workflow_automation
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_workflow_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      APPROVALS_SERVICE_URL: http://approvals-service:50071
+      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
+      ONTOLOGY_SERVICE_URL: http://ontology-actions-service:50106
+      PIPELINE_SERVICE_URL: http://lineage-service:50083
     depends_on:
       postgres:
         condition: service_healthy
+      notification-alerting-service:
+        condition: service_started
+      lineage-service:
+        condition: service_started
+      ontology-actions-service:
+        condition: service_started
     ports:
       - "${OPENFOUNDRY_WORKFLOW_AUTOMATION_HOST_PORT:-50137}:50137"
 
@@ -1118,64 +1043,6 @@ services:
       - "${OPENFOUNDRY_CODE_REPOSITORY_REVIEW_HOST_PORT:-50155}:50155"
 
 
-  query-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/query-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50055
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_query_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_DIR: /var/lib/openfoundry/query-data
-      DISTRIBUTED_QUERY_WORKERS: "1"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - query_data:/var/lib/openfoundry/query-data
-    ports:
-      - "${OPENFOUNDRY_QUERY_HOST_PORT:-50055}:50055"
-
-  pipeline-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/pipeline-service/Dockerfile
-    environment:
-      OPENFOUNDRY_ENV: development
-      HOST: 0.0.0.0
-      PORT: 50056
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_DIR: /var/lib/openfoundry/pipeline-data
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
-      AI_SERVICE_URL: http://ai-service:50060
-      STORAGE_BACKEND: s3
-      STORAGE_BUCKET: datasets
-      S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      DISTRIBUTED_PIPELINE_WORKERS: "1"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
-      workflow-service:
-        condition: service_started
-      ai-service:
-        condition: service_started
-    volumes:
-      - pipeline_data:/var/lib/openfoundry/pipeline-data
-    ports:
-      - "${OPENFOUNDRY_PIPELINE_HOST_PORT:-50056}:50056"
-
   pipeline-authoring-service:
     <<: *app-common
     build:
@@ -1189,8 +1056,8 @@ services:
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATA_DIR: /var/lib/openfoundry/pipeline-data
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
-      AI_SERVICE_URL: http://ai-service:50060
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
       STORAGE_BUCKET: datasets
       S3_ENDPOINT: http://minio:9000
@@ -1219,8 +1086,8 @@ services:
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATA_DIR: /var/lib/openfoundry/pipeline-data
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
-      AI_SERVICE_URL: http://ai-service:50060
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
       STORAGE_BUCKET: datasets
       S3_ENDPOINT: http://minio:9000
@@ -1235,9 +1102,7 @@ services:
         condition: service_healthy
       data-asset-catalog-service:
         condition: service_started
-      workflow-service:
-        condition: service_started
-      ai-service:
+      workflow-automation-service:
         condition: service_started
     volumes:
       - pipeline_data:/var/lib/openfoundry/pipeline-data
@@ -1257,8 +1122,8 @@ services:
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATA_DIR: /var/lib/openfoundry/pipeline-data
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
-      AI_SERVICE_URL: http://ai-service:50060
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
       STORAGE_BUCKET: datasets
       S3_ENDPOINT: http://minio:9000
@@ -1273,9 +1138,7 @@ services:
         condition: service_healthy
       data-asset-catalog-service:
         condition: service_started
-      workflow-service:
-        condition: service_started
-      ai-service:
+      workflow-automation-service:
         condition: service_started
     volumes:
       - pipeline_data:/var/lib/openfoundry/pipeline-data
@@ -1293,10 +1156,10 @@ services:
       PORT: 50083
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_pipeline_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_DIR: /var/lib/openfoundry/pipeline-data
+      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
-      AI_SERVICE_URL: http://ai-service:50060
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       STORAGE_BACKEND: s3
       STORAGE_BUCKET: datasets
       S3_ENDPOINT: http://minio:9000
@@ -1311,28 +1174,10 @@ services:
         condition: service_healthy
       data-asset-catalog-service:
         condition: service_started
-      ai-service:
-        condition: service_started
     volumes:
       - pipeline_data:/var/lib/openfoundry/pipeline-data
     ports:
       - "${OPENFOUNDRY_LINEAGE_HOST_PORT:-50083}:50083"
-
-  ontology-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/ontology-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50057
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_HOST_PORT:-50057}:50057"
 
   ontology-definition-service:
     <<: *app-common
@@ -1344,19 +1189,17 @@ services:
       PORT: 50103
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_DEFINITION_HOST_PORT:-50103}:50103"
 
@@ -1370,23 +1213,17 @@ services:
       PORT: 50104
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
-      audit-service:
-        condition: service_started
-      ai-service:
-        condition: service_started
       notification-alerting-service:
         condition: service_started
     ports:
@@ -1402,19 +1239,17 @@ services:
       PORT: 50105
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_QUERY_HOST_PORT:-50105}:50105"
 
@@ -1428,23 +1263,17 @@ services:
       PORT: 50106
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
-      audit-service:
-        condition: service_started
-      ai-service:
-        condition: service_started
       notification-alerting-service:
         condition: service_started
     ports:
@@ -1460,19 +1289,17 @@ services:
       PORT: 50107
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
       data-asset-catalog-service:
         condition: service_started
       pipeline-build-service:
@@ -1490,21 +1317,17 @@ services:
       PORT: 50108
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_FUNCTIONS_HOST_PORT:-50108}:50108"
 
@@ -1518,19 +1341,17 @@ services:
       PORT: 50109
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
         condition: service_healthy
-      ontology-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_SECURITY_HOST_PORT:-50109}:50109"
 
@@ -1550,22 +1371,6 @@ services:
     ports:
       - "${OPENFOUNDRY_ENTITY_RESOLUTION_HOST_PORT:-50058}:50058"
 
-  ml-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/ml-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50059
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ML_HOST_PORT:-50059}:50059"
-
   ml-experiments-service:
     <<: *app-common
     build:
@@ -1580,8 +1385,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ml-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_ML_EXPERIMENTS_HOST_PORT:-50084}:50084"
 
@@ -1599,8 +1402,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ml-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_MODEL_CATALOG_HOST_PORT:-50085}:50085"
 
@@ -1618,8 +1419,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ml-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_MODEL_DEPLOYMENT_HOST_PORT:-50086}:50086"
 
@@ -1637,8 +1436,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ml-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_MODEL_EVALUATION_HOST_PORT:-50091}:50091"
 
@@ -1656,8 +1453,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ml-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_MODEL_SERVING_HOST_PORT:-50087}:50087"
 
@@ -1675,32 +1470,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ml-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_MODEL_INFERENCE_HISTORY_HOST_PORT:-50092}:50092"
-
-  ai-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/ai-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50060
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ai_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      OPENFOUNDRY_API_BASE_URL: http://gateway:8080
-      CHECKPOINTS_PURPOSE_SERVICE_URL: http://checkpoints-purpose-service:50116
-    depends_on:
-      postgres:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      checkpoints-purpose-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_AI_HOST_PORT:-50060}:50060"
 
   ai-evaluation-service:
     <<: *app-common
@@ -1731,8 +1502,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_LLM_CATALOG_HOST_PORT:-50095}:50095"
 
@@ -1749,8 +1518,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_PROMPT_WORKFLOW_HOST_PORT:-50096}:50096"
 
@@ -1767,8 +1534,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_KNOWLEDGE_INDEX_HOST_PORT:-50097}:50097"
 
@@ -1785,8 +1550,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_RETRIEVAL_CONTEXT_HOST_PORT:-50098}:50098"
 
@@ -1803,8 +1566,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_CONVERSATION_STATE_HOST_PORT:-50099}:50099"
 
@@ -1821,35 +1582,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_TOOL_REGISTRY_HOST_PORT:-50100}:50100"
-
-  workflow-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/workflow-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50061
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_workflow_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      ONTOLOGY_SERVICE_URL: http://ontology-actions-service:50106
-      PIPELINE_SERVICE_URL: http://lineage-service:50083
-    depends_on:
-      postgres:
-        condition: service_healthy
-      notification-alerting-service:
-        condition: service_started
-      lineage-service:
-        condition: service_started
-      ontology-actions-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_WORKFLOW_HOST_PORT:-50061}:50061"
 
   approvals-service:
     <<: *app-common
@@ -1861,42 +1595,17 @@ services:
       PORT: 50071
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_workflow_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
       ONTOLOGY_SERVICE_URL: http://ontology-actions-service:50106
     depends_on:
       postgres:
         condition: service_healthy
-      workflow-service:
+      workflow-automation-service:
         condition: service_started
       ontology-actions-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_APPROVALS_HOST_PORT:-50071}:50071"
-
-  notebook-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/notebook-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50062
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_notebook_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_DIR: /var/lib/openfoundry/notebook-data
-      QUERY_SERVICE_URL: http://query-service:50055
-      AI_SERVICE_URL: http://ai-service:50060
-    depends_on:
-      postgres:
-        condition: service_healthy
-      query-service:
-        condition: service_started
-      ai-service:
-        condition: service_started
-    volumes:
-      - notebook_data:/var/lib/openfoundry/notebook-data
-    ports:
-      - "${OPENFOUNDRY_NOTEBOOK_HOST_PORT:-50062}:50062"
 
   document-reporting-service:
     <<: *app-common
@@ -1911,8 +1620,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      notebook-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_DOCUMENT_REPORTING_HOST_PORT:-50102}:50102"
 
@@ -2145,25 +1852,6 @@ services:
     ports:
       - "${OPENFOUNDRY_NOTIFICATION_HOST_PORT:-50114}:50114"
 
-  audit-service:
-    <<: *app-common
-    build:
-      context: ..
-      dockerfile: services/audit-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50070
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_audit_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      NATS_URL: nats://nats:4222
-    depends_on:
-      postgres:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_AUDIT_HOST_PORT:-50070}:50070"
-
   audit-compliance-service:
     <<: *app-common
     build:
@@ -2271,7 +1959,7 @@ services:
       PORT: 8080
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       REDIS_URL: redis://redis:6379
-      AUTH_SERVICE_URL: http://auth-service:50051
+      AUTH_SERVICE_URL: http://identity-federation-service:50112
       IDENTITY_FEDERATION_SERVICE_URL: http://identity-federation-service:50112
       SESSION_GOVERNANCE_SERVICE_URL: http://session-governance-service:50074
       AUTHORIZATION_POLICY_SERVICE_URL: http://authorization-policy-service:50093
@@ -2279,7 +1967,7 @@ services:
       TENANCY_ORGANIZATIONS_SERVICE_URL: http://tenancy-organizations-service:50113
       OAUTH_INTEGRATION_SERVICE_URL: http://oauth-integration-service:50094
       CIPHER_SERVICE_URL: http://cipher-service:50073
-      DATA_CONNECTOR_SERVICE_URL: http://data-connector:50052
+      DATA_CONNECTOR_SERVICE_URL: http://connector-management-service:50088
       CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service:50088
       VIRTUAL_TABLE_SERVICE_URL: http://virtual-table-service:50089
       INGESTION_REPLICATION_SERVICE_URL: http://ingestion-replication-service:50090
@@ -2290,7 +1978,7 @@ services:
       CDC_METADATA_SERVICE_URL: http://cdc-metadata-service:50122
       SQL_WAREHOUSING_SERVICE_URL: http://sql-warehousing-service:50123
       TIME_SERIES_DATA_SERVICE_URL: http://time-series-data-service:50124
-      QUERY_SERVICE_URL: http://query-service:50055
+      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
       PIPELINE_AUTHORING_SERVICE_URL: http://pipeline-authoring-service:50080
       PIPELINE_BUILD_SERVICE_URL: http://pipeline-build-service:50081
       PIPELINE_SCHEDULE_SERVICE_URL: http://pipeline-schedule-service:50082
@@ -2302,16 +1990,16 @@ services:
       ONTOLOGY_FUNNEL_SERVICE_URL: http://ontology-funnel-service:50107
       ONTOLOGY_FUNCTIONS_SERVICE_URL: http://ontology-functions-service:50108
       ONTOLOGY_SECURITY_SERVICE_URL: http://ontology-security-service:50109
-      ONTOLOGY_SERVICE_URL: http://ontology-service:50057
+      ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       ENTITY_RESOLUTION_SERVICE_URL: http://entity-resolution-service:50058
-      ML_SERVICE_URL: http://ml-service:50059
+      ML_SERVICE_URL: http://model-catalog-service:50085
       ML_EXPERIMENTS_SERVICE_URL: http://ml-experiments-service:50084
       MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
       MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
       MODEL_EVALUATION_SERVICE_URL: http://model-evaluation-service:50091
       MODEL_SERVING_SERVICE_URL: http://model-serving-service:50087
       MODEL_INFERENCE_HISTORY_SERVICE_URL: http://model-inference-history-service:50092
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://agent-runtime-service:50127
       CHECKPOINTS_PURPOSE_SERVICE_URL: http://checkpoints-purpose-service:50116
       NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:50119
       RETENTION_POLICY_SERVICE_URL: http://retention-policy-service:50117
@@ -2323,9 +2011,9 @@ services:
       CONVERSATION_STATE_SERVICE_URL: http://conversation-state-service:50099
       TOOL_REGISTRY_SERVICE_URL: http://tool-registry-service:50100
       AI_EVALUATION_SERVICE_URL: http://ai-evaluation-service:50075
-      WORKFLOW_SERVICE_URL: http://workflow-service:50061
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
       APPROVALS_SERVICE_URL: http://approvals-service:50071
-      NOTEBOOK_SERVICE_URL: http://notebook-service:50062
+      NOTEBOOK_SERVICE_URL: http://notebook-runtime-service:50134
       DOCUMENT_REPORTING_SERVICE_URL: http://document-reporting-service:50102
       APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
       APPLICATION_CURATION_SERVICE_URL: http://application-curation-service:50101
@@ -2339,7 +2027,7 @@ services:
       GEOSPATIAL_INTELLIGENCE_SERVICE_URL: http://geospatial-intelligence-service:50068
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       AUDIT_COMPLIANCE_SERVICE_URL: http://audit-compliance-service:50115
-      AUDIT_SERVICE_URL: http://audit-service:50070
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       SDS_SERVICE_URL: http://sds-service:50076
       MODEL_ADAPTER_SERVICE_URL: http://model-adapter-service:50125
       MODEL_LIFECYCLE_SERVICE_URL: http://model-lifecycle-service:50126
@@ -2375,8 +2063,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      auth-service:
-        condition: service_started
       checkpoints-purpose-service:
         condition: service_started
       network-boundary-service:
@@ -2399,15 +2085,11 @@ services:
         condition: service_started
       oauth-integration-service:
         condition: service_started
-      data-connector:
-        condition: service_started
       connector-management-service:
         condition: service_started
       virtual-table-service:
         condition: service_started
       ingestion-replication-service:
-        condition: service_started
-      dataset-service:
         condition: service_started
       dataset-versioning-service:
         condition: service_started
@@ -2423,7 +2105,7 @@ services:
         condition: service_started
       time-series-data-service:
         condition: service_started
-      query-service:
+      sql-bi-gateway-service:
         condition: service_started
       pipeline-authoring-service:
         condition: service_started
@@ -2447,11 +2129,7 @@ services:
         condition: service_started
       ontology-security-service:
         condition: service_started
-      ontology-service:
-        condition: service_started
       entity-resolution-service:
-        condition: service_started
-      ml-service:
         condition: service_started
       ml-experiments-service:
         condition: service_started
@@ -2464,8 +2142,6 @@ services:
       model-deployment-service:
         condition: service_started
       model-serving-service:
-        condition: service_started
-      ai-service:
         condition: service_started
       llm-catalog-service:
         condition: service_started
@@ -2481,11 +2157,11 @@ services:
         condition: service_started
       ai-evaluation-service:
         condition: service_started
-      workflow-service:
+      workflow-automation-service:
         condition: service_started
       approvals-service:
         condition: service_started
-      notebook-service:
+      notebook-runtime-service:
         condition: service_started
       document-reporting-service:
         condition: service_started
@@ -2513,8 +2189,6 @@ services:
         condition: service_started
       audit-compliance-service:
         condition: service_started
-      audit-service:
-        condition: service_started
       sds-service:
         condition: service_started
       model-adapter-service:
@@ -2533,15 +2207,9 @@ services:
         condition: service_started
       ontology-timeseries-analytics-service:
         condition: service_started
-      sql-bi-gateway-service:
-        condition: service_started
-      notebook-runtime-service:
-        condition: service_started
       spreadsheet-computation-service:
         condition: service_started
       analytical-logic-service:
-        condition: service_started
-      workflow-automation-service:
         condition: service_started
       automation-operations-service:
         condition: service_started

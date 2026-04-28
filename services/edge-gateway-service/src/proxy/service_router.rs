@@ -91,6 +91,9 @@ pub async fn proxy_handler(
         || path == "/api/v1/audit/anomalies"
         || path == "/api/v1/audit/reports"
         || path == "/api/v1/audit/reports/generate"
+        || path == "/api/v1/audit/policies"
+        || path.starts_with("/api/v1/audit/policies/")
+        || path == "/api/v1/audit/gdpr/export"
     {
         &config.audit_compliance_service_url
     } else if path.starts_with("/api/v1/tenancy")
@@ -106,7 +109,7 @@ pub async fn proxy_handler(
         || path.starts_with("/api/v1/users")
         || path.starts_with("/api/v2/admin")
     {
-        &config.auth_service_url
+        &config.identity_federation_service_url
     } else if path.starts_with("/api/v1/connector-agents")
         || (path.starts_with("/api/v1/connections/")
             && (path.ends_with("/sync") || path.ends_with("/sync-jobs")))
@@ -119,13 +122,11 @@ pub async fn proxy_handler(
     {
         &config.virtual_table_service_url
     } else if path.starts_with("/api/v1/connections/") && path.contains("/hyperauto/") {
-        &config.data_connector_service_url
+        &config.connector_management_service_url
     } else if path.starts_with("/api/v1/connectors/catalog")
         || path.starts_with("/api/v1/connections")
     {
         &config.connector_management_service_url
-    } else if path.starts_with("/api/v1/connections") {
-        &config.data_connector_service_url
     } else if path.starts_with("/api/v1/datasets/")
         && (path.ends_with("/quality") || path.contains("/quality/") || path.ends_with("/lint"))
     {
@@ -187,7 +188,7 @@ pub async fn proxy_handler(
     {
         &config.ontology_definition_service_url
     } else if path.starts_with("/api/v1/ontology") {
-        &config.ontology_service_url
+        &config.ontology_definition_service_url
     } else if path.starts_with("/api/v1/workflows/approvals")
         || path.starts_with("/api/v1/approvals")
     {
@@ -258,7 +259,7 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/audit/sds") {
         &config.sds_service_url
     } else if path.starts_with("/api/v1/audit") {
-        &config.audit_service_url
+        &config.audit_compliance_service_url
     } else if path.starts_with("/api/v1/widgets") {
         &config.widget_registry_service_url
     } else if path.starts_with("/api/v1/apps/public/")

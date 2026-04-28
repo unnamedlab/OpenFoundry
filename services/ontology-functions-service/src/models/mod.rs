@@ -1,5 +1,5 @@
 #[allow(dead_code)]
-#[path = "../../../ontology-service/src/models/mod.rs"]
+#[path = "../../../../libs/ontology-kernel/src/models/mod.rs"]
 mod base;
 
 pub use base::*;

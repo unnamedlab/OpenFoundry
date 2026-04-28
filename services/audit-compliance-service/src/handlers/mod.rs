@@ -1,4 +1,6 @@
 pub mod events;
+pub mod gdpr;
+pub mod policies;
 pub mod reports;
 
 use axum::{Json, http::StatusCode};
@@ -124,4 +126,17 @@ pub async fn load_policies(
                 cause,
             )))
         })
+}
+
+pub async fn load_policy_row(
+    db: &sqlx::PgPool,
+    id: uuid::Uuid,
+) -> Result<Option<PolicyRow>, sqlx::Error> {
+    sqlx::query_as::<_, PolicyRow>(
+        "SELECT id, name, description, scope, classification, retention_days, legal_hold, purge_mode, active, rules, updated_by, created_at, updated_at
+         FROM audit_policies WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await
 }

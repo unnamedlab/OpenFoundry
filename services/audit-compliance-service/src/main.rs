@@ -87,6 +87,19 @@ async fn main() {
             "/api/v1/audit/reports/generate",
             axum::routing::post(handlers::reports::generate_report),
         )
+        .route(
+            "/api/v1/audit/policies",
+            get(handlers::policies::list_policies)
+                .post(handlers::policies::create_policy),
+        )
+        .route(
+            "/api/v1/audit/policies/{id}",
+            axum::routing::patch(handlers::policies::update_policy),
+        )
+        .route(
+            "/api/v1/audit/gdpr/export",
+            axum::routing::post(handlers::gdpr::export_subject_data),
+        )
         .layer(middleware::from_fn_with_state(
             jwt_config,
             auth_middleware::auth_layer,

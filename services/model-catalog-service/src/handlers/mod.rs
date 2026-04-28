@@ -1,4 +1,4 @@
-#[path = "../../../ml-service/src/handlers/models.rs"]
+#[path = "../../../../libs/ml-kernel/src/handlers/models.rs"]
 pub mod models;
 
 use axum::{Json, http::StatusCode};

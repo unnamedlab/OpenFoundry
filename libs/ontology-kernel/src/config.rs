@@ -34,7 +34,7 @@ fn default_port() -> u16 {
 }
 
 fn default_audit_service_url() -> String {
-    "http://localhost:50115".to_string()
+    "http://localhost:50070".to_string()
 }
 
 fn default_dataset_service_url() -> String {

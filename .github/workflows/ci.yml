@@ -93,7 +93,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build smoke stack
-        run: cargo build -p of-cli -p gateway -p auth-service -p data-connector -p dataset-service -p pipeline-service -p query-service -p streaming-service -p report-service -p geospatial-service -p audit-service -p ontology-service -p app-builder-service -p code-repo-service -p marketplace-service -p nexus-service -p ai-service -p ml-service
+        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p report-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p marketplace-service -p nexus-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
       - name: Prepare service databases
         env:
           PGPASSWORD: test
@@ -153,55 +153,55 @@ jobs:
 
           trap 'status=$?; if [[ $status -ne 0 ]]; then print_logs; fi; cleanup' EXIT
 
-          DATABASE_URL=postgres://test:test@localhost:5432/of_auth JWT_SECRET="$JWT_SECRET" target/debug/auth-service > /tmp/of-smoke-logs/auth-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_connectors JWT_SECRET="$JWT_SECRET" target/debug/data-connector > /tmp/of-smoke-logs/data-connector.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_datasets JWT_SECRET="$JWT_SECRET" STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/of-datasets target/debug/dataset-service > /tmp/of-smoke-logs/dataset-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_pipelines JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50053 STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/of-datasets target/debug/pipeline-service > /tmp/of-smoke-logs/pipeline-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_streaming JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50053 ARCHIVE_DIR=/tmp/of-stream-archive target/debug/streaming-service > /tmp/of-smoke-logs/streaming-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_queries JWT_SECRET="$JWT_SECRET" target/debug/query-service > /tmp/of-smoke-logs/query-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_reports JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50053 GEOSPATIAL_SERVICE_URL=http://127.0.0.1:50068 target/debug/report-service > /tmp/of-smoke-logs/report-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_geospatial JWT_SECRET="$JWT_SECRET" target/debug/geospatial-service > /tmp/of-smoke-logs/geospatial-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_audit JWT_SECRET="$JWT_SECRET" target/debug/audit-service > /tmp/of-smoke-logs/audit-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_ontology JWT_SECRET="$JWT_SECRET" AUDIT_SERVICE_URL=http://127.0.0.1:50070 target/debug/ontology-service > /tmp/of-smoke-logs/ontology-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_auth JWT_SECRET="$JWT_SECRET" target/debug/identity-federation-service > /tmp/of-smoke-logs/identity-federation-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_connectors JWT_SECRET="$JWT_SECRET" target/debug/connector-management-service > /tmp/of-smoke-logs/connector-management-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_datasets JWT_SECRET="$JWT_SECRET" STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/of-datasets target/debug/data-asset-catalog-service > /tmp/of-smoke-logs/data-asset-catalog-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_pipelines JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/of-datasets target/debug/pipeline-authoring-service > /tmp/of-smoke-logs/pipeline-authoring-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_streaming JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 ARCHIVE_DIR=/tmp/of-stream-archive target/debug/event-streaming-service > /tmp/of-smoke-logs/event-streaming-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_queries JWT_SECRET="$JWT_SECRET" target/debug/sql-bi-gateway-service > /tmp/of-smoke-logs/sql-bi-gateway-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_reports JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 GEOSPATIAL_SERVICE_URL=http://127.0.0.1:50068 target/debug/report-service > /tmp/of-smoke-logs/report-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_geospatial JWT_SECRET="$JWT_SECRET" target/debug/geospatial-intelligence-service > /tmp/of-smoke-logs/geospatial-intelligence-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_audit JWT_SECRET="$JWT_SECRET" target/debug/audit-compliance-service > /tmp/of-smoke-logs/audit-compliance-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_ontology JWT_SECRET="$JWT_SECRET" AUDIT_SERVICE_URL=http://127.0.0.1:50115 target/debug/ontology-definition-service > /tmp/of-smoke-logs/ontology-definition-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_app_builder JWT_SECRET="$JWT_SECRET" PUBLIC_BASE_URL=http://127.0.0.1:8080/apps/runtime target/debug/app-builder-service > /tmp/of-smoke-logs/app-builder-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_code_repos JWT_SECRET="$JWT_SECRET" REPO_STORAGE_ROOT=/tmp/of-code-repos target/debug/code-repo-service > /tmp/of-smoke-logs/code-repo-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_code_repos JWT_SECRET="$JWT_SECRET" REPO_STORAGE_ROOT=/tmp/of-code-repos target/debug/code-repository-review-service > /tmp/of-smoke-logs/code-repository-review-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_marketplace JWT_SECRET="$JWT_SECRET" APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 target/debug/marketplace-service > /tmp/of-smoke-logs/marketplace-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_nexus JWT_SECRET="$JWT_SECRET" target/debug/nexus-service > /tmp/of-smoke-logs/nexus-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_ai JWT_SECRET="$JWT_SECRET" target/debug/ai-service > /tmp/of-smoke-logs/ai-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_ml JWT_SECRET="$JWT_SECRET" target/debug/ml-service > /tmp/of-smoke-logs/ml-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_ai JWT_SECRET="$JWT_SECRET" target/debug/agent-runtime-service > /tmp/of-smoke-logs/agent-runtime-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_ml JWT_SECRET="$JWT_SECRET" target/debug/model-catalog-service > /tmp/of-smoke-logs/model-catalog-service.log 2>&1 &
           target/debug/of mock-provider serve --host 127.0.0.1 --port 50110 > /tmp/of-smoke-logs/mock-provider.log 2>&1 &
           JWT_SECRET="$JWT_SECRET" \
-            DATA_CONNECTOR_SERVICE_URL=http://127.0.0.1:50052 \
-            DATASET_SERVICE_URL=http://127.0.0.1:50053 \
-            QUERY_SERVICE_URL=http://127.0.0.1:50055 \
-            PIPELINE_SERVICE_URL=http://127.0.0.1:50056 \
-            STREAMING_SERVICE_URL=http://127.0.0.1:50054 \
-            ONTOLOGY_SERVICE_URL=http://127.0.0.1:50057 \
-            AUDIT_SERVICE_URL=http://127.0.0.1:50070 \
+            DATA_CONNECTOR_SERVICE_URL=http://127.0.0.1:50088 \
+            DATASET_SERVICE_URL=http://127.0.0.1:50079 \
+            QUERY_SERVICE_URL=http://127.0.0.1:50133 \
+            PIPELINE_SERVICE_URL=http://127.0.0.1:50080 \
+            STREAMING_SERVICE_URL=http://127.0.0.1:50121 \
+            ONTOLOGY_SERVICE_URL=http://127.0.0.1:50103 \
+            AUDIT_SERVICE_URL=http://127.0.0.1:50115 \
             APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 \
-            CODE_REPO_SERVICE_URL=http://127.0.0.1:50065 \
+            CODE_REPO_SERVICE_URL=http://127.0.0.1:50155 \
             MARKETPLACE_SERVICE_URL=http://127.0.0.1:50066 \
-            AI_SERVICE_URL=http://127.0.0.1:50060 \
-            ML_SERVICE_URL=http://127.0.0.1:50059 \
-            target/debug/gateway > /tmp/of-smoke-logs/gateway.log 2>&1 &
+            AI_SERVICE_URL=http://127.0.0.1:50127 \
+            ML_SERVICE_URL=http://127.0.0.1:50085 \
+            target/debug/edge-gateway-service > /tmp/of-smoke-logs/edge-gateway-service.log 2>&1 &
 
           for url in \
-            http://127.0.0.1:50051/health \
-            http://127.0.0.1:50052/health \
-            http://127.0.0.1:50053/health \
-            http://127.0.0.1:50055/health \
-            http://127.0.0.1:50056/health \
-            http://127.0.0.1:50054/health \
+            http://127.0.0.1:50112/health \
+            http://127.0.0.1:50088/health \
+            http://127.0.0.1:50079/health \
+            http://127.0.0.1:50133/health \
+            http://127.0.0.1:50080/health \
+            http://127.0.0.1:50121/health \
             http://127.0.0.1:50064/health \
             http://127.0.0.1:50068/health \
-            http://127.0.0.1:50070/health \
-            http://127.0.0.1:50057/health \
+            http://127.0.0.1:50115/health \
+            http://127.0.0.1:50103/health \
             http://127.0.0.1:50063/health \
-            http://127.0.0.1:50065/health \
+            http://127.0.0.1:50155/health \
             http://127.0.0.1:50066/health \
             http://127.0.0.1:50067/health \
-            http://127.0.0.1:50060/health \
-            http://127.0.0.1:50059/health \
+            http://127.0.0.1:50127/health \
+            http://127.0.0.1:50085/health \
             http://127.0.0.1:50110/health \
             http://127.0.0.1:8080/health
           do

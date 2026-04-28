@@ -23,7 +23,7 @@ fn default_port() -> u16 {
 }
 
 fn default_workflow_service_url() -> String {
-    "http://localhost:50061".to_string()
+    "http://localhost:50137".to_string()
 }
 
 fn default_ontology_service_url() -> String {

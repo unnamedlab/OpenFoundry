@@ -55,11 +55,11 @@ fn default_dataset_service_url() -> String {
 }
 
 fn default_workflow_service_url() -> String {
-    "http://localhost:50061".to_string()
+    "http://localhost:50137".to_string()
 }
 
 fn default_ai_service_url() -> String {
-    "http://localhost:50060".to_string()
+    "http://localhost:50127".to_string()
 }
 
 fn default_storage_backend() -> String {

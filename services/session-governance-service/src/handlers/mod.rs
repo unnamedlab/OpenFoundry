@@ -1,7 +1,7 @@
 pub mod common;
-#[path = "../../../auth-service/src/handlers/control_panel.rs"]
+#[path = "../../../identity-federation-service/src/handlers/control_panel.rs"]
 pub mod control_panel;
-#[path = "../../../auth-service/src/handlers/restricted_views.rs"]
+#[path = "../../../identity-federation-service/src/handlers/restricted_views.rs"]
 pub mod restricted_views;
-#[path = "../../../auth-service/src/handlers/sessions.rs"]
+#[path = "../../../identity-federation-service/src/handlers/sessions.rs"]
 pub mod sessions;

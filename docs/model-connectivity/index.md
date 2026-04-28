@@ -6,8 +6,8 @@ This section covers how OpenFoundry connects models, code, and operational runti
 
 - `services/ml-service`
 - `services/ai-service`
-- `services/notebook-service`
-- `services/query-service`
+- `services/notebook-runtime-service`
+- `services/sql-bi-gateway-service`
 - `sdks/*`
 - `tools/of-cli`
 

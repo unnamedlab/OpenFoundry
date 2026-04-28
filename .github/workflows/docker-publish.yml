@@ -22,7 +22,7 @@ jobs:
           - gateway
           - auth-service
           - dataset-service
-          - query-service
+          - sql-bi-gateway-service
           - pipeline-service
           - ontology-service
     steps:

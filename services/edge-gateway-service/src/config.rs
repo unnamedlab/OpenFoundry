@@ -160,7 +160,7 @@ fn default_port() -> u16 {
     8080
 }
 fn default_auth_url() -> String {
-    "http://localhost:50051".to_string()
+    "http://localhost:50112".to_string()
 }
 fn default_identity_federation_service_url() -> String {
     "http://localhost:50112".to_string()
@@ -184,7 +184,7 @@ fn default_cipher_service_url() -> String {
     "http://localhost:50073".to_string()
 }
 fn default_data_connector_url() -> String {
-    "http://localhost:50052".to_string()
+    "http://localhost:50088".to_string()
 }
 fn default_connector_management_service_url() -> String {
     "http://localhost:50088".to_string()
@@ -205,7 +205,7 @@ fn default_dataset_quality_service_url() -> String {
     "http://localhost:50072".to_string()
 }
 fn default_query_url() -> String {
-    "http://localhost:50055".to_string()
+    "http://localhost:50133".to_string()
 }
 fn default_pipeline_authoring_service_url() -> String {
     "http://localhost:50080".to_string()
@@ -241,16 +241,16 @@ fn default_ontology_security_service_url() -> String {
     "http://localhost:50109".to_string()
 }
 fn default_ontology_url() -> String {
-    "http://localhost:50057".to_string()
+    "http://localhost:50103".to_string()
 }
 fn default_workflow_url() -> String {
-    "http://localhost:50061".to_string()
+    "http://localhost:50137".to_string()
 }
 fn default_approvals_service_url() -> String {
     "http://localhost:50071".to_string()
 }
 fn default_notebook_service_url() -> String {
-    "http://localhost:50062".to_string()
+    "http://localhost:50134".to_string()
 }
 fn default_notification_url() -> String {
     "http://localhost:50114".to_string()
@@ -265,7 +265,7 @@ fn default_widget_registry_service_url() -> String {
     "http://localhost:50077".to_string()
 }
 fn default_ml_service_url() -> String {
-    "http://localhost:50059".to_string()
+    "http://localhost:50085".to_string()
 }
 fn default_ml_experiments_service_url() -> String {
     "http://localhost:50084".to_string()
@@ -286,7 +286,7 @@ fn default_model_inference_history_service_url() -> String {
     "http://localhost:50092".to_string()
 }
 fn default_ai_service_url() -> String {
-    "http://localhost:50060".to_string()
+    "http://localhost:50127".to_string()
 }
 fn default_llm_catalog_service_url() -> String {
     "http://localhost:50095".to_string()
@@ -369,7 +369,7 @@ fn default_audit_compliance_service_url() -> String {
 }
 
 fn default_audit_service_url() -> String {
-    "http://localhost:50070".to_string()
+    "http://localhost:50115".to_string()
 }
 
 fn default_sds_service_url() -> String {

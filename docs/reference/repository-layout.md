@@ -13,11 +13,12 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/tenancy-organizations-service` | tenant resolution, organizations, enrollments, spaces, projects, and sharing boundaries |
 | `services/data-connector` | connectors, discovery, sync |
 | `services/dataset-service` | datasets, versions, files, quality |
-| `services/query-service` | query execution |
+| `services/sql-bi-gateway-service` | query execution and SQL/BI compatibility |
 | `services/pipeline-service` | pipeline runtime |
 | `services/ontology-service` | object model, graph, actions, simulation |
-| `services/workflow-service` | workflow orchestration |
-| `services/notebook-service` | notebook/notepad APIs |
+| `services/workflow-automation-service` | workflow orchestration |
+| `services/notebook-runtime-service` | notebook runtime APIs |
+| `services/document-reporting-service` | document reporting and notepad-style surfaces |
 | `services/app-builder-service` | app composition runtime |
 | `services/fusion-service` | fusion/spreadsheet APIs |
 | `services/ml-service` | experiments, training, registry |

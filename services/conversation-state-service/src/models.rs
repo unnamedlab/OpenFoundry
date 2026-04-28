@@ -1,4 +1,4 @@
-#[path = "../../ai-service/src/models/mod.rs"]
+#[path = "../../../libs/ai-kernel/src/models/mod.rs"]
 mod shared;
 
 pub use shared::*;

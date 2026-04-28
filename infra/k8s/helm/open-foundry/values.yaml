@@ -144,12 +144,12 @@ services:
         cooldownPeriod: 120
         triggers: []
 
-  auth-service:
+  identity-federation-service:
     enabled: true
     image:
-      repository: ghcr.io/open-foundry/auth-service
+      repository: ghcr.io/open-foundry/identity-federation-service
       tag: latest
-    port: 50051
+    port: 50112
     replicas: 2
     env:
       RUST_LOG: info
@@ -172,12 +172,12 @@ services:
         cooldownPeriod: 120
         triggers: []
 
-  dataset-service:
+  data-asset-catalog-service:
     enabled: true
     image:
-      repository: ghcr.io/open-foundry/dataset-service
+      repository: ghcr.io/open-foundry/data-asset-catalog-service
       tag: latest
-    port: 50053
+    port: 50079
     replicas: 2
     env:
       RUST_LOG: info
@@ -200,12 +200,12 @@ services:
         cooldownPeriod: 120
         triggers: []
 
-  query-service:
+  sql-bi-gateway-service:
     enabled: true
     image:
-      repository: ghcr.io/open-foundry/query-service
+      repository: ghcr.io/open-foundry/sql-bi-gateway-service
       tag: latest
-    port: 50055
+    port: 50133
     replicas: 2
     env:
       RUST_LOG: info
@@ -234,41 +234,6 @@ services:
               metricName: query_inflight_requests
               query: sum(openfoundry_query_inflight_requests)
               threshold: "40"
-
-  pipeline-service:
-    enabled: true
-    image:
-      repository: ghcr.io/open-foundry/pipeline-service
-      tag: latest
-    port: 50056
-    replicas: 2
-    env:
-      RUST_LOG: info
-      DISTRIBUTED_PIPELINE_WORKERS: "4"
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: "4"
-        memory: 6Gi
-    autoscaling:
-      enabled: true
-      minReplicas: 2
-      maxReplicas: 10
-      targetCPUUtilizationPercentage: 75
-      targetMemoryUtilizationPercentage: 80
-      keda:
-        enabled: true
-        pollingInterval: 20
-        cooldownPeriod: 120
-        triggers:
-          - type: prometheus
-            metadata:
-              serverAddress: http://prometheus-operated.monitoring.svc.cluster.local:9090
-              metricName: pipeline_pending_runs
-              query: sum(openfoundry_pipeline_pending_runs)
-              threshold: "20"
 
   report-service:
     enabled: true

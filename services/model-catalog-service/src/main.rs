@@ -39,6 +39,11 @@ async fn main() {
         .await
         .expect("failed to connect to database");
 
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
     let jwt_config = JwtConfig::new(&cfg.jwt_secret).with_env_defaults();
     let state = AppState {
         db: pool,

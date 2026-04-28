@@ -25,7 +25,7 @@ fn default_port() -> u16 {
 }
 
 fn default_query_service_url() -> String {
-    "http://localhost:50055".to_string()
+    "http://localhost:50133".to_string()
 }
 
 fn default_pipeline_service_url() -> String {

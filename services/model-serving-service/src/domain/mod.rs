@@ -1,2 +1,2 @@
-#[path = "../../../ml-service/src/domain/predictions.rs"]
+#[path = "../../../../libs/ml-kernel/src/domain/predictions.rs"]
 pub mod predictions;

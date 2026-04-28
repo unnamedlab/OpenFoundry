@@ -23,6 +23,8 @@ pub struct AppState {
     pub dataset_service_url: String,
     pub pipeline_service_url: String,
     pub ontology_service_url: String,
+    pub ingestion_replication_service_url: String,
+    pub network_boundary_service_url: String,
     pub allowed_egress_hosts: Vec<String>,
     pub allow_private_network_egress: bool,
     pub agent_stale_after: chrono::Duration,
@@ -64,6 +66,8 @@ async fn main() {
         dataset_service_url: cfg.dataset_service_url.clone(),
         pipeline_service_url: cfg.pipeline_service_url.clone(),
         ontology_service_url: cfg.ontology_service_url.clone(),
+        ingestion_replication_service_url: cfg.ingestion_replication_service_url.clone(),
+        network_boundary_service_url: cfg.network_boundary_service_url.clone(),
         allowed_egress_hosts: cfg.allowed_egress_hosts.clone(),
         allow_private_network_egress: cfg.allow_private_network_egress,
         agent_stale_after: chrono::Duration::seconds(cfg.agent_stale_after_secs.max(15) as i64),
@@ -102,6 +106,14 @@ async fn main() {
         .route(
             "/api/v1/connections/{id}/test",
             post(handlers::connections::test_connection),
+        )
+        .route(
+            "/api/v1/connections/{id}/hyperauto/erp/preview",
+            post(handlers::hyperauto::preview_erp_generation),
+        )
+        .route(
+            "/api/v1/connections/{id}/hyperauto/erp/generate",
+            post(handlers::hyperauto::generate_erp_assets),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config,
