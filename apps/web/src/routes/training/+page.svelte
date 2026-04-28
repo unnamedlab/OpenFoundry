@@ -129,29 +129,29 @@
         </p>
       </div>
 
-      <div class="use-case-list">
-        <div class="use-case-list__item">
+      <ul class="use-case-list">
+        <li class="use-case-list__item">
           <span class="use-case-list__bullet"></span>
           <div>
             <strong>Managers</strong>
             <p>Track performance and identify orders at risk of missing delivery commitments.</p>
           </div>
-        </div>
-        <div class="use-case-list__item">
+        </li>
+        <li class="use-case-list__item">
           <span class="use-case-list__bullet"></span>
           <div>
             <strong>Operators</strong>
             <p>Assign open orders from both historical fulfillment systems without debating which spreadsheet is current.</p>
           </div>
-        </div>
-        <div class="use-case-list__item">
+        </li>
+        <li class="use-case-list__item">
           <span class="use-case-list__bullet"></span>
           <div>
             <strong>Platform workflow</strong>
             <p>Connect data sources, model the ontology, and publish a simple operational application for fulfillment teams.</p>
           </div>
-        </div>
-      </div>
+        </li>
+      </ul>
     </article>
   </section>
 
@@ -161,7 +161,14 @@
       <h2 class="of-heading-lg">Office Goods Corp system architecture</h2>
     </div>
 
-    <div class="architecture-surface">
+    <div
+      class="architecture-surface"
+      role="img"
+      aria-describedby="training-architecture-description"
+    >
+      <p id="training-architecture-description" class="sr-only">
+        Office Goods Corp system architecture with Fulfillment Managers at the top, Office Goods Fulfillment and Bureau Fulfillment services in the middle, and Fulfillment Operators at the bottom receiving work from both services.
+      </p>
       <div class="architecture-title">Office Goods Corp</div>
 
       <div class="diagram-card diagram-card--managers">
@@ -223,19 +230,10 @@
       </div>
 
       <svg class="architecture-lines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <marker id="training-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0 0 10 5 0 10Z" fill="#111827"></path>
-          </marker>
-        </defs>
-        <path
-          d="M290 436 C290 492 360 500 404 548 C434 580 452 620 452 661"
-          marker-start="url(#training-arrow)"
-        ></path>
-        <path
-          d="M710 436 C710 492 640 500 596 548 C566 580 548 620 548 661"
-          marker-start="url(#training-arrow)"
-        ></path>
+        <path d="M290 436 C290 492 360 500 404 548 C434 580 452 620 452 661"></path>
+        <path d="M710 436 C710 492 640 500 596 548 C566 580 548 620 548 661"></path>
+        <path class="architecture-lines__arrowhead" d="M290 429 284 442 296 442Z"></path>
+        <path class="architecture-lines__arrowhead" d="M710 429 704 442 716 442Z"></path>
       </svg>
     </div>
   </section>
@@ -392,6 +390,8 @@
     display: grid;
     gap: 14px;
     margin-top: 16px;
+    padding: 0;
+    list-style: none;
   }
 
   .use-case-list__item {
@@ -542,6 +542,11 @@
     stroke-width: 2.2;
     stroke-dasharray: 8 11;
     stroke-linecap: round;
+  }
+
+  .architecture-lines .architecture-lines__arrowhead {
+    fill: #111827;
+    stroke: none;
   }
 
   .link-list {
