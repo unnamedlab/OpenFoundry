@@ -51,7 +51,7 @@
     <div class="training-hero__header">
       <div>
         <div class="of-eyebrow">Foundry &amp; AIP Builder Foundations</div>
-        <h1 class="training-hero__title">Build a fully-functional end-to-end workflow in 60 minutes</h1>
+        <h1 class="training-hero__title">Build a fully functional end-to-end workflow in 60 minutes</h1>
       </div>
       <div class="training-hero__meta">
         <span class="training-pill">Continuously updated</span>
@@ -173,7 +173,10 @@
       </p>
       <div class="architecture-title">Office Goods Corp</div>
 
-      <div class="diagram-card diagram-card--managers">
+      <div
+        class="diagram-card diagram-card--managers"
+        aria-label="User group card for Fulfillment Managers, who track performance and orders at risk."
+      >
         <div class="diagram-card__rail">
           <span class="diagram-card__icon diagram-card__icon--user" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -189,7 +192,10 @@
         </div>
       </div>
 
-      <div class="diagram-card diagram-card--service-left">
+      <div
+        class="diagram-card diagram-card--service-left"
+        aria-label="Service card for Office Goods Fulfillment, the historical fulfillment system for Office Goods Corp."
+      >
         <div class="diagram-card__rail">
           <span class="diagram-card__icon diagram-card__icon--service" aria-hidden="true">
             <Glyph name="database" size={34} strokeWidth={1.6} />
@@ -202,7 +208,10 @@
         </div>
       </div>
 
-      <div class="diagram-card diagram-card--service-right">
+      <div
+        class="diagram-card diagram-card--service-right"
+        aria-label="Service card for Bureau Fulfillment, the historical fulfillment system for Bureau SAS before integration."
+      >
         <div class="diagram-card__rail">
           <span class="diagram-card__icon diagram-card__icon--service" aria-hidden="true">
             <Glyph name="database" size={34} strokeWidth={1.6} />
@@ -215,7 +224,10 @@
         </div>
       </div>
 
-      <div class="diagram-card diagram-card--operators">
+      <div
+        class="diagram-card diagram-card--operators"
+        aria-label="User group card for Fulfillment Operators, who assign open orders."
+      >
         <div class="diagram-card__rail">
           <span class="diagram-card__icon diagram-card__icon--user" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -427,8 +439,9 @@
   .architecture-surface {
     --architecture-title-offset: 40px;
     --architecture-line-width: 2.2px;
+    --architecture-min-height: 980px;
     position: relative;
-    min-height: 980px;
+    min-height: var(--architecture-min-height);
     padding: 44px 28px 28px;
     border: 1px solid #d7d9de;
     border-radius: 6px;
