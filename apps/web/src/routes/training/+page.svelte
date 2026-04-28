@@ -158,7 +158,7 @@
   <section class="training-section of-panel">
     <div class="training-section__header">
       <div class="of-eyebrow">Context Diagram</div>
-      <h2 class="of-heading-lg">Office Goods Corp operating model</h2>
+      <h2 class="of-heading-lg">Office Goods Corp system architecture</h2>
     </div>
 
     <div class="architecture-surface">
