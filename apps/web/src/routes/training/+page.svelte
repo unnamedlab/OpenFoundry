@@ -423,6 +423,8 @@
   }
 
   .architecture-surface {
+    --architecture-title-offset: 40px;
+    --architecture-line-width: 2.2;
     position: relative;
     min-height: 980px;
     padding: 44px 28px 28px;
@@ -434,7 +436,7 @@
 
   .architecture-title {
     position: absolute;
-    top: 40px;
+    top: var(--architecture-title-offset);
     left: 50%;
     transform: translateX(-50%);
     color: #1f2937;
@@ -539,7 +541,7 @@
   .architecture-lines path {
     fill: none;
     stroke: #f4a307;
-    stroke-width: 2.2;
+    stroke-width: var(--architecture-line-width);
     stroke-dasharray: 8 11;
     stroke-linecap: round;
   }
