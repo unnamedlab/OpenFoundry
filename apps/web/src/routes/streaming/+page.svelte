@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import LiveDataView from '$components/streaming/LiveDataView.svelte';
 	import StreamList from '$components/streaming/StreamList.svelte';
@@ -95,6 +96,7 @@
 	let loading = $state(true);
 	let busyAction = $state('');
 	let uiError = $state('');
+	const t = $derived.by(() => createTranslator($currentLocale));
 	const busy = $derived(loading || busyAction.length > 0);
 
 	onMount(() => {
@@ -426,23 +428,23 @@
 </script>
 
 <svelte:head>
-	<title>Streaming | OpenFoundry</title>
+	<title>{t('pages.streaming.title')}</title>
 </svelte:head>
 
 <div class="space-y-6">
 	<section class="overflow-hidden rounded-[36px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.24),_transparent_34%),linear-gradient(135deg,#0f172a_0%,#1d4ed8_32%,#ecfeff_100%)] p-6 text-white shadow-sm dark:border-slate-800">
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
 			<div>
-				<div class="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-100">Phase 4.2</div>
-				<h1 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight">Real-time streaming with DAG topologies, windows, joins, CEP, and live tails</h1>
-				<p class="mt-4 max-w-2xl text-sm leading-7 text-slate-100/85">Define named streams, wire DAG processors, simulate RocksDB-backed state, and monitor live event flow with backpressure awareness across connectors and sinks.</p>
+				<div class="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-100">{t('pages.streaming.badge')}</div>
+				<h1 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight">{t('pages.streaming.heading')}</h1>
+				<p class="mt-4 max-w-2xl text-sm leading-7 text-slate-100/85">{t('pages.streaming.description')}</p>
 			</div>
 			<div class="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur">
-				<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">Control Loop</div>
+				<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">{t('pages.streaming.controlLoop')}</div>
 				<div class="mt-3 grid gap-3 text-sm text-slate-100/90">
-					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">1. Register streams and windows.</div>
-					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">2. Compose join, CEP, and sink topologies.</div>
-					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">3. Run the topology and inspect state, backpressure, and live tails.</div>
+					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{t('pages.streaming.step1')}</div>
+					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{t('pages.streaming.step2')}</div>
+					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{t('pages.streaming.step3')}</div>
 				</div>
 			</div>
 		</div>
@@ -453,7 +455,7 @@
 	{/if}
 
 	{#if loading}
-		<div class="rounded-[28px] border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">Loading streaming surfaces...</div>
+		<div class="rounded-[28px] border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">{t('pages.streaming.loading')}</div>
 	{:else}
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
 			<StreamList

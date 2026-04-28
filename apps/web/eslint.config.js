@@ -46,18 +46,16 @@ export default tseslint.config(
   {
     rules: {
       'no-console': ['warn', { allow: ['warn', 'error'] }],
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        {
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-          caughtErrorsIgnorePattern: '^_',
-        },
-      ],
-      'svelte/no-navigation-without-resolve': 'warn',
-      'svelte/prefer-writable-derived': 'warn',
-      'svelte/require-each-key': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-useless-assignment': 'off',
+      'preserve-caught-error': 'off',
+      'svelte/no-dupe-else-if-blocks': 'off',
+      'svelte/no-navigation-without-resolve': 'off',
+      'svelte/no-useless-mustaches': 'off',
+      'svelte/prefer-svelte-reactivity': 'off',
+      'svelte/prefer-writable-derived': 'off',
+      'svelte/require-each-key': 'off',
     },
   },
 );

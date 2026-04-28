@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { createTranslator, currentLocale } from '$lib/i18n/store';
 
   import { listDatasets, type Dataset } from '$lib/api/datasets';
   import {
@@ -162,6 +163,7 @@
   let loading = $state(true);
   let busy = $state(false);
   let uiError = $state('');
+  const t = $derived.by(() => createTranslator($currentLocale));
 
   let experimentDraft = $state<ExperimentDraft>(createEmptyExperimentDraft());
   let runDraft = $state<RunDraft>(createEmptyRunDraft());
@@ -930,7 +932,7 @@
 </script>
 
 <svelte:head>
-  <title>OpenFoundry — ML Studio</title>
+  <title>{t('pages.ml.title')}</title>
 </svelte:head>
 
 {#if loading}
@@ -942,10 +944,10 @@
     <section class="rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,_rgba(14,165,233,0.14),_rgba(16,185,129,0.12)_45%,_rgba(255,255,255,0.94)_100%)] p-8 shadow-sm dark:border-slate-800 dark:bg-[linear-gradient(135deg,_rgba(14,165,233,0.24),_rgba(16,185,129,0.18)_45%,_rgba(15,23,42,0.94)_100%)]">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="max-w-3xl space-y-3">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Milestone 3.2</div>
-          <h1 class="text-4xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">ML Studio</h1>
+          <div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">{t('pages.ml.badge')}</div>
+          <h1 class="text-4xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{t('pages.ml.heading')}</h1>
           <p class="text-base text-slate-600 dark:text-slate-300">
-            Track experiments, tune training jobs, register model versions, materialize online features, run A/B deployments, and inspect drift and prediction flows from a single control plane.
+            {t('pages.ml.description')}
           </p>
         </div>
 
@@ -955,7 +957,7 @@
           onclick={() => void loadAll()}
           disabled={busy}
         >
-          Refresh Studio
+          {t('pages.ml.refresh')}
         </button>
       </div>
     </section>

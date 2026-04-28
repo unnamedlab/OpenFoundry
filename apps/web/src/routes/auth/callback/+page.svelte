@@ -2,8 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { auth } from '$stores/auth';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	let error = $state('');
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	onMount(async () => {
 		const params = new URLSearchParams(window.location.search);
@@ -13,7 +15,7 @@
 		const relayState = params.get('RelayState');
 
 		if ((!code || !state) && (!samlResponse || !relayState)) {
-			error = 'Missing authorization code/state or SAML response.';
+			error = t('auth.callback.missing');
 			return;
 		}
 
@@ -26,22 +28,22 @@
 			});
 			goto(result.status === 'mfa_required' ? '/auth/mfa' : '/');
 		} catch (err: any) {
-			error = err.message ?? 'SSO callback failed';
+			error = err.message ?? t('auth.callback.failed');
 		}
 	});
 </script>
 
 <svelte:head>
-	<title>Signing In — OpenFoundry</title>
+	<title>{t('auth.callback.title')}</title>
 </svelte:head>
 
 <div class="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-8 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
-	<div class="text-xs uppercase tracking-[0.25em] text-gray-400">Single sign-on</div>
-	<h1 class="mt-2 text-2xl font-bold">Completing your sign-in</h1>
+	<div class="text-xs uppercase tracking-[0.25em] text-gray-400">{t('auth.callback.badge')}</div>
+	<h1 class="mt-2 text-2xl font-bold">{t('auth.callback.heading')}</h1>
 	{#if error}
 		<p class="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{error}</p>
-		<a href="/auth/login" class="mt-6 inline-block text-sm text-indigo-600 hover:text-indigo-500">Back to login</a>
+		<a href="/auth/login" class="mt-6 inline-block text-sm text-indigo-600 hover:text-indigo-500">{t('auth.callback.back')}</a>
 	{:else}
-		<p class="mt-4 text-sm text-gray-500">We are validating your identity provider response.</p>
+		<p class="mt-4 text-sm text-gray-500">{t('auth.callback.subtitle')}</p>
 	{/if}
 </div>

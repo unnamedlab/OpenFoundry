@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import AgentBuilder from '$components/ai/AgentBuilder.svelte';
 	import ChatInterface from '$components/ai/ChatInterface.svelte';
@@ -174,6 +175,7 @@
 
 	let selectedKnowledgeBaseId = $state('');
 	let selectedConversationId = $state('');
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	let providerDraft = $state<ProviderDraft>(createEmptyProviderDraft());
 	let promptDraft = $state<PromptDraft>(createEmptyPromptDraft());
@@ -757,21 +759,21 @@
 </script>
 
 <svelte:head>
-	<title>AI Platform | OpenFoundry</title>
+	<title>{t('pages.ai.title')}</title>
 </svelte:head>
 
 <div class="space-y-6">
 	<section class="overflow-hidden rounded-[36px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_38%),linear-gradient(135deg,#0f172a_0%,#111827_38%,#f8fafc_100%)] p-6 text-white shadow-sm dark:border-slate-800">
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
 			<div>
-				<div class="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-100">Milestone 3.3</div>
-				<h1 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight">AI Platform control plane for providers, prompts, RAG, agents, and copilots</h1>
+				<div class="text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-100">{t('pages.ai.badge')}</div>
+				<h1 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight">{t('pages.ai.heading')}</h1>
 				<p class="mt-4 max-w-2xl text-sm leading-7 text-slate-100/85">
-					Drive the new AIP backend end-to-end: route traffic across providers, manage prompt versions, curate knowledge bases, execute agents, and inspect guardrails from one surface.
+					{t('pages.ai.description')}
 				</p>
 				<div class="mt-6 flex flex-wrap gap-3">
-					<button class="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" onclick={openCopilot}>Open global copilot</button>
-					<button class="rounded-full border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10" onclick={() => void refreshAll()} disabled={busy}>Refresh state</button>
+					<button class="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" onclick={openCopilot}>{t('pages.ai.openCopilot')}</button>
+					<button class="rounded-full border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10" onclick={() => void refreshAll()} disabled={busy}>{t('pages.ai.refresh')}</button>
 				</div>
 			</div>
 
@@ -822,7 +824,7 @@
 	{/if}
 
 	{#if loading}
-		<div class="rounded-[28px] border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">Loading AI Platform surfaces...</div>
+		<div class="rounded-[28px] border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">{t('pages.ai.loading')}</div>
 	{:else}
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
 			<EvalDashboard

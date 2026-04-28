@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import BranchManager from '$components/code-repo/BranchManager.svelte';
 	import CommitHistory from '$components/code-repo/CommitHistory.svelte';
@@ -101,6 +102,7 @@
 	let ciRuns = $state<CiRun[]>([]);
 	let mergeRequests = $state<MergeRequestDefinition[]>([]);
 	let mergeRequestDetail = $state<MergeRequestDetailModel | null>(null);
+	const t = $derived.by(() => createTranslator($currentLocale));
 	let searchResults = $state<SearchResult[]>([]);
 	let selectedRepositoryId = $state('');
 	let selectedMergeRequestId = $state('');
@@ -624,13 +626,17 @@
 	}
 </script>
 
+<svelte:head>
+	<title>{t('pages.codeRepos.title')}</title>
+</svelte:head>
+
 <div class="space-y-6">
 	<section class="overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-950 via-stone-950 to-fuchsia-950 px-6 py-6 text-stone-50 shadow-xl shadow-sky-950/20">
 		<div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
 			<div class="max-w-3xl">
-				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-sky-300">Milestone 4.4</p>
-				<h1 class="mt-3 text-3xl font-semibold tracking-tight">Code repos, protected merges, CI gates, and indexed package search</h1>
-				<p class="mt-3 text-sm leading-6 text-stone-300">Operate repository metadata, branch and commit flows, diff inspection, review threads, and real merge enforcement from a single surface that mirrors the upgraded code-repo backend.</p>
+				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-sky-300">{t('pages.codeRepos.badge')}</p>
+				<h1 class="mt-3 text-3xl font-semibold tracking-tight">{t('pages.codeRepos.heading')}</h1>
+				<p class="mt-3 text-sm leading-6 text-stone-300">{t('pages.codeRepos.description')}</p>
 			</div>
 			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 				<div class="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur">

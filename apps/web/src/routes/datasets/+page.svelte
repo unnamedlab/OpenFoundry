@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { listUsers, type UserProfile } from '$lib/api/auth';
+  import { createTranslator, currentLocale } from '$lib/i18n/store';
   import {
     deleteDataset,
     getCatalogFacets,
@@ -22,6 +23,7 @@
   let loading = $state(true);
   let loadingQuality = $state(false);
   let error = $state('');
+  const t = $derived.by(() => createTranslator($currentLocale));
 
   function ownerName(ownerId: string) {
     return users.find((user) => user.id === ownerId)?.name ?? ownerId.slice(0, 8);
@@ -109,7 +111,7 @@
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this dataset?')) return;
+    if (!confirm(t('pages.datasets.confirmDelete'))) return;
     await deleteDataset(id);
     await load();
   }
@@ -133,28 +135,32 @@
   });
 </script>
 
+<svelte:head>
+  <title>{t('pages.datasets.title')}</title>
+</svelte:head>
+
 <div class="space-y-6">
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-bold">Data Catalog</h1>
-      <p class="mt-1 text-sm text-gray-500">Search datasets by text, tag, and owner, then inspect the latest quality snapshot.</p>
+      <h1 class="text-2xl font-bold">{t('pages.datasets.heading')}</h1>
+      <p class="mt-1 text-sm text-gray-500">{t('pages.datasets.description')}</p>
     </div>
     <a href="/datasets/upload" class="rounded-xl bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
-      Upload Dataset
+      {t('pages.datasets.upload')}
     </a>
   </div>
 
   <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">Datasets</div>
+      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">{t('pages.datasets.stats.datasets')}</div>
       <div class="mt-3 text-3xl font-semibold">{total}</div>
     </div>
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">Indexed Tags</div>
+      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">{t('pages.datasets.stats.indexedTags')}</div>
       <div class="mt-3 text-3xl font-semibold">{availableTags.length}</div>
     </div>
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">Average Quality</div>
+      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">{t('pages.datasets.stats.averageQuality')}</div>
       <div class="mt-3 text-3xl font-semibold">
         {#if averageQualityScore() !== null}
           {averageQualityScore()?.toFixed(1)}
@@ -164,7 +170,7 @@
       </div>
     </div>
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">Active Alerts</div>
+      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">{t('pages.datasets.stats.activeAlerts')}</div>
       <div class="mt-3 text-3xl font-semibold">{totalActiveAlerts()}</div>
     </div>
   </div>
@@ -173,36 +179,36 @@
     <div class="grid gap-4 lg:grid-cols-[2fr,1fr,1fr,auto,auto]">
       <input
         type="text"
-        placeholder="Full-text search by dataset name or description"
+        placeholder={t('pages.datasets.searchPlaceholder')}
         bind:value={search}
         class="rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
       />
       <select bind:value={selectedOwnerId} class="rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-        <option value="">All owners</option>
+        <option value="">{t('pages.datasets.allOwners')}</option>
         {#each users as user (user.id)}
           <option value={user.id}>{user.name}</option>
         {/each}
       </select>
       <select bind:value={selectedTag} class="rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-        <option value="">All tags</option>
+        <option value="">{t('pages.datasets.allTags')}</option>
         {#each availableTags as tag (tag.value)}
           <option value={tag.value}>{tag.value} ({tag.count})</option>
         {/each}
       </select>
-      <button onclick={applyFilters} class="rounded-xl bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Apply</button>
-      <button onclick={clearFilters} class="rounded-xl border border-slate-200 px-4 py-2 hover:bg-slate-50 dark:border-gray-700 dark:hover:bg-gray-800">Reset</button>
+      <button onclick={applyFilters} class="rounded-xl bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">{t('pages.datasets.apply')}</button>
+      <button onclick={clearFilters} class="rounded-xl border border-slate-200 px-4 py-2 hover:bg-slate-50 dark:border-gray-700 dark:hover:bg-gray-800">{t('pages.datasets.reset')}</button>
     </div>
 
     {#if selectedTag || selectedOwnerId}
       <div class="mt-4 flex flex-wrap gap-2">
         {#if selectedOwnerId}
           <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-gray-800 dark:text-gray-200">
-            Owner: {ownerName(selectedOwnerId)}
+            {t('pages.datasets.owner')}: {ownerName(selectedOwnerId)}
           </span>
         {/if}
         {#if selectedTag}
           <span class="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-            Tag: {selectedTag}
+            {t('pages.datasets.tag')}: {selectedTag}
           </span>
         {/if}
       </div>
@@ -216,10 +222,10 @@
   {/if}
 
   {#if loading}
-    <div class="text-center py-12 text-gray-500">Loading...</div>
+    <div class="text-center py-12 text-gray-500">{t('pages.datasets.loading')}</div>
   {:else if datasets.length === 0}
     <div class="text-center py-12 text-gray-500">
-      No datasets matched the current catalog filters.
+      {t('pages.datasets.empty')}
     </div>
   {:else}
     <div class="grid gap-4">

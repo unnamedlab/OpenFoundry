@@ -1,19 +1,15 @@
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.95-alpine3.23 AS builder
 WORKDIR /workspace
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libssl-dev python3-dev ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache build-base pkgconf openssl-dev python3-dev ca-certificates
 
 COPY . .
-RUN cargo build --locked --release -p object-database-service
+RUN cargo build --locked --release -p object-database-service && strip /workspace/target/release/object-database-service
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:24.15.0-alpine3.23 AS runtime
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libssl3 python3-minimal \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 python3
 
 ENV HOST=0.0.0.0
 ENV PORT=50104
