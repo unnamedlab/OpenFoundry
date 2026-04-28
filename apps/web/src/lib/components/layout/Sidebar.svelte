@@ -35,6 +35,18 @@
   };
 
   type LocaleKey = keyof LocalizedCopy;
+  type LauncherText = {
+    title: string;
+    searchPlaceholder: string;
+    close: string;
+    open: string;
+    createNew: string;
+    browseCatalog: string;
+    favorites: string;
+    emptyFavorites: string;
+    emptySearch: string;
+    searchAriaLabel: string;
+  };
 
   type LauncherCategoryId =
     | 'all'
@@ -72,7 +84,7 @@
     { href: '/reports', labelKey: 'nav.files', icon: 'folder' }
   ];
 
-  const launcherCopy = {
+  const launcherCopy: Record<LocaleKey, LauncherText> = {
     en: {
       title: 'Applications',
       searchPlaceholder: 'Search for applications…',
@@ -317,13 +329,15 @@
     return ($currentLocale === 'es' ? copy.es : copy.en) as string;
   }
 
+  function getPreferredCategory(app: LauncherApp | undefined) {
+    return app?.categoryIds[1] ?? app?.categoryIds[0] ?? 'all';
+  }
+
   const hasActiveApplication = $derived.by(() =>
     launcherApps.some((item) => isActive(item.href, $page.url.pathname))
   );
 
-  const activeLauncherCopy = $derived.by(() =>
-    ($currentLocale === 'es' ? launcherCopy.es : launcherCopy.en) as (typeof launcherCopy)[LocaleKey]
-  );
+  const activeLauncherCopy = $derived.by(() => ($currentLocale === 'es' ? launcherCopy.es : launcherCopy.en));
   const launcherCategoryCounts = $derived.by(() =>
     Object.fromEntries(
       launcherCategories.map((category) => [
@@ -367,7 +381,7 @@
 
   function openApplicationsLauncher() {
     const activeApp = launcherApps.find((item) => isActive(item.href, $page.url.pathname));
-    selectedLauncherCategory = activeApp?.categoryIds[1] ?? activeApp?.categoryIds[0] ?? 'all';
+    selectedLauncherCategory = getPreferredCategory(activeApp);
     selectedLauncherAppId = activeApp?.id ?? launcherApps[0].id;
     launcherSearch = '';
     applicationsLauncherOpen = true;
@@ -491,7 +505,7 @@
           aria-label={activeLauncherCopy.close}
           onclick={closeApplicationsLauncher}
         >
-          ×
+          <Glyph name="x" size={14} />
         </button>
       </div>
 
