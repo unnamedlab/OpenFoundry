@@ -48,7 +48,9 @@
       </span>
       <span class="of-topbar__crumb">OpenFoundry Workspace</span>
     </div>
-    <Glyph name="chevron-right" size={11} />
+    <span aria-hidden="true">
+      <Glyph name="chevron-right" size={11} />
+    </span>
     <div class="of-topbar__trail of-topbar__trail--current">
       <span class="of-topbar__crumb">{pageTitle}</span>
     </div>

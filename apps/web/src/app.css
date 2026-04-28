@@ -26,12 +26,15 @@
   --border-subtle: #e5e6e9;
   --border-default: #d6d8dd;
   --border-strong: #b7bec8;
+  --border-topbar-trail: #e2e0db;
+  --border-topbar-action: #ddd8d0;
   --border-focus: #3f7be0;
 
   --text-strong: #202939;
   --text-default: #435267;
   --text-muted: #70798a;
   --text-soft: #96a0af;
+  --text-sidebar-icon: #7b8798;
   --text-inverse: #ffffff;
   --text-link: #2563c7;
 
@@ -678,7 +681,7 @@ button {
   gap: 6px;
   min-height: 26px;
   padding: 0 8px;
-  border: 1px solid #e2e0db;
+  border: 1px solid var(--border-topbar-trail);
   background: rgba(255, 255, 255, 0.76);
   color: var(--text-default);
 }
@@ -691,7 +694,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #7b8798;
+  color: var(--text-sidebar-icon);
 }
 
 .of-topbar__crumb {
@@ -711,7 +714,7 @@ button {
   gap: 6px;
   min-height: 26px;
   padding: 0 9px;
-  border: 1px solid #ddd8d0;
+  border: 1px solid var(--border-topbar-action);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.82);
   color: var(--text-default);
