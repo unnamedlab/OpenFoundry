@@ -49,7 +49,7 @@ function sanitizePlatformLocaleSettings(
 	const defaultLocale = normalizeLocale(value?.default_locale, nextSupported[0] ?? DEFAULT_LOCALE);
 	return {
 		supported_locales: nextSupported,
-		default_locale: nextSupported.includes(defaultLocale) ? defaultLocale : nextSupported[0]!,
+		default_locale: nextSupported.includes(defaultLocale) ? defaultLocale : (nextSupported[0] ?? DEFAULT_LOCALE),
 	};
 }
 
@@ -96,7 +96,7 @@ function resolveBootstrapLocale(initialLocale?: string | null) {
 	const savedLocale =
 		typeof localStorage !== 'undefined' ? localStorage.getItem(LOCALE_STORAGE_KEY) : null;
 
-	return normalizeLocale(savedLocale ?? initialLocale, platformFallback ?? browserLocale);
+	return normalizeLocale(savedLocale ?? initialLocale ?? browserLocale, platformFallback);
 }
 
 export function initializeLocale(initialLocale?: string | null) {

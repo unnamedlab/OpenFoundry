@@ -214,7 +214,7 @@
 		draft = {
 			...draft,
 			supported_locales: supported,
-			default_locale: supported.includes(draft.default_locale) ? draft.default_locale : supported[0]!,
+			default_locale: supported.includes(draft.default_locale) ? draft.default_locale : (supported[0] ?? 'en'),
 		};
 	}
 
