@@ -1,5 +1,6 @@
 <script lang="ts">
   import Glyph from '$components/ui/Glyph.svelte';
+  import { createTranslator, currentLocale } from '$lib/i18n/store';
   import {
     executeQuery,
     explainQuery,
@@ -27,6 +28,7 @@
   let objectFilter = $state('');
   let propertyFilter = $state('');
   let loadingCatalog = $state(true);
+  const t = $derived.by(() => createTranslator($currentLocale));
 
   async function handleExecute() {
     error = '';
@@ -157,13 +159,17 @@
   });
 </script>
 
+<svelte:head>
+  <title>{t('pages.queries.title')}</title>
+</svelte:head>
+
 <div class="space-y-5">
   <section class="of-panel overflow-hidden">
     <div class="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
       <div>
-        <div class="of-heading-lg">SQL Preview</div>
+        <div class="of-heading-lg">{t('pages.queries.heading')}</div>
         <div class="mt-1 text-sm text-[var(--text-muted)]">
-          Query ontology-backed tables and inspect available object types without leaving the workbench.
+          {t('pages.queries.description')}
         </div>
       </div>
 
@@ -174,19 +180,19 @@
           error = '';
         }}>
           <Glyph name="history" size={16} />
-          <span>Reset</span>
+          <span>{t('pages.queries.reset')}</span>
         </button>
         <button class="of-btn" type="button" onclick={() => showSaveDialog = true}>
           <Glyph name="bookmark" size={16} />
-          <span>Save</span>
+          <span>{t('pages.queries.save')}</span>
         </button>
         <button class="of-btn" type="button" onclick={handleExplain} disabled={executing || !sql.trim()}>
           <Glyph name="sparkles" size={16} />
-          <span>Explain</span>
+          <span>{t('pages.queries.explain')}</span>
         </button>
         <button class="of-btn of-btn-primary" type="button" onclick={handleExecute} disabled={executing || !sql.trim()}>
           <Glyph name="run" size={15} />
-          <span>{executing ? 'Running...' : 'Run'}</span>
+          <span>{executing ? t('pages.queries.running') : t('pages.queries.run')}</span>
         </button>
       </div>
     </div>
@@ -195,18 +201,18 @@
       <aside class="border-r border-[var(--border-subtle)] bg-[#fbfcfe]">
         <div class="border-b border-[var(--border-subtle)] px-4 py-3">
           <div class="flex flex-wrap gap-2">
-            <button class="of-chip of-chip-active">All ontologies</button>
-            <button class="of-chip">Group</button>
-            <button class="of-chip">Status</button>
+            <button class="of-chip of-chip-active">{t('pages.queries.allOntologies')}</button>
+            <button class="of-chip">{t('pages.queries.group')}</button>
+            <button class="of-chip">{t('pages.queries.status')}</button>
           </div>
         </div>
 
         <div class="grid min-h-[640px] grid-cols-[220px_minmax(0,1fr)]">
           <div class="border-r border-[var(--border-subtle)] p-3">
-            <div class="mb-3 of-heading-sm">Recently used</div>
+            <div class="mb-3 of-heading-sm">{t('pages.queries.recentlyUsed')}</div>
             <div class="space-y-1">
               {#if loadingCatalog}
-                <div class="px-2 py-8 text-sm text-[var(--text-muted)]">Loading object types...</div>
+                <div class="px-2 py-8 text-sm text-[var(--text-muted)]">{t('pages.queries.loadingTypes')}</div>
               {:else}
                 {#each filteredTypes as item (item.id)}
                   <button

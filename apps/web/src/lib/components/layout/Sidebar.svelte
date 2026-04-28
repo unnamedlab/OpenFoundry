@@ -1,6 +1,10 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import Glyph from '$components/ui/Glyph.svelte';
+  import type { MessageKey } from '$lib/i18n/messages';
+  import { createTranslator, currentLocale } from '$lib/i18n/store';
+
+  const t = $derived.by(() => createTranslator($currentLocale));
 
   type NavIcon =
     | 'home'
@@ -19,31 +23,31 @@
 
   type NavItem = {
     href: string;
-    label: string;
+    labelKey: MessageKey;
     icon: NavIcon;
     hint?: string;
   };
 
   const workspaceNav: NavItem[] = [
-    { href: '/', label: 'Home', icon: 'home' },
-    { href: '/search', label: 'Search...', icon: 'search', hint: 'Ctrl + J' },
-    { href: '/object-monitors', label: 'Notifications', icon: 'bell' },
-    { href: '/dashboards', label: 'Recent', icon: 'history' },
-    { href: '/reports', label: 'Files', icon: 'folder' }
+    { href: '/', labelKey: 'nav.home', icon: 'home' },
+    { href: '/search', labelKey: 'nav.search', icon: 'search', hint: 'Ctrl + J' },
+    { href: '/object-monitors', labelKey: 'nav.notifications', icon: 'bell' },
+    { href: '/dashboards', labelKey: 'nav.recent', icon: 'history' },
+    { href: '/reports', labelKey: 'nav.files', icon: 'folder' }
   ];
 
   const applicationNav: NavItem[] = [
-    { href: '/projects', label: 'Projects & files', icon: 'folder' },
-    { href: '/object-explorer', label: 'Object Explorer', icon: 'object' },
-    { href: '/ontology-manager', label: 'Ontology Manager', icon: 'ontology' },
-    { href: '/notebooks', label: 'Workshop', icon: 'code' },
-    { href: '/pipelines', label: 'Pipeline Builder', icon: 'graph' },
-    { href: '/ml', label: 'Training', icon: 'sparkles' }
+    { href: '/projects', labelKey: 'nav.projects', icon: 'folder' },
+    { href: '/object-explorer', labelKey: 'nav.objectExplorer', icon: 'object' },
+    { href: '/ontology-manager', labelKey: 'nav.ontologyManager', icon: 'ontology' },
+    { href: '/notebooks', labelKey: 'nav.workshop', icon: 'code' },
+    { href: '/pipelines', labelKey: 'nav.pipelineBuilder', icon: 'graph' },
+    { href: '/ml', labelKey: 'nav.training', icon: 'sparkles' }
   ];
 
   const utilityNav: NavItem[] = [
-    { href: '/developers', label: 'Support', icon: 'help' },
-    { href: '/settings', label: 'Account', icon: 'settings' }
+    { href: '/developers', labelKey: 'nav.support', icon: 'help' },
+    { href: '/settings', labelKey: 'nav.account', icon: 'settings' }
   ];
 
   let applicationsExpanded = $state(true);
@@ -59,7 +63,7 @@
 
 <aside class="of-sidebar of-scrollbar">
   <div class="of-sidebar__brand">
-    <a href="/" class="of-sidebar__logo" aria-label="OpenFoundry home" title="OpenFoundry">
+    <a href="/" class="of-sidebar__logo" aria-label={t('nav.home')} title="OpenFoundry">
       <Glyph name="cube" size={18} />
     </a>
     <span class="of-sidebar__brand-meta" aria-hidden="true">
@@ -73,11 +77,13 @@
         href={item.href}
         class="of-sidebar__link"
         data-active={isActive(item.href, $page.url.pathname)}
+        title={t(item.labelKey)}
+        aria-label={t(item.labelKey)}
       >
         <span class="of-sidebar__icon">
           <Glyph name={item.icon} size={16} />
         </span>
-        <span class="of-sidebar__label">{item.label}</span>
+        <span class="of-sidebar__label">{t(item.labelKey)}</span>
         {#if item.hint}
           <span class="of-sidebar__hint">{item.hint}</span>
         {/if}
@@ -96,7 +102,7 @@
       <span class="of-sidebar__icon">
         <Glyph name="cube" size={16} />
       </span>
-      <span class="of-sidebar__label">Applications</span>
+      <span class="of-sidebar__label">{t('nav.applications')}</span>
       <span class="of-sidebar__caret">
         <Glyph name={applicationsExpanded ? 'chevron-down' : 'chevron-right'} size={14} />
       </span>
@@ -105,18 +111,20 @@
 
   {#if applicationsExpanded}
     <div class="of-sidebar__section">
-      <div class="of-sidebar__heading">Applications</div>
+      <div class="of-sidebar__heading">{t('nav.applications')}</div>
       <nav aria-label="Applications">
         {#each applicationNav as item}
           <a
             href={item.href}
             class="of-sidebar__link of-sidebar__link--app"
             data-active={isActive(item.href, $page.url.pathname)}
+            title={t(item.labelKey)}
+            aria-label={t(item.labelKey)}
           >
             <span class="of-sidebar__icon">
               <Glyph name={item.icon} size={15} />
             </span>
-            <span class="of-sidebar__label">{item.label}</span>
+            <span class="of-sidebar__label">{t(item.labelKey)}</span>
           </a>
         {/each}
       </nav>
@@ -131,11 +139,13 @@
         href={item.href}
         class="of-sidebar__link"
         data-active={isActive(item.href, $page.url.pathname)}
+        title={t(item.labelKey)}
+        aria-label={t(item.labelKey)}
       >
         <span class="of-sidebar__icon">
           <Glyph name={item.icon} size={16} />
         </span>
-        <span class="of-sidebar__label">{item.label}</span>
+        <span class="of-sidebar__label">{t(item.labelKey)}</span>
       </a>
     {/each}
   </nav>

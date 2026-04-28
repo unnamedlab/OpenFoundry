@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { getNotificationPreferences, listNotifications, markAllNotificationsRead, markNotificationRead, sendNotification, updateNotificationPreferences, type NotificationPreference, type NotificationSocketEvent, type UserNotification } from '$lib/api/notifications';
+	import { formatDateTime } from '$lib/i18n/format';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 	import { auth } from '$stores/auth';
 	import { notifications as toasts } from '$stores/notifications';
 	import { notificationWebsocket } from '$stores/websocket';
@@ -7,6 +9,7 @@
 	const isAuthenticated = auth.isAuthenticated;
 	const token = auth.token;
 	const connected = notificationWebsocket.connected;
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	let open = $state(false);
 	let activeTab = $state<'inbox' | 'preferences'>('inbox');
@@ -35,7 +38,7 @@
 			items = response.data;
 			unreadCount = response.unread_count;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to load notifications';
+			error = cause instanceof Error ? cause.message : t('notifications.failedLoad');
 		} finally {
 			loading = false;
 		}
@@ -45,7 +48,7 @@
 		try {
 			preferences = await getNotificationPreferences();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to load notification preferences';
+			error = cause instanceof Error ? cause.message : t('notifications.failedPreferences');
 		}
 	}
 
@@ -98,9 +101,9 @@
 				digest_frequency: preferences.digest_frequency,
 				quiet_hours: preferences.quiet_hours,
 			});
-			toasts.success('Notification preferences updated');
+			toasts.success(t('notifications.preferencesUpdated'));
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to update preferences';
+			error = cause instanceof Error ? cause.message : t('notifications.failedUpdate');
 		} finally {
 			saving = false;
 		}
@@ -111,17 +114,17 @@
 		error = '';
 		try {
 			const notification = await sendNotification({
-				title: 'Workflow alert test',
-				body: 'The notification service is connected and your in-app inbox is receiving events.',
+				title: t('notifications.testTitle'),
+				body: t('notifications.testBody'),
 				category: 'test',
 				severity: 'info',
 				channels: ['in_app'],
 			});
 			upsertNotification(notification);
 			unreadCount += 1;
-			toasts.success('Test notification sent');
+			toasts.success(t('notifications.testSent'));
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to send test notification';
+			error = cause instanceof Error ? cause.message : t('notifications.testFailed');
 		} finally {
 			sendingTest = false;
 		}
@@ -144,7 +147,7 @@
 	<div class="relative">
 		<button
 			type="button"
-			aria-label="Open notification center"
+			aria-label={t('notifications.ariaOpen')}
 			onclick={() => {
 				open = !open;
 				if (open) {
@@ -165,12 +168,12 @@
 			<div class="absolute right-0 top-14 z-20 w-[24rem] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
 				<div class="flex items-center justify-between">
 					<div>
-						<div class="text-xs uppercase tracking-[0.22em] text-gray-400">Notification Center</div>
-						<div class="mt-1 text-sm text-gray-500">In-app alerts, delivery preferences, and live workflow approvals.</div>
+						<div class="text-xs uppercase tracking-[0.22em] text-gray-400">{t('notifications.center')}</div>
+						<div class="mt-1 text-sm text-gray-500">{t('notifications.subtitle')}</div>
 					</div>
 					<div class="flex items-center gap-2 text-xs text-gray-500">
 						<span class={`h-2.5 w-2.5 rounded-full ${$connected ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-						{$connected ? 'Live' : 'Offline'}
+						{$connected ? t('common.online') : t('common.offline')}
 					</div>
 				</div>
 
@@ -179,12 +182,12 @@
 						type="button"
 						onclick={() => activeTab = 'inbox'}
 						class={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${activeTab === 'inbox' ? 'bg-white shadow-sm dark:bg-gray-900' : 'text-gray-500'}`}
-					>Inbox</button>
+					>{t('notifications.inbox')}</button>
 					<button
 						type="button"
 						onclick={() => activeTab = 'preferences'}
 						class={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${activeTab === 'preferences' ? 'bg-white shadow-sm dark:bg-gray-900' : 'text-gray-500'}`}
-					>Preferences</button>
+					>{t('notifications.preferences')}</button>
 				</div>
 
 				{#if error}
@@ -194,22 +197,22 @@
 				{#if activeTab === 'inbox'}
 					<div class="mt-4 space-y-3">
 						<div class="flex items-center justify-between text-sm text-gray-500">
-							<span>{unreadCount} unread</span>
+							<span>{t('notifications.unreadCount', { count: unreadCount })}</span>
 							<div class="flex gap-2">
 								<button type="button" onclick={sendTestNotification} disabled={sendingTest} class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800">
-									{sendingTest ? 'Sending...' : 'Send test'}
+									{sendingTest ? t('notifications.sendingTest') : t('notifications.sendTest')}
 								</button>
 								<button type="button" onclick={markEverythingRead} class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50 dark:border-gray-700 dark:hover:bg-gray-800">
-									Mark all read
+									{t('notifications.markAllRead')}
 								</button>
 							</div>
 						</div>
 
 						{#if loading}
-							<div class="py-8 text-center text-sm text-gray-500">Loading notifications...</div>
+							<div class="py-8 text-center text-sm text-gray-500">{t('notifications.loading')}</div>
 						{:else if items.length === 0}
 							<div class="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-gray-500 dark:border-gray-700">
-								No notifications yet.
+								{t('notifications.empty')}
 							</div>
 						{:else}
 							<div class="max-h-[22rem] space-y-3 overflow-auto pr-1">
@@ -223,13 +226,13 @@
 												</div>
 												<div class="mt-1 text-sm text-gray-600 dark:text-gray-300">{item.body}</div>
 												<div class="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-													<span>{new Date(item.created_at).toLocaleString()}</span>
+													<span>{formatDateTime(item.created_at, $currentLocale)}</span>
 													<span>{Array.isArray(item.channels) ? item.channels.join(', ') : ''}</span>
 												</div>
 											</div>
 											{#if item.status === 'unread'}
 												<button type="button" onclick={() => markRead(item.id)} class="rounded-lg border border-slate-200 px-2.5 py-1 text-xs hover:bg-slate-50 dark:border-gray-700 dark:hover:bg-gray-800">
-													Read
+													{t('notifications.read')}
 												</button>
 											{/if}
 										</div>
@@ -241,27 +244,27 @@
 				{:else}
 					<div class="mt-4 space-y-4 text-sm">
 						<label class="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700">
-							<span>Enable in-app notifications</span>
+							<span>{t('notifications.enableInApp')}</span>
 							<input type="checkbox" bind:checked={preferences.in_app_enabled} />
 						</label>
 
 						<label class="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700">
-							<span>Enable email delivery</span>
+							<span>{t('notifications.enableEmail')}</span>
 							<input type="checkbox" bind:checked={preferences.email_enabled} />
 						</label>
 
-						<input bind:value={preferences.email_address} placeholder="Email address" class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-						<input bind:value={preferences.slack_webhook_url} placeholder="Slack webhook URL" class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-						<input bind:value={preferences.teams_webhook_url} placeholder="MS Teams webhook URL" class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
+						<input bind:value={preferences.email_address} placeholder={t('notifications.emailAddress')} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
+						<input bind:value={preferences.slack_webhook_url} placeholder={t('notifications.slackWebhook')} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
+						<input bind:value={preferences.teams_webhook_url} placeholder={t('notifications.teamsWebhook')} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
 
 						<select bind:value={preferences.digest_frequency} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-							<option value="instant">Instant</option>
-							<option value="hourly">Hourly digest</option>
-							<option value="daily">Daily digest</option>
+							<option value="instant">{t('notifications.digest.instant')}</option>
+							<option value="hourly">{t('notifications.digest.hourly')}</option>
+							<option value="daily">{t('notifications.digest.daily')}</option>
 						</select>
 
 						<button type="button" onclick={savePreferences} disabled={saving} class="w-full rounded-xl bg-slate-900 px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-slate-900">
-							{saving ? 'Saving...' : 'Save preferences'}
+							{saving ? t('common.saving') : t('notifications.savePreferences')}
 						</button>
 					</div>
 				{/if}

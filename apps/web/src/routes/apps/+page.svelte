@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import AppRenderer from '$lib/components/apps/AppRenderer.svelte';
 	import {
@@ -817,31 +818,31 @@
 	onMount(() => {
 		void load();
 	});
+
+	const t = $derived.by(() => createTranslator($currentLocale));
 </script>
 
 <svelte:head>
-	<title>OpenFoundry — App Builder</title>
+	<title>{t('pages.apps.title')}</title>
 </svelte:head>
 
 <div class="space-y-6">
 	<div class="flex flex-wrap items-center justify-between gap-4">
 		<div>
-			<h1 class="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">Workshop App Builder</h1>
-			<p class="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-				Build internal apps with page layouts, widget catalog, dataset/query/ontology bindings, interactive scenario presets, embedded copilots, theming, templates, and published runtime previews.
-			</p>
+			<h1 class="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{t('pages.apps.heading')}</h1>
+			<p class="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">{t('pages.apps.description')}</p>
 		</div>
 
 		<div class="flex flex-wrap gap-2">
-			<button type="button" class="rounded-xl border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" onclick={newApp}>New app</button>
+			<button type="button" class="rounded-xl border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" onclick={newApp}>{t('pages.apps.new')}</button>
 			<button type="button" class="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white dark:bg-slate-100 dark:text-slate-950" disabled={builderState.saving} onclick={() => void saveCurrentApp()}>
-				{builderState.saving ? 'Saving...' : draft.id ? 'Save changes' : 'Create app'}
+				{builderState.saving ? t('common.saving') : draft.id ? t('common.saveChanges') : t('pages.apps.create')}
 			</button>
 			<button type="button" class="rounded-xl bg-emerald-600 px-4 py-2 text-sm text-white disabled:opacity-50" disabled={builderState.publishing} onclick={() => void publishCurrentApp()}>
-				{builderState.publishing ? 'Publishing...' : 'Publish app'}
+				{builderState.publishing ? 'Publishing...' : t('pages.apps.publish')}
 			</button>
 			{#if draft.slug}
-				<a href={`/apps/runtime/${draft.slug}`} class="rounded-xl border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">Open runtime</a>
+				<a href={`/apps/runtime/${draft.slug}`} class="rounded-xl border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">{t('pages.apps.openRuntime')}</a>
 			{/if}
 		</div>
 	</div>
@@ -853,20 +854,20 @@
 	<div class="grid gap-6 xl:grid-cols-[320px,1fr,360px]">
 		<section class="space-y-5 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
 			<div>
-				<div class="text-xs uppercase tracking-[0.24em] text-slate-400">App registry</div>
+				<div class="text-xs uppercase tracking-[0.24em] text-slate-400">{t('pages.apps.registry')}</div>
 				<input
 					type="text"
 					value={search}
 					oninput={(event) => { search = (event.currentTarget as HTMLInputElement).value; void loadRegistry(); }}
-					placeholder="Search apps..."
+					placeholder={t('pages.apps.searchPlaceholder')}
 					class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
 				/>
 			</div>
 
 			{#if builderState.loading}
-				<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">Loading apps...</div>
+				<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">{t('pages.apps.loading')}</div>
 			{:else if apps.length === 0}
-				<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">Create the first app or start from a template.</div>
+				<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">{t('pages.apps.empty')}</div>
 			{:else}
 				<div class="space-y-3">
 					{#each apps as app (app.id)}

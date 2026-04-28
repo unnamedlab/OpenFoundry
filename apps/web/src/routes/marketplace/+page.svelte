@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import DeliveryStudio from '$components/marketplace/DeliveryStudio.svelte';
 	import ListingDetail from '$components/marketplace/ListingDetail.svelte';
@@ -104,6 +105,7 @@
 	let installs = $state<InstallRecord[]>([]);
 	let fleets = $state<ProductFleetRecord[]>([]);
 	let enrollmentBranches = $state<EnrollmentBranchRecord[]>([]);
+	const t = $derived.by(() => createTranslator($currentLocale));
 	let listingDetail = $state<ListingDetailModel | null>(null);
 	let scoreById = $state<Record<string, number>>({});
 	let selectedListingId = $state('');
@@ -532,13 +534,17 @@
 	}
 </script>
 
+<svelte:head>
+	<title>{t('pages.marketplace.title')}</title>
+</svelte:head>
+
 <div class="space-y-6">
 	<section class="overflow-hidden rounded-[2rem] bg-gradient-to-br from-orange-100 via-white to-emerald-100 px-6 py-6 shadow-xl shadow-orange-200/50">
 		<div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
 			<div class="max-w-3xl">
-				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-orange-700">Milestone 4.4</p>
-				<h1 class="mt-3 text-3xl font-semibold tracking-tight text-stone-900">Private package registry, fleets, release channels, and one-click installs</h1>
-				<p class="mt-3 text-sm leading-6 text-stone-600">Browse internal packages backed by code repositories, package product resources, manage rollout fleets, and open enrollment branches from the same interface.</p>
+				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-orange-700">{t('pages.marketplace.badge')}</p>
+				<h1 class="mt-3 text-3xl font-semibold tracking-tight text-stone-900">{t('pages.marketplace.heading')}</h1>
+				<p class="mt-3 text-sm leading-6 text-stone-600">{t('pages.marketplace.description')}</p>
 			</div>
 			<div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
 				<div class="rounded-2xl bg-white/80 px-4 py-3 backdrop-blur">

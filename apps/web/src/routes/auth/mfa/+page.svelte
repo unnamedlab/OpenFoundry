@@ -2,8 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { auth } from '$stores/auth';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	const pendingChallenge = auth.pendingChallenge;
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	let code = $state('');
 	let error = $state('');
@@ -28,7 +30,7 @@
 			await auth.completeMfa(code);
 			goto('/');
 		} catch (err: any) {
-			error = err.message ?? 'MFA verification failed';
+			error = err.message ?? t('auth.mfa.failed');
 		} finally {
 			loading = false;
 		}
@@ -36,15 +38,15 @@
 </script>
 
 <svelte:head>
-	<title>MFA Challenge — OpenFoundry</title>
+	<title>{t('auth.mfa.title')}</title>
 </svelte:head>
 
 <div class="w-full max-w-sm rounded-3xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 shadow-sm">
 	<div class="mb-6">
-		<div class="text-xs uppercase tracking-[0.25em] text-gray-400">Security checkpoint</div>
-		<h1 class="mt-2 text-2xl font-bold">Enter your verification code</h1>
+		<div class="text-xs uppercase tracking-[0.25em] text-gray-400">{t('auth.mfa.badge')}</div>
+		<h1 class="mt-2 text-2xl font-bold">{t('auth.mfa.heading')}</h1>
 		<p class="mt-2 text-sm text-gray-500">
-			Use your authenticator app or one of your recovery codes to finish signing in.
+			{t('auth.mfa.subtitle')}
 		</p>
 	</div>
 
@@ -56,7 +58,7 @@
 		{/if}
 
 		<div>
-			<label for="mfa-code" class="mb-1 block text-sm font-medium">Verification code</label>
+			<label for="mfa-code" class="mb-1 block text-sm font-medium">{t('auth.mfa.code')}</label>
 			<input
 				id="mfa-code"
 				type="text"
@@ -64,7 +66,7 @@
 				bind:value={code}
 				required
 				class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 tracking-[0.35em] uppercase dark:border-gray-700 dark:bg-gray-800"
-				placeholder="123456"
+				placeholder={t('auth.mfa.placeholder')}
 			/>
 		</div>
 
@@ -73,7 +75,7 @@
 			disabled={loading}
 			class="w-full rounded-xl bg-indigo-600 py-2 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
 		>
-			{loading ? 'Verifying...' : 'Verify'}
+			{loading ? t('auth.mfa.verifying') : t('auth.mfa.verify')}
 		</button>
 	</form>
 </div>
