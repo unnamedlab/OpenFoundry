@@ -9,23 +9,23 @@
   --font-mono:
     'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
 
-  --bg-app: #f3f6fb;
+  --bg-app: #f0f2f6;
   --bg-canvas: #eef2f7;
   --bg-panel: #ffffff;
   --bg-panel-muted: #f7f9fc;
   --bg-panel-subtle: #ecf1f8;
-  --bg-sidebar: #2d3a4f;
-  --bg-sidebar-active: #3f7be0;
-  --bg-topbar: #f7f9fc;
+  --bg-sidebar: #262b31;
+  --bg-sidebar-active: #353b44;
+  --bg-topbar: #f7f7f8;
   --bg-input: #ffffff;
   --bg-chip: #e8edf5;
   --bg-chip-active: #dce8fb;
   --bg-chip-strong: #3f7be0;
   --bg-hover: #f0f5fd;
 
-  --border-subtle: #e2e8f1;
-  --border-default: #cfd7e3;
-  --border-strong: #b4bfd0;
+  --border-subtle: #e4e7ec;
+  --border-default: #d6dae1;
+  --border-strong: #b8c0cc;
   --border-focus: #3f7be0;
 
   --text-strong: #202939;
@@ -44,7 +44,7 @@
   --status-info: #1d4ed8;
   --status-info-bg: #e9f1ff;
 
-  --shadow-panel: 0 1px 2px rgba(28, 39, 60, 0.05), 0 8px 24px rgba(28, 39, 60, 0.06);
+  --shadow-panel: 0 1px 2px rgba(28, 39, 60, 0.04), 0 4px 12px rgba(28, 39, 60, 0.04);
   --shadow-popover: 0 10px 28px rgba(17, 24, 39, 0.16);
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -97,13 +97,13 @@ button {
 
 .of-shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f7f9fc 0%, var(--bg-app) 100%);
+  background: var(--bg-app);
 }
 
 .of-page {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 16px 20px 24px;
+  max-width: none;
+  margin: 0;
+  padding: 16px 18px 24px;
 }
 
 .of-panel {
@@ -516,26 +516,220 @@ button {
   font-weight: 600;
 }
 
-.of-sidebar-icon-btn {
+.of-sidebar {
+  display: flex;
+  width: 224px;
+  min-height: 100vh;
+  flex-shrink: 0;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-sidebar);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.of-sidebar__brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.of-sidebar__logo,
+.of-sidebar__rail-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.76);
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
 }
 
-.of-sidebar-icon-btn:hover {
+.of-sidebar__logo:hover,
+.of-sidebar__rail-toggle:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
   text-decoration: none;
 }
 
-.of-sidebar-icon-btn[data-active='true'] {
+.of-sidebar__section {
+  padding: 10px 0;
+}
+
+.of-sidebar__section + .of-sidebar__section {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.of-sidebar__section--footer {
+  padding-bottom: 12px;
+}
+
+.of-sidebar__heading {
+  padding: 8px 12px 6px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.of-sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  margin: 2px 8px;
+  padding: 0 10px;
+  border-radius: 0;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.of-sidebar__link:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  text-decoration: none;
+}
+
+.of-sidebar__link[data-active='true'] {
   background: var(--bg-sidebar-active);
   color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.of-sidebar__link--button {
+  width: calc(100% - 16px);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.of-sidebar__link--button[data-expanded='true'] {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.of-sidebar__link--app {
+  padding-left: 14px;
+  font-weight: 600;
+}
+
+.of-sidebar__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.of-sidebar__link[data-active='true'] .of-sidebar__icon,
+.of-sidebar__link:hover .of-sidebar__icon {
+  color: #fff;
+}
+
+.of-sidebar__hint,
+.of-sidebar__caret {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.of-sidebar__spacer {
+  flex: 1;
+}
+
+.of-topbar {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-default);
+  background: #fff;
+  padding: 0 16px;
+}
+
+.of-topbar__crumbs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.of-topbar__crumb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #7b8798;
+}
+
+.of-topbar__crumb {
+  white-space: nowrap;
+}
+
+.of-topbar__crumb--current {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.of-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.of-topbar__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text-default);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.of-topbar__action:hover {
+  background: #f7f8fa;
+  text-decoration: none;
+}
+
+.of-topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.of-topbar__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e6ebf2;
+  color: var(--text-strong);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .of-icon-box {
@@ -577,6 +771,21 @@ button {
 }
 
 @media (max-width: 900px) {
+  .of-sidebar {
+    width: 200px;
+  }
+
+  .of-topbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 10px 12px;
+  }
+
+  .of-topbar__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .of-page {
     padding: 12px;
   }
