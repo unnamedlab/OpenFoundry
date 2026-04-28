@@ -62,7 +62,7 @@
     <a href="/" class="of-sidebar__logo" aria-label="OpenFoundry home" title="OpenFoundry">
       <Glyph name="cube" size={18} />
     </a>
-    <button type="button" class="of-sidebar__rail-toggle" aria-label="Collapse navigation">
+    <button type="button" class="of-sidebar__rail-toggle" aria-label="Navigation menu">
       <Glyph name="menu" size={16} />
     </button>
   </div>
