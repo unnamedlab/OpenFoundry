@@ -453,6 +453,28 @@ We welcome contributions across:
 - examples
 - integrations
 
+## 🧪 Frontend verification
+
+The frontend lives in `/home/runner/work/OpenFoundry/OpenFoundry/apps/web`.
+
+To verify it locally from the repository root:
+
+- `corepack enable`
+- `pnpm install --frozen-lockfile`
+- `pnpm lint`
+- `pnpm check`
+- `pnpm build`
+- `pnpm test:unit`
+- `pnpm test:e2e`
+
+For interactive verification:
+
+- start the app with `pnpm dev`
+- smoke-check `/`, `/auth/login`, `/datasets`, `/pipelines`, `/ontology`, `/apps`, and `/dashboards`
+- review browser console errors and failed network requests while navigating those routes
+
+CI runs the same frontend quality gates in `.github/workflows/ci-frontend.yml`, and Playwright smoke coverage lives under `apps/web/tests/e2e`.
+
 Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
