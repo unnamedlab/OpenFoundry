@@ -20,6 +20,7 @@
     | 'chevron-down'
     | 'chevron-right'
     | 'plus'
+    | 'x'
     | 'logout'
     | 'bookmark'
     | 'object'
@@ -62,6 +63,7 @@
     'chevron-down': ['M6 9l6 6 6-6'],
     'chevron-right': ['M9 6l6 6-6 6'],
     plus: ['M12 5v14', 'M5 12h14'],
+    x: ['M6 6l12 12', 'M18 6 6 18'],
     logout: ['M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4', 'M14 16l4-4-4-4', 'M9 12h9'],
     bookmark: ['M7 4.5h10v15l-5-3-5 3z'],
     object: ['M5 6h14v12H5z', 'M8 9h8', 'M8 12h8', 'M8 15h5'],
