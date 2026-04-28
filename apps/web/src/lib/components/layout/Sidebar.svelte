@@ -62,6 +62,9 @@
     <a href="/" class="of-sidebar__logo" aria-label="OpenFoundry home" title="OpenFoundry">
       <Glyph name="cube" size={18} />
     </a>
+    <span class="of-sidebar__brand-meta" aria-hidden="true">
+      <Glyph name="menu" size={14} />
+    </span>
   </div>
 
   <nav class="of-sidebar__section" aria-label="Primary">
@@ -74,7 +77,7 @@
         <span class="of-sidebar__icon">
           <Glyph name={item.icon} size={16} />
         </span>
-        <span>{item.label}</span>
+        <span class="of-sidebar__label">{item.label}</span>
         {#if item.hint}
           <span class="of-sidebar__hint">{item.hint}</span>
         {/if}
@@ -93,7 +96,7 @@
       <span class="of-sidebar__icon">
         <Glyph name="cube" size={16} />
       </span>
-      <span>Applications</span>
+      <span class="of-sidebar__label">Applications</span>
       <span class="of-sidebar__caret">
         <Glyph name={applicationsExpanded ? 'chevron-down' : 'chevron-right'} size={14} />
       </span>
@@ -113,7 +116,7 @@
             <span class="of-sidebar__icon">
               <Glyph name={item.icon} size={15} />
             </span>
-            <span>{item.label}</span>
+            <span class="of-sidebar__label">{item.label}</span>
           </a>
         {/each}
       </nav>
@@ -132,7 +135,7 @@
         <span class="of-sidebar__icon">
           <Glyph name={item.icon} size={16} />
         </span>
-        <span>{item.label}</span>
+        <span class="of-sidebar__label">{item.label}</span>
       </a>
     {/each}
   </nav>

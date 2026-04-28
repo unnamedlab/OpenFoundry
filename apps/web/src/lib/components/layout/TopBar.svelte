@@ -42,12 +42,16 @@
 
 <header class="of-topbar">
   <div class="of-topbar__crumbs">
-    <span class="of-topbar__crumb-icon">
-      <Glyph name="folder" size={14} />
-    </span>
-    <span class="of-topbar__crumb">OpenFoundry Workspace</span>
-    <Glyph name="chevron-right" size={12} />
-    <span class="of-topbar__crumb of-topbar__crumb--current">{pageTitle}</span>
+    <div class="of-topbar__trail">
+      <span class="of-topbar__crumb-icon">
+        <Glyph name="folder" size={13} />
+      </span>
+      <span class="of-topbar__crumb">OpenFoundry Workspace</span>
+    </div>
+    <Glyph name="chevron-right" size={11} />
+    <div class="of-topbar__trail of-topbar__trail--current">
+      <span class="of-topbar__crumb">{pageTitle}</span>
+    </div>
   </div>
 
   <div class="of-topbar__actions">
