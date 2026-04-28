@@ -2,83 +2,141 @@
   import { page } from '$app/stores';
   import Glyph from '$components/ui/Glyph.svelte';
 
-  const primaryNav = [
-    { href: '/', label: 'Home', icon: 'home' as const },
-    { href: '/ontology', label: 'Ontology', icon: 'ontology' as const },
-    { href: '/queries', label: 'Queries', icon: 'query' as const },
-    { href: '/datasets', label: 'Datasets', icon: 'database' as const },
-    { href: '/pipelines', label: 'Pipelines', icon: 'graph' as const },
-    { href: '/reports', label: 'Artifacts', icon: 'artifact' as const }
+  type NavIcon =
+    | 'home'
+    | 'search'
+    | 'bell'
+    | 'history'
+    | 'folder'
+    | 'cube'
+    | 'object'
+    | 'ontology'
+    | 'code'
+    | 'graph'
+    | 'help'
+    | 'settings'
+    | 'sparkles';
+
+  type NavItem = {
+    href: string;
+    label: string;
+    icon: NavIcon;
+    hint?: string;
+  };
+
+  const workspaceNav: NavItem[] = [
+    { href: '/', label: 'Home', icon: 'home' },
+    { href: '/search', label: 'Search...', icon: 'search', hint: 'Ctrl + J' },
+    { href: '/object-monitors', label: 'Notifications', icon: 'bell' },
+    { href: '/dashboards', label: 'Recent', icon: 'history' },
+    { href: '/reports', label: 'Files', icon: 'folder' }
   ];
 
-  const secondaryNav = [
-    { href: '/history', label: 'History', icon: 'history' as const },
-    { href: '/search', label: 'Search', icon: 'search' as const },
-    { href: '/settings', label: 'Settings', icon: 'settings' as const }
+  const applicationNav: NavItem[] = [
+    { href: '/projects', label: 'Projects & files', icon: 'folder' },
+    { href: '/object-explorer', label: 'Object Explorer', icon: 'object' },
+    { href: '/ontology-manager', label: 'Ontology Manager', icon: 'ontology' },
+    { href: '/notebooks', label: 'Workshop', icon: 'code' },
+    { href: '/pipelines', label: 'Pipeline Builder', icon: 'graph' },
+    { href: '/ml', label: 'Training', icon: 'sparkles' }
   ];
+
+  const utilityNav: NavItem[] = [
+    { href: '/developers', label: 'Support', icon: 'help' },
+    { href: '/settings', label: 'Account', icon: 'settings' }
+  ];
+
+  let applicationsExpanded = $state(true);
 
   function isActive(href: string, pathname: string) {
-    return href === '/'
-      ? pathname === '/'
-      : pathname === href || pathname.startsWith(`${href}/`);
+    return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
   }
+
+  const hasActiveApplication = $derived.by(() =>
+    applicationNav.some((item) => isActive(item.href, $page.url.pathname))
+  );
 </script>
 
-<aside
-  class="of-scrollbar flex w-[72px] shrink-0 flex-col border-r border-slate-800 bg-[var(--bg-sidebar)] text-white"
->
-  <div class="flex h-[58px] items-center justify-center border-b border-white/10">
-    <a
-      href="/"
-      class="flex h-10 w-10 items-center justify-center rounded-lg bg-white/8 text-white transition hover:bg-white/12"
-      aria-label="OpenFoundry home"
-      title="OpenFoundry"
-    >
-      <Glyph name="cube" size={20} />
+<aside class="of-sidebar of-scrollbar">
+  <div class="of-sidebar__brand">
+    <a href="/" class="of-sidebar__logo" aria-label="OpenFoundry home" title="OpenFoundry">
+      <Glyph name="cube" size={18} />
     </a>
+    <span class="of-sidebar__brand-meta" aria-hidden="true">
+      <Glyph name="menu" size={14} />
+    </span>
   </div>
 
-  <div class="flex flex-1 flex-col items-center gap-2 px-3 py-4">
-    <button type="button" class="of-sidebar-icon-btn" title="Navigation">
-      <Glyph name="menu" size={19} />
+  <nav class="of-sidebar__section" aria-label="Primary">
+    {#each workspaceNav as item}
+      <a
+        href={item.href}
+        class="of-sidebar__link"
+        data-active={isActive(item.href, $page.url.pathname)}
+      >
+        <span class="of-sidebar__icon">
+          <Glyph name={item.icon} size={16} />
+        </span>
+        <span class="of-sidebar__label">{item.label}</span>
+        {#if item.hint}
+          <span class="of-sidebar__hint">{item.hint}</span>
+        {/if}
+      </a>
+    {/each}
+
+    <button
+      type="button"
+      class="of-sidebar__link of-sidebar__link--button"
+      data-active={hasActiveApplication}
+      data-expanded={applicationsExpanded}
+      onclick={() => {
+        applicationsExpanded = !applicationsExpanded;
+      }}
+    >
+      <span class="of-sidebar__icon">
+        <Glyph name="cube" size={16} />
+      </span>
+      <span class="of-sidebar__label">Applications</span>
+      <span class="of-sidebar__caret">
+        <Glyph name={applicationsExpanded ? 'chevron-down' : 'chevron-right'} size={14} />
+      </span>
     </button>
+  </nav>
 
-    {#each primaryNav as item}
-      <a
-        href={item.href}
-        class="of-sidebar-icon-btn"
-        data-active={isActive(item.href, $page.url.pathname)}
-        title={item.label}
-        aria-label={item.label}
-      >
-        <Glyph name={item.icon} size={19} />
-      </a>
-    {/each}
-
-    <div class="my-2 h-px w-8 bg-white/10"></div>
-
-    {#each secondaryNav as item}
-      <a
-        href={item.href}
-        class="of-sidebar-icon-btn"
-        data-active={isActive(item.href, $page.url.pathname)}
-        title={item.label}
-        aria-label={item.label}
-      >
-        <Glyph name={item.icon} size={19} />
-      </a>
-    {/each}
-  </div>
-
-  <div class="flex flex-col items-center gap-2 border-t border-white/10 px-3 py-4">
-    <a href="/help" class="of-sidebar-icon-btn" title="Help" aria-label="Help">
-      <Glyph name="help" size={18} />
-    </a>
-    <div
-      class="flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/8 text-[11px] font-semibold text-white/90"
-      title="Current user"
-    >
-      OF
+  {#if applicationsExpanded}
+    <div class="of-sidebar__section">
+      <div class="of-sidebar__heading">Applications</div>
+      <nav aria-label="Applications">
+        {#each applicationNav as item}
+          <a
+            href={item.href}
+            class="of-sidebar__link of-sidebar__link--app"
+            data-active={isActive(item.href, $page.url.pathname)}
+          >
+            <span class="of-sidebar__icon">
+              <Glyph name={item.icon} size={15} />
+            </span>
+            <span class="of-sidebar__label">{item.label}</span>
+          </a>
+        {/each}
+      </nav>
     </div>
-  </div>
+  {/if}
+
+  <div class="of-sidebar__spacer"></div>
+
+  <nav class="of-sidebar__section of-sidebar__section--footer" aria-label="Utility">
+    {#each utilityNav as item}
+      <a
+        href={item.href}
+        class="of-sidebar__link"
+        data-active={isActive(item.href, $page.url.pathname)}
+      >
+        <span class="of-sidebar__icon">
+          <Glyph name={item.icon} size={16} />
+        </span>
+        <span class="of-sidebar__label">{item.label}</span>
+      </a>
+    {/each}
+  </nav>
 </aside>
