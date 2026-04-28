@@ -55,12 +55,21 @@ function sanitizePlatformLocaleSettings(
 
 function persistPlatformLocaleSettings(value: PlatformLocaleSettings) {
 	if (typeof localStorage === 'undefined') return;
-	localStorage.setItem(PLATFORM_LOCALE_SETTINGS_KEY, JSON.stringify(value));
+	try {
+		localStorage.setItem(PLATFORM_LOCALE_SETTINGS_KEY, JSON.stringify(value));
+	} catch {
+		// Ignore storage persistence failures and continue with in-memory locale state.
+	}
 }
 
 function loadPersistedPlatformLocaleSettings(): PlatformLocaleSettings | null {
 	if (typeof localStorage === 'undefined') return null;
-	const raw = localStorage.getItem(PLATFORM_LOCALE_SETTINGS_KEY);
+	let raw: string | null = null;
+	try {
+		raw = localStorage.getItem(PLATFORM_LOCALE_SETTINGS_KEY);
+	} catch {
+		return null;
+	}
 	if (!raw) return null;
 
 	try {
@@ -74,7 +83,11 @@ function setLocaleValue(locale: AppLocale, persist = true) {
 	currentLocale.set(locale);
 	applyDocumentLocale(locale);
 	if (persist && typeof localStorage !== 'undefined') {
-		localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+		try {
+			localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+		} catch {
+			// Ignore storage persistence failures and continue with the active locale.
+		}
 	}
 	if (persist) {
 		writeLocaleCookie(locale);
@@ -93,8 +106,14 @@ function resolveBootstrapLocale(initialLocale?: string | null) {
 		typeof navigator !== 'undefined'
 			? normalizeLocale(navigator.language, platformFallback)
 			: platformFallback;
-	const savedLocale =
-		typeof localStorage !== 'undefined' ? localStorage.getItem(LOCALE_STORAGE_KEY) : null;
+	let savedLocale: string | null = null;
+	if (typeof localStorage !== 'undefined') {
+		try {
+			savedLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
+		} catch {
+			savedLocale = null;
+		}
+	}
 
 	return normalizeLocale(savedLocale ?? initialLocale ?? browserLocale, platformFallback);
 }
