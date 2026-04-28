@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import ReportDesigner from '$components/report/ReportDesigner.svelte';
 	import ReportHistory from '$components/report/ReportHistory.svelte';
@@ -57,6 +58,7 @@
 	let busyAction = $state('');
 	let uiError = $state('');
 	const busy = $derived(loading || busyAction.length > 0);
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	onMount(() => {
 		void refreshAll();
@@ -304,17 +306,17 @@
 </script>
 
 <svelte:head>
-	<title>OpenFoundry Reports</title>
+	<title>{t('pages.reports.title')}</title>
 </svelte:head>
 
 <div class="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(217,119,6,0.16),_transparent_30%),linear-gradient(180deg,_#fffaf4_0%,_#f6f2ea_55%,_#eee5d8_100%)] px-6 py-8 text-stone-900 lg:px-10">
 	<div class="mx-auto max-w-7xl space-y-6">
 		<section class="grid gap-6 rounded-[2rem] border border-stone-200/80 bg-white/80 p-6 shadow-xl shadow-stone-200/60 backdrop-blur xl:grid-cols-[1.1fr_0.9fr]">
 			<div>
-				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700">Milestone 4.3</p>
-				<h1 class="mt-3 text-4xl font-semibold tracking-tight text-stone-950">Reports control plane</h1>
+				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700">{t('pages.reports.badge')}</p>
+				<h1 class="mt-3 text-4xl font-semibold tracking-tight text-stone-950">{t('pages.reports.heading')}</h1>
 				<p class="mt-3 max-w-2xl text-base leading-7 text-stone-600">
-					Design definitions, preview generated artifacts, manage cadence, and deliver reports into email, S3, Slack, Teams, and webhooks from a single workspace.
+					{t('pages.reports.description')}
 				</p>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">

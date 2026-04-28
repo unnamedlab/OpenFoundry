@@ -1,15 +1,17 @@
 <script lang="ts">
   import { auth } from '$stores/auth';
+  import { createTranslator, currentLocale } from '$lib/i18n/store';
 
   const isAuthenticated = auth.isAuthenticated;
+  const t = $derived.by(() => createTranslator($currentLocale));
 </script>
 
 <svelte:head>
-  <title>OpenFoundry — Home</title>
+  <title>{t('home.title')}</title>
 </svelte:head>
 
 <div class="max-w-5xl mx-auto">
-  <h1 class="text-2xl font-bold mb-6">Welcome to OpenFoundry</h1>
+  <h1 class="text-2xl font-bold mb-6">{t('home.heading')}</h1>
 
   {#if $isAuthenticated}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -161,9 +163,9 @@
     </div>
   {:else}
     <div class="text-center py-20">
-      <p class="text-gray-500 mb-4">Sign in to access your data platform.</p>
+      <p class="text-gray-500 mb-4">{t('home.signInPrompt')}</p>
       <a href="/auth/login" class="inline-block px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
-        Sign In
+        {t('auth.login.signIn')}
       </a>
     </div>
   {/if}

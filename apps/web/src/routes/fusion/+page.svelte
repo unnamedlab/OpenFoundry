@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import ClusterViewer from '$components/fusion/ClusterViewer.svelte';
 	import FusionSpreadsheet from '$components/fusion/FusionSpreadsheet.svelte';
@@ -100,6 +101,7 @@
 	let loading = $state(true);
 	let busyAction = $state('');
 	let uiError = $state('');
+	const t = $derived.by(() => createTranslator($currentLocale));
 
 	const busy = $derived(loading || busyAction.length > 0);
 
@@ -371,25 +373,25 @@
 </script>
 
 <svelte:head>
-	<title>Fusion | OpenFoundry</title>
+	<title>{t('pages.fusion.title')}</title>
 </svelte:head>
 
 <div class="space-y-6">
 	<section class="overflow-hidden rounded-[36px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.26),_transparent_36%),linear-gradient(135deg,#111827_0%,#1f2937_34%,#f8fafc_100%)] p-6 text-white shadow-sm dark:border-slate-800">
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
 			<div>
-				<div class="text-[11px] font-semibold uppercase tracking-[0.34em] text-amber-100">Phase 4.1</div>
-				<h1 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight">Fusion entity resolution across rules, ML scoring, graph closure, and manual review</h1>
+				<div class="text-[11px] font-semibold uppercase tracking-[0.34em] text-amber-100">{t('pages.fusion.badge')}</div>
+				<h1 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight">{t('pages.fusion.heading')}</h1>
 				<p class="mt-4 max-w-2xl text-sm leading-7 text-slate-100/85">
-					Model deterministic match rules, blend them with probabilistic scoring, close clusters transitively, and curate golden records with a human review queue.
+					{t('pages.fusion.description')}
 				</p>
 			</div>
 			<div class="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur">
-				<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-100">Operator Loop</div>
+				<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-100">{t('pages.fusion.operatorLoop')}</div>
 				<div class="mt-3 grid gap-3 text-sm text-slate-100/90">
-					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">1. Define blocking and match conditions.</div>
-					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">2. Run resolution jobs to synthesize clusters and golden records.</div>
-					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">3. Review uncertain clusters and approve or split them.</div>
+					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{t('pages.fusion.step1')}</div>
+					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{t('pages.fusion.step2')}</div>
+					<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{t('pages.fusion.step3')}</div>
 				</div>
 			</div>
 		</div>
@@ -400,7 +402,7 @@
 	{/if}
 
 	{#if loading}
-		<div class="rounded-[28px] border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">Loading Fusion surfaces...</div>
+		<div class="rounded-[28px] border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">{t('pages.fusion.loading')}</div>
 	{:else}
 		<div class="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
 			<MatchRuleBuilder

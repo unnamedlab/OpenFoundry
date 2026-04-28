@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import HeatmapLayer from '$components/map/HeatmapLayer.svelte';
 	import LayerPanel from '$components/map/LayerPanel.svelte';
@@ -74,6 +75,7 @@
 	let loading = $state(true);
 	let busyAction = $state('');
 	let uiError = $state('');
+	const t = $derived.by(() => createTranslator($currentLocale));
 	let draft = $state<AnalysisDraft>(createEmptyAnalysisDraft());
 	let styleDraft = $state<LayerStyle>(defaultLayerStyle());
 	let tagText = $state('');
@@ -546,40 +548,39 @@
 </script>
 
 <svelte:head>
-	<title>OpenFoundry Map</title>
+	<title>{t('pages.geospatial.title')}</title>
 </svelte:head>
 
 <div class="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.16),_transparent_32%),linear-gradient(180deg,_#f7fbfb_0%,_#eef5f6_52%,_#e6eeeb_100%)] px-6 py-8 text-stone-900 lg:px-10">
 	<div class="mx-auto max-w-7xl space-y-6">
 		<section class="grid gap-6 rounded-[2rem] border border-stone-200/80 bg-white/82 p-6 shadow-xl shadow-stone-200/60 backdrop-blur xl:grid-cols-[1.15fr_0.85fr]">
 			<div>
-				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">Map</p>
-				<h1 class="mt-3 text-4xl font-semibold tracking-tight text-stone-950">Geospatial and temporal analysis workspace</h1>
+				<p class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">{t('pages.geospatial.badge')}</p>
+				<h1 class="mt-3 text-4xl font-semibold tracking-tight text-stone-950">{t('pages.geospatial.heading')}</h1>
 				<p class="mt-3 max-w-3xl text-base leading-7 text-stone-600">
-					Explore geospatial objects, search around points and polygons, visualize contextual layers, filter by time and metrics,
-					and save reusable map templates from the same operational canvas.
+					{t('pages.geospatial.description')}
 				</p>
 				<div class="mt-6 flex flex-wrap gap-3">
-					<a href="#map-interface" class="rounded-full bg-cyan-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-cyan-700">Open map interface</a>
-					<a href="#time-controls" class="rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50">Time and events</a>
-					<a href="#templates" class="rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50">Create and save maps</a>
+					<a href="#map-interface" class="rounded-full bg-cyan-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-cyan-700">{t('pages.geospatial.openMap')}</a>
+					<a href="#time-controls" class="rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50">{t('pages.geospatial.timeAndEvents')}</a>
+					<a href="#templates" class="rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50">{t('pages.geospatial.createMaps')}</a>
 				</div>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="rounded-3xl border border-stone-200 bg-stone-50 p-4">
-					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Layers</p>
+					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">{t('pages.geospatial.stats.layers')}</p>
 					<p class="mt-3 text-3xl font-semibold text-stone-950">{overview?.layer_count ?? 0}</p>
 				</div>
 				<div class="rounded-3xl border border-stone-200 bg-stone-50 p-4">
-					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Indexed</p>
+					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">{t('pages.geospatial.stats.indexed')}</p>
 					<p class="mt-3 text-3xl font-semibold text-stone-950">{overview?.indexed_layers ?? 0}</p>
 				</div>
 				<div class="rounded-3xl border border-stone-200 bg-stone-50 p-4">
-					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Features</p>
+					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">{t('pages.geospatial.stats.features')}</p>
 					<p class="mt-3 text-3xl font-semibold text-stone-950">{overview?.total_features ?? 0}</p>
 				</div>
 				<div class="rounded-3xl border border-stone-200 bg-stone-50 p-4">
-					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Templates</p>
+					<p class="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">{t('pages.geospatial.stats.templates')}</p>
 					<p class="mt-3 text-3xl font-semibold text-stone-950">{templateLayers.length}</p>
 				</div>
 			</div>
