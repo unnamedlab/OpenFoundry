@@ -135,82 +135,82 @@ repository = "https://github.com/open-foundry/open-foundry"
 
 [workspace.dependencies]
 # ── Async Runtime ──
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.52.1", features = ["full"] }
 
 # ── Web / HTTP ──
-axum = { version = "0.8", features = ["macros", "ws"] }
-axum-extra = { version = "0.10", features = ["typed-header"] }
-tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "compression-gzip"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-hyper = { version = "1" }
+axum = { version = "0.8.9", features = ["macros", "ws"] }
+axum-extra = { version = "0.10.3", features = ["typed-header"] }
+tower = { version = "0.5.3", features = ["full"] }
+tower-http = { version = "0.6.8", features = ["cors", "trace", "request-id", "compression-gzip"] }
+reqwest = { version = "0.12.28", features = ["json", "rustls-tls"], default-features = false }
+hyper = { version = "1.9.0" }
 
 # ── gRPC / Protobuf ──
-tonic = { version = "0.12", features = ["tls"] }
-tonic-build = "0.12"
-prost = "0.13"
-prost-types = "0.13"
+tonic = { version = "0.12.3", features = ["tls"] }
+tonic-build = "0.12.3"
+prost = "0.13.5"
+prost-types = "0.13.5"
 
 # ── Database ──
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
 
 # ── Serialization ──
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "0.8.23"
 
 # ── Observability ──
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-opentelemetry = "0.27"
-opentelemetry-otlp = "0.27"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+opentelemetry = "0.27.1"
+opentelemetry-otlp = "0.27.0"
 
 # ── Error Handling ──
-anyhow = "1"
-thiserror = "2"
+anyhow = "1.0.102"
+thiserror = "2.0.18"
 
 # ── Identity & Crypto ──
-uuid = { version = "1", features = ["v7", "serde"] }
-jsonwebtoken = "9"
-argon2 = "0.5"
+uuid = { version = "1.23.1", features = ["v7", "serde"] }
+jsonwebtoken = "9.3.1"
+argon2 = "0.5.3"
 
 # ── Time ──
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
 
 # ── Config ──
-config = "0.14"
+config = "0.14.1"
 
 # ── Messaging ──
-async-nats = "0.38"
+async-nats = "0.38.0"
 
 # ── Object Storage ──
-object_store = { version = "0.11", features = ["aws"] }
+object_store = { version = "0.11.2", features = ["aws"] }
 
 # ── Query Engine ──
-datafusion = "44"
+datafusion = "44.0.0"
 
 # ── Python Integration ──
-pyo3 = { version = "0.22", features = ["auto-initialize"] }
+pyo3 = { version = "0.22.6", features = ["auto-initialize"] }
 
 # ── Search ──
-meilisearch-sdk = "0.27"
+meilisearch-sdk = "0.27.1"
 
 # ── Redis ──
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "0.27.6", features = ["tokio-comp", "connection-manager"] }
 
 # ── Utilities ──
-bytes = "1"
-futures = "0.3"
-async-trait = "0.1"
-rand = "0.8"
-base64 = "0.22"
-url = { version = "2", features = ["serde"] }
-regex = "1"
-semver = "1"
+bytes = "1.11.1"
+futures = "0.3.32"
+async-trait = "0.1.89"
+rand = "0.8.6"
+base64 = "0.22.1"
+url = { version = "2.5.8", features = ["serde"] }
+regex = "1.12.3"
+semver = "1.0.28"
 
 # ── Testing ──
-testcontainers = "0.23"
-wiremock = "0.6"
+testcontainers = "0.23.3"
+wiremock = "0.6.5"
 
 # ── Internal Crates ──
 core-models = { path = "libs/core-models" }
