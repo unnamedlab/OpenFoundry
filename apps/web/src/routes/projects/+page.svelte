@@ -262,6 +262,12 @@
   const totalProjects = $derived.by(() => projects.length);
   const totalFiles = $derived.by(() => allRows.filter((row) => row.kind === 'file').length);
   const totalShared = $derived.by(() => allRows.filter((row) => row.view === 'shared').length);
+  const activeFilterCount = $derived.by(() => {
+    let count = 0;
+    if (activeView !== 'all') count += 1;
+    if (search.trim().length > 0) count += 1;
+    return count;
+  });
 
   function normalizeSlug(value: string) {
     return value
@@ -515,7 +521,7 @@
             {:else if tab.id === 'your-files'}
               <Glyph name="object" size={14} />
             {:else if tab.id === 'shared'}
-              <Glyph name="help" size={14} />
+              <Glyph name="users" size={14} />
             {:else}
               <span aria-hidden="true">🗑</span>
             {/if}
@@ -666,7 +672,7 @@
             <Glyph name="menu" size={14} />
           </div>
           <div class="flex items-center justify-center py-3">
-            <span class="of-badge">{search.trim().length > 0 ? 1 : 0}</span>
+            <span class="of-badge">{activeFilterCount}</span>
           </div>
         </div>
 
@@ -806,10 +812,13 @@
           {#if createStep === 1}
             <section class="space-y-4">
               <div>
-                <label class="mb-2 block text-sm font-medium text-[var(--text-strong)]">
+                <label
+                  class="mb-2 block text-sm font-medium text-[var(--text-strong)]"
+                  for="project-space"
+                >
                   Organization space
                 </label>
-                <select bind:value={draft.spaceId} class="of-select">
+                <select bind:value={draft.spaceId} class="of-select" id="project-space">
                   {#each spaceOptions as option}
                     <option value={option.id}>{option.label}</option>
                   {/each}
@@ -820,9 +829,7 @@
               </div>
 
               <div>
-                <label class="mb-2 block text-sm font-medium text-[var(--text-strong)]">
-                  Template
-                </label>
+                <div class="mb-2 block text-sm font-medium text-[var(--text-strong)]">Template</div>
                 <div class="grid gap-3 md:grid-cols-2">
                   {#each projectTemplates as template}
                     <button
@@ -844,11 +851,15 @@
               </div>
 
               <div>
-                <label class="mb-2 block text-sm font-medium text-[var(--text-strong)]">
+                <label
+                  class="mb-2 block text-sm font-medium text-[var(--text-strong)]"
+                  for="project-name"
+                >
                   Project name
                 </label>
                 <input
                   class="of-input"
+                  id="project-name"
                   oninput={handleNameInput}
                   placeholder="Learning"
                   value={draft.name}
@@ -856,12 +867,16 @@
               </div>
 
               <div>
-                <label class="mb-2 block text-sm font-medium text-[var(--text-strong)]">
+                <label
+                  class="mb-2 block text-sm font-medium text-[var(--text-strong)]"
+                  for="project-description"
+                >
                   Description
                 </label>
                 <textarea
                   bind:value={draft.description}
                   class="of-textarea !min-h-[110px]"
+                  id="project-description"
                   placeholder={selectedTemplate.suggestedDescription}
                 ></textarea>
               </div>
@@ -884,13 +899,17 @@
                 </label>
 
                 <div class="mt-4">
-                  <label class="mb-2 block text-sm font-medium text-[var(--text-strong)]">
+                  <label
+                    class="mb-2 block text-sm font-medium text-[var(--text-strong)]"
+                    for="project-primary-folder"
+                  >
                     Primary folder name
                   </label>
                   <input
                     bind:value={draft.starterFolderName}
                     class="of-input"
                     disabled={!draft.createStarterFolder}
+                    id="project-primary-folder"
                     placeholder="Learning"
                   />
                 </div>
