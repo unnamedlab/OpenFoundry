@@ -42,7 +42,7 @@
     { href: '/ontology-manager', labelKey: 'nav.ontologyManager', icon: 'ontology' },
     { href: '/notebooks', labelKey: 'nav.workshop', icon: 'code' },
     { href: '/pipelines', labelKey: 'nav.pipelineBuilder', icon: 'graph' },
-    { href: '/ml', labelKey: 'nav.training', icon: 'sparkles' }
+    { href: '/training', labelKey: 'nav.training', icon: 'sparkles' }
   ];
 
   const utilityNav: NavItem[] = [

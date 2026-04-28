@@ -24,7 +24,7 @@
     '/apps': 'nav.applications',
     '/dashboards': 'nav.recent',
     '/datasets': 'nav.datasets',
-    '/ml': 'nav.training',
+    '/training': 'nav.training',
     '/notebooks': 'nav.workshop',
     '/object-explorer': 'nav.objectExplorer',
     '/object-monitors': 'nav.notifications',
