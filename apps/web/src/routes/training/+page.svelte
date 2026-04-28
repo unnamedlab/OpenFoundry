@@ -2,6 +2,10 @@
   import Glyph from '$components/ui/Glyph.svelte';
 
   const trainingFeedbackEmail = 'training-feedback@palantir.com';
+  const leftConnectorPath = 'M290 436 C290 492 360 500 404 548 C434 580 452 620 452 661';
+  const rightConnectorPath = 'M710 436 C710 492 640 500 596 548 C566 580 548 620 548 661';
+  const leftArrowheadPath = 'M290 429 284 442 296 442Z';
+  const rightArrowheadPath = 'M710 429 704 442 716 442Z';
 
   const permissions = [
     {
@@ -244,10 +248,10 @@
       </div>
 
       <svg class="architecture-lines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M290 436 C290 492 360 500 404 548 C434 580 452 620 452 661"></path>
-        <path d="M710 436 C710 492 640 500 596 548 C566 580 548 620 548 661"></path>
-        <path class="architecture-lines__arrowhead" d="M290 429 284 442 296 442Z"></path>
-        <path class="architecture-lines__arrowhead" d="M710 429 704 442 716 442Z"></path>
+        <path d={leftConnectorPath}></path>
+        <path d={rightConnectorPath}></path>
+        <path class="architecture-lines__arrowhead" d={leftArrowheadPath}></path>
+        <path class="architecture-lines__arrowhead" d={rightArrowheadPath}></path>
       </svg>
     </div>
   </section>
@@ -437,6 +441,7 @@
   }
 
   .architecture-surface {
+    /* These values pin the recreated screenshot layout for the positioned cards and connector SVG. */
     --architecture-title-offset: 40px;
     --architecture-line-width: 2.2px;
     --architecture-min-height: 980px;
