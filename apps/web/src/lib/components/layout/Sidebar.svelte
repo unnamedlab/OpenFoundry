@@ -1,87 +1,152 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import Glyph from '$components/ui/Glyph.svelte';
+  import type { MessageKey } from '$lib/i18n/messages';
   import { createTranslator, currentLocale } from '$lib/i18n/store';
 
   const t = $derived.by(() => createTranslator($currentLocale));
 
-  const primaryNav = $derived.by(() => [
-    { href: '/', label: t('nav.home'), icon: 'home' as const },
-    { href: '/ontology', label: t('nav.ontology'), icon: 'ontology' as const },
-    { href: '/queries', label: t('nav.queries'), icon: 'query' as const },
-    { href: '/datasets', label: t('nav.datasets'), icon: 'database' as const },
-    { href: '/pipelines', label: t('nav.pipelines'), icon: 'graph' as const },
-    { href: '/reports', label: t('nav.artifacts'), icon: 'artifact' as const }
-  ]);
+  type NavIcon =
+    | 'home'
+    | 'search'
+    | 'bell'
+    | 'history'
+    | 'folder'
+    | 'cube'
+    | 'object'
+    | 'ontology'
+    | 'code'
+    | 'graph'
+    | 'help'
+    | 'settings'
+    | 'sparkles';
 
-  const secondaryNav = $derived.by(() => [
-    { href: '/history', label: t('nav.history'), icon: 'history' as const },
-    { href: '/search', label: t('nav.search'), icon: 'search' as const },
-    { href: '/settings', label: t('nav.settings'), icon: 'settings' as const }
-  ]);
+  type NavItem = {
+    href: string;
+    labelKey: MessageKey;
+    icon: NavIcon;
+    hint?: string;
+  };
+
+  const workspaceNav: NavItem[] = [
+    { href: '/', labelKey: 'nav.home', icon: 'home' },
+    { href: '/search', labelKey: 'nav.search', icon: 'search', hint: 'Ctrl + J' },
+    { href: '/object-monitors', labelKey: 'nav.notifications', icon: 'bell' },
+    { href: '/dashboards', labelKey: 'nav.recent', icon: 'history' },
+    { href: '/reports', labelKey: 'nav.files', icon: 'folder' }
+  ];
+
+  const applicationNav: NavItem[] = [
+    { href: '/projects', labelKey: 'nav.projects', icon: 'folder' },
+    { href: '/object-explorer', labelKey: 'nav.objectExplorer', icon: 'object' },
+    { href: '/ontology-manager', labelKey: 'nav.ontologyManager', icon: 'ontology' },
+    { href: '/notebooks', labelKey: 'nav.workshop', icon: 'code' },
+    { href: '/pipelines', labelKey: 'nav.pipelineBuilder', icon: 'graph' },
+    { href: '/ml', labelKey: 'nav.training', icon: 'sparkles' }
+  ];
+
+  const utilityNav: NavItem[] = [
+    { href: '/developers', labelKey: 'nav.support', icon: 'help' },
+    { href: '/settings', labelKey: 'nav.account', icon: 'settings' }
+  ];
+
+  let applicationsExpanded = $state(true);
 
   function isActive(href: string, pathname: string) {
-    return href === '/'
-      ? pathname === '/'
-      : pathname === href || pathname.startsWith(`${href}/`);
+    return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
   }
+
+  const hasActiveApplication = $derived.by(() =>
+    applicationNav.some((item) => isActive(item.href, $page.url.pathname))
+  );
 </script>
 
-<aside
-  class="of-scrollbar flex w-[72px] shrink-0 flex-col border-r border-slate-800 bg-[var(--bg-sidebar)] text-white"
->
-  <div class="flex h-[58px] items-center justify-center border-b border-white/10">
-    <a
-      href="/"
-      class="flex h-10 w-10 items-center justify-center rounded-lg bg-white/8 text-white transition hover:bg-white/12"
-      aria-label="OpenFoundry home"
-      title="OpenFoundry"
-    >
-      <Glyph name="cube" size={20} />
+<aside class="of-sidebar of-scrollbar">
+  <div class="of-sidebar__brand">
+    <a href="/" class="of-sidebar__logo" aria-label={t('nav.home')} title="OpenFoundry">
+      <Glyph name="cube" size={18} />
     </a>
+    <span class="of-sidebar__brand-meta" aria-hidden="true">
+      <Glyph name="menu" size={14} />
+    </span>
   </div>
 
-  <div class="flex flex-1 flex-col items-center gap-2 px-3 py-4">
-    <button type="button" class="of-sidebar-icon-btn" title={t('nav.navigation')}>
-      <Glyph name="menu" size={19} />
+  <nav class="of-sidebar__section" aria-label="Primary">
+    {#each workspaceNav as item}
+      <a
+        href={item.href}
+        class="of-sidebar__link"
+        data-active={isActive(item.href, $page.url.pathname)}
+        title={t(item.labelKey)}
+        aria-label={t(item.labelKey)}
+      >
+        <span class="of-sidebar__icon">
+          <Glyph name={item.icon} size={16} />
+        </span>
+        <span class="of-sidebar__label">{t(item.labelKey)}</span>
+        {#if item.hint}
+          <span class="of-sidebar__hint">{item.hint}</span>
+        {/if}
+      </a>
+    {/each}
+
+    <button
+      type="button"
+      class="of-sidebar__link of-sidebar__link--button"
+      data-active={hasActiveApplication}
+      data-expanded={applicationsExpanded}
+      onclick={() => {
+        applicationsExpanded = !applicationsExpanded;
+      }}
+    >
+      <span class="of-sidebar__icon">
+        <Glyph name="cube" size={16} />
+      </span>
+      <span class="of-sidebar__label">{t('nav.applications')}</span>
+      <span class="of-sidebar__caret">
+        <Glyph name={applicationsExpanded ? 'chevron-down' : 'chevron-right'} size={14} />
+      </span>
     </button>
+  </nav>
 
-    {#each primaryNav as item}
-      <a
-        href={item.href}
-        class="of-sidebar-icon-btn"
-        data-active={isActive(item.href, $page.url.pathname)}
-        title={item.label}
-        aria-label={item.label}
-      >
-        <Glyph name={item.icon} size={19} />
-      </a>
-    {/each}
-
-    <div class="my-2 h-px w-8 bg-white/10"></div>
-
-    {#each secondaryNav as item}
-      <a
-        href={item.href}
-        class="of-sidebar-icon-btn"
-        data-active={isActive(item.href, $page.url.pathname)}
-        title={item.label}
-        aria-label={item.label}
-      >
-        <Glyph name={item.icon} size={19} />
-      </a>
-    {/each}
-  </div>
-
-  <div class="flex flex-col items-center gap-2 border-t border-white/10 px-3 py-4">
-    <a href="/help" class="of-sidebar-icon-btn" title={t('nav.help')} aria-label={t('nav.help')}>
-      <Glyph name="help" size={18} />
-    </a>
-    <div
-      class="flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/8 text-[11px] font-semibold text-white/90"
-      title={t('nav.currentUser')}
-    >
-      OF
+  {#if applicationsExpanded}
+    <div class="of-sidebar__section">
+      <div class="of-sidebar__heading">{t('nav.applications')}</div>
+      <nav aria-label="Applications">
+        {#each applicationNav as item}
+          <a
+            href={item.href}
+            class="of-sidebar__link of-sidebar__link--app"
+            data-active={isActive(item.href, $page.url.pathname)}
+            title={t(item.labelKey)}
+            aria-label={t(item.labelKey)}
+          >
+            <span class="of-sidebar__icon">
+              <Glyph name={item.icon} size={15} />
+            </span>
+            <span class="of-sidebar__label">{t(item.labelKey)}</span>
+          </a>
+        {/each}
+      </nav>
     </div>
-  </div>
+  {/if}
+
+  <div class="of-sidebar__spacer"></div>
+
+  <nav class="of-sidebar__section of-sidebar__section--footer" aria-label="Utility">
+    {#each utilityNav as item}
+      <a
+        href={item.href}
+        class="of-sidebar__link"
+        data-active={isActive(item.href, $page.url.pathname)}
+        title={t(item.labelKey)}
+        aria-label={t(item.labelKey)}
+      >
+        <span class="of-sidebar__icon">
+          <Glyph name={item.icon} size={16} />
+        </span>
+        <span class="of-sidebar__label">{t(item.labelKey)}</span>
+      </a>
+    {/each}
+  </nav>
 </aside>
