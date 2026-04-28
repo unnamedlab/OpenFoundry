@@ -22,7 +22,8 @@
 	let monaco = $state<typeof import('monaco-editor/esm/vs/editor/editor.api') | null>(null);
 	let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	let syncing = false;
-	let monacoEditorPromise: Promise<typeof import('monaco-editor/esm/vs/editor/editor.api')> | null = null;
+	let editorApiPromise: Promise<typeof import('monaco-editor/esm/vs/editor/editor.api')> | null = null;
+	let languageLoadToken = 0;
 	const loadedMonacoLanguages = new Set<string>();
 
 	function resolveMonacoLanguage(input: string) {
@@ -32,8 +33,8 @@
 	}
 
 	function loadMonacoEditor() {
-		monacoEditorPromise ??= import('monaco-editor/esm/vs/editor/editor.api');
-		return monacoEditorPromise;
+		editorApiPromise ??= import('monaco-editor/esm/vs/editor/editor.api');
+		return editorApiPromise;
 	}
 
 	async function loadMonacoLanguage(input: string) {
@@ -154,11 +155,12 @@
 			return;
 		}
 
-		let cancelled = false;
+		let canceled = false;
+		const token = ++languageLoadToken;
 
 		void (async () => {
 			const editorLanguage = await loadMonacoLanguage(language);
-			if (cancelled) {
+			if (canceled || token !== languageLoadToken) {
 				return;
 			}
 
@@ -169,7 +171,7 @@
 		})();
 
 		return () => {
-			cancelled = true;
+			canceled = true;
 		};
 	});
 </script>
