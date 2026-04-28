@@ -119,7 +119,7 @@
       name: { en: 'Data Catalog', es: 'Catálogo de datos' },
       description: {
         en: 'Search datasets by owner, tags, and quality status from one registry.',
-        es: 'Busca datasets por owner, etiquetas y estado de calidad desde un único registro.'
+        es: 'Busca datasets por propietario, etiquetas y estado de calidad desde un único registro.'
       },
       badge: { en: 'Data integration', es: 'Integración de datos' },
       categoryIds: ['all', 'platform', 'integration'],
@@ -367,7 +367,7 @@
 
   function openApplicationsLauncher() {
     const activeApp = launcherApps.find((item) => isActive(item.href, $page.url.pathname));
-    selectedLauncherCategory = activeApp?.categoryIds[1] ?? 'all';
+    selectedLauncherCategory = activeApp?.categoryIds[1] ?? activeApp?.categoryIds[0] ?? 'all';
     selectedLauncherAppId = activeApp?.id ?? launcherApps[0].id;
     launcherSearch = '';
     applicationsLauncherOpen = true;
@@ -565,7 +565,7 @@
                 {activeLauncherCopy.createNew}
               </a>
               <a
-                href={selectedLauncherApp.browseHref ?? '/apps'}
+                href={selectedLauncherApp.browseHref ?? selectedLauncherApp.href}
                 class="of-app-launcher__button"
                 onclick={closeApplicationsLauncher}
               >
