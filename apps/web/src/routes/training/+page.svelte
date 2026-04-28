@@ -8,7 +8,8 @@
     },
     {
       permission: 'Edit Learning Project',
-      workaround: 'Platform Admin team will need to create a Learning Course Folder and give editor access.'
+      workaround:
+        'Platform Admin team will need to create a Learning Course Folder inside the Learning Project and give editor access.'
     },
     {
       permission: 'Upload Files',
@@ -246,7 +247,7 @@
         <h2 class="of-heading-lg">What this learning project should produce</h2>
       </div>
       <div class="training-copy">
-        <p>Create one learning project where the connected systems, ontology assets, and Workshop experience live together for the duration of the course.</p>
+        <p>Create one Learning Project where the connected systems, ontology assets, and Workshop experience live together for the duration of the course.</p>
         <p>Use a naming convention that clearly separates your learning assets from those created by other users in the environment.</p>
       </div>
     </article>
