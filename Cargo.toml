@@ -175,7 +175,7 @@ jsonwebtoken = "9.3.1"
 argon2 = "0.5.3"
 
 # ── Time ──
-chrono = { version = "0.4.44", features = ["serde"] }
+chrono = { version = "0.4.39", features = ["serde"] }
 
 # ── Config ──
 config = "0.14.1"
