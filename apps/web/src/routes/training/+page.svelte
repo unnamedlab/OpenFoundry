@@ -1,6 +1,8 @@
 <script lang="ts">
   import Glyph from '$components/ui/Glyph.svelte';
 
+  const trainingFeedbackEmail = 'training-feedback@palantir.com';
+
   const permissions = [
     {
       permission: 'Create Learning Project',
@@ -35,7 +37,7 @@
     {
       title: 'Documentation & Feedback',
       text:
-        'Search product documentation at palantir.com/docs/foundry and report screenshot or workflow issues to training-feedback@palantir.com.'
+        `Search product documentation at palantir.com/docs/foundry and report screenshot or workflow issues to ${trainingFeedbackEmail}.`
     }
   ];
 </script>
@@ -60,7 +62,7 @@
     <div class="training-copy">
       <p>
         This course is continuously updated. If you have feedback, please email
-        <a href="mailto:training-feedback@palantir.com">training-feedback@palantir.com</a>.
+        <a href={`mailto:${trainingFeedbackEmail}`}>{trainingFeedbackEmail}</a>.
       </p>
       <p>
         In the next 60 minutes you will build a fully-functional end-to-end workflow. The goal is to give you a practical feel for major Foundry components so the deeper trainings make immediate sense.
@@ -256,12 +258,12 @@
         <h2 class="of-heading-lg">Helpful links</h2>
       </div>
       <div class="link-list">
-        <a class="link-list__item" href="https://www.palantir.com/docs/foundry" target="_blank" rel="noreferrer">
+        <a class="link-list__item" href="https://www.palantir.com/docs/foundry" target="_blank" rel="noopener noreferrer">
           <span>Foundry documentation</span>
           <span aria-hidden="true">↗</span>
         </a>
-        <a class="link-list__item" href="mailto:training-feedback@palantir.com">
-          <span>training-feedback@palantir.com</span>
+        <a class="link-list__item" href={`mailto:${trainingFeedbackEmail}`}>
+          <span>{trainingFeedbackEmail}</span>
           <span aria-hidden="true">✉</span>
         </a>
       </div>
@@ -424,7 +426,7 @@
 
   .architecture-surface {
     --architecture-title-offset: 40px;
-    --architecture-line-width: 2.2;
+    --architecture-line-width: 2.2px;
     position: relative;
     min-height: 980px;
     padding: 44px 28px 28px;
