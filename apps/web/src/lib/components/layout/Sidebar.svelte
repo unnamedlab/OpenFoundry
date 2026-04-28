@@ -320,6 +320,7 @@
   let selectedLauncherCategory = $state<LauncherCategoryId>('all');
   let selectedLauncherAppId = $state('datasets');
   let launcherSearch = $state('');
+  let launcherSearchInput = $state<HTMLInputElement | null>(null);
 
   function isActive(href: string, pathname: string) {
     return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
@@ -330,6 +331,7 @@
   }
 
   function getPreferredCategory(app: LauncherApp | undefined) {
+    // Index 0 is the generic "all" bucket; prefer the first specific category when one exists.
     return app?.categoryIds[1] ?? app?.categoryIds[0] ?? 'all';
   }
 
@@ -368,6 +370,12 @@
       visibleLauncherApps[0] ??
       null
   );
+
+  $effect(() => {
+    if (applicationsLauncherOpen) {
+      launcherSearchInput?.focus();
+    }
+  });
 
   function closeApplicationsLauncher() {
     applicationsLauncherOpen = false;
@@ -487,6 +495,7 @@
             <Glyph name="search" size={14} />
           </span>
           <input
+            bind:this={launcherSearchInput}
             bind:value={launcherSearch}
             type="search"
             placeholder={activeLauncherCopy.searchPlaceholder}
