@@ -455,7 +455,7 @@ We welcome contributions across:
 
 ## 🧪 Frontend verification
 
-The frontend lives in `/home/runner/work/OpenFoundry/OpenFoundry/apps/web`.
+The frontend lives in `apps/web` from the repository root.
 
 To verify it locally from the repository root:
 
