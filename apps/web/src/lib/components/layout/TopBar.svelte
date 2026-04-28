@@ -5,7 +5,7 @@
   import Glyph from '$components/ui/Glyph.svelte';
   import type { MessageKey } from '$lib/i18n/messages';
   import { auth } from '$stores/auth';
-  import { createTranslator, currentLocale, getLocaleLabel, setLocale, supportedLocales } from '$lib/i18n/store';
+  import { createTranslator, currentLocale, getLocaleLabel, setLocale, supportedLocales, type AppLocale } from '$lib/i18n/store';
 
   const isAuthenticated = auth.isAuthenticated;
   const user = auth.user;
@@ -85,7 +85,7 @@
           <select
             class="bg-transparent outline-none"
             value={$currentLocale}
-            onchange={(event) => setLocale((event.currentTarget as HTMLSelectElement).value as 'en' | 'es')}
+            onchange={(event) => setLocale((event.currentTarget as HTMLSelectElement).value as AppLocale)}
           >
             {#each $languageOptions as locale}
               <option value={locale}>{getLocaleLabel(locale, $currentLocale)}</option>

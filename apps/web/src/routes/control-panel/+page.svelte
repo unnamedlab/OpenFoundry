@@ -20,6 +20,7 @@
 		createTranslator,
 		currentLocale,
 		getLocaleLabel,
+		SUPPORTED_LOCALES,
 		setPlatformLocaleSettings,
 		type AppLocale,
 	} from '$lib/i18n/store';
@@ -496,14 +497,14 @@
 					<label class="block text-sm md:col-span-2">
 						<span class="mb-2 block font-medium text-slate-700">{t('controlPanel.fields.supportedLanguages')}</span>
 						<div class="grid gap-3 rounded-2xl border border-slate-200 px-4 py-3 md:grid-cols-2">
-							{#each ['en', 'es'] as locale}
+							{#each SUPPORTED_LOCALES as locale}
 								<label class="flex items-center gap-3 text-sm text-slate-700">
 									<input
 										type="checkbox"
-										checked={draft.supported_locales.includes(locale as AppLocale)}
-										onchange={(event) => toggleSupportedLocale(locale as AppLocale, (event.currentTarget as HTMLInputElement).checked)}
+										checked={draft.supported_locales.includes(locale)}
+										onchange={(event) => toggleSupportedLocale(locale, (event.currentTarget as HTMLInputElement).checked)}
 									/>
-									{getLocaleLabel(locale as AppLocale, $currentLocale)}
+									{getLocaleLabel(locale, $currentLocale)}
 								</label>
 							{/each}
 						</div>
