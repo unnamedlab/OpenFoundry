@@ -147,7 +147,7 @@ export function translate(
 	params?: Record<string, string | number>,
 	locale = get(currentLocale),
 ) {
-	const template = messages[locale][key] ?? messages[DEFAULT_LOCALE][key] ?? key;
+	const template = (messages[locale][key] ?? messages[DEFAULT_LOCALE][key] ?? key) as string;
 	if (!params) return template;
 	return Object.entries(params).reduce(
 		(result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
@@ -160,11 +160,11 @@ export function createTranslator(locale: AppLocale) {
 }
 
 export function getLocaleLabel(locale: AppLocale, displayLocale: AppLocale = get(currentLocale)) {
-	return displayLocale === 'es'
+	return (displayLocale === 'es'
 		? locale === 'en'
 			? messages.es['locale.english']
 			: messages.es['locale.spanish']
 		: locale === 'en'
 			? messages.en['locale.english']
-			: messages.en['locale.spanish'];
+			: messages.en['locale.spanish']) as string;
 }

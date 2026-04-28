@@ -12,9 +12,24 @@ import {
 } from './store';
 
 describe('i18n store helpers', () => {
+	const storage = new Map<string, string>();
+
 	beforeEach(() => {
-		localStorage.clear();
-		document.cookie = 'of_locale=; Max-Age=0; path=/';
+		const localStorageMock = {
+			clear: () => storage.clear(),
+			getItem: (key: string) => storage.get(key) ?? null,
+			setItem: (key: string, value: string) => {
+				storage.set(key, value);
+			},
+			removeItem: (key: string) => {
+				storage.delete(key);
+			},
+		};
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: localStorageMock,
+			configurable: true,
+		});
+		storage.clear();
 		initializeLocale('en');
 		setPlatformLocaleSettings({ supported_locales: ['en', 'es'], default_locale: 'en' });
 	});
