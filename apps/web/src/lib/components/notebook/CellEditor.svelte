@@ -22,11 +22,53 @@
 	let monaco = $state<typeof import('monaco-editor/esm/vs/editor/editor.api') | null>(null);
 	let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	let syncing = false;
+	let monacoEditorPromise: Promise<typeof import('monaco-editor/esm/vs/editor/editor.api')> | null = null;
+	const loadedMonacoLanguages = new Set<string>();
 
 	function resolveMonacoLanguage(input: string) {
 		if (input === 'text') return 'plaintext';
 		if (input === 'toml') return 'ini';
 		return input;
+	}
+
+	function loadMonacoEditor() {
+		monacoEditorPromise ??= import('monaco-editor/esm/vs/editor/editor.api');
+		return monacoEditorPromise;
+	}
+
+	async function loadMonacoLanguage(input: string) {
+		const language = resolveMonacoLanguage(input);
+		if (loadedMonacoLanguages.has(language)) {
+			return language;
+		}
+
+		switch (language) {
+			case 'json':
+				await import('monaco-editor/esm/vs/language/json/monaco.contribution');
+				break;
+			case 'javascript':
+			case 'typescript':
+				await import('monaco-editor/esm/vs/language/typescript/monaco.contribution');
+				break;
+			case 'markdown':
+				await import('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution');
+				break;
+			case 'python':
+				await import('monaco-editor/esm/vs/basic-languages/python/python.contribution');
+				break;
+			case 'sql':
+				await import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution');
+				break;
+			case 'r':
+				await import('monaco-editor/esm/vs/basic-languages/r/r.contribution');
+				break;
+			case 'ini':
+				await import('monaco-editor/esm/vs/basic-languages/ini/ini.contribution');
+				break;
+		}
+
+		loadedMonacoLanguages.add(language);
+		return language;
 	}
 
 	onMount(() => {
@@ -35,15 +77,9 @@
 		let disposed = false;
 
 		async function initializeEditor() {
-			const [editorApi] = await Promise.all([
-				import('monaco-editor/esm/vs/editor/editor.api'),
-				import('monaco-editor/esm/vs/language/json/monaco.contribution'),
-				import('monaco-editor/esm/vs/language/typescript/monaco.contribution'),
-				import('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution'),
-				import('monaco-editor/esm/vs/basic-languages/python/python.contribution'),
-				import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution'),
-				import('monaco-editor/esm/vs/basic-languages/r/r.contribution'),
-				import('monaco-editor/esm/vs/basic-languages/ini/ini.contribution')
+			const [editorApi, editorLanguage] = await Promise.all([
+				loadMonacoEditor(),
+				loadMonacoLanguage(language)
 			]);
 
 			monaco = editorApi;
@@ -52,7 +88,6 @@
 				return;
 			}
 
-			const editorLanguage = resolveMonacoLanguage(language);
 			const createdEditor = monaco.editor.create(container, {
 				value,
 				language: editorLanguage,
@@ -115,14 +150,27 @@
 		}
 
 		const model = editor.getModel();
-		const editorLanguage = resolveMonacoLanguage(language);
-		if (model) {
-			monaco.editor.setModelLanguage(model, editorLanguage);
+		if (!model) {
+			return;
 		}
 
-		editor.updateOptions({
-			wordWrap: editorLanguage === 'markdown' ? 'on' : 'off',
-		});
+		let cancelled = false;
+
+		void (async () => {
+			const editorLanguage = await loadMonacoLanguage(language);
+			if (cancelled) {
+				return;
+			}
+
+			monaco.editor.setModelLanguage(model, editorLanguage);
+			editor.updateOptions({
+				wordWrap: editorLanguage === 'markdown' ? 'on' : 'off',
+			});
+		})();
+
+		return () => {
+			cancelled = true;
+		};
 	});
 </script>
 
