@@ -325,7 +325,7 @@
     min-height: 28px;
     padding: 0 12px;
     border: 1px solid #e5ddd2;
-    border-radius: 999px;
+    border-radius: 9999px;
     background: rgba(255, 255, 255, 0.86);
     color: var(--text-default);
     font-size: 12px;
@@ -407,7 +407,7 @@
     width: 10px;
     height: 10px;
     margin-top: 7px;
-    border-radius: 999px;
+    border-radius: 50%;
     background: #2f8f5b;
     box-shadow: 0 0 0 4px rgba(47, 143, 91, 0.12);
   }
