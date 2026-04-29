@@ -10,7 +10,7 @@ The repository already suggests two complementary search paths.
 
 ### 1. Ontology search
 
-`services/ontology-service/src/domain/search/mod.rs` already combines:
+`libs/ontology-kernel/src/domain/search/mod.rs` already combines:
 
 - full-text scoring
 - semantic candidate recall
@@ -19,11 +19,13 @@ The repository already suggests two complementary search paths.
 - title bonus logic
 - ranking and truncation
 
+This logic is served through `ontology-query-service` (port 50105) and is the target owner of all hot search paths.
+
 This is still not a full vector-native ontology search engine, but it is now a real hybrid retrieval path instead of simple keyword matching plus a lightweight local similarity hint.
 
-### 2. Knowledge-base retrieval in `ai-service`
+### 2. Knowledge-base retrieval in `agent-runtime-service`
 
-`services/ai-service/src/handlers/knowledge.rs` and the `rag` domain show a second, more RAG-oriented path:
+`services/agent-runtime-service` shows a second, more RAG-oriented path:
 
 - knowledge base creation
 - document ingestion
@@ -41,9 +43,11 @@ The shape is straightforward:
 
 - object properties can use the `vector` property type
 - object instances can store numeric arrays in those properties
-- `ontology-service` exposes `POST /api/v1/ontology/types/{type_id}/objects/knn`
+- `ontology-query-service` exposes `POST /api/v1/ontology/types/{type_id}/objects/knn`
 - callers can query by `query_vector` or by `anchor_object_id`
 - the service supports `cosine`, `dot_product`, and `euclidean` metrics
+
+The current implementation scores in process over the `knn_vector_projection` table.  Phase 2 activates pgvector HNSW/IVFFlat indexes on that same table to replace the in-process scan.
 
 This is different from the hybrid text search path. Hybrid search starts from text and embeddings. KNN starts from a vector-valued object property and returns nearest ontology objects of the same type.
 
@@ -72,18 +76,18 @@ OpenFoundry already has parts of this flow in place, but distributed across serv
 
 The most relevant repository signals are:
 
-- `services/ontology-service/src/domain/search/mod.rs`
-- `services/ontology-service/src/domain/search/semantic.rs`
-- `services/ontology-service/src/handlers/search.rs`
-- `services/ai-service/src/handlers/knowledge.rs`
-- `services/ai-service/src/domain/rag/*`
+- `libs/ontology-kernel/src/domain/search/mod.rs`
+- `libs/ontology-kernel/src/domain/search/semantic.rs`
+- `libs/ontology-kernel/src/handlers/search.rs`
+- `services/ontology-query-service` (serving owner)
+- `services/agent-runtime-service` (knowledge-base and RAG path)
 - `libs/vector-store`
 
 This suggests the following conceptual split:
 
-- ontology-service owns user-facing semantic retrieval over ontology-shaped content
-- ai-service owns document-oriented embedding and retrieval workflows
-- vector-store can become the lower-level storage abstraction for future ANN or vector-native indexing
+- `ontology-query-service` owns user-facing semantic retrieval over ontology-shaped content
+- `agent-runtime-service` owns document-oriented embedding and retrieval workflows
+- `vector-store` can become the lower-level storage abstraction for future ANN or vector-native indexing
 
 ## What the current implementation already does well
 
@@ -91,7 +95,7 @@ The repo already shows several good design instincts:
 
 - semantic search is optional per request
 - ranking combines lexical and semantic relevance instead of treating them as mutually exclusive
-- hybrid search can use provider-backed embeddings when `ontology-service` is configured with `search_embedding_provider=provider:<uuid>`
+- hybrid search can use provider-backed embeddings when `ontology-query-service` is configured with `SEARCH_EMBEDDING_PROVIDER=provider:<uuid>`
 - ontology objects can now carry explicit `vector` properties for nearest-neighbor retrieval
 - KNN is available as a first-class object query path, not only as a lower-level library concern
 - knowledge bases track embedding providers explicitly
@@ -115,10 +119,11 @@ If this area keeps evolving, the most useful path is:
 Compared with a more complete ontology-semantic platform, the current repository still appears partial in these areas:
 
 - no clear multimodal retrieval path
-- no dedicated chunking policy model in ontology-service
+- no dedicated chunking policy model in ontology services
 - no end-to-end permission-aware search contract shared across ontology and AI surfaces
+- `knn_vector_projection` and `search_document_projection` currently store embeddings as JSONB; pgvector activation (Phase 2) will replace this with native vector indexes
 
-Also worth noting: `services/ontology-service/src/domain/search/semantic.rs` still keeps the deterministic hash embedder as a fallback path. The important change is that it is no longer the only semantic signal available to ontology search.
+Also worth noting: `libs/ontology-kernel/src/domain/search/semantic.rs` still keeps the deterministic hash embedder as a fallback path. The important change is that it is no longer the only semantic signal available to ontology search.
 
 ## Related pages
 
