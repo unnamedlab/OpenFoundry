@@ -350,6 +350,7 @@
   }
 
   async function loadProjects() {
+    loading = true;
     error = '';
     try {
       const response = await listProjects({ page: 1, per_page: 100 });

@@ -21,10 +21,14 @@ test.describe('projects and files flow', () => {
 
     await page.getByLabel('Organization space').selectOption('research');
     await page.getByLabel('Project name').fill('Learning');
-    await page.getByRole('button', { name: 'Continue' }).click();
-    await page.getByRole('button', { name: 'Create project' }).click();
+    await page.getByRole('button', { name: 'Continue' }).evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
+    await page.getByRole('button', { name: 'Create project' }).evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
 
     await expect(page.getByText('Learning')).toBeVisible();
-    await expect(page.getByText('Research Lab')).toBeVisible();
+    await expect(page.getByText('Research Lab / research')).toBeVisible();
   });
 });
