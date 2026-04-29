@@ -6,19 +6,21 @@
     listProjects,
     type OntologyProject,
   } from '$lib/api/ontology';
+  import { listSpaces } from '$lib/api/nexus';
   import { notifications } from '$lib/stores/notifications';
+  import {
+    FALLBACK_SPACE_OPTIONS,
+    buildSpaceOptions,
+    getPreferredWorkspaceSlug,
+    resolveSelectedSpaceId,
+    resolveSpaceLabel as lookupSpaceLabel,
+    type SpaceOption,
+  } from '$lib/utils/projects-and-files';
   import { auth } from '$stores/auth';
 
   type WorkspaceView = 'all' | 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
   type WorkspaceKind = 'project' | 'portfolio' | 'file' | 'folder';
   type ProjectTemplateId = 'blank' | 'operations' | 'analytics' | 'ontology';
-
-  type SpaceOption = {
-    id: string;
-    label: string;
-    workspaceSlug: string;
-    description: string;
-  };
 
   type ProjectTemplate = {
     id: ProjectTemplateId;
@@ -69,27 +71,6 @@
     { id: 'your-files', label: 'Your files' },
     { id: 'shared', label: 'Shared with you' },
     { id: 'trash', label: 'Trash' },
-  ];
-
-  const spaceOptions: SpaceOption[] = [
-    {
-      id: 'operations',
-      label: 'Operations',
-      workspaceSlug: 'operations',
-      description: 'Shared space for operational workflows and secure project containers.',
-    },
-    {
-      id: 'data-platform',
-      label: 'Data Platform',
-      workspaceSlug: 'data-platform',
-      description: 'Central engineering space for data products, pipelines, and platform tools.',
-    },
-    {
-      id: 'research',
-      label: 'Research',
-      workspaceSlug: 'research',
-      description: 'Sandboxed space for experiments, notebooks, and exploratory delivery.',
-    },
   ];
 
   const projectTemplates: ProjectTemplate[] = [
@@ -211,8 +192,10 @@
   let error = $state('');
   let search = $state('');
   let activeView = $state<WorkspaceView>('all');
+  let activeSpaceFilter = $state('all');
   let filtersVisible = $state(true);
   let projects = $state<OntologyProject[]>([]);
+  let spaceOptions = $state<SpaceOption[]>(FALLBACK_SPACE_OPTIONS);
   let localFolders = $state<WorkspaceRow[]>([]);
   let createdProjectMeta = $state<Record<string, ProjectMeta>>({});
   let createModalOpen = $state(false);
@@ -226,19 +209,15 @@
     starterFolderName: 'Learning',
   });
 
+  const preferredWorkspaceSlug = $derived.by(() => getPreferredWorkspaceSlug($currentUser?.attributes));
   const selectedSpace = $derived.by(() => {
-    const match = spaceOptions.find((option) => option.id === draft.spaceId);
+    const selectedSpaceId = resolveSelectedSpaceId(spaceOptions, draft.spaceId, preferredWorkspaceSlug);
+    const match = spaceOptions.find((option) => option.id === selectedSpaceId);
     if (match) {
       return match;
     }
 
-    if (draft.spaceId) {
-      console.warn(`Unknown project space "${draft.spaceId}", falling back to a default space.`);
-    }
-
-    return (
-      spaceOptions.find((option) => option.id === $currentUser?.organization_id) ?? spaceOptions[0]
-    );
+    return spaceOptions[0] ?? FALLBACK_SPACE_OPTIONS[0];
   });
   const selectedTemplate = $derived.by(
     () => projectTemplates.find((option) => option.id === draft.templateId) ?? projectTemplates[0],
@@ -252,6 +231,10 @@
     const query = search.trim().toLowerCase();
     return allRows.filter((row) => {
       if (activeView !== 'all' && row.view !== activeView) {
+        return false;
+      }
+
+      if (activeSpaceFilter !== 'all' && row.spaceId !== activeSpaceFilter) {
         return false;
       }
 
@@ -278,6 +261,7 @@
   const activeFilterCount = $derived.by(() => {
     let count = 0;
     if (activeView !== 'all') count += 1;
+    if (activeSpaceFilter !== 'all') count += 1;
     if (search.trim().length > 0) count += 1;
     return count;
   });
@@ -293,7 +277,7 @@
   }
 
   function resolveSpaceLabel(spaceId: string) {
-    return spaceOptions.find((option) => option.id === spaceId)?.label ?? 'Operations';
+    return lookupSpaceLabel(spaceOptions, spaceId);
   }
 
   function inferProjectMeta(project: OntologyProject): ProjectMeta {
@@ -304,8 +288,9 @@
 
     const space =
       spaceOptions.find((option) => option.workspaceSlug === project.workspace_slug) ??
-      spaceOptions.find((option) => option.id === $currentUser?.organization_id) ??
-      spaceOptions[0];
+      spaceOptions.find((option) => option.workspaceSlug === preferredWorkspaceSlug) ??
+      spaceOptions[0] ??
+      FALLBACK_SPACE_OPTIONS[0];
 
     const description = project.description.toLowerCase();
     const template =
@@ -365,7 +350,6 @@
   }
 
   async function loadProjects() {
-    loading = true;
     error = '';
     try {
       const response = await listProjects({ page: 1, per_page: 100 });
@@ -379,11 +363,36 @@
     }
   }
 
+  async function loadSpaceOptions() {
+    try {
+      const response = await listSpaces();
+      const nextSpaceOptions = buildSpaceOptions(response.items);
+      spaceOptions = nextSpaceOptions;
+      const selectedSpaceId = resolveSelectedSpaceId(
+        nextSpaceOptions,
+        draft.spaceId,
+        preferredWorkspaceSlug,
+      );
+      if (selectedSpaceId !== draft.spaceId) {
+        draft = { ...draft, spaceId: selectedSpaceId };
+      }
+    } catch (cause) {
+      console.warn('Unable to load workspace spaces', cause);
+      spaceOptions = FALLBACK_SPACE_OPTIONS;
+      const selectedSpaceId = resolveSelectedSpaceId(
+        FALLBACK_SPACE_OPTIONS,
+        draft.spaceId,
+        preferredWorkspaceSlug,
+      );
+      if (selectedSpaceId !== draft.spaceId) {
+        draft = { ...draft, spaceId: selectedSpaceId };
+      }
+    }
+  }
+
   function resetDraft() {
     draft = {
-      spaceId:
-        spaceOptions.find((option) => option.id === $currentUser?.organization_id)?.id ??
-        spaceOptions[0].id,
+      spaceId: resolveSelectedSpaceId(spaceOptions, '', preferredWorkspaceSlug),
       templateId: 'operations',
       name: '',
       description: '',
@@ -503,6 +512,7 @@
 
   onMount(() => {
     resetDraft();
+    void loadSpaceOptions();
     void loadProjects();
   });
 </script>
@@ -565,11 +575,17 @@
         <span>All files</span>
       </button>
 
-      <button type="button" class="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-[var(--text-default)] hover:bg-white">
+      <label class="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-[var(--text-default)] hover:bg-white">
         <Glyph name="folder" size={14} />
-        <span>All spaces</span>
+        <span class="sr-only">Filter by space</span>
+        <select bind:value={activeSpaceFilter} class="bg-transparent outline-none">
+          <option value="all">All spaces</option>
+          {#each spaceOptions as option}
+            <option value={option.id}>{option.label}</option>
+          {/each}
+        </select>
         <Glyph name="chevron-down" size={12} />
-      </button>
+      </label>
     </div>
   </div>
 

@@ -9,12 +9,56 @@ const demoUser = {
   groups: ['platform'],
   permissions: ['*'],
   organization_id: 'org-1',
-  attributes: {},
+  attributes: { workspace: 'operations' },
   mfa_enabled: false,
   mfa_enforced: false,
   auth_source: 'local',
   created_at: '2026-01-01T00:00:00Z',
 };
+
+const demoSpaces = [
+  {
+    id: 'space-1',
+    slug: 'operations',
+    display_name: 'Operations Command',
+    description: 'Operational workspaces and secure project containers.',
+    space_kind: 'private',
+    owner_peer_id: null,
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-2',
+    slug: 'research',
+    display_name: 'Research Lab',
+    description: 'Experimental workspaces for exploratory teams.',
+    space_kind: 'private',
+    owner_peer_id: null,
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
+
+const demoProjects = [
+  {
+    id: 'project-1',
+    slug: 'ops-readiness',
+    display_name: 'Ops readiness',
+    description: 'Operations review workspace',
+    workspace_slug: 'operations',
+    owner_id: demoUser.id,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
 
 const demoDataset = {
   id: 'dataset-1',
@@ -212,6 +256,8 @@ export async function seedAuthenticatedSession(page: Page) {
 }
 
 export async function mockFrontendApis(page: Page) {
+  const projects = [...demoProjects];
+
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -237,6 +283,35 @@ export async function mockFrontendApis(page: Page) {
 
     if (pathname === '/api/v1/users') {
       return json(route, [demoUser]);
+    }
+
+    if (pathname === '/api/v1/nexus/spaces') {
+      return json(route, { items: demoSpaces });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'GET') {
+      return json(route, { data: projects, total: projects.length, page: 1, per_page: 100 });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'POST') {
+      const body = request.postDataJSON() as {
+        slug: string;
+        display_name?: string;
+        description?: string;
+        workspace_slug?: string;
+      };
+      const created = {
+        id: `project-${projects.length + 1}`,
+        slug: body.slug,
+        display_name: body.display_name ?? body.slug,
+        description: body.description ?? '',
+        workspace_slug: body.workspace_slug ?? null,
+        owner_id: demoUser.id,
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z',
+      };
+      projects.unshift(created);
+      return json(route, created, 201);
     }
 
     if (pathname === '/api/v1/datasets/catalog/facets') {
