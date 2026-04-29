@@ -352,6 +352,17 @@ services:
 icebergCatalog:
   enabled: false
 
+# ── Iceberg REST Catalog endpoint (Lakekeeper) ────────────────
+# In-cluster URL of the Lakekeeper Service deployed by the manifests
+# under `infra/k8s/lakekeeper/` (Apache-2.0; see
+# infra/k8s/lakekeeper/README.md for the apply order, dependencies and
+# placeholder Secrets). Services that open Iceberg tables through
+# `libs/storage-abstraction` are expected to consume this URL (see the
+# `libs/storage-abstraction/README.md` cluster example). Override
+# per-environment in values-{dev,staging,prod}.yaml.
+icebergRestCatalog:
+  url: "http://lakekeeper.lakekeeper.svc:8181"
+
 # ── Vespa hybrid search ───────────────────────────────────────
 # Subchart: charts/vespa. Enable to deploy Vespa.ai (3 configservers,
 # 2 stateless container nodes, 3 content nodes with redundancy=2) plus
