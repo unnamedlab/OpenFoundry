@@ -1,6 +1,7 @@
 pub mod access_grant;
 pub mod contract;
 pub mod exchange;
+pub mod install;
 pub mod peer;
 pub mod share;
 pub mod space;

@@ -1820,25 +1820,6 @@ services:
     ports:
       - "${OPENFOUNDRY_GLOBAL_BRANCH_HOST_PORT:-50110}:50110"
 
-  marketplace-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/marketplace-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50066
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
-      DEVOPS_RECONCILER_INTERVAL_SECONDS: "300"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      app-builder-service:
-        condition: service_started
-
   marketplace-catalog-service:
     <<: *app-common
     profiles: *profiles-experience
@@ -1854,8 +1835,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      marketplace-service:
-        condition: service_started
       app-builder-service:
         condition: service_started
     ports:
@@ -1877,8 +1856,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      marketplace-service:
-        condition: service_started
       app-builder-service:
         condition: service_started
     ports:

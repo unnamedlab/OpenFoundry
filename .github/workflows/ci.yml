@@ -93,7 +93,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build smoke stack
-        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p document-reporting-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p marketplace-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
+        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p document-reporting-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p marketplace-catalog-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
       - name: Prepare service databases
         env:
           PGPASSWORD: test
@@ -163,7 +163,7 @@ jobs:
           DATABASE_URL=postgres://test:test@localhost:5432/of_ontology JWT_SECRET="$JWT_SECRET" AUDIT_SERVICE_URL=http://127.0.0.1:50115 target/debug/ontology-definition-service > /tmp/of-smoke-logs/ontology-definition-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_app_builder JWT_SECRET="$JWT_SECRET" PUBLIC_BASE_URL=http://127.0.0.1:8080/apps/runtime target/debug/app-builder-service > /tmp/of-smoke-logs/app-builder-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_code_repos JWT_SECRET="$JWT_SECRET" REPO_STORAGE_ROOT=/tmp/of-code-repos target/debug/code-repository-review-service > /tmp/of-smoke-logs/code-repository-review-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_marketplace JWT_SECRET="$JWT_SECRET" APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 target/debug/marketplace-service > /tmp/of-smoke-logs/marketplace-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_marketplace JWT_SECRET="$JWT_SECRET" APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 target/debug/marketplace-catalog-service > /tmp/of-smoke-logs/marketplace-catalog-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ai JWT_SECRET="$JWT_SECRET" target/debug/agent-runtime-service > /tmp/of-smoke-logs/agent-runtime-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ml JWT_SECRET="$JWT_SECRET" target/debug/model-catalog-service > /tmp/of-smoke-logs/model-catalog-service.log 2>&1 &
           target/debug/of mock-provider serve --host 127.0.0.1 --port 50110 > /tmp/of-smoke-logs/mock-provider.log 2>&1 &

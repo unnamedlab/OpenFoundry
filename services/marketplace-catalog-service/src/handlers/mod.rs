@@ -50,7 +50,7 @@ pub fn internal_error(message: impl Into<String>) -> (StatusCode, Json<ErrorResp
 }
 
 pub fn db_error(cause: &sqlx::Error) -> (StatusCode, Json<ErrorResponse>) {
-    tracing::error!("marketplace-service database error: {cause}");
+    tracing::error!("marketplace-catalog-service database error: {cause}");
     internal_error("database operation failed")
 }
 

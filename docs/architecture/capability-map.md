@@ -35,7 +35,7 @@ That capability is reflected in `ontology-service`, `audit-service`, `auth-servi
 
 The P4 flow demonstrates that the platform also includes repository-like development primitives such as branches, commits, search, and review-oriented flows.
 
-That capability maps cleanly onto `code-repo-service`, and connects naturally with `app-builder-service` and `marketplace-service`.
+That capability maps cleanly onto `code-repo-service`, and connects naturally with `app-builder-service` and `marketplace-catalog-service`.
 
 ### AI and ML
 

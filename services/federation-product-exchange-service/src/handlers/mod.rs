@@ -1,6 +1,7 @@
 pub mod consume;
 pub mod contracts;
 pub mod exchange;
+pub mod install;
 pub mod peers;
 pub mod shares;
 pub mod spaces;

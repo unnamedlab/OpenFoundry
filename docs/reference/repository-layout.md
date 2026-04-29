@@ -26,7 +26,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/document-reporting-service` | report generation, delivery, and notepad documents |
 | `services/geospatial-service` | geospatial APIs |
 | `services/code-repo-service` | repository APIs |
-| `services/marketplace-service` | marketplace APIs |
+| `services/marketplace-catalog-service` | marketplace catalog, listings, installs, and discovery APIs |
 | `services/federation-product-exchange-service` | federation and sharing runtime outside tenancy-owned spaces |
 | `services/notification-alerting-service` | notifications |
 | `services/audit-service` | audit ingestion and export |

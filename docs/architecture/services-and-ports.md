@@ -31,7 +31,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `document-reporting-service` | `50102` | Notepad-style documents, report generation and delivery |
 | `app-builder-service` | `50063` | App composition and runtime surfaces |
 | `code-repo-service` | `50065` | Code repository APIs |
-| `marketplace-service` | `50066` | Marketplace and catalog APIs |
+| `marketplace-catalog-service` | `50066` | Marketplace catalog, listings, installs, and discovery APIs |
 | `federation-product-exchange-service` | `50120` | Federation, sharing, and multi-org collaboration |
 | `geospatial-service` | `50068` | Geospatial and mapping APIs |
 | `notification-alerting-service` | `50114` | Notification transport, inbox APIs, delivery channels, alerting, and websocket fanout |
@@ -55,7 +55,7 @@ The gateway maps URL prefixes to backend services. Important examples:
 - `/api/v1/ai` -> `ai-service`
 - `/api/v1/reports` -> `document-reporting-service`
 - `/api/v1/code-repos` -> `code-repo-service`
-- `/api/v1/marketplace` -> `marketplace-service`
+- `/api/v1/marketplace` -> `marketplace-catalog-service`
 - `/api/v1/nexus/spaces` -> `tenancy-organizations-service`
 - `/api/v1/nexus` -> `federation-product-exchange-service`
 
@@ -74,7 +74,7 @@ Configuration files show explicit service-to-service defaults for several domain
 - `ontology-service` depends on audit and AI services
 - `document-reporting-service` depends on dataset and geospatial services
 - `notebook-runtime-service` depends on query and AI services
-- `marketplace-service` depends on app-builder
+- `marketplace-catalog-service` depends on app-builder
 
 ## Health Convention
 

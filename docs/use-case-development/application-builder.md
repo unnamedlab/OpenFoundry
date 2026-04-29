@@ -6,7 +6,7 @@ Application development in OpenFoundry is not only about frontend routes. It als
 
 - `services/app-builder-service`
 - `apps/web/src/routes/apps`
-- `services/marketplace-service`
+- `services/marketplace-catalog-service`
 - `services/code-repo-service`
 
 ## What this capability should cover

@@ -1,5 +1,7 @@
 pub mod access_proxy;
+pub mod activation;
 pub mod audit_bridge;
+pub mod dependency;
 pub mod encryption;
 pub mod federation;
 pub mod governance;

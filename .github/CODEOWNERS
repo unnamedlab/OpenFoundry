@@ -235,7 +235,6 @@
 /services/custom-endpoints-service/                     @open-foundry/developer-platform
 /services/developer-console-service/                    @open-foundry/developer-platform
 /services/marketplace-catalog-service/                  @open-foundry/developer-platform
-/services/marketplace-service/                          @open-foundry/developer-platform
 /services/product-distribution-service/                 @open-foundry/developer-platform
 /services/sdk-generation-service/                       @open-foundry/developer-platform @open-foundry/architecture-council
 /services/widget-registry-service/                      @open-foundry/developer-platform @open-foundry/frontend-team

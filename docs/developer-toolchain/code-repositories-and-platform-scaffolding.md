@@ -6,7 +6,7 @@ OpenFoundry’s developer platform is more than build scripts. The repo already 
 
 - `services/code-repo-service`
 - `services/app-builder-service`
-- `services/marketplace-service`
+- `services/marketplace-catalog-service`
 - `libs/plugin-sdk`
 - `tools/of-cli` project scaffolding commands
 
