@@ -70,11 +70,12 @@ pub async fn register(
         }
     };
 
-    if let Err(e) = sqlx::query("LOCK TABLE users IN EXCLUSIVE MODE")
+    if let Err(e) = sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(8_514_200_001_i64)
         .execute(&mut *tx)
         .await
     {
-        tracing::error!("failed to lock users table during registration: {e}");
+        tracing::error!("failed to acquire registration bootstrap lock: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": "registration failed" })),
@@ -139,17 +140,40 @@ pub async fn register(
             } else {
                 "viewer"
             };
-            let role_assigned = sqlx::query(
+            let role_id = match sqlx::query_scalar::<_, Uuid>("SELECT id FROM roles WHERE name = $1")
+                .bind(role_name)
+                .fetch_optional(&mut *tx)
+                .await
+            {
+                Ok(Some(role_id)) => role_id,
+                Ok(None) => {
+                    tracing::error!("registration role {role_name} does not exist");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": "registration failed" })),
+                    )
+                        .into_response();
+                }
+                Err(e) => {
+                    tracing::error!("failed to load role {role_name} during registration: {e}");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": "registration failed" })),
+                    )
+                        .into_response();
+                }
+            };
+
+            let role_assigned = match sqlx::query(
                 r#"INSERT INTO user_roles (user_id, role_id)
-                   SELECT $1, id FROM roles WHERE name = $2
-                    ON CONFLICT DO NOTHING"#,
+                   VALUES ($1, $2)
+                   ON CONFLICT DO NOTHING"#,
             )
             .bind(user_id)
-            .bind(role_name)
+            .bind(role_id)
             .execute(&mut *tx)
-            .await;
-
-            let role_assigned = match role_assigned {
+            .await
+            {
                 Ok(result) => result,
                 Err(e) => {
                     tracing::error!("failed to assign role during registration: {e}");
