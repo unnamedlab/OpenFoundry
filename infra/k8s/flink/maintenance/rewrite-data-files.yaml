@@ -1,0 +1,175 @@
+---
+# =============================================================================
+# FlinkDeployment: Iceberg `rewrite_data_files` (daily compaction)
+#
+# Periodic compaction job that bin-packs small data files written by the CDC
+# pipeline (see `infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml`) into
+# 128 MB ZSTD-compressed Parquet files. Reduces small-file pressure on the
+# Trino/Vespa readers and on Lakekeeper's metadata catalog.
+#
+# Mode:        application / batch (the job exits when all selected tables
+#              have been rewritten — the k8s CronJob re-creates this
+#              FlinkDeployment on the documented schedule, see
+#              `infra/k8s/flink/README.md` §3).
+# Source:      Iceberg REST catalog served by Lakekeeper
+#              (http://lakekeeper.lakekeeper.svc:8181 — see
+#              `infra/k8s/lakekeeper/values.yaml` and
+#              `infra/k8s/helm/open-foundry/values.yaml` line 364).
+# Targets:     Tables in the namespaces listed in the
+#              `ICEBERG_NAMESPACES` env var (comma-separated).
+# Sink:        Same warehouse as CDC: s3://openfoundry-iceberg/warehouse
+#              (Ceph RGW — see `infra/runbooks/ceph.md` §3).
+#
+# HA, checkpoints and S3 wiring mirror `flinkdeployment-cdc-iceberg.yaml`:
+#   * jobManager.replicas: 2
+#   * high-availability.type: kubernetes
+#   * checkpoints/savepoints under s3://openfoundry-iceberg/flink/...
+# =============================================================================
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: iceberg-rewrite-data-files
+  namespace: flink
+  labels:
+    app.kubernetes.io/name: iceberg-rewrite-data-files
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+    openfoundry.io/maintenance-job: rewrite-data-files
+spec:
+  image: ghcr.io/unnamedlab/openfoundry/flink-iceberg-maintenance:1.19.1-0.1.0
+  flinkVersion: v1_19
+  mode: native
+  serviceAccount: flink
+
+  flinkConfiguration:
+    # --- Task slots / parallelism ------------------------------------------
+    taskmanager.numberOfTaskSlots: "2"
+    parallelism.default: "4"
+
+    # --- High availability (required for jobManager.replicas > 1) ----------
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://openfoundry-iceberg/flink/ha/iceberg-rewrite-data-files
+
+    # --- Checkpoints & savepoints (Ceph RGW S3) ----------------------------
+    state.backend.type: rocksdb
+    state.backend.incremental: "true"
+    state.checkpoints.dir: s3://openfoundry-iceberg/flink/checkpoints/iceberg-rewrite-data-files
+    state.savepoints.dir: s3://openfoundry-iceberg/flink/savepoints/iceberg-rewrite-data-files
+    execution.checkpointing.interval: "60000"
+    execution.checkpointing.min-pause: "30000"
+    execution.checkpointing.timeout: "600000"
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+    # --- Batch execution (compaction is a finite job) ----------------------
+    execution.runtime-mode: BATCH
+
+    # --- S3 / Ceph RGW (path-style required for RGW) -----------------------
+    s3.endpoint: http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
+    s3.path.style.access: "true"
+
+    # --- Restart strategy ---------------------------------------------------
+    restart-strategy: exponential-delay
+    restart-strategy.exponential-delay.initial-backoff: 10 s
+    restart-strategy.exponential-delay.max-backoff: 2 min
+    restart-strategy.exponential-delay.backoff-multiplier: "2.0"
+    restart-strategy.exponential-delay.reset-backoff-threshold: 10 min
+
+    # --- Metrics ------------------------------------------------------------
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: "9249"
+
+  jobManager:
+    replicas: 2
+    resource:
+      memory: 2048m
+      cpu: 1
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            envFrom:
+              - secretRef:
+                  name: flink-s3-credentials
+            env:
+              # Comma-separated list of Iceberg namespaces to compact.
+              # Override per-environment via `kubectl set env` or by
+              # patching the CronJob (see infra/k8s/flink/README.md §3).
+              - name: ICEBERG_NAMESPACES
+                value: "openfoundry_cdc"
+              - name: ICEBERG_CATALOG_URI
+                value: "http://lakekeeper.lakekeeper.svc:8181"
+              - name: ICEBERG_WAREHOUSE
+                value: "s3://openfoundry-iceberg/warehouse"
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                component: jobmanager
+                app: iceberg-rewrite-data-files
+
+  taskManager:
+    resource:
+      memory: 4096m
+      cpu: 2
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            envFrom:
+              - secretRef:
+                  name: flink-s3-credentials
+            env:
+              - name: ICEBERG_NAMESPACES
+                value: "openfoundry_cdc"
+              - name: ICEBERG_CATALOG_URI
+                value: "http://lakekeeper.lakekeeper.svc:8181"
+              - name: ICEBERG_WAREHOUSE
+                value: "s3://openfoundry-iceberg/warehouse"
+
+  podTemplate:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        app: iceberg-rewrite-data-files
+        app.kubernetes.io/part-of: openfoundry
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 9999
+        fsGroup: 9999
+      containers:
+        - name: flink-main-container
+          ports:
+            - name: metrics
+              containerPort: 9249
+
+  job:
+    # Built and published by the OpenFoundry release pipeline. The JAR bundles
+    # a small driver that, for every namespace in $ICEBERG_NAMESPACES, runs
+    # `Actions.rewriteDataFiles(table)` with the options below.
+    jarURI: local:///opt/flink/usrlib/iceberg-maintenance.jar
+    entryClass: io.openfoundry.flink.iceberg.maintenance.RewriteDataFilesJob
+    args:
+      - "--catalog=rest"
+      - "--catalog.uri=http://lakekeeper.lakekeeper.svc:8181"
+      - "--catalog.warehouse=s3://openfoundry-iceberg/warehouse"
+      # Read namespaces from the env var injected above so the same image can
+      # be reused across environments (hot/gold) by patching the CronJob.
+      - "--namespaces.env=ICEBERG_NAMESPACES"
+      # --- rewriteDataFiles options ---------------------------------------
+      # Bin-pack small files into ~128 MB Parquet files compressed with zstd.
+      - "--rewrite.target-file-size-bytes=134217728"   # 128 MiB
+      - "--rewrite.min-input-files=5"
+      - "--rewrite.max-concurrent-file-group-rewrites=4"
+      - "--rewrite.partial-progress.enabled=true"
+      - "--rewrite.partial-progress.max-commits=10"
+      - "--write.format.default=parquet"
+      - "--write.parquet.compression-codec=zstd"
+      - "--write.parquet.compression-level=3"
+    parallelism: 4
+    upgradeMode: stateless
+    state: running
