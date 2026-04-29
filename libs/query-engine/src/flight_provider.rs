@@ -372,9 +372,9 @@ async fn run_remote_query(
         streams.push(stream);
     }
 
-    let merged = stream::iter(streams).flatten().map(|batch_res| {
-        batch_res.map_err(|e| DataFusionError::External(Box::<dyn std::error::Error + Send + Sync>::from(e.to_string())))
-    });
+    let merged = stream::iter(streams)
+        .flatten()
+        .map(|batch_res| batch_res.map_err(|e| DataFusionError::External(Box::new(e))));
 
     Ok(merged)
 }
