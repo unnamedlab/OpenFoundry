@@ -1,0 +1,227 @@
+---
+# =============================================================================
+# CronJobs: schedule the Iceberg `expire_snapshots` + orphan cleanup job
+#
+# Two CronJobs share the same FlinkDeployment template
+# (`expire-snapshots-and-orphans.yaml`) and differ only in the
+# `ICEBERG_TIER` env var that selects the retention window:
+#
+#   * `iceberg-expire-snapshots-hot`  -> ICEBERG_TIER=hot  (7 d), daily
+#   * `iceberg-expire-snapshots-gold` -> ICEBERG_TIER=gold (90 d), weekly
+#
+# Snapshot retention policy (see `infra/k8s/flink/README.md` §4.2):
+#   - hot  tier: keep 7 d of snapshots, expire daily
+#   - gold tier: keep 90 d of snapshots, expire weekly
+#
+# Both CronJobs reuse the ServiceAccount + RBAC + ConfigMap created by
+# `cronjob-rewrite-data-files.yaml` (one Role per namespace is enough).
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iceberg-expire-snapshots-and-orphans-manifest
+  namespace: flink
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+data:
+  # Mounted into the CronJob pod and applied with `kubectl apply -f`. Keep in
+  # sync with `infra/k8s/flink/maintenance/expire-snapshots-and-orphans.yaml`
+  # (the file under git is the source of truth).
+  expire-snapshots-and-orphans.yaml: |
+    # See infra/k8s/flink/maintenance/expire-snapshots-and-orphans.yaml for
+    # the canonical, fully-commented manifest.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: iceberg-expire-snapshots-hot
+  namespace: flink
+  labels:
+    app.kubernetes.io/name: iceberg-expire-snapshots-hot
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+    openfoundry.io/iceberg-tier: hot
+spec:
+  schedule: "30 3 * * *"        # 03:30 UTC daily, after rewrite-data-files
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 1800
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 21600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: iceberg-expire-snapshots-hot
+            app.kubernetes.io/part-of: openfoundry
+            app.kubernetes.io/component: iceberg-maintenance
+            openfoundry.io/iceberg-tier: hot
+        spec:
+          serviceAccountName: iceberg-maintenance-scheduler
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+          containers:
+            - name: kubectl
+              image: docker.io/bitnami/kubectl:1.30.3
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: TIER
+                  value: "hot"
+              command: ["/bin/bash", "-eu", "-o", "pipefail", "-c"]
+              args:
+                - |
+                  echo "[expire-snapshots:${TIER}] (re)creating FlinkDeployment..."
+                  kubectl -n flink delete flinkdeployment \
+                    iceberg-expire-snapshots-and-orphans \
+                    --ignore-not-found --wait=true --timeout=10m
+                  kubectl -n flink apply -f \
+                    /manifests/expire-snapshots-and-orphans.yaml
+                  # Patch the tier env var on both JM and TM templates so
+                  # the same FlinkDeployment template can serve hot/gold.
+                  kubectl -n flink patch flinkdeployment \
+                    iceberg-expire-snapshots-and-orphans --type=json -p="[
+                      {\"op\":\"replace\",
+                       \"path\":\"/spec/jobManager/podTemplate/spec/containers/0/env/3/value\",
+                       \"value\":\"${TIER}\"},
+                      {\"op\":\"replace\",
+                       \"path\":\"/spec/taskManager/podTemplate/spec/containers/0/env/3/value\",
+                       \"value\":\"${TIER}\"}
+                    ]"
+                  echo "[expire-snapshots:${TIER}] waiting for FINISHED..."
+                  for _ in $(seq 1 360); do
+                    state=$(kubectl -n flink get flinkdeployment \
+                      iceberg-expire-snapshots-and-orphans \
+                      -o jsonpath='{.status.jobStatus.state}' 2>/dev/null \
+                      || true)
+                    echo "  state=${state:-<none>}"
+                    case "${state}" in
+                      FINISHED) exit 0 ;;
+                      FAILED|CANCELED) exit 1 ;;
+                    esac
+                    sleep 60
+                  done
+                  echo "[expire-snapshots:${TIER}] timed out" >&2
+                  exit 1
+              volumeMounts:
+                - name: manifests
+                  mountPath: /manifests
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: manifests
+              configMap:
+                name: iceberg-expire-snapshots-and-orphans-manifest
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: iceberg-expire-snapshots-gold
+  namespace: flink
+  labels:
+    app.kubernetes.io/name: iceberg-expire-snapshots-gold
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+    openfoundry.io/iceberg-tier: gold
+spec:
+  schedule: "0 4 * * 0"         # 04:00 UTC every Sunday
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 43200   # 12 h hard cap
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: iceberg-expire-snapshots-gold
+            app.kubernetes.io/part-of: openfoundry
+            app.kubernetes.io/component: iceberg-maintenance
+            openfoundry.io/iceberg-tier: gold
+        spec:
+          serviceAccountName: iceberg-maintenance-scheduler
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+          containers:
+            - name: kubectl
+              image: docker.io/bitnami/kubectl:1.30.3
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: TIER
+                  value: "gold"
+              command: ["/bin/bash", "-eu", "-o", "pipefail", "-c"]
+              args:
+                - |
+                  echo "[expire-snapshots:${TIER}] (re)creating FlinkDeployment..."
+                  kubectl -n flink delete flinkdeployment \
+                    iceberg-expire-snapshots-and-orphans \
+                    --ignore-not-found --wait=true --timeout=10m
+                  kubectl -n flink apply -f \
+                    /manifests/expire-snapshots-and-orphans.yaml
+                  kubectl -n flink patch flinkdeployment \
+                    iceberg-expire-snapshots-and-orphans --type=json -p="[
+                      {\"op\":\"replace\",
+                       \"path\":\"/spec/jobManager/podTemplate/spec/containers/0/env/3/value\",
+                       \"value\":\"${TIER}\"},
+                      {\"op\":\"replace\",
+                       \"path\":\"/spec/taskManager/podTemplate/spec/containers/0/env/3/value\",
+                       \"value\":\"${TIER}\"}
+                    ]"
+                  echo "[expire-snapshots:${TIER}] waiting for FINISHED..."
+                  for _ in $(seq 1 720); do
+                    state=$(kubectl -n flink get flinkdeployment \
+                      iceberg-expire-snapshots-and-orphans \
+                      -o jsonpath='{.status.jobStatus.state}' 2>/dev/null \
+                      || true)
+                    echo "  state=${state:-<none>}"
+                    case "${state}" in
+                      FINISHED) exit 0 ;;
+                      FAILED|CANCELED) exit 1 ;;
+                    esac
+                    sleep 60
+                  done
+                  echo "[expire-snapshots:${TIER}] timed out" >&2
+                  exit 1
+              volumeMounts:
+                - name: manifests
+                  mountPath: /manifests
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: manifests
+              configMap:
+                name: iceberg-expire-snapshots-and-orphans-manifest
