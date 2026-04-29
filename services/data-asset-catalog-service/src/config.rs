@@ -104,10 +104,6 @@ impl AppConfig {
             .build()?
             .try_deserialize()
     }
-
-    pub fn bronze_dataset_storage_path(&self, dataset_id: Uuid) -> String {
-        build_dataset_storage_path(&self.lakehouse_prefixes.bronze, dataset_id)
-    }
 }
 
 fn runtime_env_name() -> String {
