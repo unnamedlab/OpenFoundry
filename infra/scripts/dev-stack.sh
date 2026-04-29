@@ -83,8 +83,6 @@ configure_local_infra_ports() {
   ensure_host_port OPENFOUNDRY_MINIO_API_HOST_PORT 9000 59000 "MinIO API"
   ensure_host_port OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT 9001 59001 "MinIO console"
   ensure_host_port OPENFOUNDRY_MEILISEARCH_HOST_PORT 7700 57700 "Meilisearch"
-  ensure_host_port OPENFOUNDRY_QDRANT_HTTP_HOST_PORT 6333 56333 "Qdrant HTTP"
-  ensure_host_port OPENFOUNDRY_QDRANT_GRPC_HOST_PORT 6334 56334 "Qdrant gRPC"
 }
 
 rewrite_local_endpoints() {
@@ -93,14 +91,15 @@ rewrite_local_endpoints() {
   NATS_URL="$(replace_local_port "${NATS_URL:-nats://localhost:4222}" 4222 "$OPENFOUNDRY_NATS_HOST_PORT")"
   S3_ENDPOINT="$(replace_local_port "${S3_ENDPOINT:-http://localhost:9000}" 9000 "$OPENFOUNDRY_MINIO_API_HOST_PORT")"
   MEILISEARCH_URL="$(replace_local_port "${MEILISEARCH_URL:-http://localhost:7700}" 7700 "$OPENFOUNDRY_MEILISEARCH_HOST_PORT")"
-  QDRANT_URL="$(replace_local_port "${QDRANT_URL:-http://localhost:6334}" 6334 "$OPENFOUNDRY_QDRANT_GRPC_HOST_PORT")"
+  # Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+  # (Apache-2.0). Por ahora pgvector cubre el caso embebido y reutiliza
+  # DATABASE_URL.
 
   export DATABASE_URL
   export REDIS_URL
   export NATS_URL
   export S3_ENDPOINT
   export MEILISEARCH_URL
-  export QDRANT_URL
 }
 
 service_database_name() {
@@ -200,8 +199,6 @@ load_env() {
     unset OPENFOUNDRY_MINIO_API_HOST_PORT
     unset OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT
     unset OPENFOUNDRY_MEILISEARCH_HOST_PORT
-    unset OPENFOUNDRY_QDRANT_HTTP_HOST_PORT
-    unset OPENFOUNDRY_QDRANT_GRPC_HOST_PORT
   fi
 }
 
@@ -215,8 +212,6 @@ OPENFOUNDRY_NATS_MONITOR_HOST_PORT=$OPENFOUNDRY_NATS_MONITOR_HOST_PORT
 OPENFOUNDRY_MINIO_API_HOST_PORT=$OPENFOUNDRY_MINIO_API_HOST_PORT
 OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT=$OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT
 OPENFOUNDRY_MEILISEARCH_HOST_PORT=$OPENFOUNDRY_MEILISEARCH_HOST_PORT
-OPENFOUNDRY_QDRANT_HTTP_HOST_PORT=$OPENFOUNDRY_QDRANT_HTTP_HOST_PORT
-OPENFOUNDRY_QDRANT_GRPC_HOST_PORT=$OPENFOUNDRY_QDRANT_GRPC_HOST_PORT
 EOF
 }
 
@@ -376,7 +371,6 @@ NATS:        localhost:${OPENFOUNDRY_NATS_HOST_PORT}
 MinIO API:   http://localhost:${OPENFOUNDRY_MINIO_API_HOST_PORT}
 MinIO UI:    http://localhost:${OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT}
 Meilisearch: http://localhost:${OPENFOUNDRY_MEILISEARCH_HOST_PORT}
-Qdrant:      http://localhost:${OPENFOUNDRY_QDRANT_GRPC_HOST_PORT}
 
 Press Ctrl+C to stop the locally started services.
 The docker infrastructure stays up; stop it with:

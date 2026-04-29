@@ -40,17 +40,17 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Redis ───────────────────────────────────────────────────
-  redis:
+  # ── Valkey (OSS Redis-compatible store, BSD-3) ─────────────
+  valkey:
     <<: *common
-    image: ${OPENFOUNDRY_REDIS_IMAGE:-redis:7-alpine}
+    image: ${OPENFOUNDRY_VALKEY_IMAGE:-valkey/valkey:8-alpine}
     ports:
       - "${OPENFOUNDRY_REDIS_HOST_PORT:-6379}:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: valkey-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - valkey_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -121,20 +121,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Qdrant (Vector DB) ────────────────────────────────────
-  qdrant:
-    <<: *common
-    image: ${OPENFOUNDRY_QDRANT_IMAGE:-qdrant/qdrant:v1.12.5}
-    ports:
-      - "${OPENFOUNDRY_QDRANT_HTTP_HOST_PORT:-6333}:6333"
-      - "${OPENFOUNDRY_QDRANT_GRPC_HOST_PORT:-6334}:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6333/healthz"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+  # Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+  # (Apache-2.0). Por ahora pgvector cubre el caso embebido.
 
   identity-federation-service:
     <<: *app-common
@@ -149,12 +137,12 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       PUBLIC_WEB_ORIGIN: ${OPENFOUNDRY_PUBLIC_WEB_ORIGIN:-http://localhost:3000}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://valkey:6379
       NATS_URL: nats://nats:4222
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      valkey:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -2065,7 +2053,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://valkey:6379
       AUTH_SERVICE_URL: http://identity-federation-service:50112
       IDENTITY_FEDERATION_SERVICE_URL: http://identity-federation-service:50112
       SESSION_GOVERNANCE_SERVICE_URL: http://session-governance-service:50074
@@ -2168,7 +2156,7 @@ services:
       CODE_SECURITY_SCANNING_SERVICE_URL: http://code-security-scanning-service:50154
       CODE_REPOSITORY_REVIEW_SERVICE_URL: http://code-repository-review-service:50155
     depends_on:
-      redis:
+      valkey:
         condition: service_healthy
       checkpoints-purpose-service:
         condition: service_started
@@ -2389,11 +2377,10 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
+  valkey_data:
   nats_data:
   minio_data:
   meilisearch_data:
-  qdrant_data:
   streaming_archive_data:
   event_streaming_archive_data:
   query_data:
