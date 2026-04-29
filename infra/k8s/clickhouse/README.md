@@ -13,7 +13,7 @@ Bitnami restricted-distribution policy.
 |-----------------------|------------------------------------------------------------------|
 | `namespace.yaml`      | `clickhouse` namespace (operator + CRs)                          |
 | `keeper.yaml`         | `ClickHouseKeeperInstallation`, replicas=3 (replaces ZooKeeper)  |
-| `clickhouse.yaml`     | `ClickHouseInstallation`, 1 cluster, shards=2, replicas=2        |
+| `clickhouse.yaml`     | `ClickHouseInstallation`, 1 cluster, shards=2, replicas=3        |
 | `trino-catalog.yaml`  | `ConfigMap` with the Trino catalog properties for this ClickHouse |
 
 The operator itself is not packaged here -- it is installed via the
@@ -37,7 +37,7 @@ kubectl apply -f keeper.yaml
 kubectl -n clickhouse wait --for=jsonpath='{.status.status}'=Completed \
   chk/openfoundry --timeout=15m
 
-# 3. ClickHouse cluster (shards=2, replicas=2):
+# 3. ClickHouse cluster (shards=2, replicas=3):
 kubectl apply -f clickhouse.yaml
 kubectl -n clickhouse wait --for=jsonpath='{.status.status}'=Completed \
   chi/openfoundry --timeout=20m
@@ -48,3 +48,33 @@ kubectl apply -f trino-catalog.yaml
 
 See `infra/runbooks/clickhouse.md` for installation, schema bootstrap,
 backup / restore and disaster-recovery procedures.
+
+## Topology rationale: real per-shard quorum
+
+The `openfoundry` cluster is provisioned with **`shardsCount: 2`** and
+**`replicasCount: 3`** (6 ClickHouse server pods total), backed by a
+3-node ClickHouse Keeper ensemble (`keeper.yaml`).
+
+Three replicas per shard give us a **real quorum inside each shard**,
+which is the design objective for the analytics tier:
+
+* With `insert_quorum=2` (majority of 3) writes are acknowledged only
+  after they are durable on a strict majority of replicas, so the loss
+  of any single replica neither blocks ingestion nor risks divergence.
+* A 2-replica shard cannot satisfy this property: any quorum value
+  would require *both* replicas (no fault tolerance) or fall back to
+  `quorum=1` (no real majority, eventual consistency only). Three
+  replicas are the minimum size that yields a non-trivial majority.
+* Reads benefit from the extra replica through `load_balancing=random`
+  without changing the Distributed table layout.
+
+The Keeper ensemble stays at **`replicas: 3`** (see `keeper.yaml`)
+because its Raft quorum is independent of the per-shard data quorum
+and 3 nodes already tolerate one failure.
+
+Pod resources (`requests`/`limits`) and the per-pod PVCs
+(`clickhouse-data` 200Gi, `clickhouse-log` 25Gi) are unchanged: the
+extra replica adds capacity and fault tolerance without any
+per-pod sizing change. The `volumeClaimTemplates` continue to omit
+`storageClassName`, so the cluster default (Ceph RBD in the reference
+deployment) is used unchanged.

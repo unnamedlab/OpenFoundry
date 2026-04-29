@@ -3,7 +3,12 @@
 # Operated by the Altinity clickhouse-operator (Apache-2.0).
 #
 # Topology:
-#   * 1 cluster ("openfoundry"), shards=2, replicas=2  -> 4 server pods
+#   * 1 cluster ("openfoundry"), shards=2, replicas=3  -> 6 server pods.
+#     Three replicas per shard give us a *real* per-shard quorum: with
+#     `insert_quorum=2` (majority of 3) writes survive the loss of one
+#     replica without sacrificing consistency, which is impossible with
+#     only 2 replicas (any quorum requires both, so it is not
+#     fault-tolerant). See ./README.md for the design rationale.
 #   * Replication via ReplicatedMergeTree backed by ClickHouse Keeper
 #     (no ZooKeeper). Default database engine is Atomic and the cluster
 #     macros are wired so plain `CREATE TABLE ... ENGINE = ReplicatedMergeTree`
@@ -83,7 +88,7 @@ spec:
       - name: openfoundry
         layout:
           shardsCount: 2
-          replicasCount: 2
+          replicasCount: 3
         templates:
           podTemplate: clickhouse-pod
           dataVolumeClaimTemplate: clickhouse-data
@@ -106,8 +111,8 @@ spec:
         spec:
           affinity:
             podAntiAffinity:
-              # One ClickHouse pod per node within the same shard so that
-              # the two replicas of a shard never share a host.
+              # One ClickHouse pod per node within the cluster so that
+              # the replicas of a shard never share a host.
               preferredDuringSchedulingIgnoredDuringExecution:
                 - weight: 100
                   podAffinityTerm:
