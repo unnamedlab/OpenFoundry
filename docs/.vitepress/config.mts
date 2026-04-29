@@ -174,6 +174,7 @@ export default defineConfig({
             { text: "Contracts and SDKs", link: "/architecture/contracts-and-sdks" },
             { text: "Capability map", link: "/architecture/capability-map" },
             { text: "ADR-0007 — Search engine choice", link: "/architecture/adr/ADR-0007-search-engine-choice" },
+            { text: "ADR-0008 — Iceberg REST Catalog (Lakekeeper)", link: "/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper" },
           ],
         },
         {
