@@ -17,11 +17,20 @@ workspace = true
 [dependencies.arrow]
 version = "53"
 
+[dependencies.arrow-flight]
+version = "53"
+features = ["flight-sql-experimental"]
+optional = true
+
 [dependencies.async-trait]
 workspace = true
 
 [dependencies.datafusion]
 workspace = true
+
+[dependencies.futures]
+workspace = true
+optional = true
 
 [dependencies.thiserror]
 workspace = true
@@ -29,8 +38,29 @@ workspace = true
 [dependencies.tokio]
 workspace = true
 
+[dependencies.tonic]
+workspace = true
+optional = true
+
 [dependencies.tracing]
 workspace = true
+
+[dev-dependencies.futures]
+workspace = true
+
+[dev-dependencies.prost]
+workspace = true
+
+[dev-dependencies.tokio-stream]
+version = "0.1"
+features = ["net"]
+
+[dev-dependencies.tonic]
+workspace = true
+
+[features]
+default = ["flight-client"]
+flight-client = ["dep:arrow-flight", "dep:tonic", "dep:futures"]
 
 [lib]
 path = "src/lib.rs"
