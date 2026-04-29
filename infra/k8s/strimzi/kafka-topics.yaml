@@ -1,0 +1,112 @@
+---
+# Base data-plane topics for OpenFoundry. All topics use 12 partitions and
+# replication factor 3 (matching the cluster's `default.replication.factor`)
+# and inherit `min.insync.replicas=2` from the cluster defaults — see
+# `kafka-cluster.yaml`.
+#
+# Naming conventions:
+#   * `cdc.<source>`        — Change Data Capture stream from `<source>`
+#                             (e.g. Debezium connectors). One topic per
+#                             upstream system; `cdc.postgres` is the
+#                             initial example, add more as new sources
+#                             are onboarded.
+#   * `dataset.changes`     — Logical dataset mutation events emitted by
+#                             the dataset service (insert/update/delete
+#                             of rows or schema-level changes).
+#   * `lineage.events`      — OpenLineage-compatible run/job/dataset
+#                             events fed into the lineage subsystem.
+#   * `model.inferences`    — Model serving inference logs (request,
+#                             prediction, latency, model version).
+#   * `audit.events`        — Cross-cutting audit log (auth, RBAC, IAM,
+#                             admin actions). Long retention.
+#
+# Per-topic config rationale:
+#   * cdc.* and dataset.changes → `cleanup.policy=compact` keeps the
+#     latest value per key (downstream consumers materialize state).
+#   * lineage.events / model.inferences / audit.events → time-based
+#     retention; audit.events is kept for 90 days for compliance.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: cdc.postgres
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: cdc
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: compact
+    retention.ms: "604800000"        # 7d backstop for tombstones
+    segment.ms: "3600000"
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dataset.changes
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: compact
+    retention.ms: "1209600000"       # 14d
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: lineage.events
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: lineage
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"       # 30d
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: model.inferences
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: ml
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"       # 30d
+    compression.type: producer
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audit.events
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: audit
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "7776000000"       # 90d (compliance)
+    compression.type: producer

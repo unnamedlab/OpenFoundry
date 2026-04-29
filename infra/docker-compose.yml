@@ -107,7 +107,11 @@ services:
       mc mb --ignore-existing local/openfoundry-artifacts
       "
 
-  # ── Meilisearch ────────────────────────────────────────────
+  # ── Meilisearch (DEV ONLY) ─────────────────────────────────
+  # Production search runs on Vespa (BM25 + vector + filters + ranking),
+  # with pgvector for embedded vector search. Meilisearch is kept here
+  # purely for local developer experience. See
+  # docs/architecture/adr/ADR-0007-search-engine-choice.md.
   meilisearch:
     <<: *common
     image: ${OPENFOUNDRY_MEILISEARCH_IMAGE:-getmeili/meilisearch:v1.11}

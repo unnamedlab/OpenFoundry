@@ -1,0 +1,78 @@
+---
+# ClickHouseKeeperInstallation -- coordination service for replicated
+# tables. Replaces ZooKeeper. Apache-2.0 (operator + image).
+#
+# Topology:
+#   * 3 replicas        -> Raft quorum tolerates 1 node failure
+#   * antiAffinity      -> one keeper pod per node
+#   * persistent storage -> log + snapshot survival across restarts
+#
+# Image: clickhouse/clickhouse-keeper (official, Apache-2.0). We avoid the
+# Bitnami image because of its restricted-distribution policy.
+apiVersion: clickhouse-keeper.altinity.com/v1
+kind: ClickHouseKeeperInstallation
+metadata:
+  name: openfoundry
+  namespace: clickhouse
+spec:
+  configuration:
+    clusters:
+      - name: keeper
+        layout:
+          replicasCount: 3
+    settings:
+      logger/level: information
+      logger/console: "true"
+      keeper_server/tcp_port: "2181"
+      keeper_server/four_letter_word_white_list: "*"
+      keeper_server/coordination_settings/raft_logs_level: information
+      keeper_server/coordination_settings/operation_timeout_ms: "10000"
+      keeper_server/coordination_settings/session_timeout_ms: "30000"
+      prometheus/endpoint: /metrics
+      prometheus/port: "7000"
+      prometheus/metrics: "true"
+      prometheus/events: "true"
+      prometheus/asynchronous_metrics: "true"
+  defaults:
+    templates:
+      podTemplate: keeper-pod
+      dataVolumeClaimTemplate: keeper-data
+      logVolumeClaimTemplate: keeper-log
+  templates:
+    podTemplates:
+      - name: keeper-pod
+        spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app: clickhouse-keeper
+                      clickhouse-keeper.altinity.com/chk: openfoundry
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: clickhouse-keeper
+              image: clickhouse/clickhouse-keeper:24.8.4.13
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+    volumeClaimTemplates:
+      - name: keeper-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 25Gi
+      - name: keeper-log
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 25Gi

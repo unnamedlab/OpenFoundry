@@ -1,6 +1,7 @@
 [package]
 name = "event-streaming-service"
-description = "Event streaming runtime: stream processing, push, replay, dead letters, windows, checkpoints and topologies"
+description = "Event streaming router: dispatches events to the correct messaging backend (NATS for control / signal traffic, Kafka for data) using a declarative routing table"
+build = "build.rs"
 
 [package.edition]
 workspace = true
@@ -17,10 +18,16 @@ workspace = true
 [dependencies.async-nats]
 workspace = true
 
+[dependencies.async-trait]
+workspace = true
+
 [dependencies.auth-middleware]
 workspace = true
 
 [dependencies.axum]
+workspace = true
+
+[dependencies.bytes]
 workspace = true
 
 [dependencies.chrono]
@@ -32,7 +39,22 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
-[dependencies.event-bus]
+[dependencies.event-bus-control]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.globset]
+workspace = true
+
+[dependencies.prometheus]
+workspace = true
+
+[dependencies.prost]
+workspace = true
+
+[dependencies.regex]
 workspace = true
 
 [dependencies.reqwest]
@@ -45,11 +67,21 @@ workspace = true
 [dependencies.serde_json]
 workspace = true
 
+[dependencies.serde_yaml]
+workspace = true
+
 [dependencies.sqlx]
+workspace = true
+
+[dependencies.thiserror]
 workspace = true
 
 [dependencies.tokio]
 workspace = true
+
+[dependencies.tokio-stream]
+version = "0.1"
+features = ["sync"]
 
 [dependencies.tonic]
 workspace = true
@@ -63,7 +95,32 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[build-dependencies.tonic-build]
+workspace = true
+
+[build-dependencies.protoc-bin-vendored]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dev-dependencies.tempfile]
+version = "3"
+
 [[bin]]
 path = "src/main.rs"
 name = "event-streaming-service"
 required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "event_streaming_service"

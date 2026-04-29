@@ -19,7 +19,13 @@ Browser / API Client
         +--> pipeline-service
       +--> sql-bi-gateway-service
         +--> streaming-service
-        +--> ontology-service
+        +--> ontology-definition-service
+        +--> object-database-service
+        +--> ontology-query-service
+        +--> ontology-actions-service
+        +--> ontology-security-service
+        +--> ontology-funnel-service
+        +--> ontology-functions-service
         +--> audit-service
         +--> app-builder-service
         +--> code-repo-service
@@ -38,7 +44,7 @@ Browser / API Client
 | --- | --- |
 | Entry and experience | `gateway`, `app-builder-service`, `marketplace-service`, `notebook-runtime-service`, `document-reporting-service`, `notification-alerting-service` |
 | Data plane | `data-connector`, `dataset-service`, `pipeline-service`, `sql-bi-gateway-service`, `streaming-service`, `report-service`, `geospatial-service`, `fusion-service`, `workflow-automation-service` |
-| Governance and semantics | `auth-service`, `audit-service`, `ontology-service`, `nexus-service` |
+| Governance and semantics | `auth-service`, `audit-service`, `ontology-definition-service`, `object-database-service`, `ontology-query-service`, `ontology-actions-service`, `ontology-security-service`, `ontology-funnel-service`, `ontology-functions-service`, `nexus-service` |
 | Developer platform | `code-repo-service` |
 | AI and ML | `ai-service`, `ml-service` |
 
@@ -48,11 +54,96 @@ The repo and workflows indicate a consistent set of platform dependencies:
 
 - Postgres for service-owned relational state
 - Redis for gateway-oriented caching and coordination
-- NATS for async messaging
+- NATS for async messaging (control plane — see "Control vs Data" below)
+- Apache Kafka for high-throughput streaming (data plane — see "Control vs Data" below)
 - object storage for datasets, archives, reports, and repository payloads
-- Meilisearch for search-centric features
+- Meilisearch for search-centric features in **local development only**;
+  production search runs on Vespa (with pgvector for embedded vector search).
+  See [ADR-0007](./adr/ADR-0007-search-engine-choice.md).
 
 The CI smoke job creates multiple service-specific databases, which strongly suggests database-per-service isolation rather than a shared operational schema.
+
+## Control Plane vs Data Plane (Event Bus split)
+
+Events on the platform travel over **two distinct buses**, each tuned for very
+different workloads. Services pick the one that matches the message they
+emit; many services touch both.
+
+| Plane             | Crate                | Transport          | Latency  | Retention   | Throughput | Typical traffic                                                     |
+| ----------------- | -------------------- | ------------------ | -------- | ----------- | ---------- | ------------------------------------------------------------------- |
+| **Control plane** | `libs/event-bus-control` | NATS JetStream | µs–ms    | hours/days  | MB/s       | RPC-ish events, signals, fan-out, notifications, workflow triggers  |
+| **Data plane**    | `libs/event-bus-data`    | Apache Kafka   | ms       | weeks–PB    | GB–PB/s    | CDC streams, ingestion firehoses, lineage, analytics, audit archive |
+
+### Why two buses
+
+- **Control traffic** is dominated by small, latency-sensitive messages
+  (e.g. "refresh dataset quality", "workflow trigger requested",
+  "notification updated"). It needs sub-millisecond fan-out, ephemeral
+  consumers, and short retention. NATS JetStream is the right shape for
+  this.
+- **Data traffic** is dominated by large volumes that must be replayable
+  for hours or days (CDC, ingestion, lineage events feeding the catalog),
+  and is consumed by both online services and batch/analytics jobs.
+  Kafka's partitioned, long-retention log model is the right shape for
+  this — and most third-party data tooling (Flink, Trino, Spark, Iceberg
+  ingest paths) expects Kafka.
+
+Splitting the buses also gives us independent operational envelopes:
+control-plane outages don't block data ingestion, and a runaway data
+producer can't starve control signals.
+
+### Delivery semantics
+
+- `event-bus-control` (NATS JetStream): durable streams, at-least-once
+  with consumer ack windows. Defaults to 7-day retention and 1M-message
+  caps per stream — see `libs/event-bus-control/src/subscriber.rs`.
+- `event-bus-data` (Kafka): at-least-once with **explicit commits**.
+  `enable.auto.commit=false` and consumers must call
+  `DataMessage::commit()` (or `DataSubscriber::commit_offsets()`) once a
+  record is durably processed. Producers run with `acks=all` and
+  idempotence enabled.
+
+### Topic / subject governance
+
+- Both buses **disable broker-level auto-creation** of topics/subjects.
+  Topics are provisioned out of band by the platform's topic registry so
+  ownership, retention, partitions, and ACLs are managed as code.
+- On Kafka, each service authenticates with its own SASL principal
+  (`ServicePrincipal::scram_sha_512`). Broker ACLs grant
+  `Allow Read`/`Allow Write` on topic prefixes by service identity rather
+  than by IP or shared credentials.
+- On NATS, equivalent isolation is enforced via per-account credentials
+  and subject permissions configured in the JetStream account graph.
+
+### OpenLineage propagation
+
+Every record published through `event-bus-data` carries a small set of
+well-known Kafka headers modelling the OpenLineage facets the platform
+propagates through pipelines:
+
+| Header         | Meaning                                                  |
+| -------------- | -------------------------------------------------------- |
+| `ol-namespace` | OpenLineage `namespace` (e.g. `of://datasets`)           |
+| `ol-job-name`  | OpenLineage `job.name` of the producing job              |
+| `ol-run-id`    | OpenLineage `run.runId`                                  |
+| `ol-event-time`| RFC 3339 timestamp for this record                       |
+| `ol-producer`  | Producer identity URL (per OpenLineage spec)             |
+| `ol-schema-url`| Optional schema/contract URL for the payload (when known)|
+
+This lets `lineage-service` and downstream consumers reconstruct dataset
+lineage without a separate side-channel. See
+`libs/event-bus-data/src/headers.rs`.
+
+### Picking the right bus
+
+A quick rule of thumb when adding a new event:
+
+- If the message represents a **command, signal, or short-lived
+  notification** that should be acted on immediately and discarded, use
+  `event-bus-control`.
+- If the message represents **durable state change in a dataset or pipeline**
+  that downstream analytics/lineage/audit consumers need to replay, use
+  `event-bus-data`.
 
 ## Frontend Coupling
 

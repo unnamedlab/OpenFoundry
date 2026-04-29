@@ -1,0 +1,34 @@
+---
+# PostgreSQL catalog pointing at the CloudNativePG primary Service for the
+# OpenFoundry application database. Use this for cross-source joins between
+# OLTP tables and Iceberg datasets (e.g. enrich an event stream with the
+# canonical user table).
+#
+# Credentials come from the `trino-postgres-credentials` Secret (keys
+# `PG_TRINO_USER` and `PG_TRINO_PASSWORD`), rendered into env vars on the
+# coordinator and worker pods. Use a dedicated, read-mostly role; do not
+# reuse the app's owner credentials.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-catalog-postgresql
+  namespace: trino
+  labels:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/component: catalog
+    openfoundry.dev/catalog: postgresql
+data:
+  postgresql.properties: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://openfoundry-pg-rw.cnpg.svc:5432/openfoundry
+    connection-user=${ENV:PG_TRINO_USER}
+    connection-password=${ENV:PG_TRINO_PASSWORD}
+    # Push aggregations and joins down whenever the planner thinks Postgres
+    # can do them faster than Trino.
+    join-pushdown.enabled=true
+    aggregation-pushdown.enabled=true
+    case-insensitive-name-matching=true
+    # Keep Postgres connections bounded; with workers=6 this caps total
+    # backend connections at ~6*20=120, well within typical CNPG limits.
+    postgresql.connection-pool.max-size=20
+    postgresql.connection-pool.min-idle-size=2

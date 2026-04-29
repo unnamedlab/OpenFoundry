@@ -11,3 +11,8 @@ dependencies:
     version: 0.1.0
     repository: ""
     condition: icebergCatalog.enabled
+  - name: vespa
+    alias: vespa
+    version: 0.1.0
+    repository: ""
+    condition: vespa.enabled

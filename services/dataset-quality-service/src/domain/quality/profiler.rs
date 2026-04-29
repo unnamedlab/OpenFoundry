@@ -4,7 +4,7 @@ use arrow::util::display::array_value_to_string;
 use bytes::Bytes;
 use chrono::Utc;
 use datafusion::prelude::NdJsonReadOptions;
-use event_bus::contracts::DatasetQualityRefreshRequested;
+use event_bus_control::contracts::DatasetQualityRefreshRequested;
 use query_engine::context::QueryContext;
 use tokio::fs;
 use uuid::Uuid;
