@@ -36,6 +36,9 @@ services:
         enabled: false
   pipeline-authoring-service:
     replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 3
       keda:
         enabled: false
   report-service:
