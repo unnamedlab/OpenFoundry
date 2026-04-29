@@ -79,7 +79,7 @@ impl IcebergTable {
 use storage_abstraction::iceberg::IcebergTable;
 
 let table = IcebergTable::load_table(
-    "http://localhost:8181", // any Iceberg REST Catalog (Polaris, Lakekeeper, Nessie, Tabular, …)
+    "http://localhost:8181", // the OpenFoundry-supported Iceberg REST Catalog (Lakekeeper — see ADR-0008)
     &["analytics"],
     "events",
 )
