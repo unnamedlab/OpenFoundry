@@ -107,29 +107,37 @@ services:
       mc mb --ignore-existing local/openfoundry-artifacts
       "
 
-  # ── Meilisearch (DEV ONLY) ─────────────────────────────────
-  # Production search runs on Vespa (BM25 + vector + filters + ranking),
-  # with pgvector for embedded vector search. Meilisearch is kept here
-  # purely for local developer experience. See
-  # docs/architecture/adr/ADR-0007-search-engine-choice.md.
-  meilisearch:
+  # ── Vespa Lite (DX search engine, Apache-2.0) ──────────────
+  # Single-node container of the same Vespa engine that runs in production
+  # (see infra/runbooks/vespa.md and docs/architecture/adr/ADR-0007-search-engine-choice.md).
+  # Exposes the config server on 19071 (deploy endpoint) and the container
+  # cluster on 8080 (query/feed); the latter is remapped to host port
+  # ${OPENFOUNDRY_VESPA_QUERY_HOST_PORT:-18080} to avoid clashing with the
+  # API gateway. Use this for hybrid (BM25 + vector + filters + ranking)
+  # search during local development; pgvector still covers the embedded
+  # vector case.
+  #
+  # Meilisearch is no longer part of the default DX stack; it lives under
+  # the optional `--profile demo` in infra/docker-compose.dev.yml for
+  # first-run demos only (no production code or test depends on it).
+  vespa:
     <<: *common
-    image: ${OPENFOUNDRY_MEILISEARCH_IMAGE:-getmeili/meilisearch:v1.11}
+    image: ${OPENFOUNDRY_VESPA_IMAGE:-vespaengine/vespa:8.450.30}
+    hostname: vespa
     ports:
-      - "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-7700}:7700"
-    environment:
-      MEILI_MASTER_KEY: masterKey
-      MEILI_ENV: development
+      - "${OPENFOUNDRY_VESPA_QUERY_HOST_PORT:-18080}:8080"
+      - "${OPENFOUNDRY_VESPA_CONFIG_HOST_PORT:-19071}:19071"
     volumes:
-      - meilisearch_data:/meili_data
+      - vespa_data:/opt/vespa/var
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7700/health"]
-      interval: 5s
+      test: ["CMD", "curl", "-fsS", "http://localhost:19071/state/v1/health"]
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 60s
 
-  # Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
-  # (Apache-2.0). Por ahora pgvector cubre el caso embebido.
+  # Qdrant se retiró por restricción de licencia OSS; fue sustituido por
+  # Vespa (Apache-2.0). pgvector cubre el caso embebido.
 
   # ── Iceberg REST Catalog (Apache Polaris, Apache-2.0) ──────
   # Provides a vendor-neutral Iceberg REST Catalog backed by the existing
@@ -2438,7 +2446,7 @@ volumes:
   valkey_data:
   nats_data:
   minio_data:
-  meilisearch_data:
+  vespa_data:
   streaming_archive_data:
   event_streaming_archive_data:
   query_data:

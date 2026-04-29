@@ -1,4 +1,15 @@
 # Dev overrides — lighter resource limits, extra debugging
+#
+# Meilisearch is intentionally NOT part of the default dev stack. It lives
+# here under the optional `demo` profile so the very first walkthrough
+# ("instant search demo") can still be brought up with:
+#
+#     docker compose -f compose.yaml -f infra/docker-compose.dev.yml \
+#         --profile demo up -d meilisearch
+#
+# The production / DX search engine is Vespa (see infra/docker-compose.yml
+# and docs/architecture/adr/ADR-0007-search-engine-choice.md). No service
+# or test depends on Meilisearch.
 services:
   postgres:
     environment:
@@ -14,3 +25,26 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+
+  # ── Meilisearch (opt-in, first-run demo only) ──────────────
+  # Brought up only with `--profile demo`. Not a production dependency,
+  # not used by any service or smoke test.
+  meilisearch:
+    profiles: ["demo"]
+    restart: unless-stopped
+    image: ${OPENFOUNDRY_MEILISEARCH_IMAGE:-getmeili/meilisearch:v1.11}
+    ports:
+      - "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-7700}:7700"
+    environment:
+      MEILI_MASTER_KEY: masterKey
+      MEILI_ENV: development
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  meilisearch_data:

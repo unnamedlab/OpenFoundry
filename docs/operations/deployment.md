@@ -13,10 +13,18 @@ The Compose stack defines:
 - Valkey (Redis-protocol compatible; OSS BSD-3 image `valkey/valkey:8-alpine`)
 - NATS
 - RustFS (S3-compatible, Apache-2.0; replaces MinIO for development)
-- Meilisearch (developer experience only — production search runs on Vespa;
-  see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md))
+- Vespa Lite (single-node `vespaengine/vespa`, Apache-2.0) for hybrid
+  BM25 + vector + filter + ranking search; same engine as production
+  (see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)
+  and `infra/runbooks/vespa.md`)
 - pgvector (extensión sobre PostgreSQL)
 - Apache Polaris (Iceberg REST Catalog, Apache-2.0)
+
+> Meilisearch ya **no** forma parte del stack DX por defecto. Sigue
+> disponible como demostración de "first-run" bajo el perfil opcional
+> `--profile demo` de `infra/docker-compose.dev.yml`; ningún servicio ni
+> test depende de él (consolidación 2026-04 en
+> [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)).
 
 > Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
 > (Apache-2.0). Por ahora pgvector cubre el caso embebido. La búsqueda
