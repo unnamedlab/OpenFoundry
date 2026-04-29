@@ -5,9 +5,9 @@
 # canonical user table).
 #
 # Credentials come from the `trino-postgres-credentials` Secret (keys
-# `username` and `password`), rendered into env vars on the coordinator and
-# worker pods. Use a dedicated, read-mostly role; do not reuse the app's
-# owner credentials.
+# `PG_TRINO_USER` and `PG_TRINO_PASSWORD`), rendered into env vars on the
+# coordinator and worker pods. Use a dedicated, read-mostly role; do not
+# reuse the app's owner credentials.
 apiVersion: v1
 kind: ConfigMap
 metadata:
