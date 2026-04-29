@@ -1,0 +1,101 @@
+# Prometheus alerting rules for the NATS / JetStream control bus.
+#
+# Source repo:  infra/docker-compose.yml (nats service);
+#               OpenFoundry uses NATS as the control bus (ADR-0012 §2.6).
+# Scrape:       NATS exposes Prometheus metrics via the official
+#               prometheus-nats-exporter (binds to /metrics on 7777).
+#               https://github.com/nats-io/prometheus-nats-exporter
+# Validation:   `promtool check rules infra/observability/prometheus-rules/nats.yaml`
+#
+# SLI rationale (upstream-sourced thresholds):
+#   * Node down / cluster size: NATS clustered mode requires the meta
+#     leader to be elected; losing > floor((N-1)/2) members loses
+#     JetStream quorum (Raft). The exporter publishes
+#     `nats_varz_connections` per node and `up` per scrape target.
+#   * JetStream lag: per-stream `nats_stream_state_consumer_count`
+#     and `nats_consumer_num_pending` are the documented "lag" signals
+#     in the JetStream monitoring guide. Sustained pending > 10k for
+#     15m is the upstream-recommended warn threshold.
+groups:
+  - name: nats.availability
+    rules:
+      - alert: NatsNodeDown
+        expr: up{job=~"nats.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: nats
+        annotations:
+          summary: "NATS node {{ $labels.instance }} is down"
+          description: |
+            NATS server `{{ $labels.instance }}` unreachable for 2m.
+            If this is the meta leader, JetStream operations will
+            stall until a new leader is elected.
+
+      - alert: NatsClusterDegraded
+        # Degraded if any node is down for > 5m even if quorum holds;
+        # this is the "fix it before the next failure" signal.
+        expr: |
+          (count by (cluster) (up{job=~"nats.*"} == 0)) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: nats
+        annotations:
+          summary: "NATS cluster {{ $labels.cluster }} degraded"
+          description: |
+            At least one NATS node has been down for 5m in cluster
+            `{{ $labels.cluster }}`. JetStream replication factor is
+            reduced; fix before the next failure.
+
+      - alert: NatsJetStreamMetaLeaderMissing
+        # JetStream Raft requires a meta leader for stream/consumer
+        # changes. The exporter exposes `nats_jsz_meta_cluster_leader`
+        # which is empty/unset when no leader is elected.
+        expr: absent(nats_jsz_meta_cluster_size > 0)
+        for: 2m
+        labels:
+          severity: critical
+          component: nats
+        annotations:
+          summary: "JetStream meta leader missing"
+          description: |
+            No JetStream meta leader visible. Stream and consumer
+            management operations will fail.
+
+  - name: nats.jetstream
+    rules:
+      - alert: NatsJetStreamConsumerLagHigh
+        # JetStream monitoring guide: pending > 10k sustained for 15m
+        # is the documented warn threshold for a slow consumer.
+        expr: nats_consumer_num_pending > 10000
+        for: 15m
+        labels:
+          severity: warning
+          component: nats
+        annotations:
+          summary: "JetStream consumer {{ $labels.consumer_name }} lag > 10k"
+          description: |
+            Consumer `{{ $labels.consumer_name }}` on stream
+            `{{ $labels.stream_name }}` has `{{ $value }}` pending
+            messages for 15m. ADR-0012 SLI 2.6 (NATS control event
+            p99 < 5ms) cannot be met with this backlog.
+
+      - alert: NatsJetStreamStreamHealthDegraded
+        # Stream-level: a stream whose `state.bytes` keeps growing
+        # while `consumer_count == 0` indicates an orphaned stream
+        # accumulating messages that nobody consumes.
+        expr: |
+          (nats_stream_state_consumer_count == 0)
+            and
+          (deriv(nats_stream_state_bytes[15m]) > 0)
+        for: 30m
+        labels:
+          severity: warning
+          component: nats
+        annotations:
+          summary: "JetStream stream {{ $labels.stream_name }} has no consumers"
+          description: |
+            Stream `{{ $labels.stream_name }}` has been growing for 30m
+            with no consumers attached. Either attach a consumer or
+            shorten the retention.

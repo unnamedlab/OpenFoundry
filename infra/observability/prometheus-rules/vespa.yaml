@@ -1,0 +1,112 @@
+# Prometheus alerting rules for Vespa.ai content + container clusters.
+#
+# Source repo:  infra/k8s/vespa/, infra/k8s/helm/open-foundry/charts/vespa/
+# Scrape:       The Vespa metrics-proxy exposes Prometheus on
+#               `/prometheus/v1/values?consumer=prometheus` (see
+#               infra/k8s/helm/open-foundry/charts/vespa/templates/servicemonitor.yaml).
+# Validation:   `promtool check rules infra/observability/prometheus-rules/vespa.yaml`
+#
+# SLI rationale (upstream-sourced thresholds):
+#   * Content node availability < redundancy: Vespa documents that with
+#     redundancy=R, the system tolerates losing (R-1) content nodes
+#     per group before search results become incomplete.
+#     https://docs.vespa.ai/en/operations/monitoring.html
+#     https://docs.vespa.ai/en/elasticity.html
+#   * Query latency p99: ADR-0012 sets 80ms as the p99 SLO for hybrid
+#     top-50 queries; this rule alerts when that bound is breached.
+#   * Distribution skew: Vespa exposes `content.proton.documentdb...`
+#     per node; large skew between nodes indicates failed redistribution
+#     after a topology change.
+groups:
+  - name: vespa.availability
+    rules:
+      - alert: VespaContentNodeDown
+        expr: up{job=~"vespa.*",vespa_role="content"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: vespa
+        annotations:
+          summary: "Vespa content node {{ $labels.instance }} is down"
+          description: |
+            Content node `{{ $labels.instance }}` unreachable for 2m.
+            Vespa will continue serving as long as redundancy > 1.
+
+      - alert: VespaContentAvailabilityBelowRedundancy
+        # Vespa: with redundancy R per group, alert if more than (R-1)
+        # nodes are down — search coverage is no longer guaranteed.
+        # `vespa_redundancy` is an instance-level info gauge configured
+        # in the application package; we read the configured value and
+        # compare against alive nodes.
+        expr: |
+          (count by (cluster) (up{job=~"vespa.*",vespa_role="content"} == 1))
+            <
+          max by (cluster) (vespa_content_cluster_redundancy)
+        for: 5m
+        labels:
+          severity: critical
+          component: vespa
+        annotations:
+          summary: "Vespa cluster {{ $labels.cluster }} below configured redundancy"
+          description: |
+            Alive content nodes in cluster `{{ $labels.cluster }}` are
+            below the configured redundancy. Document availability is
+            not guaranteed. See infra/k8s/vespa/.
+
+      - alert: VespaConfigServerDown
+        expr: up{job=~"vespa.*",vespa_role="configserver"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: vespa
+        annotations:
+          summary: "Vespa config server {{ $labels.instance }} is down"
+          description: |
+            Config server unavailable; application package deploys and
+            cluster reconfiguration are blocked.
+
+  - name: vespa.latency
+    rules:
+      - alert: VespaQueryLatencyP99High
+        # ADR-0012 SLO 2.5: p99 < 80ms for hybrid top-50.
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le) (
+              rate(vespa_query_latency_seconds_bucket{query_profile="hybrid_top50"}[5m])
+            )
+          ) > 0.080
+        for: 10m
+        labels:
+          severity: warning
+          component: vespa
+          slo: "ADR-0012-2.5"
+        annotations:
+          summary: "Vespa hybrid top-50 query p99 > 80ms (SLO breach)"
+          description: |
+            p99 = `{{ $value }}s` over the last 5m, breaching the
+            ADR-0012 p99 SLO of 80ms for hybrid top-50 queries.
+
+  - name: vespa.distribution
+    rules:
+      - alert: VespaDocumentDistributionSkew
+        # Healthy Vespa redistributes documents within a few percent
+        # across content nodes in the same group. A node holding more
+        # than 1.5× the cluster-mean document count for 30m signals
+        # a stuck redistribution / bucket move.
+        expr: |
+          (
+            max by (cluster) (vespa_content_proton_documentdb_documents_active_count)
+              /
+            avg by (cluster) (vespa_content_proton_documentdb_documents_active_count)
+          ) > 1.5
+        for: 30m
+        labels:
+          severity: warning
+          component: vespa
+        annotations:
+          summary: "Vespa document distribution skew on cluster {{ $labels.cluster }}"
+          description: |
+            One content node holds > 1.5× the average document count
+            in cluster `{{ $labels.cluster }}` for 30m. Bucket
+            redistribution is likely stuck.
