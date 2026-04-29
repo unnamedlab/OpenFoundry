@@ -6,6 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::json;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -17,10 +18,11 @@ use crate::{
     },
     models::project::{
         BindOntologyProjectResourceRequest, CreateOntologyProjectRequest,
+        CreateOntologyProjectFolderRequest, ListOntologyProjectFoldersResponse,
         ListOntologyProjectMembershipsResponse, ListOntologyProjectResourcesResponse,
         ListOntologyProjectsQuery, ListOntologyProjectsResponse, OntologyProject,
-        OntologyProjectMembership, OntologyProjectResourceBinding, UpdateOntologyProjectRequest,
-        UpsertOntologyProjectMembershipRequest,
+        OntologyProjectFolder, OntologyProjectMembership, OntologyProjectResourceBinding,
+        UpdateOntologyProjectRequest, UpsertOntologyProjectMembershipRequest,
     },
 };
 
@@ -85,6 +87,41 @@ fn normalize_optional_slug(
     }
 }
 
+fn normalize_folder_name(value: &str) -> Result<String, String> {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return Err("Folder name is required.".to_string());
+    }
+
+    Ok(normalized)
+}
+
+fn folder_slug_from_name(value: &str) -> Result<String, String> {
+    let mut slug = String::with_capacity(value.len());
+    let mut last_was_hyphen = false;
+
+    for ch in value.trim().chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            slug.push(normalized);
+            last_was_hyphen = false;
+        } else if !last_was_hyphen && !slug.is_empty() {
+            slug.push('-');
+            last_was_hyphen = true;
+        }
+    }
+
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+
+    if slug.is_empty() {
+        return Err("folder name must contain letters or numbers".to_string());
+    }
+
+    Ok(slug)
+}
+
 async fn load_project(state: &AppState, id: Uuid) -> Result<Option<OntologyProject>, String> {
     sqlx::query_as::<_, OntologyProject>(
         r#"SELECT id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at
@@ -95,6 +132,58 @@ async fn load_project(state: &AppState, id: Uuid) -> Result<Option<OntologyProje
     .fetch_optional(&state.ontology_db)
     .await
     .map_err(|error| format!("failed to load ontology project: {error}"))
+}
+
+async fn load_project_folder(
+    state: &AppState,
+    project_id: Uuid,
+    folder_id: Uuid,
+) -> Result<Option<OntologyProjectFolder>, String> {
+    sqlx::query_as::<_, OntologyProjectFolder>(
+        r#"SELECT id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at
+           FROM ontology_project_folders
+           WHERE project_id = $1 AND id = $2"#,
+    )
+    .bind(project_id)
+    .bind(folder_id)
+    .fetch_optional(&state.ontology_db)
+    .await
+    .map_err(|error| format!("failed to load ontology project folder: {error}"))
+}
+
+async fn insert_project_folder(
+    tx: &mut Transaction<'_, Postgres>,
+    project_id: Uuid,
+    created_by: Uuid,
+    folder: &CreateOntologyProjectFolderRequest,
+) -> Result<OntologyProjectFolder, String> {
+    let name = normalize_folder_name(&folder.name)?;
+    let slug = folder_slug_from_name(&name)?;
+    let description = folder.description.clone().unwrap_or_default();
+
+    sqlx::query_as::<_, OntologyProjectFolder>(
+        r#"INSERT INTO ontology_project_folders (
+               id,
+               project_id,
+               parent_folder_id,
+               name,
+               slug,
+               description,
+               created_by
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(project_id)
+    .bind(folder.parent_folder_id)
+    .bind(name)
+    .bind(slug)
+    .bind(description)
+    .bind(created_by)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| format!("failed to create ontology project folder: {error}"))
 }
 
 fn ensure_project_owner_or_admin(
@@ -167,19 +256,31 @@ pub async fn create_project(
     State(state): State<AppState>,
     Json(body): Json<CreateOntologyProjectRequest>,
 ) -> impl IntoResponse {
-    let slug = match normalize_slug(&body.slug, "slug") {
+    let CreateOntologyProjectRequest {
+        slug: raw_slug,
+        display_name,
+        description,
+        workspace_slug: raw_workspace_slug,
+        folders,
+    } = body;
+
+    let slug = match normalize_slug(&raw_slug, "slug") {
         Ok(slug) => slug,
         Err(error) => return invalid(error),
     };
     let workspace_slug =
-        match normalize_optional_slug(body.workspace_slug.as_deref(), "workspace_slug") {
+        match normalize_optional_slug(raw_workspace_slug.as_deref(), "workspace_slug") {
             Ok(workspace_slug) => workspace_slug,
             Err(error) => return invalid(error),
         };
-    let display_name = body.display_name.unwrap_or_else(|| slug.clone());
-    let description = body.description.unwrap_or_default();
+    let display_name = display_name.unwrap_or_else(|| slug.clone());
+    let description = description.unwrap_or_default();
+    let mut tx = match state.ontology_db.begin().await {
+        Ok(tx) => tx,
+        Err(error) => return db_error(format!("failed to start ontology project transaction: {error}")),
+    };
 
-    match sqlx::query_as::<_, OntologyProject>(
+    let project = match sqlx::query_as::<_, OntologyProject>(
         r#"INSERT INTO ontology_projects (id, slug, display_name, description, workspace_slug, owner_id)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at"#,
@@ -190,11 +291,24 @@ pub async fn create_project(
     .bind(description)
     .bind(workspace_slug)
     .bind(claims.sub)
-    .fetch_one(&state.ontology_db)
+    .fetch_one(&mut *tx)
     .await
     {
-        Ok(project) => (StatusCode::CREATED, Json(project)).into_response(),
-        Err(error) => db_error(format!("failed to create ontology project: {error}")),
+        Ok(project) => project,
+        Err(error) => return db_error(format!("failed to create ontology project: {error}")),
+    };
+
+    if let Some(folders) = folders.as_ref() {
+        for folder in folders {
+            if let Err(error) = insert_project_folder(&mut tx, project.id, claims.sub, folder).await {
+                return db_error(error);
+            }
+        }
+    }
+
+    match tx.commit().await {
+        Ok(_) => (StatusCode::CREATED, Json(project)).into_response(),
+        Err(error) => db_error(format!("failed to commit ontology project transaction: {error}")),
     }
 }
 
@@ -324,6 +438,79 @@ pub async fn list_project_memberships(
         Err(error) => db_error(format!(
             "failed to list ontology project memberships: {error}"
         )),
+    }
+}
+
+pub async fn list_project_folders(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(_) = (match load_project(&state, project_id).await {
+        Ok(project) => project,
+        Err(error) => return db_error(error),
+    }) else {
+        return not_found("ontology project not found");
+    };
+
+    if let Err(error) = ensure_project_view_access(&state.ontology_db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectFolder>(
+        r#"SELECT id, project_id, parent_folder_id, name, slug, description, created_by, created_at, updated_at
+           FROM ontology_project_folders
+           WHERE project_id = $1
+           ORDER BY created_at ASC"#,
+    )
+    .bind(project_id)
+    .fetch_all(&state.ontology_db)
+    .await
+    {
+        Ok(data) => Json(ListOntologyProjectFoldersResponse { data }).into_response(),
+        Err(error) => db_error(format!("failed to list ontology project folders: {error}")),
+    }
+}
+
+pub async fn create_project_folder(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<CreateOntologyProjectFolderRequest>,
+) -> impl IntoResponse {
+    let Some(_) = (match load_project(&state, project_id).await {
+        Ok(project) => project,
+        Err(error) => return db_error(error),
+    }) else {
+        return not_found("ontology project not found");
+    };
+
+    if let Err(error) = ensure_project_edit_access(&state.ontology_db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    if let Some(parent_folder_id) = body.parent_folder_id {
+        let Some(_) = (match load_project_folder(&state, project_id, parent_folder_id).await {
+            Ok(folder) => folder,
+            Err(error) => return db_error(error),
+        }) else {
+            return not_found("ontology project parent folder not found");
+        };
+    }
+
+    let mut tx = match state.ontology_db.begin().await {
+        Ok(tx) => tx,
+        Err(error) => return db_error(format!("failed to start ontology folder transaction: {error}")),
+    };
+
+    let folder = match insert_project_folder(&mut tx, project_id, claims.sub, &body).await {
+        Ok(folder) => folder,
+        Err(error) => return db_error(error),
+    };
+
+    match tx.commit().await {
+        Ok(_) => (StatusCode::CREATED, Json(folder)).into_response(),
+        Err(error) => db_error(format!("failed to commit ontology folder transaction: {error}")),
     }
 }
 
@@ -564,5 +751,36 @@ pub async fn unbind_project_resource(
         Err(error) => db_error(format!(
             "failed to unbind ontology resource from project: {error}"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{folder_slug_from_name, normalize_folder_name};
+
+    #[test]
+    fn normalizes_folder_names_with_collapsed_whitespace() {
+        assert_eq!(
+            normalize_folder_name("  Weekly   Reviews  ").expect("folder name"),
+            "Weekly Reviews"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_folder_names() {
+        assert!(normalize_folder_name("   ").is_err());
+    }
+
+    #[test]
+    fn builds_folder_slugs_from_human_readable_names() {
+        assert_eq!(
+            folder_slug_from_name("Weekly Reviews / Q2").expect("folder slug"),
+            "weekly-reviews-q2"
+        );
+    }
+
+    #[test]
+    fn rejects_folder_names_without_slug_characters() {
+        assert!(folder_slug_from_name("✨ / 🚀").is_err());
     }
 }

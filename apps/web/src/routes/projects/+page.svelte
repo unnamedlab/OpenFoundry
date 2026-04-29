@@ -3,22 +3,26 @@
   import Glyph from '$components/ui/Glyph.svelte';
   import {
     createProject,
+    listProjectFolders,
     listProjects,
+    type OntologyProjectFolder,
     type OntologyProject,
   } from '$lib/api/ontology';
+  import { listSpaces } from '$lib/api/nexus';
   import { notifications } from '$lib/stores/notifications';
+  import {
+    FALLBACK_SPACE_OPTIONS,
+    buildSpaceOptions,
+    getPreferredWorkspaceSlug,
+    resolveSelectedSpaceId,
+    resolveSpaceLabel as lookupSpaceLabel,
+    type SpaceOption,
+  } from '$lib/utils/projects-and-files';
   import { auth } from '$stores/auth';
 
   type WorkspaceView = 'all' | 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
   type WorkspaceKind = 'project' | 'portfolio' | 'file' | 'folder';
   type ProjectTemplateId = 'blank' | 'operations' | 'analytics' | 'ontology';
-
-  type SpaceOption = {
-    id: string;
-    label: string;
-    workspaceSlug: string;
-    description: string;
-  };
 
   type ProjectTemplate = {
     id: ProjectTemplateId;
@@ -69,27 +73,6 @@
     { id: 'your-files', label: 'Your files' },
     { id: 'shared', label: 'Shared with you' },
     { id: 'trash', label: 'Trash' },
-  ];
-
-  const spaceOptions: SpaceOption[] = [
-    {
-      id: 'operations',
-      label: 'Operations',
-      workspaceSlug: 'operations',
-      description: 'Shared space for operational workflows and secure project containers.',
-    },
-    {
-      id: 'data-platform',
-      label: 'Data Platform',
-      workspaceSlug: 'data-platform',
-      description: 'Central engineering space for data products, pipelines, and platform tools.',
-    },
-    {
-      id: 'research',
-      label: 'Research',
-      workspaceSlug: 'research',
-      description: 'Sandboxed space for experiments, notebooks, and exploratory delivery.',
-    },
   ];
 
   const projectTemplates: ProjectTemplate[] = [
@@ -211,9 +194,11 @@
   let error = $state('');
   let search = $state('');
   let activeView = $state<WorkspaceView>('all');
+  let activeSpaceFilter = $state('all');
   let filtersVisible = $state(true);
   let projects = $state<OntologyProject[]>([]);
-  let localFolders = $state<WorkspaceRow[]>([]);
+  let spaceOptions = $state<SpaceOption[]>(FALLBACK_SPACE_OPTIONS);
+  let folders = $state<OntologyProjectFolder[]>([]);
   let createdProjectMeta = $state<Record<string, ProjectMeta>>({});
   let createModalOpen = $state(false);
   let createStep = $state(1);
@@ -226,32 +211,37 @@
     starterFolderName: 'Learning',
   });
 
+  const preferredWorkspaceSlug = $derived.by(() => getPreferredWorkspaceSlug($currentUser?.attributes));
+  const creatableSpaceCount = $derived.by(() => spaceOptions.filter((option) => option.canCreateProject).length);
+  const canCreateProjects = $derived.by(() => creatableSpaceCount > 0);
   const selectedSpace = $derived.by(() => {
-    const match = spaceOptions.find((option) => option.id === draft.spaceId);
+    const selectedSpaceId = resolveSelectedSpaceId(spaceOptions, draft.spaceId, preferredWorkspaceSlug);
+    const match = spaceOptions.find((option) => option.id === selectedSpaceId);
     if (match) {
       return match;
     }
 
-    if (draft.spaceId) {
-      console.warn(`Unknown project space "${draft.spaceId}", falling back to a default space.`);
-    }
-
-    return (
-      spaceOptions.find((option) => option.id === $currentUser?.organization_id) ?? spaceOptions[0]
-    );
+    return spaceOptions[0] ?? FALLBACK_SPACE_OPTIONS[0];
   });
   const selectedTemplate = $derived.by(
     () => projectTemplates.find((option) => option.id === draft.templateId) ?? projectTemplates[0],
   );
+  const projectsById = $derived.by(() => new Map(projects.map((project) => [project.id, project])));
   const allRows = $derived.by(() => [
     ...projects.map((project) => mapProjectToRow(project)),
-    ...localFolders,
+    ...folders
+      .map((folder) => mapFolderToRow(folder))
+      .filter((row): row is WorkspaceRow => row !== null),
     ...staticRows,
   ]);
   const visibleRows = $derived.by(() => {
     const query = search.trim().toLowerCase();
     return allRows.filter((row) => {
       if (activeView !== 'all' && row.view !== activeView) {
+        return false;
+      }
+
+      if (activeSpaceFilter !== 'all' && row.spaceId !== activeSpaceFilter) {
         return false;
       }
 
@@ -278,6 +268,7 @@
   const activeFilterCount = $derived.by(() => {
     let count = 0;
     if (activeView !== 'all') count += 1;
+    if (activeSpaceFilter !== 'all') count += 1;
     if (search.trim().length > 0) count += 1;
     return count;
   });
@@ -293,7 +284,7 @@
   }
 
   function resolveSpaceLabel(spaceId: string) {
-    return spaceOptions.find((option) => option.id === spaceId)?.label ?? 'Operations';
+    return lookupSpaceLabel(spaceOptions, spaceId);
   }
 
   function inferProjectMeta(project: OntologyProject): ProjectMeta {
@@ -304,8 +295,9 @@
 
     const space =
       spaceOptions.find((option) => option.workspaceSlug === project.workspace_slug) ??
-      spaceOptions.find((option) => option.id === $currentUser?.organization_id) ??
-      spaceOptions[0];
+      spaceOptions.find((option) => option.workspaceSlug === preferredWorkspaceSlug) ??
+      spaceOptions[0] ??
+      FALLBACK_SPACE_OPTIONS[0];
 
     const description = project.description.toLowerCase();
     const template =
@@ -345,21 +337,28 @@
     };
   }
 
-  function createFolderRow(project: OntologyProject, folderName: string, meta: ProjectMeta): WorkspaceRow {
+  function mapFolderToRow(folder: OntologyProjectFolder): WorkspaceRow | null {
+    const project = projectsById.get(folder.project_id);
+    if (!project) {
+      return null;
+    }
+
+    const meta = inferProjectMeta(project);
     return {
-      id: `folder-${project.id}-${crypto.randomUUID()}`,
-      name: folderName,
+      id: `folder-${folder.id}`,
+      name: folder.name,
       kind: 'folder',
-      role: 'Owner',
+      role: project.owner_id === $currentUser?.id ? 'Owner' : 'Editor',
       tags: ['folder', 'starter'],
       portfolio:
         projectTemplates.find((option) => option.id === meta.templateId)?.suggestedPortfolio ??
         'General',
       views: 1,
-      modifiedAt: new Date().toISOString(),
+      modifiedAt: folder.updated_at,
       spaceId: meta.spaceId,
       view: 'all',
-      description: `Starter folder inside ${project.display_name || project.slug}.`,
+      description:
+        folder.description || `Starter folder inside ${project.display_name || project.slug}.`,
       location: `${resolveSpaceLabel(meta.spaceId)} / ${project.display_name || project.slug}`,
     };
   }
@@ -370,20 +369,50 @@
     try {
       const response = await listProjects({ page: 1, per_page: 100 });
       projects = response.data;
+      const folderGroups = await Promise.all(
+        response.data.map(async (project) => listProjectFolders(project.id).catch(() => [])),
+      );
+      folders = folderGroups.flat();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Unable to load projects';
       notifications.error(error);
       projects = [];
+      folders = [];
     } finally {
       loading = false;
     }
   }
 
+  async function loadSpaceOptions() {
+    try {
+      const response = await listSpaces();
+      const nextSpaceOptions = buildSpaceOptions(response.items, $currentUser);
+      spaceOptions = nextSpaceOptions;
+      const selectedSpaceId = resolveSelectedSpaceId(
+        nextSpaceOptions,
+        draft.spaceId,
+        preferredWorkspaceSlug,
+      );
+      if (selectedSpaceId !== draft.spaceId) {
+        draft = { ...draft, spaceId: selectedSpaceId };
+      }
+    } catch (cause) {
+      console.warn('Unable to load workspace spaces', cause);
+      spaceOptions = FALLBACK_SPACE_OPTIONS;
+      const selectedSpaceId = resolveSelectedSpaceId(
+        FALLBACK_SPACE_OPTIONS,
+        draft.spaceId,
+        preferredWorkspaceSlug,
+      );
+      if (selectedSpaceId !== draft.spaceId) {
+        draft = { ...draft, spaceId: selectedSpaceId };
+      }
+    }
+  }
+
   function resetDraft() {
     draft = {
-      spaceId:
-        spaceOptions.find((option) => option.id === $currentUser?.organization_id)?.id ??
-        spaceOptions[0].id,
+      spaceId: resolveSelectedSpaceId(spaceOptions, '', preferredWorkspaceSlug),
       templateId: 'operations',
       name: '',
       description: '',
@@ -396,6 +425,11 @@
   function openCreateProject() {
     if (!$isAuthenticated) {
       notifications.warning('Sign in to create a project.');
+      return;
+    }
+
+    if (!canCreateProjects) {
+      notifications.warning('No organization space currently allows project creation.');
       return;
     }
 
@@ -445,33 +479,52 @@
     const template =
       projectTemplates.find((option) => option.id === draft.templateId) ?? projectTemplates[0];
     const space = spaceOptions.find((option) => option.id === draft.spaceId) ?? spaceOptions[0];
+    if (!space?.canCreateProject) {
+      notifications.warning(
+        space?.createPermissionReason ?? 'You do not have permission to create a project in this space.',
+      );
+      return;
+    }
 
     loadingCreate = true;
     error = '';
 
     try {
+      const requestedFolders = draft.createStarterFolder
+        ? (() => {
+            const customName = draft.starterFolderName.trim();
+            const folderList =
+              customName.length > 0
+                ? [customName, ...template.starterFolders.filter((name) => name !== customName)]
+                : template.starterFolders;
+
+            return folderList.map((name) => ({
+              name,
+              description: `Starter folder inside ${trimmedName}.`,
+            }));
+          })()
+        : [];
+
       const created = await createProject({
         slug,
         display_name: trimmedName,
         description: draft.description.trim() || template.suggestedDescription,
         workspace_slug: space.workspaceSlug,
+        folders: requestedFolders,
       });
 
       const meta = { spaceId: space.id, templateId: template.id };
       createdProjectMeta = { ...createdProjectMeta, [created.id]: meta };
       projects = [created, ...projects];
 
-      if (draft.createStarterFolder) {
-        const customName = draft.starterFolderName.trim();
-        const folderList =
-          customName.length > 0
-            ? [customName, ...template.starterFolders.filter((name) => name !== customName)]
-            : template.starterFolders;
-
-        localFolders = [
-          ...folderList.map((folderName) => createFolderRow(created, folderName, meta)),
-          ...localFolders,
-        ];
+      if (requestedFolders.length > 0) {
+        try {
+          const persistedFolders = await listProjectFolders(created.id);
+          folders = [...persistedFolders, ...folders];
+        } catch (folderError) {
+          console.warn('Unable to reload persisted folders after project creation', folderError);
+          notifications.warning('Project created, but starter folders could not be refreshed yet.');
+        }
       }
 
       notifications.success(`Project ${created.display_name || created.slug} created.`);
@@ -503,6 +556,7 @@
 
   onMount(() => {
     resetDraft();
+    void loadSpaceOptions();
     void loadProjects();
   });
 </script>
@@ -547,7 +601,12 @@
         {/each}
       </div>
 
-      <button type="button" class="of-btn of-btn-primary" onclick={openCreateProject}>
+      <button
+        type="button"
+        class="of-btn of-btn-primary"
+        disabled={!canCreateProjects}
+        onclick={openCreateProject}
+      >
         <Glyph name="plus" size={14} />
         <span>New project</span>
       </button>
@@ -565,11 +624,17 @@
         <span>All files</span>
       </button>
 
-      <button type="button" class="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-[var(--text-default)] hover:bg-white">
+      <label class="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-[var(--text-default)] hover:bg-white">
         <Glyph name="folder" size={14} />
-        <span>All spaces</span>
+        <span class="sr-only">Filter by space</span>
+        <select bind:value={activeSpaceFilter} class="bg-transparent outline-none">
+          <option value="all">All spaces</option>
+          {#each spaceOptions as option}
+            <option value={option.id}>{option.label}</option>
+          {/each}
+        </select>
         <Glyph name="chevron-down" size={12} />
-      </button>
+      </label>
     </div>
   </div>
 
@@ -837,12 +902,21 @@
                 </label>
                 <select bind:value={draft.spaceId} class="of-select" id="project-space">
                   {#each spaceOptions as option}
-                    <option value={option.id}>{option.label}</option>
+                    <option disabled={!option.canCreateProject} value={option.id}>
+                      {option.label}{option.canCreateProject ? '' : ' — unavailable'}
+                    </option>
                   {/each}
                 </select>
                 <p class="m-0 mt-2 text-sm text-[var(--text-muted)]">
                   {selectedSpace.description}
                 </p>
+                <p class="m-0 mt-2 text-xs text-[var(--text-soft)]">
+                  {creatableSpaceCount} space{creatableSpaceCount === 1 ? '' : 's'} currently allow
+                  project creation. Spaces without access are disabled.
+                </p>
+                {#if !selectedSpace.canCreateProject && selectedSpace.createPermissionReason}
+                  <p class="m-0 mt-2 text-sm text-[#b42318]">{selectedSpace.createPermissionReason}</p>
+                {/if}
               </div>
 
               <div>
@@ -986,7 +1060,7 @@
           </div>
 
           <div class="rounded-md border border-[var(--border-default)] bg-white p-4 text-sm text-[var(--text-muted)]">
-            If you do not have permission to create a project yet, this flow makes the required fields explicit so the UI can be connected to permission checks later.
+            Project creation is limited to spaces your organization can actively use.
           </div>
         </aside>
       </div>
@@ -1017,9 +1091,17 @@
             <button
               type="button"
               class="of-btn of-btn-primary"
+              disabled={!selectedSpace.canCreateProject}
               onclick={() => {
                 if (!draft.name.trim()) {
                   notifications.warning('Add a project name before continuing.');
+                  return;
+                }
+                if (!selectedSpace.canCreateProject) {
+                  notifications.warning(
+                    selectedSpace.createPermissionReason ??
+                      'You do not have permission to create a project in this space.',
+                  );
                   return;
                 }
                 createStep = 2;

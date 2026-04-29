@@ -5,16 +5,74 @@ const demoUser = {
   email: 'operator@openfoundry.dev',
   name: 'OpenFoundry Operator',
   is_active: true,
-  roles: ['admin'],
+  roles: ['operator'],
   groups: ['platform'],
-  permissions: ['*'],
+  permissions: [],
   organization_id: 'org-1',
-  attributes: {},
+  attributes: { workspace: 'operations' },
   mfa_enabled: false,
   mfa_enforced: false,
   auth_source: 'local',
   created_at: '2026-01-01T00:00:00Z',
 };
+
+const demoSpaces = [
+  {
+    id: 'space-1',
+    slug: 'operations',
+    display_name: 'Operations Command',
+    description: 'Operational workspaces and secure project containers.',
+    space_kind: 'private',
+    owner_peer_id: demoUser.organization_id,
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-2',
+    slug: 'research',
+    display_name: 'Research Lab',
+    description: 'Experimental workspaces for exploratory teams.',
+    space_kind: 'private',
+    owner_peer_id: 'org-2',
+    region: 'eu-west-1',
+    member_peer_ids: [demoUser.organization_id],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-3',
+    slug: 'archive',
+    display_name: 'Archive Vault',
+    description: 'Archived space that should not accept new projects.',
+    space_kind: 'private',
+    owner_peer_id: 'org-9',
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'paused',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
+
+const demoProjects = [
+  {
+    id: 'project-1',
+    slug: 'ops-readiness',
+    display_name: 'Ops readiness',
+    description: 'Operations review workspace',
+    workspace_slug: 'operations',
+    owner_id: demoUser.id,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
 
 const demoDataset = {
   id: 'dataset-1',
@@ -212,6 +270,36 @@ export async function seedAuthenticatedSession(page: Page) {
 }
 
 export async function mockFrontendApis(page: Page) {
+  const projects = [...demoProjects];
+  const projectFolders = new Map<string, Array<{
+    id: string;
+    project_id: string;
+    parent_folder_id: string | null;
+    name: string;
+    slug: string;
+    description: string;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  }>>([
+    [
+      'project-1',
+      [
+        {
+          id: 'folder-1',
+          project_id: 'project-1',
+          parent_folder_id: null,
+          name: 'Planning',
+          slug: 'planning',
+          description: 'Starter folder inside Ops readiness.',
+          created_by: demoUser.id,
+          created_at: '2026-01-02T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
+      ],
+    ],
+  ]);
+
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -237,6 +325,59 @@ export async function mockFrontendApis(page: Page) {
 
     if (pathname === '/api/v1/users') {
       return json(route, [demoUser]);
+    }
+
+    if (pathname === '/api/v1/nexus/spaces') {
+      return json(route, { items: demoSpaces });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'GET') {
+      return json(route, { data: projects, total: projects.length, page: 1, per_page: 100 });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'POST') {
+      const body = request.postDataJSON() as {
+        slug: string;
+        display_name?: string;
+        description?: string;
+        workspace_slug?: string;
+        folders?: Array<{
+          name: string;
+          description?: string;
+          parent_folder_id?: string | null;
+        }>;
+      };
+      const created = {
+        id: `project-${projects.length + 1}`,
+        slug: body.slug,
+        display_name: body.display_name ?? body.slug,
+        description: body.description ?? '',
+        workspace_slug: body.workspace_slug ?? null,
+        owner_id: demoUser.id,
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z',
+      };
+      projects.unshift(created);
+      projectFolders.set(
+        created.id,
+        (body.folders ?? []).map((folder, index) => ({
+          id: `folder-${created.id}-${index + 1}`,
+          project_id: created.id,
+          parent_folder_id: folder.parent_folder_id ?? null,
+          name: folder.name,
+          slug: folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+          description: folder.description ?? '',
+          created_by: demoUser.id,
+          created_at: '2026-01-03T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z',
+        })),
+      );
+      return json(route, created, 201);
+    }
+
+    const projectFolderMatch = pathname.match(/^\/api\/v1\/ontology\/projects\/([^/]+)\/folders$/);
+    if (projectFolderMatch && request.method() === 'GET') {
+      return json(route, { data: projectFolders.get(projectFolderMatch[1]) ?? [] });
     }
 
     if (pathname === '/api/v1/datasets/catalog/facets') {
