@@ -140,29 +140,30 @@ pub async fn register(
             } else {
                 "viewer"
             };
-            let role_id = match sqlx::query_scalar::<_, Uuid>("SELECT id FROM roles WHERE name = $1")
-                .bind(role_name)
-                .fetch_optional(&mut *tx)
-                .await
-            {
-                Ok(Some(role_id)) => role_id,
-                Ok(None) => {
-                    tracing::error!("registration role {role_name} does not exist");
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({ "error": "registration failed" })),
-                    )
-                        .into_response();
-                }
-                Err(e) => {
-                    tracing::error!("failed to load role {role_name} during registration: {e}");
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({ "error": "registration failed" })),
-                    )
-                        .into_response();
-                }
-            };
+            let role_id =
+                match sqlx::query_scalar::<_, Uuid>("SELECT id FROM roles WHERE name = $1")
+                    .bind(role_name)
+                    .fetch_optional(&mut *tx)
+                    .await
+                {
+                    Ok(Some(role_id)) => role_id,
+                    Ok(None) => {
+                        tracing::error!("registration role {role_name} does not exist");
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": "registration failed" })),
+                        )
+                            .into_response();
+                    }
+                    Err(e) => {
+                        tracing::error!("failed to load role {role_name} during registration: {e}");
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": "registration failed" })),
+                        )
+                            .into_response();
+                    }
+                };
 
             let role_assigned = match sqlx::query(
                 r#"INSERT INTO user_roles (user_id, role_id)
