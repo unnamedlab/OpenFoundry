@@ -111,6 +111,11 @@ spec:
       log.retention.hours: 168
       num.partitions: 12
       compression.type: producer
+      # ---- Rack awareness / fetch-from-follower (see ADR-0012) ----
+      replica.selector.class: >-
+        org.apache.kafka.common.replica.RackAwareReplicaSelector
+    rack:
+      topologyKey: topology.kubernetes.io/zone
     storage:
       type: jbod
       volumes:

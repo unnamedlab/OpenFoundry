@@ -78,6 +78,29 @@ kubectl --dry-run=client apply -f apicurio-registry.yaml
 kubectl --dry-run=client apply -f network-policies.yaml
 ```
 
+## Rack/zone awareness and fetch-from-follower
+
+`kafka-cluster.yaml` configures `spec.kafka.rack.topologyKey:
+topology.kubernetes.io/zone`, so Strimzi injects each broker's failure-domain
+zone as its `broker.rack`. Combined with the existing pod
+`topologySpreadConstraints` on `topology.kubernetes.io/zone`, this guarantees
+that the three replicas of every partition land in distinct AZs, preserving
+the durability contract (`min.insync.replicas=2`,
+`default.replication.factor=3`, `unclean.leader.election.enable=false`) even
+when a whole zone fails.
+
+In addition, `replica.selector.class` is set to
+`org.apache.kafka.common.replica.RackAwareReplicaSelector`, which enables
+Kafka's *fetch-from-follower* path (KIP-392): consumers that advertise a
+`client.rack` matching a follower's rack will be served by that in-zone
+follower instead of the cross-AZ leader. This trims the consumer-tail latency
+budget allocated to Kafka in
+[`docs/architecture/adr/ADR-0012-data-plane-slos.md`](../../../docs/architecture/adr/ADR-0012-data-plane-slos.md)
+by removing inter-AZ hops on the hot read path, and it also reduces inter-AZ
+egress costs without compromising durability (writes still go to the leader
+and respect `acks=all` + `min.insync.replicas=2`). Storage, JBOD layout and
+listener/auth (SASL/TLS) configuration are intentionally untouched.
+
 ## Operating the cluster
 
 See [`infra/runbooks/kafka.md`](../../runbooks/kafka.md) for rolling upgrades,
