@@ -1,0 +1,30 @@
+# OpenFoundry — event-streaming-service routing table
+#
+# Declarative routes consumed by the routing facade. The first pattern that
+# matches a topic wins; if nothing matches and `default_backend` is set, the
+# default is used; otherwise the call returns INVALID_ARGUMENT.
+#
+# Pattern syntax follows NATS subject wildcards:
+#   *  matches one token (between dots)
+#   >  matches one or more trailing tokens (must be the last token)
+#
+# See docs/architecture/event-streaming-router.md for the full contract.
+
+default_backend: nats
+
+backends:
+  nats:
+    url: "nats://nats:4222"
+    stream: events
+  kafka:
+    brokers:
+      - "kafka:9092"
+    client_id: event-router
+
+routes:
+  - pattern: "ctrl.>"
+    backend: nats
+  - pattern: "signal.>"
+    backend: nats
+  - pattern: "data.>"
+    backend: kafka
