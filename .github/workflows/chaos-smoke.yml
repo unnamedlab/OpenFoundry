@@ -3,11 +3,6 @@ name: Chaos Smoke (Data Plane no-SPOF)
 # Suite de chaos cara: solo nightly + manual. Nunca en PRs.
 on:
   workflow_dispatch:
-    inputs:
-      kubeconfig_secret:
-        description: "Nombre del secret con el kubeconfig (opcional)"
-        required: false
-        default: ""
   schedule:
     # 04:17 UTC para no chocar con otros nightlies.
     - cron: "17 4 * * *"
@@ -32,17 +27,16 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Configure kubeconfig
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.kubeconfig_secret != '' }}
         env:
-          KUBECONFIG_DATA: ${{ secrets[inputs.kubeconfig_secret] }}
+          CHAOS_KUBECONFIG: ${{ secrets.CHAOS_KUBECONFIG }}
         run: |
           set -euo pipefail
-          if [[ -z "${KUBECONFIG_DATA:-}" ]]; then
-            echo "Secret '${{ inputs.kubeconfig_secret }}' vacío o inexistente" >&2
-            exit 1
+          if [[ -z "${CHAOS_KUBECONFIG:-}" ]]; then
+            echo "Secret CHAOS_KUBECONFIG no configurado; se asume kubeconfig presente en el runner" >&2
+            exit 0
           fi
           mkdir -p "$HOME/.kube"
-          printf '%s' "$KUBECONFIG_DATA" > "$HOME/.kube/config"
+          printf '%s' "$CHAOS_KUBECONFIG" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
       - name: Setup Rust toolchain

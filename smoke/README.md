@@ -61,7 +61,9 @@ bajo **cualquier** chaos.
 
 Está atada a `.github/workflows/chaos-smoke.yml`, que se ejecuta:
 
-- En `workflow_dispatch` (manual, opcionalmente con un secret de kubeconfig).
+- En `workflow_dispatch` (manual; opcionalmente con el secret de
+  repo/org `CHAOS_KUBECONFIG` para inyectar el kubeconfig del cluster
+  destino — si no está, se asume que el runner ya lo tiene configurado).
 - Nightly (`cron: "17 4 * * *"`).
 
 **No** corre en cada PR (es cara).
