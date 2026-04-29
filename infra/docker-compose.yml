@@ -290,14 +290,11 @@ services:
       HOST: 0.0.0.0
       PORT: 50113
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
-      NEXUS_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_nexus_service
       ONTOLOGY_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
     depends_on:
       postgres:
         condition: service_healthy
-      nexus-service:
-        condition: service_started
     ports:
       - "${OPENFOUNDRY_TENANCY_ORGANIZATIONS_HOST_PORT:-50113}:50113"
 
@@ -1931,31 +1928,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      nexus-service:
-        condition: service_started
       marketplace-catalog-service:
         condition: service_started
       product-distribution-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_FEDERATION_PRODUCT_EXCHANGE_HOST_PORT:-50120}:50120"
-
-  nexus-service:
-    <<: *app-common
-    profiles: *profiles-foundation
-    build:
-      context: ..
-      dockerfile: services/nexus-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50067
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_nexus_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_NEXUS_HOST_PORT:-50067}:50067"
 
   geospatial-intelligence-service:
     <<: *app-common
@@ -2172,7 +2150,6 @@ services:
       MARKETPLACE_CATALOG_SERVICE_URL: http://marketplace-catalog-service:50066
       PRODUCT_DISTRIBUTION_SERVICE_URL: http://product-distribution-service:50111
       FEDERATION_PRODUCT_EXCHANGE_SERVICE_URL: http://federation-product-exchange-service:50120
-      NEXUS_SERVICE_URL: http://nexus-service:50067
       GEOSPATIAL_INTELLIGENCE_SERVICE_URL: http://geospatial-intelligence-service:50068
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
       AUDIT_COMPLIANCE_SERVICE_URL: http://audit-compliance-service:50115
@@ -2329,8 +2306,6 @@ services:
       product-distribution-service:
         condition: service_started
       federation-product-exchange-service:
-        condition: service_started
-      nexus-service:
         condition: service_started
       geospatial-intelligence-service:
         condition: service_started

@@ -37,10 +37,6 @@ services:
     autoscaling:
       minReplicas: 2
       maxReplicas: 5
-  nexus-service:
-    autoscaling:
-      minReplicas: 2
-      maxReplicas: 4
   geospatial-intelligence-service:
     autoscaling:
       minReplicas: 2

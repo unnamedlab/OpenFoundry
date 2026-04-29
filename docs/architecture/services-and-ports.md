@@ -33,7 +33,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `report-service` | `50064` | Report generation and delivery |
 | `code-repo-service` | `50065` | Code repository APIs |
 | `marketplace-service` | `50066` | Marketplace and catalog APIs |
-| `nexus-service` | `50067` | Federation, sharing, and multi-org collaboration |
+| `federation-product-exchange-service` | `50120` | Federation, sharing, and multi-org collaboration |
 | `geospatial-service` | `50068` | Geospatial and mapping APIs |
 | `notification-alerting-service` | `50114` | Notification transport, inbox APIs, delivery channels, alerting, and websocket fanout |
 | `audit-service` | `50070` | Audit collection and export |
@@ -58,7 +58,7 @@ The gateway maps URL prefixes to backend services. Important examples:
 - `/api/v1/code-repos` -> `code-repo-service`
 - `/api/v1/marketplace` -> `marketplace-service`
 - `/api/v1/nexus/spaces` -> `tenancy-organizations-service`
-- `/api/v1/nexus` -> `nexus-service`
+- `/api/v1/nexus` -> `federation-product-exchange-service`
 
 ## Cross-Service Dependencies
 

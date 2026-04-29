@@ -126,7 +126,7 @@ spec:
             - name: GEOSPATIAL_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-intelligence-service" "port" 50068) | quote }}
             - name: NEXUS_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "nexus-service" "port" 50067) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "federation-product-exchange-service" "port" 50120) | quote }}
 {{- end }}
 {{- if eq $serviceName "pipeline-authoring-service" }}
             - name: DATASET_SERVICE_URL

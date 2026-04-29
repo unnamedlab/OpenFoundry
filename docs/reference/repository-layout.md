@@ -27,7 +27,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/geospatial-service` | geospatial APIs |
 | `services/code-repo-service` | repository APIs |
 | `services/marketplace-service` | marketplace APIs |
-| `services/nexus-service` | federation and sharing runtime outside tenancy-owned spaces |
+| `services/federation-product-exchange-service` | federation and sharing runtime outside tenancy-owned spaces |
 | `services/notification-alerting-service` | notifications |
 | `services/audit-service` | audit ingestion and export |
 

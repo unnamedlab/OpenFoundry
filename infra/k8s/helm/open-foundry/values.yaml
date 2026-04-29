@@ -288,34 +288,6 @@ services:
         cooldownPeriod: 120
         triggers: []
 
-  nexus-service:
-    enabled: true
-    image:
-      repository: ghcr.io/open-foundry/nexus-service
-      tag: latest
-    port: 50067
-    replicas: 2
-    env:
-      RUST_LOG: info
-    resources:
-      requests:
-        cpu: 250m
-        memory: 384Mi
-      limits:
-        cpu: "2"
-        memory: 2Gi
-    autoscaling:
-      enabled: true
-      minReplicas: 2
-      maxReplicas: 8
-      targetCPUUtilizationPercentage: 70
-      targetMemoryUtilizationPercentage: 75
-      keda:
-        enabled: false
-        pollingInterval: 15
-        cooldownPeriod: 120
-        triggers: []
-
   geospatial-intelligence-service:
     enabled: true
     image:

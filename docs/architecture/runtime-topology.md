@@ -28,7 +28,7 @@ Browser / API Client
         +--> ml-service
         +--> geospatial-service
         +--> report-service
-        +--> nexus-service
+        +--> federation-product-exchange-service
         +--> other bounded services
 ```
 
@@ -38,7 +38,7 @@ Browser / API Client
 | --- | --- |
 | Entry and experience | `gateway`, `app-builder-service`, `marketplace-service`, `notebook-runtime-service`, `document-reporting-service`, `notification-alerting-service` |
 | Data plane | `data-connector`, `dataset-service`, `pipeline-service`, `sql-bi-gateway-service`, `streaming-service`, `report-service`, `geospatial-service`, `fusion-service`, `workflow-automation-service` |
-| Governance and semantics | `auth-service`, `audit-service`, `ontology-service`, `nexus-service` |
+| Governance and semantics | `auth-service`, `audit-service`, `ontology-service`, `federation-product-exchange-service` |
 | Developer platform | `code-repo-service` |
 | AI and ML | `ai-service`, `ml-service` |
 
