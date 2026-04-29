@@ -5,19 +5,43 @@ The runtime shape of OpenFoundry is easiest to understand as a layered service m
 ## High-Level Flow
 
 ```text
-Browser / API Client
-        |
-        v
-  apps/web or external client
-        |
-        v
-   gateway (HTTP entrypoint)
+                                     External BI clients
+                                  (Tableau / Superset / JDBC / ODBC)
+                                              |
+                                              v
+                                   +----------------------+
+                                   |  Trino (edge BI)     |   <-- outside the
+                                   |  infra/k8s/trino     |       internal
+                                   |  Iceberg / PG / CH   |       fan-out;
+                                   |  ANSI-SQL only       |       see ADR-0009
+                                   +----------------------+
+                                              :
+                                              : (read-only catalog access:
+                                              :  Polaris/Iceberg, CNPG, Kafka,
+                                              :  ClickHouse — never internal RPC)
+                                              :
+Browser / API Client                          :
+        |                                     :
+        v                                     :
+  apps/web or external client                 :
+        |                                     :
+        v                                     :
+   gateway (HTTP entrypoint) -----------------+
         |
         +--> auth-service
         +--> data-connector
         +--> dataset-service
         +--> pipeline-service
-      +--> sql-bi-gateway-service
+        +--> sql-bi-gateway-service ===========> Flight SQL P2P fan-out
+        |        (edge SQL router)              (internal query fabric,
+        |                                        ADR-0009)
+        |                                          |
+        |                                          +--> sql-warehousing-service
+        |                                          |    (DataFusion / Iceberg,
+        |                                          |     Flight SQL :50123)
+        |                                          +--> ClickHouse (time-series)
+        |                                          +--> Vespa (search / hybrid)
+        |
         +--> streaming-service
         +--> ontology-definition-service
         +--> object-database-service
@@ -37,6 +61,12 @@ Browser / API Client
         +--> nexus-service
         +--> other bounded services
 ```
+
+> Trino is intentionally drawn **outside** the gateway fan-out: it is an
+> edge BI gateway for external JDBC/ODBC clients, not a participant in
+> service-to-service traffic. Internal services reach data through Flight
+> SQL P2P via `sql-bi-gateway-service` / `sql-warehousing-service` — see
+> [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
 
 ## Service Families
 

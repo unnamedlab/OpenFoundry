@@ -15,7 +15,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `ingestion-replication-service` | `50090` (HTTP REST) / `50091` (gRPC `IngestJobService`) | Sync jobs, batch and micro-batch ingestion, export flows, refresh policies, connector agents, and scheduler runtime |
 | `dataset-service` | `50053` | Datasets, versions, branches, filesystem, quality, linting |
 | `streaming-service` | `50054` | Streaming pipelines and archive management |
-| `sql-bi-gateway-service` | `50133` | Query execution surface and SQL/BI compatibility gateway |
+| `sql-bi-gateway-service` | `50133` | Edge SQL router for external BI traffic; fans out to `sql-warehousing-service`, ClickHouse and Vespa, and delegates to **Trino as the edge BI gateway** for external JDBC/ODBC clients. Internal service-to-service SQL uses Flight SQL P2P (see [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md)). |
 | `sql-warehousing-service` | `50123` (Flight SQL gRPC) / `50124` (HTTP `/healthz`) | SQL warehousing workflows, intermediate persistence and large-scale SQL transformations exposed as an Apache Arrow Flight SQL server backed by DataFusion |
 | `pipeline-service` | `50056` | Pipeline compatibility shell during service decomposition |
 | `pipeline-authoring-service` | `50080` | Pipeline definitions, validation, compilation, pruning, and executable plan generation |
