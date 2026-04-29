@@ -8,6 +8,8 @@ pub struct AppConfig {
     pub port: u16,
     pub database_url: String,
     pub jwt_secret: String,
+    #[serde(default)]
+    pub nats_url: Option<String>,
     pub smtp_host: Option<String>,
     pub smtp_port: Option<u16>,
     pub smtp_username: Option<String>,

@@ -5247,12 +5247,14 @@ dependencies = [
 name = "notification-alerting-service"
 version = "0.0.1"
 dependencies = [
+ "async-nats",
  "auth-middleware",
  "axum 0.8.9",
  "chrono",
  "config",
  "core-models",
  "event-bus",
+ "futures",
  "lettre",
  "reqwest",
  "serde",

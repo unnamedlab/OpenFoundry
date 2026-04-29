@@ -2,11 +2,12 @@ pub mod publisher;
 pub mod schemas;
 pub mod subscriber;
 pub mod topics;
-pub mod workflows;
 
 pub use publisher::Publisher;
 
-pub async fn connect(url: &str) -> Result<async_nats::jetstream::Context, async_nats::ConnectError> {
+pub async fn connect(
+    url: &str,
+) -> Result<async_nats::jetstream::Context, async_nats::ConnectError> {
     let client = async_nats::connect(url).await?;
     Ok(async_nats::jetstream::new(client))
 }

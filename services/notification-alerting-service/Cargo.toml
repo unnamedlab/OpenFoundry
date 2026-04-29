@@ -17,6 +17,9 @@ workspace = true
 [dependencies.auth-middleware]
 workspace = true
 
+[dependencies.async-nats]
+workspace = true
+
 [dependencies.axum]
 workspace = true
 
@@ -30,6 +33,9 @@ workspace = true
 workspace = true
 
 [dependencies.event-bus]
+workspace = true
+
+[dependencies.futures]
 workspace = true
 
 [dependencies.lettre]
