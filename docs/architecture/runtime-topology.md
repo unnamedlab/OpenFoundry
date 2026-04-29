@@ -1,8 +1,13 @@
 # Runtime Topology
 
-The runtime shape of OpenFoundry is easiest to understand as a layered service mesh behind a single gateway.
+The runtime shape of OpenFoundry is easiest to understand as a layered
+service mesh behind a single gateway, organised into **five target
+planes**: *storage*, *ingestion*, *compute*, *control* and *relational
+state*. Each plane has an owning ADR (0008–0012) that fixes its
+contracts, operators and SLOs; the diagram below replaces the older flat
+fan-out under `gateway` with that target shape.
 
-## High-Level Flow
+## High-Level Flow — target planes
 
 ```text
                                      External BI clients
@@ -10,14 +15,14 @@ The runtime shape of OpenFoundry is easiest to understand as a layered service m
                                               |
                                               v
                                    +----------------------+
-                                   |  Trino (edge BI)     |   <-- outside the
+                                   |  Trino (edge BI ONLY)|   <-- outside the
                                    |  infra/k8s/trino     |       internal
                                    |  Iceberg / PG / CH   |       fan-out;
                                    |  ANSI-SQL only       |       see ADR-0009
                                    +----------------------+
                                               :
                                               : (read-only catalog access:
-                                              :  Polaris/Iceberg, CNPG, Kafka,
+                                              :  Lakekeeper/Iceberg, CNPG, Kafka,
                                               :  ClickHouse — never internal RPC)
                                               :
 Browser / API Client                          :
@@ -28,45 +33,84 @@ Browser / API Client                          :
         v                                     :
    gateway (HTTP entrypoint) -----------------+
         |
-        +--> auth-service
-        +--> data-connector
-        +--> dataset-service
-        +--> pipeline-service
-        +--> sql-bi-gateway-service ===========> Flight SQL P2P fan-out
-        |        (edge SQL router)              (internal query fabric,
-        |                                        ADR-0009)
-        |                                          |
-        |                                          +--> sql-warehousing-service
-        |                                          |    (DataFusion / Iceberg,
-        |                                          |     Flight SQL :50123)
-        |                                          +--> ClickHouse (time-series)
-        |                                          +--> Vespa (search / hybrid)
+        |     ┌──────────────────────────── CONTROL PLANE ───────────────────────────┐
+        +---> │ identity-federation-service · auth-service ·                         │
+        |     │ tenancy-organizations-service · ontology-definition-service ·        │
+        |     │ ontology-actions-service · ontology-security-service ·               │
+        |     │ workflow-automation-service · pipeline-schedule-service ·            │
+        |     │ notification-alerting-service · audit-service                        │
+        |     │   ── async signalling on NATS JetStream (libs/event-bus-control)     │
+        |     │      governed by ADR-0011 contract lint; SLOs in ADR-0012            │
+        |     └──────────────────────────────────────────────────────────────────────┘
         |
-        +--> streaming-service
-        +--> ontology-definition-service
-        +--> object-database-service
-        +--> ontology-query-service
-        +--> ontology-actions-service
-        +--> ontology-security-service
-        +--> ontology-funnel-service
-        +--> ontology-functions-service
-        +--> audit-service
-        +--> app-builder-service
-        +--> code-repo-service
-        +--> marketplace-service
-        +--> ai-service
-        +--> ml-service
-        +--> geospatial-service
-        +--> report-service
-        +--> nexus-service
-        +--> other bounded services
+        |     ┌────────────────────────── INGESTION PLANE ───────────────────────────┐
+        +---> │ data-connector · connector-management-service ·                      │
+        |     │ ingestion-replication-service · streaming-service ·                  │
+        |     │ ontology-funnel-service                                              │
+        |     │   ── durable streams on Apache Kafka (libs/event-bus-data),          │
+        |     │      ack=all + idempotent producers; OpenLineage headers             │
+        |     │      → lands data into the storage plane                             │
+        |     └──────────────────────────────────────────────────────────────────────┘
+        |                                     │
+        |                                     v
+        |     ┌─────────────────────────── STORAGE PLANE ────────────────────────────┐
+        |     │ Object storage:  Rook Ceph (RBD-fast block + RGW S3 EC 4+2)          │
+        |     │ Lakehouse:       Apache Iceberg + Lakekeeper REST Catalog            │
+        |     │                   (single REST catalog — ADR-0008)                   │
+        |     │ Streaming log:   Apache Kafka (Strimzi, rack-aware)                  │
+        |     │ Time-series:     ClickHouse cluster (shards=2, replicas=3)           │
+        |     │ Search/hybrid:   Vespa (production) + Vespa Lite (DX, ADR-0007)      │
+        |     │ Embedded vec:    pgvector co-located with relational state           │
+        |     │ Maintenance:     Flink jobs for Iceberg rewrite / expire / orphans   │
+        |     └──────────────────────────────────────────────────────────────────────┘
+        |                ^                    ^                    ^
+        |                | (catalog/scan)     | (CDC/firehose)     | (writes)
+        |                |                    |                    |
+        |     ┌─────────────────────────── COMPUTE PLANE ────────────────────────────┐
+        +---> │ sql-bi-gateway-service  (edge SQL router, :50133)                    │
+        |     │   ├── sql-warehousing-service (DataFusion / Iceberg, Flight SQL P2P, │
+        |     │   │     :50123) — official internal compute pool (ADR-0009)          │
+        |     │   ├── ClickHouse  (time-series queries)                              │
+        |     │   ├── Vespa       (search / hybrid retrieval, ADR-0007)              │
+        |     │   └── Trino       (edge BI ONLY, never internal — ADR-0009)          │
+        |     │ ml-service · ai-service · ontology-functions-service ·               │
+        |     │ ontology-query-service · notebook-runtime-service ·                  │
+        |     │ report-service · geospatial-service · pipeline-build-service ·       │
+        |     │ pipeline-authoring-service · lineage-service                         │
+        |     │   ── service-to-service SQL travels exclusively over Flight SQL P2P  │
+        |     │      (ADR-0009); end-to-end latency budgets in ADR-0012              │
+        |     └──────────────────────────────────────────────────────────────────────┘
+        |
+        |     ┌──────────────────── RELATIONAL STATE PLANE ──────────────────────────┐
+        +---> │ Service-owned PostgreSQL databases, one per bounded service          │
+        |     │ Operator:  CloudNativePG (CNPG) — single Postgres operator           │
+        |     │            (ADR-0010), HA with synchronous replicas                  │
+        |     │ Backups:   barman-cloud → RGW (storage plane), PITR                  │
+        |     │ Extensions: pgvector for co-located embedded vector search           │
+        |     └──────────────────────────────────────────────────────────────────────┘
+        |
+        +---> other bounded services (app-builder-service, marketplace-service,
+              code-repo-service, fusion-service, document-reporting-service,
+              nexus-service, …) — each anchored to one of the five planes above.
 ```
 
-> Trino is intentionally drawn **outside** the gateway fan-out: it is an
-> edge BI gateway for external JDBC/ODBC clients, not a participant in
+> Trino is intentionally drawn **outside** the gateway fan-out and
+> **outside** the compute plane's internal lane: it is an *edge BI ONLY*
+> gateway for external JDBC/ODBC clients, not a participant in
 > service-to-service traffic. Internal services reach data through Flight
 > SQL P2P via `sql-bi-gateway-service` / `sql-warehousing-service` — see
 > [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
+
+### Plane → owning ADR
+
+| Plane                | Owning ADR(s)                                                                                                                                                                                                                       |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Storage**          | [ADR-0008 — Iceberg REST Catalog (Lakekeeper only)](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md)                                                                                                                              |
+| **Ingestion**        | [ADR-0011 — Control vs Data bus contract](./adr/ADR-0011-control-vs-data-bus-contract.md) (Kafka data plane)                                                                                                                        |
+| **Compute**          | [ADR-0009 — Internal query fabric: DataFusion + Flight SQL](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md)                                                                                                           |
+| **Control**          | [ADR-0011 — Control vs Data bus contract](./adr/ADR-0011-control-vs-data-bus-contract.md) (NATS JetStream control plane)                                                                                                            |
+| **Relational state** | [ADR-0010 — CloudNativePG as the single Postgres operator](./adr/ADR-0010-cnpg-postgres-operator.md)                                                                                                                                |
+| **Cross-plane SLOs** | [ADR-0012 — Data-plane SLOs, SLIs and error budgets](./adr/ADR-0012-data-plane-slos.md)                                                                                                                                             |
 
 ## Service Families
 
@@ -80,13 +124,24 @@ Browser / API Client                          :
 
 ## Shared Runtime Dependencies
 
-The repo and workflows indicate a consistent set of platform dependencies:
+The repo and workflows indicate a consistent set of platform dependencies,
+each anchored to one of the planes above:
 
-- Postgres for service-owned relational state
+- **Postgres** for service-owned relational state — provisioned and
+  operated exclusively through CloudNativePG, see
+  [ADR-0010](./adr/ADR-0010-cnpg-postgres-operator.md).
 - Redis for gateway-oriented caching and coordination
-- NATS for async messaging (control plane — see "Control vs Data" below)
-- Apache Kafka for high-throughput streaming (data plane — see "Control vs Data" below)
-- object storage for datasets, archives, reports, and repository payloads
+- **NATS JetStream** for async messaging (control plane — see
+  "Control vs Data" below and
+  [ADR-0011](./adr/ADR-0011-control-vs-data-bus-contract.md))
+- **Apache Kafka** for high-throughput streaming (data plane — see
+  "Control vs Data" below and
+  [ADR-0011](./adr/ADR-0011-control-vs-data-bus-contract.md))
+- **Object storage** for datasets, archives, reports, and repository
+  payloads — Rook Ceph (RBD-fast block + RGW S3 EC 4+2). The lakehouse
+  layer on top of this storage uses Apache Iceberg through a single
+  Lakekeeper REST Catalog, see
+  [ADR-0008](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
 - Vespa for production search **and** local DX (single-node
   `vespaengine/vespa` container in `infra/docker-compose.yml`); pgvector
   for embedded vector search co-located with relational state.
@@ -101,7 +156,12 @@ The CI smoke job creates multiple service-specific databases, which strongly sug
 
 Events on the platform travel over **two distinct buses**, each tuned for very
 different workloads. Services pick the one that matches the message they
-emit; many services touch both.
+emit; many services touch both. The contract that prevents accidental
+cross-plane coupling is enforced by `tools/bus-lint/check_bus.py` and
+formalised in
+[ADR-0011](./adr/ADR-0011-control-vs-data-bus-contract.md); end-to-end
+latency budgets for both buses live in
+[ADR-0012](./adr/ADR-0012-data-plane-slos.md).
 
 | Plane             | Crate                | Transport          | Latency  | Retention   | Throughput | Typical traffic                                                     |
 | ----------------- | -------------------- | ------------------ | -------- | ----------- | ---------- | ------------------------------------------------------------------- |

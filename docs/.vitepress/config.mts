@@ -21,6 +21,10 @@ export default defineConfig({
 
   ignoreDeadLinks: [
     /^https?:\/\/localhost/,
+    // Cross-monorepo links from docs/architecture/* into source code
+    // (libs/, tools/, services/, infra/, ...). VitePress cannot resolve
+    // files outside the docs/ root; these are intentional source references.
+    /(^|\/)\.\.\/\.\.\//,
   ],
 
   locales: {
