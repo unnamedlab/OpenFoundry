@@ -115,7 +115,6 @@
 /infra/                                         @open-foundry/platform-runtime
 /infra/docker-compose.dev.yml                   @open-foundry/platform-runtime
 /infra/docker-compose.yml                       @open-foundry/platform-runtime
-/infra/docker-compose.monitoring.yml            @open-foundry/platform-runtime @open-foundry/observability-team
 /infra/k8s/                                     @open-foundry/platform-runtime
 /infra/nginx/                                   @open-foundry/platform-runtime
 /infra/terraform/                               @open-foundry/platform-runtime @open-foundry/security-team

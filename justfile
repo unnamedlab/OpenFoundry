@@ -204,9 +204,10 @@ stack-up wave:
 infra-down:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down
 
-# Start with monitoring stack
-infra-up-full:
-    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml -f infra/docker-compose.monitoring.yml up -d
+# NOTE: `infra-up-full` (dev stack + monitoring) was removed because the
+# `infra/docker-compose.monitoring.yml` stub was empty and gave a false signal
+# of an existing monitoring stack. The recipe will be reintroduced as part of
+# the formal observability work (T17). See docs/observability/index.md.
 
 # Build all Docker images
 docker-build:

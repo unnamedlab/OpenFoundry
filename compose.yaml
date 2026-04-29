@@ -4,9 +4,11 @@
 # Delegates to the real compose files under infra/ via `include:`.
 #
 # Default stack: core platform (infra/docker-compose.yml).
-# To layer dev or monitoring extras, use:
+# To layer dev extras, use:
 #   docker compose -f compose.yaml -f infra/docker-compose.dev.yml up -d
-#   docker compose -f compose.yaml -f infra/docker-compose.monitoring.yml up -d
+#
+# A monitoring overlay will be reintroduced as part of the formal
+# observability work (T17). See docs/observability/index.md.
 
 include:
   - path: infra/docker-compose.yml
