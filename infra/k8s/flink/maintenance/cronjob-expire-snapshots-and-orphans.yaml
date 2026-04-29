@@ -86,9 +86,17 @@ spec:
                   # the FlinkDeployment CRD which has no strategic-merge
                   # patch metadata. Sentinel lives in
                   # `infra/k8s/flink/maintenance/expire-snapshots-and-orphans.yaml`.
-                  sed -E "s|value: \"[a-z]+\"([[:space:]]+# tier-override)|value: \"${TIER}\"\\1|g" \
+                  sed -E "s|value: \"[a-zA-Z0-9_-]+\"([[:space:]]+# tier-override)|value: \"${TIER}\"\\1|g" \
                     /manifests/expire-snapshots-and-orphans.yaml \
                     > /tmp/rendered.yaml
+                  # Fail loudly if the sentinel was not substituted (defends
+                  # against drift between this CronJob and the FlinkDeployment
+                  # manifest in the same directory).
+                  if ! grep -q "value: \"${TIER}\"  # tier-override" \
+                      /tmp/rendered.yaml; then
+                    echo "FATAL: tier-override sentinel not found after sed" >&2
+                    exit 2
+                  fi
                   kubectl -n flink apply -f /tmp/rendered.yaml
                   echo "[expire-snapshots:${TIER}] waiting for FINISHED..."
                   for _ in $(seq 1 360); do
@@ -181,9 +189,17 @@ spec:
                     --ignore-not-found --wait=true --timeout=10m
                   # See cronjob `iceberg-expire-snapshots-hot` above for the
                   # rationale of the sed-based templating approach.
-                  sed -E "s|value: \"[a-z]+\"([[:space:]]+# tier-override)|value: \"${TIER}\"\\1|g" \
+                  sed -E "s|value: \"[a-zA-Z0-9_-]+\"([[:space:]]+# tier-override)|value: \"${TIER}\"\\1|g" \
                     /manifests/expire-snapshots-and-orphans.yaml \
                     > /tmp/rendered.yaml
+                  # Fail loudly if the sentinel was not substituted (defends
+                  # against drift between this CronJob and the FlinkDeployment
+                  # manifest in the same directory).
+                  if ! grep -q "value: \"${TIER}\"  # tier-override" \
+                      /tmp/rendered.yaml; then
+                    echo "FATAL: tier-override sentinel not found after sed" >&2
+                    exit 2
+                  fi
                   kubectl -n flink apply -f /tmp/rendered.yaml
                   echo "[expire-snapshots:${TIER}] waiting for FINISHED..."
                   for _ in $(seq 1 720); do
