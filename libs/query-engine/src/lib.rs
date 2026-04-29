@@ -1,5 +1,7 @@
 //! OpenFoundry query engine: thin wrappers around DataFusion plus custom
 //! UDFs and table providers used across the data plane.
+//! Apache DataFusion wrappers, custom UDFs, and table providers used across
+//! OpenFoundry data-plane services.
 
 pub mod context;
 pub mod datasource;

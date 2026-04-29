@@ -57,6 +57,10 @@ optional = true
 workspace = true
 
 [dev-dependencies.tokio]
+[dev-dependencies.futures]
+workspace = true
+
+[dev-dependencies.prost]
 workspace = true
 
 [dev-dependencies.tokio-stream]
@@ -65,6 +69,13 @@ features = ["net"]
 
 [dev-dependencies.futures]
 workspace = true
+
+[dev-dependencies.tonic]
+workspace = true
+
+[features]
+default = ["flight-client"]
+flight-client = ["dep:arrow-flight", "dep:tonic", "dep:futures"]
 
 [lib]
 path = "src/lib.rs"
