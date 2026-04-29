@@ -1,0 +1,143 @@
+# Default values for the Apache Polaris Iceberg REST Catalog subchart.
+
+# Toggle the subchart from the parent chart (`icebergCatalog.enabled`) or
+# directly when installed standalone.
+enabled: true
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: apache/polaris
+  tag: "1.4.0"
+  pullPolicy: IfNotPresent
+
+adminTool:
+  # The official admin tool image used to bootstrap the realm and credentials
+  # before the server starts. Runs as a Helm pre-install/pre-upgrade hook Job.
+  repository: apache/polaris-admin-tool
+  tag: "1.4.0"
+  pullPolicy: IfNotPresent
+
+# HA defaults — no SPOF.
+replicaCount: 3
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Spread pods across nodes / zones to survive single-node and single-AZ loss.
+topologySpreadConstraints:
+  enabled: true
+  maxSkew: 1
+  whenUnsatisfiable: ScheduleAnyway
+
+podAntiAffinity:
+  enabled: true
+  type: preferred # or "required"
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+service:
+  type: ClusterIP
+  catalogPort: 8181
+  managementPort: 8182
+  annotations: {}
+
+# Realm / bootstrap configuration. The bootstrap Job will create the realm
+# and a root client credential pair on first install.
+realm:
+  name: openfoundry
+  rootClientId: root
+  # When `existingSecret` is empty a Secret is generated with this value.
+  # In production set `existingSecret` to a pre-provisioned Secret with key
+  # `client-secret` and leave `rootClientSecret` empty.
+  rootClientSecret: "change-me"
+  existingSecret: ""
+
+# Persistence (relational-jdbc against PostgreSQL).
+persistence:
+  type: relational-jdbc
+
+# PostgreSQL configuration. Two modes:
+#   1. cnpg.enabled=true  — render a CloudNativePG `Cluster` CR (operator
+#      must be installed cluster-wide). HA Postgres with the cluster's
+#      `-rw` service is used as JDBC endpoint.
+#   2. cnpg.enabled=false — point at an existing PostgreSQL via `external`.
+postgres:
+  database: openfoundry_iceberg_catalog
+  username: polaris
+  # When `existingSecret` is empty, a Secret is created with this password.
+  password: "change-me"
+  existingSecret: ""
+  passwordSecretKey: password
+
+  cnpg:
+    enabled: false
+    instances: 3
+    storage:
+      size: 20Gi
+      storageClass: ""
+    # Image used by the CloudNativePG operator for the Postgres pods.
+    imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+    # Optional resource block applied to each Postgres instance.
+    resources: {}
+
+  external:
+    # Used when cnpg.enabled is false. Either set `jdbcUrl` directly or
+    # provide `host`/`port` and the chart will compose the URL.
+    jdbcUrl: ""
+    host: postgres
+    port: 5432
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+probes:
+  readiness:
+    enabled: true
+    path: /q/health/ready
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  liveness:
+    enabled: true
+    path: /q/health/live
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+podSecurityContext:
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  readOnlyRootFilesystem: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra environment variables applied to the Polaris container.
+extraEnv: []
+
+podAnnotations: {}
+podLabels: {}
