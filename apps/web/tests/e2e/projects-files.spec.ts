@@ -18,6 +18,10 @@ test.describe('projects and files flow', () => {
     await page.getByRole('button', { name: 'New project' }).click();
     await expect(page.getByRole('heading', { name: 'Create a project' })).toBeVisible();
     await expect(page.getByLabel('Organization space')).toHaveValue('operations');
+    await expect(page.locator('#project-space option[value="archive"]')).toBeDisabled();
+    await expect(
+      page.getByText('Spaces without access are disabled.'),
+    ).toBeVisible();
 
     await page.getByLabel('Organization space').selectOption('research');
     await page.getByLabel('Project name').fill('Learning');

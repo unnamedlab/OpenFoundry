@@ -210,6 +210,8 @@
   });
 
   const preferredWorkspaceSlug = $derived.by(() => getPreferredWorkspaceSlug($currentUser?.attributes));
+  const creatableSpaceCount = $derived.by(() => spaceOptions.filter((option) => option.canCreateProject).length);
+  const canCreateProjects = $derived.by(() => creatableSpaceCount > 0);
   const selectedSpace = $derived.by(() => {
     const selectedSpaceId = resolveSelectedSpaceId(spaceOptions, draft.spaceId, preferredWorkspaceSlug);
     const match = spaceOptions.find((option) => option.id === selectedSpaceId);
@@ -367,7 +369,7 @@
   async function loadSpaceOptions() {
     try {
       const response = await listSpaces();
-      const nextSpaceOptions = buildSpaceOptions(response.items);
+      const nextSpaceOptions = buildSpaceOptions(response.items, $currentUser);
       spaceOptions = nextSpaceOptions;
       const selectedSpaceId = resolveSelectedSpaceId(
         nextSpaceOptions,
@@ -406,6 +408,11 @@
   function openCreateProject() {
     if (!$isAuthenticated) {
       notifications.warning('Sign in to create a project.');
+      return;
+    }
+
+    if (!canCreateProjects) {
+      notifications.warning('No organization space currently allows project creation.');
       return;
     }
 
@@ -455,6 +462,12 @@
     const template =
       projectTemplates.find((option) => option.id === draft.templateId) ?? projectTemplates[0];
     const space = spaceOptions.find((option) => option.id === draft.spaceId) ?? spaceOptions[0];
+    if (!space?.canCreateProject) {
+      notifications.warning(
+        space?.createPermissionReason ?? 'You do not have permission to create a project in this space.',
+      );
+      return;
+    }
 
     loadingCreate = true;
     error = '';
@@ -558,7 +571,12 @@
         {/each}
       </div>
 
-      <button type="button" class="of-btn of-btn-primary" onclick={openCreateProject}>
+      <button
+        type="button"
+        class="of-btn of-btn-primary"
+        disabled={!canCreateProjects}
+        onclick={openCreateProject}
+      >
         <Glyph name="plus" size={14} />
         <span>New project</span>
       </button>
@@ -854,12 +872,21 @@
                 </label>
                 <select bind:value={draft.spaceId} class="of-select" id="project-space">
                   {#each spaceOptions as option}
-                    <option value={option.id}>{option.label}</option>
+                    <option disabled={!option.canCreateProject} value={option.id}>
+                      {option.label}{option.canCreateProject ? '' : ' — unavailable'}
+                    </option>
                   {/each}
                 </select>
                 <p class="m-0 mt-2 text-sm text-[var(--text-muted)]">
                   {selectedSpace.description}
                 </p>
+                <p class="m-0 mt-2 text-xs text-[var(--text-soft)]">
+                  {creatableSpaceCount} space{creatableSpaceCount === 1 ? '' : 's'} currently allow
+                  project creation. Spaces without access are disabled.
+                </p>
+                {#if !selectedSpace.canCreateProject && selectedSpace.createPermissionReason}
+                  <p class="m-0 mt-2 text-sm text-[#b42318]">{selectedSpace.createPermissionReason}</p>
+                {/if}
               </div>
 
               <div>
@@ -1003,7 +1030,7 @@
           </div>
 
           <div class="rounded-md border border-[var(--border-default)] bg-white p-4 text-sm text-[var(--text-muted)]">
-            If you do not have permission to create a project yet, this flow makes the required fields explicit so the UI can be connected to permission checks later.
+            Project creation is limited to spaces your organization can actively use.
           </div>
         </aside>
       </div>
@@ -1034,9 +1061,17 @@
             <button
               type="button"
               class="of-btn of-btn-primary"
+              disabled={!selectedSpace.canCreateProject}
               onclick={() => {
                 if (!draft.name.trim()) {
                   notifications.warning('Add a project name before continuing.');
+                  return;
+                }
+                if (!selectedSpace.canCreateProject) {
+                  notifications.warning(
+                    selectedSpace.createPermissionReason ??
+                      'You do not have permission to create a project in this space.',
+                  );
                   return;
                 }
                 createStep = 2;
