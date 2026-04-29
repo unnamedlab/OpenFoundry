@@ -2,123 +2,91 @@
 
 Semantic search is the part of the ontology stack that helps users retrieve meaning, not just keywords.
 
-In a mature platform, it becomes most valuable when the retrieved text is tied back to governed objects, links, workflows, and permissions.
+In OpenFoundry, all hot-path search is served from **read-model projections** maintained by `ontology-query-service`. No search or KNN request scans the transactional `object_instances` table at serving time.
 
-## Two search surfaces already visible in OpenFoundry
+## Architecture of the search plane
 
-The repository already suggests two complementary search paths.
+Search results are served from two projection tables owned by `ontology-query-service`:
 
-### 1. Ontology search
+| Projection | What it stores |
+|---|---|
+| `query.search_document` | One row per object / type / interface / link / action / function / object-set: normalised `tsvector` for lexical search, an embedding vector for semantic recall, routing metadata, and security fields for pushdown filtering. GIN-indexed on `tsvector`. |
+| `query.knn_vectors` | Per-property embedding vectors (`object_id`, `object_type_id`, `property_name`, `embedding`) with a pgvector HNSW or IVFFlat index for approximate nearest-neighbour lookup. |
 
-`services/ontology-service/src/domain/search/mod.rs` already combines:
+Both projections are maintained by NATS JetStream consumers that process events emitted by `object-database-service` after every mutation. Projection freshness is near-real-time (milliseconds to low seconds).
 
-- full-text scoring
-- semantic candidate recall
-- provider-backed semantic reranking
-- fusion strategies (`rrf` and `weighted`)
-- title bonus logic
-- ranking and truncation
+Security visibility is applied as a **pushdown filter** from `query.policy_visibility` (compiled policy bundles), never by fetching objects and then filtering afterwards.
 
-This is still not a full vector-native ontology search engine, but it is now a real hybrid retrieval path instead of simple keyword matching plus a lightweight local similarity hint.
+## Hybrid search path
 
-### 2. Knowledge-base retrieval in `ai-service`
+`ontology-query-service` endpoint: `POST /api/v1/ontology/search`
 
-`services/ai-service/src/handlers/knowledge.rs` and the `rag` domain show a second, more RAG-oriented path:
+Combines:
 
-- knowledge base creation
-- document ingestion
-- embedding provider selection
-- chunk indexing
+1. Full-text scoring (`tsvector` + GIN index on `query.search_document`)
+2. Semantic candidate recall (embedding column on `query.search_document`, provider-backed or deterministic-hash fallback)
+3. Provider-backed semantic reranking (when `SEARCH_EMBEDDING_PROVIDER` is configured)
+4. Fusion strategies: `rrf` (reciprocal rank fusion) or `weighted`
+5. Title bonus logic
+6. Policy pushdown from `query.policy_visibility`
+
+This is a real hybrid retrieval path, not simple keyword matching plus a local similarity hint. The entire path runs against projections; the transactional store is not consulted.
+
+## KNN on ontology object types
+
+`ontology-query-service` endpoint: `POST /api/v1/ontology/types/{type_id}/objects/knn`
+
+Object properties declared with property type `vector` store numeric arrays as embeddings. KNN queries run against `query.knn_vectors`, not against `object_instances`.
+
+Query parameters:
+
+- `query_vector` or `anchor_object_id`
+- `metric`: `cosine`, `dot_product`, or `euclidean`
+- `limit` and optional property filter
+
+This surface is exposed to callers beyond raw HTTP:
+
+- the web client: `knnObjects(...)`
+- the TypeScript SDK: `sdk.ontology.knnObjects(...)`
+- the Python SDK: `sdk.ontology.knn_objects(...)`
+
+## Knowledge-base retrieval in `ai-service`
+
+`ai-service` maintains a separate RAG-oriented retrieval path via `knowledge-index-service` and `retrieval-context-service`:
+
+- knowledge base creation and document ingestion
+- embedding provider selection and chunk indexing
 - embedding-based retrieval
 
-This makes the current platform shape especially interesting: one search surface is close to ontology objects, and another is close to AI knowledge workflows.
-
-## Vector properties and KNN on ontology objects
-
-OpenFoundry now also exposes a direct KNN surface over ontology object types when a property is explicitly modeled as `vector`.
-
-The shape is straightforward:
-
-- object properties can use the `vector` property type
-- object instances can store numeric arrays in those properties
-- `ontology-service` exposes `POST /api/v1/ontology/types/{type_id}/objects/knn`
-- callers can query by `query_vector` or by `anchor_object_id`
-- the service supports `cosine`, `dot_product`, and `euclidean` metrics
-
-This is different from the hybrid text search path. Hybrid search starts from text and embeddings. KNN starts from a vector-valued object property and returns nearest ontology objects of the same type.
-
-It is also visible beyond raw HTTP:
-
-- the web client exposes a typed `knnObjects(...)` helper
-- the function runtime SDK exposes `sdk.ontology.knnObjects(...)` in TypeScript and `sdk.ontology.knn_objects(...)` in Python
-
-That matters because the capability is no longer just an internal primitive. It is part of the ontology application surface.
+This path is document-oriented and distinct from ontology-object search. The two surfaces are intentionally separate: `ontology-query-service` owns semantic retrieval over governed ontology objects; `ai-service` owns document-oriented embedding workflows.
 
 ## End-to-end semantic workflow
 
-A practical semantic-search architecture usually looks like this:
+```
+ingest (funnel / actions)
+  └─► object-database-service (writes current state + outbox)
+        └─► NATS JetStream
+              ├─► query.search_document projection consumer
+              │     └─► embed → store (tsvector + vector)
+              └─► query.knn_vectors projection consumer
+                    └─► store embedding by property
 
-1. ingest documents or long-form text
-2. normalize and chunk the content
-3. create embeddings
-4. retrieve candidate chunks
-5. rank them against the user query
-6. connect them back to operational entities
-7. enforce visibility and policy before showing results
+search request
+  └─► ontology-query-service
+        ├─ policy pushdown (query.policy_visibility)
+        ├─ lexical recall (tsvector GIN on query.search_document)
+        ├─ semantic recall (pgvector on query.search_document)
+        ├─ reranking + fusion
+        └─ return ranked results
+```
 
-OpenFoundry already has parts of this flow in place, but distributed across services.
+## Design rules
 
-## OpenFoundry mapping
-
-The most relevant repository signals are:
-
-- `services/ontology-service/src/domain/search/mod.rs`
-- `services/ontology-service/src/domain/search/semantic.rs`
-- `services/ontology-service/src/handlers/search.rs`
-- `services/ai-service/src/handlers/knowledge.rs`
-- `services/ai-service/src/domain/rag/*`
-- `libs/vector-store`
-
-This suggests the following conceptual split:
-
-- ontology-service owns user-facing semantic retrieval over ontology-shaped content
-- ai-service owns document-oriented embedding and retrieval workflows
-- vector-store can become the lower-level storage abstraction for future ANN or vector-native indexing
-
-## What the current implementation already does well
-
-The repo already shows several good design instincts:
-
-- semantic search is optional per request
-- ranking combines lexical and semantic relevance instead of treating them as mutually exclusive
-- hybrid search can use provider-backed embeddings when `ontology-service` is configured with `search_embedding_provider=provider:<uuid>`
-- ontology objects can now carry explicit `vector` properties for nearest-neighbor retrieval
-- KNN is available as a first-class object query path, not only as a lower-level library concern
-- knowledge bases track embedding providers explicitly
-- retrieval is already modeled as a reusable domain concern
-
-These are all strong signs that search is being treated as a platform capability rather than as a UI-only feature.
-
-## Design guidance for OpenFoundry
-
-If this area keeps evolving, the most useful path is:
-
-1. Treat chunking as a first-class ingestion step, not a UI concern.
-2. Keep semantic retrieval permission-aware from the start.
-3. Distinguish clearly between object search and document search.
-4. Prefer hybrid ranking over purely lexical or purely semantic ranking.
-5. Ground search results in object views, workflows, or actions whenever possible.
-6. Expose the same retrieval logic to functions, apps, and agents so the platform has one search brain instead of several disconnected ones.
-
-## Current gaps
-
-Compared with a more complete ontology-semantic platform, the current repository still appears partial in these areas:
-
-- no clear multimodal retrieval path
-- no dedicated chunking policy model in ontology-service
-- no end-to-end permission-aware search contract shared across ontology and AI surfaces
-
-Also worth noting: `services/ontology-service/src/domain/search/semantic.rs` still keeps the deterministic hash embedder as a fallback path. The important change is that it is no longer the only semantic signal available to ontology search.
+1. Search and KNN endpoints are always "hot" — they must read from projections, never from `object_instances`.
+2. Security is always applied as a pushdown filter compiled from policy bundles, before any result is returned.
+3. Hybrid ranking (lexical + semantic) is the default; neither pure lexical nor pure vector-only is acceptable for the general search surface.
+4. The same retrieval logic is exposed to functions, apps, and agents so the platform has one search plane.
+5. Chunking and document ingestion for AI workflows is owned by `ai-service`, not by the ontology search path.
 
 ## Related pages
 

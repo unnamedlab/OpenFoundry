@@ -1,0 +1,251 @@
+syntax = "proto3";
+package open_foundry.ontology;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Security service — owned by ontology-security-service (port 50109).
+//
+// Responsible for:
+// - Compiling governance rules into versioned, cacheable policy bundles.
+// - Resolving user clearance, markings, restricted views, and role-based
+//   permissions into pushdown-ready visibility filters.
+// - Distributing bundles to data-plane cells over NATS JetStream.
+// - Serving a decision cache so policy decisions are fast and available
+//   without calling back to the control plane on the hot path.
+//
+// Contract invariant:
+//   Security decisions are ALWAYS pushdown filters derived from compiled
+//   bundles. No service may fetch a full object set and then filter it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service OntologySecurityService {
+  // ── Policy bundle management ───────────────────────────────
+  // Trigger compilation and publication of a new policy bundle for an org.
+  rpc CompileAndPublishPolicyBundle(CompileAndPublishPolicyBundleRequest) returns (PolicyBundlePublishedResponse);
+
+  // Get the currently active policy bundle for an org/cell.
+  rpc GetActivePolicyBundle(GetActivePolicyBundleRequest) returns (PolicyBundle);
+
+  // List available bundle versions for an org.
+  rpc ListPolicyBundleVersions(ListPolicyBundleVersionsRequest) returns (ListPolicyBundleVersionsResponse);
+
+  // ── Visibility filters ─────────────────────────────────────
+  // Resolve a compiled visibility filter for a given caller identity.
+  // Returns a SQL-compatible filter expression or a structured predicate tree
+  // that can be pushed down into query.policy_visibility reads.
+  rpc ResolveVisibilityFilter(ResolveVisibilityFilterRequest) returns (VisibilityFilter);
+
+  // ── Decision cache ─────────────────────────────────────────
+  // Check whether a specific caller may perform an operation on an entity.
+  // Results are cached in Redis and derived from the active policy bundle.
+  rpc CheckPermission(CheckPermissionRequest) returns (PermissionDecision);
+
+  // Batch permission check for performance-sensitive callers.
+  rpc BatchCheckPermissions(BatchCheckPermissionsRequest) returns (BatchCheckPermissionsResponse);
+
+  // ── Rule definition management ────────────────────────────
+  rpc CreateRule(CreateRuleRequest) returns (OntologyRule);
+  rpc GetRule(GetRuleRequest) returns (OntologyRule);
+  rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+  rpc UpdateRule(UpdateRuleRequest) returns (OntologyRule);
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Policy bundle
+//
+// A PolicyBundle is a compiled, versioned snapshot of all access rules for a
+// given org. It is published to NATS JetStream subject `policy.bundle.{org_id}`
+// so every data-plane cell can cache it locally and apply it without calling
+// back to the security service on the hot path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+message PolicyBundle {
+  string bundle_id = 1;
+  string version = 2;
+  open_foundry.common.Uuid org_id = 3;
+  // JSON-encoded compiled rule set
+  string compiled_rules_json = 4;
+  // JSON-encoded marking hierarchy
+  string marking_hierarchy_json = 5;
+  // JSON-encoded restricted-view definitions
+  string restricted_views_json = 6;
+  // JSON-encoded role → capabilities map
+  string role_capabilities_json = 7;
+  google.protobuf.Timestamp compiled_at = 8;
+  google.protobuf.Timestamp valid_until = 9;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Visibility filter
+//
+// A VisibilityFilter is a pushdown predicate derived from the active policy
+// bundle for a specific caller identity. Query and actions services apply it
+// against query.policy_visibility without re-evaluating raw rules.
+// ─────────────────────────────────────────────────────────────────────────────
+
+message VisibilityFilter {
+  open_foundry.common.Uuid caller_id = 1;
+  open_foundry.common.Uuid org_id = 2;
+  // SQL-compatible WHERE clause fragment (parameterised)
+  string sql_predicate = 3;
+  // Structured predicate for non-SQL consumers
+  repeated VisibilityPredicate predicates = 4;
+  // Effective markings this caller can see
+  repeated string allowed_markings = 5;
+  // Restricted-view IDs this caller is enrolled in
+  repeated open_foundry.common.Uuid restricted_view_ids = 6;
+  // Projects this caller can access
+  repeated open_foundry.common.Uuid allowed_project_ids = 7;
+  google.protobuf.Timestamp resolved_at = 8;
+  // Cache TTL hint
+  int32 ttl_seconds = 9;
+}
+
+message VisibilityPredicate {
+  string field = 1;
+  string operator = 2;   // "in" | "eq" | "not_in" | "is_null"
+  repeated string values = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Permission decision
+// ─────────────────────────────────────────────────────────────────────────────
+
+message PermissionDecision {
+  open_foundry.common.Uuid caller_id = 1;
+  string action = 2;
+  open_foundry.common.Uuid resource_id = 3;
+  string resource_type = 4;
+  bool allowed = 5;
+  string denial_reason = 6;
+  string policy_rule_id = 7;
+  google.protobuf.Timestamp decided_at = 8;
+  bool from_cache = 9;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rule definition
+// ─────────────────────────────────────────────────────────────────────────────
+
+message OntologyRule {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  string name = 3;
+  string description = 4;
+  string rule_type = 5;   // "visibility" | "edit" | "action_gate" | "marking_override"
+  // JSON-encoded rule condition
+  string condition_json = 6;
+  // JSON-encoded rule effect
+  string effect_json = 7;
+  bool enabled = 8;
+  open_foundry.common.Uuid owner_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Request / response messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Policy bundle
+message CompileAndPublishPolicyBundleRequest {
+  open_foundry.common.Uuid org_id = 1;
+  // If true, also push the new bundle to all registered cells via NATS
+  bool broadcast_to_cells = 2;
+}
+
+message PolicyBundlePublishedResponse {
+  string bundle_id = 1;
+  string version = 2;
+  int32 cells_notified = 3;
+  google.protobuf.Timestamp published_at = 4;
+}
+
+message GetActivePolicyBundleRequest {
+  open_foundry.common.Uuid org_id = 1;
+}
+
+message ListPolicyBundleVersionsRequest {
+  open_foundry.common.Uuid org_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListPolicyBundleVersionsResponse {
+  repeated PolicyBundleVersionSummary versions = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message PolicyBundleVersionSummary {
+  string bundle_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp compiled_at = 3;
+  bool is_active = 4;
+}
+
+// Visibility filter
+message ResolveVisibilityFilterRequest {
+  open_foundry.common.Uuid caller_id = 1;
+  open_foundry.common.Uuid org_id = 2;
+  // Optional: narrow to a specific object type
+  open_foundry.common.Uuid object_type_id = 3;
+}
+
+// Permission check
+message CheckPermissionRequest {
+  open_foundry.common.Uuid caller_id = 1;
+  string action = 2;
+  open_foundry.common.Uuid resource_id = 3;
+  string resource_type = 4;
+  open_foundry.common.Uuid org_id = 5;
+}
+
+message BatchCheckPermissionsRequest {
+  repeated CheckPermissionRequest requests = 1;
+}
+
+message BatchCheckPermissionsResponse {
+  repeated PermissionDecision decisions = 1;
+}
+
+// Rules
+message CreateRuleRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  string name = 2;
+  string description = 3;
+  string rule_type = 4;
+  string condition_json = 5;
+  string effect_json = 6;
+}
+
+message GetRuleRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListRulesRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  string rule_type_filter = 2;
+  open_foundry.common.PageRequest pagination = 3;
+}
+
+message ListRulesResponse {
+  repeated OntologyRule rules = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateRuleRequest {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+  string condition_json = 4;
+  string effect_json = 5;
+  bool enabled = 6;
+}
+
+message DeleteRuleRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteRuleResponse {}

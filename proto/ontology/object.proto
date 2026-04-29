@@ -1,0 +1,252 @@
+syntax = "proto3";
+package open_foundry.ontology;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Write-authority service — owned by object-database-service (port 50104).
+//
+// This is the single write authority for object and link instances.
+// Every mutation writes current state + revision + outbox row atomically.
+// No other service writes to object_instances or link_instances.
+//
+// Outbox events (ObjectUpserted, ObjectDeleted, LinkUpserted, LinkDeleted)
+// are published to NATS JetStream and consumed by ontology-query-service to
+// maintain read-model projections.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service ObjectDatabaseService {
+  // ── Object instances ───────────────────────────────────────
+  rpc UpsertObject(UpsertObjectRequest) returns (ObjectInstance);
+  rpc GetObject(GetObjectRequest) returns (ObjectInstance);
+  rpc DeleteObject(DeleteObjectRequest) returns (DeleteObjectResponse);
+  rpc BatchUpsertObjects(BatchUpsertObjectsRequest) returns (BatchUpsertObjectsResponse);
+
+  // ── Link instances ─────────────────────────────────────────
+  rpc UpsertLink(UpsertLinkRequest) returns (LinkInstance);
+  rpc GetLink(GetLinkRequest) returns (LinkInstance);
+  rpc DeleteLink(DeleteLinkRequest) returns (DeleteLinkResponse);
+  rpc BatchUpsertLinks(BatchUpsertLinksRequest) returns (BatchUpsertLinksResponse);
+
+  // ── Revision history (append-only, for audit and replay) ──
+  rpc ListObjectRevisions(ListObjectRevisionsRequest) returns (ListObjectRevisionsResponse);
+  rpc ListLinkRevisions(ListLinkRevisionsRequest) returns (ListLinkRevisionsResponse);
+
+  // ── Outbox relay health ────────────────────────────────────
+  rpc GetOutboxLag(GetOutboxLagRequest) returns (OutboxLagResponse);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core instance types
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ObjectInstance {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  // JSON-encoded property map
+  string properties_json = 3;
+  open_foundry.common.Uuid org_id = 4;
+  string marking = 5;
+  open_foundry.common.Uuid project_id = 6;
+  open_foundry.common.Uuid created_by = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  // Optimistic concurrency version, incremented on every write
+  int64 version = 10;
+}
+
+message LinkInstance {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid link_type_id = 2;
+  open_foundry.common.Uuid source_object_id = 3;
+  open_foundry.common.Uuid target_object_id = 4;
+  // JSON-encoded property map
+  string properties_json = 5;
+  open_foundry.common.Uuid created_by = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // Optimistic concurrency version
+  int64 version = 8;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Revision history (append-only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ObjectRevision {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_id = 2;
+  open_foundry.common.Uuid object_type_id = 3;
+  string operation = 4;
+  // JSON snapshot of properties at this revision
+  string properties_json = 5;
+  open_foundry.common.Uuid changed_by = 6;
+  google.protobuf.Timestamp changed_at = 7;
+  int64 version = 8;
+}
+
+message LinkRevision {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid link_id = 2;
+  open_foundry.common.Uuid link_type_id = 3;
+  open_foundry.common.Uuid source_object_id = 4;
+  open_foundry.common.Uuid target_object_id = 5;
+  string operation = 6;
+  string properties_json = 7;
+  open_foundry.common.Uuid changed_by = 8;
+  google.protobuf.Timestamp changed_at = 9;
+  int64 version = 10;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Outbox event envelopes
+// Published to NATS JetStream subjects:
+//   object.upserted, object.deleted, link.upserted, link.deleted
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ObjectUpsertedEvent {
+  string event_id = 1;
+  open_foundry.common.Uuid object_id = 2;
+  open_foundry.common.Uuid object_type_id = 3;
+  open_foundry.common.Uuid org_id = 4;
+  string operation = 5;
+  string properties_json = 6;
+  string marking = 7;
+  open_foundry.common.Uuid project_id = 8;
+  int64 version = 9;
+  google.protobuf.Timestamp occurred_at = 10;
+}
+
+message ObjectDeletedEvent {
+  string event_id = 1;
+  open_foundry.common.Uuid object_id = 2;
+  open_foundry.common.Uuid object_type_id = 3;
+  open_foundry.common.Uuid org_id = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+}
+
+message LinkUpsertedEvent {
+  string event_id = 1;
+  open_foundry.common.Uuid link_id = 2;
+  open_foundry.common.Uuid link_type_id = 3;
+  open_foundry.common.Uuid source_object_id = 4;
+  open_foundry.common.Uuid target_object_id = 5;
+  string properties_json = 6;
+  int64 version = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+message LinkDeletedEvent {
+  string event_id = 1;
+  open_foundry.common.Uuid link_id = 2;
+  open_foundry.common.Uuid link_type_id = 3;
+  open_foundry.common.Uuid source_object_id = 4;
+  open_foundry.common.Uuid target_object_id = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Request / response messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Object upsert
+message UpsertObjectRequest {
+  // Server assigns UUID if absent (for creates)
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  string properties_json = 3;
+  open_foundry.common.Uuid org_id = 4;
+  string marking = 5;
+  open_foundry.common.Uuid project_id = 6;
+  // Required for updates — enables optimistic concurrency check
+  int64 expected_version = 7;
+  // If true, treat as idempotent insert (no error if already exists with same data)
+  bool idempotent = 8;
+}
+
+message GetObjectRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteObjectRequest {
+  open_foundry.common.Uuid id = 1;
+  int64 expected_version = 2;
+}
+
+message DeleteObjectResponse {}
+
+message BatchUpsertObjectsRequest {
+  repeated UpsertObjectRequest objects = 1;
+}
+
+message BatchUpsertObjectsResponse {
+  repeated ObjectInstance objects = 1;
+  int32 inserted_count = 2;
+  int32 updated_count = 3;
+  int32 skipped_count = 4;
+  repeated string error_messages = 5;
+}
+
+// Link upsert
+message UpsertLinkRequest {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid link_type_id = 2;
+  open_foundry.common.Uuid source_object_id = 3;
+  open_foundry.common.Uuid target_object_id = 4;
+  string properties_json = 5;
+  int64 expected_version = 6;
+  bool idempotent = 7;
+}
+
+message GetLinkRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteLinkRequest {
+  open_foundry.common.Uuid id = 1;
+  int64 expected_version = 2;
+}
+
+message DeleteLinkResponse {}
+
+message BatchUpsertLinksRequest {
+  repeated UpsertLinkRequest links = 1;
+}
+
+message BatchUpsertLinksResponse {
+  repeated LinkInstance links = 1;
+  int32 inserted_count = 2;
+  int32 updated_count = 3;
+  int32 skipped_count = 4;
+  repeated string error_messages = 5;
+}
+
+// Revisions
+message ListObjectRevisionsRequest {
+  open_foundry.common.Uuid object_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListObjectRevisionsResponse {
+  repeated ObjectRevision revisions = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message ListLinkRevisionsRequest {
+  open_foundry.common.Uuid link_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListLinkRevisionsResponse {
+  repeated LinkRevision revisions = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+// Outbox health
+message GetOutboxLagRequest {}
+
+message OutboxLagResponse {
+  int64 pending_rows = 1;
+  google.protobuf.Timestamp oldest_pending_at = 2;
+}

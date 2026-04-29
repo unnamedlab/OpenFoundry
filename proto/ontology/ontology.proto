@@ -3,19 +3,113 @@ package open_foundry.ontology;
 
 import "common/types.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
 
-service OntologyService {
+// ─────────────────────────────────────────────────────────────────────────────
+// Control-plane service — owned by ontology-definition-service (port 50103).
+// Covers schema governance, type definitions, project model, action/function
+// definitions, object-set definitions, funnel source definitions, and bundle
+// publication to data-plane cells.
+//
+// This service does NOT serve objects, links, search, graph, KNN, or
+// operational reads. Those are owned by ontology-query-service and
+// object-database-service.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service OntologyDefinitionService {
+  // ── Object types ───────────────────────────────────────────
   rpc CreateObjectType(CreateObjectTypeRequest) returns (ObjectType);
   rpc GetObjectType(GetObjectTypeRequest) returns (ObjectType);
   rpc ListObjectTypes(ListObjectTypesRequest) returns (ListObjectTypesResponse);
   rpc UpdateObjectType(UpdateObjectTypeRequest) returns (ObjectType);
   rpc DeleteObjectType(DeleteObjectTypeRequest) returns (DeleteObjectTypeResponse);
+
+  // ── Properties ─────────────────────────────────────────────
   rpc CreateProperty(CreatePropertyRequest) returns (Property);
+  rpc GetProperty(GetPropertyRequest) returns (Property);
   rpc ListProperties(ListPropertiesRequest) returns (ListPropertiesResponse);
+  rpc UpdateProperty(UpdatePropertyRequest) returns (Property);
+  rpc DeleteProperty(DeletePropertyRequest) returns (DeletePropertyResponse);
+
+  // ── Interfaces ─────────────────────────────────────────────
+  rpc CreateInterface(CreateInterfaceRequest) returns (Interface);
+  rpc GetInterface(GetInterfaceRequest) returns (Interface);
+  rpc ListInterfaces(ListInterfacesRequest) returns (ListInterfacesResponse);
+  rpc UpdateInterface(UpdateInterfaceRequest) returns (Interface);
+  rpc DeleteInterface(DeleteInterfaceRequest) returns (DeleteInterfaceResponse);
+
+  // ── Shared property types ──────────────────────────────────
+  rpc CreateSharedPropertyType(CreateSharedPropertyTypeRequest) returns (SharedPropertyType);
+  rpc GetSharedPropertyType(GetSharedPropertyTypeRequest) returns (SharedPropertyType);
+  rpc ListSharedPropertyTypes(ListSharedPropertyTypesRequest) returns (ListSharedPropertyTypesResponse);
+  rpc DeleteSharedPropertyType(DeleteSharedPropertyTypeRequest) returns (DeleteSharedPropertyTypeResponse);
+
+  // ── Link types ─────────────────────────────────────────────
   rpc CreateLinkType(CreateLinkTypeRequest) returns (LinkType);
+  rpc GetLinkType(GetLinkTypeRequest) returns (LinkType);
   rpc ListLinkTypes(ListLinkTypesRequest) returns (ListLinkTypesResponse);
+  rpc UpdateLinkType(UpdateLinkTypeRequest) returns (LinkType);
   rpc DeleteLinkType(DeleteLinkTypeRequest) returns (DeleteLinkTypeResponse);
+
+  // ── Action type definitions ────────────────────────────────
+  rpc CreateActionType(CreateActionTypeRequest) returns (ActionTypeDefinition);
+  rpc GetActionType(GetActionTypeRequest) returns (ActionTypeDefinition);
+  rpc ListActionTypes(ListActionTypesRequest) returns (ListActionTypesResponse);
+  rpc UpdateActionType(UpdateActionTypeRequest) returns (ActionTypeDefinition);
+  rpc DeleteActionType(DeleteActionTypeRequest) returns (DeleteActionTypeResponse);
+
+  // ── Function package registry ──────────────────────────────
+  rpc RegisterFunctionPackage(RegisterFunctionPackageRequest) returns (FunctionPackage);
+  rpc GetFunctionPackage(GetFunctionPackageRequest) returns (FunctionPackage);
+  rpc ListFunctionPackages(ListFunctionPackagesRequest) returns (ListFunctionPackagesResponse);
+  rpc PublishFunctionPackageVersion(PublishFunctionPackageVersionRequest) returns (FunctionPackageVersion);
+  rpc DeleteFunctionPackage(DeleteFunctionPackageRequest) returns (DeleteFunctionPackageResponse);
+
+  // ── Object-set definitions ─────────────────────────────────
+  rpc CreateObjectSetDefinition(CreateObjectSetDefinitionRequest) returns (ObjectSetDefinition);
+  rpc GetObjectSetDefinition(GetObjectSetDefinitionRequest) returns (ObjectSetDefinition);
+  rpc ListObjectSetDefinitions(ListObjectSetDefinitionsRequest) returns (ListObjectSetDefinitionsResponse);
+  rpc UpdateObjectSetDefinition(UpdateObjectSetDefinitionRequest) returns (ObjectSetDefinition);
+  rpc DeleteObjectSetDefinition(DeleteObjectSetDefinitionRequest) returns (DeleteObjectSetDefinitionResponse);
+
+  // ── Funnel source definitions ──────────────────────────────
+  rpc CreateFunnelSource(CreateFunnelSourceRequest) returns (FunnelSource);
+  rpc GetFunnelSource(GetFunnelSourceRequest) returns (FunnelSource);
+  rpc ListFunnelSources(ListFunnelSourcesRequest) returns (ListFunnelSourcesResponse);
+  rpc UpdateFunnelSource(UpdateFunnelSourceRequest) returns (FunnelSource);
+  rpc DeleteFunnelSource(DeleteFunnelSourceRequest) returns (DeleteFunnelSourceResponse);
+
+  // ── Projects, branches, proposals, migrations ─────────────
+  rpc CreateProject(CreateProjectRequest) returns (OntologyProject);
+  rpc GetProject(GetProjectRequest) returns (OntologyProject);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc UpdateProject(UpdateProjectRequest) returns (OntologyProject);
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+  rpc CreateBranch(CreateBranchRequest) returns (OntologyBranch);
+  rpc GetBranch(GetBranchRequest) returns (OntologyBranch);
+  rpc ListBranches(ListBranchesRequest) returns (ListBranchesResponse);
+  rpc MergeBranch(MergeBranchRequest) returns (MergeBranchResponse);
+  rpc DeleteBranch(DeleteBranchRequest) returns (DeleteBranchResponse);
+
+  rpc CreateProposal(CreateProposalRequest) returns (OntologyProposal);
+  rpc GetProposal(GetProposalRequest) returns (OntologyProposal);
+  rpc ListProposals(ListProposalsRequest) returns (ListProposalsResponse);
+  rpc UpdateProposalStatus(UpdateProposalStatusRequest) returns (OntologyProposal);
+
+  rpc CreateMigration(CreateMigrationRequest) returns (OntologyMigration);
+  rpc GetMigration(GetMigrationRequest) returns (OntologyMigration);
+  rpc ListMigrations(ListMigrationsRequest) returns (ListMigrationsResponse);
+
+  // ── Schema and policy bundle publication ──────────────────
+  rpc PublishBundle(PublishBundleRequest) returns (PublishBundleResponse);
+  rpc GetCurrentBundle(GetCurrentBundleRequest) returns (SchemaBundle);
+  rpc ListBundleVersions(ListBundleVersionsRequest) returns (ListBundleVersionsResponse);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core schema types
+// ─────────────────────────────────────────────────────────────────────────────
 
 message ObjectType {
   open_foundry.common.Uuid id = 1;
@@ -45,6 +139,29 @@ message Property {
   google.protobuf.Timestamp updated_at = 12;
 }
 
+message Interface {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  repeated open_foundry.common.Uuid property_ids = 5;
+  open_foundry.common.Uuid owner_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message SharedPropertyType {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  string property_type = 5;
+  string validation_rules_json = 6;
+  open_foundry.common.Uuid owner_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
 message LinkType {
   open_foundry.common.Uuid id = 1;
   string name = 2;
@@ -58,6 +175,185 @@ message LinkType {
   google.protobuf.Timestamp updated_at = 10;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Action type definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ActionTypeDefinition {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  // JSON-encoded parameter schema
+  string parameters_schema_json = 5;
+  // JSON-encoded form schema for UI rendering
+  string form_schema_json = 6;
+  // JSON-encoded effects spec (what object types / properties are mutated)
+  string effects_spec_json = 7;
+  // JSON-encoded policy spec (who can trigger)
+  string policy_json = 8;
+  open_foundry.common.Uuid owner_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Function package registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+message FunctionPackage {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  string runtime = 5;
+  open_foundry.common.Uuid owner_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message FunctionPackageVersion {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid package_id = 2;
+  string version = 3;
+  string status = 4;
+  string artifact_url = 5;
+  string manifest_json = 6;
+  google.protobuf.Timestamp published_at = 7;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Object-set definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ObjectSetDefinition {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+  open_foundry.common.Uuid base_object_type_id = 4;
+  // JSON-encoded filter list
+  string filters_json = 5;
+  // JSON-encoded traversal list
+  string traversals_json = 6;
+  // JSON-encoded join config
+  string join_config_json = 7;
+  // JSON-encoded projection list
+  string projections_json = 8;
+  string what_if_label = 9;
+  // JSON-encoded policy
+  string policy_json = 10;
+  open_foundry.common.Uuid owner_id = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Funnel source definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
+message FunnelSource {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+  open_foundry.common.Uuid object_type_id = 4;
+  open_foundry.common.Uuid dataset_id = 5;
+  open_foundry.common.Uuid pipeline_id = 6;
+  string dataset_branch = 7;
+  int32 preview_limit = 8;
+  string default_marking = 9;
+  string status = 10;
+  // JSON-encoded property mapping list
+  string property_mappings_json = 11;
+  // JSON-encoded trigger context
+  string trigger_context_json = 12;
+  open_foundry.common.Uuid owner_id = 13;
+  google.protobuf.Timestamp last_run_at = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project governance model
+// ─────────────────────────────────────────────────────────────────────────────
+
+message OntologyProject {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+  open_foundry.common.Uuid owner_id = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message OntologyBranch {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid project_id = 2;
+  string name = 3;
+  string description = 4;
+  string status = 5;
+  // JSON-encoded change list
+  string changes_json = 6;
+  bool enable_indexing = 7;
+  open_foundry.common.Uuid created_by = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message OntologyProposal {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid project_id = 2;
+  open_foundry.common.Uuid branch_id = 3;
+  string title = 4;
+  string description = 5;
+  string status = 6;
+  repeated open_foundry.common.Uuid reviewer_ids = 7;
+  open_foundry.common.Uuid created_by = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message OntologyMigration {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid project_id = 2;
+  open_foundry.common.Uuid source_project_id = 3;
+  open_foundry.common.Uuid target_project_id = 4;
+  string status = 5;
+  string note = 6;
+  open_foundry.common.Uuid submitted_by = 7;
+  google.protobuf.Timestamp submitted_at = 8;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Schema and policy bundle
+// ─────────────────────────────────────────────────────────────────────────────
+
+// A SchemaBundle is a compiled, versioned snapshot of the full control-plane
+// state for a given workspace/org. It is published to data-plane cells over
+// NATS JetStream and cached locally so serving never calls the control plane
+// synchronously.
+message SchemaBundle {
+  string bundle_id = 1;
+  string version = 2;
+  open_foundry.common.Uuid org_id = 3;
+  repeated ObjectType object_types = 4;
+  repeated Property properties = 5;
+  repeated Interface interfaces = 6;
+  repeated SharedPropertyType shared_property_types = 7;
+  repeated LinkType link_types = 8;
+  repeated ActionTypeDefinition action_types = 9;
+  repeated FunctionPackage function_packages = 10;
+  repeated ObjectSetDefinition object_set_definitions = 11;
+  repeated FunnelSource funnel_sources = 12;
+  // JSON-encoded compiled policy rules for this bundle
+  string policy_rules_json = 13;
+  google.protobuf.Timestamp published_at = 14;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Request / response messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Object types
 message CreateObjectTypeRequest {
   string name = 1;
   string display_name = 2;
@@ -74,6 +370,7 @@ message GetObjectTypeRequest {
 message ListObjectTypesRequest {
   open_foundry.common.PageRequest pagination = 1;
   string search = 2;
+  open_foundry.common.Uuid owner_id = 3;
 }
 
 message ListObjectTypesResponse {
@@ -96,6 +393,7 @@ message DeleteObjectTypeRequest {
 
 message DeleteObjectTypeResponse {}
 
+// Properties
 message CreatePropertyRequest {
   open_foundry.common.Uuid object_type_id = 1;
   string name = 2;
@@ -108,6 +406,10 @@ message CreatePropertyRequest {
   string validation_rules_json = 9;
 }
 
+message GetPropertyRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
 message ListPropertiesRequest {
   open_foundry.common.Uuid object_type_id = 1;
 }
@@ -116,6 +418,85 @@ message ListPropertiesResponse {
   repeated Property properties = 1;
 }
 
+message UpdatePropertyRequest {
+  open_foundry.common.Uuid id = 1;
+  string display_name = 2;
+  string description = 3;
+  bool required = 4;
+  string default_value_json = 5;
+  string validation_rules_json = 6;
+}
+
+message DeletePropertyRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeletePropertyResponse {}
+
+// Interfaces
+message CreateInterfaceRequest {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  repeated open_foundry.common.Uuid property_ids = 4;
+}
+
+message GetInterfaceRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListInterfacesRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  string search = 2;
+}
+
+message ListInterfacesResponse {
+  repeated Interface interfaces = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateInterfaceRequest {
+  open_foundry.common.Uuid id = 1;
+  string display_name = 2;
+  string description = 3;
+  repeated open_foundry.common.Uuid property_ids = 4;
+}
+
+message DeleteInterfaceRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteInterfaceResponse {}
+
+// Shared property types
+message CreateSharedPropertyTypeRequest {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  string property_type = 4;
+  string validation_rules_json = 5;
+}
+
+message GetSharedPropertyTypeRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListSharedPropertyTypesRequest {
+  open_foundry.common.PageRequest pagination = 1;
+}
+
+message ListSharedPropertyTypesResponse {
+  repeated SharedPropertyType shared_property_types = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message DeleteSharedPropertyTypeRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteSharedPropertyTypeResponse {}
+
+// Link types
 message CreateLinkTypeRequest {
   string name = 1;
   string display_name = 2;
@@ -123,6 +504,10 @@ message CreateLinkTypeRequest {
   open_foundry.common.Uuid source_type_id = 4;
   open_foundry.common.Uuid target_type_id = 5;
   string cardinality = 6;
+}
+
+message GetLinkTypeRequest {
+  open_foundry.common.Uuid id = 1;
 }
 
 message ListLinkTypesRequest {
@@ -135,8 +520,338 @@ message ListLinkTypesResponse {
   open_foundry.common.PageResponse pagination = 2;
 }
 
+message UpdateLinkTypeRequest {
+  open_foundry.common.Uuid id = 1;
+  string display_name = 2;
+  string description = 3;
+  string cardinality = 4;
+}
+
 message DeleteLinkTypeRequest {
   open_foundry.common.Uuid id = 1;
 }
 
 message DeleteLinkTypeResponse {}
+
+// Action types
+message CreateActionTypeRequest {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  string parameters_schema_json = 4;
+  string form_schema_json = 5;
+  string effects_spec_json = 6;
+  string policy_json = 7;
+}
+
+message GetActionTypeRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListActionTypesRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid owner_id = 2;
+}
+
+message ListActionTypesResponse {
+  repeated ActionTypeDefinition action_types = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateActionTypeRequest {
+  open_foundry.common.Uuid id = 1;
+  string display_name = 2;
+  string description = 3;
+  string parameters_schema_json = 4;
+  string form_schema_json = 5;
+  string effects_spec_json = 6;
+  string policy_json = 7;
+}
+
+message DeleteActionTypeRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteActionTypeResponse {}
+
+// Function packages
+message RegisterFunctionPackageRequest {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  string runtime = 4;
+}
+
+message GetFunctionPackageRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListFunctionPackagesRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid owner_id = 2;
+}
+
+message ListFunctionPackagesResponse {
+  repeated FunctionPackage function_packages = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message PublishFunctionPackageVersionRequest {
+  open_foundry.common.Uuid package_id = 1;
+  string version = 2;
+  string artifact_url = 3;
+  string manifest_json = 4;
+}
+
+message DeleteFunctionPackageRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteFunctionPackageResponse {}
+
+// Object-set definitions
+message CreateObjectSetDefinitionRequest {
+  string name = 1;
+  string description = 2;
+  open_foundry.common.Uuid base_object_type_id = 3;
+  string filters_json = 4;
+  string traversals_json = 5;
+  string join_config_json = 6;
+  string projections_json = 7;
+  string what_if_label = 8;
+  string policy_json = 9;
+}
+
+message GetObjectSetDefinitionRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListObjectSetDefinitionsRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid base_object_type_id = 2;
+  open_foundry.common.Uuid owner_id = 3;
+}
+
+message ListObjectSetDefinitionsResponse {
+  repeated ObjectSetDefinition object_set_definitions = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateObjectSetDefinitionRequest {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+  string filters_json = 4;
+  string traversals_json = 5;
+  string join_config_json = 6;
+  string projections_json = 7;
+  string what_if_label = 8;
+  string policy_json = 9;
+}
+
+message DeleteObjectSetDefinitionRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteObjectSetDefinitionResponse {}
+
+// Funnel sources
+message CreateFunnelSourceRequest {
+  string name = 1;
+  string description = 2;
+  open_foundry.common.Uuid object_type_id = 3;
+  open_foundry.common.Uuid dataset_id = 4;
+  open_foundry.common.Uuid pipeline_id = 5;
+  string dataset_branch = 6;
+  int32 preview_limit = 7;
+  string default_marking = 8;
+  string property_mappings_json = 9;
+  string trigger_context_json = 10;
+}
+
+message GetFunnelSourceRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListFunnelSourcesRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  open_foundry.common.Uuid owner_id = 3;
+}
+
+message ListFunnelSourcesResponse {
+  repeated FunnelSource funnel_sources = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateFunnelSourceRequest {
+  open_foundry.common.Uuid id = 1;
+  string description = 2;
+  string property_mappings_json = 3;
+  string trigger_context_json = 4;
+  int32 preview_limit = 5;
+  string default_marking = 6;
+  string status = 7;
+}
+
+message DeleteFunnelSourceRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteFunnelSourceResponse {}
+
+// Projects
+message CreateProjectRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message GetProjectRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListProjectsRequest {
+  open_foundry.common.PageRequest pagination = 1;
+  open_foundry.common.Uuid owner_id = 2;
+}
+
+message ListProjectsResponse {
+  repeated OntologyProject projects = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateProjectRequest {
+  open_foundry.common.Uuid id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message DeleteProjectRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteProjectResponse {}
+
+// Branches
+message CreateBranchRequest {
+  open_foundry.common.Uuid project_id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message GetBranchRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListBranchesRequest {
+  open_foundry.common.Uuid project_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListBranchesResponse {
+  repeated OntologyBranch branches = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message MergeBranchRequest {
+  open_foundry.common.Uuid branch_id = 1;
+  string merge_strategy = 2;
+}
+
+message MergeBranchResponse {
+  string status = 1;
+  repeated string conflict_paths = 2;
+}
+
+message DeleteBranchRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message DeleteBranchResponse {}
+
+// Proposals
+message CreateProposalRequest {
+  open_foundry.common.Uuid branch_id = 1;
+  string title = 2;
+  string description = 3;
+  repeated open_foundry.common.Uuid reviewer_ids = 4;
+}
+
+message GetProposalRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListProposalsRequest {
+  open_foundry.common.Uuid project_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+  string status_filter = 3;
+}
+
+message ListProposalsResponse {
+  repeated OntologyProposal proposals = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateProposalStatusRequest {
+  open_foundry.common.Uuid id = 1;
+  string status = 2;
+  string comment = 3;
+}
+
+// Migrations
+message CreateMigrationRequest {
+  open_foundry.common.Uuid project_id = 1;
+  open_foundry.common.Uuid source_project_id = 2;
+  open_foundry.common.Uuid target_project_id = 3;
+  string resources_json = 4;
+  string note = 5;
+}
+
+message GetMigrationRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListMigrationsRequest {
+  open_foundry.common.Uuid project_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListMigrationsResponse {
+  repeated OntologyMigration migrations = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+// Bundle publication
+message PublishBundleRequest {
+  open_foundry.common.Uuid org_id = 1;
+  // If true, include policy compilation in this bundle snapshot
+  bool include_policies = 2;
+}
+
+message PublishBundleResponse {
+  string bundle_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp published_at = 3;
+}
+
+message GetCurrentBundleRequest {
+  open_foundry.common.Uuid org_id = 1;
+}
+
+message ListBundleVersionsRequest {
+  open_foundry.common.Uuid org_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListBundleVersionsResponse {
+  repeated BundleVersionSummary versions = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message BundleVersionSummary {
+  string bundle_id = 1;
+  string version = 2;
+  open_foundry.common.Uuid org_id = 3;
+  google.protobuf.Timestamp published_at = 4;
+}
+

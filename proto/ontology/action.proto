@@ -1,0 +1,174 @@
+syntax = "proto3";
+package open_foundry.ontology;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actions service — owned by ontology-actions-service (port 50106).
+//
+// Responsible for validating, planning, and executing ontology actions.
+// Delegates all mutations to object-database-service.
+// Emits ActionPlanned / ActionExecuted / ActionFailed events to NATS JetStream.
+// Coordinates with ontology-security-service for policy checks.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service OntologyActionsService {
+  // Validate an action request without executing it.
+  // Returns the resolved plan (what would change) and any validation errors.
+  rpc ValidateAction(ValidateActionRequest) returns (ActionValidationResult);
+
+  // Plan an action: resolve parameters, apply policy, compute the effect set.
+  // Returns a plan that can be submitted for execution.
+  rpc PlanAction(PlanActionRequest) returns (ActionPlan);
+
+  // Execute a previously planned action or execute directly from parameters.
+  // Returns the execution result and emits events to NATS JetStream.
+  rpc ExecuteAction(ExecuteActionRequest) returns (ActionExecutionResult);
+
+  // Get the status/result of a previously submitted action execution.
+  rpc GetActionExecution(GetActionExecutionRequest) returns (ActionExecutionResult);
+
+  // List action executions (for observability and retry surfaces).
+  rpc ListActionExecutions(ListActionExecutionsRequest) returns (ListActionExecutionsResponse);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core action types
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ActionPlan captures everything that would happen if this action executes.
+// It can be inspected before committing.
+message ActionPlan {
+  string plan_id = 1;
+  open_foundry.common.Uuid action_type_id = 2;
+  string action_type_name = 3;
+  // JSON-encoded resolved parameters after defaults/coercion
+  string resolved_parameters_json = 4;
+  // Computed effect set: which objects/links would be created/updated/deleted
+  repeated ActionEffect effects = 5;
+  // Policy decision: allowed or denied, with reason
+  bool policy_allowed = 6;
+  string policy_denial_reason = 7;
+  repeated string validation_errors = 8;
+  open_foundry.common.Uuid requested_by = 9;
+  google.protobuf.Timestamp planned_at = 10;
+  // TTL: plan expires if not executed within this window
+  google.protobuf.Timestamp expires_at = 11;
+}
+
+message ActionEffect {
+  string effect_type = 1;   // "create_object" | "update_object" | "delete_object" | "create_link" | "delete_link"
+  open_foundry.common.Uuid entity_id = 2;
+  open_foundry.common.Uuid type_id = 3;
+  // JSON-encoded delta (field patches for updates, full data for creates)
+  string delta_json = 4;
+}
+
+// ActionExecutionResult captures the outcome of executing an action.
+message ActionExecutionResult {
+  string execution_id = 1;
+  string plan_id = 2;
+  open_foundry.common.Uuid action_type_id = 3;
+  string status = 4;         // "planned" | "executing" | "succeeded" | "failed" | "rolled_back"
+  repeated ActionEffect applied_effects = 5;
+  string error_message = 6;
+  open_foundry.common.Uuid executed_by = 7;
+  google.protobuf.Timestamp started_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+}
+
+message ActionValidationResult {
+  bool valid = 1;
+  repeated string errors = 2;
+  repeated string warnings = 3;
+  // Preview of what effects would be computed (informational, not binding)
+  repeated ActionEffect preview_effects = 4;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NATS JetStream event envelopes
+// Subjects: action.planned, action.executed, action.failed
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ActionPlannedEvent {
+  string event_id = 1;
+  string plan_id = 2;
+  open_foundry.common.Uuid action_type_id = 3;
+  string action_type_name = 4;
+  open_foundry.common.Uuid requested_by = 5;
+  // JSON-encoded resolved parameters
+  string resolved_parameters_json = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+}
+
+message ActionExecutedEvent {
+  string event_id = 1;
+  string execution_id = 2;
+  string plan_id = 3;
+  open_foundry.common.Uuid action_type_id = 4;
+  string action_type_name = 5;
+  repeated ActionEffect applied_effects = 6;
+  open_foundry.common.Uuid executed_by = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+message ActionFailedEvent {
+  string event_id = 1;
+  string execution_id = 2;
+  string plan_id = 3;
+  open_foundry.common.Uuid action_type_id = 4;
+  string action_type_name = 5;
+  string error_message = 6;
+  open_foundry.common.Uuid executed_by = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Request / response messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+message ValidateActionRequest {
+  open_foundry.common.Uuid action_type_id = 1;
+  // JSON-encoded caller-supplied parameters
+  string parameters_json = 2;
+  // Context: which objects are in scope
+  repeated open_foundry.common.Uuid scope_object_ids = 3;
+  open_foundry.common.Uuid requested_by = 4;
+}
+
+message PlanActionRequest {
+  open_foundry.common.Uuid action_type_id = 1;
+  string parameters_json = 2;
+  repeated open_foundry.common.Uuid scope_object_ids = 3;
+  open_foundry.common.Uuid requested_by = 4;
+}
+
+message ExecuteActionRequest {
+  // Either supply a previously created plan_id OR supply action_type_id + parameters
+  // to plan-and-execute atomically.
+  string plan_id = 1;
+  open_foundry.common.Uuid action_type_id = 2;
+  string parameters_json = 3;
+  repeated open_foundry.common.Uuid scope_object_ids = 4;
+  open_foundry.common.Uuid executed_by = 5;
+  // Optional: idempotency key to prevent duplicate executions
+  string idempotency_key = 6;
+}
+
+message GetActionExecutionRequest {
+  string execution_id = 1;
+}
+
+message ListActionExecutionsRequest {
+  open_foundry.common.Uuid action_type_id = 1;
+  open_foundry.common.Uuid executed_by = 2;
+  string status_filter = 3;
+  open_foundry.common.PageRequest pagination = 4;
+}
+
+message ListActionExecutionsResponse {
+  repeated ActionExecutionResult executions = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}

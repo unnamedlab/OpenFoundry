@@ -121,20 +121,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Qdrant (Vector DB) ────────────────────────────────────
-  qdrant:
-    <<: *common
-    image: ${OPENFOUNDRY_QDRANT_IMAGE:-qdrant/qdrant:v1.12.5}
-    ports:
-      - "${OPENFOUNDRY_QDRANT_HTTP_HOST_PORT:-6333}:6333"
-      - "${OPENFOUNDRY_QDRANT_GRPC_HOST_PORT:-6334}:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6333/healthz"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+  # ── Qdrant removed — vector search is served by pgvector (query.knn_vectors)
+  # ─────────────────────────────────────────────────────────────────────────
 
   identity-federation-service:
     <<: *app-common
@@ -1251,18 +1239,21 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50103
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Control-plane DB — owns definition schema (types, properties, projects, bundles)
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_definition
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
       AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_DEFINITION_HOST_PORT:-50103}:50103"
@@ -1276,18 +1267,17 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50104
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Write-authority DB — owns object_db schema (instances, revisions, outbox)
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_object_db
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       notification-alerting-service:
         condition: service_started
@@ -1303,18 +1293,21 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50105
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Serving DB — owns query schema (projections: object_current, search_document, knn_vectors, …)
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_query
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      OBJECT_DATABASE_SERVICE_URL: http://object-database-service:50104
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
+      ONTOLOGY_SECURITY_SERVICE_URL: http://ontology-security-service:50109
       SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_QUERY_HOST_PORT:-50105}:50105"
@@ -1328,18 +1321,20 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50106
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Actions service has no direct object DB access — delegates mutations to object-database-service
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_definition
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
+      OBJECT_DATABASE_SERVICE_URL: http://object-database-service:50104
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
+      ONTOLOGY_SECURITY_SERVICE_URL: http://ontology-security-service:50109
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
       NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:50137
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       notification-alerting-service:
         condition: service_started
@@ -1355,18 +1350,19 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50107
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Funnel service reads funnel definitions from the definition DB
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_definition
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
+      NATS_URL: nats://nats:4222
+      OBJECT_DATABASE_SERVICE_URL: http://object-database-service:50104
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
       PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
+      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       data-asset-catalog-service:
         condition: service_started
@@ -1384,18 +1380,19 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50108
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Functions service reads package registry from the definition DB
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_definition
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
+      ONTOLOGY_QUERY_SERVICE_URL: http://ontology-query-service:50105
+      ONTOLOGY_ACTIONS_SERVICE_URL: http://ontology-actions-service:50106
+      OBJECT_DATABASE_SERVICE_URL: http://object-database-service:50104
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_FUNCTIONS_HOST_PORT:-50108}:50108"
@@ -1409,18 +1406,19 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50109
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
+      # Security service reads rule definitions from the definition DB; writes policy bundles
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_definition
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:50103
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_SECURITY_HOST_PORT:-50109}:50109"
@@ -2393,7 +2391,6 @@ volumes:
   nats_data:
   minio_data:
   meilisearch_data:
-  qdrant_data:
   streaming_archive_data:
   event_streaming_archive_data:
   query_data:

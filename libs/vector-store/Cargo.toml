@@ -1,6 +1,6 @@
 [package]
 name = "vector-store"
-description = "Embedding generation and vector search (Qdrant, pgvector)"
+description = "Embedding generation and pgvector-backed vector search"
 
 [package.edition]
 workspace = true

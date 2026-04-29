@@ -21,7 +21,13 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `pipeline-build-service` | `50081` | Pipeline run execution and retry orchestration |
 | `pipeline-schedule-service` | `50082` | Shared schedule orchestration for pipeline and workflow cron/event triggers, due runs, windows, and backfills |
 | `lineage-service` | `50083` | Dataset and column lineage APIs |
-| `ontology-service` | `50057` | Object types, links, search, graph, actions, simulation |
+| `ontology-definition-service` | `50103` | **Control plane** — object types, properties, interfaces, shared property types, link types, action type definitions, function package registry, object-set definitions, funnel source definitions, projects, branches, proposals, migrations, schema/policy bundle publication |
+| `object-database-service` | `50104` | **Write authority** — object and link instances (current state + append-only revisions + transactional outbox), idempotent upserts with optimistic concurrency, get-by-id |
+| `ontology-query-service` | `50105` | **Serving plane** — hybrid search, graph traversal, neighbors, object view, KNN, object-set evaluation, all reads served from read-model projections |
+| `ontology-actions-service` | `50106` | Action plan / validate / execute; coordinates workflow and notifications; emits `ActionPlanned` / `ActionExecuted` / `ActionFailed` events; delegates all mutations to `object-database-service` |
+| `ontology-funnel-service` | `50107` | Batch and streaming ingestion into `object-database-service`; idempotent upserts; funnel run health and backfill management |
+| `ontology-functions-service` | `50108` | Governed function-package runtime; reads via `ontology-query-service`; writes only via `ontology-actions-service` / `object-database-service` |
+| `ontology-security-service` | `50109` | Compiles and serves versioned policy bundles; resolves clearances, markings, restricted views; produces pushdown visibility filters consumed by query and actions |
 | `fusion-service` | `50058` | Fusion and spreadsheet-oriented interactions |
 | `ml-service` | `50059` | Experiments, training, registry, model lifecycle |
 | `ai-service` | `50060` | AI providers, chat, tools, workflows |
@@ -50,7 +56,13 @@ The gateway maps URL prefixes to backend services. Important examples:
 - `/api/v1/workflows/events/*`, `/api/v1/workflows/triggers/cron/*`, `/api/v1/schedules/*` -> `pipeline-schedule-service`
 - `/api/v1/lineage` -> `lineage-service`
 - `/api/v1/ontology/projects` -> `tenancy-organizations-service`
-- `/api/v1/ontology` -> `ontology-service`
+- `/api/v1/ontology/search`, `/api/v1/ontology/graph`, `/api/v1/ontology/quiver`, `/api/v1/ontology/object-sets`, `/api/v1/ontology/types/{id}/objects/query`, `/api/v1/ontology/types/{id}/objects/knn` -> `ontology-query-service`
+- `/api/v1/ontology/types/{id}/objects`, `/api/v1/ontology/links/{id}/instances` -> `object-database-service`
+- `/api/v1/ontology/actions`, `/api/v1/ontology/types/{id}/objects/{oid}/inline-edit` -> `ontology-actions-service`
+- `/api/v1/ontology/functions` -> `ontology-functions-service`
+- `/api/v1/ontology/funnel`, `/api/v1/ontology/storage/insights` -> `ontology-funnel-service`
+- `/api/v1/ontology/rules`, `/api/v1/ontology/types/{id}/rules`, `/api/v1/ontology/objects/{oid}/rule-runs` -> `ontology-security-service`
+- `/api/v1/ontology/interfaces`, `/api/v1/ontology/shared-property-types`, `/api/v1/ontology/links`, `/api/v1/ontology/types`, `/api/v1/ontology` -> `ontology-definition-service`
 - `/api/v1/ml` -> `ml-service`
 - `/api/v1/ai` -> `ai-service`
 - `/api/v1/reports` -> `report-service`
@@ -71,10 +83,16 @@ Configuration files show explicit service-to-service defaults for several domain
 - `pipeline-schedule-service` depends on dataset, workflow, and AI services to own shared scheduling while delegating workflow execution to the workflow runtime
 - `lineage-service` depends on dataset, workflow, and AI services
 - `workflow-automation-service` depends on notification, ontology, and pipeline services
-- `ontology-service` depends on audit and AI services
+- `ontology-actions-service` depends on `object-database-service`, `ontology-security-service`, audit, notification, and workflow services
+- `ontology-query-service` depends on `object-database-service` (consistent fallback only), `ontology-security-service` (policy bundles), Redis (hot cache), and PostgreSQL read models
+- `ontology-funnel-service` depends on `object-database-service`, dataset, and pipeline services
+- `ontology-functions-service` depends on `ontology-query-service` (reads) and `ontology-actions-service` / `object-database-service` (writes)
+- `ontology-definition-service` depends on audit and AI services; publishes schema and policy bundles to all data-plane services
 - `report-service` depends on dataset and geospatial services
 - `notebook-runtime-service` depends on query and AI services
 - `marketplace-service` depends on app-builder
+- `ontology-exploratory-analysis-service` consumes `ontology-query-service`, not tables directly
+- `ontology-timeseries-analytics-service` consumes `ontology-query-service` and `sql-bi-gateway-service`
 
 ## Health Convention
 

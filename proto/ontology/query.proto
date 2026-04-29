@@ -1,0 +1,312 @@
+syntax = "proto3";
+package open_foundry.ontology;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Serving-plane service — owned by ontology-query-service (port 50105).
+//
+// All reads here are served from read-model projections (query.* schema).
+// The transactional store is NOT consulted on the hot path.
+// Security is applied as a pushdown filter from compiled policy bundles.
+//
+// Projections backing this service:
+//   query.object_current        — denormalised current state per object
+//   query.link_adjacency        — precomputed inbound/outbound adjacency
+//   query.search_document       — tsvector + embedding + routing/security fields
+//   query.knn_vectors           — per-property pgvector index (HNSW/IVFFlat)
+//   query.object_view           — UI-ready summary with actions + neighbour counts
+//   query.object_set_membership — incremental, pageable set membership
+//   query.policy_visibility     — compiled access expansion for pushdown
+//   query.funnel_health         — aggregated funnel run health
+// ─────────────────────────────────────────────────────────────────────────────
+
+service OntologyQueryService {
+  // ── Hybrid search ──────────────────────────────────────────
+  rpc Search(SearchRequest) returns (SearchResponse);
+
+  // ── Graph traversal ────────────────────────────────────────
+  rpc TraverseGraph(TraverseGraphRequest) returns (TraverseGraphResponse);
+
+  // ── Quiver (visual graph surface) ─────────────────────────
+  rpc QueryQuiver(QueryQuiverRequest) returns (QueryQuiverResponse);
+
+  // ── Object query (filter + paginate over a type) ──────────
+  rpc QueryObjects(QueryObjectsRequest) returns (QueryObjectsResponse);
+
+  // ── KNN (approximate nearest neighbours) ──────────────────
+  rpc KnnObjects(KnnObjectsRequest) returns (KnnObjectsResponse);
+
+  // ── Object view (UI-ready enriched view) ──────────────────
+  rpc GetObjectView(GetObjectViewRequest) returns (ObjectView);
+
+  // ── Neighbours ─────────────────────────────────────────────
+  rpc GetNeighbours(GetNeighboursRequest) returns (GetNeighboursResponse);
+
+  // ── Object sets ────────────────────────────────────────────
+  rpc EvaluateObjectSet(EvaluateObjectSetRequest) returns (EvaluateObjectSetResponse);
+  rpc ListObjectSetMembers(ListObjectSetMembersRequest) returns (ListObjectSetMembersResponse);
+
+  // ── Funnel health ──────────────────────────────────────────
+  rpc GetFunnelHealth(GetFunnelHealthRequest) returns (FunnelHealthSummary);
+  rpc ListFunnelRuns(ListFunnelRunsRequest) returns (ListFunnelRunsResponse);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared projection types
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Lightweight object summary sourced from query.object_current
+message ObjectSummary {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  string object_type_name = 3;
+  string display_title = 4;
+  // JSON-encoded normalised property map
+  string properties_json = 5;
+  open_foundry.common.Uuid org_id = 6;
+  string marking = 7;
+  open_foundry.common.Uuid project_id = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// Graph edge sourced from query.link_adjacency
+message LinkSummary {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid link_type_id = 2;
+  string link_type_name = 3;
+  open_foundry.common.Uuid source_object_id = 4;
+  open_foundry.common.Uuid target_object_id = 5;
+  string properties_json = 6;
+}
+
+// UI-ready enriched view sourced from query.object_view
+message ObjectView {
+  ObjectSummary object = 1;
+  repeated string applicable_action_names = 2;
+  // JSON-encoded rule hints
+  string rule_hints_json = 3;
+  int32 inbound_link_count = 4;
+  int32 outbound_link_count = 5;
+  // JSON-encoded recent neighbour summaries
+  string neighbour_preview_json = 6;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search
+// ─────────────────────────────────────────────────────────────────────────────
+
+message SearchRequest {
+  string query = 1;
+  // Optional filter to a specific object type
+  open_foundry.common.Uuid object_type_id = 2;
+  // Optional: "rrf" (default) or "weighted"
+  string fusion_strategy = 3;
+  // 0.0–1.0 weight for semantic score (1.0 = pure semantic)
+  float semantic_weight = 4;
+  int32 limit = 5;
+  int32 offset = 6;
+  // Caller identity for policy pushdown
+  open_foundry.common.Uuid caller_id = 7;
+  // Optional: request token for read-your-own-write consistency
+  string ryow_token = 8;
+}
+
+message SearchResponse {
+  repeated SearchHit hits = 1;
+  int32 total_count = 2;
+}
+
+message SearchHit {
+  ObjectSummary object = 1;
+  float score = 2;
+  float lexical_score = 3;
+  float semantic_score = 4;
+  // JSON-encoded highlighted snippets
+  string highlights_json = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Graph traversal
+// ─────────────────────────────────────────────────────────────────────────────
+
+message TraverseGraphRequest {
+  open_foundry.common.Uuid root_object_id = 1;
+  // Optional: filter to specific link type IDs
+  repeated open_foundry.common.Uuid link_type_ids = 2;
+  string direction = 3;   // "outbound" | "inbound" | "both"
+  int32 depth = 4;
+  int32 limit = 5;
+  open_foundry.common.Uuid caller_id = 6;
+}
+
+message TraverseGraphResponse {
+  repeated ObjectSummary nodes = 1;
+  repeated LinkSummary edges = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quiver (visual graph surface)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message QueryQuiverRequest {
+  repeated open_foundry.common.Uuid seed_object_ids = 1;
+  repeated open_foundry.common.Uuid link_type_ids = 2;
+  int32 hop_limit = 3;
+  int32 node_limit = 4;
+  open_foundry.common.Uuid caller_id = 5;
+}
+
+message QueryQuiverResponse {
+  repeated ObjectSummary nodes = 1;
+  repeated LinkSummary edges = 2;
+  bool truncated = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Object query (filter + paginate)
+// ─────────────────────────────────────────────────────────────────────────────
+
+message QueryObjectsRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  // JSON-encoded filter expression
+  string filters_json = 2;
+  // JSON-encoded sort list [{field, direction}]
+  string sort_json = 3;
+  open_foundry.common.PageRequest pagination = 4;
+  open_foundry.common.Uuid caller_id = 5;
+  string ryow_token = 6;
+}
+
+message QueryObjectsResponse {
+  repeated ObjectSummary objects = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KNN
+// ─────────────────────────────────────────────────────────────────────────────
+
+message KnnObjectsRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  string property_name = 2;
+  // Provide either query_vector or anchor_object_id
+  repeated float query_vector = 3;
+  open_foundry.common.Uuid anchor_object_id = 4;
+  string metric = 5;   // "cosine" | "dot_product" | "euclidean"
+  int32 limit = 6;
+  // JSON-encoded pre-filter expression
+  string filters_json = 7;
+  open_foundry.common.Uuid caller_id = 8;
+}
+
+message KnnObjectsResponse {
+  repeated KnnHit hits = 1;
+}
+
+message KnnHit {
+  ObjectSummary object = 1;
+  float distance = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Object view and neighbours
+// ─────────────────────────────────────────────────────────────────────────────
+
+message GetObjectViewRequest {
+  open_foundry.common.Uuid object_id = 1;
+  open_foundry.common.Uuid caller_id = 2;
+  string ryow_token = 3;
+}
+
+message GetNeighboursRequest {
+  open_foundry.common.Uuid object_id = 1;
+  repeated open_foundry.common.Uuid link_type_ids = 2;
+  string direction = 3;
+  int32 limit = 4;
+  open_foundry.common.Uuid caller_id = 5;
+}
+
+message GetNeighboursResponse {
+  repeated ObjectSummary neighbours = 1;
+  repeated LinkSummary links = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Object sets
+// ─────────────────────────────────────────────────────────────────────────────
+
+message EvaluateObjectSetRequest {
+  open_foundry.common.Uuid object_set_definition_id = 1;
+  // If true, trigger an incremental refresh of the membership projection
+  bool refresh = 2;
+  open_foundry.common.Uuid caller_id = 3;
+}
+
+message EvaluateObjectSetResponse {
+  open_foundry.common.Uuid object_set_definition_id = 1;
+  int32 member_count = 2;
+  google.protobuf.Timestamp evaluated_at = 3;
+}
+
+message ListObjectSetMembersRequest {
+  open_foundry.common.Uuid object_set_definition_id = 1;
+  // JSON-encoded additional filter
+  string filters_json = 2;
+  open_foundry.common.PageRequest pagination = 3;
+  open_foundry.common.Uuid caller_id = 4;
+}
+
+message ListObjectSetMembersResponse {
+  repeated ObjectSummary members = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Funnel health read model
+// ─────────────────────────────────────────────────────────────────────────────
+
+message FunnelHealthSummary {
+  open_foundry.common.Uuid source_id = 1;
+  string source_name = 2;
+  string status = 3;
+  int32 total_runs = 4;
+  int32 successful_runs = 5;
+  int32 failed_runs = 6;
+  int64 total_rows_processed = 7;
+  google.protobuf.Timestamp last_run_at = 8;
+  google.protobuf.Timestamp last_successful_run_at = 9;
+}
+
+message FunnelRun {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid source_id = 2;
+  string status = 3;
+  string trigger_type = 4;
+  int32 rows_read = 5;
+  int32 inserted_count = 6;
+  int32 updated_count = 7;
+  int32 skipped_count = 8;
+  int32 error_count = 9;
+  string error_message = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp finished_at = 12;
+}
+
+message GetFunnelHealthRequest {
+  open_foundry.common.Uuid source_id = 1;
+}
+
+message ListFunnelRunsRequest {
+  open_foundry.common.Uuid source_id = 1;
+  string status_filter = 2;
+  open_foundry.common.PageRequest pagination = 3;
+}
+
+message ListFunnelRunsResponse {
+  repeated FunnelRun runs = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
