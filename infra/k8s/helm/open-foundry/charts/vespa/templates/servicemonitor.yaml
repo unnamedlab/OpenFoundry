@@ -1,0 +1,42 @@
+{{- if and .Values.enabled .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled -}}
+{{- /*
+  Single ServiceMonitor that scrapes every Vespa role through their
+  per-role headless services on the metrics-proxy port.  The Vespa
+  metrics-proxy exposes the Prometheus consumer at
+  `/prometheus/v1/values?consumer=prometheus`.
+*/ -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "vespa.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+{{- with .Values.metrics.serviceMonitor.labels }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - vespa-configserver
+          - vespa-content
+          - vespa-container
+      - key: app.kubernetes.io/instance
+        operator: In
+        values:
+          - {{ .Release.Name }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.metrics.path }}
+      params:
+        consumer:
+          - prometheus
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+      honorLabels: true
+{{- end }}

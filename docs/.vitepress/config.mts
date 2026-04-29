@@ -173,6 +173,7 @@ export default defineConfig({
             { text: "Services and ports", link: "/architecture/services-and-ports" },
             { text: "Contracts and SDKs", link: "/architecture/contracts-and-sdks" },
             { text: "Capability map", link: "/architecture/capability-map" },
+            { text: "ADR-0007 — Search engine choice", link: "/architecture/adr/ADR-0007-search-engine-choice" },
           ],
         },
         {

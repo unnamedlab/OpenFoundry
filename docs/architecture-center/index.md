@@ -10,6 +10,10 @@ This section groups the repository-wide architecture pages that describe how Ope
 - [Contracts and SDKs](/architecture/contracts-and-sdks)
 - [Capability map](/architecture/capability-map)
 
+## Architecture Decision Records
+
+- [ADR-0007 — Search engine choice (Vespa only, no OpenSearch)](/architecture/adr/ADR-0007-search-engine-choice)
+
 ## Focus
 
 The pages in this section explain:

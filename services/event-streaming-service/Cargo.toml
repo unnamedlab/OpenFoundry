@@ -32,7 +32,7 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
-[dependencies.event-bus]
+[dependencies.event-bus-control]
 workspace = true
 
 [dependencies.reqwest]
@@ -62,6 +62,21 @@ workspace = true
 
 [dependencies.uuid]
 workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dev-dependencies.tempfile]
+version = "3"
 
 [[bin]]
 path = "src/main.rs"

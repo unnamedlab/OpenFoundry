@@ -1,0 +1,51 @@
+schema doc {
+
+    document doc {
+
+        field text type string {
+            indexing: index | summary
+            index: enable-bm25
+        }
+
+        field tenant_id type string {
+            indexing: attribute | summary
+            attribute: fast-search
+        }
+
+        field embedding type tensor<float>(x[4]) {
+            indexing: attribute | index
+            attribute {
+                distance-metric: angular
+            }
+            index {
+                hnsw {
+                    max-links-per-node: 16
+                    neighbors-to-explore-at-insert: 200
+                }
+            }
+        }
+    }
+
+    fieldset default {
+        fields: text
+    }
+
+    rank-profile hybrid inherits default {
+        inputs {
+            query(q_embedding) tensor<float>(x[4])
+        }
+
+        # Phase 1: cheap fusion of BM25 lexical score with HNSW closeness.
+        first-phase {
+            expression: bm25(text) + closeness(field, embedding)
+        }
+
+        # Phase 2: re-rank the top hits. Kept identical to first-phase here
+        # so the test is deterministic; production deployments can plug in
+        # a learned model (e.g. a cross-encoder via onnx-model) instead.
+        second-phase {
+            expression: firstPhase
+            rerank-count: 50
+        }
+    }
+}

@@ -351,3 +351,12 @@ services:
 # CloudNativePG cluster, realm credentials, ...).
 icebergCatalog:
   enabled: false
+
+# ── Vespa hybrid search ───────────────────────────────────────
+# Subchart: charts/vespa. Enable to deploy Vespa.ai (3 configservers,
+# 2 stateless container nodes, 3 content nodes with redundancy=2) plus
+# the application package versioned in `infra/k8s/vespa/app/`.  See
+# charts/vespa/values.yaml for the full set of overridable values
+# (replica counts, RBD storage class + sizes, JVM heap, metrics, ...).
+vespa:
+  enabled: false
