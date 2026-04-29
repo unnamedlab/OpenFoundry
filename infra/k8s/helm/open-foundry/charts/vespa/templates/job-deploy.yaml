@@ -1,0 +1,136 @@
+{{- if and .Values.enabled .Values.applicationPackage.enabled -}}
+{{- /*
+  We deploy the application package via a Job that polls the configservers
+  until they form a quorum and then POSTs the zipped package to the
+  prepare-and-activate endpoint.
+
+  To make sure the Job re-runs whenever the ConfigMap changes, the Job
+  name embeds the SHA-256 of the rendered package data.  Helm refuses to
+  mutate immutable Job fields, so a content change yields a *new* Job
+  resource (the previous one is garbage-collected by ttlSecondsAfterFinished).
+*/ -}}
+{{- $appData := include "vespa.appPackage.data" . -}}
+{{- $checksum := $appData | sha256sum | trunc 10 -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vespa.deploy.fullname" . }}-{{ $checksum }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-deploy
+    vespa.openfoundry.io/app-checksum: {{ $checksum | quote }}
+  annotations:
+    # `post-install,post-upgrade` so the StatefulSets exist and the
+    # configserver Service DNS resolves before the Job starts.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.deployJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.deployJob.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ .Values.deployJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+{{ include "vespa.selectorLabels" . | indent 8 }}
+        app.kubernetes.io/component: vespa-deploy
+        vespa.openfoundry.io/app-checksum: {{ $checksum | quote }}
+      annotations:
+        vespa.openfoundry.io/app-checksum: {{ $checksum | quote }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "vespa.serviceAccountName" . }}
+      securityContext:
+{{ toYaml .Values.podSecurityContext | indent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      containers:
+        - name: deploy
+          image: "{{ .Values.deployJob.image.repository }}:{{ .Values.deployJob.image.tag }}"
+          imagePullPolicy: {{ .Values.deployJob.image.pullPolicy }}
+          securityContext:
+{{ toYaml .Values.containerSecurityContext | indent 12 }}
+          env:
+            - name: CONFIGSERVER_URL
+              value: {{ include "vespa.configserver.url" . | quote }}
+            - name: TENANT
+              value: {{ .Values.tenant | quote }}
+            - name: APPLICATION
+              value: {{ .Values.application | quote }}
+            - name: APP_CHECKSUM
+              value: {{ $checksum | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              SRC=/app-src
+              DST=/tmp/app
+              ZIP=/tmp/vespa-app.zip
+
+              echo "==> Reconstructing application package directory tree"
+              rm -rf "$DST" && mkdir -p "$DST/schemas"
+              # ConfigMap keys use `_` as path separator (slashes are not
+              # allowed in keys).  Rewrite them back into a directory tree.
+              for f in "$SRC"/*; do
+                base=$(basename "$f")
+                case "$base" in
+                  schemas_*) cp "$f" "$DST/schemas/${base#schemas_}" ;;
+                  *)         cp "$f" "$DST/$base" ;;
+                esac
+              done
+              echo "    files:"
+              ( cd "$DST" && find . -type f | sort | sed 's/^/      /' )
+
+              echo "==> Waiting for configserver quorum at $CONFIGSERVER_URL"
+              # Wait up to ~10 minutes for the configservers to come up
+              # and elect a leader on a fresh cluster.
+              for i in $(seq 1 120); do
+                if curl -fsS "$CONFIGSERVER_URL/state/v1/health" >/dev/null 2>&1; then
+                  echo "    configserver ready (attempt $i)"
+                  break
+                fi
+                sleep 5
+              done
+
+              echo "==> Zipping application package"
+              ( cd "$DST" && zip -r "$ZIP" . >/dev/null )
+              ls -lh "$ZIP"
+
+              echo "==> Prepare-and-activate against tenant=$TENANT app=$APPLICATION (checksum=$APP_CHECKSUM)"
+              # Vespa returns a JSON body with `session-id` on success and
+              # an `error-code` on failure; either way `curl --fail` flips
+              # non-2xx into a non-zero exit so the Job correctly retries.
+              http_code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+                --header "Content-Type: application/zip" \
+                --data-binary "@$ZIP" \
+                "$CONFIGSERVER_URL/application/v2/tenant/$TENANT/prepareandactivate")
+              echo "    HTTP $http_code"
+              cat /tmp/resp.json || true
+              echo
+              if [ "$http_code" != "200" ]; then
+                echo "==> deploy failed"
+                exit 1
+              fi
+              echo "==> deploy ok"
+          volumeMounts:
+            - name: app-package
+              mountPath: /app-src
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: app-package
+          configMap:
+            name: {{ include "vespa.appPackage.configMapName" . }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}
