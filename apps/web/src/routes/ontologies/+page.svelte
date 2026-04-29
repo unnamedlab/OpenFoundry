@@ -166,9 +166,10 @@
   const migrationSourceResources = $derived(projectResourceMap[migrationSourceId] ?? []);
   const openProposals = $derived(proposals.filter((item) => item.status === 'draft' || item.status === 'in_review' || item.status === 'approved'));
   const selectedProjectRole = $derived.by(() => {
-    if (!currentUser || !selectedProject) return null;
-    if (selectedProject.owner_id === currentUser.id) return 'owner';
-    return selectedProjectMemberships.find((item) => item.user_id === currentUser.id)?.role ?? 'viewer';
+    const current = currentUser;
+    if (!current || !selectedProject) return null;
+    if (selectedProject.owner_id === current.id) return 'owner';
+    return selectedProjectMemberships.find((item) => item.user_id === current.id)?.role ?? 'viewer';
   });
   const canEditSelectedProject = $derived(
     selectedProjectRole === 'owner' || selectedProjectRole === 'editor'
@@ -267,6 +268,11 @@
     }
     if (!migrationSourceId) migrationSourceId = projectId;
     if (!migrationTargetId) migrationTargetId = projects.find((item) => item.id !== projectId)?.id ?? projectId;
+  }
+
+  function createClientId(prefix: string) {
+    if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   function formatDate(value: string) {
@@ -483,8 +489,8 @@
       const updated = await updateProjectProposal(selectedProjectId, selectedProposal.id, {
         comments: [
           {
-            id: `comment-${Date.now()}`,
-            author: reviewerId || currentUser?.email || 'current-user',
+            id: createClientId('comment'),
+            author: reviewerId || currentUser?.email || currentUser?.id || selectedProject?.owner_id || 'system',
             body: commentDraft.trim(),
             created_at: new Date().toISOString()
           },

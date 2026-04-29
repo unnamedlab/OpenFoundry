@@ -348,9 +348,10 @@
   const selectedLink = $derived(linkTypes.find((item) => item.id === selectedLinkId) ?? null);
   const selectedProject = $derived(projects.find((item) => item.id === selectedProjectId) ?? null);
   const selectedProjectRole = $derived.by(() => {
-    if (!currentUser || !selectedProject) return null;
-    if (selectedProject.owner_id === currentUser.id) return 'owner' as const;
-    return selectedProjectMemberships.find((item) => item.user_id === currentUser.id)?.role ?? 'viewer';
+    const current = currentUser;
+    if (!current || !selectedProject) return null;
+    if (selectedProject.owner_id === current.id) return 'owner' as const;
+    return selectedProjectMemberships.find((item) => item.user_id === current.id)?.role ?? 'viewer';
   });
   const canEditSelectedProject = $derived(selectedProjectRole === 'owner' || selectedProjectRole === 'editor');
 
@@ -483,7 +484,7 @@
     }
     try {
       const workingState = await getProjectWorkingState(projectId);
-      changeQueue = workingState.changes;
+      changeQueue = workingState.changes as StagedChange[];
     } catch {
       changeQueue = [];
     }
@@ -1904,7 +1905,12 @@
         await createProperty(createdType.id, {
           name: propertyName,
           display_name: titleCase(propertyName),
-          description: column.name === wizardDraft.title_column ? 'Suggested title field from datasource wizard.' : undefined,
+          description:
+            column.name === wizardDraft.primary_key_column
+              ? 'Primary key selected in the datasource wizard.'
+              : column.name === wizardDraft.title_column
+                ? 'Suggested title field from datasource wizard.'
+                : undefined,
           property_type: inferPropertyType(column),
           required: propertyName === normalizeName(wizardDraft.primary_key_column) ? true : !(column.nullable ?? true),
           unique_constraint: propertyName === normalizeName(wizardDraft.primary_key_column),
