@@ -1,0 +1,100 @@
+# Prometheus alerting rules for CloudNativePG (cnpg) clusters.
+#
+# Source repo:  infra/k8s/cnpg/
+# Scrape:       The CloudNativePG operator publishes per-cluster metrics
+#               via the cnpg sidecar exporter, which the project ships
+#               with a default ServiceMonitor.
+#               https://cloudnative-pg.io/documentation/current/monitoring/
+# Validation:   `promtool check rules infra/observability/prometheus-rules/cnpg.yaml`
+#
+# SLI rationale (upstream-sourced thresholds):
+#   * Replica lag in bytes: cnpg upstream sample alerts file uses
+#     `cnpg_pg_replication_lag` and pages above 1GB of WAL lag. We use
+#     the same threshold so on-call experience matches the project.
+#   * Switchover events: `cnpg_collector_postgres_version` increments
+#     are not the right signal; instead `cnpg_collector_up` flips and
+#     `cnpg_pg_stat_archiver_*` gaps appear. We use the upstream
+#     "primary changed" detector.
+#   * WAL archive failure: `cnpg_pg_stat_archiver_failed_count` going
+#     up means PITR is broken — this is a documented "page" condition
+#     in the cnpg operations guide.
+groups:
+  - name: cnpg.availability
+    rules:
+      - alert: CnpgClusterDown
+        expr: cnpg_collector_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: cnpg
+        annotations:
+          summary: "CNPG instance {{ $labels.pod }} is down"
+          description: |
+            CloudNativePG instance `{{ $labels.pod }}` in cluster
+            `{{ $labels.cluster }}` is reporting collector down for 2m.
+            Check pod status (see infra/k8s/cnpg/templates/cluster.yaml).
+
+      - alert: CnpgNoPrimary
+        # If the primary count for a cluster drops to 0 we have lost
+        # write availability. cnpg labels every instance with role.
+        expr: |
+          sum by (cluster) (cnpg_collector_up{role="primary"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cnpg
+        annotations:
+          summary: "CNPG cluster {{ $labels.cluster }} has no primary"
+          description: |
+            No primary instance reachable for cluster
+            `{{ $labels.cluster }}`. Writes are failing.
+
+  - name: cnpg.replication
+    rules:
+      - alert: CnpgReplicaLagHigh
+        # Upstream sample alerts: 1 GiB of WAL lag is the documented
+        # warning threshold.
+        expr: cnpg_pg_replication_lag > 1073741824
+        for: 5m
+        labels:
+          severity: warning
+          component: cnpg
+        annotations:
+          summary: "CNPG replica {{ $labels.pod }} lag > 1 GiB"
+          description: |
+            Replica `{{ $labels.pod }}` is `{{ $value | humanize1024 }}B`
+            behind the primary for 5m. Synchronous-replica durability
+            guarantees may be at risk.
+
+      - alert: CnpgSwitchoverDetected
+        # Detect an unplanned change of primary by watching for the
+        # primary identity changing within a 10m window.
+        expr: changes(cnpg_collector_up{role="primary"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          component: cnpg
+        annotations:
+          summary: "CNPG cluster {{ $labels.cluster }} switchover/failover event"
+          description: |
+            Primary instance for cluster `{{ $labels.cluster }}` changed
+            within the last 10m. If unplanned, investigate root cause
+            and replica health.
+
+  - name: cnpg.backup
+    rules:
+      - alert: CnpgWalArchiveFailing
+        # The cnpg ops guide flags any positive growth in the failed
+        # WAL archive counter as an immediate page: PITR window is at
+        # risk as soon as WAL archiving stops.
+        expr: increase(cnpg_pg_stat_archiver_failed_count[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: cnpg
+        annotations:
+          summary: "CNPG WAL archiver failing on cluster {{ $labels.cluster }}"
+          description: |
+            `cnpg_pg_stat_archiver_failed_count` increased in the last
+            15m. PITR backups (barman-cloud → S3) cannot complete;
+            recovery point objective is degrading every minute.
