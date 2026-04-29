@@ -133,7 +133,7 @@ Everything else (search, graph, KNN, object views, object-set serving, neighbors
 Each deployment cell contains a complete ontology stack:
 
 - `edge-gateway-service`
-- `object-database-service` with local PostgreSQL HA (Patroni + etcd + PgBouncer)
+- `object-database-service` with Postgres HA managed by CloudNativePG (CNPG) — see [ADR-0010](../../architecture/adr/ADR-0010-cnpg-postgres-operator.md)
 - `ontology-query-service` with local Redis HA and read replicas
 - `ontology-actions-service`
 - `ontology-security-service`

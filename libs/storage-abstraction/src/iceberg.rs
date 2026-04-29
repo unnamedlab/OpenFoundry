@@ -18,7 +18,7 @@
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! use storage_abstraction::iceberg::IcebergTable;
 //!
-//! // Connect to a REST catalog (e.g. Tabular, Polaris, Lakekeeper, Nessie...)
+//! // Connect to the Lakekeeper Iceberg REST catalog (ADR-0008).
 //! let table = IcebergTable::load_table(
 //!     "http://localhost:8181",
 //!     &["analytics"],
