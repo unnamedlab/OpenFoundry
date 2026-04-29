@@ -245,8 +245,11 @@ pub async fn refresh_dataset_quality_internal(
     State(state): State<AppState>,
     Path(dataset_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match profiler::process_refresh_request(&state, DatasetQualityRefreshRequested::for_upload(dataset_id))
-        .await
+    match profiler::process_refresh_request(
+        &state,
+        DatasetQualityRefreshRequested::for_upload(dataset_id),
+    )
+    .await
     {
         Ok(response) => Json(response).into_response(),
         Err(error) => {

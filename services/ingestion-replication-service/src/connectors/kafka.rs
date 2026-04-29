@@ -1,6 +1,6 @@
 use event_bus::connectors::{
-    EventStreamTopic, bootstrap_servers, find_topic_entry, parse_topic_entries,
-    sanitize_file_stem, validate_topic_connector_config,
+    EventStreamTopic, bootstrap_servers, find_topic_entry, parse_topic_entries, sanitize_file_stem,
+    validate_topic_connector_config,
 };
 use serde_json::{Value, json};
 

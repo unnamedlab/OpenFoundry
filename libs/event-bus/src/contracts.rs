@@ -2,10 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const DATASET_QUALITY_REFRESH_REQUESTED_EVENT_TYPE: &str =
-    "dataset.quality.refresh.requested";
-pub const DATASET_QUALITY_REFRESH_REQUESTED_SUBJECT: &str =
-    "of.datasets.quality.refresh.requested";
+pub const DATASET_QUALITY_REFRESH_REQUESTED_EVENT_TYPE: &str = "dataset.quality.refresh.requested";
+pub const DATASET_QUALITY_REFRESH_REQUESTED_SUBJECT: &str = "of.datasets.quality.refresh.requested";
 pub const WORKFLOW_TRIGGER_REQUESTED_EVENT_TYPE: &str = "workflow.trigger.requested";
 pub const WORKFLOW_TRIGGER_REQUESTED_SUBJECT: &str = "of.workflows.trigger.requested";
 pub const NOTIFICATION_EVENT_TYPE: &str = "notification.updated";

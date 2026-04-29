@@ -9,7 +9,10 @@ pub struct EventStreamTopic {
     pub metadata: Value,
 }
 
-pub fn validate_topic_connector_config(config: &Value, connector_label: &str) -> Result<(), String> {
+pub fn validate_topic_connector_config(
+    config: &Value,
+    connector_label: &str,
+) -> Result<(), String> {
     if bootstrap_servers(config).is_none() {
         return Err(format!(
             "{connector_label} requires 'bootstrap_servers' or 'brokers'"
@@ -59,9 +62,7 @@ pub fn parse_topic_entries(
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
-                format!(
-                    "{connector_label} topics[{index}] requires 'selector', 'topic' or 'name'"
-                )
+                format!("{connector_label} topics[{index}] requires 'selector', 'topic' or 'name'")
             })?
             .to_string();
         let display_name = topic
@@ -170,8 +171,9 @@ mod tests {
 
     #[test]
     fn validates_required_bootstrap_servers() {
-        let error = validate_topic_connector_config(&json!({ "topics": ["orders"] }), "kafka connector")
-            .expect_err("validation should fail");
+        let error =
+            validate_topic_connector_config(&json!({ "topics": ["orders"] }), "kafka connector")
+                .expect_err("validation should fail");
         assert!(error.contains("bootstrap_servers"));
     }
 
@@ -194,7 +196,10 @@ mod tests {
 
         assert_eq!(topic.selector, "orders");
         assert_eq!(topic.sample_messages, vec![json!({ "order_id": "ord-1" })]);
-        assert_eq!(bootstrap_servers(&json!({ "brokers": "broker-a:9092" })), Some("broker-a:9092"));
+        assert_eq!(
+            bootstrap_servers(&json!({ "brokers": "broker-a:9092" })),
+            Some("broker-a:9092")
+        );
     }
 
     #[test]

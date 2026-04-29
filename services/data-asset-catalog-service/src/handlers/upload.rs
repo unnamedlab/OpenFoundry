@@ -285,7 +285,9 @@ async fn trigger_quality_refresh(state: &AppState, dataset_id: Uuid) -> Result<(
     let request = DatasetQualityRefreshRequested::for_upload(dataset_id);
 
     if let Ok(nats_url) = std::env::var("NATS_URL") {
-        let js = connect(&nats_url).await.map_err(|error| error.to_string())?;
+        let js = connect(&nats_url)
+            .await
+            .map_err(|error| error.to_string())?;
         subscriber::ensure_stream(
             &js,
             streams::EVENTS,
