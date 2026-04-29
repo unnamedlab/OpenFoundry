@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use event_bus::contracts::WorkflowTriggerRequested;
+use event_bus_control::contracts::WorkflowTriggerRequested;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;

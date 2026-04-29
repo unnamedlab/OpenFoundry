@@ -1,0 +1,160 @@
+{{- if .Values.enabled -}}
+{{- $fullname := include "vespa.fullname" . -}}
+{{- $svc := include "vespa.configserver.fullname" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $svc }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-configserver
+spec:
+  serviceName: {{ $svc }}
+  replicas: {{ .Values.configserver.replicas }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+{{ include "vespa.configserver.selectorLabels" . | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "vespa.configserver.selectorLabels" . | indent 8 }}
+{{- with .Values.podLabels }}
+{{ toYaml . | indent 8 }}
+{{- end }}
+{{- with .Values.podAnnotations }}
+      annotations:
+{{ toYaml . | indent 8 }}
+{{- end }}
+    spec:
+      serviceAccountName: {{ include "vespa.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+{{ toYaml .Values.podSecurityContext | indent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+{{- if .Values.topologySpreadConstraints.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpreadConstraints.maxSkew }}
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: {{ .Values.topologySpreadConstraints.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+{{ include "vespa.configserver.selectorLabels" . | indent 14 }}
+{{- end }}
+{{- if .Values.podAntiAffinity.enabled }}
+      affinity:
+        podAntiAffinity:
+{{- if eq .Values.podAntiAffinity.type "required" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+{{ include "vespa.configserver.selectorLabels" . | indent 18 }}
+{{- else }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+{{ include "vespa.configserver.selectorLabels" . | indent 20 }}
+{{- end }}
+{{- else if .Values.affinity }}
+      affinity:
+{{ toYaml .Values.affinity | indent 8 }}
+{{- end }}
+{{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+{{- end }}
+{{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+{{- end }}
+      containers:
+        - name: configserver
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+{{ toYaml .Values.containerSecurityContext | indent 12 }}
+          # Run only the configserver role on these pods.
+          command: ["/bin/bash", "-c"]
+          args:
+            - >
+              export VESPA_CONFIGSERVERS="$(VESPA_CONFIGSERVERS)" &&
+              /opt/vespa/bin/vespa-start-configserver &&
+              # vespa-start-configserver returns immediately; tail the
+              # log so the container PID 1 stays alive and surfaces
+              # diagnostics to `kubectl logs`.
+              tail --pid=$$ -F /opt/vespa/logs/vespa/vespa.log
+          env:
+            - name: VESPA_CONFIGSERVERS
+              value: {{ include "vespa.configservers" . | quote }}
+            - name: VESPA_CONFIGSERVER_JVMARGS
+              value: "-Xms{{ .Values.configserver.jvm.heapSize }} -Xmx{{ .Values.configserver.jvm.heapSize }}"
+            - name: VESPA_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+{{- with .Values.extraEnv }}
+{{ toYaml . | indent 12 }}
+{{- end }}
+          ports:
+            - name: config
+              containerPort: 19071
+              protocol: TCP
+            - name: zookeeper
+              containerPort: 2181
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /state/v1/health
+              port: 19071
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /state/v1/health
+              port: 19071
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+{{ toYaml .Values.configserver.resources | indent 12 }}
+          volumeMounts:
+            - name: var
+              mountPath: /opt/vespa/var
+            - name: logs
+              mountPath: /opt/vespa/logs
+            - name: workspace
+              mountPath: /opt/vespa/conf/configserver-app
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: var
+        labels:
+{{ include "vespa.labels" . | indent 10 }}
+          app.kubernetes.io/component: vespa-configserver
+      spec:
+        accessModes:
+{{ toYaml .Values.configserver.storage.accessModes | indent 10 }}
+        storageClassName: {{ .Values.configserver.storage.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.configserver.storage.size }}
+{{- end }}

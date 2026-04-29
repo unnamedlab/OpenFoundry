@@ -1,0 +1,77 @@
+---
+# CephObjectStore for OpenFoundry production.
+#
+# Exposes an S3-compatible RGW endpoint at:
+#   http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
+#
+# Pool design:
+#   * metadataPool: 3-way replicated (small, latency-sensitive, indexes/omap)
+#   * dataPool:     erasure coded 8+3 (large objects: datasets, models,
+#                   iceberg parquet). Tolerates loss of 3 chunks; raw->usable
+#                   ratio ≈ 1.375x (vs 3x for replicated).
+#   * gateway.instances=3 → three RGW pods behind the Service for HA + load
+#                   balancing. Co-locate with at least 3 distinct nodes.
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStore
+metadata:
+  name: openfoundry
+  namespace: rook-ceph
+spec:
+  metadataPool:
+    failureDomain: host
+    replicated:
+      size: 3
+      requireSafeReplicaSize: true
+    parameters:
+      compression_mode: none
+  dataPool:
+    failureDomain: host
+    erasureCoded:
+      dataChunks: 8
+      codingChunks: 3
+    parameters:
+      bulk: "true"
+      compression_mode: aggressive
+  preservePoolsOnDelete: true
+  gateway:
+    port: 80
+    securePort: 0
+    instances: 3
+    placement:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: rook-ceph-rgw
+              topologyKey: kubernetes.io/hostname
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    priorityClassName: system-cluster-critical
+  healthCheck:
+    bucket:
+      disabled: false
+      interval: 60s
+    livenessProbe:
+      disabled: false
+    readinessProbe:
+      disabled: false
+---
+# StorageClass backed by the CephObjectStore above. ObjectBucketClaims that
+# reference this class will provision buckets in the `openfoundry` store via
+# the bucket provisioner shipped with Rook.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-bucket
+provisioner: rook-ceph.ceph.rook.io/bucket
+reclaimPolicy: Retain
+parameters:
+  objectStoreName: openfoundry
+  objectStoreNamespace: rook-ceph

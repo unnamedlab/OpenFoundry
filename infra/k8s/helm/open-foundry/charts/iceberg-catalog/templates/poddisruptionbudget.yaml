@@ -1,0 +1,13 @@
+{{- if and .Values.enabled .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "iceberg-catalog.fullname" . }}
+  labels:
+{{ include "iceberg-catalog.labels" . | indent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+{{ include "iceberg-catalog.selectorLabels" . | indent 6 }}
+{{- end }}

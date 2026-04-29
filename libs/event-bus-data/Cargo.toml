@@ -1,0 +1,78 @@
+[package]
+name = "event-bus-data"
+description = "Data plane event bus: Apache Kafka client wrapper for high-throughput, long-retention streaming"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[features]
+# `it` enables Kafka integration tests that spin up an ephemeral broker via
+# testcontainers. These tests require Docker and are intended to run only in CI.
+default = []
+it = ["dep:testcontainers"]
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+# rdkafka 0.36 (Apache-2.0). We use `cmake-build` to vendor librdkafka from
+# source: rdkafka 0.36 requires librdkafka >= 2.12, which is not yet
+# available in most distro package repositories (Ubuntu 24.04 ships 2.3.0).
+# When a sufficiently recent librdkafka is available system-wide, switch the
+# feature set to `["dynamic-linking", "ssl", "sasl", "tokio"]` to skip the
+# multi-minute CMake build of librdkafka on every clean compile.
+[dependencies.rdkafka]
+version = "0.36"
+default-features = false
+features = ["cmake-build", "ssl", "sasl", "tokio"]
+
+# `testcontainers` is only pulled in under the `it` feature; keep it optional
+# so non-CI builds do not pay the cost.
+[dependencies.testcontainers]
+workspace = true
+optional = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread", "time"]
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "event_bus_data"
+required-features = []
+crate-type = ["lib"]

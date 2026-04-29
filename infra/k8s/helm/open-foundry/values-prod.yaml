@@ -14,6 +14,24 @@ global:
         hosts:
           - openfoundry.example.com
 
+# In production the S3 backend is Ceph RGW exposed by Rook (see
+# infra/k8s/rook and infra/terraform/modules/ceph). The endpoint targets the
+# in-cluster RGW Service created by the CephObjectStore named `openfoundry`
+# in the `rook-ceph` namespace. Credentials are not stored here: they are
+# materialised by the ObjectBucketClaims defined in infra/k8s/rook/bucket.yaml
+# and surfaced into `open-foundry-prod-env` (see runbooks/ceph.md).
+objectStore:
+  backend: ceph
+  endpoint: http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
+  region: us-east-1
+  forcePathStyle: true
+  accessKeySecretKey: OBJECT_STORE_ACCESS_KEY
+  secretKeySecretKey: OBJECT_STORE_SECRET_KEY
+  buckets:
+    datasets: openfoundry-datasets
+    models: openfoundry-models
+    iceberg: openfoundry-iceberg
+
 services:
   gateway:
     replicas: 3

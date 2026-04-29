@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use event_bus::contracts::NotificationEvent as SharedNotificationEvent;
+use event_bus_control::contracts::NotificationEvent as SharedNotificationEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;

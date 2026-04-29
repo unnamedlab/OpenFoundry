@@ -16,6 +16,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `dataset-service` | `50053` | Datasets, versions, branches, filesystem, quality, linting |
 | `streaming-service` | `50054` | Streaming pipelines and archive management |
 | `sql-bi-gateway-service` | `50133` | Query execution surface and SQL/BI compatibility gateway |
+| `sql-warehousing-service` | `50123` (Flight SQL gRPC) / `50124` (HTTP `/healthz`) | SQL warehousing workflows, intermediate persistence and large-scale SQL transformations exposed as an Apache Arrow Flight SQL server backed by DataFusion |
 | `pipeline-service` | `50056` | Pipeline compatibility shell during service decomposition |
 | `pipeline-authoring-service` | `50080` | Pipeline definitions, validation, compilation, pruning, and executable plan generation |
 | `pipeline-build-service` | `50081` | Pipeline run execution and retry orchestration |
@@ -83,3 +84,7 @@ Every service exposes a `/health` route. This shared convention is used by:
 - local runtime scripts
 - GitHub Actions smoke jobs
 - Helm health probes and operational checks
+
+The `sql-warehousing-service` is gRPC-only on its primary port and therefore
+exposes its HTTP health probe (`/healthz`, also aliased as `/health`) on a
+companion port (`healthz_port`, default `50124`).

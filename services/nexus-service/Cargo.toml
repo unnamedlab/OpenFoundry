@@ -29,7 +29,7 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
-[dependencies.event-bus]
+[dependencies.event-bus-control]
 workspace = true
 
 [dependencies.reqwest]
