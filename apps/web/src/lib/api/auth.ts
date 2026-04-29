@@ -11,6 +11,10 @@ export interface RegisterRequest {
   name: string;
 }
 
+export interface BootstrapStatusResponse {
+  requires_initial_admin: boolean;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -260,6 +264,10 @@ export function login(data: LoginRequest) {
 
 export function register(data: RegisterRequest) {
   return api.post<{ id: string; email: string; name: string }>('/auth/register', data);
+}
+
+export function getBootstrapStatus() {
+  return api.get<BootstrapStatusResponse>('/auth/bootstrap-status');
 }
 
 export function refreshToken(refresh_token: string) {

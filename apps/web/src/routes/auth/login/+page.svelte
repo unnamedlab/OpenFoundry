@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { listPublicSsoProviders, type PublicSsoProvider } from '$api/auth';
+  import { getBootstrapStatus, listPublicSsoProviders, type PublicSsoProvider } from '$api/auth';
   import { auth } from '$stores/auth';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
@@ -10,9 +10,17 @@
   let error = $state('');
   let loading = $state(false);
   let providers = $state<PublicSsoProvider[]>([]);
+  let requiresInitialAdmin = $state(false);
   const t = $derived.by(() => createTranslator($currentLocale));
 
   onMount(async () => {
+    try {
+      const status = await getBootstrapStatus();
+      requiresInitialAdmin = status.requires_initial_admin;
+    } catch {
+      requiresInitialAdmin = false;
+    }
+
     try {
       providers = await listPublicSsoProviders();
     } catch {
@@ -57,6 +65,12 @@
   </div>
 
   <form onsubmit={handleSubmit} class="space-y-4">
+    {#if requiresInitialAdmin}
+      <div class="p-3 text-sm text-indigo-700 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-200 rounded-lg">
+        {t('auth.login.bootstrapNotice')}
+      </div>
+    {/if}
+
     {#if error}
       <div class="p-3 text-sm text-red-700 bg-red-50 dark:bg-red-950 dark:text-red-300 rounded-lg">
         {error}
@@ -115,7 +129,11 @@
   </form>
 
   <p class="text-center text-sm text-gray-500 mt-6">
-    {t('auth.login.noAccount')}
+    {#if requiresInitialAdmin}
+      {t('auth.login.bootstrapCta')}
+    {:else}
+      {t('auth.login.noAccount')}
+    {/if}
     <a href="/auth/register" class="text-indigo-600 hover:text-indigo-500">{t('auth.login.register')}</a>
   </p>
 </div>

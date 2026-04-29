@@ -1,9 +1,21 @@
 <script lang="ts">
   import { auth } from '$stores/auth';
+  import { getBootstrapStatus } from '$api/auth';
   import { createTranslator, currentLocale } from '$lib/i18n/store';
+  import { onMount } from 'svelte';
 
   const isAuthenticated = auth.isAuthenticated;
   const t = $derived.by(() => createTranslator($currentLocale));
+  let requiresInitialAdmin = $state(false);
+
+  onMount(async () => {
+    try {
+      const status = await getBootstrapStatus();
+      requiresInitialAdmin = status.requires_initial_admin;
+    } catch {
+      requiresInitialAdmin = false;
+    }
+  });
 </script>
 
 <svelte:head>
@@ -163,10 +175,18 @@
     </div>
   {:else}
     <div class="text-center py-20">
-      <p class="text-gray-500 mb-4">{t('home.signInPrompt')}</p>
-      <a href="/auth/login" class="inline-block px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
-        {t('auth.login.signIn')}
-      </a>
+      {#if requiresInitialAdmin}
+        <p class="text-gray-500 mb-2">{t('home.bootstrapPrompt')}</p>
+        <p class="text-sm text-gray-400 mb-4">{t('home.bootstrapHint')}</p>
+        <a href="/auth/register" class="inline-block px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
+          {t('auth.register.create')}
+        </a>
+      {:else}
+        <p class="text-gray-500 mb-4">{t('home.signInPrompt')}</p>
+        <a href="/auth/login" class="inline-block px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors">
+          {t('auth.login.signIn')}
+        </a>
+      {/if}
     </div>
   {/if}
 </div>
