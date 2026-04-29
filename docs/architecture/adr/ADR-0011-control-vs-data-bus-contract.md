@@ -51,13 +51,17 @@ property** of every service crate.
    starts as a **snapshot of the current state** of the repository (no
    service is migrated by this ADR).
 
-3. **CI check.** A small Python 3 script (no extra dependencies) lives at
-   `/tools/bus-lint/check_bus.py`. It:
+3. **CI check.** A small Python 3 script (no extra dependencies, standard
+   library only) lives at `/tools/bus-lint/check_bus.py`. It:
 
    - walks `/services/*/Cargo.toml`,
-   - parses each `Cargo.toml` (via the standard-library `tomllib`),
+   - scans each `Cargo.toml` line-by-line — deliberately not via a strict
+     TOML parser, since a couple of service crates currently declare the
+     same dependency table twice (e.g. two `[dependencies.async-trait]`
+     blocks); Cargo accepts that, but strict parsers reject it,
    - determines whether the service depends on `event-bus-control` and/or
-     `event-bus-data`,
+     `event-bus-data` (in any of the three Cargo dependency forms:
+     detached table, inline simple value, or inline `.workspace = true`),
    - cross-references the result with `/.github/bus-allowlist.yaml`,
    - **fails CI** if any service:
      - depends on a bus that is not declared for it in the allowlist,

@@ -247,6 +247,8 @@ jobs:
   bus-contract:
     name: Bus contract (ADR-0011)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5

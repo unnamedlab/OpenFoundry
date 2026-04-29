@@ -47,13 +47,27 @@ def repo_root() -> Path:
 
 
 def _strip_comment(line: str) -> str:
-    """Drop a trailing ``# ...`` TOML comment (good enough for our scan)."""
+    """Drop a trailing ``# ...`` TOML comment.
+
+    Tracks basic string state so a ``#`` inside a quoted value is not
+    treated as a comment, with proper handling of escaped quotes inside
+    basic strings (``"..\\"..."``). Literal strings (``'...'``) do not
+    process escapes per the TOML spec.
+    """
     in_str = False
     quote = ""
+    escaped = False
     for i, ch in enumerate(line):
         if in_str:
-            if ch == quote and line[i - 1] != "\\":
+            if quote == '"' and escaped:
+                escaped = False
+                continue
+            if quote == '"' and ch == "\\":
+                escaped = True
+                continue
+            if ch == quote:
                 in_str = False
+                escaped = False
             continue
         if ch in ('"', "'"):
             in_str = True
