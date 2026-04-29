@@ -91,6 +91,35 @@ for batch in &batches {
 }
 ```
 
+### Example: connecting to Lakekeeper in-cluster
+
+When running inside the OpenFoundry Kubernetes cluster, point the client at
+the Lakekeeper Service deployed by
+[`infra/k8s/lakekeeper/`](../../infra/k8s/lakekeeper/README.md). The
+in-cluster DNS name is fixed by the chart's `fullnameOverride: lakekeeper`
+and matches the `icebergRestCatalog.url` value in
+[`infra/k8s/helm/open-foundry/values.yaml`](../../infra/k8s/helm/open-foundry/values.yaml):
+
+```rust,ignore
+use storage_abstraction::iceberg::IcebergTable;
+
+// Lakekeeper Service: <fullname>.<namespace>.svc:<catalog.service.externalPort>
+let table = IcebergTable::load_table(
+    "http://lakekeeper.lakekeeper.svc:8181",
+    &["analytics"],
+    "events",
+)
+.await?;
+
+let batches = table.scan_to_record_batches(None, None).await?;
+println!("scanned {} batches", batches.len());
+```
+
+The bucket backing the warehouse is `openfoundry-iceberg` on the Ceph RGW
+gateway provisioned by [`infra/k8s/rook/`](../../infra/k8s/rook/README.md);
+Lakekeeper mints pre-signed S3 URLs against it, so this crate does not need
+any extra S3 configuration when talking to a Lakekeeper-managed table.
+
 ### Example: append Arrow `RecordBatch`es
 
 ```rust,ignore
