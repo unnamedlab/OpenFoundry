@@ -212,7 +212,10 @@ curl -X POST -H 'Content-Type: application/json; artifactType=AVRO' \
 
 Recovery del backend Postgres: ver `infra/runbooks/disaster-recovery.md`
 (sección CNPG); la `Cluster` de Apicurio sigue el mismo procedimiento que
-la de Polaris.
+cualquier otro `postgresql.cnpg.io/v1 Cluster` de la plataforma (plantilla
+de referencia en `infra/k8s/cnpg/templates/cluster.yaml`; el antiguo
+subchart de Apache Polaris fue retirado por
+[ADR-0008](../../docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md)).
 
 ## 5. NetworkPolicies
 

@@ -6,11 +6,6 @@ version: 0.1.0
 appVersion: "0.1.0"
 
 dependencies:
-  - name: iceberg-catalog
-    alias: icebergCatalog
-    version: 0.1.0
-    repository: ""
-    condition: icebergCatalog.enabled
   - name: vespa
     alias: vespa
     version: 0.1.0
