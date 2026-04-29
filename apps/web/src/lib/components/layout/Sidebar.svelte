@@ -82,7 +82,7 @@
     { href: '/search', labelKey: 'nav.search', icon: 'search', hint: 'Ctrl + J' },
     { href: '/object-monitors', labelKey: 'nav.notifications', icon: 'bell' },
     { href: '/dashboards', labelKey: 'nav.recent', icon: 'history' },
-    { href: '/reports', labelKey: 'nav.files', icon: 'folder' }
+    { href: '/projects', labelKey: 'nav.files', icon: 'folder' }
   ];
 
   const launcherCopy: Record<LocaleKey, LauncherText> = {

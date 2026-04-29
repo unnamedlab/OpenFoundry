@@ -5,16 +5,74 @@ const demoUser = {
   email: 'operator@openfoundry.dev',
   name: 'OpenFoundry Operator',
   is_active: true,
-  roles: ['admin'],
+  roles: ['operator'],
   groups: ['platform'],
-  permissions: ['*'],
+  permissions: [],
   organization_id: 'org-1',
-  attributes: {},
+  attributes: { workspace: 'operations' },
   mfa_enabled: false,
   mfa_enforced: false,
   auth_source: 'local',
   created_at: '2026-01-01T00:00:00Z',
 };
+
+const demoSpaces = [
+  {
+    id: 'space-1',
+    slug: 'operations',
+    display_name: 'Operations Command',
+    description: 'Operational workspaces and secure project containers.',
+    space_kind: 'private',
+    owner_peer_id: demoUser.organization_id,
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-2',
+    slug: 'research',
+    display_name: 'Research Lab',
+    description: 'Experimental workspaces for exploratory teams.',
+    space_kind: 'private',
+    owner_peer_id: 'org-2',
+    region: 'eu-west-1',
+    member_peer_ids: [demoUser.organization_id],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-3',
+    slug: 'archive',
+    display_name: 'Archive Vault',
+    description: 'Archived space that should not accept new projects.',
+    space_kind: 'private',
+    owner_peer_id: 'org-9',
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'paused',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
+
+const demoProjects = [
+  {
+    id: 'project-1',
+    slug: 'ops-readiness',
+    display_name: 'Ops readiness',
+    description: 'Operations review workspace',
+    workspace_slug: 'operations',
+    owner_id: demoUser.id,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
 
 const demoDataset = {
   id: 'dataset-1',
@@ -143,6 +201,8 @@ const demoTemplate = {
       show_branding: true,
       custom_css: null,
       builder_experience: 'workshop',
+      ontology_source_type_id: null,
+      object_set_variables: [],
       consumer_mode: {
         enabled: false,
         allow_guest_access: false,
@@ -160,6 +220,11 @@ const demoTemplate = {
         briefing_template: '',
         suggested_questions: [],
         scenario_presets: [],
+      },
+      workshop_header: {
+        title: null,
+        icon: 'cube',
+        color: '#3b82f6',
       },
       slate: {
         enabled: false,
@@ -193,7 +258,47 @@ const demoTemplate = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+const demoObjectSet = {
+  id: 'object-set-1',
+  name: 'Order object set',
+  description: 'Reusable set of order objects.',
+  base_object_type_id: demoObjectType.id,
+  filters: [],
+  traversals: [],
+  join: null,
+  projections: ['item_name', 'status'],
+  what_if_label: null,
+  policy: {
+    allow_export: true,
+    max_rows: 500,
+    requires_reason: false,
+    required_restricted_view_id: null,
+  },
+  materialized_snapshot: null,
+  materialized_at: null,
+  materialized_row_count: 0,
+  owner_id: demoUser.id,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
+};
+
 const demoWidgetCatalog = [
+  {
+    widget_type: 'table',
+    label: 'Object Table',
+    description: 'Paginated object-set records with configurable properties, variable bindings, and default sort.',
+    category: 'data',
+    default_props: {
+      page_size: 10,
+      striped: true,
+      columns: [],
+      object_set_variable_id: null,
+      object_set_variable_name: null,
+    },
+    default_size: { width: 8, height: 5 },
+    supported_bindings: ['object_set', 'dataset', 'query', 'ontology'],
+    supports_children: false,
+  },
   {
     widget_type: 'chart.line',
     label: 'Line chart',
@@ -282,6 +387,35 @@ export async function mockFrontendApis(page: Page) {
   ];
   let proposals: Array<Record<string, unknown>> = [];
   let migrations: Array<Record<string, unknown>> = [];
+  const projects = [...demoProjects];
+  const projectFolders = new Map<string, Array<{
+    id: string;
+    project_id: string;
+    parent_folder_id: string | null;
+    name: string;
+    slug: string;
+    description: string;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  }>>([
+    [
+      'project-1',
+      [
+        {
+          id: 'folder-1',
+          project_id: 'project-1',
+          parent_folder_id: null,
+          name: 'Planning',
+          slug: 'planning',
+          description: 'Starter folder inside Ops readiness.',
+          created_by: demoUser.id,
+          created_at: '2026-01-02T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
+      ],
+    ],
+  ]);
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -308,6 +442,59 @@ export async function mockFrontendApis(page: Page) {
 
     if (pathname === '/api/v1/users') {
       return json(route, [demoUser]);
+    }
+
+    if (pathname === '/api/v1/nexus/spaces') {
+      return json(route, { items: demoSpaces });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'GET') {
+      return json(route, { data: projects, total: projects.length, page: 1, per_page: 100 });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'POST') {
+      const body = request.postDataJSON() as {
+        slug: string;
+        display_name?: string;
+        description?: string;
+        workspace_slug?: string;
+        folders?: Array<{
+          name: string;
+          description?: string;
+          parent_folder_id?: string | null;
+        }>;
+      };
+      const created = {
+        id: `project-${projects.length + 1}`,
+        slug: body.slug,
+        display_name: body.display_name ?? body.slug,
+        description: body.description ?? '',
+        workspace_slug: body.workspace_slug ?? null,
+        owner_id: demoUser.id,
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z',
+      };
+      projects.unshift(created);
+      projectFolders.set(
+        created.id,
+        (body.folders ?? []).map((folder, index) => ({
+          id: `folder-${created.id}-${index + 1}`,
+          project_id: created.id,
+          parent_folder_id: folder.parent_folder_id ?? null,
+          name: folder.name,
+          slug: folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+          description: folder.description ?? '',
+          created_by: demoUser.id,
+          created_at: '2026-01-03T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z',
+        })),
+      );
+      return json(route, created, 201);
+    }
+
+    const projectFolderMatch = pathname.match(/^\/api\/v1\/ontology\/projects\/([^/]+)\/folders$/);
+    if (projectFolderMatch && request.method() === 'GET') {
+      return json(route, { data: projectFolders.get(projectFolderMatch[1]) ?? [] });
     }
 
     if (pathname === '/api/v1/datasets/catalog/facets') {
@@ -519,6 +706,49 @@ export async function mockFrontendApis(page: Page) {
     if (pathname === '/api/v1/ontology/funnel/sources' && request.method() === 'POST') {
       const body = JSON.parse(request.postData() ?? '{}');
       return json(route, { id: 'funnel-source-1', pipeline_id: null, dataset_branch: 'main', dataset_version: null, default_marking: 'public', status: 'active', trigger_context: {}, owner_id: demoUser.id, last_run_at: null, created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z', ...body }, 201);
+    }
+
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}/properties`) {
+      return json(route, {
+        data: [
+          {
+            id: 'property-1',
+            object_type_id: demoObjectType.id,
+            name: 'item_name',
+            display_name: 'Item name',
+            description: 'The order item name.',
+            property_type: 'string',
+            required: true,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+          {
+            id: 'property-2',
+            object_type_id: demoObjectType.id,
+            name: 'status',
+            display_name: 'Status',
+            description: 'The order status.',
+            property_type: 'string',
+            required: false,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/v1/ontology/object-sets') {
+      return json(route, { data: [demoObjectSet] });
     }
 
     if (pathname === '/api/v1/ontology/actions') {

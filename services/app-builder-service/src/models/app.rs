@@ -9,6 +9,9 @@ use crate::models::{
     page::AppPage, theme::AppTheme, version::AppSnapshot, widget_type::WidgetCatalogItem,
 };
 
+pub const DEFAULT_WORKSHOP_HEADER_ICON: &str = "cube";
+pub const DEFAULT_WORKSHOP_HEADER_COLOR: &str = "#3b82f6";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConsumerModeSettings {
     #[serde(default)]
@@ -198,6 +201,38 @@ impl Default for WorkshopInteractiveSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkshopHeaderSettings {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default = "default_workshop_header_icon")]
+    pub icon: String,
+    #[serde(default = "default_workshop_header_color")]
+    pub color: String,
+}
+
+impl Default for WorkshopHeaderSettings {
+    fn default() -> Self {
+        Self {
+            title: None,
+            icon: default_workshop_header_icon(),
+            color: default_workshop_header_color(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ObjectSetVariableSettings {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub object_set_id: Option<String>,
+    #[serde(default)]
+    pub object_type_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppSettings {
     #[serde(default)]
     pub home_page_id: Option<String>,
@@ -212,9 +247,15 @@ pub struct AppSettings {
     #[serde(default = "default_builder_experience")]
     pub builder_experience: String,
     #[serde(default)]
+    pub ontology_source_type_id: Option<String>,
+    #[serde(default)]
+    pub object_set_variables: Vec<ObjectSetVariableSettings>,
+    #[serde(default)]
     pub consumer_mode: ConsumerModeSettings,
     #[serde(default)]
     pub interactive_workshop: WorkshopInteractiveSettings,
+    #[serde(default)]
+    pub workshop_header: WorkshopHeaderSettings,
     #[serde(default)]
     pub slate: SlateSettings,
 }
@@ -228,8 +269,11 @@ impl Default for AppSettings {
             show_branding: default_show_branding(),
             custom_css: None,
             builder_experience: default_builder_experience(),
+            ontology_source_type_id: None,
+            object_set_variables: Vec::new(),
             consumer_mode: ConsumerModeSettings::default(),
             interactive_workshop: WorkshopInteractiveSettings::default(),
+            workshop_header: WorkshopHeaderSettings::default(),
             slate: SlateSettings::default(),
         }
     }
@@ -539,6 +583,14 @@ fn default_navigation_style() -> String {
 
 fn default_builder_experience() -> String {
     "workshop".to_string()
+}
+
+fn default_workshop_header_icon() -> String {
+    DEFAULT_WORKSHOP_HEADER_ICON.to_string()
+}
+
+fn default_workshop_header_color() -> String {
+    DEFAULT_WORKSHOP_HEADER_COLOR.to_string()
 }
 
 fn default_max_width() -> String {

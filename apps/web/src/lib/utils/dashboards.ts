@@ -47,6 +47,7 @@ export interface DashboardTableWidget extends DashboardWidgetBase {
   pageSize: number;
   defaultSortColumn: string;
   defaultSortDirection: 'asc' | 'desc';
+  columns?: Array<{ key: string; label: string }>;
 }
 
 export interface DashboardKpiWidget extends DashboardWidgetBase {

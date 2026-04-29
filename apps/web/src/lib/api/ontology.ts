@@ -187,6 +187,18 @@ export interface OntologyProposal {
   updated_at: string;
 }
 
+export interface OntologyProjectFolder {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  name: string;
+  slug: string;
+  description: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OntologyProjectMigration {
   id: string;
   project_id: string;
@@ -198,7 +210,6 @@ export interface OntologyProjectMigration {
   note: string;
   submitted_by: string;
 }
-
 export interface LinkType {
   id: string;
   name: string;
@@ -1974,6 +1985,11 @@ export function createProject(body: {
   display_name?: string;
   description?: string;
   workspace_slug?: string;
+  folders?: Array<{
+    name: string;
+    description?: string;
+    parent_folder_id?: string | null;
+  }>;
 }) {
   return api.post<OntologyProject>('/ontology/projects', body);
 }
@@ -2018,6 +2034,20 @@ export function listProjectResources(id: string) {
   return api
     .get<{ data: OntologyProjectResourceBinding[] }>(`/ontology/projects/${id}/resources`)
     .then((response) => response.data);
+}
+
+export function listProjectFolders(id: string) {
+  return api
+    .get<{ data: OntologyProjectFolder[] }>(`/ontology/projects/${id}/folders`)
+    .then((response) => response.data);
+}
+
+export function createProjectFolder(id: string, body: {
+  name: string;
+  description?: string;
+  parent_folder_id?: string | null;
+}) {
+  return api.post<OntologyProjectFolder>(`/ontology/projects/${id}/folders`, body);
 }
 
 export function bindProjectResource(id: string, body: {

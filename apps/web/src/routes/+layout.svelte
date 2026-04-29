@@ -11,7 +11,9 @@
   let { children, data } = $props();
   const initialLocale = $derived(data.initialLocale);
 
-  initializeLocale(initialLocale);
+  $effect(() => {
+    initializeLocale(initialLocale);
+  });
 
   onMount(() => {
     restoreLocale(initialLocale);

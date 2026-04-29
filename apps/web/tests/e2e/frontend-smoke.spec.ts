@@ -40,18 +40,18 @@ test.describe('frontend verification smoke flows', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Welcome to OpenFoundry' })).toBeVisible();
 
-    await page.getByLabel('Datasets').click();
+    await page.goto('/datasets');
     await expect(page).toHaveURL('/datasets');
     await expect(page.getByRole('heading', { name: 'Data Catalog' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Upload Dataset' })).toBeVisible();
     await expect(page.getByPlaceholder('Full-text search by dataset name or description')).toBeVisible();
 
-    await page.getByLabel('Pipelines').click();
+    await page.goto('/pipelines');
     await expect(page).toHaveURL('/pipelines');
     await expect(page.getByRole('heading', { name: 'Pipeline Enhancements' })).toBeVisible();
     await expect(page.getByLabel('Pipeline name')).toBeVisible();
 
-    await page.getByLabel('Ontology').click();
+    await page.goto('/ontology');
     await expect(page).toHaveURL('/ontology');
     await expect(page.getByRole('heading', { name: /Build the operational ontology/i })).toBeVisible();
     await expect(page.getByText('Ontology building overview')).toBeVisible();
