@@ -56,6 +56,12 @@ workspace = true
 [dependencies.vector-store]
 workspace = true
 
+[features]
+e2e = []
+
+[dev-dependencies.testcontainers]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "knowledge-index-service"

@@ -33,3 +33,4 @@ OpenFoundry is structured as a platform monorepo with a browser UI, a gateway, m
 - [Services and Ports](/architecture/services-and-ports) for local runtime defaults.
 - [Contracts and SDKs](/architecture/contracts-and-sdks) for generation pipelines.
 - [Capability Map](/architecture/capability-map) for the domain areas validated by the smoke suites.
+- [Vector Backend Selection](/architecture/vector-backend-selection) for choosing and migrating between pgvector and Vespa.

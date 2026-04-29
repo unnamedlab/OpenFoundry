@@ -4940,6 +4940,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "testcontainers",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6079,6 +6080,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "vector-store",
 ]
 
 [[package]]
@@ -7536,6 +7538,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "testcontainers",
  "tokio",
  "tracing",
  "tracing-subscriber",
