@@ -7,6 +7,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::config::build_dataset_storage_path;
 use crate::models::dataset::{
     CreateDatasetRequest, Dataset, ListDatasetsQuery, UpdateDatasetRequest,
 };
@@ -19,7 +20,7 @@ pub async fn create_dataset(
 ) -> impl IntoResponse {
     let id = Uuid::now_v7();
     let format = body.format.unwrap_or_else(|| "parquet".to_string());
-    let storage_path = format!("datasets/{id}");
+    let storage_path = build_dataset_storage_path(&state.lakehouse_prefixes.bronze, id);
     let tags = body.tags.unwrap_or_default();
 
     let result = sqlx::query_as::<_, Dataset>(
