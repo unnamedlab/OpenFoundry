@@ -55,7 +55,7 @@ Kafka para semántica de control.
 ## 2. Metodología
 
 1. **Detección de dependencia Cargo** sobre `event-bus-data` en cada
-   `services/*/Cargo.toml` (formas detectada por
+   `services/*/Cargo.toml` (formas detectadas por
    [`tools/bus-lint/check_bus.py`](../../tools/bus-lint/check_bus.py):
    tabla `[dependencies.event-bus-data]`, valor inline, y `.workspace = true`).
 2. **Detección de uso directo** de `rdkafka` o `event_bus_data::*` en el
