@@ -62,6 +62,13 @@ impl NotificationBus {
         &self.subject
     }
 
+    pub async fn stream(&self) -> Result<async_nats::jetstream::stream::Stream, String> {
+        self.jetstream
+            .get_stream(streams::NOTIFICATIONS)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
     async fn publish(&self, event: NotificationEvent) -> Result<(), String> {
         let event_type = event.kind.clone();
         self.publisher

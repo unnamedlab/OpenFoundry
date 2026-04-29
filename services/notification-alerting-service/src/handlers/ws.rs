@@ -6,10 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::Utc;
-use event_bus::{
-    subscriber,
-    topics::{streams, subjects},
-};
+use event_bus::subscriber;
 use futures::StreamExt;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -97,20 +94,14 @@ async fn websocket_loop(mut socket: WebSocket, state: AppState, user_id: uuid::U
         return;
     };
 
-    let stream = match subscriber::ensure_stream(
-        &bus.jetstream(),
-        streams::NOTIFICATIONS,
-        &[subjects::NOTIFICATIONS],
-    )
-    .await
-    {
+    let stream = match bus.stream().await {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(?error, "failed to ensure notification stream for websocket");
+            tracing::warn!(?error, "failed to load notification stream for websocket");
             return;
         }
     };
-    let consumer_name = format!("notifications-ws-{}", Uuid::now_v7());
+    let consumer_name = format!("notifications-ws-user-{user_id}-{}", Uuid::now_v7());
     let consumer =
         match subscriber::create_consumer(&stream, &consumer_name, Some(bus.subject())).await {
             Ok(consumer) => consumer,
@@ -123,7 +114,13 @@ async fn websocket_loop(mut socket: WebSocket, state: AppState, user_id: uuid::U
         Ok(messages) => messages,
         Err(error) => {
             tracing::warn!(?error, "failed to stream notification websocket messages");
-            let _ = stream.delete_consumer(&consumer_name).await;
+            if let Err(error) = stream.delete_consumer(&consumer_name).await {
+                tracing::warn!(
+                    ?error,
+                    consumer = %consumer_name,
+                    "failed to clean up notification websocket consumer"
+                );
+            }
             return;
         }
     };
@@ -162,7 +159,13 @@ async fn websocket_loop(mut socket: WebSocket, state: AppState, user_id: uuid::U
         }
     }
 
-    let _ = stream.delete_consumer(&consumer_name).await;
+    if let Err(error) = stream.delete_consumer(&consumer_name).await {
+        tracing::warn!(
+            ?error,
+            consumer = %consumer_name,
+            "failed to clean up notification websocket consumer"
+        );
+    }
 }
 
 fn targets_user(event: &NotificationEvent, user_id: uuid::Uuid) -> bool {
