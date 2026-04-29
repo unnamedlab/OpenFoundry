@@ -4942,6 +4942,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "vector-store",
 ]
@@ -7537,6 +7538,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "vector-store",
 ]

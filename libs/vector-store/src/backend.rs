@@ -133,3 +133,32 @@ pub async fn build_backend(
         }
     }
 }
+
+use std::{collections::HashMap, sync::Arc};
+
+/// Routes tenant IDs to their configured backend.
+pub struct VectorBackendRouter {
+    default: Arc<dyn VectorBackend>,
+    overrides: HashMap<String, Arc<dyn VectorBackend>>,
+}
+
+impl VectorBackendRouter {
+    pub fn new(default: Arc<dyn VectorBackend>) -> Self {
+        Self {
+            default,
+            overrides: HashMap::new(),
+        }
+    }
+
+    pub fn with_override(mut self, tenant_id: impl Into<String>, backend: Arc<dyn VectorBackend>) -> Self {
+        self.overrides.insert(tenant_id.into(), backend);
+        self
+    }
+
+    pub fn for_tenant(&self, tenant_id: &str) -> Arc<dyn VectorBackend> {
+        self.overrides
+            .get(tenant_id)
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&self.default))
+    }
+}
