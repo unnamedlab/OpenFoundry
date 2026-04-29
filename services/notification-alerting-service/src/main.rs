@@ -10,7 +10,7 @@ use axum::{
     routing::{get, patch, post},
 };
 use config::AppConfig;
-use event_bus::{
+use event_bus_control::{
     Publisher, connect, subscriber,
     topics::{streams, subjects},
 };

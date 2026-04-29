@@ -1,0 +1,118 @@
+{{- if .Values.enabled -}}
+# Headless service for the configserver StatefulSet.  Provides per-pod
+# stable DNS (`<pod>.<svc>.<ns>.svc.cluster.local`) which is what
+# `services.xml` / `hosts.xml` reference.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vespa.configserver.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-configserver
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+{{ include "vespa.configserver.selectorLabels" . | indent 4 }}
+  ports:
+    - name: config
+      port: 19071
+      targetPort: 19071
+      protocol: TCP
+    - name: zookeeper
+      port: 2181
+      targetPort: 2181
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: {{ .Values.metrics.port }}
+      protocol: TCP
+---
+# Headless service for the content StatefulSet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vespa.content.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-content
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+{{ include "vespa.content.selectorLabels" . | indent 4 }}
+  ports:
+    - name: rpc
+      port: 19107
+      targetPort: 19107
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: {{ .Values.metrics.port }}
+      protocol: TCP
+---
+# Headless service for the container StatefulSet (used by `hosts.xml`).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vespa.container.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-container
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+{{ include "vespa.container.selectorLabels" . | indent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: {{ .Values.metrics.port }}
+      protocol: TCP
+---
+# Regular load-balanced Service for clients to query / feed the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vespa.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa
+  {{- with .Values.container.service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.container.service.type }}
+  selector:
+{{ include "vespa.container.selectorLabels" . | indent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.container.service.port }}
+      targetPort: 8080
+      protocol: TCP
+---
+# Stable, name-known endpoint for the configservers used by external
+# tooling (CI, Vespa CLI, the deploy Job).  Backed by the same selectors
+# as the headless service but exposes a routable ClusterIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vespa.configserver.fullname" . }}-lb
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-configserver
+spec:
+  type: ClusterIP
+  selector:
+{{ include "vespa.configserver.selectorLabels" . | indent 4 }}
+  ports:
+    - name: config
+      port: 19071
+      targetPort: 19071
+      protocol: TCP
+{{- end }}

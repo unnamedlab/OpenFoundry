@@ -1,0 +1,59 @@
+---
+# Apicurio Registry (Apache-2.0) acts as the Schema Registry for Avro,
+# Protobuf and JSON Schema artifacts published to the Kafka data plane.
+# Confluent Schema Registry is intentionally avoided (Confluent Community
+# License is not OSS).
+#
+# Persistence backend: PostgreSQL via CloudNativePG (CNPG, Apache-2.0).
+# The CNPG operator must be installed cluster-wide (same as for the
+# iceberg-catalog subchart). The `<name>-rw` service of the Cluster CR
+# below is consumed by the Apicurio Registry Helm chart through the
+# values file `values-apicurio-registry.yaml`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apicurio
+  labels:
+    openfoundry.io/component: schema-registry
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: apicurio-pg
+  namespace: apicurio
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  bootstrap:
+    initdb:
+      database: apicurio
+      owner: apicurio
+      secret:
+        name: apicurio-pg-app
+  storage:
+    size: 20Gi
+    storageClass: ceph-rbd
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  monitoring:
+    enablePodMonitor: true
+---
+# Bootstrap credentials for the CNPG Cluster. Replace `password` with a
+# value sourced from your secret manager (External Secrets / Vault) before
+# applying in production. The chart consumes the same Secret to build the
+# JDBC connection string for Apicurio.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apicurio-pg-app
+  namespace: apicurio
+type: kubernetes.io/basic-auth
+stringData:
+  username: apicurio
+  password: change-me

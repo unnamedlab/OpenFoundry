@@ -1,0 +1,168 @@
+# =============================================================================
+# Helm values for the official Apache Flink Kubernetes Operator chart.
+#
+#   Repo   : https://downloads.apache.org/flink/flink-kubernetes-operator-<ver>/
+#   Chart  : flink-kubernetes-operator
+#   License: Apache-2.0
+#   Version: 1.10.0  (release: 2024-11-19, supports flinkVersion v1_16..v1_20)
+#
+# Install (see infra/runbooks/flink.md for the full procedure):
+#
+#   helm repo add flink-operator-repo \
+#     https://downloads.apache.org/flink/flink-kubernetes-operator-1.10.0/
+#   helm repo update
+#   helm upgrade --install --create-namespace -n flink flink-kubernetes-operator \
+#     flink-operator-repo/flink-kubernetes-operator --version 1.10.0 \
+#     -f infra/k8s/flink/values.yaml
+#
+# Versioning policy: pin both `--version` (chart) and the `image.tag` below so
+# the operator binary matches the chart schema. Verify the latest patch with:
+#
+#   helm search repo flink-operator-repo --versions
+# =============================================================================
+
+# --- Operator container image ------------------------------------------------
+image:
+  repository: ghcr.io/apache/flink-kubernetes-operator
+  # Must match the chart version above (operator binary == chart schema).
+  tag: "1.10.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# --- Operator replication / HA ----------------------------------------------
+# The operator uses Kubernetes leader-election; only one replica reconciles at
+# a time, the others are warm standbys. Two replicas give us fast failover
+# without paying for an idle third.
+replicas: 2
+
+# --- RBAC --------------------------------------------------------------------
+rbac:
+  create: true
+  nodesRule:
+    create: true
+  operatorRole:
+    create: true
+    name: flink-operator
+  operatorRoleBinding:
+    create: true
+    name: flink-operator-role-binding
+  jobRole:
+    create: true
+    name: flink
+  jobRoleBinding:
+    create: true
+    name: flink-role-binding
+
+# --- Watched namespaces ------------------------------------------------------
+# Empty list = cluster-wide. We restrict the operator to two namespaces to
+# limit blast radius and align with multi-tenant expectations.
+watchNamespaces:
+  - flink
+  - openfoundry
+
+# --- Operator pod resources --------------------------------------------------
+operatorPod:
+  priorityClassName: ""
+  annotations: {}
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+  # Prefer scheduling on stable, non-burstable nodes.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: flink-kubernetes-operator
+
+operatorServiceAccount:
+  create: true
+  name: flink-operator
+  annotations: {}
+
+jobServiceAccount:
+  create: true
+  name: flink
+  annotations: {}
+
+operatorResources:
+  limits:
+    cpu: "1"
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+jvmArgs:
+  webhook: "-Xms256m -Xmx256m"
+  operator: "-Xms512m -Xmx768m"
+
+# --- Logging -----------------------------------------------------------------
+operatorHealth:
+  livenessProbe:
+    periodSeconds: 10
+    initialDelaySeconds: 30
+  startupProbe:
+    failureThreshold: 30
+    periodSeconds: 10
+
+# --- Operator (FLINK_CONF_DIR) configuration --------------------------------
+# Reference: https://nightlies.apache.org/flink/flink-kubernetes-operator-docs-release-1.10/docs/operations/configuration/
+defaultConfiguration:
+  create: true
+  append: true
+  flink-conf.yaml: |
+    # Enable metrics for Prometheus scraping
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: 9249
+
+    # Default high-availability for FlinkDeployments (overridable per CR)
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://openfoundry-iceberg/flink/ha
+
+    # S3 (Ceph RGW) plugin defaults — credentials come from per-CR Secret refs
+    s3.endpoint: http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
+    s3.path.style.access: "true"
+
+    # Reasonable operator-side defaults
+    kubernetes.operator.reconcile.interval: 60 s
+    kubernetes.operator.observer.progress-check.interval: 10 s
+    kubernetes.operator.savepoint.history.max.count: 10
+    kubernetes.operator.savepoint.history.max.age: 7 d
+    kubernetes.operator.periodic.savepoint.interval: 6 h
+  log4j-operator.properties: |
+    rootLogger.level = INFO
+    rootLogger.appenderRef.console.ref = ConsoleAppender
+  log4j-console.properties: |
+    rootLogger.level = INFO
+    rootLogger.appenderRef.console.ref = ConsoleAppender
+
+# --- Admission webhook -------------------------------------------------------
+webhook:
+  create: true
+  keystore:
+    useDefaultPassword: true
+  replicas: 2
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# --- Metrics / observability -------------------------------------------------
+metrics:
+  port: 9249
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 9999
+  fsGroup: 9999
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

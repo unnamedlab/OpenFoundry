@@ -38,7 +38,7 @@ workspace = true
 [dependencies.datafusion]
 workspace = true
 
-[dependencies.event-bus]
+[dependencies.event-bus-control]
 workspace = true
 
 [dependencies.query-engine]

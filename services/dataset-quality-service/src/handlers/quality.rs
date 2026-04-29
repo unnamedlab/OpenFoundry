@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use event_bus::contracts::DatasetQualityRefreshRequested;
+use event_bus_control::contracts::DatasetQualityRefreshRequested;
 use uuid::Uuid;
 
 use crate::{
