@@ -1,6 +1,6 @@
 # App composition lifecycle
 
-The `app-builder-service` already suggests a lifecycle-oriented application composition model.
+The `application-composition-service` already suggests a lifecycle-oriented application composition model.
 
 ## Current lifecycle
 
@@ -14,4 +14,4 @@ The `app-builder-service` already suggests a lifecycle-oriented application comp
 
 ## Repository signals
 
-These operations are routed through `services/app-builder-service/src/handlers/apps.rs`, `pages.rs`, `preview.rs`, `publish.rs`, and `widgets.rs`.
+These operations are routed through `services/application-composition-service/src/handlers/apps.rs`, `pages.rs`, `preview.rs`, `publish.rs`, and `widgets.rs`.

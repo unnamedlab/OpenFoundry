@@ -29,7 +29,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `workflow-automation-service` | `50137` | Workflow orchestration and execution runtime |
 | `notebook-runtime-service` | `50134` | Notebook kernels, cells, sessions, and interactive execution |
 | `document-reporting-service` | `50102` | Notepad-style documents, report generation and delivery |
-| `app-builder-service` | `50063` | App composition and runtime surfaces |
+| `application-composition-service` | `50140` | App composition and runtime surfaces |
 | `code-repo-service` | `50065` | Code repository APIs |
 | `marketplace-catalog-service` | `50066` | Marketplace catalog, listings, installs, and discovery APIs |
 | `federation-product-exchange-service` | `50120` | Federation, sharing, and multi-org collaboration |
@@ -74,7 +74,7 @@ Configuration files show explicit service-to-service defaults for several domain
 - `ontology-service` depends on audit and AI services
 - `document-reporting-service` depends on dataset and geospatial services
 - `notebook-runtime-service` depends on query and AI services
-- `marketplace-catalog-service` depends on app-builder
+- `marketplace-catalog-service` depends on application-composition
 
 ## Health Convention
 

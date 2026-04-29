@@ -4,7 +4,7 @@ Application development in OpenFoundry is not only about frontend routes. It als
 
 ## Repository signals
 
-- `services/app-builder-service`
+- `services/application-composition-service`
 - `apps/web/src/routes/apps`
 - `services/marketplace-catalog-service`
 - `services/code-repo-service`

@@ -8,7 +8,7 @@ Ontology-driven applications are where the semantic model becomes user-facing op
 - dashboards and analytics
 - maps and geospatial workflows
 - workflows and decision support
-- internal apps built with the app-builder surface
+- internal apps built with the application-composition surface
 
 ## Repository mapping
 

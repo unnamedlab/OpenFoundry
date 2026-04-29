@@ -21,7 +21,7 @@ Browser / API Client
         +--> streaming-service
         +--> ontology-service
         +--> audit-service
-        +--> app-builder-service
+        +--> application-composition-service
         +--> code-repo-service
         +--> marketplace-catalog-service
         +--> ai-service
@@ -36,7 +36,7 @@ Browser / API Client
 
 | Family | Services |
 | --- | --- |
-| Entry and experience | `gateway`, `app-builder-service`, `marketplace-catalog-service`, `notebook-runtime-service`, `document-reporting-service`, `notification-alerting-service` |
+| Entry and experience | `gateway`, `application-composition-service`, `marketplace-catalog-service`, `notebook-runtime-service`, `document-reporting-service`, `notification-alerting-service` |
 | Data plane | `data-connector`, `dataset-service`, `pipeline-service`, `sql-bi-gateway-service`, `streaming-service`, `document-reporting-service`, `geospatial-service`, `fusion-service`, `workflow-automation-service` |
 | Governance and semantics | `auth-service`, `audit-service`, `ontology-service`, `federation-product-exchange-service` |
 | Developer platform | `code-repo-service` |

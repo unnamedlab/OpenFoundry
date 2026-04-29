@@ -93,7 +93,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build smoke stack
-        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p document-reporting-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p marketplace-catalog-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
+        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p document-reporting-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p application-composition-service -p code-repository-review-service -p marketplace-catalog-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
       - name: Prepare service databases
         env:
           PGPASSWORD: test
@@ -109,7 +109,7 @@ jobs:
             -c "DROP DATABASE IF EXISTS of_geospatial;" \
             -c "DROP DATABASE IF EXISTS of_audit;" \
             -c "DROP DATABASE IF EXISTS of_ontology;" \
-            -c "DROP DATABASE IF EXISTS of_app_builder;" \
+            -c "DROP DATABASE IF EXISTS of_app_composition;" \
             -c "DROP DATABASE IF EXISTS of_code_repos;" \
             -c "DROP DATABASE IF EXISTS of_marketplace;" \
             -c "DROP DATABASE IF EXISTS of_ai;" \
@@ -124,7 +124,7 @@ jobs:
             -c "CREATE DATABASE of_geospatial;" \
             -c "CREATE DATABASE of_audit;" \
             -c "CREATE DATABASE of_ontology;" \
-            -c "CREATE DATABASE of_app_builder;" \
+            -c "CREATE DATABASE of_app_composition;" \
             -c "CREATE DATABASE of_code_repos;" \
             -c "CREATE DATABASE of_marketplace;" \
             -c "CREATE DATABASE of_ai;" \
@@ -161,9 +161,9 @@ jobs:
           DATABASE_URL=postgres://test:test@localhost:5432/of_geospatial JWT_SECRET="$JWT_SECRET" target/debug/geospatial-intelligence-service > /tmp/of-smoke-logs/geospatial-intelligence-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_audit JWT_SECRET="$JWT_SECRET" target/debug/audit-compliance-service > /tmp/of-smoke-logs/audit-compliance-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ontology JWT_SECRET="$JWT_SECRET" AUDIT_SERVICE_URL=http://127.0.0.1:50115 target/debug/ontology-definition-service > /tmp/of-smoke-logs/ontology-definition-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_app_builder JWT_SECRET="$JWT_SECRET" PUBLIC_BASE_URL=http://127.0.0.1:8080/apps/runtime target/debug/app-builder-service > /tmp/of-smoke-logs/app-builder-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_app_composition JWT_SECRET="$JWT_SECRET" PUBLIC_BASE_URL=http://127.0.0.1:8080/apps/runtime target/debug/application-composition-service > /tmp/of-smoke-logs/application-composition-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_code_repos JWT_SECRET="$JWT_SECRET" REPO_STORAGE_ROOT=/tmp/of-code-repos target/debug/code-repository-review-service > /tmp/of-smoke-logs/code-repository-review-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_marketplace JWT_SECRET="$JWT_SECRET" APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 target/debug/marketplace-catalog-service > /tmp/of-smoke-logs/marketplace-catalog-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_marketplace JWT_SECRET="$JWT_SECRET" APP_COMPOSITION_SERVICE_URL=http://127.0.0.1:50140 target/debug/marketplace-catalog-service > /tmp/of-smoke-logs/marketplace-catalog-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ai JWT_SECRET="$JWT_SECRET" target/debug/agent-runtime-service > /tmp/of-smoke-logs/agent-runtime-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ml JWT_SECRET="$JWT_SECRET" target/debug/model-catalog-service > /tmp/of-smoke-logs/model-catalog-service.log 2>&1 &
           target/debug/of mock-provider serve --host 127.0.0.1 --port 50110 > /tmp/of-smoke-logs/mock-provider.log 2>&1 &
@@ -175,7 +175,7 @@ jobs:
             STREAMING_SERVICE_URL=http://127.0.0.1:50121 \
             ONTOLOGY_SERVICE_URL=http://127.0.0.1:50103 \
             AUDIT_SERVICE_URL=http://127.0.0.1:50115 \
-            APP_BUILDER_SERVICE_URL=http://127.0.0.1:50063 \
+            APP_COMPOSITION_SERVICE_URL=http://127.0.0.1:50140 \
             CODE_REPO_SERVICE_URL=http://127.0.0.1:50155 \
             MARKETPLACE_SERVICE_URL=http://127.0.0.1:50066 \
             AI_SERVICE_URL=http://127.0.0.1:50127 \
@@ -193,7 +193,7 @@ jobs:
             http://127.0.0.1:50068/health \
             http://127.0.0.1:50115/health \
             http://127.0.0.1:50103/health \
-            http://127.0.0.1:50063/health \
+            http://127.0.0.1:50140/health \
             http://127.0.0.1:50155/health \
             http://127.0.0.1:50066/health \
             http://127.0.0.1:50067/health \

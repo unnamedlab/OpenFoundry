@@ -1,4 +1,4 @@
-#[path = "../../app-builder-service/src/domain/mod.rs"]
+#[path = "../../application-composition-service/src/domain/mod.rs"]
 mod shared;
 
 pub use shared::*;

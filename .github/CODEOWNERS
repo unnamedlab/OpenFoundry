@@ -228,7 +228,6 @@
 /services/solution-design-service/                      @open-foundry/analytics-team @open-foundry/developer-platform
 
 # --- Developer platform / app builder / marketplace / SDKs ---
-/services/app-builder-service/                          @open-foundry/developer-platform @open-foundry/frontend-team
 /services/application-composition-service/              @open-foundry/developer-platform @open-foundry/frontend-team
 /services/application-curation-service/                 @open-foundry/developer-platform
 /services/code-repository-review-service/               @open-foundry/developer-platform

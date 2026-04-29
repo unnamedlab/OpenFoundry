@@ -13,7 +13,7 @@ The closest repository components today are:
 - `services/audit-service`
 - `services/sql-bi-gateway-service`
 - `services/workflow-automation-service`
-- `services/app-builder-service`
+- `services/application-composition-service`
 - `services/geospatial-service`
 - `services/ai-service`
 - `proto/ontology/*`

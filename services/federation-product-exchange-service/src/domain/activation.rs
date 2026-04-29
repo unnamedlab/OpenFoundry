@@ -146,7 +146,7 @@ async fn activate_app_template(
         resource_slug: Some(app_slug.clone()),
         public_url: Some(format!("/apps/runtime/{app_slug}")),
         notes: Some(format!(
-            "Created and published from template `{template_key}` via app-builder-service on channel `{}`.",
+            "Created and published from template `{template_key}` via application-composition-service on channel `{}`.",
             version.release_channel
         )),
     })

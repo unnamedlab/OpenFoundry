@@ -19,7 +19,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/workflow-automation-service` | workflow orchestration |
 | `services/notebook-runtime-service` | notebook runtime APIs |
 | `services/document-reporting-service` | document reporting and notepad-style surfaces |
-| `services/app-builder-service` | app composition runtime |
+| `services/application-composition-service` | app composition runtime |
 | `services/fusion-service` | fusion/spreadsheet APIs |
 | `services/ml-service` | experiments, training, registry |
 | `services/ai-service` | model and tool orchestration |

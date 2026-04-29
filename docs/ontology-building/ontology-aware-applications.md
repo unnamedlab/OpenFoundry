@@ -11,7 +11,7 @@ The current repo already points in that direction through:
 - `apps/web/src/routes/geospatial`
 - `apps/web/src/routes/reports`
 - `apps/web/src/routes/apps`
-- `services/app-builder-service`
+- `services/application-composition-service`
 
 ## What this enables
 

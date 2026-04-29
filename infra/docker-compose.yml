@@ -663,7 +663,7 @@ services:
       PORT: 50129
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ai_application_generation_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      APP_COMPOSITION_SERVICE_URL: http://application-composition-service:50140
       AGENT_RUNTIME_SERVICE_URL: http://agent-runtime-service:50127
     depends_on:
       postgres:
@@ -1748,24 +1748,6 @@ services:
     ports:
       - "${OPENFOUNDRY_DOCUMENT_REPORTING_HOST_PORT:-50102}:50102"
 
-  app-builder-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/app-builder-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50063
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_app_builder_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      PUBLIC_BASE_URL: ${OPENFOUNDRY_PUBLIC_BASE_URL:-http://localhost:3000/apps/runtime}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_APP_BUILDER_HOST_PORT:-50063}:50063"
-
   application-curation-service:
     <<: *app-common
     profiles: *profiles-experience
@@ -1775,13 +1757,13 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50101
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_app_builder_service
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_application_composition_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       PUBLIC_BASE_URL: ${OPENFOUNDRY_PUBLIC_BASE_URL:-http://localhost:3000/apps/runtime}
     depends_on:
       postgres:
         condition: service_healthy
-      app-builder-service:
+      application-composition-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_APPLICATION_CURATION_HOST_PORT:-50101}:50101"
@@ -1831,11 +1813,11 @@ services:
       PORT: 50066
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      APP_COMPOSITION_SERVICE_URL: http://application-composition-service:50140
     depends_on:
       postgres:
         condition: service_healthy
-      app-builder-service:
+      application-composition-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_MARKETPLACE_CATALOG_HOST_PORT:-50066}:50066"
@@ -1851,12 +1833,12 @@ services:
       PORT: 50111
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_marketplace_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      APP_COMPOSITION_SERVICE_URL: http://application-composition-service:50140
       DEVOPS_RECONCILER_INTERVAL_SECONDS: "300"
     depends_on:
       postgres:
         condition: service_healthy
-      app-builder-service:
+      application-composition-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_PRODUCT_DISTRIBUTION_HOST_PORT:-50111}:50111"
@@ -2090,7 +2072,7 @@ services:
       APPROVALS_SERVICE_URL: http://approvals-service:50071
       NOTEBOOK_SERVICE_URL: http://notebook-runtime-service:50134
       DOCUMENT_REPORTING_SERVICE_URL: http://document-reporting-service:50102
-      APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
+      APP_COMPOSITION_SERVICE_URL: http://application-composition-service:50140
       APPLICATION_CURATION_SERVICE_URL: http://application-curation-service:50101
       WIDGET_REGISTRY_SERVICE_URL: http://widget-registry-service:50077
       REPORT_SERVICE_URL: http://document-reporting-service:50102
@@ -2239,7 +2221,7 @@ services:
         condition: service_started
       document-reporting-service:
         condition: service_started
-      app-builder-service:
+      application-composition-service:
         condition: service_started
       application-curation-service:
         condition: service_started
