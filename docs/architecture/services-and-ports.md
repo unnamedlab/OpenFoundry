@@ -12,7 +12,7 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `tenancy-organizations-service` | `50113` | Tenant resolution, organizations, enrollments, spaces, projects, and sharing boundaries |
 | `data-connector` | `50052` | Connector hyperautomation and discovery orchestration |
 | `connector-management-service` | `50088` | Connector catalog, connections, capabilities, credentials metadata, and connection testing |
-| `ingestion-replication-service` | `50090` | Sync jobs, batch and micro-batch ingestion, export flows, refresh policies, connector agents, and scheduler runtime |
+| `ingestion-replication-service` | `50090` (HTTP REST) / `50091` (gRPC `IngestJobService`) | Sync jobs, batch and micro-batch ingestion, export flows, refresh policies, connector agents, and scheduler runtime |
 | `dataset-service` | `50053` | Datasets, versions, branches, filesystem, quality, linting |
 | `streaming-service` | `50054` | Streaming pipelines and archive management |
 | `sql-bi-gateway-service` | `50133` | Query execution surface and SQL/BI compatibility gateway |

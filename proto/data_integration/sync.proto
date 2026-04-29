@@ -1,0 +1,92 @@
+syntax = "proto3";
+package open_foundry.data_integration;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// IngestJobService manages the lifecycle of data ingestion jobs (sync jobs).
+// Jobs are created from a connection + table pair and run asynchronously by
+// the ingestion-replication-service scheduler.
+service IngestJobService {
+  // Queue a new ingest job for a connection / table pair.
+  rpc QueueIngestJob(QueueIngestJobRequest) returns (IngestJob);
+
+  // Retrieve the current state of a single ingest job.
+  rpc GetIngestJob(GetIngestJobRequest) returns (IngestJob);
+
+  // List ingest jobs for a connection (newest-first, paginated).
+  rpc ListIngestJobs(ListIngestJobsRequest) returns (ListIngestJobsResponse);
+
+  // Cancel a pending or retrying ingest job.
+  rpc CancelIngestJob(CancelIngestJobRequest) returns (CancelIngestJobResponse);
+
+  // Stream status updates for a specific ingest job until it reaches a
+  // terminal state (completed or failed).
+  rpc WatchIngestJob(WatchIngestJobRequest) returns (stream IngestJob);
+}
+
+// IngestJob mirrors the `sync_jobs` DB row exposed over gRPC.
+message IngestJob {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid connection_id = 2;
+  open_foundry.common.Uuid target_dataset_id = 3;
+  string table_name = 4;
+  IngestJobStatus status = 5;
+  int64 rows_synced = 6;
+  string error = 7;
+  int32 attempts = 8;
+  int32 max_attempts = 9;
+  google.protobuf.Timestamp scheduled_at = 10;
+  google.protobuf.Timestamp next_retry_at = 11;
+  google.protobuf.Timestamp started_at = 12;
+  google.protobuf.Timestamp completed_at = 13;
+  google.protobuf.Timestamp created_at = 14;
+}
+
+enum IngestJobStatus {
+  INGEST_JOB_STATUS_UNSPECIFIED = 0;
+  INGEST_JOB_STATUS_PENDING = 1;
+  INGEST_JOB_STATUS_RUNNING = 2;
+  INGEST_JOB_STATUS_RETRYING = 3;
+  INGEST_JOB_STATUS_COMPLETED = 4;
+  INGEST_JOB_STATUS_FAILED = 5;
+  INGEST_JOB_STATUS_CANCELLED = 6;
+}
+
+message QueueIngestJobRequest {
+  open_foundry.common.Uuid connection_id = 1;
+  string table_name = 2;
+  // Optional dataset to write results into.
+  open_foundry.common.Uuid target_dataset_id = 3;
+  // When to start the job; defaults to now.
+  google.protobuf.Timestamp schedule_at = 4;
+  // Maximum retry attempts (1–10, default 3).
+  int32 max_attempts = 5;
+}
+
+message GetIngestJobRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message ListIngestJobsRequest {
+  open_foundry.common.Uuid connection_id = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListIngestJobsResponse {
+  repeated IngestJob jobs = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message CancelIngestJobRequest {
+  open_foundry.common.Uuid id = 1;
+}
+
+message CancelIngestJobResponse {}
+
+message WatchIngestJobRequest {
+  open_foundry.common.Uuid id = 1;
+  // How often (in milliseconds) to poll the DB for status updates.
+  // Defaults to 500 ms.
+  int32 poll_interval_ms = 2;
+}

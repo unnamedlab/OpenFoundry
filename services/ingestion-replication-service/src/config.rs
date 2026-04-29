@@ -6,6 +6,8 @@ pub struct AppConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default = "default_grpc_port")]
+    pub grpc_port: u16,
     pub database_url: String,
     pub jwt_secret: String,
     #[serde(default = "default_dataset_service_url")]
@@ -29,6 +31,9 @@ fn default_host() -> String {
 }
 fn default_port() -> u16 {
     50090
+}
+fn default_grpc_port() -> u16 {
+    50091
 }
 fn default_dataset_service_url() -> String {
     "http://localhost:50079".to_string()

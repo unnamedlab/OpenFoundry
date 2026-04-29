@@ -4889,6 +4889,7 @@ dependencies = [
 name = "ingestion-replication-service"
 version = "0.0.1"
 dependencies = [
+ "async-stream",
  "anyhow",
  "async-trait",
  "auth-middleware",
@@ -4900,6 +4901,8 @@ dependencies = [
  "core-models",
  "csv",
  "event-bus",
+ "prost",
+ "prost-types",
  "futures",
  "http",
  "http-body-util",
@@ -4917,6 +4920,9 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
  "tonic",
  "tonic-build",
  "tower 0.5.3",
