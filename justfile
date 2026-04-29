@@ -181,7 +181,8 @@ proto-breaking:
 
 # ── Docker ───────────────────────────────────────────────────
 
-# Start dev infrastructure (Postgres, Redis, NATS, MinIO, Meilisearch)
+# Start dev infrastructure (Postgres, Redis, NATS, MinIO, Vespa Lite). Add
+# `--profile demo` to also bring up the optional Meilisearch (see ADR-0007).
 infra-up:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
 

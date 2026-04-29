@@ -196,8 +196,60 @@ abstraction needs to be reintroduced.
 
 ## References
 
-- `infra/docker-compose.yml` — Meilisearch service (DX only).
+- `infra/docker-compose.yml` — Vespa Lite single-node container (DX) and
+  the canonical reference to the production search engine.
+- `infra/docker-compose.dev.yml` — Meilisearch under the optional
+  `demo` profile (first-run demo only).
 - `docs/architecture/runtime-topology.md` — shared runtime dependencies.
 - `docs/operations/deployment.md` — local stack and Kubernetes packaging.
 - Vespa documentation: <https://docs.vespa.ai/>
 - pgvector: <https://github.com/pgvector/pgvector>
+
+## Addendum — 2026-04: consolidación final
+
+> **Estado:** Aceptado · **Fecha:** 2026-04-29
+
+Tras validar que ningún servicio del workspace, ningún test de
+integración y ningún escenario en `smoke/` consume Meilisearch (solo
+quedaba la declaración no usada `meilisearch-sdk` en
+`Cargo.toml [workspace.dependencies]`), se consolida la decisión de la
+siguiente forma:
+
+- **Vespa Lite** (`vespaengine/vespa`, Apache-2.0) pasa a ser la
+  dependencia de búsqueda por defecto para **DX local**, expuesta como
+  un único contenedor single-node en `infra/docker-compose.yml`. Es el
+  mismo motor que el de producción descrito en `infra/runbooks/vespa.md`
+  e `infra/k8s/helm/open-foundry/charts/vespa/`, lo que elimina la
+  divergencia DX↔producción que motivaba mantener Meilisearch.
+- **Meilisearch** se traslada a `infra/docker-compose.dev.yml` bajo el
+  perfil opcional `--profile demo`. Solo se levanta cuando se quiere
+  reproducir el "first-run demo" (búsqueda instantánea sin JVM); no es
+  una dependencia ni de DX común ni de producción.
+- Los scripts (`infra/scripts/dev-stack.sh`), el `justfile` y
+  `.env.example` reservan/exportan puertos y endpoints para Vespa por
+  defecto; las variables `MEILISEARCH_URL` / `OPENFOUNDRY_MEILISEARCH_HOST_PORT`
+  solo se materializan si el operador pide explícitamente el perfil
+  `demo`.
+- Ninguna de las condiciones de reapertura listadas más arriba se ha
+  disparado: Vespa sigue siendo Apache-2.0, no se ha materializado un
+  requisito de Kibana sobre >1 TB, no hay benchmarks que demuestren
+  inferioridad de Vespa para nuestras cargas y no hay imposición
+  regulatoria de OpenSearch.
+
+Cambios concretos asociados a este addendum (2026-04):
+
+- `infra/docker-compose.yml`: se elimina el servicio `meilisearch` y su
+  volumen `meilisearch_data`, y se añade el servicio `vespa` single-node
+  con healthcheck contra `:19071/state/v1/health` y volumen `vespa_data`.
+- `infra/docker-compose.dev.yml`: se añade `meilisearch` con
+  `profiles: ["demo"]` y volumen `meilisearch_data`, exclusivamente para
+  el demo opcional.
+- Documentación (`docs/operations/deployment.md`,
+  `docs/guide/local-development.md`,
+  `docs/architecture/runtime-topology.md`) actualizada para retirar
+  Meilisearch de la lista de dependencias comunes y apuntar al perfil
+  `demo`.
+
+Si en el futuro se decidiera retirar también el demo, la declaración
+`meilisearch-sdk` en `Cargo.toml` puede eliminarse junto con este
+servicio sin afectar a ningún consumidor.

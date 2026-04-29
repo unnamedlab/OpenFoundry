@@ -34,7 +34,7 @@ just dev-stack-fast
 
 ### Infrastructure Only
 
-Use this when you only need backing services such as Postgres, Redis, NATS, MinIO, or Meilisearch:
+Use this when you only need backing services such as Postgres, Redis, NATS, MinIO, or Vespa Lite (production-equivalent search engine; Meilisearch is now opt-in via `--profile demo`, see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)):
 
 ```bash
 just infra-up
@@ -108,7 +108,9 @@ Several services also assume supporting infrastructure:
 - Redis for gateway caching and stateful coordination
 - NATS for async messaging
 - MinIO or another object-store-compatible backend
-- Meilisearch for search-oriented capabilities
+- Vespa (single-node container in dev, multi-node Helm chart in production)
+  for hybrid BM25 + vector + filter + ranking search
+  (see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md))
 
 ## Helpful Commands From `justfile`
 

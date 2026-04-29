@@ -82,7 +82,14 @@ configure_local_infra_ports() {
   ensure_host_port OPENFOUNDRY_NATS_MONITOR_HOST_PORT 8222 58222 "NATS monitor"
   ensure_host_port OPENFOUNDRY_MINIO_API_HOST_PORT 9000 59000 "MinIO API"
   ensure_host_port OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT 9001 59001 "MinIO console"
-  ensure_host_port OPENFOUNDRY_MEILISEARCH_HOST_PORT 7700 57700 "Meilisearch"
+  ensure_host_port OPENFOUNDRY_VESPA_QUERY_HOST_PORT 18080 58080 "Vespa query"
+  ensure_host_port OPENFOUNDRY_VESPA_CONFIG_HOST_PORT 19071 59071 "Vespa config-server"
+  # Meilisearch is opt-in (`--profile demo` on infra/docker-compose.dev.yml).
+  # Reserve a host port only if the caller has set MEILISEARCH_URL or
+  # OPENFOUNDRY_MEILISEARCH_HOST_PORT explicitly.
+  if [[ -n "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-}" || -n "${MEILISEARCH_URL:-}" ]]; then
+    ensure_host_port OPENFOUNDRY_MEILISEARCH_HOST_PORT 7700 57700 "Meilisearch (demo)"
+  fi
 }
 
 rewrite_local_endpoints() {
@@ -90,8 +97,13 @@ rewrite_local_endpoints() {
   REDIS_URL="$(replace_local_port "${REDIS_URL:-redis://localhost:6379}" 6379 "$OPENFOUNDRY_REDIS_HOST_PORT")"
   NATS_URL="$(replace_local_port "${NATS_URL:-nats://localhost:4222}" 4222 "$OPENFOUNDRY_NATS_HOST_PORT")"
   S3_ENDPOINT="$(replace_local_port "${S3_ENDPOINT:-http://localhost:9000}" 9000 "$OPENFOUNDRY_MINIO_API_HOST_PORT")"
-  MEILISEARCH_URL="$(replace_local_port "${MEILISEARCH_URL:-http://localhost:7700}" 7700 "$OPENFOUNDRY_MEILISEARCH_HOST_PORT")"
-  # Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+  VESPA_QUERY_URL="$(replace_local_port "${VESPA_QUERY_URL:-http://localhost:18080}" 18080 "$OPENFOUNDRY_VESPA_QUERY_HOST_PORT")"
+  VESPA_CONFIG_URL="$(replace_local_port "${VESPA_CONFIG_URL:-http://localhost:19071}" 19071 "$OPENFOUNDRY_VESPA_CONFIG_HOST_PORT")"
+  if [[ -n "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-}" ]]; then
+    MEILISEARCH_URL="$(replace_local_port "${MEILISEARCH_URL:-http://localhost:7700}" 7700 "$OPENFOUNDRY_MEILISEARCH_HOST_PORT")"
+    export MEILISEARCH_URL
+  fi
+  # Qdrant se retira por restricción de licencia OSS; sustituido por Vespa
   # (Apache-2.0). Por ahora pgvector cubre el caso embebido y reutiliza
   # DATABASE_URL.
 
@@ -99,7 +111,8 @@ rewrite_local_endpoints() {
   export REDIS_URL
   export NATS_URL
   export S3_ENDPOINT
-  export MEILISEARCH_URL
+  export VESPA_QUERY_URL
+  export VESPA_CONFIG_URL
 }
 
 service_database_name() {
@@ -198,6 +211,8 @@ load_env() {
     unset OPENFOUNDRY_NATS_MONITOR_HOST_PORT
     unset OPENFOUNDRY_MINIO_API_HOST_PORT
     unset OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT
+    unset OPENFOUNDRY_VESPA_QUERY_HOST_PORT
+    unset OPENFOUNDRY_VESPA_CONFIG_HOST_PORT
     unset OPENFOUNDRY_MEILISEARCH_HOST_PORT
   fi
 }
@@ -211,7 +226,9 @@ OPENFOUNDRY_NATS_HOST_PORT=$OPENFOUNDRY_NATS_HOST_PORT
 OPENFOUNDRY_NATS_MONITOR_HOST_PORT=$OPENFOUNDRY_NATS_MONITOR_HOST_PORT
 OPENFOUNDRY_MINIO_API_HOST_PORT=$OPENFOUNDRY_MINIO_API_HOST_PORT
 OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT=$OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT
-OPENFOUNDRY_MEILISEARCH_HOST_PORT=$OPENFOUNDRY_MEILISEARCH_HOST_PORT
+OPENFOUNDRY_VESPA_QUERY_HOST_PORT=$OPENFOUNDRY_VESPA_QUERY_HOST_PORT
+OPENFOUNDRY_VESPA_CONFIG_HOST_PORT=$OPENFOUNDRY_VESPA_CONFIG_HOST_PORT
+OPENFOUNDRY_MEILISEARCH_HOST_PORT=${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-}
 EOF
 }
 
@@ -357,6 +374,12 @@ main() {
   wait_for_http "http://127.0.0.1:${GATEWAY_PORT:-8080}/health" "Gateway"
   wait_for_http "http://127.0.0.1:5173" "Web app"
 
+  if [[ -n "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-}" ]]; then
+    meilisearch_status="http://localhost:${OPENFOUNDRY_MEILISEARCH_HOST_PORT}"
+  else
+    meilisearch_status="disabled (use --profile demo on infra/docker-compose.dev.yml; see ADR-0007)"
+  fi
+
   cat <<EOF
 
 OpenFoundry is running locally.
@@ -370,7 +393,9 @@ Redis:       localhost:${OPENFOUNDRY_REDIS_HOST_PORT}
 NATS:        localhost:${OPENFOUNDRY_NATS_HOST_PORT}
 MinIO API:   http://localhost:${OPENFOUNDRY_MINIO_API_HOST_PORT}
 MinIO UI:    http://localhost:${OPENFOUNDRY_MINIO_CONSOLE_HOST_PORT}
-Meilisearch: http://localhost:${OPENFOUNDRY_MEILISEARCH_HOST_PORT}
+Vespa query: http://localhost:${OPENFOUNDRY_VESPA_QUERY_HOST_PORT}
+Vespa cfg:   http://localhost:${OPENFOUNDRY_VESPA_CONFIG_HOST_PORT}
+Meilisearch: ${meilisearch_status}
 
 Press Ctrl+C to stop the locally started services.
 The docker infrastructure stays up; stop it with:
