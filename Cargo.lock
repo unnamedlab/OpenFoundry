@@ -10113,6 +10113,7 @@ dependencies = [
  "core-models",
  "cron",
  "event-bus",
+ "futures",
  "reqwest",
  "serde",
  "serde_json",
