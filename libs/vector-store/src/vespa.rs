@@ -9,8 +9,6 @@ use crate::backend::{
 pub struct VespaBackend {
     client: reqwest::Client,
     base_url: String,
-    #[allow(dead_code)]
-    dim: usize,
 }
 
 impl VespaBackend {
@@ -26,7 +24,6 @@ impl VespaBackend {
         Ok(Self {
             client: reqwest::Client::new(),
             base_url,
-            dim: config.dim,
         })
     }
 

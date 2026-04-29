@@ -77,7 +77,7 @@ pub struct BackendConfig {
 }
 
 fn default_dim() -> usize {
-    12
+    768
 }
 
 /// The core vector backend trait.

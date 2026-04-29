@@ -137,7 +137,11 @@ impl VectorBackend for PgvectorBackend {
             .fetch_all(&self.pool)
             .await?
         } else {
-            sqlx::query(
+            // RRF constant k=60 is the standard Reciprocal Rank Fusion default;
+        // it dampens the impact of high-rank positions and prevents dominance
+        // by either the vector or text ranking signal.
+        let k = 60i64;
+        sqlx::query(
                 r#"
                 WITH vec_ranked AS (
                     SELECT doc_id, payload,
@@ -154,7 +158,7 @@ impl VectorBackend for PgvectorBackend {
                 ),
                 fused AS (
                     SELECT v.doc_id, v.payload,
-                           (1.0 / (60 + v.vec_rank) + COALESCE(1.0 / (60 + t.txt_rank), 0)) AS rrf_score
+                           (1.0 / ($6 + v.vec_rank) + COALESCE(1.0 / ($6 + t.txt_rank), 0)) AS rrf_score
                     FROM vec_ranked v
                     LEFT JOIN text_ranked t ON v.doc_id = t.doc_id
                 )
@@ -169,6 +173,7 @@ impl VectorBackend for PgvectorBackend {
             .bind(&vector_str)
             .bind(query.top_k as i64)
             .bind(keyword)
+            .bind(k)
             .fetch_all(&self.pool)
             .await?
         };
