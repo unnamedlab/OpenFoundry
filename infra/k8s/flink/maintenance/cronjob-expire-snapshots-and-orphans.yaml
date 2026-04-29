@@ -81,19 +81,15 @@ spec:
                   kubectl -n flink delete flinkdeployment \
                     iceberg-expire-snapshots-and-orphans \
                     --ignore-not-found --wait=true --timeout=10m
-                  kubectl -n flink apply -f \
-                    /manifests/expire-snapshots-and-orphans.yaml
-                  # Patch the tier env var on both JM and TM templates so
-                  # the same FlinkDeployment template can serve hot/gold.
-                  kubectl -n flink patch flinkdeployment \
-                    iceberg-expire-snapshots-and-orphans --type=json -p="[
-                      {\"op\":\"replace\",
-                       \"path\":\"/spec/jobManager/podTemplate/spec/containers/0/env/3/value\",
-                       \"value\":\"${TIER}\"},
-                      {\"op\":\"replace\",
-                       \"path\":\"/spec/taskManager/podTemplate/spec/containers/0/env/3/value\",
-                       \"value\":\"${TIER}\"}
-                    ]"
+                  # Render the manifest by replacing the `# tier-override`
+                  # sentinel — robust against env reordering and works on
+                  # the FlinkDeployment CRD which has no strategic-merge
+                  # patch metadata. Sentinel lives in
+                  # `infra/k8s/flink/maintenance/expire-snapshots-and-orphans.yaml`.
+                  sed -E "s|value: \"[a-z]+\"([[:space:]]+# tier-override)|value: \"${TIER}\"\\1|g" \
+                    /manifests/expire-snapshots-and-orphans.yaml \
+                    > /tmp/rendered.yaml
+                  kubectl -n flink apply -f /tmp/rendered.yaml
                   echo "[expire-snapshots:${TIER}] waiting for FINISHED..."
                   for _ in $(seq 1 360); do
                     state=$(kubectl -n flink get flinkdeployment \
@@ -113,6 +109,8 @@ spec:
                 - name: manifests
                   mountPath: /manifests
                   readOnly: true
+                - name: tmp
+                  mountPath: /tmp
               resources:
                 requests:
                   cpu: "50m"
@@ -129,6 +127,8 @@ spec:
             - name: manifests
               configMap:
                 name: iceberg-expire-snapshots-and-orphans-manifest
+            - name: tmp
+              emptyDir: {}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -179,17 +179,12 @@ spec:
                   kubectl -n flink delete flinkdeployment \
                     iceberg-expire-snapshots-and-orphans \
                     --ignore-not-found --wait=true --timeout=10m
-                  kubectl -n flink apply -f \
-                    /manifests/expire-snapshots-and-orphans.yaml
-                  kubectl -n flink patch flinkdeployment \
-                    iceberg-expire-snapshots-and-orphans --type=json -p="[
-                      {\"op\":\"replace\",
-                       \"path\":\"/spec/jobManager/podTemplate/spec/containers/0/env/3/value\",
-                       \"value\":\"${TIER}\"},
-                      {\"op\":\"replace\",
-                       \"path\":\"/spec/taskManager/podTemplate/spec/containers/0/env/3/value\",
-                       \"value\":\"${TIER}\"}
-                    ]"
+                  # See cronjob `iceberg-expire-snapshots-hot` above for the
+                  # rationale of the sed-based templating approach.
+                  sed -E "s|value: \"[a-z]+\"([[:space:]]+# tier-override)|value: \"${TIER}\"\\1|g" \
+                    /manifests/expire-snapshots-and-orphans.yaml \
+                    > /tmp/rendered.yaml
+                  kubectl -n flink apply -f /tmp/rendered.yaml
                   echo "[expire-snapshots:${TIER}] waiting for FINISHED..."
                   for _ in $(seq 1 720); do
                     state=$(kubectl -n flink get flinkdeployment \
@@ -209,6 +204,8 @@ spec:
                 - name: manifests
                   mountPath: /manifests
                   readOnly: true
+                - name: tmp
+                  mountPath: /tmp
               resources:
                 requests:
                   cpu: "50m"
@@ -225,3 +222,5 @@ spec:
             - name: manifests
               configMap:
                 name: iceberg-expire-snapshots-and-orphans-manifest
+            - name: tmp
+              emptyDir: {}
