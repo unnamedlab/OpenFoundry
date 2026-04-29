@@ -147,6 +147,7 @@ export default defineConfig({
             { text: "Overview", link: "/security-governance/" },
             { text: "Identity and access", link: "/security-governance/identity-and-access" },
             { text: "Policies and authorization", link: "/security-governance/policies-and-authorization" },
+            { text: "Policy bundles in-process", link: "/security-governance/policy-bundles" },
             { text: "Restricted views and data controls", link: "/security-governance/restricted-views-and-data-controls" },
             { text: "Audit and traceability", link: "/security-governance/audit-and-traceability" },
             { text: "ABAC and CBAC model", link: "/security-governance/abac-and-cbac-model/" },

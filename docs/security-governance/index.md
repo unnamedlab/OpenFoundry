@@ -22,6 +22,7 @@ This section covers identity, permissions, policy, traceability, and controlled 
 
 - [Identity and access](/security-governance/identity-and-access)
 - [Policies and authorization](/security-governance/policies-and-authorization)
+- [Policy bundles in-process](/security-governance/policy-bundles)
 - [Restricted views and data controls](/security-governance/restricted-views-and-data-controls)
 - [Audit and traceability](/security-governance/audit-and-traceability)
 - [ABAC and CBAC model](/security-governance/abac-and-cbac-model/)
