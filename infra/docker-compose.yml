@@ -1800,35 +1800,6 @@ services:
     ports:
       - "${OPENFOUNDRY_WIDGET_REGISTRY_HOST_PORT:-50077}:50077"
 
-  report-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/report-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50064
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_report_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      GEOSPATIAL_SERVICE_URL: http://geospatial-intelligence-service:50068
-      OBJECT_STORAGE_BACKEND: local
-      LOCAL_DELIVERY_ROOT: /var/lib/openfoundry/report-delivery
-      REPORT_DELIVERY_TIMEOUT_SECS: "10"
-      REPORT_DELIVERY_MAX_RETRIES: "2"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
-      geospatial-intelligence-service:
-        condition: service_started
-    volumes:
-      - report_delivery_data:/var/lib/openfoundry/report-delivery
-    ports:
-      - "${OPENFOUNDRY_REPORT_HOST_PORT:-50064}:50064"
-
   global-branch-service:
     <<: *app-common
     profiles: *profiles-experience
@@ -2145,7 +2116,7 @@ services:
       APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
       APPLICATION_CURATION_SERVICE_URL: http://application-curation-service:50101
       WIDGET_REGISTRY_SERVICE_URL: http://widget-registry-service:50077
-      REPORT_SERVICE_URL: http://report-service:50064
+      REPORT_SERVICE_URL: http://document-reporting-service:50102
       GLOBAL_BRANCH_SERVICE_URL: http://global-branch-service:50110
       MARKETPLACE_CATALOG_SERVICE_URL: http://marketplace-catalog-service:50066
       PRODUCT_DISTRIBUTION_SERVICE_URL: http://product-distribution-service:50111
@@ -2297,7 +2268,7 @@ services:
         condition: service_started
       widget-registry-service:
         condition: service_started
-      report-service:
+      document-reporting-service:
         condition: service_started
       global-branch-service:
         condition: service_started

@@ -224,7 +224,7 @@
 /services/federation-product-exchange-service/          @open-foundry/analytics-team @open-foundry/data-platform
 /services/geospatial-intelligence-service/              @open-foundry/analytics-team
 /services/nexus-service/                                @open-foundry/analytics-team
-/services/report-service/                               @open-foundry/analytics-team
+/services/document-reporting-service/                   @open-foundry/analytics-team
 /services/solution-design-service/                      @open-foundry/analytics-team @open-foundry/developer-platform
 
 # --- Developer platform / app builder / marketplace / SDKs ---

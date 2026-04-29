@@ -122,7 +122,7 @@ spec:
             - name: PIPELINE_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "pipeline-authoring-service" "port" 50080) | quote }}
             - name: REPORT_SERVICE_URL
-              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "report-service" "port" 50064) | quote }}
+              value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "document-reporting-service" "port" 50102) | quote }}
             - name: GEOSPATIAL_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "geospatial-intelligence-service" "port" 50068) | quote }}
             - name: NEXUS_SERVICE_URL
@@ -132,7 +132,7 @@ spec:
             - name: DATASET_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "data-asset-catalog-service" "port" 50079) | quote }}
 {{- end }}
-{{- if eq $serviceName "report-service" }}
+{{- if eq $serviceName "document-reporting-service" }}
             - name: DATASET_SERVICE_URL
               value: {{ include "open-foundry.serviceUrl" (dict "root" $ "serviceName" "data-asset-catalog-service" "port" 50079) | quote }}
             - name: GEOSPATIAL_SERVICE_URL

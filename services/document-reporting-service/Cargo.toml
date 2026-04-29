@@ -23,6 +23,9 @@ workspace = true
 [dependencies.axum-extra]
 workspace = true
 
+[dependencies.bytes]
+workspace = true
+
 [dependencies.chrono]
 workspace = true
 
@@ -30,6 +33,17 @@ workspace = true
 workspace = true
 
 [dependencies.core-models]
+workspace = true
+
+[dependencies.event-bus]
+workspace = true
+
+[dependencies.lettre]
+version = "0.11.11"
+features = ["builder", "smtp-transport", "tokio1-native-tls"]
+default-features = false
+
+[dependencies.reqwest]
 workspace = true
 
 [dependencies.serde]
@@ -41,6 +55,9 @@ workspace = true
 [dependencies.sqlx]
 workspace = true
 
+[dependencies.storage-abstraction]
+workspace = true
+
 [dependencies.tokio]
 workspace = true
 
@@ -48,6 +65,9 @@ workspace = true
 workspace = true
 
 [dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
 workspace = true
 
 [dependencies.uuid]

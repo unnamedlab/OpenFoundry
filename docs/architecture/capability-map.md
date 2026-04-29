@@ -23,7 +23,7 @@ The P2 flow shows the core operational backbone:
 - operate on the data
 - expose results through pipelines, queries, streaming, reports, and maps
 
-This is reflected in service folders such as `data-connector`, `dataset-service`, `pipeline-service`, `sql-bi-gateway-service`, `streaming-service`, `report-service`, and `geospatial-service`.
+This is reflected in service folders such as `data-connector`, `dataset-service`, `pipeline-service`, `sql-bi-gateway-service`, `streaming-service`, `document-reporting-service`, and `geospatial-service`.
 
 ### Semantic and governance layer
 

@@ -48,11 +48,6 @@ services:
       maxReplicas: 3
       keda:
         enabled: false
-  report-service:
-    replicas: 1
-    autoscaling:
-      minReplicas: 1
-      maxReplicas: 2
   geospatial-intelligence-service:
     replicas: 1
     autoscaling:

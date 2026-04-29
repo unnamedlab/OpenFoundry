@@ -56,7 +56,7 @@ OpenFoundry aims to deliver **25 core capabilities** that match Palantir Foundry
 | 15 | Slate/Workshop (App Builder) | `app-builder-service` | ✅ Done | Phase 3 |
 | 16 | ML / Model Management | `ml-service` | ✅ Done | Phase 3 |
 | 17 | AIP (GenAI / LLM / Copilot) | `ai-service` | ✅ Done | Phase 3 |
-| 18 | Reports | `report-service` | ✅ Done | Phase 4 |
+| 18 | Reports | `document-reporting-service` (retired `report-service`) | ✅ Done | Phase 4 |
 | 19 | Fusion (Entity Resolution) | `fusion-service` | ✅ Done | Phase 4 |
 | 20 | Code Repositories (Git) | `code-repo-service` | ✅ Done | Phase 4 |
 | 21 | Marketplace | `marketplace-service` | ✅ Done | Phase 4 |

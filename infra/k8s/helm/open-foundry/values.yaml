@@ -260,34 +260,6 @@ services:
               query: sum(openfoundry_query_inflight_requests)
               threshold: "40"
 
-  report-service:
-    enabled: true
-    image:
-      repository: ghcr.io/open-foundry/report-service
-      tag: latest
-    port: 50064
-    replicas: 2
-    env:
-      RUST_LOG: info
-    resources:
-      requests:
-        cpu: 300m
-        memory: 512Mi
-      limits:
-        cpu: "2"
-        memory: 2Gi
-    autoscaling:
-      enabled: true
-      minReplicas: 2
-      maxReplicas: 8
-      targetCPUUtilizationPercentage: 70
-      targetMemoryUtilizationPercentage: 75
-      keda:
-        enabled: false
-        pollingInterval: 15
-        cooldownPeriod: 120
-        triggers: []
-
   geospatial-intelligence-service:
     enabled: true
     image:

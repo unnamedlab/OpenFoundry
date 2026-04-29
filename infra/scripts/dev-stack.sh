@@ -22,7 +22,6 @@ SERVICES=(
   notebook-runtime-service
   document-reporting-service
   app-builder-service
-  report-service
   marketplace-service
   nexus-service
   notification-alerting-service
@@ -264,7 +263,7 @@ start_service() {
 
   (
     cd "$ROOT_DIR"
-    if [[ "$service_name" == "report-service" ]]; then
+    if [[ "$service_name" == "document-reporting-service" ]]; then
       DATABASE_URL="$database_url" LOCAL_DELIVERY_ROOT="$REPORT_DELIVERY_ROOT" "$binary_path"
     elif [[ -n "$database_url" ]]; then
       DATABASE_URL="$database_url" "$binary_path"

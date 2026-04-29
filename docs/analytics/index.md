@@ -5,7 +5,7 @@ This section covers how OpenFoundry exposes analysis and operational insight.
 ## OpenFoundry mapping
 
 - `services/sql-bi-gateway-service`
-- `services/report-service`
+- `services/document-reporting-service`
 - `services/geospatial-service`
 - `services/fusion-service`
 - `apps/web/src/routes/queries`

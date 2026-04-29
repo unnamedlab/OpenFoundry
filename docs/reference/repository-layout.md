@@ -23,7 +23,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/fusion-service` | fusion/spreadsheet APIs |
 | `services/ml-service` | experiments, training, registry |
 | `services/ai-service` | model and tool orchestration |
-| `services/report-service` | report generation and delivery |
+| `services/document-reporting-service` | report generation, delivery, and notepad documents |
 | `services/geospatial-service` | geospatial APIs |
 | `services/code-repo-service` | repository APIs |
 | `services/marketplace-service` | marketplace APIs |

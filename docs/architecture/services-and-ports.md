@@ -28,9 +28,8 @@ All backend services expose a health endpoint and bind to fixed default ports in
 | `ai-service` | `50060` | AI providers, chat, tools, workflows |
 | `workflow-automation-service` | `50137` | Workflow orchestration and execution runtime |
 | `notebook-runtime-service` | `50134` | Notebook kernels, cells, sessions, and interactive execution |
-| `document-reporting-service` | `50102` | Notepad-style documents and document reporting surfaces |
+| `document-reporting-service` | `50102` | Notepad-style documents, report generation and delivery |
 | `app-builder-service` | `50063` | App composition and runtime surfaces |
-| `report-service` | `50064` | Report generation and delivery |
 | `code-repo-service` | `50065` | Code repository APIs |
 | `marketplace-service` | `50066` | Marketplace and catalog APIs |
 | `federation-product-exchange-service` | `50120` | Federation, sharing, and multi-org collaboration |
@@ -54,7 +53,7 @@ The gateway maps URL prefixes to backend services. Important examples:
 - `/api/v1/ontology` -> `ontology-service`
 - `/api/v1/ml` -> `ml-service`
 - `/api/v1/ai` -> `ai-service`
-- `/api/v1/reports` -> `report-service`
+- `/api/v1/reports` -> `document-reporting-service`
 - `/api/v1/code-repos` -> `code-repo-service`
 - `/api/v1/marketplace` -> `marketplace-service`
 - `/api/v1/nexus/spaces` -> `tenancy-organizations-service`
@@ -73,7 +72,7 @@ Configuration files show explicit service-to-service defaults for several domain
 - `lineage-service` depends on dataset, workflow, and AI services
 - `workflow-automation-service` depends on notification, ontology, and pipeline services
 - `ontology-service` depends on audit and AI services
-- `report-service` depends on dataset and geospatial services
+- `document-reporting-service` depends on dataset and geospatial services
 - `notebook-runtime-service` depends on query and AI services
 - `marketplace-service` depends on app-builder
 

@@ -6,9 +6,8 @@ This section covers how platform capabilities become workflow-ready applications
 
 - `services/app-builder-service`
 - `services/workflow-automation-service`
-- `services/report-service`
-- `services/notebook-runtime-service`
 - `services/document-reporting-service`
+- `services/notebook-runtime-service`
 - `apps/web/src/routes/apps`
 - `apps/web/src/routes/workflows`
 

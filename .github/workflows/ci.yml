@@ -93,7 +93,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build smoke stack
-        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p report-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p marketplace-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
+        run: cargo build -p of-cli -p edge-gateway-service -p identity-federation-service -p connector-management-service -p data-asset-catalog-service -p pipeline-authoring-service -p sql-bi-gateway-service -p event-streaming-service -p document-reporting-service -p geospatial-intelligence-service -p audit-compliance-service -p ontology-definition-service -p app-builder-service -p code-repository-review-service -p marketplace-service -p ai-service -p agent-runtime-service -p ml-service -p model-catalog-service
       - name: Prepare service databases
         env:
           PGPASSWORD: test
@@ -157,7 +157,7 @@ jobs:
           DATABASE_URL=postgres://test:test@localhost:5432/of_pipelines JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/of-datasets target/debug/pipeline-authoring-service > /tmp/of-smoke-logs/pipeline-authoring-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_streaming JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 ARCHIVE_DIR=/tmp/of-stream-archive target/debug/event-streaming-service > /tmp/of-smoke-logs/event-streaming-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_queries JWT_SECRET="$JWT_SECRET" target/debug/sql-bi-gateway-service > /tmp/of-smoke-logs/sql-bi-gateway-service.log 2>&1 &
-          DATABASE_URL=postgres://test:test@localhost:5432/of_reports JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 GEOSPATIAL_SERVICE_URL=http://127.0.0.1:50068 target/debug/report-service > /tmp/of-smoke-logs/report-service.log 2>&1 &
+          DATABASE_URL=postgres://test:test@localhost:5432/of_reports JWT_SECRET="$JWT_SECRET" DATASET_SERVICE_URL=http://127.0.0.1:50079 GEOSPATIAL_SERVICE_URL=http://127.0.0.1:50068 target/debug/document-reporting-service > /tmp/of-smoke-logs/document-reporting-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_geospatial JWT_SECRET="$JWT_SECRET" target/debug/geospatial-intelligence-service > /tmp/of-smoke-logs/geospatial-intelligence-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_audit JWT_SECRET="$JWT_SECRET" target/debug/audit-compliance-service > /tmp/of-smoke-logs/audit-compliance-service.log 2>&1 &
           DATABASE_URL=postgres://test:test@localhost:5432/of_ontology JWT_SECRET="$JWT_SECRET" AUDIT_SERVICE_URL=http://127.0.0.1:50115 target/debug/ontology-definition-service > /tmp/of-smoke-logs/ontology-definition-service.log 2>&1 &
