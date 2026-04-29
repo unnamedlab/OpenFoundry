@@ -13,6 +13,7 @@
     createLinkType,
     createOntologyFunnelSource,
     createObjectType,
+    createProjectBranch,
     createProject,
     createProperty,
     createSharedPropertyType,
@@ -27,6 +28,7 @@
     listObjectSets,
     listObjects,
     listObjectTypes,
+    listProjectBranches,
     listProjectMemberships,
     listProjectResources,
     listProjects,
@@ -42,6 +44,7 @@
     type ObjectType,
     type OntologyInterface,
     type OntologyProject,
+    type OntologyBranch,
     type OntologyProjectMembership,
     type OntologyProjectResourceBinding,
     type OntologyProjectRole,
@@ -203,7 +206,6 @@
     { id: 'advanced', label: 'Advanced', glyph: 'settings' }
   ];
 
-  const branchOptions = ['main', 'working-copy', 'release-candidate'];
   const propertyTypeOptions = ['string', 'integer', 'float', 'boolean', 'date', 'datetime', 'json', 'embedding'];
   const projectRoleOptions: OntologyProjectRole[] = ['owner', 'editor', 'viewer'];
 
@@ -248,18 +250,30 @@
   let currentUser = $state<UserProfile | null>(null);
   let datasets = $state<Dataset[]>([]);
   let datasetPreview = $state<DatasetPreviewResponse | null>(null);
+  let projectBranches = $state<OntologyBranch[]>([]);
+  let branchMenuOpen = $state(false);
+  let branchBusy = $state(false);
+  let branchError = $state('');
+  let branchDraftName = $state('');
+  let branchDraftDescription = $state('');
+  let branchDraftQuery = $state('');
+  let branchEnableIndexing = $state(true);
+  let wizardOpen = $state(false);
   let wizardStep = $state(1);
   let wizardBusy = $state(false);
   let wizardError = $state('');
   let wizardSuccess = $state('');
+  let wizardDatasetSearch = $state('');
+  let wizardPluralNameTouched = $state(false);
   let wizardDraft = $state({
     dataset_id: '',
     object_name: '',
     display_name: '',
+    plural_name: '',
     description: '',
     primary_key_column: '',
     title_column: '',
-    indexing_enabled: true
+    mapped_columns: [] as string[]
   });
 
   let typeDraft = $state<TypeDraft>({ display_name: '', description: '', icon: '', color: '' });
@@ -354,6 +368,20 @@
     return selectedProjectMemberships.find((item) => item.user_id === current.id)?.role ?? 'viewer';
   });
   const canEditSelectedProject = $derived(selectedProjectRole === 'owner' || selectedProjectRole === 'editor');
+  const activeProjectBranch = $derived(
+    projectBranches.find((item) => item.name === activeBranch) ?? projectBranches.find((item) => item.status === 'main') ?? null
+  );
+  const branchIndexingEnabled = $derived(activeProjectBranch?.enable_indexing ?? activeBranch === 'main');
+  const filteredBranchMatches = $derived.by(() => {
+    const query = branchDraftQuery.trim().toLowerCase();
+    if (!query) return projectBranches.slice(0, 6);
+    return projectBranches.filter((item) => item.name.toLowerCase().includes(query)).slice(0, 6);
+  });
+  const filteredWizardDatasets = $derived.by(() => {
+    const query = wizardDatasetSearch.trim().toLowerCase();
+    if (!query) return datasets;
+    return datasets.filter((item) => `${item.name} ${item.description ?? ''}`.toLowerCase().includes(query));
+  });
 
   const filteredObjectTypes = $derived.by(() => filterBySearch(objectTypes, searchQuery, (item) => `${item.name} ${item.display_name} ${item.description}`));
   const filteredInterfaces = $derived.by(() => filterBySearch(interfaces, searchQuery, (item) => `${item.name} ${item.display_name} ${item.description}`));
@@ -454,6 +482,60 @@
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  }
+
+  function normalizeBranchName(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9/_-]+/g, '-')
+      .replace(/\/{2,}/g, '/')
+      .replace(/(^|\/)[_-]+/g, '$1')
+      .replace(/[_-]+(\/|$)/g, '$1')
+      .replace(/^\/+|\/+$/g, '');
+  }
+
+  function pluralizeLabel(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/\b\w+s$/i.test(trimmed)) return trimmed;
+    if (/(s|x|z|ch|sh)$/i.test(trimmed)) return `${trimmed}es`;
+    if (/[^aeiou]y$/i.test(trimmed)) return `${trimmed.slice(0, -1)}ies`;
+    return `${trimmed}s`;
+  }
+
+  function currentUsernameSlug() {
+    const source = currentUser?.email?.split('@')[0] || currentUser?.name || 'your_username';
+    return normalizeBranchName(source) || 'your_username';
+  }
+
+  function defaultBranchName() {
+    return `${currentUsernameSlug()}/e2espeedrun`;
+  }
+
+  function syncWizardNames(value: string) {
+    wizardDraft.display_name = value;
+    wizardDraft.object_name = normalizeName(value);
+    if (!wizardPluralNameTouched) {
+      wizardDraft.plural_name = pluralizeLabel(value);
+    }
+  }
+
+  function resetWizardDraft() {
+    wizardDraft = {
+      dataset_id: '',
+      object_name: '',
+      display_name: '',
+      plural_name: '',
+      description: '',
+      primary_key_column: '',
+      title_column: '',
+      mapped_columns: []
+    };
+    wizardStep = 1;
+    wizardDatasetSearch = '';
+    wizardPluralNameTouched = false;
+    datasetPreview = null;
   }
 
   function storageKey(name: string) {
@@ -639,15 +721,11 @@
       if (!selectedSharedPropertyId && sharedPropertyTypes[0]) selectedSharedPropertyId = sharedPropertyTypes[0].id;
       if (!selectedLinkId && linkTypes[0]) selectedLinkId = linkTypes[0].id;
       if (!selectedProjectId && projects[0]) selectedProjectId = projects[0].id;
-      if (!wizardDraft.dataset_id && datasets[0]) wizardDraft.dataset_id = datasets[0].id;
 
       if (selectedTypeId) await loadSelectedType(selectedTypeId);
       if (selectedInterfaceId) await loadSelectedInterface(selectedInterfaceId);
       if (selectedProjectId) {
         await Promise.all([loadSelectedProject(selectedProjectId), loadWorkingState(selectedProjectId)]);
-      }
-      if (wizardDraft.dataset_id) {
-        datasetPreview = await previewDataset(wizardDraft.dataset_id, { limit: 20 }).catch(() => null);
       }
 
       if (!linkDraft.source_type_id && objectTypes[0]) linkDraft.source_type_id = objectTypes[0].id;
@@ -718,12 +796,17 @@
     const projectItem = projectMap.get(id);
     if (projectItem) loadProjectDraft(projectItem);
     try {
-      const [memberships, resources] = await Promise.all([
+      const [memberships, resources, branches] = await Promise.all([
         listProjectMemberships(id),
-        listProjectResources(id)
+        listProjectResources(id),
+        listProjectBranches(id).catch(() => [])
       ]);
       selectedProjectMemberships = memberships;
       selectedProjectResources = resources;
+      projectBranches = branches;
+      if (!branches.some((item) => item.name === activeBranch)) {
+        activeBranch = branches.find((item) => item.status === 'main')?.name ?? branches[0]?.name ?? 'main';
+      }
       if (projectItem) markRecent('projects', projectItem.id, projectItem.display_name);
     } catch (cause) {
       saveError = cause instanceof Error ? cause.message : 'Failed to load project detail';
@@ -1837,15 +1920,98 @@
     refreshing = false;
   }
 
+  function toggleBranchMenu() {
+    branchMenuOpen = !branchMenuOpen;
+    branchError = '';
+    branchDraftQuery = '';
+    if (!branchDraftName) branchDraftName = defaultBranchName();
+  }
+
+  function selectActiveBranch(name: string) {
+    activeBranch = name;
+    branchMenuOpen = false;
+    branchError = '';
+  }
+
+  async function createOntologyBranchFromManager() {
+    if (!selectedProjectId || !canEditSelectedProject) {
+      branchError = 'Select an editable ontology project before creating a branch.';
+      return;
+    }
+    const normalizedName = normalizeBranchName(branchDraftName || defaultBranchName());
+    if (!normalizedName) {
+      branchError = 'Branch name is required.';
+      return;
+    }
+
+    branchBusy = true;
+    branchError = '';
+    try {
+      const nextBranch = await createProjectBranch(selectedProjectId, {
+        name: normalizedName,
+        description: branchDraftDescription.trim() || 'Foundry-style branch created from Ontology Manager.',
+        changes: changeQueue,
+        enable_indexing: branchEnableIndexing
+      });
+      projectBranches = [nextBranch, ...projectBranches.filter((item) => item.id !== nextBranch.id)];
+      activeBranch = nextBranch.name;
+      branchMenuOpen = false;
+      branchDraftName = defaultBranchName();
+      branchDraftDescription = '';
+      saveSuccess = 'Ontology branch created.';
+      saveError = '';
+    } catch (cause) {
+      branchError = cause instanceof Error ? cause.message : 'Failed to create ontology branch';
+    } finally {
+      branchBusy = false;
+    }
+  }
+
+  function openDatasourceWizard() {
+    resetWizardDraft();
+    wizardOpen = true;
+    wizardError = '';
+    wizardSuccess = '';
+  }
+
+  function closeDatasourceWizard() {
+    wizardOpen = false;
+    wizardStep = 1;
+    wizardError = '';
+  }
+
+  async function nextWizardStep() {
+    wizardError = '';
+    if (wizardStep === 1) {
+      if (!wizardDraft.dataset_id) {
+        wizardError = 'Select a datasource.';
+        return;
+      }
+      wizardStep = 2;
+      return;
+    }
+    if (wizardStep === 2) {
+      if (!wizardDraft.display_name.trim()) {
+        wizardError = 'Name is required.';
+        return;
+      }
+      if (!wizardDraft.plural_name.trim()) {
+        wizardError = 'Plural name is required.';
+        return;
+      }
+      wizardStep = 3;
+    }
+  }
+
   async function loadWizardDatasetPreview(datasetId: string) {
     wizardDraft.dataset_id = datasetId;
     wizardError = '';
     wizardSuccess = '';
     datasetPreview = datasetId ? await previewDataset(datasetId, { limit: 20 }).catch(() => null) : null;
+    wizardDraft.mapped_columns = datasetPreview?.columns?.map((column) => column.name) ?? [];
     if (!wizardDraft.object_name) {
       const dataset = datasets.find((item) => item.id === datasetId);
-      wizardDraft.object_name = normalizeName(dataset?.name ?? '');
-      wizardDraft.display_name = dataset?.name ?? '';
+      syncWizardNames(titleCase(normalizeName(dataset?.name ?? '')));
       wizardDraft.description = dataset?.description ?? '';
     }
     if (!wizardDraft.primary_key_column && datasetPreview?.columns?.[0]?.name) {
@@ -1867,6 +2033,12 @@
     return 'string';
   }
 
+  function toggleMappedColumn(columnName: string, enabled: boolean) {
+    wizardDraft.mapped_columns = enabled
+      ? [...new Set([...wizardDraft.mapped_columns, columnName])]
+      : wizardDraft.mapped_columns.filter((item) => item !== columnName);
+  }
+
   async function createObjectFromDatasource() {
     if (!selectedProjectId || !canEditSelectedProject) {
       wizardError = 'Select an ontology where you have edit permissions before creating an object.';
@@ -1876,12 +2048,28 @@
       wizardError = 'Select a datasource.';
       return;
     }
-    if (!wizardDraft.object_name.trim()) {
-      wizardError = 'Object API name is required.';
+    if (!wizardDraft.display_name.trim()) {
+      wizardError = 'Name is required.';
       return;
     }
     if (!wizardDraft.primary_key_column) {
       wizardError = 'Choose a primary key column.';
+      return;
+    }
+    if (!wizardDraft.title_column) {
+      wizardError = 'Choose a title column.';
+      return;
+    }
+    if (wizardDraft.mapped_columns.length === 0) {
+      wizardError = 'Keep at least one mapped property.';
+      return;
+    }
+    if (!wizardDraft.mapped_columns.includes(wizardDraft.primary_key_column)) {
+      wizardError = 'The primary key must remain mapped.';
+      return;
+    }
+    if (!wizardDraft.mapped_columns.includes(wizardDraft.title_column)) {
+      wizardError = 'The title field must remain mapped.';
       return;
     }
 
@@ -1891,15 +2079,15 @@
 
     try {
       const createdType = await createObjectType({
-        name: normalizeName(wizardDraft.object_name),
-        display_name: wizardDraft.display_name.trim() || titleCase(normalizeName(wizardDraft.object_name)),
+        name: normalizeName(wizardDraft.object_name || wizardDraft.display_name),
+        display_name: wizardDraft.display_name.trim() || titleCase(normalizeName(wizardDraft.object_name || wizardDraft.display_name)),
         description: wizardDraft.description.trim() || undefined,
         primary_key_property: normalizeName(wizardDraft.primary_key_column)
       });
 
       await bindProjectResource(selectedProjectId, { resource_kind: 'object_type', resource_id: createdType.id });
 
-      const columns = datasetPreview?.columns ?? [];
+      const columns = (datasetPreview?.columns ?? []).filter((column) => wizardDraft.mapped_columns.includes(column.name));
       for (const column of columns) {
         const propertyName = normalizeName(column.name);
         await createProperty(createdType.id, {
@@ -1918,9 +2106,9 @@
         });
       }
 
-      if (wizardDraft.indexing_enabled) {
+      if (branchIndexingEnabled) {
         await createOntologyFunnelSource({
-          name: `${normalizeName(wizardDraft.object_name)}-source`,
+          name: `${normalizeName(wizardDraft.object_name || wizardDraft.display_name)}-source`,
           description: `Datasource-backed indexing flow for ${wizardDraft.display_name || wizardDraft.object_name}.`,
           object_type_id: createdType.id,
           dataset_id: wizardDraft.dataset_id,
@@ -1933,8 +2121,11 @@
         });
       }
 
-      wizardSuccess = 'Object type created from datasource and saved to ontology.';
-      wizardStep = 1;
+      wizardSuccess = branchIndexingEnabled
+        ? 'Object type created from datasource and saved to ontology.'
+        : 'Object type created from datasource. Indexing remains disabled on the current branch.';
+      closeDatasourceWizard();
+      resetWizardDraft();
       await loadCatalog();
     } catch (cause) {
       wizardError = cause instanceof Error ? cause.message : 'Failed to create object from datasource';
@@ -2000,9 +2191,79 @@
           />
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Access</span>
+          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ontology branch</span>
+          <div class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700">
+            {activeBranch}
+          </div>
+          <div class="relative">
+            <button
+              class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#86a6dc]"
+              onclick={toggleBranchMenu}
+              disabled={!selectedProjectId}
+            >
+              New
+            </button>
+            {#if branchMenuOpen}
+              <div class="absolute right-0 z-20 mt-2 w-[360px] rounded-[24px] border border-[#d2dcec] bg-white p-4 shadow-[0_24px_80px_rgba(21,55,110,0.18)]">
+                <input
+                  bind:value={branchDraftName}
+                  class="w-full rounded-2xl border border-[#9fb8df] px-3 py-2.5 text-sm outline-none transition focus:border-[#6186c5]"
+                  placeholder={defaultBranchName()}
+                />
+                <div class="mt-4 text-sm font-medium text-slate-700">Create a new branch</div>
+                <button
+                  class="mt-2 flex w-full items-center justify-between rounded-2xl border border-[#dbe4f1] bg-[#f8fbff] px-3 py-3 text-left text-sm text-slate-700 transition hover:border-[#bfd1ef]"
+                  onclick={() => (branchDraftName = defaultBranchName())}
+                  type="button"
+                >
+                  <span>{normalizeBranchName(branchDraftName || defaultBranchName()) || defaultBranchName()}</span>
+                  <span class="rounded-lg bg-[#e7eefb] px-2 py-1 text-xs text-[#315ea8]">Suggested</span>
+                </button>
+                <div class="mt-4 text-xs uppercase tracking-[0.18em] text-slate-500">Existing ontology branches</div>
+                <input
+                  bind:value={branchDraftQuery}
+                  class="mt-2 w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm outline-none transition focus:border-[#86a6dc]"
+                  placeholder="Search branches"
+                />
+                <div class="mt-2 max-h-40 space-y-2 overflow-auto">
+                  {#if filteredBranchMatches.length > 0}
+                    {#each filteredBranchMatches as branch}
+                      <button
+                        class="flex w-full items-center justify-between rounded-2xl border border-[#e4ebf5] bg-[#fbfcff] px-3 py-2 text-left text-sm text-slate-700 transition hover:border-[#bfd1ef]"
+                        onclick={() => selectActiveBranch(branch.name)}
+                        type="button"
+                      >
+                        <span>{branch.name}</span>
+                        <span class="text-xs text-slate-500">{branch.status}</span>
+                      </button>
+                    {/each}
+                  {:else}
+                    <div class="rounded-2xl border border-dashed border-[#dbe4f1] px-3 py-5 text-center text-sm text-slate-500">No results</div>
+                  {/if}
+                </div>
+                <label class="mt-4 flex items-center gap-2 rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm text-slate-700">
+                  <input type="checkbox" bind:checked={branchEnableIndexing} />
+                  Enable indexing
+                </label>
+                <label class="mt-3 block text-sm text-slate-700">
+                  <span class="mb-2 block font-medium">Description</span>
+                  <textarea bind:value={branchDraftDescription} rows="3" class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 outline-none transition focus:border-[#86a6dc]"></textarea>
+                </label>
+                {#if branchError}
+                  <div class="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{branchError}</div>
+                {/if}
+                <button
+                  class="mt-4 w-full rounded-2xl bg-[#2d8a4b] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#25733f] disabled:bg-[#93c5a2]"
+                  onclick={createOntologyBranchFromManager}
+                  disabled={branchBusy || !canEditSelectedProject}
+                >
+                  {branchBusy ? 'Creating…' : 'Create branch'}
+                </button>
+              </div>
+            {/if}
+          </div>
           <div class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm text-slate-700">
-            {selectedProjectRole ?? 'viewer'}
+            Access {selectedProjectRole ?? 'viewer'}
           </div>
           <button
             class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#86a6dc]"
@@ -2257,81 +2518,181 @@
 
               <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
                 <h2 class="text-xl font-semibold text-slate-900">Create object from datasource</h2>
-                <p class="mt-1 text-sm text-slate-600">Use one guided flow to select a datasource, map a primary key, and save a new object type plus indexing source through real backend APIs.</p>
+                <p class="mt-1 text-sm text-slate-600">Match the Foundry training flow: create or switch to a branch, use an existing datasource, name the object, and confirm the mapped properties before saving.</p>
                 {#if wizardError}
                   <div class="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{wizardError}</div>
                 {/if}
                 {#if wizardSuccess}
                   <div class="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{wizardSuccess}</div>
                 {/if}
-                <div class="mt-4 grid gap-4">
-                  <label class="space-y-2 text-sm text-slate-700">
-                    <span class="font-medium">Step 1 · Datasource</span>
-                    <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.dataset_id} onchange={(event) => void loadWizardDatasetPreview((event.currentTarget as HTMLSelectElement).value)}>
-                      <option value="">Select datasource</option>
-                      {#each datasets as dataset}
-                        <option value={dataset.id}>{dataset.name}</option>
-                      {/each}
-                    </select>
-                  </label>
-                  <div class="grid gap-4 md:grid-cols-2">
-                    <label class="space-y-2 text-sm text-slate-700">
-                      <span class="font-medium">Step 2 · Object API name</span>
-                      <input bind:value={wizardDraft.object_name} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5" placeholder="orders" />
-                    </label>
-                    <label class="space-y-2 text-sm text-slate-700">
-                      <span class="font-medium">Display name</span>
-                      <input bind:value={wizardDraft.display_name} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5" placeholder="Orders" />
-                    </label>
-                  </div>
-                  <label class="space-y-2 text-sm text-slate-700">
-                    <span class="font-medium">Description</span>
-                    <textarea bind:value={wizardDraft.description} rows="3" class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"></textarea>
-                  </label>
-                  <div class="grid gap-4 md:grid-cols-2">
-                    <label class="space-y-2 text-sm text-slate-700">
-                      <span class="font-medium">Step 3 · Primary key column</span>
-                      <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.primary_key_column}>
-                        <option value="">Select primary key</option>
-                        {#each datasetPreview?.columns ?? [] as column}
-                          <option value={column.name}>{column.name}</option>
-                        {/each}
-                      </select>
-                    </label>
-                    <label class="space-y-2 text-sm text-slate-700">
-                      <span class="font-medium">Title column</span>
-                      <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.title_column}>
-                        <option value="">Select title column</option>
-                        {#each datasetPreview?.columns ?? [] as column}
-                          <option value={column.name}>{column.name}</option>
-                        {/each}
-                      </select>
-                    </label>
-                  </div>
-                  <label class="flex items-center gap-2 rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm text-slate-700">
-                    <input type="checkbox" checked={wizardDraft.indexing_enabled} onchange={(event) => wizardDraft.indexing_enabled = (event.currentTarget as HTMLInputElement).checked} />
-                    Enable indexing source immediately
-                  </label>
-                  {#if datasetPreview?.columns?.length}
-                    <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] p-4">
-                      <div class="text-sm font-semibold text-slate-900">Preview columns</div>
-                      <div class="mt-3 flex flex-wrap gap-2">
-                        {#each datasetPreview.columns as column}
-                          <span class="rounded-full bg-[#eef4ff] px-2 py-1 text-xs text-[#315ea8]">{column.name}</span>
-                        {/each}
-                      </div>
+                <div class="mt-4 rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] p-4">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div class="text-sm font-semibold text-slate-900">Current branch</div>
+                      <div class="mt-1 text-sm text-slate-600">{activeBranch} · indexing {branchIndexingEnabled ? 'enabled' : 'disabled'}</div>
                     </div>
-                  {/if}
-                  <div class="flex flex-wrap gap-3">
-                    <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={createObjectFromDatasource} disabled={wizardBusy || !canEditSelectedProject}>
-                      {wizardBusy ? 'Creating…' : 'Save to ontology'}
-                    </button>
-                    <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (activeSection = 'projects')}>
-                      Review ontology permissions
+                    <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={openDatasourceWizard} disabled={!canEditSelectedProject}>
+                      Use existing datasource
                     </button>
                   </div>
+                  <p class="mt-3 text-sm text-slate-600">The branch toggle controls whether the datasource-backed object also provisions indexing immediately.</p>
+                </div>
+                <div class="mt-4 flex flex-wrap gap-3">
+                  <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (activeSection = 'projects')}>
+                    Review ontology permissions
+                  </button>
                 </div>
               </div>
+
+              {#if wizardOpen}
+                <div class="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/35 px-4 py-8">
+                  <div class="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-[32px] border border-[#dbe4f1] bg-white p-6 shadow-[0_32px_120px_rgba(15,23,42,0.28)]">
+                    <div class="flex items-start justify-between gap-4">
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Create a new object type</div>
+                        <h3 class="mt-2 text-2xl font-semibold text-slate-900">Use existing datasource</h3>
+                        <p class="mt-2 text-sm text-slate-600">Select a datasource, name the object, and keep the auto-mapped properties aligned with the training flow.</p>
+                      </div>
+                      <button class="rounded-2xl border border-[#d2dcec] px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#9fb8df]" onclick={closeDatasourceWizard}>
+                        Close
+                      </button>
+                    </div>
+
+                    <div class="mt-6 grid gap-3 md:grid-cols-3">
+                      {#each [
+                        { id: 1, label: 'Select datasource' },
+                        { id: 2, label: 'Name object type' },
+                        { id: 3, label: 'Define object properties' }
+                      ] as step}
+                        <div class={`rounded-2xl border px-4 py-3 text-sm ${wizardStep === step.id ? 'border-[#8eabd8] bg-[#eef4ff] text-[#183d70]' : 'border-[#e4ebf5] bg-[#fbfcff] text-slate-500'}`}>
+                          <div class="font-semibold">Step {step.id}</div>
+                          <div class="mt-1">{step.label}</div>
+                        </div>
+                      {/each}
+                    </div>
+
+                    {#if wizardStep === 1}
+                      <div class="mt-6 space-y-4">
+                        <label class="block text-sm text-slate-700">
+                          <span class="mb-2 block font-medium">Select datasource</span>
+                          <input bind:value={wizardDatasetSearch} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 outline-none transition focus:border-[#86a6dc]" placeholder="Search datasource" />
+                        </label>
+                        <div class="grid gap-3">
+                          {#each filteredWizardDatasets as dataset}
+                            <button
+                              class={`rounded-2xl border px-4 py-4 text-left transition ${wizardDraft.dataset_id === dataset.id ? 'border-[#8eabd8] bg-[#eef4ff]' : 'border-[#e4ebf5] bg-[#fbfcff] hover:border-[#bfd1ef]'}`}
+                              onclick={() => void loadWizardDatasetPreview(dataset.id)}
+                              type="button"
+                            >
+                              <div class="font-medium text-slate-800">{dataset.name}</div>
+                              <div class="mt-1 text-sm text-slate-500">{dataset.description || 'Datasource deployed earlier in the flow.'}</div>
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+                    {:else if wizardStep === 2}
+                      <div class="mt-6 grid gap-4 md:grid-cols-2">
+                        <label class="space-y-2 text-sm text-slate-700">
+                          <span class="font-medium">Name</span>
+                          <input
+                            value={wizardDraft.display_name}
+                            oninput={(event) => syncWizardNames((event.currentTarget as HTMLInputElement).value)}
+                            class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"
+                            placeholder={`${currentUsernameSlug()} Order`}
+                          />
+                        </label>
+                        <label class="space-y-2 text-sm text-slate-700">
+                          <span class="font-medium">Plural name</span>
+                          <input
+                            bind:value={wizardDraft.plural_name}
+                            oninput={() => (wizardPluralNameTouched = true)}
+                            class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"
+                            placeholder={`${currentUsernameSlug()} Orders`}
+                          />
+                        </label>
+                        <label class="space-y-2 text-sm text-slate-700 md:col-span-2">
+                          <span class="font-medium">Description</span>
+                          <textarea bind:value={wizardDraft.description} rows="3" class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"></textarea>
+                        </label>
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] px-4 py-3 text-sm text-slate-600 md:col-span-2">
+                          API name preview: <span class="font-mono text-slate-800">{wizardDraft.object_name || 'order'}</span>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="mt-6 space-y-4">
+                        <div class="grid gap-4 md:grid-cols-2">
+                          <label class="space-y-2 text-sm text-slate-700">
+                            <span class="font-medium">Primary key</span>
+                            <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.primary_key_column}>
+                              <option value="">Select primary key</option>
+                              {#each datasetPreview?.columns ?? [] as column}
+                                <option value={column.name}>{column.name}</option>
+                              {/each}
+                            </select>
+                          </label>
+                          <label class="space-y-2 text-sm text-slate-700">
+                            <span class="font-medium">Title</span>
+                            <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.title_column}>
+                              <option value="">Select title column</option>
+                              {#each datasetPreview?.columns ?? [] as column}
+                                <option value={column.name}>{column.name}</option>
+                              {/each}
+                            </select>
+                          </label>
+                        </div>
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] p-4">
+                          <div class="text-sm font-semibold text-slate-900">Mapped object properties</div>
+                          <p class="mt-1 text-sm text-slate-600">All columns from the backing datasource are mapped by default. You can remove mappings here before saving.</p>
+                          <div class="mt-4 grid gap-2">
+                            {#each datasetPreview?.columns ?? [] as column}
+                              <label class="flex items-center justify-between gap-3 rounded-2xl border border-[#e4ebf5] bg-white px-3 py-3 text-sm text-slate-700">
+                                <span class="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={wizardDraft.mapped_columns.includes(column.name)}
+                                    onchange={(event) => toggleMappedColumn(column.name, (event.currentTarget as HTMLInputElement).checked)}
+                                  />
+                                  <span>{column.name}</span>
+                                </span>
+                                <span class="text-xs text-slate-500">{inferPropertyType(column)}</span>
+                              </label>
+                            {/each}
+                          </div>
+                        </div>
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] px-4 py-3 text-sm text-slate-600">
+                          {#if branchIndexingEnabled}
+                            Indexing is enabled on this branch, so saving will also create the datasource-backed indexing source.
+                          {:else}
+                            Indexing is disabled on this branch, so saving will create the object type without a funnel source for now.
+                          {/if}
+                        </div>
+                      </div>
+                    {/if}
+
+                    <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-[#e4ebf5] pt-5">
+                      <div class="flex gap-3">
+                        <button class="rounded-2xl border border-[#d2dcec] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={closeDatasourceWizard}>
+                          Cancel
+                        </button>
+                        {#if wizardStep > 1}
+                          <button class="rounded-2xl border border-[#d2dcec] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (wizardStep -= 1)}>
+                            Back
+                          </button>
+                        {/if}
+                      </div>
+                      {#if wizardStep < 3}
+                        <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e]" onclick={nextWizardStep}>
+                          Next
+                        </button>
+                      {:else}
+                        <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={createObjectFromDatasource} disabled={wizardBusy || !canEditSelectedProject}>
+                          {wizardBusy ? 'Creating…' : 'Create object type'}
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/if}
 
               <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
                 <h2 class="text-xl font-semibold text-slate-900">Cleanup recommendations</h2>
