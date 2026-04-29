@@ -1,0 +1,54 @@
+---
+# Trino catalog pointing at the OpenFoundry ClickHouse cluster.
+#
+# Trino loads catalogs from `etc/catalog/<name>.properties`. In Kubernetes
+# the recommended way is to mount them from a ConfigMap into the Trino
+# coordinator and workers (typically at /etc/trino/catalog/).
+#
+# To wire this in (trino Helm chart, official Trino image, Apache-2.0):
+#
+#   kubectl -n trino apply -f infra/k8s/clickhouse/trino-catalog.yaml
+#
+#   # values.yaml of the trino chart:
+#   additionalCatalogs:
+#     clickhouse: |
+#       (see properties below; or mount the ConfigMap with extraVolumes)
+#
+# Credentials live in the `clickhouse-trino` secret in the trino
+# namespace; create it once with the same plain-text password whose
+# SHA-256 was loaded into ClickHouse via the `clickhouse-users` secret
+# (see infra/runbooks/clickhouse.md §2.3).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-catalog-clickhouse
+  namespace: trino
+  labels:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/part-of: open-foundry
+    openfoundry.io/component: analytics
+data:
+  clickhouse.properties: |
+    # Trino ClickHouse connector -- targets the Altinity-operated
+    # ClickHouse cluster `openfoundry` in the `clickhouse` namespace.
+    #
+    # The `clickhouse-openfoundry` Service is created by the operator and
+    # load-balances across all 4 server pods (2 shards x 2 replicas).
+    # ReplicatedMergeTree handles cross-replica consistency; queries can
+    # land on any pod.
+    connector.name=clickhouse
+    connection-url=jdbc:clickhouse://clickhouse-openfoundry.clickhouse.svc.cluster.local:8123/default
+    connection-user=openfoundry
+    connection-password=${ENV:CLICKHOUSE_PASSWORD}
+
+    # Push as much work as possible into ClickHouse (joins, aggregations,
+    # topN). This is what makes BI dashboards sub-second.
+    clickhouse.map-string-as-varchar=true
+    join-pushdown.enabled=true
+    aggregation-pushdown.enabled=true
+    topn-pushdown.enabled=true
+
+    # When Trino issues `CREATE TABLE` against this catalog it will use
+    # ReplicatedMergeTree so the data lives on the cluster, not on a
+    # single replica.
+    clickhouse.default-engine=ReplicatedMergeTree
