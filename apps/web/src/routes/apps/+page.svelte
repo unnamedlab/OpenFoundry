@@ -1096,7 +1096,7 @@
 	}
 
 	function getWorkshopHeaderColorValue() {
-		return workshopHeaderColorPresets.find((preset) => preset.value === draft.settings.workshop_header.color)?.value ?? draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4;
+		return draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4;
 	}
 
 	$effect(() => {
