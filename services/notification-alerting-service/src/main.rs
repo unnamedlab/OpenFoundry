@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use auth_middleware::jwt::JwtConfig;
 use axum::{
     Router,
-    routing::{get, patch, post, put},
+    routing::{get, patch, post},
 };
 use config::AppConfig;
 use event_bus::{
@@ -15,8 +15,7 @@ use event_bus::{
     topics::{streams, subjects},
 };
 use lettre::{
-    AsyncSmtpTransport, Tokio1Executor,
-    message::Mailbox,
+    AsyncSmtpTransport, Tokio1Executor, message::Mailbox,
     transport::smtp::authentication::Credentials,
 };
 use models::notification::NotificationEvent;
@@ -73,10 +72,7 @@ impl NotificationBus {
 }
 
 impl AppState {
-    pub async fn publish_notification_event(
-        &self,
-        event: NotificationEvent,
-    ) -> Result<(), String> {
+    pub async fn publish_notification_event(&self, event: NotificationEvent) -> Result<(), String> {
         let Some(bus) = self.notification_bus.as_ref() else {
             return Ok(());
         };
@@ -88,10 +84,9 @@ impl AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("notification_alerting_service=info,tower_http=info")),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new("notification_alerting_service=info,tower_http=info")
+        }))
         .init();
 
     let config = AppConfig::from_env()?;
@@ -116,10 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let protected_routes = Router::new()
-        .route(
-            "/notifications",
-            get(handlers::history::list_notifications),
-        )
+        .route("/notifications", get(handlers::history::list_notifications))
         .route(
             "/notifications/:notification_id/read",
             patch(handlers::history::mark_read),
@@ -137,7 +129,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/notifications/ws-ticket",
             post(handlers::ws::issue_ws_ticket),
         )
-        .route("/notifications/send", post(handlers::send::send_notification))
+        .route(
+            "/notifications/send",
+            post(handlers::send::send_notification),
+        )
         .layer(axum::middleware::from_fn_with_state(
             jwt_config,
             auth_middleware::layer::auth_layer,
@@ -171,9 +166,13 @@ async fn build_notification_bus(config: &AppConfig) -> Result<Option<Notificatio
     };
 
     let jetstream = connect(nats_url).await.map_err(|error| error.to_string())?;
-    subscriber::ensure_stream(&jetstream, streams::NOTIFICATIONS, &[subjects::NOTIFICATIONS])
-        .await
-        .map_err(|error| error.to_string())?;
+    subscriber::ensure_stream(
+        &jetstream,
+        streams::NOTIFICATIONS,
+        &[subjects::NOTIFICATIONS],
+    )
+    .await
+    .map_err(|error| error.to_string())?;
 
     Ok(Some(NotificationBus::new(jetstream)))
 }
@@ -184,10 +183,9 @@ fn build_email_sender(config: &AppConfig) -> Option<EmailSender> {
         .ok()?
         .port(config.smtp_port.unwrap_or(587));
 
-    if let (Some(username), Some(password)) = (
-        config.smtp_username.as_ref(),
-        config.smtp_password.as_ref(),
-    ) {
+    if let (Some(username), Some(password)) =
+        (config.smtp_username.as_ref(), config.smtp_password.as_ref())
+    {
         builder = builder.credentials(Credentials::new(username.clone(), password.clone()));
     }
 

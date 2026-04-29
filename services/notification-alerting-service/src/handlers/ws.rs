@@ -97,7 +97,13 @@ async fn websocket_loop(mut socket: WebSocket, state: AppState, user_id: uuid::U
         return;
     };
 
-    let stream = match subscriber::ensure_stream(&bus.jetstream(), streams::NOTIFICATIONS, &[subjects::NOTIFICATIONS]).await {
+    let stream = match subscriber::ensure_stream(
+        &bus.jetstream(),
+        streams::NOTIFICATIONS,
+        &[subjects::NOTIFICATIONS],
+    )
+    .await
+    {
         Ok(stream) => stream,
         Err(error) => {
             tracing::warn!(?error, "failed to ensure notification stream for websocket");
@@ -105,13 +111,14 @@ async fn websocket_loop(mut socket: WebSocket, state: AppState, user_id: uuid::U
         }
     };
     let consumer_name = format!("notifications-ws-{}", Uuid::now_v7());
-    let consumer = match subscriber::create_consumer(&stream, &consumer_name, Some(bus.subject())).await {
-        Ok(consumer) => consumer,
-        Err(error) => {
-            tracing::warn!(?error, "failed to create notification websocket consumer");
-            return;
-        }
-    };
+    let consumer =
+        match subscriber::create_consumer(&stream, &consumer_name, Some(bus.subject())).await {
+            Ok(consumer) => consumer,
+            Err(error) => {
+                tracing::warn!(?error, "failed to create notification websocket consumer");
+                return;
+            }
+        };
     let mut messages = match consumer.messages().await {
         Ok(messages) => messages,
         Err(error) => {
