@@ -221,6 +221,18 @@ impl Default for WorkshopHeaderSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ObjectSetVariableSettings {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub object_set_id: Option<String>,
+    #[serde(default)]
+    pub object_type_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppSettings {
     #[serde(default)]
     pub home_page_id: Option<String>,
@@ -236,6 +248,8 @@ pub struct AppSettings {
     pub builder_experience: String,
     #[serde(default)]
     pub ontology_source_type_id: Option<String>,
+    #[serde(default)]
+    pub object_set_variables: Vec<ObjectSetVariableSettings>,
     #[serde(default)]
     pub consumer_mode: ConsumerModeSettings,
     #[serde(default)]
@@ -256,6 +270,7 @@ impl Default for AppSettings {
             custom_css: None,
             builder_experience: default_builder_experience(),
             ontology_source_type_id: None,
+            object_set_variables: Vec::new(),
             consumer_mode: ConsumerModeSettings::default(),
             interactive_workshop: WorkshopInteractiveSettings::default(),
             workshop_header: WorkshopHeaderSettings::default(),

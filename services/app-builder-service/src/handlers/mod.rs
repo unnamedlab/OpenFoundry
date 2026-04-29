@@ -14,7 +14,7 @@ use crate::{
         app::{
             App, AppRow, AppSettings, AppTemplate, AppTemplateRow,
             DEFAULT_WORKSHOP_HEADER_COLOR, DEFAULT_WORKSHOP_HEADER_ICON,
-            WorkshopScenarioPreset,
+            ObjectSetVariableSettings, WorkshopScenarioPreset,
         },
         page::AppPage,
         version::{AppVersion, AppVersionRow},
@@ -117,6 +117,7 @@ pub fn sanitize_pages(pages: &mut Vec<AppPage>, settings: &mut AppSettings) {
 
     sanitize_interactive_workshop_settings(pages, settings);
     sanitize_workshop_linkage_settings(settings);
+    sanitize_object_set_variables(settings);
 }
 
 fn sanitize_widgets(widgets: &mut [WidgetDefinition]) {
@@ -200,6 +201,53 @@ fn sanitize_workshop_linkage_settings(settings: &mut AppSettings) {
     } else {
         color.to_string()
     };
+}
+
+fn sanitize_object_set_variables(settings: &mut AppSettings) {
+    settings.object_set_variables = settings
+        .object_set_variables
+        .iter_mut()
+        .enumerate()
+        .map(|(index, variable)| sanitize_object_set_variable(index, variable))
+        .collect();
+}
+
+fn sanitize_object_set_variable(
+    index: usize,
+    variable: &mut ObjectSetVariableSettings,
+) -> ObjectSetVariableSettings {
+    let id = if variable.id.trim().is_empty() {
+        Uuid::now_v7().to_string()
+    } else {
+        variable.id.trim().to_string()
+    };
+
+    let name = if variable.name.trim().is_empty() {
+        format!("Object set variable {}", index + 1)
+    } else {
+        variable.name.trim().to_string()
+    };
+
+    let object_set_id = variable
+        .object_set_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let object_type_id = variable
+        .object_type_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    ObjectSetVariableSettings {
+        id,
+        name,
+        object_set_id,
+        object_type_id,
+    }
 }
 
 fn sanitize_scenario_preset(index: usize, preset: &mut WorkshopScenarioPreset) {

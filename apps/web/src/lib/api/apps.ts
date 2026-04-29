@@ -21,10 +21,18 @@ export interface AppSettings {
 	custom_css: string | null;
 	builder_experience: string;
 	ontology_source_type_id: string | null;
+	object_set_variables: AppObjectSetVariable[];
 	consumer_mode: ConsumerModeSettings;
 	interactive_workshop: WorkshopInteractiveSettings;
 	workshop_header: WorkshopHeaderSettings;
 	slate: SlateSettings;
+}
+
+export interface AppObjectSetVariable {
+	id: string;
+	name: string;
+	object_set_id: string | null;
+	object_type_id: string | null;
 }
 
 export interface ConsumerModeSettings {

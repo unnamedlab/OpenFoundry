@@ -30,6 +30,7 @@ describe('app builder utilities', () => {
       custom_css: null,
       builder_experience: 'workshop',
       ontology_source_type_id: null,
+      object_set_variables: [],
       consumer_mode: {
         enabled: false,
         allow_guest_access: false,
