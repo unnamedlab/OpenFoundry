@@ -47,6 +47,7 @@ export function createDefaultSettings(homePageId: string | null = null): AppSett
 		show_branding: true,
 		custom_css: null,
 		builder_experience: 'workshop',
+		ontology_source_type_id: null,
 		consumer_mode: {
 			enabled: false,
 			allow_guest_access: false,
@@ -67,6 +68,11 @@ export function createDefaultSettings(homePageId: string | null = null): AppSett
 				'Which mitigations should the team prioritize first?',
 			],
 			scenario_presets: [],
+		},
+		workshop_header: {
+			title: null,
+			icon: 'cube',
+			color: '#3b82f6',
 		},
 		slate: {
 			enabled: false,

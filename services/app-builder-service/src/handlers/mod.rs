@@ -112,6 +112,7 @@ pub fn sanitize_pages(pages: &mut Vec<AppPage>, settings: &mut AppSettings) {
     }
 
     sanitize_interactive_workshop_settings(pages, settings);
+    sanitize_workshop_linkage_settings(settings);
 }
 
 fn sanitize_widgets(widgets: &mut [WidgetDefinition]) {
@@ -164,6 +165,37 @@ fn sanitize_interactive_workshop_settings(pages: &[AppPage], settings: &mut AppS
     {
         settings.interactive_workshop.primary_agent_widget_id = None;
     }
+}
+
+fn sanitize_workshop_linkage_settings(settings: &mut AppSettings) {
+    settings.ontology_source_type_id = settings
+        .ontology_source_type_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    settings.workshop_header.title = settings
+        .workshop_header
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let icon = settings.workshop_header.icon.trim();
+    settings.workshop_header.icon = if icon.is_empty() {
+        "cube".to_string()
+    } else {
+        icon.to_string()
+    };
+
+    let color = settings.workshop_header.color.trim();
+    settings.workshop_header.color = if color.is_empty() {
+        "#3b82f6".to_string()
+    } else {
+        color.to_string()
+    };
 }
 
 fn sanitize_scenario_preset(index: usize, preset: &mut WorkshopScenarioPreset) {

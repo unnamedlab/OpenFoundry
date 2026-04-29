@@ -119,6 +119,7 @@ const demoTemplate = {
       show_branding: true,
       custom_css: null,
       builder_experience: 'workshop',
+      ontology_source_type_id: null,
       consumer_mode: {
         enabled: false,
         allow_guest_access: false,
@@ -136,6 +137,11 @@ const demoTemplate = {
         briefing_template: '',
         suggested_questions: [],
         scenario_presets: [],
+      },
+      workshop_header: {
+        title: null,
+        icon: 'cube',
+        color: '#3b82f6',
       },
       slate: {
         enabled: false,

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import Glyph from '$components/ui/Glyph.svelte';
 	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import AppRenderer from '$lib/components/apps/AppRenderer.svelte';
@@ -49,6 +50,16 @@
 		publishing: boolean;
 		error: string;
 	};
+
+	const WORKSHOP_BLUE_4 = '#3b82f6';
+	const workshopHeaderIconOptions = ['cube', 'object', 'folder', 'bookmark', 'sparkles'] as const;
+	type WorkshopHeaderIconOption = (typeof workshopHeaderIconOptions)[number];
+	const workshopHeaderColorPresets = [
+		{ label: 'Blue 4', value: WORKSHOP_BLUE_4 },
+		{ label: 'Blue 5', value: '#2458b8' },
+		{ label: 'Emerald 4', value: '#10b981' },
+		{ label: 'Slate 5', value: '#475569' },
+	] as const;
 
 	let apps = $state<AppSummary[]>([]);
 	let templates = $state<AppTemplate[]>([]);
@@ -805,6 +816,29 @@
 		return widget?.binding?.source_type ?? 'static';
 	}
 
+	function resolveWorkshopHeaderIcon(value: string | null | undefined): WorkshopHeaderIconOption {
+		return workshopHeaderIconOptions.find((icon) => icon === value) ?? 'cube';
+	}
+
+	function updateWorkshopHeader(
+		patch: Partial<AppDefinition['settings']['workshop_header']>,
+	) {
+		draft = {
+			...draft,
+			settings: {
+				...draft.settings,
+				workshop_header: {
+					...draft.settings.workshop_header,
+					...patch,
+				},
+			},
+		};
+	}
+
+	function selectedWorkshopHeaderPreset() {
+		return workshopHeaderColorPresets.find((preset) => preset.value === draft.settings.workshop_header.color)?.value ?? draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4;
+	}
+
 	$effect(() => {
 		draft.pages.length;
 		syncSelection();
@@ -816,6 +850,10 @@
 	});
 
 	onMount(() => {
+		const appId = new URLSearchParams(window.location.search).get('appId');
+		if (appId) {
+			selectedAppId = appId;
+		}
 		void load();
 	});
 
@@ -1247,6 +1285,80 @@
 		</section>
 
 		<section class="space-y-5 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+			<div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+				<div class="flex items-start justify-between gap-3">
+					<div>
+						<div class="text-xs uppercase tracking-[0.22em] text-slate-400">Workshop header</div>
+						<div class="mt-1 text-sm text-slate-500">Mirror the ontology-linked Workshop header with a title, icon, and curated color preset.</div>
+					</div>
+					<div
+						class="flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
+						style={`background:${draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4}1a; color:${draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4};`}
+					>
+						<Glyph name={resolveWorkshopHeaderIcon(draft.settings.workshop_header.icon)} size={14} />
+						<span>{draft.settings.workshop_header.title || draft.name || 'Workshop header'}</span>
+					</div>
+				</div>
+
+				<div class="mt-4 grid gap-3 sm:grid-cols-2">
+					<label class="text-sm sm:col-span-2">
+						<span class="mb-1 block text-slate-500">Header title</span>
+						<input
+							type="text"
+							value={draft.settings.workshop_header.title ?? ''}
+							oninput={(event) => updateWorkshopHeader({ title: (event.currentTarget as HTMLInputElement).value || null })}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						/>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Ontology object type</span>
+						<select
+							value={draft.settings.ontology_source_type_id ?? ''}
+							oninput={(event) => draft = { ...draft, settings: { ...draft.settings, ontology_source_type_id: (event.currentTarget as HTMLSelectElement).value || null } }}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						>
+							<option value="">Unlinked</option>
+							{#each objectTypes as objectType (objectType.id)}
+								<option value={objectType.id}>{objectType.display_name}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Icon</span>
+						<select
+							value={resolveWorkshopHeaderIcon(draft.settings.workshop_header.icon)}
+							oninput={(event) => updateWorkshopHeader({ icon: (event.currentTarget as HTMLSelectElement).value })}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						>
+							{#each workshopHeaderIconOptions as icon}
+								<option value={icon}>{icon === 'cube' ? 'Cube' : icon.charAt(0).toUpperCase() + icon.slice(1)}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Color preset</span>
+						<select
+							value={selectedWorkshopHeaderPreset()}
+							oninput={(event) => updateWorkshopHeader({ color: (event.currentTarget as HTMLSelectElement).value || WORKSHOP_BLUE_4 })}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						>
+							{#each workshopHeaderColorPresets as preset}
+								<option value={preset.value}>{preset.label}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Header color</span>
+						<input
+							type="color"
+							value={draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4}
+							oninput={(event) => updateWorkshopHeader({ color: (event.currentTarget as HTMLInputElement).value || WORKSHOP_BLUE_4 })}
+							class="h-10 w-full rounded-xl border border-slate-200 px-1 py-1 dark:border-slate-700 dark:bg-slate-900"
+						/>
+					</label>
+				</div>
+			</div>
+
 			<div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
 				<div class="text-xs uppercase tracking-[0.22em] text-slate-400">App theming</div>
 				<div class="mt-4 grid gap-3 sm:grid-cols-2">
