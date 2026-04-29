@@ -271,6 +271,34 @@ export async function seedAuthenticatedSession(page: Page) {
 
 export async function mockFrontendApis(page: Page) {
   const projects = [...demoProjects];
+  const projectFolders = new Map<string, Array<{
+    id: string;
+    project_id: string;
+    parent_folder_id: string | null;
+    name: string;
+    slug: string;
+    description: string;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  }>>([
+    [
+      'project-1',
+      [
+        {
+          id: 'folder-1',
+          project_id: 'project-1',
+          parent_folder_id: null,
+          name: 'Planning',
+          slug: 'planning',
+          description: 'Starter folder inside Ops readiness.',
+          created_by: demoUser.id,
+          created_at: '2026-01-02T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
+      ],
+    ],
+  ]);
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -313,6 +341,11 @@ export async function mockFrontendApis(page: Page) {
         display_name?: string;
         description?: string;
         workspace_slug?: string;
+        folders?: Array<{
+          name: string;
+          description?: string;
+          parent_folder_id?: string | null;
+        }>;
       };
       const created = {
         id: `project-${projects.length + 1}`,
@@ -325,7 +358,26 @@ export async function mockFrontendApis(page: Page) {
         updated_at: '2026-01-03T00:00:00Z',
       };
       projects.unshift(created);
+      projectFolders.set(
+        created.id,
+        (body.folders ?? []).map((folder, index) => ({
+          id: `folder-${created.id}-${index + 1}`,
+          project_id: created.id,
+          parent_folder_id: folder.parent_folder_id ?? null,
+          name: folder.name,
+          slug: folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+          description: folder.description ?? '',
+          created_by: demoUser.id,
+          created_at: '2026-01-03T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z',
+        })),
+      );
       return json(route, created, 201);
+    }
+
+    const projectFolderMatch = pathname.match(/^\/api\/v1\/ontology\/projects\/([^/]+)\/folders$/);
+    if (projectFolderMatch && request.method() === 'GET') {
+      return json(route, { data: projectFolders.get(projectFolderMatch[1]) ?? [] });
     }
 
     if (pathname === '/api/v1/datasets/catalog/facets') {

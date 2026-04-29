@@ -3,7 +3,9 @@
   import Glyph from '$components/ui/Glyph.svelte';
   import {
     createProject,
+    listProjectFolders,
     listProjects,
+    type OntologyProjectFolder,
     type OntologyProject,
   } from '$lib/api/ontology';
   import { listSpaces } from '$lib/api/nexus';
@@ -196,7 +198,7 @@
   let filtersVisible = $state(true);
   let projects = $state<OntologyProject[]>([]);
   let spaceOptions = $state<SpaceOption[]>(FALLBACK_SPACE_OPTIONS);
-  let localFolders = $state<WorkspaceRow[]>([]);
+  let folders = $state<OntologyProjectFolder[]>([]);
   let createdProjectMeta = $state<Record<string, ProjectMeta>>({});
   let createModalOpen = $state(false);
   let createStep = $state(1);
@@ -226,7 +228,9 @@
   );
   const allRows = $derived.by(() => [
     ...projects.map((project) => mapProjectToRow(project)),
-    ...localFolders,
+    ...folders
+      .map((folder) => mapFolderToRow(folder))
+      .filter((row): row is WorkspaceRow => row !== null),
     ...staticRows,
   ]);
   const visibleRows = $derived.by(() => {
@@ -332,21 +336,28 @@
     };
   }
 
-  function createFolderRow(project: OntologyProject, folderName: string, meta: ProjectMeta): WorkspaceRow {
+  function mapFolderToRow(folder: OntologyProjectFolder): WorkspaceRow | null {
+    const project = projects.find((item) => item.id === folder.project_id);
+    if (!project) {
+      return null;
+    }
+
+    const meta = inferProjectMeta(project);
     return {
-      id: `folder-${project.id}-${crypto.randomUUID()}`,
-      name: folderName,
+      id: `folder-${folder.id}`,
+      name: folder.name,
       kind: 'folder',
-      role: 'Owner',
+      role: project.owner_id === $currentUser?.id ? 'Owner' : 'Editor',
       tags: ['folder', 'starter'],
       portfolio:
         projectTemplates.find((option) => option.id === meta.templateId)?.suggestedPortfolio ??
         'General',
       views: 1,
-      modifiedAt: new Date().toISOString(),
+      modifiedAt: folder.updated_at,
       spaceId: meta.spaceId,
       view: 'all',
-      description: `Starter folder inside ${project.display_name || project.slug}.`,
+      description:
+        folder.description || `Starter folder inside ${project.display_name || project.slug}.`,
       location: `${resolveSpaceLabel(meta.spaceId)} / ${project.display_name || project.slug}`,
     };
   }
@@ -357,10 +368,15 @@
     try {
       const response = await listProjects({ page: 1, per_page: 100 });
       projects = response.data;
+      const folderGroups = await Promise.all(
+        response.data.map(async (project) => listProjectFolders(project.id).catch(() => [])),
+      );
+      folders = folderGroups.flat();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Unable to load projects';
       notifications.error(error);
       projects = [];
+      folders = [];
     } finally {
       loading = false;
     }
@@ -473,28 +489,41 @@
     error = '';
 
     try {
+      const requestedFolders = draft.createStarterFolder
+        ? (() => {
+            const customName = draft.starterFolderName.trim();
+            const folderList =
+              customName.length > 0
+                ? [customName, ...template.starterFolders.filter((name) => name !== customName)]
+                : template.starterFolders;
+
+            return folderList.map((name) => ({
+              name,
+              description: `Starter folder inside ${trimmedName}.`,
+            }));
+          })()
+        : [];
+
       const created = await createProject({
         slug,
         display_name: trimmedName,
         description: draft.description.trim() || template.suggestedDescription,
         workspace_slug: space.workspaceSlug,
+        folders: requestedFolders,
       });
 
       const meta = { spaceId: space.id, templateId: template.id };
       createdProjectMeta = { ...createdProjectMeta, [created.id]: meta };
       projects = [created, ...projects];
 
-      if (draft.createStarterFolder) {
-        const customName = draft.starterFolderName.trim();
-        const folderList =
-          customName.length > 0
-            ? [customName, ...template.starterFolders.filter((name) => name !== customName)]
-            : template.starterFolders;
-
-        localFolders = [
-          ...folderList.map((folderName) => createFolderRow(created, folderName, meta)),
-          ...localFolders,
-        ];
+      if (requestedFolders.length > 0) {
+        try {
+          const persistedFolders = await listProjectFolders(created.id);
+          folders = [...persistedFolders, ...folders.filter((folder) => folder.project_id !== created.id)];
+        } catch (folderError) {
+          console.warn('Unable to reload persisted folders after project creation', folderError);
+          notifications.warning('Project created, but starter folders could not be refreshed yet.');
+        }
       }
 
       notifications.success(`Project ${created.display_name || created.slug} created.`);

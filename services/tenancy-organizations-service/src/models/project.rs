@@ -52,12 +52,33 @@ pub struct OntologyProjectResourceBinding {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct OntologyProjectFolder {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub parent_folder_id: Option<Uuid>,
+    pub name: String,
+    pub slug: String,
+    pub description: String,
+    pub created_by: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateOntologyProjectFolderRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub parent_folder_id: Option<Uuid>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateOntologyProjectRequest {
     pub slug: String,
     pub display_name: Option<String>,
     pub description: Option<String>,
     pub workspace_slug: Option<String>,
+    pub folders: Option<Vec<CreateOntologyProjectFolderRequest>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,4 +123,9 @@ pub struct BindOntologyProjectResourceRequest {
 #[derive(Debug, Serialize)]
 pub struct ListOntologyProjectResourcesResponse {
     pub data: Vec<OntologyProjectResourceBinding>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListOntologyProjectFoldersResponse {
+    pub data: Vec<OntologyProjectFolder>,
 }

@@ -8,7 +8,7 @@ test.describe('projects and files flow', () => {
     await seedAuthenticatedSession(page);
   });
 
-  test('opens the Files entry point and creates a project in a live space', async ({ page }) => {
+  test('opens the Files entry point and persists starter folders in a live space', async ({ page }) => {
     await page.goto('/');
 
     await page.getByRole('link', { name: 'Files' }).click();
@@ -28,11 +28,17 @@ test.describe('projects and files flow', () => {
     await page.getByRole('button', { name: 'Continue' }).evaluate((element) => {
       (element as HTMLButtonElement).click();
     });
+    await page.getByLabel('Primary folder name').fill('Briefings');
     await page.getByRole('button', { name: 'Create project' }).evaluate((element) => {
       (element as HTMLButtonElement).click();
     });
 
     await expect(page.getByText('Learning')).toBeVisible();
+    await expect(page.getByText('Briefings')).toBeVisible();
     await expect(page.getByText('Research Lab / research')).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByText('Learning')).toBeVisible();
+    await expect(page.getByText('Briefings')).toBeVisible();
   });
 });
