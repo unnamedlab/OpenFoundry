@@ -35,6 +35,23 @@ workspace = true
 [dependencies.tracing]
 workspace = true
 
+[dev-dependencies.tokio]
+workspace = true
+
+# Optional integration testing helper used only by the `vespa` end-to-end
+# tests gated behind `--features vespa`. Kept as a dev-dependency so it is
+# never pulled into downstream builds.
+[dev-dependencies.testcontainers]
+workspace = true
+
+[features]
+default = []
+# Enables `pub mod vespa`, which provides a `VectorBackend` implementation
+# backed by Vespa (Apache-2.0) over its HTTP/JSON Document v1 and Search
+# APIs. Off by default so consumers that only need pgvector don't pay the
+# compilation cost.
+vespa = []
+
 [lib]
 path = "src/lib.rs"
 name = "vector_store"
