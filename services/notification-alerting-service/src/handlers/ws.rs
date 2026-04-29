@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::Utc;
-use event_bus::subscriber;
+use event_bus_control::subscriber;
 use futures::StreamExt;
 use serde::Deserialize;
 use uuid::Uuid;

@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use bytes::{Bytes, BytesMut};
-use event_bus::{
+use event_bus_control::{
     Publisher, connect,
     contracts::{
         DATASET_QUALITY_REFRESH_REQUESTED_EVENT_TYPE, DATASET_QUALITY_REFRESH_REQUESTED_SUBJECT,
