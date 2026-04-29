@@ -1,0 +1,169 @@
+# Default values for the Vespa subchart.
+#
+# Toggle the subchart from the parent chart (`vespa.enabled`) or directly
+# when installed standalone.
+
+enabled: true
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Image used for *all* Vespa roles. The same `vespaengine/vespa` image
+# can run as configserver, content node or stateless container — the role
+# is selected by the `VESPA_CONFIGSERVERS` env var and the launch
+# command (`vespa-start-configserver` vs `vespa-start-services`).
+image:
+  repository: vespaengine/vespa
+  tag: "8.450.40"
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Helper used by the deploy Job.  It only needs `curl` and `unzip` so any
+# minimal image works; we default to the Vespa CLI image which already
+# bundles everything we need.
+deployJob:
+  image:
+    repository: vespaengine/vespa
+    tag: "8.450.40"
+    pullPolicy: IfNotPresent
+  # Backoff for transient failures during the initial cluster bring-up
+  # (configservers may not have formed quorum yet on first install).
+  backoffLimit: 30
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 1800
+
+# Tenant + application names registered in the configservers.  These map
+# 1:1 to the URL `http://<cs>:19071/application/v2/tenant/<t>/application/<a>`.
+tenant: default
+application: default
+
+# ── Cluster shape ──────────────────────────────────────────────────────
+configserver:
+  replicas: 3
+  jvm:
+    heapSize: "1g"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  storage:
+    size: 5Gi
+    # Ceph RBD storage class provisioned by Tarea 2.1.  Override per-env
+    # in `values-prod.yaml` etc.
+    storageClassName: ceph-rbd
+    accessModes:
+      - ReadWriteOnce
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+content:
+  replicas: 3
+  redundancy: 2
+  searchableCopies: 1
+  jvm:
+    heapSize: "2g"
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+  storage:
+    size: 50Gi
+    storageClassName: ceph-rbd
+    accessModes:
+      - ReadWriteOnce
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+container:
+  replicas: 2
+  jvm:
+    heapSize: "2g"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+# ── Application package ────────────────────────────────────────────────
+# When `enabled: true`, the chart bundles `files/services.xml`,
+# `files/hosts.xml.tmpl` (rendered) and every `files/schemas/*.sd` into
+# a ConfigMap and a deploy Job re-uploads it to the configservers
+# whenever the ConfigMap's checksum changes.
+applicationPackage:
+  enabled: true
+  # Override the rendered hosts.xml entirely (advanced).  Leave empty to
+  # use the auto-generated mapping based on the StatefulSet pod-DNS names.
+  hostsXmlOverride: ""
+  # Extra files added on top of `files/`.  Map of "relative/path" → content.
+  extraFiles: {}
+
+# ── Observability ──────────────────────────────────────────────────────
+metrics:
+  # All Vespa nodes expose Prometheus-format metrics on the metrics-proxy
+  # port (19092) at `/prometheus/v1/values?consumer=prometheus`.
+  enabled: true
+  port: 19092
+  path: /prometheus/v1/values
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# ── Pod scheduling / security ──────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Vespa needs to write to /opt/vespa/var so we cannot enforce
+# read-only-root-filesystem.  Privilege escalation and Linux capabilities
+# are still dropped.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: false
+
+topologySpreadConstraints:
+  enabled: true
+  maxSkew: 1
+  whenUnsatisfiable: ScheduleAnyway
+
+podAntiAffinity:
+  enabled: true
+  type: preferred # or "required"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+extraEnv: []
+
+terminationGracePeriodSeconds: 120

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Vespa application package — services.xml
+
+  Topology (matches Helm subchart `infra/k8s/helm/open-foundry/charts/vespa/`
+  defaults):
+
+    * 1 admin cluster with 3 config-server nodes (HA / quorum)
+    * 1 stateless container cluster `default`  with 2 nodes
+    * 1 stateful  content   cluster `documents` with 3 nodes, redundancy=2
+
+  Host aliases below resolve via `hosts.xml` to the per-Pod DNS names of the
+  StatefulSets (`<name>-vespa-configserver-N.…`, `…-content-N.…`,
+  `…-container-N.…`).  This keeps the package portable: a different
+  deployment topology only needs a different `hosts.xml`.
+-->
+<services version="1.0" xmlns:deploy="vespa" xmlns:preprocess="properties">
+
+  <!-- ────────────────────────────────────────────────────────────────
+       Admin cluster: 3 config-servers form a ZooKeeper quorum so any one
+       node can fail without losing the cluster's source-of-truth.
+       ──────────────────────────────────────────────────────────────── -->
+  <admin version="2.0">
+    <adminserver hostalias="vespa-configserver-0"/>
+    <configservers>
+      <configserver hostalias="vespa-configserver-0"/>
+      <configserver hostalias="vespa-configserver-1"/>
+      <configserver hostalias="vespa-configserver-2"/>
+    </configservers>
+    <cluster-controllers>
+      <cluster-controller hostalias="vespa-configserver-0"/>
+      <cluster-controller hostalias="vespa-configserver-1"/>
+      <cluster-controller hostalias="vespa-configserver-2"/>
+    </cluster-controllers>
+    <slobroks>
+      <slobrok hostalias="vespa-configserver-0"/>
+      <slobrok hostalias="vespa-configserver-1"/>
+      <slobrok hostalias="vespa-configserver-2"/>
+    </slobroks>
+    <metrics>
+      <!-- Prometheus consumer exposed on metrics-proxy (port 19092) at
+           /prometheus/v1/values?consumer=prometheus -->
+      <consumer id="prometheus">
+        <metric-set id="default"/>
+        <metric-set id="vespa"/>
+      </consumer>
+    </metrics>
+  </admin>
+
+  <!-- ────────────────────────────────────────────────────────────────
+       Stateless container cluster: query + feed entry-point.
+       2 replicas survive a single-node loss without traffic interruption.
+       ──────────────────────────────────────────────────────────────── -->
+  <container id="default" version="1.0">
+    <document-api/>
+    <search/>
+    <document-processing/>
+    <nodes>
+      <node hostalias="vespa-container-0"/>
+      <node hostalias="vespa-container-1"/>
+    </nodes>
+    <http>
+      <server id="default" port="8080"/>
+    </http>
+  </container>
+
+  <!-- ────────────────────────────────────────────────────────────────
+       Content cluster: 3 nodes with redundancy=2 so any single content
+       node can be lost without data loss.  Searchable copies are kept
+       at 1 to minimise query fan-out for low-latency retrieval; the
+       second redundant copy is promoted on failure (ready=1).
+       ──────────────────────────────────────────────────────────────── -->
+  <content id="documents" version="1.0">
+    <redundancy>2</redundancy>
+    <documents>
+      <document type="document" mode="index"/>
+      <document-processing cluster="default"/>
+    </documents>
+    <engine>
+      <proton>
+        <searchable-copies>1</searchable-copies>
+      </proton>
+    </engine>
+    <nodes count="3">
+      <node hostalias="vespa-content-0" distribution-key="0"/>
+      <node hostalias="vespa-content-1" distribution-key="1"/>
+      <node hostalias="vespa-content-2" distribution-key="2"/>
+    </nodes>
+    <tuning>
+      <cluster-controller>
+        <init-progress-time>30s</init-progress-time>
+        <transition-time>30s</transition-time>
+        <min-node-ratio-per-group>0.67</min-node-ratio-per-group>
+      </cluster-controller>
+    </tuning>
+  </content>
+
+</services>

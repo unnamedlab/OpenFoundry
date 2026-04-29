@@ -1,0 +1,11 @@
+{{- if and .Values.enabled .Values.applicationPackage.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vespa.appPackage.configMapName" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-application-package
+data:
+{{ include "vespa.appPackage.data" . | indent 2 }}
+{{- end }}
