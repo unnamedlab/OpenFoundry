@@ -10,7 +10,7 @@ OpenFoundry currently supports two complementary deployment modes in-repository:
 The Compose stack defines:
 
 - PostgreSQL
-- Redis
+- Valkey (Redis-protocol compatible; OSS BSD-3 image `valkey/valkey:8-alpine`)
 - NATS
 - MinIO
 - Meilisearch

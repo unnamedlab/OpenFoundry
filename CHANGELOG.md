@@ -33,7 +33,15 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - This `CHANGELOG.md` with Keep a Changelog conventions.
 
 ### Changed
-- _(add entries here)_
+- **BREAKING:** Replaced the Redis container image with **Valkey 8** (OSS,
+  BSD-3-Clause fork hosted by the Linux Foundation) across the Compose stack.
+  The Compose service is renamed `redis` → `valkey`, the volume `redis_data` →
+  `valkey_data`, the image variable `OPENFOUNDRY_REDIS_IMAGE` →
+  `OPENFOUNDRY_VALKEY_IMAGE` (default `valkey/valkey:8-alpine`), and the
+  intra-cluster `REDIS_URL` now points to `redis://valkey:6379`. The Rust
+  `redis-rs` client is unchanged; Valkey speaks the same wire protocol.
+  Migration: `docker compose down` then `docker compose up -d` (the old
+  `redis_data` volume is no longer referenced; recreate state if needed).
 
 ### Deprecated
 - _(add entries here)_
