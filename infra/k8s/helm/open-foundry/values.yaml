@@ -178,6 +178,18 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
+    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
+    # provisioned by `infra/k8s/cnpg/clusters/identity-federation-pg.yaml`.
+    # CNPG auto-generates the `<cluster>-app` Secret with a ready-to-use
+    # `uri` key (`postgresql://user:pass@<cluster>-rw:5432/<db>`), so we
+    # project it straight into `DATABASE_URL` via `valueFrom.secretKeyRef`
+    # — no DSN string is committed in this file. Operator rotations of
+    # the CNPG-managed credential propagate without a Helm upgrade.
+    # See ADR-0010 and `infra/runbooks/cnpg.md`.
+    envSecrets:
+      DATABASE_URL:
+        secretName: identity-federation-pg-app
+        key: uri
     resources:
       requests:
         cpu: 200m
@@ -206,6 +218,14 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
+    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
+    # provisioned by `infra/k8s/cnpg/clusters/data-asset-catalog-pg.yaml`.
+    # See the comment on identity-federation-service above for the
+    # `<cluster>-app` Secret projection convention.
+    envSecrets:
+      DATABASE_URL:
+        secretName: data-asset-catalog-pg-app
+        key: uri
     resources:
       requests:
         cpu: 300m
