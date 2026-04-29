@@ -23,7 +23,19 @@ metadata:
 {{ include "vespa.labels" . | indent 4 }}
     app.kubernetes.io/component: vespa-content
 spec:
+  {{- /*
+    Prefer maxUnavailable when set (T8 HA default for content nodes:
+    `maxUnavailable: 1` is coherent with redundancy=2 / 3 replicas).
+    Treat nil and empty-string as "unset" — every other value (incl. 0
+    or percentage strings like "25%") wins over minAvailable.
+  */ -}}
+  {{- $mu := .Values.content.podDisruptionBudget.maxUnavailable -}}
+  {{- $muStr := toString $mu -}}
+  {{- if and (hasKey .Values.content.podDisruptionBudget "maxUnavailable") (ne $muStr "<nil>") (ne $muStr "") }}
+  maxUnavailable: {{ $mu }}
+  {{- else }}
   minAvailable: {{ .Values.content.podDisruptionBudget.minAvailable }}
+  {{- end }}
   selector:
     matchLabels:
 {{ include "vespa.content.selectorLabels" . | indent 6 }}

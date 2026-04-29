@@ -44,4 +44,24 @@ override the host entries before zipping.
 |--------------|-----------------------|-------|--------------------------------|
 | `admin`      | configserver / ZK     | 3     | Quorum, PDB `minAvailable=2`   |
 | `default`    | stateless container   | 2     | Query + feed entry-point       |
-| `documents`  | stateful content      | 3     | `redundancy=2`, PDB `minAvailable=2` |
+| `documents`  | stateful content      | 3     | `redundancy=2`, PDB `maxUnavailable=1` |
+
+## High-availability manifests (PDB, topology spread, anti-affinity)
+
+The runtime HA guarantees that back the `redundancy=2` / 3-node content
+cluster declared in [`services.xml`](./services.xml) live in the Helm
+subchart, not in this directory:
+
+- `PodDisruptionBudget` for content + configserver:
+  [`charts/vespa/templates/poddisruptionbudgets.yaml`](../../helm/open-foundry/charts/vespa/templates/poddisruptionbudgets.yaml)
+- `topologySpreadConstraints` (zone-aware) and `podAntiAffinity`
+  (preferred, per hostname) on the content `StatefulSet`:
+  [`charts/vespa/templates/statefulset-content.yaml`](../../helm/open-foundry/charts/vespa/templates/statefulset-content.yaml)
+- Tunables (`vespa.content.podDisruptionBudget.maxUnavailable`,
+  `vespa.topologySpreadConstraints.topologyKey`, `vespa.podAntiAffinity.*`)
+  are exposed in
+  [`charts/vespa/values.yaml`](../../helm/open-foundry/charts/vespa/values.yaml)
+  and can be overridden per environment (e.g. `values-prod.yaml`).
+
+See [ADR-0007 — Search engine choice (Vespa only)](../../../../docs/architecture/adr/ADR-0007-search-engine-choice.md)
+for the rationale behind a 3-node, `redundancy=2` Vespa content cluster.
