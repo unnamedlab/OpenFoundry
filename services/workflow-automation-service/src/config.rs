@@ -16,6 +16,8 @@ pub struct AppConfig {
     pub ontology_service_url: String,
     #[serde(default = "default_pipeline_service_url")]
     pub pipeline_service_url: String,
+    #[serde(default = "default_nats_url")]
+    pub nats_url: String,
 }
 
 fn default_host() -> String {
@@ -40,6 +42,10 @@ fn default_ontology_service_url() -> String {
 
 fn default_pipeline_service_url() -> String {
     "http://localhost:50083".to_string()
+}
+
+fn default_nats_url() -> String {
+    "nats://localhost:4222".to_string()
 }
 
 impl AppConfig {

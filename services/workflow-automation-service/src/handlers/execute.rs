@@ -137,26 +137,36 @@ pub async fn start_internal_triggered_run(
     Path(workflow_id): Path<Uuid>,
     Json(body): Json<InternalTriggeredRunRequest>,
 ) -> impl IntoResponse {
-    let Some(workflow) = (match load_workflow(&state, workflow_id).await {
+    match execute_internal_triggered_run(&state, workflow_id, body).await {
+        Ok(run) => (StatusCode::CREATED, Json(run)).into_response(),
+        Err(error) if error.contains("not found") => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": error }))).into_response()
+        }
+        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
+    }
+}
+
+pub async fn execute_internal_triggered_run(
+    state: &AppState,
+    workflow_id: Uuid,
+    body: InternalTriggeredRunRequest,
+) -> Result<crate::models::execution::WorkflowRun, String> {
+    let Some(workflow) = (match load_workflow(state, workflow_id).await {
         Ok(workflow) => workflow,
         Err(error) => {
             tracing::error!("internal triggered run lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return Err(error.to_string());
         }
     }) else {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(format!("workflow {workflow_id} not found"));
     };
 
-    match executor::execute_workflow_run(
-        &state,
+    executor::execute_workflow_run(
+        state,
         &workflow,
         &body.trigger_type,
         body.started_by,
         body.context,
     )
     .await
-    {
-        Ok(run) => (StatusCode::CREATED, Json(run)).into_response(),
-        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
-    }
 }

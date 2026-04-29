@@ -35,6 +35,9 @@ workspace = true
 [dependencies.event-bus]
 workspace = true
 
+[dependencies.futures]
+workspace = true
+
 [dependencies.reqwest]
 workspace = true
 
