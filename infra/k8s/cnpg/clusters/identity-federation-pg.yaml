@@ -8,8 +8,9 @@
 # mirror `infra/k8s/cnpg/templates/cluster.yaml`.
 #
 # Consumed by `infra/k8s/helm/open-foundry/values.yaml` via the
-# `services.identity-federation-service.env.DATABASE_URL` entry, which
-# resolves to `identity-federation-pg-rw.openfoundry.svc.cluster.local`.
+# `services.identity-federation-service.envSecrets.DATABASE_URL` entry,
+# which projects the CNPG-managed `identity-federation-pg-app` Secret's
+# `uri` key directly into the Deployment env (no DSN string committed).
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

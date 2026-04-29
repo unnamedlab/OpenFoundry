@@ -9,8 +9,9 @@
 # mirror `infra/k8s/cnpg/templates/cluster.yaml`.
 #
 # Consumed by `infra/k8s/helm/open-foundry/values.yaml` via the
-# `services.data-asset-catalog-service.env.DATABASE_URL` entry, which
-# resolves to `data-asset-catalog-pg-rw.openfoundry.svc.cluster.local`.
+# `services.data-asset-catalog-service.envSecrets.DATABASE_URL` entry,
+# which projects the CNPG-managed `data-asset-catalog-pg-app` Secret's
+# `uri` key directly into the Deployment env (no DSN string committed).
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
