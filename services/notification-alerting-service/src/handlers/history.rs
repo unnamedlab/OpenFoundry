@@ -65,12 +65,17 @@ pub async fn mark_read(
     match notification {
         Ok(Some(notification)) => {
             let unread = unread_count(&state, Some(claims.sub)).await.unwrap_or(0);
-            let _ = state.notification_bus.send(NotificationEvent {
-                kind: "notification.read".to_string(),
-                user_id: Some(claims.sub),
-                notification: Some(notification.clone()),
-                unread_count: unread,
-            });
+            if let Err(error) = state
+                .publish_notification_event(NotificationEvent {
+                    kind: "notification.read".to_string(),
+                    user_id: Some(claims.sub),
+                    notification: Some(notification.clone()),
+                    unread_count: unread,
+                })
+                .await
+            {
+                tracing::warn!(?error, "failed to publish notification.read event");
+            }
             Json(json!({ "notification": notification, "unread_count": unread })).into_response()
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
@@ -95,12 +100,17 @@ pub async fn mark_all_read(
     .await
     {
         Ok(_) => {
-            let _ = state.notification_bus.send(NotificationEvent {
-                kind: "notification.read_all".to_string(),
-                user_id: Some(claims.sub),
-                notification: None,
-                unread_count: 0,
-            });
+            if let Err(error) = state
+                .publish_notification_event(NotificationEvent {
+                    kind: "notification.read_all".to_string(),
+                    user_id: Some(claims.sub),
+                    notification: None,
+                    unread_count: 0,
+                })
+                .await
+            {
+                tracing::warn!(?error, "failed to publish notification.read_all event");
+            }
             Json(json!({ "unread_count": 0 })).into_response()
         }
         Err(error) => {
