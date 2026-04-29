@@ -21,7 +21,7 @@
     const term = datasetSearch.trim().toLowerCase();
     if (!term) return datasets;
     return datasets.filter((dataset) =>
-      [dataset.name, dataset.description, dataset.format, dataset.tags.join(' ')].some((value) =>
+      [dataset.name, dataset.description ?? '', dataset.format, dataset.tags.join(' ')].some((value) =>
         value.toLowerCase().includes(term),
       ),
     );

@@ -23,7 +23,7 @@
   let createMenuCategory = $state<'all' | 'integration'>('all');
   let createMenuRef = $state<HTMLDivElement | null>(null);
 
-  const visibleCreateItems = $derived.by(() => {
+  const isPipelineBuilderVisible = $derived.by(() => {
     const searchTerm = createMenuSearch.trim().toLowerCase();
     const matchesCategory = createMenuCategory === 'all' || createMenuCategory === 'integration';
     const title = t('nav.pipelineBuilder').toLowerCase();
@@ -141,7 +141,7 @@
             </div>
 
             <div class="of-topbar__create-results">
-              {#if visibleCreateItems}
+              {#if isPipelineBuilderVisible}
                 <button type="button" class="of-topbar__create-item" onclick={openPipelineBuilder}>
                   <span class="of-topbar__create-item-icon">
                     <Glyph name="graph" size={17} />
