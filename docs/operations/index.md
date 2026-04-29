@@ -15,3 +15,4 @@ This section documents how OpenFoundry is packaged, validated, and operated as a
 - [Deployment Modes](/operations/deployment-modes) for Compose, Helm, and Terraform surfaces.
 - [CI/CD](/operations/ci-cd) for workflow-by-workflow automation details.
 - [Runbooks and Recovery](/operations/runbooks) for operational handbooks already stored in the repo.
+- [ADR-0012 — Data-plane SLOs, SLIs and error budgets](/architecture/adr/ADR-0012-data-plane-slos) for the latency targets, Prometheus SLIs, monthly error budgets and freeze policy that govern the data plane.
