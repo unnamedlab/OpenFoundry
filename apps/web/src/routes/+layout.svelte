@@ -9,10 +9,14 @@
   import { initializeLocale, restoreLocale } from '$lib/i18n/store';
 
   let { children, data } = $props();
-  initializeLocale(data.initialLocale);
+  const initialLocale = $derived(data.initialLocale);
+
+  $effect(() => {
+    initializeLocale(initialLocale);
+  });
 
   onMount(() => {
-    restoreLocale(data.initialLocale);
+    restoreLocale(initialLocale);
     auth.restore();
   });
 
