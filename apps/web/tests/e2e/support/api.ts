@@ -96,6 +96,30 @@ const demoObjectType = {
   updated_at: '2026-01-02T00:00:00Z',
 };
 
+const demoProject = {
+  id: 'project-1',
+  slug: 'ontology-training',
+  display_name: 'Ontology Training',
+  description: 'Editable ontology for guided training flows.',
+  workspace_slug: 'training',
+  owner_id: demoUser.id,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
+};
+
+const demoDatasetPreview = {
+  dataset_id: demoDataset.id,
+  columns: [
+    { name: 'tail_number', field_type: 'string', nullable: false },
+    { name: 'platform_name', field_type: 'string', nullable: false },
+    { name: 'status', field_type: 'string', nullable: true },
+  ],
+  rows: [
+    { tail_number: 'AF-101', platform_name: 'Atlas', status: 'ready' },
+    { tail_number: 'AF-102', platform_name: 'Comet', status: 'maintenance' },
+  ],
+};
+
 const demoTemplate = {
   id: 'template-1',
   key: 'ops-cockpit',
@@ -212,6 +236,53 @@ export async function seedAuthenticatedSession(page: Page) {
 }
 
 export async function mockFrontendApis(page: Page) {
+  const objectTypes = [demoObjectType];
+  let projectResources = [{ project_id: demoProject.id, resource_kind: 'object_type', resource_id: demoObjectType.id, bound_by: demoUser.id, created_at: '2026-01-02T00:00:00Z' }];
+  const propertiesByType: Record<string, Array<Record<string, unknown>>> = {
+    [demoObjectType.id]: [
+      {
+        id: 'property-1',
+        object_type_id: demoObjectType.id,
+        name: 'tail_number',
+        display_name: 'Tail Number',
+        description: '',
+        property_type: 'string',
+        required: true,
+        unique_constraint: true,
+        time_dependent: false,
+        default_value: null,
+        validation_rules: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+    ],
+  };
+  let workingState = {
+    project_id: demoProject.id,
+    changes: [],
+    updated_by: demoUser.id,
+    updated_at: '2026-01-02T00:00:00Z',
+  };
+  let branches = [
+    {
+      id: 'branch-main',
+      project_id: demoProject.id,
+      name: 'main',
+      description: 'Live ontology branch',
+      status: 'main',
+      proposal_id: null,
+      changes: [],
+      conflict_resolutions: {},
+      enable_indexing: true,
+      created_by: demoUser.id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+      latest_rebased_at: '2026-01-02T00:00:00Z',
+    },
+  ];
+  let proposals: Array<Record<string, unknown>> = [];
+  let migrations: Array<Record<string, unknown>> = [];
+
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -245,6 +316,10 @@ export async function mockFrontendApis(page: Page) {
 
     if (pathname === '/api/v1/datasets') {
       return json(route, { data: [demoDataset], page: 1, per_page: 100, total: 1, total_pages: 1 });
+    }
+
+    if (pathname === `/api/v1/datasets/${demoDataset.id}/preview`) {
+      return json(route, demoDatasetPreview);
     }
 
     if (pathname === `/api/v1/datasets/${demoDataset.id}/quality`) {
@@ -282,8 +357,168 @@ export async function mockFrontendApis(page: Page) {
       return json(route, { data: [], total: 0 });
     }
 
-    if (pathname === '/api/v1/ontology/types') {
-      return json(route, { data: [demoObjectType], total: 1, page: 1, per_page: 100 });
+    if (pathname === '/api/v1/ontology/types' && request.method() === 'GET') {
+      return json(route, { data: objectTypes, total: objectTypes.length, page: 1, per_page: 100 });
+    }
+
+    if (pathname === '/api/v1/ontology/types' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `object-type-${objectTypes.length + 1}`,
+        owner_id: demoUser.id,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        ...body,
+      };
+      objectTypes.unshift(created);
+      propertiesByType[created.id] = [];
+      return json(route, created, 201);
+    }
+
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}`) {
+      return json(route, demoObjectType);
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/types\/[^/]+\/properties$/) && request.method() === 'GET') {
+      const typeId = pathname.split('/')[5];
+      return json(route, { data: propertiesByType[typeId] ?? [] });
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/types\/[^/]+\/properties$/) && request.method() === 'POST') {
+      const typeId = pathname.split('/')[5];
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `property-${(propertiesByType[typeId]?.length ?? 0) + 1}`,
+        object_type_id: typeId,
+        default_value: null,
+        validation_rules: null,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        ...body,
+      };
+      propertiesByType[typeId] = [...(propertiesByType[typeId] ?? []), created];
+      return json(route, created, 201);
+    }
+
+    if (pathname === '/api/v1/ontology/projects') {
+      return json(route, { data: [demoProject], total: 1, page: 1, per_page: 100 });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/memberships`) {
+      return json(route, {
+        data: [{ project_id: demoProject.id, user_id: demoUser.id, role: 'owner', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' }],
+      });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/resources`) {
+      if (request.method() === 'GET') return json(route, { data: projectResources });
+      if (request.method() === 'POST') {
+        const body = JSON.parse(request.postData() ?? '{}');
+        const created = { project_id: demoProject.id, bound_by: demoUser.id, created_at: '2026-01-02T00:00:00Z', ...body };
+        projectResources = [...projectResources.filter((item) => !(item.resource_kind === created.resource_kind && item.resource_id === created.resource_id)), created];
+        return json(route, created, 201);
+      }
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/projects\/project-1\/resources\/[^/]+\/[^/]+$/) && request.method() === 'DELETE') {
+      const [, , , , , resourceKind, resourceId] = pathname.split('/');
+      projectResources = projectResources.filter((item) => !(item.resource_kind === resourceKind && item.resource_id === resourceId));
+      return json(route, {}, 204);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/working-state` && request.method() === 'GET') {
+      return json(route, workingState);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/working-state` && request.method() === 'PUT') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      workingState = { ...workingState, changes: body.changes ?? [], updated_at: '2026-01-02T01:00:00Z' };
+      return json(route, workingState);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/branches` && request.method() === 'GET') {
+      return json(route, { data: branches });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/branches` && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `branch-${branches.length + 1}`,
+        project_id: demoProject.id,
+        status: 'draft',
+        proposal_id: null,
+        conflict_resolutions: {},
+        enable_indexing: Boolean(body.enable_indexing),
+        created_by: demoUser.id,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        latest_rebased_at: '2026-01-02T00:00:00Z',
+        ...body,
+      };
+      branches = [created, ...branches];
+      return json(route, created, 201);
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/projects\/project-1\/branches\/[^/]+$/) && request.method() === 'PATCH') {
+      const branchId = pathname.split('/').pop()!;
+      const body = JSON.parse(request.postData() ?? '{}');
+      const updated = branches.find((branch) => branch.id === branchId);
+      if (!updated) return json(route, { error: 'not found' }, 404);
+      Object.assign(updated, body, { updated_at: '2026-01-02T01:00:00Z' });
+      return json(route, updated);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/proposals` && request.method() === 'GET') {
+      return json(route, { data: proposals });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/proposals` && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `proposal-${proposals.length + 1}`,
+        project_id: demoProject.id,
+        created_by: demoUser.id,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        reviewer_ids: [],
+        comments: [],
+        status: 'in_review',
+        ...body,
+      };
+      proposals = [created, ...proposals];
+      return json(route, created, 201);
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/projects\/project-1\/proposals\/[^/]+$/) && request.method() === 'PATCH') {
+      const proposalId = pathname.split('/').pop()!;
+      const body = JSON.parse(request.postData() ?? '{}');
+      const updated = proposals.find((proposal) => proposal.id === proposalId);
+      if (!updated) return json(route, { error: 'not found' }, 404);
+      Object.assign(updated, body, { updated_at: '2026-01-02T01:00:00Z' });
+      return json(route, updated);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/migrations` && request.method() === 'GET') {
+      return json(route, { data: migrations });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/migrations` && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `migration-${migrations.length + 1}`,
+        project_id: demoProject.id,
+        submitted_by: demoUser.id,
+        submitted_at: '2026-01-02T00:00:00Z',
+        status: 'planned',
+        ...body,
+      };
+      migrations = [created, ...migrations];
+      return json(route, created, 201);
+    }
+
+    if (pathname === '/api/v1/ontology/funnel/sources' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      return json(route, { id: 'funnel-source-1', pipeline_id: null, dataset_branch: 'main', dataset_version: null, default_marking: 'public', status: 'active', trigger_context: {}, owner_id: demoUser.id, last_run_at: null, created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z', ...body }, 201);
     }
 
     if (pathname === '/api/v1/ontology/actions') {

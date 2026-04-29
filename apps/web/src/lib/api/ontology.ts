@@ -112,6 +112,93 @@ export interface OntologyProjectResourceBinding {
   created_at: string;
 }
 
+export interface OntologyStagedChange {
+  id: string;
+  kind: string;
+  action: string;
+  label: string;
+  description: string;
+  targetId?: string;
+  parentRef?: {
+    kind: string;
+    id?: string;
+    name?: string;
+    slug?: string;
+  };
+  payload: Record<string, unknown>;
+  warnings: string[];
+  errors: string[];
+  source: string;
+  createdAt: string;
+}
+
+export interface OntologyProjectWorkingState {
+  project_id: string;
+  changes: OntologyStagedChange[];
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface OntologyBranch {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  status: 'main' | 'draft' | 'in_review' | 'rebasing' | 'merged' | 'closed';
+  proposal_id: string | null;
+  changes: OntologyStagedChange[];
+  conflict_resolutions: Record<string, 'main' | 'branch' | 'custom'>;
+  enable_indexing: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  latest_rebased_at: string;
+}
+
+export interface OntologyProposalTask {
+  id: string;
+  change_id: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewer_id: string | null;
+  comments: string[];
+}
+
+export interface OntologyProposalComment {
+  id: string;
+  author: string;
+  body: string;
+  created_at: string;
+}
+
+export interface OntologyProposal {
+  id: string;
+  project_id: string;
+  branch_id: string;
+  title: string;
+  description: string;
+  status: 'draft' | 'in_review' | 'approved' | 'merged' | 'closed';
+  reviewer_ids: string[];
+  tasks: OntologyProposalTask[];
+  comments: OntologyProposalComment[];
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OntologyProjectMigration {
+  id: string;
+  project_id: string;
+  source_project_id: string;
+  target_project_id: string;
+  resources: Array<{ resource_kind: string; resource_id: string; label: string }>;
+  submitted_at: string;
+  status: 'planned' | 'completed' | 'failed';
+  note: string;
+  submitted_by: string;
+}
+
 export interface LinkType {
   id: string;
   name: string;
@@ -1942,4 +2029,82 @@ export function bindProjectResource(id: string, body: {
 
 export function unbindProjectResource(id: string, resourceKind: string, resourceId: string) {
   return api.delete(`/ontology/projects/${id}/resources/${resourceKind}/${resourceId}`);
+}
+
+export function getProjectWorkingState(id: string) {
+  return api.get<OntologyProjectWorkingState>(`/ontology/projects/${id}/working-state`);
+}
+
+export function replaceProjectWorkingState(id: string, changes: OntologyStagedChange[]) {
+  return api.put<OntologyProjectWorkingState>(`/ontology/projects/${id}/working-state`, { changes });
+}
+
+export function listProjectBranches(id: string) {
+  return api
+    .get<{ data: OntologyBranch[] }>(`/ontology/projects/${id}/branches`)
+    .then((response) => response.data);
+}
+
+export function createProjectBranch(id: string, body: {
+  name: string;
+  description?: string;
+  changes: OntologyStagedChange[];
+  enable_indexing?: boolean;
+}) {
+  return api.post<OntologyBranch>(`/ontology/projects/${id}/branches`, body);
+}
+
+export function updateProjectBranch(id: string, branchId: string, body: {
+  description?: string;
+  status?: OntologyBranch['status'];
+  proposal_id?: string | null;
+  changes?: OntologyStagedChange[];
+  conflict_resolutions?: Record<string, 'main' | 'branch' | 'custom'>;
+  enable_indexing?: boolean;
+  latest_rebased_at?: string;
+}) {
+  return api.patch<OntologyBranch>(`/ontology/projects/${id}/branches/${branchId}`, body);
+}
+
+export function listProjectProposals(id: string) {
+  return api
+    .get<{ data: OntologyProposal[] }>(`/ontology/projects/${id}/proposals`)
+    .then((response) => response.data);
+}
+
+export function createProjectProposal(id: string, body: {
+  branch_id: string;
+  title: string;
+  description?: string;
+  reviewer_ids?: string[];
+  tasks: OntologyProposalTask[];
+  comments?: OntologyProposalComment[];
+}) {
+  return api.post<OntologyProposal>(`/ontology/projects/${id}/proposals`, body);
+}
+
+export function updateProjectProposal(id: string, proposalId: string, body: {
+  title?: string;
+  description?: string;
+  status?: OntologyProposal['status'];
+  reviewer_ids?: string[];
+  tasks?: OntologyProposalTask[];
+  comments?: OntologyProposalComment[];
+}) {
+  return api.patch<OntologyProposal>(`/ontology/projects/${id}/proposals/${proposalId}`, body);
+}
+
+export function listProjectMigrations(id: string) {
+  return api
+    .get<{ data: OntologyProjectMigration[] }>(`/ontology/projects/${id}/migrations`)
+    .then((response) => response.data);
+}
+
+export function createProjectMigration(id: string, body: {
+  source_project_id: string;
+  target_project_id: string;
+  resources: OntologyProjectMigration['resources'];
+  note?: string;
+}) {
+  return api.post<OntologyProjectMigration>(`/ontology/projects/${id}/migrations`, body);
 }

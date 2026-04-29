@@ -2,6 +2,8 @@
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import Glyph from '$components/ui/Glyph.svelte';
+  import { getMe, type UserProfile } from '$lib/api/auth';
+  import { listDatasets, previewDataset, type Dataset, type DatasetPreviewResponse } from '$lib/api/datasets';
   import {
     attachInterfaceToType,
     attachSharedPropertyType,
@@ -9,6 +11,7 @@
     createInterface,
     createInterfaceProperty,
     createLinkType,
+    createOntologyFunnelSource,
     createObjectType,
     createProject,
     createProperty,
@@ -31,6 +34,8 @@
     listSharedPropertyTypes,
     listTypeInterfaces,
     listTypeSharedPropertyTypes,
+    getProjectWorkingState,
+    replaceProjectWorkingState,
     type InterfaceProperty,
     type LinkType,
     type ObjectSetDefinition,
@@ -240,6 +245,22 @@
   let changeQueue = $state<StagedChange[]>([]);
   let recentItems = $state<RecentItem[]>([]);
   let favoriteKeys = $state<string[]>([]);
+  let currentUser = $state<UserProfile | null>(null);
+  let datasets = $state<Dataset[]>([]);
+  let datasetPreview = $state<DatasetPreviewResponse | null>(null);
+  let wizardStep = $state(1);
+  let wizardBusy = $state(false);
+  let wizardError = $state('');
+  let wizardSuccess = $state('');
+  let wizardDraft = $state({
+    dataset_id: '',
+    object_name: '',
+    display_name: '',
+    description: '',
+    primary_key_column: '',
+    title_column: '',
+    indexing_enabled: true
+  });
 
   let typeDraft = $state<TypeDraft>({ display_name: '', description: '', icon: '', color: '' });
   let createTypeDraft = $state<CreateTypeDraft>({ name: '', display_name: '', description: '', icon: '', color: '' });
@@ -326,6 +347,12 @@
   const selectedSharedProperty = $derived(sharedPropertyTypes.find((item) => item.id === selectedSharedPropertyId) ?? null);
   const selectedLink = $derived(linkTypes.find((item) => item.id === selectedLinkId) ?? null);
   const selectedProject = $derived(projects.find((item) => item.id === selectedProjectId) ?? null);
+  const selectedProjectRole = $derived.by(() => {
+    if (!currentUser || !selectedProject) return null;
+    if (selectedProject.owner_id === currentUser.id) return 'owner' as const;
+    return selectedProjectMemberships.find((item) => item.user_id === currentUser.id)?.role ?? 'viewer';
+  });
+  const canEditSelectedProject = $derived(selectedProjectRole === 'owner' || selectedProjectRole === 'editor');
 
   const filteredObjectTypes = $derived.by(() => filterBySearch(objectTypes, searchQuery, (item) => `${item.name} ${item.display_name} ${item.description}`));
   const filteredInterfaces = $derived.by(() => filterBySearch(interfaces, searchQuery, (item) => `${item.name} ${item.display_name} ${item.description}`));
@@ -406,7 +433,6 @@
 
   onMount(() => {
     loadPreferences();
-    loadWorkingState();
     void loadCatalog();
   });
 
@@ -450,18 +476,22 @@
     window.localStorage.setItem(storageKey('recent'), JSON.stringify(recentItems));
   }
 
-  function loadWorkingState() {
-    if (!browser) return;
+  async function loadWorkingState(projectId = selectedProjectId) {
+    if (!projectId) {
+      changeQueue = [];
+      return;
+    }
     try {
-      changeQueue = JSON.parse(window.localStorage.getItem(storageKey('working-state')) ?? '[]');
+      const workingState = await getProjectWorkingState(projectId);
+      changeQueue = workingState.changes;
     } catch {
       changeQueue = [];
     }
   }
 
-  function persistWorkingState() {
-    if (!browser) return;
-    window.localStorage.setItem(storageKey('working-state'), JSON.stringify(changeQueue));
+  async function persistWorkingState(projectId = selectedProjectId) {
+    if (!projectId || !canEditSelectedProject) return;
+    await replaceProjectWorkingState(projectId, changeQueue);
   }
 
   function recentSectionKey(section: Exclude<ManagerSection, 'discover' | 'changes' | 'advanced'>, id: string) {
@@ -509,17 +539,17 @@
     changeQueue = [change, ...changeQueue];
     saveSuccess = '';
     saveError = '';
-    persistWorkingState();
+    void persistWorkingState();
   }
 
   function removeChange(id: string) {
     changeQueue = changeQueue.filter((change) => change.id !== id);
-    persistWorkingState();
+    void persistWorkingState();
   }
 
   function clearChanges() {
     changeQueue = [];
-    persistWorkingState();
+    void persistWorkingState();
   }
 
   function buildChange(params: Omit<StagedChange, 'id' | 'createdAt'>): StagedChange {
@@ -583,7 +613,9 @@
     loading = true;
     loadError = '';
     try {
-      const [typesResponse, interfacesResponse, sharedResponse, linksResponse, projectsResponse, objectSetsResponse] = await Promise.all([
+      const [me, datasetResponse, typesResponse, interfacesResponse, sharedResponse, linksResponse, projectsResponse, objectSetsResponse] = await Promise.all([
+        getMe(),
+        listDatasets({ page: 1, per_page: 200 }),
         listObjectTypes({ page: 1, per_page: 200 }),
         listInterfaces({ page: 1, per_page: 200 }),
         listSharedPropertyTypes({ page: 1, per_page: 200 }),
@@ -592,6 +624,8 @@
         listObjectSets().catch(() => ({ data: [] }))
       ]);
 
+      currentUser = me;
+      datasets = datasetResponse.data;
       objectTypes = typesResponse.data;
       interfaces = interfacesResponse.data;
       sharedPropertyTypes = sharedResponse.data;
@@ -604,10 +638,16 @@
       if (!selectedSharedPropertyId && sharedPropertyTypes[0]) selectedSharedPropertyId = sharedPropertyTypes[0].id;
       if (!selectedLinkId && linkTypes[0]) selectedLinkId = linkTypes[0].id;
       if (!selectedProjectId && projects[0]) selectedProjectId = projects[0].id;
+      if (!wizardDraft.dataset_id && datasets[0]) wizardDraft.dataset_id = datasets[0].id;
 
       if (selectedTypeId) await loadSelectedType(selectedTypeId);
       if (selectedInterfaceId) await loadSelectedInterface(selectedInterfaceId);
-      if (selectedProjectId) await loadSelectedProject(selectedProjectId);
+      if (selectedProjectId) {
+        await Promise.all([loadSelectedProject(selectedProjectId), loadWorkingState(selectedProjectId)]);
+      }
+      if (wizardDraft.dataset_id) {
+        datasetPreview = await previewDataset(wizardDraft.dataset_id, { limit: 20 }).catch(() => null);
+      }
 
       if (!linkDraft.source_type_id && objectTypes[0]) linkDraft.source_type_id = objectTypes[0].id;
       if (!linkDraft.target_type_id && objectTypes[1]) linkDraft.target_type_id = objectTypes[1].id;
@@ -716,7 +756,7 @@
   function selectProject(id: string) {
     selectedProjectId = id;
     activeSection = 'projects';
-    void loadSelectedProject(id);
+    void Promise.all([loadSelectedProject(id), loadWorkingState(id)]);
   }
 
   function stageTypeUpdate() {
@@ -1407,7 +1447,7 @@
     }
 
     changeQueue = [...importedChanges, ...changeQueue];
-    persistWorkingState();
+    void persistWorkingState();
     importSummary = `Imported ${importedChanges.length} working-state edits from JSON.`;
     activeSection = 'changes';
   }
@@ -1796,6 +1836,107 @@
     refreshing = false;
   }
 
+  async function loadWizardDatasetPreview(datasetId: string) {
+    wizardDraft.dataset_id = datasetId;
+    wizardError = '';
+    wizardSuccess = '';
+    datasetPreview = datasetId ? await previewDataset(datasetId, { limit: 20 }).catch(() => null) : null;
+    if (!wizardDraft.object_name) {
+      const dataset = datasets.find((item) => item.id === datasetId);
+      wizardDraft.object_name = normalizeName(dataset?.name ?? '');
+      wizardDraft.display_name = dataset?.name ?? '';
+      wizardDraft.description = dataset?.description ?? '';
+    }
+    if (!wizardDraft.primary_key_column && datasetPreview?.columns?.[0]?.name) {
+      wizardDraft.primary_key_column = datasetPreview.columns[0].name;
+    }
+    if (!wizardDraft.title_column && datasetPreview?.columns?.[1]?.name) {
+      wizardDraft.title_column = datasetPreview.columns[1].name;
+    }
+  }
+
+  function inferPropertyType(column?: { field_type?: string; data_type?: string; nullable?: boolean }) {
+    const value = (column?.field_type ?? column?.data_type ?? 'string').toLowerCase();
+    if (value.includes('int')) return 'integer';
+    if (value.includes('float') || value.includes('double') || value.includes('decimal')) return 'float';
+    if (value.includes('bool')) return 'boolean';
+    if (value.includes('time')) return 'datetime';
+    if (value.includes('date')) return 'date';
+    if (value.includes('json')) return 'json';
+    return 'string';
+  }
+
+  async function createObjectFromDatasource() {
+    if (!selectedProjectId || !canEditSelectedProject) {
+      wizardError = 'Select an ontology where you have edit permissions before creating an object.';
+      return;
+    }
+    if (!wizardDraft.dataset_id) {
+      wizardError = 'Select a datasource.';
+      return;
+    }
+    if (!wizardDraft.object_name.trim()) {
+      wizardError = 'Object API name is required.';
+      return;
+    }
+    if (!wizardDraft.primary_key_column) {
+      wizardError = 'Choose a primary key column.';
+      return;
+    }
+
+    wizardBusy = true;
+    wizardError = '';
+    wizardSuccess = '';
+
+    try {
+      const createdType = await createObjectType({
+        name: normalizeName(wizardDraft.object_name),
+        display_name: wizardDraft.display_name.trim() || titleCase(normalizeName(wizardDraft.object_name)),
+        description: wizardDraft.description.trim() || undefined,
+        primary_key_property: normalizeName(wizardDraft.primary_key_column)
+      });
+
+      await bindProjectResource(selectedProjectId, { resource_kind: 'object_type', resource_id: createdType.id });
+
+      const columns = datasetPreview?.columns ?? [];
+      for (const column of columns) {
+        const propertyName = normalizeName(column.name);
+        await createProperty(createdType.id, {
+          name: propertyName,
+          display_name: titleCase(propertyName),
+          description: column.name === wizardDraft.title_column ? 'Suggested title field from datasource wizard.' : undefined,
+          property_type: inferPropertyType(column),
+          required: propertyName === normalizeName(wizardDraft.primary_key_column) ? true : !(column.nullable ?? true),
+          unique_constraint: propertyName === normalizeName(wizardDraft.primary_key_column),
+          time_dependent: false
+        });
+      }
+
+      if (wizardDraft.indexing_enabled) {
+        await createOntologyFunnelSource({
+          name: `${normalizeName(wizardDraft.object_name)}-source`,
+          description: `Datasource-backed indexing flow for ${wizardDraft.display_name || wizardDraft.object_name}.`,
+          object_type_id: createdType.id,
+          dataset_id: wizardDraft.dataset_id,
+          dataset_branch: 'main',
+          preview_limit: 500,
+          property_mappings: columns.map((column) => ({
+            source_field: column.name,
+            target_property: normalizeName(column.name)
+          }))
+        });
+      }
+
+      wizardSuccess = 'Object type created from datasource and saved to ontology.';
+      wizardStep = 1;
+      await loadCatalog();
+    } catch (cause) {
+      wizardError = cause instanceof Error ? cause.message : 'Failed to create object from datasource';
+    } finally {
+      wizardBusy = false;
+    }
+  }
+
   function titleCase(value: string) {
     return value
       .split('_')
@@ -1853,12 +1994,10 @@
           />
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <label class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" for="branch-select">Branch</label>
-          <select id="branch-select" bind:value={activeBranch} class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm">
-            {#each branchOptions as branch}
-              <option value={branch}>{branch}</option>
-            {/each}
-          </select>
+          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Access</span>
+          <div class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm text-slate-700">
+            {selectedProjectRole ?? 'viewer'}
+          </div>
           <button
             class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#86a6dc]"
             onclick={refreshManager}
@@ -2093,17 +2232,98 @@
             <div class="space-y-6">
               <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
                 <h2 class="text-xl font-semibold text-slate-900">Working state</h2>
-                <p class="mt-1 text-sm text-slate-600">Save applies queued ontology edits. Discard clears the local branch working state.</p>
+                <p class="mt-1 text-sm text-slate-600">Save applies queued ontology edits. Discard clears the backend working state for the selected ontology.</p>
                 <div class="mt-4 flex flex-wrap gap-3">
-                  <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e]" onclick={applyChanges} disabled={saving || pendingChanges === 0}>
+                  <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={applyChanges} disabled={saving || pendingChanges === 0 || !canEditSelectedProject}>
                     {saving ? 'Saving…' : 'Save changes'}
                   </button>
-                  <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={clearChanges} disabled={pendingChanges === 0}>
+                  <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df] disabled:opacity-50" onclick={clearChanges} disabled={pendingChanges === 0 || !canEditSelectedProject}>
                     Discard all
                   </button>
                   <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (activeSection = 'changes')}>
                     Review edits
                   </button>
+                </div>
+                {#if !canEditSelectedProject}
+                  <p class="mt-3 text-xs text-amber-700">You currently have viewer access. Switch ontology or create/use an editable branch before saving.</p>
+                {/if}
+              </div>
+
+              <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
+                <h2 class="text-xl font-semibold text-slate-900">Create object from datasource</h2>
+                <p class="mt-1 text-sm text-slate-600">Use one guided flow to select a datasource, map a primary key, and save a new object type plus indexing source through real backend APIs.</p>
+                {#if wizardError}
+                  <div class="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{wizardError}</div>
+                {/if}
+                {#if wizardSuccess}
+                  <div class="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{wizardSuccess}</div>
+                {/if}
+                <div class="mt-4 grid gap-4">
+                  <label class="space-y-2 text-sm text-slate-700">
+                    <span class="font-medium">Step 1 · Datasource</span>
+                    <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.dataset_id} onchange={(event) => void loadWizardDatasetPreview((event.currentTarget as HTMLSelectElement).value)}>
+                      <option value="">Select datasource</option>
+                      {#each datasets as dataset}
+                        <option value={dataset.id}>{dataset.name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <label class="space-y-2 text-sm text-slate-700">
+                      <span class="font-medium">Step 2 · Object API name</span>
+                      <input bind:value={wizardDraft.object_name} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5" placeholder="orders" />
+                    </label>
+                    <label class="space-y-2 text-sm text-slate-700">
+                      <span class="font-medium">Display name</span>
+                      <input bind:value={wizardDraft.display_name} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5" placeholder="Orders" />
+                    </label>
+                  </div>
+                  <label class="space-y-2 text-sm text-slate-700">
+                    <span class="font-medium">Description</span>
+                    <textarea bind:value={wizardDraft.description} rows="3" class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"></textarea>
+                  </label>
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <label class="space-y-2 text-sm text-slate-700">
+                      <span class="font-medium">Step 3 · Primary key column</span>
+                      <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.primary_key_column}>
+                        <option value="">Select primary key</option>
+                        {#each datasetPreview?.columns ?? [] as column}
+                          <option value={column.name}>{column.name}</option>
+                        {/each}
+                      </select>
+                    </label>
+                    <label class="space-y-2 text-sm text-slate-700">
+                      <span class="font-medium">Title column</span>
+                      <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.title_column}>
+                        <option value="">Select title column</option>
+                        {#each datasetPreview?.columns ?? [] as column}
+                          <option value={column.name}>{column.name}</option>
+                        {/each}
+                      </select>
+                    </label>
+                  </div>
+                  <label class="flex items-center gap-2 rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm text-slate-700">
+                    <input type="checkbox" checked={wizardDraft.indexing_enabled} onchange={(event) => wizardDraft.indexing_enabled = (event.currentTarget as HTMLInputElement).checked} />
+                    Enable indexing source immediately
+                  </label>
+                  {#if datasetPreview?.columns?.length}
+                    <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] p-4">
+                      <div class="text-sm font-semibold text-slate-900">Preview columns</div>
+                      <div class="mt-3 flex flex-wrap gap-2">
+                        {#each datasetPreview.columns as column}
+                          <span class="rounded-full bg-[#eef4ff] px-2 py-1 text-xs text-[#315ea8]">{column.name}</span>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  <div class="flex flex-wrap gap-3">
+                    <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={createObjectFromDatasource} disabled={wizardBusy || !canEditSelectedProject}>
+                      {wizardBusy ? 'Creating…' : 'Save to ontology'}
+                    </button>
+                    <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (activeSection = 'projects')}>
+                      Review ontology permissions
+                    </button>
+                  </div>
                 </div>
               </div>
 

@@ -1,25 +1,40 @@
 <script lang="ts">
-  import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import Glyph from '$components/ui/Glyph.svelte';
+  import { getMe, type UserProfile } from '$lib/api/auth';
   import {
     bindProjectResource,
+    createProjectBranch,
+    createProjectMigration,
+    createProjectProposal,
+    getProjectWorkingState,
     listActionTypes,
     listInterfaces,
     listLinkTypes,
+    listProjectBranches,
     listObjectTypes,
+    listProjectMigrations,
     listProjectMemberships,
+    listProjectProposals,
     listProjectResources,
     listProjects,
     listSharedPropertyTypes,
     unbindProjectResource,
+    updateProjectBranch,
+    updateProjectProposal,
     type ActionType,
     type LinkType,
     type ObjectType,
+    type OntologyBranch,
     type OntologyInterface,
+    type OntologyProjectMigration,
     type OntologyProject,
     type OntologyProjectMembership,
+    type OntologyProposal,
+    type OntologyProposalComment,
+    type OntologyProposalTask,
     type OntologyProjectResourceBinding,
+    type OntologyStagedChange,
     type SharedPropertyType
   } from '$lib/api/ontology';
 
@@ -34,79 +49,8 @@
     | 'shared'
     | 'usage';
 
-  type BranchStatus = 'main' | 'draft' | 'in_review' | 'rebasing' | 'merged' | 'closed';
-  type ProposalStatus = 'draft' | 'in_review' | 'approved' | 'merged' | 'closed';
-  type TaskStatus = 'pending' | 'approved' | 'rejected';
   type PreviewStatus = 'indexed' | 'in_progress' | 'blocked';
   type ConflictResolution = 'main' | 'branch' | 'custom';
-
-  interface StagedChange {
-    id: string;
-    kind: string;
-    action: string;
-    label: string;
-    description: string;
-    targetId?: string;
-    payload: Record<string, unknown>;
-    warnings: string[];
-    errors: string[];
-    source: string;
-    createdAt: string;
-  }
-
-  interface OntologyBranch {
-    id: string;
-    project_id: string;
-    name: string;
-    description: string;
-    status: BranchStatus;
-    created_at: string;
-    updated_at: string;
-    latest_rebased_at: string;
-    proposal_id: string | null;
-    change_ids: string[];
-    conflict_resolutions: Record<string, ConflictResolution>;
-  }
-
-  interface ProposalTask {
-    id: string;
-    change_id: string;
-    title: string;
-    description: string;
-    status: TaskStatus;
-    reviewer_id: string | null;
-    comments: string[];
-  }
-
-  interface ProposalComment {
-    id: string;
-    author: string;
-    body: string;
-    created_at: string;
-  }
-
-  interface OntologyProposal {
-    id: string;
-    branch_id: string;
-    title: string;
-    description: string;
-    status: ProposalStatus;
-    reviewer_ids: string[];
-    created_at: string;
-    updated_at: string;
-    tasks: ProposalTask[];
-    comments: ProposalComment[];
-  }
-
-  interface MigrationHistoryEntry {
-    id: string;
-    source_project_id: string;
-    target_project_id: string;
-    resources: Array<{ resource_kind: string; resource_id: string; label: string }>;
-    submitted_at: string;
-    status: 'planned' | 'completed' | 'failed';
-    note: string;
-  }
 
   interface ConflictCandidate {
     key: string;
@@ -150,10 +94,11 @@
   let actionTypes = $state<ActionType[]>([]);
   let interfaces = $state<OntologyInterface[]>([]);
   let sharedPropertyTypes = $state<SharedPropertyType[]>([]);
-  let changeQueue = $state<StagedChange[]>([]);
+  let changeQueue = $state<OntologyStagedChange[]>([]);
   let branches = $state<OntologyBranch[]>([]);
   let proposals = $state<OntologyProposal[]>([]);
-  let migrations = $state<MigrationHistoryEntry[]>([]);
+  let migrations = $state<OntologyProjectMigration[]>([]);
+  let currentUser = $state<UserProfile | null>(null);
 
   let selectedProjectId = $state('');
   let selectedBranchId = $state('');
@@ -207,7 +152,7 @@
   });
 
   const changeMap = $derived.by(() => {
-    const map = new Map<string, StagedChange>();
+    const map = new Map<string, OntologyStagedChange>();
     for (const item of changeQueue) map.set(item.id, item);
     return map;
   });
@@ -220,11 +165,17 @@
   const selectedProjectResources = $derived(projectResourceMap[selectedProjectId] ?? []);
   const migrationSourceResources = $derived(projectResourceMap[migrationSourceId] ?? []);
   const openProposals = $derived(proposals.filter((item) => item.status === 'draft' || item.status === 'in_review' || item.status === 'approved'));
+  const selectedProjectRole = $derived.by(() => {
+    if (!currentUser || !selectedProject) return null;
+    if (selectedProject.owner_id === currentUser.id) return 'owner';
+    return selectedProjectMemberships.find((item) => item.user_id === currentUser.id)?.role ?? 'viewer';
+  });
+  const canEditSelectedProject = $derived(
+    selectedProjectRole === 'owner' || selectedProjectRole === 'editor'
+  );
   const branchChanges = $derived.by(() => {
     if (!selectedBranch) return [];
-    return selectedBranch.change_ids
-      .map((changeId) => changeMap.get(changeId))
-      .filter((item): item is StagedChange => Boolean(item));
+    return selectedBranch.changes;
   });
 
   const conflictCandidates = $derived.by(() => {
@@ -283,37 +234,39 @@
     })
   );
 
-  function createId(prefix: string) {
-    if (browser && globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
-    return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  function storageKey(name: string) {
-    return `of.ontologies.${name}`;
-  }
-
-  function loadStored<T>(name: string, fallback: T): T {
-    if (!browser) return fallback;
-    try {
-      const raw = window.localStorage.getItem(storageKey(name));
-      return raw ? (JSON.parse(raw) as T) : fallback;
-    } catch {
-      return fallback;
+  async function loadProjectState(projectId: string) {
+    if (!projectId) {
+      changeQueue = [];
+      branches = [];
+      proposals = [];
+      migrations = [];
+      return;
     }
-  }
 
-  function persistStored(name: string, value: unknown) {
-    if (!browser) return;
-    window.localStorage.setItem(storageKey(name), JSON.stringify(value));
-  }
+    const [workingState, memberships, resources, projectBranches, projectProposals, projectMigrations] = await Promise.all([
+      getProjectWorkingState(projectId).catch(() => ({ project_id: projectId, changes: [], updated_by: '', updated_at: new Date().toISOString() })),
+      listProjectMemberships(projectId).catch(() => []),
+      listProjectResources(projectId).catch(() => []),
+      listProjectBranches(projectId).catch(() => []),
+      listProjectProposals(projectId).catch(() => []),
+      listProjectMigrations(projectId).catch(() => [])
+    ]);
 
-  function loadWorkingState() {
-    if (!browser) return [];
-    try {
-      return JSON.parse(window.localStorage.getItem('of.ontologyManager.working-state') ?? '[]') as StagedChange[];
-    } catch {
-      return [];
+    changeQueue = workingState.changes;
+    branches = projectBranches;
+    proposals = projectProposals;
+    migrations = projectMigrations;
+    projectMembershipMap = { ...projectMembershipMap, [projectId]: memberships };
+    projectResourceMap = { ...projectResourceMap, [projectId]: resources };
+
+    if (!projectBranches.some((item) => item.id === selectedBranchId)) {
+      selectedBranchId = projectBranches.sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0]?.id ?? '';
     }
+    if (!selectedProposalId) {
+      selectedProposalId = projectProposals.find((item) => item.branch_id === selectedBranchId)?.id ?? '';
+    }
+    if (!migrationSourceId) migrationSourceId = projectId;
+    if (!migrationTargetId) migrationTargetId = projects.find((item) => item.id !== projectId)?.id ?? projectId;
   }
 
   function formatDate(value: string) {
@@ -349,44 +302,8 @@
     return null;
   }
 
-  function seedMainBranch(projectId: string) {
-    if (!projectId) return;
-    const existing = branches.find((item) => item.project_id === projectId && item.status === 'main');
-    if (existing) return;
-    branches = [
-      ...branches,
-      {
-        id: createId('branch'),
-        project_id: projectId,
-        name: 'main',
-        description: 'Live ontology branch for the selected ontology.',
-        status: 'main',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        latest_rebased_at: new Date().toISOString(),
-        proposal_id: null,
-        change_ids: [],
-        conflict_resolutions: {}
-      }
-    ];
-    persistStored('branches', branches);
-  }
-
   function syncSelection() {
     if (!selectedProjectId && projects[0]) selectedProjectId = projects[0].id;
-    if (!selectedProjectId) return;
-    seedMainBranch(selectedProjectId);
-    const projectBranches = branches.filter((item) => item.project_id === selectedProjectId);
-    if (!projectBranches.some((item) => item.id === selectedBranchId)) {
-      selectedBranchId = projectBranches.sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0]?.id ?? '';
-    }
-    if (selectedBranch?.proposal_id && selectedBranch.proposal_id !== selectedProposalId) {
-      selectedProposalId = selectedBranch.proposal_id;
-    } else if (!selectedProposalId) {
-      selectedProposalId = proposals.find((item) => item.branch_id === selectedBranchId)?.id ?? '';
-    }
-    if (!migrationSourceId) migrationSourceId = selectedProjectId;
-    if (!migrationTargetId) migrationTargetId = projects.find((item) => item.id !== selectedProjectId)?.id ?? selectedProjectId;
   }
 
   async function loadPage() {
@@ -395,6 +312,7 @@
 
     try {
       const [
+        me,
         projectResponse,
         typeResponse,
         linkResponse,
@@ -402,6 +320,7 @@
         interfaceResponse,
         sharedResponse
       ] = await Promise.all([
+        getMe(),
         listProjects({ page: 1, per_page: 200 }),
         listObjectTypes({ page: 1, per_page: 200 }),
         listLinkTypes({ page: 1, per_page: 200 }),
@@ -410,30 +329,17 @@
         listSharedPropertyTypes({ page: 1, per_page: 200 }).catch(() => ({ data: [], total: 0, page: 1, per_page: 200 }))
       ]);
 
+      currentUser = me;
       projects = projectResponse.data;
       objectTypes = typeResponse.data;
       linkTypes = linkResponse.data;
       actionTypes = actionResponse.data;
       interfaces = interfaceResponse.data;
       sharedPropertyTypes = sharedResponse.data;
-      changeQueue = loadWorkingState();
-      branches = loadStored<OntologyBranch[]>('branches', []);
-      proposals = loadStored<OntologyProposal[]>('proposals', []);
-      migrations = loadStored<MigrationHistoryEntry[]>('migrations', []);
-
-      const membershipEntries = await Promise.all(
-        projects.map(async (project) => [project.id, await listProjectMemberships(project.id).catch(() => [])] as const)
-      );
-      const resourceEntries = await Promise.all(
-        projects.map(async (project) => [project.id, await listProjectResources(project.id).catch(() => [])] as const)
-      );
-
-      projectMembershipMap = Object.fromEntries(membershipEntries);
-      projectResourceMap = Object.fromEntries(resourceEntries);
 
       syncSelection();
-      if (selectedBranch?.proposal_id) {
-        selectedProposalId = selectedBranch.proposal_id;
+      if (selectedProjectId) {
+        await loadProjectState(selectedProjectId);
       }
     } catch (error) {
       pageError = error instanceof Error ? error.message : 'Failed to load Ontologies';
@@ -442,10 +348,11 @@
     }
   }
 
-  function switchProject(projectId: string) {
+  async function switchProject(projectId: string) {
     selectedProjectId = projectId;
+    selectedBranchId = '';
     selectedProposalId = '';
-    syncSelection();
+    await loadProjectState(projectId);
   }
 
   function switchBranch(branchId: string) {
@@ -455,75 +362,65 @@
     pageError = '';
   }
 
-  function createBranch() {
-    if (!selectedProjectId) return;
+  async function createBranch() {
+    if (!selectedProjectId || !canEditSelectedProject) return;
     const trimmedName = branchName.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-');
     if (!trimmedName) {
       pageError = 'Branch name is required.';
       return;
     }
-
-    const nextBranch: OntologyBranch = {
-      id: createId('branch'),
-      project_id: selectedProjectId,
-      name: trimmedName,
-      description: branchDescription.trim() || 'Isolated ontology branch for testing and review.',
-      status: 'draft',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      latest_rebased_at: new Date().toISOString(),
-      proposal_id: null,
-      change_ids: changeQueue.map((item) => item.id),
-      conflict_resolutions: {}
-    };
-
-    branches = [nextBranch, ...branches];
-    persistStored('branches', branches);
-    selectedBranchId = nextBranch.id;
-    branchName = '';
-    branchDescription = '';
-    pageSuccess = 'Ontology branch created.';
-    pageError = '';
+    try {
+      const nextBranch = await createProjectBranch(selectedProjectId, {
+        name: trimmedName,
+        description: branchDescription.trim() || 'Isolated ontology branch for testing and review.',
+        changes: changeQueue,
+        enable_indexing: false
+      });
+      branches = [nextBranch, ...branches];
+      selectedBranchId = nextBranch.id;
+      branchName = '';
+      branchDescription = '';
+      pageSuccess = 'Ontology branch created.';
+      pageError = '';
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to create ontology branch';
+    }
   }
 
-  function rebaseBranch() {
-    if (!selectedBranch) return;
-    branches = branches.map((branch) =>
-      branch.id === selectedBranch.id
-        ? {
-            ...branch,
-            status: conflictCandidates.length > 0 ? 'rebasing' : branch.status === 'main' ? 'main' : 'draft',
-            latest_rebased_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        : branch
-    );
-    persistStored('branches', branches);
-    pageSuccess = conflictCandidates.length > 0 ? 'Branch rebased. Resolve the highlighted conflicts before merge.' : 'Branch rebased with Main.';
+  async function rebaseBranch() {
+    if (!selectedBranch || !selectedProjectId || !canEditSelectedProject) return;
+    try {
+      const updated = await updateProjectBranch(selectedProjectId, selectedBranch.id, {
+        status: conflictCandidates.length > 0 ? 'rebasing' : selectedBranch.status === 'main' ? 'main' : 'draft',
+        latest_rebased_at: new Date().toISOString()
+      });
+      branches = branches.map((branch) => branch.id === updated.id ? updated : branch);
+      pageSuccess = conflictCandidates.length > 0 ? 'Branch rebased. Resolve the highlighted conflicts before merge.' : 'Branch rebased with Main.';
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to rebase ontology branch';
+    }
   }
 
-  function resolveConflict(key: string, resolution: ConflictResolution) {
-    if (!selectedBranch) return;
-    branches = branches.map((branch) =>
-      branch.id === selectedBranch.id
-        ? {
-            ...branch,
-            conflict_resolutions: {
-              ...branch.conflict_resolutions,
-              [key]: resolution
-            },
-            updated_at: new Date().toISOString()
-          }
-        : branch
-    );
-    persistStored('branches', branches);
+  async function resolveConflict(key: string, resolution: ConflictResolution) {
+    if (!selectedBranch || !selectedProjectId || !canEditSelectedProject) return;
+    try {
+      const updated = await updateProjectBranch(selectedProjectId, selectedBranch.id, {
+        conflict_resolutions: {
+          ...selectedBranch.conflict_resolutions,
+          [key]: resolution
+        }
+      });
+      branches = branches.map((branch) => branch.id === updated.id ? updated : branch);
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to persist conflict resolution';
+    }
   }
 
-  function createProposal() {
-    if (!selectedBranch) return;
+  async function createProposal() {
+    if (!selectedBranch || !selectedProjectId || !canEditSelectedProject) return;
     const title = proposalTitle.trim() || `${selectedBranch.name} proposal`;
-    const taskList: ProposalTask[] = branchChanges.map((change) => ({
-      id: createId('task'),
+    const taskList: OntologyProposalTask[] = branchChanges.map((change) => ({
+      id: `task-${change.id}`,
       change_id: change.id,
       title: change.label,
       description: change.description,
@@ -532,93 +429,78 @@
       comments: []
     }));
 
-    const proposal: OntologyProposal = {
-      id: createId('proposal'),
-      branch_id: selectedBranch.id,
-      title,
-      description: proposalDescription.trim() || 'Ontology proposal generated from the current branch.',
-      status: 'in_review',
-      reviewer_ids: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      tasks: taskList,
-      comments: []
-    };
-
-    proposals = [proposal, ...proposals];
-    branches = branches.map((branch) =>
-      branch.id === selectedBranch.id
-        ? {
-            ...branch,
-            status: 'in_review',
-            proposal_id: proposal.id,
-            updated_at: new Date().toISOString()
-          }
-        : branch
-    );
-    persistStored('proposals', proposals);
-    persistStored('branches', branches);
-    selectedProposalId = proposal.id;
-    proposalTitle = '';
-    proposalDescription = '';
-    pageSuccess = 'Ontology proposal created.';
+    try {
+      const proposal = await createProjectProposal(selectedProjectId, {
+        branch_id: selectedBranch.id,
+        title,
+        description: proposalDescription.trim() || 'Ontology proposal generated from the current branch.',
+        tasks: taskList,
+        comments: []
+      });
+      proposals = [proposal, ...proposals];
+      branches = branches.map((branch) =>
+        branch.id === selectedBranch.id ? { ...branch, status: 'in_review', proposal_id: proposal.id } : branch
+      );
+      selectedProposalId = proposal.id;
+      proposalTitle = '';
+      proposalDescription = '';
+      pageSuccess = 'Ontology proposal created.';
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to create ontology proposal';
+    }
   }
 
-  function assignReviewer() {
-    if (!selectedProposal || !reviewerId) return;
-    proposals = proposals.map((proposal) =>
-      proposal.id === selectedProposal.id
-        ? {
-            ...proposal,
-            reviewer_ids: proposal.reviewer_ids.includes(reviewerId) ? proposal.reviewer_ids : [...proposal.reviewer_ids, reviewerId],
-            updated_at: new Date().toISOString()
-          }
-        : proposal
-    );
-    persistStored('proposals', proposals);
-    pageSuccess = 'Reviewer assigned.';
+  async function assignReviewer() {
+    if (!selectedProposal || !selectedProjectId || !reviewerId || !canEditSelectedProject) return;
+    try {
+      const updated = await updateProjectProposal(selectedProjectId, selectedProposal.id, {
+        reviewer_ids: selectedProposal.reviewer_ids.includes(reviewerId)
+          ? selectedProposal.reviewer_ids
+          : [...selectedProposal.reviewer_ids, reviewerId]
+      });
+      proposals = proposals.map((proposal) => proposal.id === updated.id ? updated : proposal);
+      pageSuccess = 'Reviewer assigned.';
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to assign reviewer';
+    }
   }
 
-  function setTaskStatus(taskId: string, status: TaskStatus) {
-    if (!selectedProposal) return;
-    proposals = proposals.map((proposal) =>
-      proposal.id === selectedProposal.id
-        ? {
-            ...proposal,
-            tasks: proposal.tasks.map((task) => (task.id === taskId ? { ...task, status, reviewer_id: reviewerId || task.reviewer_id } : task)),
-            updated_at: new Date().toISOString()
-          }
-        : proposal
-    );
-    persistStored('proposals', proposals);
+  async function setTaskStatus(taskId: string, status: OntologyProposalTask['status']) {
+    if (!selectedProposal || !selectedProjectId || !canEditSelectedProject) return;
+    try {
+      const updated = await updateProjectProposal(selectedProjectId, selectedProposal.id, {
+        tasks: selectedProposal.tasks.map((task) => (task.id === taskId ? { ...task, status, reviewer_id: reviewerId || task.reviewer_id } : task))
+      });
+      proposals = proposals.map((proposal) => proposal.id === updated.id ? updated : proposal);
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to update proposal review task';
+    }
   }
 
-  function addProposalComment() {
-    if (!selectedProposal || !commentDraft.trim()) return;
-    proposals = proposals.map((proposal) =>
-      proposal.id === selectedProposal.id
-        ? {
-            ...proposal,
-            comments: [
-              {
-                id: createId('comment'),
-                author: reviewerId || 'current-user',
-                body: commentDraft.trim(),
-                created_at: new Date().toISOString()
-              },
-              ...proposal.comments
-            ],
-            updated_at: new Date().toISOString()
-          }
-        : proposal
-    );
-    persistStored('proposals', proposals);
-    commentDraft = '';
-    pageSuccess = 'Comment added.';
+  async function addProposalComment() {
+    if (!selectedProposal || !selectedProjectId || !commentDraft.trim() || !canEditSelectedProject) return;
+    try {
+      const updated = await updateProjectProposal(selectedProjectId, selectedProposal.id, {
+        comments: [
+          {
+            id: `comment-${Date.now()}`,
+            author: reviewerId || currentUser?.email || 'current-user',
+            body: commentDraft.trim(),
+            created_at: new Date().toISOString()
+          },
+          ...selectedProposal.comments
+        ] satisfies OntologyProposalComment[]
+      });
+      proposals = proposals.map((proposal) => proposal.id === updated.id ? updated : proposal);
+      commentDraft = '';
+      pageSuccess = 'Comment added.';
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to add proposal comment';
+    }
   }
 
-  function mergeProposal() {
-    if (!selectedProposal || !selectedBranch) return;
+  async function mergeProposal() {
+    if (!selectedProposal || !selectedBranch || !selectedProjectId || !canEditSelectedProject) return;
     const hasRejected = selectedProposal.tasks.some((task) => task.status === 'rejected');
     const hasPending = selectedProposal.tasks.some((task) => task.status === 'pending');
     const hasBlockingPreview = previewRows.some((item) => item.status === 'blocked');
@@ -629,20 +511,18 @@
       return;
     }
 
-    proposals = proposals.map((proposal) =>
-      proposal.id === selectedProposal.id
-        ? { ...proposal, status: 'merged', updated_at: new Date().toISOString() }
-        : proposal
-    );
-    branches = branches.map((branch) =>
-      branch.id === selectedBranch.id
-        ? { ...branch, status: 'merged', updated_at: new Date().toISOString() }
-        : branch
-    );
-    persistStored('proposals', proposals);
-    persistStored('branches', branches);
-    pageSuccess = 'Ontology proposal merged into Main.';
-    pageError = '';
+    try {
+      const [proposal, branch] = await Promise.all([
+        updateProjectProposal(selectedProjectId, selectedProposal.id, { status: 'merged' }),
+        updateProjectBranch(selectedProjectId, selectedBranch.id, { status: 'merged' })
+      ]);
+      proposals = proposals.map((item) => item.id === proposal.id ? proposal : item);
+      branches = branches.map((item) => item.id === branch.id ? branch : item);
+      pageSuccess = 'Ontology proposal merged into Main.';
+      pageError = '';
+    } catch (error) {
+      pageError = error instanceof Error ? error.message : 'Failed to merge ontology proposal';
+    }
   }
 
   function toggleMigrationSelection(resourceId: string) {
@@ -671,9 +551,7 @@
         });
       }
 
-      migrations = [
-        {
-          id: createId('migration'),
+        const migration = await createProjectMigration(migrationSourceId, {
           source_project_id: migrationSourceId,
           target_project_id: migrationTargetId,
           resources: selectedBindings.map((binding) => ({
@@ -681,38 +559,17 @@
             resource_id: binding.resource_id,
             label: resolveResourceLabel(binding)
           })),
-          submitted_at: new Date().toISOString(),
-          status: 'completed',
           note: 'Resources migrated between ontologies.'
-        },
-        ...migrations
-      ];
-      persistStored('migrations', migrations);
-      migrationSelection = [];
-      await loadPage();
-      pageSuccess = 'Selected resources migrated to the target ontology.';
-    } catch (error) {
-      migrations = [
-        {
-          id: createId('migration'),
-          source_project_id: migrationSourceId,
-          target_project_id: migrationTargetId,
-          resources: selectedBindings.map((binding) => ({
-            resource_kind: binding.resource_kind,
-            resource_id: binding.resource_id,
-            label: resolveResourceLabel(binding)
-          })),
-          submitted_at: new Date().toISOString(),
-          status: 'failed',
-          note: error instanceof Error ? error.message : 'Migration failed'
-        },
-        ...migrations
-      ];
-      persistStored('migrations', migrations);
-      pageError = error instanceof Error ? error.message : 'Migration failed';
-    } finally {
-      migrating = false;
-    }
+        });
+        migrations = [migration, ...migrations];
+        migrationSelection = [];
+        await loadProjectState(selectedProjectId);
+        pageSuccess = 'Selected resources migrated to the target ontology.';
+      } catch (error) {
+        pageError = error instanceof Error ? error.message : 'Migration failed';
+      } finally {
+        migrating = false;
+      }
   }
 
   onMount(() => {
@@ -804,6 +661,7 @@
           <div class="font-medium text-slate-900">{selectedProject?.display_name ?? 'No ontology selected'}</div>
           <div class="mt-1">Workspace: {selectedProject?.workspace_slug ?? 'private'}</div>
           <div class="mt-1">Members: {selectedProjectMemberships.length}</div>
+          <div class="mt-1">Role: {selectedProjectRole ?? 'viewer'}</div>
         </div>
       </div>
     </section>
@@ -884,7 +742,7 @@
               <p class="text-sm font-semibold text-slate-900">Branch catalog</p>
               <p class="mt-1 text-sm text-slate-500">Create isolated ontology branches, snapshot queued changes, and keep rebase metadata attached to the lifecycle.</p>
             </div>
-            <button class="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700" onclick={rebaseBranch}>Rebase branch</button>
+            <button class="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700 disabled:opacity-50" onclick={rebaseBranch} disabled={!selectedBranch || !canEditSelectedProject}>Rebase branch</button>
           </div>
           <div class="mt-4 space-y-3">
             {#each branchesForProject as branch}
@@ -897,7 +755,7 @@
                   <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-500">{branch.status}</span>
                 </div>
                 <div class="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                  <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">changes {branch.change_ids.length}</span>
+                  <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">changes {branch.changes.length}</span>
                   <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">rebased {formatDate(branch.latest_rebased_at)}</span>
                 </div>
               </button>
@@ -919,7 +777,10 @@
             <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
               This branch will snapshot the current `Ontology Manager` working state with {changeQueue.length} queued edits.
             </div>
-            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500" onclick={createBranch}>Create branch</button>
+            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:bg-sky-300" onclick={createBranch} disabled={!canEditSelectedProject}>Create branch</button>
+            {#if !canEditSelectedProject}
+              <p class="text-xs text-amber-700">You only have viewer access on this ontology. Switch ontology or request edit access before creating a branch.</p>
+            {/if}
           </div>
         </section>
       </div>
@@ -932,7 +793,7 @@
               <p class="mt-1 text-sm text-slate-500">Reviewable ontology proposals behave like pull requests on top of branch changes.</p>
             </div>
             {#if selectedProposal}
-              <button class="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" onclick={mergeProposal}>Merge proposal</button>
+               <button class="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:bg-slate-400" onclick={mergeProposal} disabled={!canEditSelectedProject}>Merge proposal</button>
             {/if}
           </div>
           <div class="mt-4 space-y-3">
@@ -968,9 +829,9 @@
             <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
               The proposal will snapshot {branchChanges.length} branch edits into reviewable ontology tasks.
             </div>
-            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500" onclick={createProposal} disabled={!selectedBranch || branchChanges.length === 0}>
-              Create proposal
-            </button>
+             <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:bg-sky-300" onclick={createProposal} disabled={!selectedBranch || branchChanges.length === 0 || !canEditSelectedProject}>
+               Create proposal
+             </button>
           </div>
         </section>
       </div>
@@ -1034,8 +895,8 @@
                     }`}>{task.status}</span>
                   </div>
                   <div class="mt-4 flex flex-wrap gap-2">
-                    <button class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-300" onclick={() => setTaskStatus(task.id, 'approved')}>Approve</button>
-                    <button class="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:border-rose-300" onclick={() => setTaskStatus(task.id, 'rejected')}>Reject</button>
+                    <button class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-300 disabled:opacity-50" onclick={() => setTaskStatus(task.id, 'approved')} disabled={!canEditSelectedProject}>Approve</button>
+                    <button class="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:border-rose-300 disabled:opacity-50" onclick={() => setTaskStatus(task.id, 'rejected')} disabled={!canEditSelectedProject}>Reject</button>
                   </div>
                 </div>
               {/each}
@@ -1057,12 +918,12 @@
                 {/each}
               </select>
             </label>
-            <button class="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700" onclick={assignReviewer}>Assign reviewer</button>
+            <button class="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700 disabled:opacity-50" onclick={assignReviewer} disabled={!canEditSelectedProject}>Assign reviewer</button>
             <label class="space-y-2 text-sm text-slate-700">
               <span class="font-medium">Comment</span>
               <textarea rows="5" class="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-sky-500" bind:value={commentDraft}></textarea>
             </label>
-            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500" onclick={addProposalComment}>Add comment</button>
+            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:bg-sky-300" onclick={addProposalComment} disabled={!canEditSelectedProject}>Add comment</button>
             {#if selectedProposal}
               <div class="space-y-3">
                 {#each selectedProposal.comments as comment}
@@ -1138,7 +999,7 @@
             {/each}
           </div>
           <div class="mt-4 flex flex-wrap gap-3">
-            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:bg-sky-300" onclick={() => void submitMigration()} disabled={migrating}>
+            <button class="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:bg-sky-300" onclick={() => void submitMigration()} disabled={migrating || !canEditSelectedProject}>
               {migrating ? 'Submitting...' : 'Submit migration'}
             </button>
             <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
