@@ -9,6 +9,9 @@ use crate::models::{
     page::AppPage, theme::AppTheme, version::AppSnapshot, widget_type::WidgetCatalogItem,
 };
 
+pub const DEFAULT_WORKSHOP_HEADER_ICON: &str = "cube";
+pub const DEFAULT_WORKSHOP_HEADER_COLOR: &str = "#3b82f6";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConsumerModeSettings {
     #[serde(default)]
@@ -568,11 +571,11 @@ fn default_builder_experience() -> String {
 }
 
 fn default_workshop_header_icon() -> String {
-    "cube".to_string()
+    DEFAULT_WORKSHOP_HEADER_ICON.to_string()
 }
 
 fn default_workshop_header_color() -> String {
-    "#3b82f6".to_string()
+    DEFAULT_WORKSHOP_HEADER_COLOR.to_string()
 }
 
 fn default_max_width() -> String {

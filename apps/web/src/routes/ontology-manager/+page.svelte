@@ -599,7 +599,10 @@
 
   function workshopInboxNameForType(typeItem: ObjectType) {
     const base = typeItem.display_name?.trim() || typeItem.name || 'Object';
-    return /s$/i.test(base) ? `${base} Inbox` : `${base}s Inbox`;
+    if (/[sxz]$/i.test(base) || /(ch|sh)$/i.test(base)) return `${base}es Inbox`;
+    if (/[^aeiou]y$/i.test(base)) return `${base.slice(0, -1)}ies Inbox`;
+    if (/s$/i.test(base)) return `${base} Inbox`;
+    return `${base}s Inbox`;
   }
 
   function widgetDependsOnOntologyType(widget: AppDefinition['pages'][number]['widgets'][number], typeId: string): boolean {

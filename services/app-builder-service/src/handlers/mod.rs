@@ -11,7 +11,11 @@ use uuid::Uuid;
 use crate::{
     AppState,
     models::{
-        app::{App, AppRow, AppSettings, AppTemplate, AppTemplateRow, WorkshopScenarioPreset},
+        app::{
+            App, AppRow, AppSettings, AppTemplate, AppTemplateRow,
+            DEFAULT_WORKSHOP_HEADER_COLOR, DEFAULT_WORKSHOP_HEADER_ICON,
+            WorkshopScenarioPreset,
+        },
         page::AppPage,
         version::{AppVersion, AppVersionRow},
         widget::WidgetDefinition,
@@ -185,14 +189,14 @@ fn sanitize_workshop_linkage_settings(settings: &mut AppSettings) {
 
     let icon = settings.workshop_header.icon.trim();
     settings.workshop_header.icon = if icon.is_empty() {
-        "cube".to_string()
+        DEFAULT_WORKSHOP_HEADER_ICON.to_string()
     } else {
         icon.to_string()
     };
 
     let color = settings.workshop_header.color.trim();
     settings.workshop_header.color = if color.is_empty() {
-        "#3b82f6".to_string()
+        DEFAULT_WORKSHOP_HEADER_COLOR.to_string()
     } else {
         color.to_string()
     };

@@ -54,6 +54,13 @@
 	const WORKSHOP_BLUE_4 = '#3b82f6';
 	const workshopHeaderIconOptions = ['cube', 'object', 'folder', 'bookmark', 'sparkles'] as const;
 	type WorkshopHeaderIconOption = (typeof workshopHeaderIconOptions)[number];
+	const workshopHeaderIconLabels: Record<WorkshopHeaderIconOption, string> = {
+		cube: 'Cube',
+		object: 'Object',
+		folder: 'Folder',
+		bookmark: 'Bookmark',
+		sparkles: 'Sparkles',
+	};
 	const workshopHeaderColorPresets = [
 		{ label: 'Blue 4', value: WORKSHOP_BLUE_4 },
 		{ label: 'Blue 5', value: '#2458b8' },
@@ -835,7 +842,7 @@
 		};
 	}
 
-	function selectedWorkshopHeaderPreset() {
+	function getWorkshopHeaderColorValue() {
 		return workshopHeaderColorPresets.find((preset) => preset.value === draft.settings.workshop_header.color)?.value ?? draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4;
 	}
 
@@ -1331,14 +1338,14 @@
 							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
 						>
 							{#each workshopHeaderIconOptions as icon}
-								<option value={icon}>{icon === 'cube' ? 'Cube' : icon.charAt(0).toUpperCase() + icon.slice(1)}</option>
+								<option value={icon}>{workshopHeaderIconLabels[icon]}</option>
 							{/each}
 						</select>
 					</label>
 					<label class="text-sm">
 						<span class="mb-1 block text-slate-500">Color preset</span>
 						<select
-							value={selectedWorkshopHeaderPreset()}
+							value={getWorkshopHeaderColorValue()}
 							oninput={(event) => updateWorkshopHeader({ color: (event.currentTarget as HTMLSelectElement).value || WORKSHOP_BLUE_4 })}
 							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
 						>
