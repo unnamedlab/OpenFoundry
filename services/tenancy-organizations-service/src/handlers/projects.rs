@@ -90,7 +90,7 @@ fn normalize_optional_slug(
 fn normalize_folder_name(value: &str) -> Result<String, String> {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if normalized.is_empty() {
-        return Err("folder name is required".to_string());
+        return Err("Folder name is required.".to_string());
     }
 
     Ok(normalized)
@@ -777,5 +777,10 @@ mod tests {
             folder_slug_from_name("Weekly Reviews / Q2").expect("folder slug"),
             "weekly-reviews-q2"
         );
+    }
+
+    #[test]
+    fn rejects_folder_names_without_slug_characters() {
+        assert!(folder_slug_from_name("✨ / 🚀").is_err());
     }
 }

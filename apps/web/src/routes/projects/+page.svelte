@@ -226,6 +226,7 @@
   const selectedTemplate = $derived.by(
     () => projectTemplates.find((option) => option.id === draft.templateId) ?? projectTemplates[0],
   );
+  const projectsById = $derived.by(() => new Map(projects.map((project) => [project.id, project])));
   const allRows = $derived.by(() => [
     ...projects.map((project) => mapProjectToRow(project)),
     ...folders
@@ -337,7 +338,7 @@
   }
 
   function mapFolderToRow(folder: OntologyProjectFolder): WorkspaceRow | null {
-    const project = projects.find((item) => item.id === folder.project_id);
+    const project = projectsById.get(folder.project_id);
     if (!project) {
       return null;
     }
@@ -519,7 +520,7 @@
       if (requestedFolders.length > 0) {
         try {
           const persistedFolders = await listProjectFolders(created.id);
-          folders = [...persistedFolders, ...folders.filter((folder) => folder.project_id !== created.id)];
+          folders = [...persistedFolders, ...folders];
         } catch (folderError) {
           console.warn('Unable to reload persisted folders after project creation', folderError);
           notifications.warning('Project created, but starter folders could not be refreshed yet.');
