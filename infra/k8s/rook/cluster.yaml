@@ -1,0 +1,133 @@
+---
+# CephCluster for OpenFoundry production.
+#
+# Operator chart (rook-ceph) is installed separately; this manifest only
+# declares the desired Ceph topology. See infra/terraform/modules/ceph for
+# the Helm release that brings up the operator and CRDs.
+#
+# Topology rationale:
+#   * mon.count=5  → tolerates two simultaneous mon failures (quorum=3)
+#   * mgr.count=2  → active/standby manager for HA dashboards/PG balancer
+#   * dataDirHostPath=/var/lib/rook → on-host state for mon/osd metadata.
+#                    Ensure /var/lib/rook lives on a dedicated, persistent
+#                    volume on every storage node.
+#   * useAllNodes/useAllDevices/discovery → all unclaimed raw block devices
+#                    on every node become OSDs automatically. Use
+#                    deviceFilter / nodes blocks below to narrow the scope.
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: openfoundry
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v18.2.4
+    allowUnsupported: false
+  dataDirHostPath: /var/lib/rook
+  skipUpgradeChecks: false
+  continueUpgradeAfterChecksEvenIfNotHealthy: false
+  waitTimeoutForHealthyOSDInMinutes: 10
+  mon:
+    count: 5
+    allowMultiplePerNode: false
+  mgr:
+    count: 2
+    allowMultiplePerNode: false
+    modules:
+      - name: pg_autoscaler
+        enabled: true
+      - name: rook
+        enabled: true
+  dashboard:
+    enabled: true
+    ssl: true
+  monitoring:
+    enabled: true
+  network:
+    connections:
+      encryption:
+        enabled: true
+      compression:
+        enabled: false
+      requireMsgr2: true
+  crashCollector:
+    disable: false
+  logCollector:
+    enabled: true
+    periodicity: daily
+    maxLogSize: 500M
+  cleanupPolicy:
+    confirmation: ""
+    sanitizeDisks:
+      method: quick
+      dataSource: zero
+      iteration: 1
+    allowUninstallWithVolumes: false
+  placement:
+    all:
+      tolerations:
+        - key: storage-node
+          operator: Exists
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: role
+                  operator: In
+                  values:
+                    - storage
+  resources:
+    mon:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    mgr:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+    osd:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+  removeOSDsIfOutAndSafeToRemove: false
+  storage:
+    useAllNodes: true
+    useAllDevices: true
+    # Rook discovers raw block devices on every node and turns them into
+    # OSDs. The discover daemonset is enabled at operator level (helm value
+    # `enableDiscoveryDaemon=true`, see modules/ceph/main.tf).
+    deviceFilter: "^(sd[b-z]|nvme[0-9]+n[0-9]+)$"
+    config:
+      osdsPerDevice: "1"
+      encryptedDevice: "true"
+  disruptionManagement:
+    managePodBudgets: true
+    osdMaintenanceTimeout: 30
+    pgHealthCheckTimeout: 0
+  healthCheck:
+    daemonHealth:
+      mon:
+        disabled: false
+        interval: 45s
+      osd:
+        disabled: false
+        interval: 60s
+      status:
+        disabled: false
+        interval: 60s
+    livenessProbe:
+      mon:
+        disabled: false
+      mgr:
+        disabled: false
+      osd:
+        disabled: false

@@ -92,6 +92,31 @@ global:
       requiredNodeLabels: {}
       residencyLabel: ""
 
+# Object store backend used by libs/storage-abstraction (S3-compatible).
+# - dev   : RustFS (Apache-2.0, single-binary S3 server) ── default
+# - prod  : Ceph RGW operated by Rook (see infra/k8s/rook + values-prod.yaml)
+# - other : any S3-compatible endpoint (R2, Wasabi, AWS S3, GCS HMAC, ...)
+#
+# These values are surfaced as the OBJECT_STORE_* env vars consumed by every
+# service through the existing global secret (`global.existingSecret`).
+# Switching backends is a config-only change; the storage-abstraction crate
+# keeps speaking S3.
+objectStore:
+  backend: rustfs
+  endpoint: http://rustfs:9000
+  region: us-east-1
+  forcePathStyle: true
+  # Keys are expected to live in the env secret referenced by
+  # `global.existingSecret` under the OBJECT_STORE_ACCESS_KEY /
+  # OBJECT_STORE_SECRET_KEY entries. The keys below are only used when the
+  # secret entries are absent (rendered as defaults for documentation).
+  accessKeySecretKey: OBJECT_STORE_ACCESS_KEY
+  secretKeySecretKey: OBJECT_STORE_SECRET_KEY
+  buckets:
+    datasets: openfoundry-datasets
+    models: openfoundry-models
+    iceberg: openfoundry-iceberg
+
 apollo:
   enabled: false
   schedule: "*/15 * * * *"
