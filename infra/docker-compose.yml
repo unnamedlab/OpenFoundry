@@ -31,6 +31,9 @@ services:
       POSTGRES_USER: openfoundry
       POSTGRES_PASSWORD: openfoundry
       POSTGRES_DB: openfoundry
+      # Comma-separated extra databases created by ./init-db/01-create-databases.sh.
+      # Override (extend) in `docker-compose.dev.yml` for full per-service split.
+      POSTGRES_MULTIPLE_DATABASES: ${OPENFOUNDRY_POSTGRES_EXTRA_DATABASES:-openfoundry_iceberg_catalog}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
@@ -123,6 +126,57 @@ services:
 
   # Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
   # (Apache-2.0). Por ahora pgvector cubre el caso embebido.
+
+  # ── Iceberg REST Catalog (Apache Polaris, Apache-2.0) ──────
+  # Provides a vendor-neutral Iceberg REST Catalog backed by the existing
+  # PostgreSQL instance (database `openfoundry_iceberg_catalog`). The
+  # bootstrap admin tool runs once to initialise the realm schema and
+  # root credentials before the server starts.
+  iceberg-catalog-bootstrap:
+    <<: *common
+    image: ${OPENFOUNDRY_POLARIS_ADMIN_IMAGE:-apache/polaris-admin-tool:1.4.0}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      QUARKUS_DATASOURCE_DB_KIND: postgresql
+      QUARKUS_DATASOURCE_USERNAME: ${OPENFOUNDRY_POSTGRES_USER:-openfoundry}
+      QUARKUS_DATASOURCE_PASSWORD: ${OPENFOUNDRY_POSTGRES_PASSWORD:-openfoundry}
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${OPENFOUNDRY_ICEBERG_CATALOG_DB:-openfoundry_iceberg_catalog}
+    command:
+      - bootstrap
+      - --realm=${OPENFOUNDRY_ICEBERG_CATALOG_REALM:-openfoundry}
+      - --credential=${OPENFOUNDRY_ICEBERG_CATALOG_REALM:-openfoundry},${OPENFOUNDRY_ICEBERG_CATALOG_CLIENT_ID:-root},${OPENFOUNDRY_ICEBERG_CATALOG_CLIENT_SECRET:-s3cr3t}
+
+  iceberg-catalog:
+    <<: *common
+    image: ${OPENFOUNDRY_POLARIS_IMAGE:-apache/polaris:1.4.0}
+    ports:
+      - "${OPENFOUNDRY_ICEBERG_CATALOG_HOST_PORT:-8181}:8181"
+      - "${OPENFOUNDRY_ICEBERG_CATALOG_MGMT_HOST_PORT:-8182}:8182"
+    environment:
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      POLARIS_REALM_CONTEXT_REALMS: ${OPENFOUNDRY_ICEBERG_CATALOG_REALM:-openfoundry}
+      POLARIS_REALM_CONTEXT_DEFAULT_REALM: ${OPENFOUNDRY_ICEBERG_CATALOG_REALM:-openfoundry}
+      QUARKUS_DATASOURCE_DB_KIND: postgresql
+      QUARKUS_DATASOURCE_USERNAME: ${OPENFOUNDRY_POSTGRES_USER:-openfoundry}
+      QUARKUS_DATASOURCE_PASSWORD: ${OPENFOUNDRY_POSTGRES_PASSWORD:-openfoundry}
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${OPENFOUNDRY_ICEBERG_CATALOG_DB:-openfoundry_iceberg_catalog}
+      QUARKUS_HTTP_PORT: "8181"
+      QUARKUS_MANAGEMENT_PORT: "8182"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      iceberg-catalog-bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8182/q/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   identity-federation-service:
     <<: *app-common
