@@ -751,6 +751,49 @@ export async function mockFrontendApis(page: Page) {
       return json(route, { data: [demoObjectSet] });
     }
 
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}/properties`) {
+      return json(route, {
+        data: [
+          {
+            id: 'property-1',
+            object_type_id: demoObjectType.id,
+            name: 'item_name',
+            display_name: 'Item name',
+            description: 'The order item name.',
+            property_type: 'string',
+            required: true,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+          {
+            id: 'property-2',
+            object_type_id: demoObjectType.id,
+            name: 'status',
+            display_name: 'Status',
+            description: 'The order status.',
+            property_type: 'string',
+            required: false,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/v1/ontology/object-sets') {
+      return json(route, { data: [demoObjectSet] });
+    }
+
     if (pathname === '/api/v1/ontology/actions') {
       return json(route, { data: [], total: 0, page: 1, per_page: 100 });
     }
