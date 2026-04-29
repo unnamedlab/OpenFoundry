@@ -19,7 +19,13 @@ Browser / API Client
         +--> pipeline-service
       +--> sql-bi-gateway-service
         +--> streaming-service
-        +--> ontology-service
+        +--> ontology-definition-service
+        +--> object-database-service
+        +--> ontology-query-service
+        +--> ontology-actions-service
+        +--> ontology-security-service
+        +--> ontology-funnel-service
+        +--> ontology-functions-service
         +--> audit-service
         +--> app-builder-service
         +--> code-repo-service
@@ -38,7 +44,7 @@ Browser / API Client
 | --- | --- |
 | Entry and experience | `gateway`, `app-builder-service`, `marketplace-service`, `notebook-runtime-service`, `document-reporting-service`, `notification-alerting-service` |
 | Data plane | `data-connector`, `dataset-service`, `pipeline-service`, `sql-bi-gateway-service`, `streaming-service`, `report-service`, `geospatial-service`, `fusion-service`, `workflow-automation-service` |
-| Governance and semantics | `auth-service`, `audit-service`, `ontology-service`, `nexus-service` |
+| Governance and semantics | `auth-service`, `audit-service`, `ontology-definition-service`, `object-database-service`, `ontology-query-service`, `ontology-actions-service`, `ontology-security-service`, `ontology-funnel-service`, `ontology-functions-service`, `nexus-service` |
 | Developer platform | `code-repo-service` |
 | AI and ML | `ai-service`, `ml-service` |
 
