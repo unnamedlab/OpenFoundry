@@ -1,5 +1,5 @@
 use axum::{extract::Request, middleware::Next, response::Response};
-use event_bus::{
+use event_bus_control::{
     Publisher, subscriber,
     topics::{streams, subjects},
 };
@@ -88,7 +88,7 @@ pub async fn audit_layer(req: Request, next: Next) -> Response {
         };
 
         tokio::spawn(async move {
-            match event_bus::connect(&nats_url).await {
+            match event_bus_control::connect(&nats_url).await {
                 Ok(js) => {
                     if let Err(cause) =
                         subscriber::ensure_stream(&js, streams::AUDIT, &[subjects::AUDIT]).await

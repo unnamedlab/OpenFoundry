@@ -9,7 +9,7 @@ use crate::{
         workflow::WorkflowDefinition,
     },
 };
-use event_bus::{
+use event_bus_control::{
     Publisher, connect, subscriber,
     topics::{streams, subjects},
     workflows::WorkflowRunRequested,

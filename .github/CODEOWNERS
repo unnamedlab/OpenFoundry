@@ -54,7 +54,8 @@
 /libs/core-models/                              @open-foundry/architecture-council
 /libs/auth-middleware/                          @open-foundry/security-team
 /libs/audit-trail/                              @open-foundry/security-team
-/libs/event-bus/                                @open-foundry/platform-runtime
+/libs/event-bus-control/                        @open-foundry/platform-runtime
+/libs/event-bus-data/                           @open-foundry/platform-runtime
 /libs/storage-abstraction/                      @open-foundry/data-platform
 /libs/query-engine/                             @open-foundry/data-platform
 /libs/vector-store/                             @open-foundry/ai-platform

@@ -1,4 +1,4 @@
-use event_bus::{
+use event_bus_control::{
     connect,
     schemas::Event,
     subscriber,
