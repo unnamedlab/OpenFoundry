@@ -51,7 +51,9 @@ The repo and workflows indicate a consistent set of platform dependencies:
 - NATS for async messaging (control plane — see "Control vs Data" below)
 - Apache Kafka for high-throughput streaming (data plane — see "Control vs Data" below)
 - object storage for datasets, archives, reports, and repository payloads
-- Meilisearch for search-centric features
+- Meilisearch for search-centric features in **local development only**;
+  production search runs on Vespa (with pgvector for embedded vector search).
+  See [ADR-0007](./adr/ADR-0007-search-engine-choice.md).
 
 The CI smoke job creates multiple service-specific databases, which strongly suggests database-per-service isolation rather than a shared operational schema.
 
