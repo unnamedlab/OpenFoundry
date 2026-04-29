@@ -7,7 +7,7 @@
 // the documented graceful-degradation path exercised: the service must boot
 // successfully whether or not those variables are set.
 
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 mod storage;
 
 fn main() {

@@ -35,7 +35,7 @@ pub struct IcebergSettings {
     /// the factory falls back to the legacy writer with a warning log.
     pub catalog_url: Option<String>,
     /// Catalog namespace this service writes into. For
-    /// `dataset-versioning-service` this is `dataset_service`.
+    /// `event-streaming-service` this is `streaming_service`.
     pub namespace: String,
 }
 
@@ -141,7 +141,7 @@ mod tests {
                 backend: WriterBackendKind::Iceberg,
                 iceberg: IcebergSettings {
                     catalog_url: None,
-                    namespace: "dataset_service".to_string(),
+                    namespace: "streaming_service".to_string(),
                 },
             },
         );
@@ -157,7 +157,7 @@ mod tests {
                 backend: WriterBackendKind::Iceberg,
                 iceberg: IcebergSettings {
                     catalog_url: Some("http://catalog:8181".to_string()),
-                    namespace: "dataset_service".to_string(),
+                    namespace: "streaming_service".to_string(),
                 },
             },
         );
@@ -173,7 +173,7 @@ mod tests {
                 backend: WriterBackendKind::Iceberg,
                 iceberg: IcebergSettings {
                     catalog_url: Some("   ".to_string()),
-                    namespace: "dataset_service".to_string(),
+                    namespace: "streaming_service".to_string(),
                 },
             },
         );
