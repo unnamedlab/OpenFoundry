@@ -1,35 +1,98 @@
 [package]
 name = "pipeline-build-service"
 description = "Pipeline execution and run orchestration"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
 
 [dependencies]
-core-models = { workspace = true }
-auth-middleware = { workspace = true }
-event-bus = { workspace = true }
-storage-abstraction = { workspace = true }
-query-engine = { workspace = true }
-axum = { workspace = true }
-axum-extra = { workspace = true }
-tonic = { workspace = true }
-tokio = { workspace = true }
-sqlx = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-config = { workspace = true }
-thiserror = { workspace = true }
-futures = { workspace = true }
-pyo3 = { workspace = true, features = ["abi3-py311"] }
-base64 = { workspace = true }
-bytes = { workspace = true }
-reqwest = { workspace = true, features = ["multipart"] }
-datafusion = { workspace = true }
 cron = "0.12"
 wasmtime = "24"
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.axum-extra]
+workspace = true
+
+[dependencies.base64]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.datafusion]
+workspace = true
+
+[dependencies.event-bus]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.pyo3]
+workspace = true
+features = ["abi3-py311"]
+
+[dependencies.query-engine]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+features = ["multipart"]
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tonic]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "pipeline-build-service"
+required-features = []

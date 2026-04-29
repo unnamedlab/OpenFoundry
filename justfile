@@ -189,6 +189,16 @@ infra-up:
 app-up:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile app up -d
 
+# Build one cumulative rollout wave with bounded parallelism.
+# Waves: foundation, data, knowledge, intelligence, experience, edge
+stack-build wave parallel='4':
+    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f compose.yaml --profile {{wave}} build --parallel {{parallel}}
+
+# Start one cumulative rollout wave from the repo root compose stack.
+# Example: just stack-up foundation
+stack-up wave:
+    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f compose.yaml --profile {{wave}} up -d
+
 # Stop dev infrastructure
 infra-down:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down

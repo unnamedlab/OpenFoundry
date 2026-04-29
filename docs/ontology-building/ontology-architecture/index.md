@@ -88,7 +88,7 @@ Controlled writes already map well to:
 
 - `services/ontology-service`
 - `services/workflow-automation-service`
-- `services/notification-service`
+- `services/notification-alerting-service`
 - `services/audit-service`
 
 This is where action execution, workflow handoffs, and operational state change meet.

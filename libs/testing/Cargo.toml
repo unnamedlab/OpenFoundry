@@ -1,16 +1,42 @@
 [package]
 name = "testing"
 description = "Shared test utilities: fixtures, testcontainers setup, and mocks"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
 
-[dependencies]
-testcontainers = { workspace = true }
-wiremock = { workspace = true }
-tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-uuid = { workspace = true }
-rand = { workspace = true }
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.rand]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.testcontainers]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[dependencies.wiremock]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "testing"
+required-features = []
+crate-type = ["lib"]

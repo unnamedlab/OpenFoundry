@@ -1,0 +1,267 @@
+# OpenFoundry — Code owners
+#
+# This file routes pull-request reviews to the team(s) responsible for each
+# area of the monorepo. The last matching pattern wins, so put more specific
+# rules below the generic ones.
+#
+# All entries below use placeholder GitHub team handles under the
+# `@open-foundry` organisation. Replace them with the real team handles once
+# the corresponding GitHub teams are created. Until then, GitHub will fall
+# back to the `@open-foundry/maintainers` catch-all.
+#
+# Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Default owners (catch-all)
+# ─────────────────────────────────────────────────────────────────────────────
+*                                               @open-foundry/maintainers
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Repository governance & top-level files
+# ─────────────────────────────────────────────────────────────────────────────
+/README.md                                      @open-foundry/maintainers
+/ARCHITECTURE.md                                @open-foundry/architecture-council
+/CONTRIBUTING.md                                @open-foundry/maintainers
+/SECURITY.md                                    @open-foundry/security-team
+/CHANGELOG.md                                   @open-foundry/maintainers
+/LICENSE                                        @open-foundry/maintainers
+/ROADMAP.md                                     @open-foundry/maintainers
+/Cargo.toml                                     @open-foundry/architecture-council @open-foundry/platform-runtime
+/Cargo.lock                                     @open-foundry/platform-runtime
+/package.json                                   @open-foundry/frontend-team
+/pnpm-workspace.yaml                            @open-foundry/frontend-team
+/pnpm-lock.yaml                                 @open-foundry/frontend-team
+/justfile                                       @open-foundry/platform-runtime
+/clippy.toml                                    @open-foundry/architecture-council
+/rustfmt.toml                                   @open-foundry/architecture-council
+/deny.toml                                      @open-foundry/security-team
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub configuration & CI
+# ─────────────────────────────────────────────────────────────────────────────
+/.github/                                       @open-foundry/maintainers
+/.github/CODEOWNERS                             @open-foundry/maintainers
+/.github/workflows/                             @open-foundry/platform-runtime
+/.github/workflows/security-audit.yml           @open-foundry/security-team
+/.github/workflows/proto-check.yml              @open-foundry/architecture-council
+/.github/dependabot.yml                         @open-foundry/security-team
+/.github/ISSUE_TEMPLATE/                        @open-foundry/maintainers
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared libraries (libs/)
+# ─────────────────────────────────────────────────────────────────────────────
+/libs/                                          @open-foundry/architecture-council
+/libs/core-models/                              @open-foundry/architecture-council
+/libs/auth-middleware/                          @open-foundry/security-team
+/libs/audit-trail/                              @open-foundry/security-team
+/libs/event-bus/                                @open-foundry/platform-runtime
+/libs/storage-abstraction/                      @open-foundry/data-platform
+/libs/query-engine/                             @open-foundry/data-platform
+/libs/vector-store/                             @open-foundry/ai-platform
+/libs/ml-kernel/                                @open-foundry/ai-platform
+/libs/ai-kernel/                                @open-foundry/ai-platform
+/libs/ontology-kernel/                          @open-foundry/ontology-team
+/libs/geospatial-core/                          @open-foundry/analytics-team
+/libs/plugin-sdk/                               @open-foundry/developer-platform
+/libs/testing/                                  @open-foundry/platform-runtime
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Protobuf contracts (proto/)
+# Changes here are public API; require architecture-council sign-off.
+# ─────────────────────────────────────────────────────────────────────────────
+/proto/                                         @open-foundry/architecture-council
+/proto/buf.yaml                                 @open-foundry/architecture-council
+/proto/buf.gen.yaml                             @open-foundry/architecture-council
+/proto/auth/                                    @open-foundry/security-team @open-foundry/architecture-council
+/proto/audit/                                   @open-foundry/security-team @open-foundry/architecture-council
+/proto/ontology/                                @open-foundry/ontology-team @open-foundry/architecture-council
+/proto/ai/                                      @open-foundry/ai-platform @open-foundry/architecture-council
+/proto/ml/                                      @open-foundry/ai-platform @open-foundry/architecture-council
+/proto/dataset/                                 @open-foundry/data-platform @open-foundry/architecture-council
+/proto/data_integration/                        @open-foundry/data-platform @open-foundry/architecture-council
+/proto/pipeline/                                @open-foundry/data-platform @open-foundry/architecture-council
+/proto/query/                                   @open-foundry/data-platform @open-foundry/architecture-council
+/proto/streaming/                               @open-foundry/platform-runtime @open-foundry/architecture-council
+/proto/workflow/                                @open-foundry/workflow-team @open-foundry/architecture-council
+/proto/notification/                            @open-foundry/workflow-team @open-foundry/architecture-council
+/proto/notebook/                                @open-foundry/ai-platform @open-foundry/architecture-council
+/proto/report/                                  @open-foundry/analytics-team @open-foundry/architecture-council
+/proto/geospatial/                              @open-foundry/analytics-team @open-foundry/architecture-council
+/proto/nexus/                                   @open-foundry/analytics-team @open-foundry/architecture-council
+/proto/fusion/                                  @open-foundry/analytics-team @open-foundry/architecture-council
+/proto/marketplace/                             @open-foundry/developer-platform @open-foundry/architecture-council
+/proto/code_repo/                               @open-foundry/developer-platform @open-foundry/architecture-council
+/proto/app_builder/                             @open-foundry/developer-platform @open-foundry/architecture-council
+/proto/common/                                  @open-foundry/architecture-council
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SDKs (sdks/)
+# ─────────────────────────────────────────────────────────────────────────────
+/sdks/                                          @open-foundry/developer-platform
+/sdks/python/                                   @open-foundry/developer-platform
+/sdks/typescript/                               @open-foundry/developer-platform @open-foundry/frontend-team
+/sdks/java/                                     @open-foundry/developer-platform
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Frontend (apps/)
+# ─────────────────────────────────────────────────────────────────────────────
+/apps/                                          @open-foundry/frontend-team
+/apps/web/                                      @open-foundry/frontend-team
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Infrastructure (infra/)
+# ─────────────────────────────────────────────────────────────────────────────
+/infra/                                         @open-foundry/platform-runtime
+/infra/docker-compose.dev.yml                   @open-foundry/platform-runtime
+/infra/docker-compose.yml                       @open-foundry/platform-runtime
+/infra/docker-compose.monitoring.yml            @open-foundry/platform-runtime @open-foundry/observability-team
+/infra/k8s/                                     @open-foundry/platform-runtime
+/infra/nginx/                                   @open-foundry/platform-runtime
+/infra/terraform/                               @open-foundry/platform-runtime @open-foundry/security-team
+/infra/init-db/                                 @open-foundry/data-platform
+/infra/runbooks/                                @open-foundry/observability-team @open-foundry/platform-runtime
+/infra/scripts/                                 @open-foundry/platform-runtime
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Documentation (docs/)
+# ─────────────────────────────────────────────────────────────────────────────
+/docs/                                          @open-foundry/docs-team
+/docs/architecture/                             @open-foundry/architecture-council @open-foundry/docs-team
+/docs/architecture-center/                      @open-foundry/architecture-council @open-foundry/docs-team
+/docs/security-governance/                      @open-foundry/security-team @open-foundry/docs-team
+/docs/observability/                            @open-foundry/observability-team @open-foundry/docs-team
+/docs/ai-platform/                              @open-foundry/ai-platform @open-foundry/docs-team
+/docs/ml-*                                      @open-foundry/ai-platform @open-foundry/docs-team
+/docs/ontology-building/                        @open-foundry/ontology-team @open-foundry/docs-team
+/docs/data-connectivity/                        @open-foundry/data-platform @open-foundry/docs-team
+/docs/analytics/                                @open-foundry/analytics-team @open-foundry/docs-team
+/docs/operations/                               @open-foundry/platform-runtime @open-foundry/docs-team
+/docs/developer-toolchain/                      @open-foundry/developer-platform @open-foundry/docs-team
+/docs/model-connectivity/                       @open-foundry/ai-platform @open-foundry/docs-team
+/docs/management-enablement/                    @open-foundry/platform-runtime @open-foundry/docs-team
+/docs/product-delivery/                         @open-foundry/developer-platform @open-foundry/docs-team
+/docs/use-case-development/                     @open-foundry/developer-platform @open-foundry/docs-team
+/docs/getting-started/                          @open-foundry/docs-team @open-foundry/developer-platform
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests, smoke and benchmarks
+# ─────────────────────────────────────────────────────────────────────────────
+/benchmarks/                                    @open-foundry/platform-runtime @open-foundry/architecture-council
+/smoke/                                         @open-foundry/platform-runtime
+/tools/                                         @open-foundry/platform-runtime
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Services (services/)
+# Routed by capability domain. Cross-cutting changes also need
+# @open-foundry/architecture-council review (handled via the libs/proto rules).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# --- Ontology ---
+/services/ontology-actions-service/                     @open-foundry/ontology-team
+/services/ontology-definition-service/                  @open-foundry/ontology-team
+/services/ontology-exploratory-analysis-service/        @open-foundry/ontology-team
+/services/ontology-functions-service/                   @open-foundry/ontology-team
+/services/ontology-funnel-service/                      @open-foundry/ontology-team
+/services/ontology-query-service/                       @open-foundry/ontology-team
+/services/ontology-security-service/                    @open-foundry/ontology-team @open-foundry/security-team
+/services/ontology-timeseries-analytics-service/        @open-foundry/ontology-team @open-foundry/analytics-team
+/services/object-database-service/                      @open-foundry/ontology-team @open-foundry/data-platform
+/services/entity-resolution-service/                    @open-foundry/ontology-team
+
+# --- AI / ML / Models ---
+/services/agent-runtime-service/                        @open-foundry/ai-platform
+/services/ai-application-generation-service/            @open-foundry/ai-platform
+/services/ai-evaluation-service/                        @open-foundry/ai-platform
+/services/conversation-state-service/                   @open-foundry/ai-platform
+/services/llm-catalog-service/                          @open-foundry/ai-platform
+/services/mcp-orchestration-service/                    @open-foundry/ai-platform
+/services/ml-experiments-service/                       @open-foundry/ai-platform
+/services/model-adapter-service/                        @open-foundry/ai-platform
+/services/model-catalog-service/                        @open-foundry/ai-platform
+/services/model-deployment-service/                     @open-foundry/ai-platform
+/services/model-evaluation-service/                     @open-foundry/ai-platform
+/services/model-inference-history-service/              @open-foundry/ai-platform
+/services/model-lifecycle-service/                      @open-foundry/ai-platform
+/services/model-serving-service/                        @open-foundry/ai-platform
+/services/notebook-runtime-service/                     @open-foundry/ai-platform
+/services/prompt-workflow-service/                      @open-foundry/ai-platform
+/services/retrieval-context-service/                    @open-foundry/ai-platform
+/services/tool-registry-service/                        @open-foundry/ai-platform
+/services/document-intelligence-service/                @open-foundry/ai-platform
+/services/knowledge-index-service/                      @open-foundry/ai-platform
+
+# --- Data platform / pipelines / datasets ---
+/services/cdc-metadata-service/                         @open-foundry/data-platform
+/services/connector-management-service/                 @open-foundry/data-platform
+/services/data-asset-catalog-service/                   @open-foundry/data-platform
+/services/dataset-quality-service/                      @open-foundry/data-platform
+/services/dataset-versioning-service/                   @open-foundry/data-platform
+/services/global-branch-service/                        @open-foundry/data-platform
+/services/ingestion-replication-service/                @open-foundry/data-platform
+/services/lineage-deletion-service/                     @open-foundry/data-platform
+/services/lineage-service/                              @open-foundry/data-platform
+/services/pipeline-authoring-service/                   @open-foundry/data-platform
+/services/pipeline-build-service/                       @open-foundry/data-platform
+/services/pipeline-schedule-service/                    @open-foundry/data-platform
+/services/spreadsheet-computation-service/              @open-foundry/data-platform
+/services/sql-bi-gateway-service/                       @open-foundry/data-platform @open-foundry/analytics-team
+/services/sql-warehousing-service/                      @open-foundry/data-platform
+/services/tabular-analysis-service/                     @open-foundry/data-platform @open-foundry/analytics-team
+/services/time-series-data-service/                     @open-foundry/data-platform
+/services/virtual-table-service/                        @open-foundry/data-platform
+/services/analytical-logic-service/                     @open-foundry/data-platform @open-foundry/analytics-team
+
+# --- Workflow / automation / notifications ---
+/services/approvals-service/                            @open-foundry/workflow-team
+/services/automation-operations-service/                @open-foundry/workflow-team
+/services/notification-alerting-service/                @open-foundry/workflow-team
+/services/scenario-simulation-service/                  @open-foundry/workflow-team
+/services/workflow-automation-service/                  @open-foundry/workflow-team
+/services/workflow-trace-service/                       @open-foundry/workflow-team
+
+# --- Analytics / reports / geospatial / nexus ---
+/services/document-reporting-service/                   @open-foundry/analytics-team
+/services/federation-product-exchange-service/          @open-foundry/analytics-team @open-foundry/data-platform
+/services/geospatial-intelligence-service/              @open-foundry/analytics-team
+/services/nexus-service/                                @open-foundry/analytics-team
+/services/report-service/                               @open-foundry/analytics-team
+/services/solution-design-service/                      @open-foundry/analytics-team @open-foundry/developer-platform
+
+# --- Developer platform / app builder / marketplace / SDKs ---
+/services/app-builder-service/                          @open-foundry/developer-platform @open-foundry/frontend-team
+/services/application-composition-service/              @open-foundry/developer-platform @open-foundry/frontend-team
+/services/application-curation-service/                 @open-foundry/developer-platform
+/services/code-repository-review-service/               @open-foundry/developer-platform
+/services/custom-endpoints-service/                     @open-foundry/developer-platform
+/services/developer-console-service/                    @open-foundry/developer-platform
+/services/marketplace-catalog-service/                  @open-foundry/developer-platform
+/services/marketplace-service/                          @open-foundry/developer-platform
+/services/product-distribution-service/                 @open-foundry/developer-platform
+/services/sdk-generation-service/                       @open-foundry/developer-platform @open-foundry/architecture-council
+/services/widget-registry-service/                      @open-foundry/developer-platform @open-foundry/frontend-team
+
+# --- Security / governance / identity ---
+/services/audit-compliance-service/                     @open-foundry/security-team
+/services/authorization-policy-service/                 @open-foundry/security-team
+/services/checkpoints-purpose-service/                  @open-foundry/security-team
+/services/cipher-service/                               @open-foundry/security-team
+/services/code-security-scanning-service/               @open-foundry/security-team
+/services/identity-federation-service/                  @open-foundry/security-team
+/services/network-boundary-service/                     @open-foundry/security-team @open-foundry/platform-runtime
+/services/oauth-integration-service/                    @open-foundry/security-team
+/services/retention-policy-service/                     @open-foundry/security-team @open-foundry/data-platform
+/services/security-governance-service/                  @open-foundry/security-team
+/services/session-governance-service/                   @open-foundry/security-team
+/services/sds-service/                                  @open-foundry/security-team
+/services/telemetry-governance-service/                 @open-foundry/security-team @open-foundry/observability-team
+
+# --- Platform runtime / observability / tenancy ---
+/services/compute-modules-control-plane-service/        @open-foundry/platform-runtime
+/services/compute-modules-runtime-service/              @open-foundry/platform-runtime
+/services/edge-gateway-service/                         @open-foundry/platform-runtime
+/services/event-streaming-service/                      @open-foundry/platform-runtime
+/services/execution-observability-service/              @open-foundry/observability-team @open-foundry/platform-runtime
+/services/health-check-service/                         @open-foundry/platform-runtime
+/services/managed-workspace-service/                    @open-foundry/platform-runtime
+/services/monitoring-rules-service/                     @open-foundry/observability-team
+/services/tenancy-organizations-service/                @open-foundry/platform-runtime @open-foundry/security-team

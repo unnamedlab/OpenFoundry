@@ -1,24 +1,65 @@
 [package]
 name = "edge-gateway-service"
 description = "Edge Gateway Service — routing, TLS edge compatibility, rate limiting, tenant resolution, and initial access enforcement"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
 
-[dependencies]
-core-models = { workspace = true }
-auth-middleware = { workspace = true }
-axum = { workspace = true }
-tokio = { workspace = true }
-tower = { workspace = true }
-tower-http = { workspace = true }
-hyper = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
-config = { workspace = true }
-reqwest = { workspace = true }
-redis = { workspace = true }
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.hyper]
+workspace = true
+
+[dependencies.redis]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tower]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "edge-gateway-service"
+required-features = []

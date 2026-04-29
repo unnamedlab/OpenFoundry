@@ -28,7 +28,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | `services/code-repo-service` | repository APIs |
 | `services/marketplace-service` | marketplace APIs |
 | `services/nexus-service` | federation and sharing runtime outside tenancy-owned spaces |
-| `services/notification-service` | notifications |
+| `services/notification-alerting-service` | notifications |
 | `services/audit-service` | audit ingestion and export |
 
 ## Shared Libraries

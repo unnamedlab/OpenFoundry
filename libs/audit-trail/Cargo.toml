@@ -1,19 +1,51 @@
 [package]
 name = "audit-trail"
 description = "Shared audit event emitter and Axum auto-audit middleware"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
 
-[dependencies]
-core-models = { workspace = true }
-event-bus = { workspace = true }
-axum = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-chrono = { workspace = true }
-uuid = { workspace = true }
-tracing = { workspace = true }
-tokio = { workspace = true }
-async-trait = { workspace = true }
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.event-bus]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "audit_trail"
+required-features = []
+crate-type = ["lib"]

@@ -1,30 +1,82 @@
 [package]
 name = "virtual-table-service"
 description = "Virtual table query and external table orchestration"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
 
 [dependencies]
-core-models = { workspace = true }
-auth-middleware = { workspace = true }
-event-bus = { workspace = true }
-storage-abstraction = { workspace = true }
-axum = { workspace = true }
-tokio = { workspace = true }
-sqlx = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-config = { workspace = true }
-reqwest = { workspace = true, features = ["multipart"] }
-thiserror = { workspace = true }
-async-trait = { workspace = true }
-base64 = { workspace = true }
-url = { workspace = true }
 csv = "1.3"
 sha2 = "0.10"
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.base64]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.event-bus]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+features = ["multipart"]
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.url]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "virtual-table-service"
+required-features = []

@@ -5,7 +5,7 @@ Workflow composition is where platform capabilities become repeatable operationa
 ## Repository signals
 
 - `services/workflow-automation-service`
-- `services/notification-service`
+- `services/notification-alerting-service`
 - `services/ontology-service`
 - `apps/web/src/routes/workflows`
 - `proto/workflow/*`

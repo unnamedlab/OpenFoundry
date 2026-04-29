@@ -1,17 +1,44 @@
 [package]
 name = "widget-registry-service"
 description = "Custom widget registry and host bridge catalog"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
 
-[dependencies]
-core-models = { workspace = true }
-auth-middleware = { workspace = true }
-axum = { workspace = true }
-tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-config = { workspace = true }
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "widget-registry-service"
+required-features = []

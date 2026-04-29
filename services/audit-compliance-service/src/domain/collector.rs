@@ -8,7 +8,7 @@ pub fn collector_catalog(events: &[AuditEvent]) -> Vec<CollectorStatus> {
         ("auth-service", "of.audit.auth", false),
         ("dataset-service", "of.audit.datasets", false),
         ("workflow-service", "of.audit.workflows", false),
-        ("notification-service", "of.audit.notifications", false),
+        ("notification-alerting-service", "of.audit.notifications", false),
     ];
 
     services

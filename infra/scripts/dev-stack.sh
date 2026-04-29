@@ -25,7 +25,7 @@ SERVICES=(
   report-service
   marketplace-service
   nexus-service
-  notification-service
+  notification-alerting-service
   gateway
 )
 PIDS=()

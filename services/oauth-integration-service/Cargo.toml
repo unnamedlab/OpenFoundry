@@ -1,31 +1,76 @@
 [package]
 name = "oauth-integration-service"
 description = "API keys and outbound integration credentials"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
 
 [dependencies]
-core-models = { workspace = true }
-auth-middleware = { workspace = true }
-axum = { workspace = true }
-tokio = { workspace = true }
-sqlx = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-jsonwebtoken = { workspace = true }
-tracing = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-config = { workspace = true }
-reqwest = { workspace = true }
-rand = { workspace = true }
-base64 = { workspace = true }
-url = { workspace = true }
-sha1 = "0.10"
-sha2 = "0.10"
-hmac = "0.12"
 base32 = "0.4"
 bergshamra = "0.4.0"
+hmac = "0.12"
 roxmltree = "0.20"
+sha1 = "0.10"
+sha2 = "0.10"
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.base64]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.jsonwebtoken]
+workspace = true
+
+[dependencies.rand]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.url]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "oauth-integration-service"
+required-features = []

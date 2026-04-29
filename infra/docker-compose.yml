@@ -10,6 +10,16 @@ x-app-common: &app-common
   <<: *common
   profiles: ["app"]
 
+# Cumulative rollout profiles:
+# foundation -> data -> knowledge -> intelligence -> experience -> edge
+# Each later profile includes all earlier application services.
+x-profiles-foundation: &profiles-foundation ["app", "foundation", "data", "knowledge", "intelligence", "experience", "edge"]
+x-profiles-data: &profiles-data ["app", "data", "knowledge", "intelligence", "experience", "edge"]
+x-profiles-knowledge: &profiles-knowledge ["app", "knowledge", "intelligence", "experience", "edge"]
+x-profiles-intelligence: &profiles-intelligence ["app", "intelligence", "experience", "edge"]
+x-profiles-experience: &profiles-experience ["app", "experience", "edge"]
+x-profiles-edge: &profiles-edge ["app", "edge"]
+
 services:
   # ── PostgreSQL ──────────────────────────────────────────────
   postgres:
@@ -128,6 +138,7 @@ services:
 
   identity-federation-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/identity-federation-service/Dockerfile
@@ -152,6 +163,7 @@ services:
 
   cipher-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/cipher-service/Dockerfile
@@ -169,6 +181,7 @@ services:
 
   session-governance-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/session-governance-service/Dockerfile
@@ -186,6 +199,7 @@ services:
 
   authorization-policy-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/authorization-policy-service/Dockerfile
@@ -203,6 +217,7 @@ services:
 
   security-governance-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/security-governance-service/Dockerfile
@@ -224,6 +239,7 @@ services:
 
   tenancy-organizations-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/tenancy-organizations-service/Dockerfile
@@ -245,6 +261,7 @@ services:
 
   oauth-integration-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/oauth-integration-service/Dockerfile
@@ -262,6 +279,7 @@ services:
 
   network-boundary-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/network-boundary-service/Dockerfile
@@ -279,6 +297,7 @@ services:
 
   connector-management-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/connector-management-service/Dockerfile
@@ -307,6 +326,7 @@ services:
 
   virtual-table-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/virtual-table-service/Dockerfile
@@ -329,6 +349,7 @@ services:
 
   ingestion-replication-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/ingestion-replication-service/Dockerfile
@@ -353,6 +374,7 @@ services:
 
   dataset-versioning-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/dataset-versioning-service/Dockerfile
@@ -370,6 +392,7 @@ services:
 
   data-asset-catalog-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/data-asset-catalog-service/Dockerfile
@@ -400,6 +423,7 @@ services:
 
   dataset-quality-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/dataset-quality-service/Dockerfile
@@ -427,6 +451,7 @@ services:
 
   event-streaming-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/event-streaming-service/Dockerfile
@@ -449,6 +474,7 @@ services:
 
   cdc-metadata-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/cdc-metadata-service/Dockerfile
@@ -468,6 +494,7 @@ services:
 
   sql-warehousing-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/sql-warehousing-service/Dockerfile
@@ -487,6 +514,7 @@ services:
 
   time-series-data-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/time-series-data-service/Dockerfile
@@ -506,6 +534,7 @@ services:
 
   model-adapter-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-adapter-service/Dockerfile
@@ -525,6 +554,7 @@ services:
 
   model-lifecycle-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-lifecycle-service/Dockerfile
@@ -544,6 +574,7 @@ services:
 
   agent-runtime-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/agent-runtime-service/Dockerfile
@@ -565,6 +596,7 @@ services:
 
   document-intelligence-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/document-intelligence-service/Dockerfile
@@ -583,6 +615,7 @@ services:
 
   ai-application-generation-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/ai-application-generation-service/Dockerfile
@@ -601,6 +634,7 @@ services:
 
   tabular-analysis-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/tabular-analysis-service/Dockerfile
@@ -619,6 +653,7 @@ services:
 
   ontology-exploratory-analysis-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/ontology-exploratory-analysis-service/Dockerfile
@@ -637,6 +672,7 @@ services:
 
   ontology-timeseries-analytics-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/ontology-timeseries-analytics-service/Dockerfile
@@ -653,6 +689,7 @@ services:
 
   sql-bi-gateway-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/sql-bi-gateway-service/Dockerfile
@@ -673,6 +710,7 @@ services:
 
   notebook-runtime-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/notebook-runtime-service/Dockerfile
@@ -698,6 +736,7 @@ services:
 
   spreadsheet-computation-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/spreadsheet-computation-service/Dockerfile
@@ -714,6 +753,7 @@ services:
 
   analytical-logic-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/analytical-logic-service/Dockerfile
@@ -730,6 +770,7 @@ services:
 
   workflow-automation-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/workflow-automation-service/Dockerfile
@@ -756,6 +797,7 @@ services:
 
   automation-operations-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/automation-operations-service/Dockerfile
@@ -772,6 +814,7 @@ services:
 
   workflow-trace-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/workflow-trace-service/Dockerfile
@@ -788,6 +831,7 @@ services:
 
   application-composition-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/application-composition-service/Dockerfile
@@ -804,6 +848,7 @@ services:
 
   scenario-simulation-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/scenario-simulation-service/Dockerfile
@@ -820,6 +865,7 @@ services:
 
   solution-design-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/solution-design-service/Dockerfile
@@ -836,6 +882,7 @@ services:
 
   developer-console-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/developer-console-service/Dockerfile
@@ -852,6 +899,7 @@ services:
 
   sdk-generation-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/sdk-generation-service/Dockerfile
@@ -868,6 +916,7 @@ services:
 
   managed-workspace-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/managed-workspace-service/Dockerfile
@@ -884,6 +933,7 @@ services:
 
   custom-endpoints-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/custom-endpoints-service/Dockerfile
@@ -900,6 +950,7 @@ services:
 
   mcp-orchestration-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/mcp-orchestration-service/Dockerfile
@@ -916,6 +967,7 @@ services:
 
   compute-modules-control-plane-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/compute-modules-control-plane-service/Dockerfile
@@ -932,6 +984,7 @@ services:
 
   compute-modules-runtime-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/compute-modules-runtime-service/Dockerfile
@@ -948,6 +1001,7 @@ services:
 
   monitoring-rules-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/monitoring-rules-service/Dockerfile
@@ -964,6 +1018,7 @@ services:
 
   health-check-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/health-check-service/Dockerfile
@@ -980,6 +1035,7 @@ services:
 
   execution-observability-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/execution-observability-service/Dockerfile
@@ -996,6 +1052,7 @@ services:
 
   telemetry-governance-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/telemetry-governance-service/Dockerfile
@@ -1012,6 +1069,7 @@ services:
 
   code-security-scanning-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/code-security-scanning-service/Dockerfile
@@ -1028,6 +1086,7 @@ services:
 
   code-repository-review-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/code-repository-review-service/Dockerfile
@@ -1045,6 +1104,7 @@ services:
 
   pipeline-authoring-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/pipeline-authoring-service/Dockerfile
@@ -1075,6 +1135,7 @@ services:
 
   pipeline-build-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/pipeline-build-service/Dockerfile
@@ -1111,6 +1172,7 @@ services:
 
   pipeline-schedule-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/pipeline-schedule-service/Dockerfile
@@ -1147,6 +1209,7 @@ services:
 
   lineage-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/lineage-service/Dockerfile
@@ -1181,6 +1244,7 @@ services:
 
   ontology-definition-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/ontology-definition-service/Dockerfile
@@ -1205,6 +1269,7 @@ services:
 
   object-database-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/object-database-service/Dockerfile
@@ -1231,6 +1296,7 @@ services:
 
   ontology-query-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/ontology-query-service/Dockerfile
@@ -1255,6 +1321,7 @@ services:
 
   ontology-actions-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/ontology-actions-service/Dockerfile
@@ -1281,6 +1348,7 @@ services:
 
   ontology-funnel-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/ontology-funnel-service/Dockerfile
@@ -1309,6 +1377,7 @@ services:
 
   ontology-functions-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/ontology-functions-service/Dockerfile
@@ -1333,6 +1402,7 @@ services:
 
   ontology-security-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/ontology-security-service/Dockerfile
@@ -1357,6 +1427,7 @@ services:
 
   entity-resolution-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/entity-resolution-service/Dockerfile
@@ -1373,6 +1444,7 @@ services:
 
   ml-experiments-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/ml-experiments-service/Dockerfile
@@ -1390,6 +1462,7 @@ services:
 
   model-catalog-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-catalog-service/Dockerfile
@@ -1407,6 +1480,7 @@ services:
 
   model-deployment-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-deployment-service/Dockerfile
@@ -1424,6 +1498,7 @@ services:
 
   model-evaluation-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-evaluation-service/Dockerfile
@@ -1441,6 +1516,7 @@ services:
 
   model-serving-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-serving-service/Dockerfile
@@ -1458,6 +1534,7 @@ services:
 
   model-inference-history-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/model-inference-history-service/Dockerfile
@@ -1475,6 +1552,7 @@ services:
 
   ai-evaluation-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/ai-evaluation-service/Dockerfile
@@ -1491,6 +1569,7 @@ services:
 
   llm-catalog-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/llm-catalog-service/Dockerfile
@@ -1507,6 +1586,7 @@ services:
 
   prompt-workflow-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/prompt-workflow-service/Dockerfile
@@ -1523,6 +1603,7 @@ services:
 
   knowledge-index-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/knowledge-index-service/Dockerfile
@@ -1539,6 +1620,7 @@ services:
 
   retrieval-context-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/retrieval-context-service/Dockerfile
@@ -1555,6 +1637,7 @@ services:
 
   conversation-state-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/conversation-state-service/Dockerfile
@@ -1571,6 +1654,7 @@ services:
 
   tool-registry-service:
     <<: *app-common
+    profiles: *profiles-intelligence
     build:
       context: ..
       dockerfile: services/tool-registry-service/Dockerfile
@@ -1587,6 +1671,7 @@ services:
 
   approvals-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/approvals-service/Dockerfile
@@ -1609,6 +1694,7 @@ services:
 
   document-reporting-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/document-reporting-service/Dockerfile
@@ -1625,6 +1711,7 @@ services:
 
   app-builder-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/app-builder-service/Dockerfile
@@ -1642,6 +1729,7 @@ services:
 
   application-curation-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/application-curation-service/Dockerfile
@@ -1661,6 +1749,7 @@ services:
 
   widget-registry-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/widget-registry-service/Dockerfile
@@ -1674,6 +1763,7 @@ services:
 
   report-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/report-service/Dockerfile
@@ -1702,6 +1792,7 @@ services:
 
   global-branch-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/global-branch-service/Dockerfile
@@ -1721,6 +1812,7 @@ services:
 
   marketplace-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/marketplace-service/Dockerfile
@@ -1739,6 +1831,7 @@ services:
 
   marketplace-catalog-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/marketplace-catalog-service/Dockerfile
@@ -1760,6 +1853,7 @@ services:
 
   product-distribution-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/product-distribution-service/Dockerfile
@@ -1782,6 +1876,7 @@ services:
 
   federation-product-exchange-service:
     <<: *app-common
+    profiles: *profiles-experience
     build:
       context: ..
       dockerfile: services/federation-product-exchange-service/Dockerfile
@@ -1805,6 +1900,7 @@ services:
 
   nexus-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/nexus-service/Dockerfile
@@ -1821,6 +1917,7 @@ services:
 
   geospatial-intelligence-service:
     <<: *app-common
+    profiles: *profiles-knowledge
     build:
       context: ..
       dockerfile: services/geospatial-intelligence-service/Dockerfile
@@ -1837,6 +1934,7 @@ services:
 
   notification-alerting-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/notification-alerting-service/Dockerfile
@@ -1854,6 +1952,7 @@ services:
 
   audit-compliance-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/audit-compliance-service/Dockerfile
@@ -1873,6 +1972,7 @@ services:
 
   checkpoints-purpose-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/checkpoints-purpose-service/Dockerfile
@@ -1889,6 +1989,7 @@ services:
 
   retention-policy-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/retention-policy-service/Dockerfile
@@ -1905,6 +2006,7 @@ services:
 
   lineage-deletion-service:
     <<: *app-common
+    profiles: *profiles-data
     build:
       context: ..
       dockerfile: services/lineage-deletion-service/Dockerfile
@@ -1933,6 +2035,7 @@ services:
 
   sds-service:
     <<: *app-common
+    profiles: *profiles-foundation
     build:
       context: ..
       dockerfile: services/sds-service/Dockerfile
@@ -1950,6 +2053,7 @@ services:
 
   gateway:
     <<: *app-common
+    profiles: *profiles-edge
     build:
       context: ..
       dockerfile: services/edge-gateway-service/Dockerfile
@@ -2252,6 +2356,7 @@ services:
 
   web:
     <<: *app-common
+    profiles: *profiles-edge
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
@@ -2267,6 +2372,7 @@ services:
 
   app:
     <<: *app-common
+    profiles: *profiles-edge
     image: ${OPENFOUNDRY_NGINX_IMAGE:-nginx:1.27-alpine}
     depends_on:
       web:

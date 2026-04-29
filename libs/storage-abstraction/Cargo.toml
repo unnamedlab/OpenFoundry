@@ -1,18 +1,48 @@
 [package]
 name = "storage-abstraction"
 description = "Object storage abstraction layer (S3, MinIO, local filesystem)"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
 
-[dependencies]
-object_store = { workspace = true }
-bytes = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-url = { workspace = true }
-async-trait = { workspace = true }
-chrono = { workspace = true }
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.object_store]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.url]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "storage_abstraction"
+required-features = []
+crate-type = ["lib"]

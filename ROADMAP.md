@@ -50,7 +50,7 @@ OpenFoundry aims to deliver **25 core capabilities** that match Palantir Foundry
 | 9 | Object Explorer | `ontology-service` | ✅ Done | Phase 1 |
 | 10 | Auth / RBAC / SSO | `auth-service` | 🚧 In Progress | Phase 2 |
 | 11 | Workflows / Actions | `workflow-service` | ✅ Done | Phase 2 |
-| 12 | Notifications | `notification-service` | ✅ Done | Phase 2 |
+| 12 | Notifications | `notification-alerting-service` | ✅ Done | Phase 2 |
 | 13 | Data Catalog | `dataset-service/catalog` | ✅ Done | Phase 2 |
 | 14 | Data Quality | `dataset-quality-service` | ✅ Done | Phase 2 |
 | 15 | Slate/Workshop (App Builder) | `app-builder-service` | ✅ Done | Phase 3 |

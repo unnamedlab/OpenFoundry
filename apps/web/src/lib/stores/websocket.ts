@@ -15,7 +15,7 @@ function notificationSocketUrl(ticket: string) {
 	}
 
 	const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-	const url = new URL(`${protocol}://${window.location.hostname}:50069/api/v1/notifications/ws`);
+		const url = new URL(`${protocol}://${window.location.hostname}:50114/api/v1/notifications/ws`);
 	url.searchParams.set('ticket', ticket);
 	return url.toString();
 }

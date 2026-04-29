@@ -1,27 +1,74 @@
 [package]
 name = "sql-bi-gateway-service"
 description = "SQL and BI gateway: execute, explain, saved queries and BI tool compatibility"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
 
-[dependencies]
-core-models = { workspace = true }
-auth-middleware = { workspace = true }
-event-bus = { workspace = true }
-query-engine = { workspace = true }
-axum = { workspace = true }
-tokio = { workspace = true }
-sqlx = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-config = { workspace = true }
-datafusion = { workspace = true }
-thiserror = { workspace = true }
-futures = { workspace = true }
-arrow = { version = "53" }
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.arrow]
+version = "53"
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.datafusion]
+workspace = true
+
+[dependencies.event-bus]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.query-engine]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "sql-bi-gateway-service"
+required-features = []

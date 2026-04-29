@@ -135,7 +135,7 @@ The action config is now also able to carry native notification side effects thr
 - `operation`: the primary operation config
 - `notification_side_effects`: optional notification rules executed after a successful action
 
-That means an action can remain structurally the same while gaining side effects such as in-app, email, Slack, or Teams notifications through `notification-service`.
+That means an action can remain structurally the same while gaining side effects such as in-app, email, Slack, or Teams notifications through `notification-alerting-service`.
 
 ## Authorization and submission controls
 
@@ -192,7 +192,7 @@ The what-if branch concept is especially important. It is the point where ontolo
 
 OpenFoundry now supports notification side effects as part of the action definition itself.
 
-At the implementation level, this is handled in `services/ontology-service/src/handlers/actions.rs` by validating and dispatching `notification_side_effects` against `notification-service`.
+At the implementation level, this is handled in `services/ontology-actions-service/src/handlers/actions.rs` by validating and dispatching `notification_side_effects` against `notification-alerting-service`.
 
 Each notification side effect can currently define:
 

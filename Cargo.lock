@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "agent-runtime-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "ai-application-generation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "ai-evaluation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -163,7 +163,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "analytical-logic-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -253,7 +253,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app-builder-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "application-composition-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "application-curation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "approvals-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -713,7 +713,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audit-compliance-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "audit-trail",
  "auth-middleware",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "audit-trail"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "auth-middleware"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "authorization-policy-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -792,7 +792,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "automation-operations-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "cdc-metadata-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1439,7 +1439,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "checkpoints-purpose-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "cipher-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1580,7 +1580,7 @@ dependencies = [
 
 [[package]]
 name = "code-repository-review-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "code-security-scanning-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1648,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "compute-modules-control-plane-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "compute-modules-runtime-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1714,7 +1714,7 @@ dependencies = [
 
 [[package]]
 name = "connector-management-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "auth-middleware",
@@ -1779,7 +1779,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "conversation-state-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -1833,7 +1833,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "core-models"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "chrono",
  "serde",
@@ -2191,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "custom-endpoints-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -2258,7 +2258,7 @@ dependencies = [
 
 [[package]]
 name = "data-asset-catalog-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "arrow",
  "auth-middleware",
@@ -2718,7 +2718,7 @@ dependencies = [
 
 [[package]]
 name = "dataset-quality-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "arrow",
  "auth-middleware",
@@ -2741,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "dataset-versioning-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -2839,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "developer-console-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "document-intelligence-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "document-reporting-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -3039,7 +3039,7 @@ dependencies = [
 
 [[package]]
 name = "edge-gateway-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -3127,7 +3127,7 @@ dependencies = [
 
 [[package]]
 name = "entity-resolution-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "event-bus"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-nats",
  "async-trait",
@@ -3201,7 +3201,7 @@ dependencies = [
 
 [[package]]
 name = "event-streaming-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-nats",
  "auth-middleware",
@@ -3223,7 +3223,7 @@ dependencies = [
 
 [[package]]
 name = "execution-observability-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -3254,7 +3254,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "federation-product-exchange-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -3519,7 +3519,7 @@ dependencies = [
 
 [[package]]
 name = "geospatial-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "bytes",
  "serde",
@@ -3529,7 +3529,7 @@ dependencies = [
 
 [[package]]
 name = "geospatial-intelligence-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -3617,7 +3617,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "global-branch-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "auth-middleware",
@@ -3775,7 +3775,7 @@ dependencies = [
 
 [[package]]
 name = "health-check-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4137,7 +4137,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "identity-federation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "argon2",
  "auth-middleware",
@@ -4223,7 +4223,7 @@ dependencies = [
 
 [[package]]
 name = "ingestion-replication-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "auth-middleware",
@@ -4399,7 +4399,7 @@ dependencies = [
 
 [[package]]
 name = "knowledge-index-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4605,7 +4605,7 @@ dependencies = [
 
 [[package]]
 name = "lineage-deletion-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4624,7 +4624,7 @@ dependencies = [
 
 [[package]]
 name = "lineage-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4674,7 +4674,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "llm-catalog-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4743,7 +4743,7 @@ dependencies = [
 
 [[package]]
 name = "managed-workspace-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4762,7 +4762,7 @@ dependencies = [
 
 [[package]]
 name = "marketplace-catalog-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "auth-middleware",
@@ -4785,7 +4785,7 @@ dependencies = [
 
 [[package]]
 name = "marketplace-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "auth-middleware",
@@ -4829,7 +4829,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-orchestration-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4940,7 +4940,7 @@ dependencies = [
 
 [[package]]
 name = "ml-experiments-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4959,7 +4959,7 @@ dependencies = [
 
 [[package]]
 name = "model-adapter-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4978,7 +4978,7 @@ dependencies = [
 
 [[package]]
 name = "model-catalog-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -4995,7 +4995,7 @@ dependencies = [
 
 [[package]]
 name = "model-deployment-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5012,7 +5012,7 @@ dependencies = [
 
 [[package]]
 name = "model-evaluation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5029,7 +5029,7 @@ dependencies = [
 
 [[package]]
 name = "model-inference-history-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5046,7 +5046,7 @@ dependencies = [
 
 [[package]]
 name = "model-lifecycle-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5065,7 +5065,7 @@ dependencies = [
 
 [[package]]
 name = "model-serving-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5092,7 +5092,7 @@ dependencies = [
 
 [[package]]
 name = "monitoring-rules-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5145,7 +5145,7 @@ dependencies = [
 
 [[package]]
 name = "network-boundary-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5163,7 +5163,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5218,7 +5218,7 @@ dependencies = [
 
 [[package]]
 name = "notebook-runtime-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "arrow",
  "auth-middleware",
@@ -5245,29 +5245,7 @@ dependencies = [
 
 [[package]]
 name = "notification-alerting-service"
-version = "0.1.0"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus",
- "lettre",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tonic",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "notification-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5414,7 +5392,7 @@ dependencies = [
 
 [[package]]
 name = "oauth-integration-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5463,7 +5441,7 @@ dependencies = [
 
 [[package]]
 name = "object-database-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5519,7 +5497,7 @@ dependencies = [
 
 [[package]]
 name = "of-cli"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "auth-middleware",
@@ -5548,7 +5526,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "ontology-actions-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5574,7 +5552,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-definition-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5600,7 +5578,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-exploratory-analysis-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5619,7 +5597,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-functions-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5645,7 +5623,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-funnel-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5671,7 +5649,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-query-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5697,7 +5675,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-security-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -5723,7 +5701,7 @@ dependencies = [
 
 [[package]]
 name = "ontology-timeseries-analytics-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6100,7 +6078,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pipeline-authoring-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6132,7 +6110,7 @@ dependencies = [
 
 [[package]]
 name = "pipeline-build-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6164,7 +6142,7 @@ dependencies = [
 
 [[package]]
 name = "pipeline-schedule-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6258,7 +6236,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plugin-sdk"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -6349,7 +6327,7 @@ dependencies = [
 
 [[package]]
 name = "product-distribution-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "auth-middleware",
@@ -6372,7 +6350,7 @@ dependencies = [
 
 [[package]]
 name = "prompt-workflow-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6473,7 +6451,7 @@ dependencies = [
 
 [[package]]
 name = "query-engine"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "arrow",
  "async-trait",
@@ -6808,7 +6786,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "report-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6876,7 +6854,7 @@ dependencies = [
 
 [[package]]
 name = "retention-policy-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -6893,7 +6871,7 @@ dependencies = [
 
 [[package]]
 name = "retrieval-context-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7047,9 +7025,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.39"
+version = "0.23.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c2c118cb077cca2822033836dfb1b975355dfb784b5e8da48f7b6c5db74e60e"
+checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
 dependencies = [
  "log",
  "once_cell",
@@ -7158,7 +7136,7 @@ dependencies = [
 
 [[package]]
 name = "scenario-simulation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7227,7 +7205,7 @@ dependencies = [
 
 [[package]]
 name = "sdk-generation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7246,7 +7224,7 @@ dependencies = [
 
 [[package]]
 name = "sds-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7323,7 +7301,7 @@ dependencies = [
 
 [[package]]
 name = "security-governance-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7483,7 +7461,7 @@ dependencies = [
 
 [[package]]
 name = "session-governance-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7727,7 +7705,7 @@ dependencies = [
 
 [[package]]
 name = "solution-design-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7775,7 +7753,7 @@ dependencies = [
 
 [[package]]
 name = "spreadsheet-computation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -7800,7 +7778,7 @@ checksum = "3b9b39299b249ad65f3b7e96443bad61c02ca5cd3589f46cb6d610a0fd6c0d6a"
 
 [[package]]
 name = "sql-bi-gateway-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "arrow",
  "auth-middleware",
@@ -7824,7 +7802,7 @@ dependencies = [
 
 [[package]]
 name = "sql-warehousing-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -8087,7 +8065,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage-abstraction"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8179,7 +8157,7 @@ dependencies = [
 
 [[package]]
 name = "tabular-analysis-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -8204,7 +8182,7 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "telemetry-governance-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -8236,7 +8214,7 @@ dependencies = [
 
 [[package]]
 name = "tenancy-organizations-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -8292,7 +8270,7 @@ dependencies = [
 
 [[package]]
 name = "testing"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "rand 0.8.6",
  "serde",
@@ -8396,7 +8374,7 @@ dependencies = [
 
 [[package]]
 name = "time-series-data-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -8663,7 +8641,7 @@ dependencies = [
 
 [[package]]
 name = "tool-registry-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -9052,7 +9030,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vector-store"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -9071,7 +9049,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual-table-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "auth-middleware",
@@ -9221,12 +9199,12 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.247.0"
+version = "0.248.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b6733b8b91d010a6ac5b0fb237dc46a19650bc4c67db66857e2e787d437204"
+checksum = "ac92cf547bc18d27ecc521015c08c353b4f18b84ab388bb6d1b6b682c620d9b6"
 dependencies = [
  "leb128fmt",
- "wasmparser 0.247.0",
+ "wasmparser 0.248.0",
 ]
 
 [[package]]
@@ -9282,9 +9260,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.247.0"
+version = "0.248.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e6fb4c2bee46c5ea4d40f8cdb5c131725cd976718ec56f1c8e82fbde5fa2a80"
+checksum = "aa4439c5eee9df71ee0c6efb37f63b1fcb1fec38f85f5142c54e7ed05d33091a"
 dependencies = [
  "bitflags 2.11.1",
  "indexmap 2.14.0",
@@ -9560,22 +9538,22 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "247.0.0"
+version = "248.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "579d2d47eb33b0cdf9b14723cb115f1e1b7d6e77aac6f0816e5b7c7aeaa418ff"
+checksum = "acc54622ed5a5cddafcdf152043f9d4aed54d4a653d686b7dfe874809fca99d7"
 dependencies = [
  "bumpalo",
  "leb128fmt",
  "memchr",
  "unicode-width",
- "wasm-encoder 0.247.0",
+ "wasm-encoder 0.248.0",
 ]
 
 [[package]]
 name = "wat"
-version = "1.247.0"
+version = "1.248.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3f4091c56437e86f2b57fa2fac72c4f528957a605b3f44f7c0b3b19a17ac5ee"
+checksum = "d75cd9e510603909748e6ebab89f27cd04472c1d9d85a3c88a7a6fc51a1a7934"
 dependencies = [
  "wast",
 ]
@@ -9630,7 +9608,7 @@ dependencies = [
 
 [[package]]
 name = "widget-registry-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -10126,7 +10104,7 @@ dependencies = [
 
 [[package]]
 name = "workflow-automation-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
@@ -10148,7 +10126,7 @@ dependencies = [
 
 [[package]]
 name = "workflow-trace-service"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "auth-middleware",
  "axum 0.8.9",
