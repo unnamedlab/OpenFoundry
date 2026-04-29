@@ -1,0 +1,63 @@
+// Event-streaming router gRPC contract.
+//
+// The `event-streaming-service` exposes this single facade in front of every
+// supported messaging backend (NATS for control / signal traffic, Kafka for
+// data). Topics are matched against a declarative routing table loaded at
+// startup from `topic-routes.yaml`; the server picks the backend on every
+// `Publish` and `Subscribe` call.
+//
+// This file is consumed by `tonic-build` from `services/event-streaming-service/build.rs`.
+
+syntax = "proto3";
+
+package openfoundry.streaming.router.v1;
+
+// EventRouter is a thin facade in front of the configured messaging backends.
+service EventRouter {
+  // Publish a single event to the topic.
+  //
+  // The server resolves the backend from the configured routing table and
+  // returns an error with `INVALID_ARGUMENT` if no route matches and no
+  // `default_backend` is configured, or `UNAVAILABLE` if the matched backend
+  // is not currently usable.
+  rpc Publish(PublishRequest) returns (PublishResponse);
+
+  // Subscribe to a topic pattern. The pattern must resolve to exactly one
+  // backend through the routing table (or the configured default). The server
+  // forwards every event it receives from the underlying backend until the
+  // client cancels the stream.
+  rpc Subscribe(SubscribeRequest) returns (stream EventMessage);
+}
+
+message PublishRequest {
+  // Subject / topic to publish to (e.g. "ctrl.heartbeat", "data.orders.v1").
+  string topic = 1;
+  // Opaque payload. The router does not interpret it (schema validation is
+  // optional and lives outside this PR).
+  bytes payload = 2;
+  // Free-form headers propagated to the backend when the backend supports them.
+  map<string, string> headers = 3;
+  // Optional schema id (Apicurio artifact id). Reserved for PR 3.
+  optional string schema_id = 4;
+}
+
+message PublishResponse {
+  // Identifier of the backend that handled the publish ("nats" or "kafka").
+  string backend = 1;
+  // Pattern that matched the topic, or "<default>" when the default backend
+  // was used.
+  string matched_pattern = 2;
+}
+
+message SubscribeRequest {
+  // Topic pattern. Same glob syntax as the routing table entries.
+  string pattern = 1;
+}
+
+message EventMessage {
+  // Concrete topic the event was received on (without wildcards).
+  string topic = 1;
+  bytes payload = 2;
+  map<string, string> headers = 3;
+  optional string schema_id = 4;
+}
