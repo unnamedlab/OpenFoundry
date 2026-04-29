@@ -53,6 +53,35 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.arrow]
+version = "53"
+
+[dependencies.arrow-flight]
+version = "53"
+features = ["flight-sql-experimental"]
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.datafusion]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.prost]
+workspace = true
+
+[dependencies.query-engine]
+workspace = true
+
+[dependencies.tonic]
+workspace = true
+
+[dev-dependencies.tokio-stream]
+version = "0.1"
+features = ["net"]
+
 [[bin]]
 path = "src/main.rs"
 name = "sql-warehousing-service"

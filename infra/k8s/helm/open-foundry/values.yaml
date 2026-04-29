@@ -343,3 +343,11 @@ services:
         pollingInterval: 15
         cooldownPeriod: 120
         triggers: []
+
+# ── Iceberg REST Catalog (Apache Polaris) ─────────────────────
+# Subchart: charts/iceberg-catalog. Enable to render the Polaris
+# Deployment + Service + PDB. See charts/iceberg-catalog/values.yaml
+# for the full set of overridable values (replicas, persistence,
+# CloudNativePG cluster, realm credentials, ...).
+icebergCatalog:
+  enabled: false
