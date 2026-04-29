@@ -131,3 +131,25 @@ spec:
         disabled: false
       osd:
         disabled: false
+---
+# CephBlockPool for latency-sensitive, write-heavy workloads (Kafka log
+# segments, Postgres WAL/data). 3-way replication on NVMe-only OSDs with a
+# zone-level failure domain so that the loss of a whole AZ keeps the pool
+# active+clean (mon.count=5 in the CephCluster above tolerates 2 mon
+# failures, matching this design).
+#
+# Consumed via a StorageClass (provisioned out-of-band; see README) that
+# points at `pool: rbd-fast`.
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: rbd-fast
+  namespace: rook-ceph
+spec:
+  failureDomain: zone
+  replicated:
+    size: 3
+    requireSafeReplicaSize: true
+  deviceClass: nvme
+  parameters:
+    compression_mode: none
