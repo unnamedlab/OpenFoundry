@@ -145,6 +145,30 @@ A quick rule of thumb when adding a new event:
   that downstream analytics/lineage/audit consumers need to replay, use
   `event-bus-data`.
 
+## Internal query fabric
+
+Service-to-service SQL inside the platform runs over **Flight SQL P2P**, not
+through a central federated coordinator. See
+[ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
+
+- `libs/query-engine/` provides `FlightSqlTableProvider`, which lets any
+  service consume another service's result set as a DataFusion table over
+  Arrow Flight SQL.
+- `services/sql-warehousing-service` (port `50123`) is the official
+  DataFusion **compute pool** for shared analytical execution (Iceberg
+  scans, larger joins).
+- `services/sql-bi-gateway-service` (port `50133`) is the **edge SQL
+  router** that fans out external SQL to the right backend:
+  - `sql-warehousing-service` for Iceberg / lakehouse SQL,
+  - ClickHouse for time-series,
+  - Vespa for search / hybrid retrieval (cf.
+    [ADR-0007](./adr/ADR-0007-search-engine-choice.md)),
+  - Trino for **external BI only** (Tableau, Superset, heterogeneous
+    JDBC/ODBC clients).
+- Trino under `infra/k8s/trino/` is retained as the **edge BI** surface.
+  It is not used as an internal query hub; new services must not depend on
+  Trino for service-to-service SQL.
+
 ## Frontend Coupling
 
 `apps/web/src/routes/*` and `apps/web/src/lib/api/*` mirror the runtime surface area of the platform. Route families such as `datasets`, `pipelines`, `ontology`, `geospatial`, `marketplace`, `code-repos`, `ai`, `ml`, and `nexus` map cleanly onto the backend service topology.

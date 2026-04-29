@@ -1,10 +1,17 @@
-# Trino federated query engine
+# Trino federated query engine — edge BI only
 
-These manifests deploy [Trino](https://trino.io) (Apache-2.0) as the federated
-query engine for OpenFoundry. Trino sits in front of every analytical data
-source so users issue a single SQL dialect and the planner pushes work down to
-the right backend (Iceberg/Polaris, PostgreSQL/CNPG, Kafka, and ClickHouse
-once it lands).
+These manifests deploy [Trino](https://trino.io) (Apache-2.0) as the
+**edge BI** SQL surface for OpenFoundry: a stable federated SQL endpoint for
+heterogeneous JDBC/ODBC clients (Tableau, Superset, ad-hoc SQL notebooks)
+that need to span Iceberg/Polaris, PostgreSQL/CNPG, Kafka and ClickHouse.
+
+> **Role:** edge BI only. Trino is **not** the internal query hub. All
+> service-to-service SQL inside the platform runs over Flight SQL P2P via
+> `libs/query-engine/` and `services/sql-warehousing-service` (port 50123),
+> routed by `services/sql-bi-gateway-service` (port 50133). New services
+> must not declare a runtime dependency on Trino for internal queries.
+> See
+> [`docs/architecture/adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md`](../../../docs/architecture/adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
 
 ## Files
 
