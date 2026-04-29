@@ -2,6 +2,7 @@
 pub mod subjects {
     pub const AUTH: &str = "of.auth";
     pub const DATASETS: &str = "of.datasets";
+    pub const DATASET_QUALITY: &str = "of.datasets.quality";
     pub const PIPELINES: &str = "of.pipelines";
     pub const WORKFLOWS: &str = "of.workflows";
     pub const ONTOLOGY: &str = "of.ontology";
