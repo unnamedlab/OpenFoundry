@@ -101,16 +101,7 @@ workspace = true
 [build-dependencies.protoc-bin-vendored]
 workspace = true
 
-[dependencies.async-trait]
-workspace = true
-
-[dependencies.bytes]
-workspace = true
-
 [dependencies.storage-abstraction]
-workspace = true
-
-[dependencies.thiserror]
 workspace = true
 
 [dev-dependencies.tempfile]
