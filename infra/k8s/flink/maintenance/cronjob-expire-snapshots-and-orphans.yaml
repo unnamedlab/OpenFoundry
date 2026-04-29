@@ -92,7 +92,7 @@ spec:
                   # Fail loudly if the sentinel was not substituted (defends
                   # against drift between this CronJob and the FlinkDeployment
                   # manifest in the same directory).
-                  if ! grep -q "value: \"${TIER}\"  # tier-override" \
+                  if ! grep -Eq "value: \"${TIER}\"[[:space:]]+# tier-override" \
                       /tmp/rendered.yaml; then
                     echo "FATAL: tier-override sentinel not found after sed" >&2
                     exit 2
@@ -195,7 +195,7 @@ spec:
                   # Fail loudly if the sentinel was not substituted (defends
                   # against drift between this CronJob and the FlinkDeployment
                   # manifest in the same directory).
-                  if ! grep -q "value: \"${TIER}\"  # tier-override" \
+                  if ! grep -Eq "value: \"${TIER}\"[[:space:]]+# tier-override" \
                       /tmp/rendered.yaml; then
                     echo "FATAL: tier-override sentinel not found after sed" >&2
                     exit 2
