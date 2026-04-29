@@ -32,12 +32,32 @@ async fn flight_sql_select_one_round_trip() {
             .expect("flight server");
     });
 
-    // Give the server a brief moment to be ready to accept connections.
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
+    // Wait for the server to be ready by retrying the connection a few times,
+    // rather than relying on a fixed sleep that can be flaky on slow CI.
     let endpoint =
         Endpoint::from_shared(format!("http://{local_addr}")).expect("endpoint from addr");
-    let channel: Channel = endpoint.connect().await.expect("connect");
+    let channel: Channel = {
+        let mut last_err = None;
+        let mut connected = None;
+        for _ in 0..50 {
+            match endpoint.connect().await {
+                Ok(channel) => {
+                    connected = Some(channel);
+                    break;
+                }
+                Err(err) => {
+                    last_err = Some(err);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        }
+        connected.unwrap_or_else(|| {
+            panic!(
+                "failed to connect to in-process Flight SQL server: {:?}",
+                last_err
+            )
+        })
+    };
     let mut client = FlightSqlServiceClient::new(channel);
 
     let info = client

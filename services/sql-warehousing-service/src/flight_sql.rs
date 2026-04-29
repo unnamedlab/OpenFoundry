@@ -167,8 +167,12 @@ impl FlightSqlService for FlightSqlServiceImpl {
         ticket: CommandStatementUpdate,
         _request: Request<PeekableFlightDataStream>,
     ) -> Result<i64, Status> {
-        // DataFusion does not currently report a row count for arbitrary
-        // updates, so we run the statement to completion and report 0.
+        // DataFusion's `DataFrame::collect` does not surface a meaningful row
+        // count for arbitrary DDL/DML statements (CREATE/INSERT/UPDATE/...),
+        // so we run the statement to completion and report 0 affected rows
+        // rather than fabricate a number. Flight SQL clients should treat
+        // a returned row count of 0 as "unknown" for this server until the
+        // upstream API gains better update-statistics support.
         let _ = self
             .ctx
             .execute_sql(&ticket.query)
@@ -177,5 +181,9 @@ impl FlightSqlService for FlightSqlServiceImpl {
         Ok(0)
     }
 
+    /// Intentional no-op: this server does not currently advertise any
+    /// `SqlInfo` capability metadata to clients. The trait requires this
+    /// method, but registering capabilities is optional and adding them is
+    /// future work tracked alongside richer Flight SQL feature coverage.
     async fn register_sql_info(&self, _id: i32, _result: &SqlInfo) {}
 }
