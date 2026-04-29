@@ -1,0 +1,85 @@
+# Bus contract allowlist — see ADR-0011
+#
+# Snapshot of which services are allowed to depend on each event-bus crate:
+#   * control -> libs/event-bus-control (NATS JetStream, control plane)
+#   * data    -> libs/event-bus-data    (Apache Kafka, data plane)
+#
+# Enforced by /tools/bus-lint/check_bus.py on every pull request via the
+# `bus-contract` job in .github/workflows/ci.yml.
+#
+# To add or remove a bus dependency on a service, update both the service's
+# Cargo.toml AND the corresponding entry below in the same PR. The CI lint
+# will fail any drift between these two sources of truth.
+#
+# Service keys are the directory name under /services/ (which matches the
+# crate `package.name`).
+
+services:
+  app-builder-service:
+    - control
+  application-curation-service:
+    - control
+  audit-compliance-service:
+    - control
+  connector-management-service:
+    - control
+  data-asset-catalog-service:
+    - control
+  dataset-quality-service:
+    - control
+  entity-resolution-service:
+    - control
+  event-streaming-service:
+    - control
+  federation-product-exchange-service:
+    - control
+  geospatial-intelligence-service:
+    - control
+  global-branch-service:
+    - control
+  identity-federation-service:
+    - control
+  ingestion-replication-service:
+    - control
+  lineage-service:
+    - control
+  marketplace-catalog-service:
+    - control
+  marketplace-service:
+    - control
+  nexus-service:
+    - control
+  notebook-runtime-service:
+    - control
+  notification-alerting-service:
+    - control
+  object-database-service:
+    - control
+  ontology-actions-service:
+    - control
+  ontology-definition-service:
+    - control
+  ontology-functions-service:
+    - control
+  ontology-funnel-service:
+    - control
+  ontology-query-service:
+    - control
+  ontology-security-service:
+    - control
+  pipeline-authoring-service:
+    - control
+  pipeline-build-service:
+    - control
+  pipeline-schedule-service:
+    - control
+  product-distribution-service:
+    - control
+  report-service:
+    - control
+  sql-bi-gateway-service:
+    - control
+  virtual-table-service:
+    - control
+  workflow-automation-service:
+    - control
