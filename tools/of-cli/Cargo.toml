@@ -48,6 +48,9 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.vector-store]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "of"
