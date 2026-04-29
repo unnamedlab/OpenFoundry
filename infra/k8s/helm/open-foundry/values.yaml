@@ -344,14 +344,6 @@ services:
         cooldownPeriod: 120
         triggers: []
 
-# ── Iceberg REST Catalog (Apache Polaris) ─────────────────────
-# Subchart: charts/iceberg-catalog. Enable to render the Polaris
-# Deployment + Service + PDB. See charts/iceberg-catalog/values.yaml
-# for the full set of overridable values (replicas, persistence,
-# CloudNativePG cluster, realm credentials, ...).
-icebergCatalog:
-  enabled: false
-
 # ── Iceberg REST Catalog endpoint (Lakekeeper) ────────────────
 # In-cluster URL of the Lakekeeper Service deployed by the manifests
 # under `infra/k8s/lakekeeper/` (Apache-2.0; see

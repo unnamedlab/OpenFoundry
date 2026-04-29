@@ -12,8 +12,9 @@
     `services/marketplace-service/migrations`,
     `services/sql-warehousing-service/migrations`,
     `services/identity-federation-service/migrations`, etc.).
-  - `infra/k8s/helm/open-foundry/charts/iceberg-catalog/templates/cnpg-cluster.yaml`
-    — uso preexistente del CRD `postgresql.cnpg.io/v1 Cluster` para Polaris.
+  - `infra/k8s/cnpg/templates/cluster.yaml`
+    — plantilla de referencia del CRD `postgresql.cnpg.io/v1 Cluster`
+    usada por los servicios de plataforma.
   - `infra/k8s/rook/` (`cluster.yaml`, `objectstore.yaml`, `bucket.yaml`) —
     Ceph + RGW como proveedor S3 cluster-local.
   - ADR-0007 (`docs/architecture/adr/ADR-0007-search-engine-choice.md`) —
@@ -32,9 +33,9 @@ de `services/<svc>/migrations/`. Esto se confirma en
 
 Hoy conviven dos realidades:
 
-1. **Un uso aislado de CloudNativePG** ya introducido para el catálogo
-   Iceberg/Polaris (ver
-   `infra/k8s/helm/open-foundry/charts/iceberg-catalog/templates/cnpg-cluster.yaml`),
+1. **Un uso aislado de CloudNativePG** ya introducido como plantilla de
+   referencia para clústeres Postgres de plataforma (ver
+   `infra/k8s/cnpg/templates/cluster.yaml`),
    donde el operador reconcilia un clúster con replicación en streaming y
    expone los servicios `<name>-rw` / `<name>-ro`.
 2. **El resto de servicios** no tiene un operador estandarizado. Las
@@ -72,7 +73,8 @@ precedente de ADR-0007 ("un solo stack stateful por capacidad").
 - Failover gestionado por el operador vía la API de Kubernetes (sin VIP).
 - Servicios `<name>-rw`, `<name>-ro`, `<name>-r` generados automáticamente
   → los servicios de aplicación se conectan por DNS estable.
-- Ya en uso para `iceberg-catalog` (precedente vivo en el repo).
+- Ya en uso como plantilla de referencia bajo `infra/k8s/cnpg/` (precedente
+  vivo en el repo).
 
 ### Opción B — Patroni + HAProxy / keepalived (VIP)
 
@@ -134,8 +136,8 @@ OpenFoundry.
   lecturas escalables. No se permiten conexiones directas a pods ni VIPs
   externos.
 - **Credenciales.** Se gestionan mediante `Secret` de tipo
-  `kubernetes.io/basic-auth`, siguiendo el patrón ya establecido en
-  `infra/k8s/helm/open-foundry/charts/iceberg-catalog/templates/cnpg-cluster.yaml`.
+  `kubernetes.io/basic-auth`, siguiendo el patrón establecido en
+  `infra/k8s/cnpg/templates/cluster.yaml`.
 - **Upgrades.** Las versiones mayores de Postgres se planifican vía el
   flujo de upgrade in-place del operador o mediante `Cluster` de réplica
   lógica + cutover, según se documente en el runbook.
@@ -174,8 +176,8 @@ OpenFoundry.
 
 ### Migración / cleanup
 
-- El uso existente de CNPG en
-  `infra/k8s/helm/open-foundry/charts/iceberg-catalog/templates/cnpg-cluster.yaml`
+- La plantilla CNPG bajo
+  `infra/k8s/cnpg/templates/cluster.yaml`
   se considera el patrón de referencia. Nuevos charts de servicio deben
   reutilizar la misma forma (CR `Cluster` + `Secret` basic-auth).
 - No existen Patroni externos ni VIPs de Postgres en `infra/k8s/**` al
@@ -207,8 +209,8 @@ cumple:
 - `docs/architecture/runtime-topology.md` — modelo "Postgres por servicio".
 - `docs/architecture/adr/ADR-0007-search-engine-choice.md` — precedente de
   "un solo stack stateful por capacidad" y de filtrado por licencia OSS.
-- `infra/k8s/helm/open-foundry/charts/iceberg-catalog/templates/cnpg-cluster.yaml`
-  — patrón de CR `Cluster` + `Secret` basic-auth ya en uso.
+- `infra/k8s/cnpg/templates/cluster.yaml`
+  — patrón de CR `Cluster` + `Secret` basic-auth de referencia.
 - `infra/k8s/rook/objectstore.yaml`, `infra/k8s/rook/bucket.yaml` —
   proveedor S3 para `s3://openfoundry-pg-backups/`.
 - `services/*/migrations/` — esquemas por servicio (p. ej.
