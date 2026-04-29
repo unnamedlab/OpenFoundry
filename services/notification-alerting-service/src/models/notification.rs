@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use event_bus::contracts::NotificationEvent as SharedNotificationEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -29,13 +30,7 @@ pub struct NotificationDelivery {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NotificationEvent {
-    pub kind: String,
-    pub user_id: Option<Uuid>,
-    pub notification: Option<NotificationRecord>,
-    pub unread_count: i64,
-}
+pub type NotificationEvent = SharedNotificationEvent<NotificationRecord>;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SendNotificationRequest {

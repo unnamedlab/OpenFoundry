@@ -5,6 +5,15 @@ use axum::{
     response::IntoResponse,
 };
 use bytes::{Bytes, BytesMut};
+use event_bus::{
+    Publisher, connect,
+    contracts::{
+        DATASET_QUALITY_REFRESH_REQUESTED_EVENT_TYPE, DATASET_QUALITY_REFRESH_REQUESTED_SUBJECT,
+        DatasetQualityRefreshRequested,
+    },
+    subscriber,
+    topics::{streams, subjects},
+};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
@@ -273,23 +282,46 @@ async fn load_dataset(state: &AppState, dataset_id: Uuid) -> Result<Option<Datas
 }
 
 async fn trigger_quality_refresh(state: &AppState, dataset_id: Uuid) -> Result<(), String> {
-    let url = format!(
-        "{}/internal/datasets/{dataset_id}/quality/refresh",
-        state.dataset_quality_service_url.trim_end_matches('/')
-    );
-    let response = state
-        .http_client
-        .post(url)
-        .send()
+    let request = DatasetQualityRefreshRequested::for_upload(dataset_id);
+
+    if let Ok(nats_url) = std::env::var("NATS_URL") {
+        let js = connect(&nats_url).await.map_err(|error| error.to_string())?;
+        subscriber::ensure_stream(
+            &js,
+            streams::EVENTS,
+            &[subjects::DATASETS, subjects::DATASET_QUALITY],
+        )
         .await
         .map_err(|error| error.to_string())?;
 
-    if response.status().is_success() {
-        Ok(())
+        let publisher = Publisher::new(js, "data-asset-catalog-service");
+        publisher
+            .publish(
+                DATASET_QUALITY_REFRESH_REQUESTED_SUBJECT,
+                DATASET_QUALITY_REFRESH_REQUESTED_EVENT_TYPE,
+                request,
+            )
+            .await
+            .map_err(|error| error.to_string())
     } else {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        Err(format!("dataset-quality-service returned {status}: {body}"))
+        let url = format!(
+            "{}/internal/datasets/{dataset_id}/quality/refresh",
+            state.dataset_quality_service_url.trim_end_matches('/')
+        );
+        let response = state
+            .http_client
+            .post(url)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            Err(format!("dataset-quality-service returned {status}: {body}"))
+        }
     }
 }
 

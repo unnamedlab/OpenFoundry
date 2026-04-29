@@ -4,6 +4,7 @@ use arrow::util::display::array_value_to_string;
 use bytes::Bytes;
 use chrono::Utc;
 use datafusion::prelude::NdJsonReadOptions;
+use event_bus::contracts::DatasetQualityRefreshRequested;
 use query_engine::context::QueryContext;
 use tokio::fs;
 use uuid::Uuid;
@@ -135,6 +136,24 @@ pub async fn refresh_dataset_quality(
     cleanup_temp_path(prepared.path).await;
 
     fetch_dataset_quality(state, dataset.id).await
+}
+
+pub async fn process_refresh_request(
+    state: &AppState,
+    request: DatasetQualityRefreshRequested,
+) -> Result<DatasetQualityResponse, String> {
+    let dataset = sqlx::query_as::<_, Dataset>("SELECT * FROM datasets WHERE id = $1")
+        .bind(request.dataset_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("dataset '{}' was not found", request.dataset_id))?;
+
+    if !dataset_has_uploaded_data(state, &dataset).await {
+        return Err("upload data before generating a quality profile".to_string());
+    }
+
+    refresh_dataset_quality(state, &dataset, None).await
 }
 
 pub async fn dataset_has_uploaded_data(state: &AppState, dataset: &Dataset) -> bool {
