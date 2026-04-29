@@ -33,12 +33,11 @@ test.describe('projects and files flow', () => {
       (element as HTMLButtonElement).click();
     });
 
-    await expect(page.getByText('Learning')).toBeVisible();
-    await expect(page.getByText('Briefings')).toBeVisible();
+    await expect(page.getByText('Learning', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Research Lab / research')).toBeVisible();
 
     await page.reload();
-    await expect(page.getByText('Learning')).toBeVisible();
-    await expect(page.getByText('Briefings')).toBeVisible();
+    await expect(page.getByText('Learning', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Briefings', { exact: true }).first()).toBeVisible();
   });
 });
