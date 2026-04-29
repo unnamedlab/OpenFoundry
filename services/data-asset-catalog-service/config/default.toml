@@ -1,5 +1,5 @@
-host = "0.0.0.0"
-port = 50079
-storage_backend = "s3"
-storage_bucket = "datasets"
-s3_region = "us-east-1"
+[lakehouse_prefixes]
+bronze = "bronze"
+silver = "silver"
+gold = "gold"
+serving_extracts = "serving/extracts"
