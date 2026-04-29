@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import Glyph from '$components/ui/Glyph.svelte';
 	import { executeQuery } from '$lib/api/queries';
 	import type { AppDefinition, AppPage, WidgetEvent, WorkshopScenarioPreset } from '$lib/api/apps';
 
@@ -18,9 +19,12 @@
 	let runtimeParameters = $state<Record<string, string>>({});
 	let interactivePromptSeed = $state('');
 	let activePresetId = $state('');
+	const workshopHeaderIconOptions = ['cube', 'object', 'folder', 'bookmark', 'sparkles'] as const;
+	type WorkshopHeaderIconOption = (typeof workshopHeaderIconOptions)[number];
 
 	const visiblePages = $derived(app.pages.filter((page) => page.visible));
 	const interactiveWorkshop = $derived(app.settings.interactive_workshop);
+	const workshopHeader = $derived(app.settings.workshop_header);
 	const activePage = $derived(
 		visiblePages.find((page) => page.id === activePageId)
 			?? visiblePages[0]
@@ -38,6 +42,8 @@
 		app.settings.consumer_mode.portal_subtitle
 			|| 'Published experience for operators, partners, or external consumers.',
 	);
+	const headerTitle = $derived(workshopHeader.title || app.name);
+	const headerColor = $derived(workshopHeader.color || app.theme.primary_color);
 	const interactiveTitle = $derived(interactiveWorkshop.title || 'Interactive Workshop');
 	const interactiveSubtitle = $derived(
 		interactiveWorkshop.subtitle
@@ -198,6 +204,12 @@
 			`max-width: ${app.settings.max_width || page.layout.max_width}`,
 		].join(';');
 	}
+
+	function resolveWorkshopHeaderIcon(
+		value: string | null | undefined,
+	): WorkshopHeaderIconOption {
+		return workshopHeaderIconOptions.find((icon) => icon === value) ?? 'cube';
+	}
 </script>
 
 <div class="min-h-[320px] rounded-[calc(var(--app-radius)_+_8px)] border border-slate-200 bg-[var(--app-background)] p-5 shadow-sm" style={themeStyle}>
@@ -309,12 +321,18 @@
 		<div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
 			<div>
 				<div class="flex items-center gap-3">
+					<div
+						class="flex h-10 w-10 items-center justify-center rounded-xl"
+						style={`background:${headerColor}1a; color:${headerColor};`}
+					>
+						<Glyph name={resolveWorkshopHeaderIcon(workshopHeader.icon)} size={20} />
+					</div>
 					{#if app.theme.logo_url}
 						<img src={app.theme.logo_url} alt={app.name} class="h-10 w-10 rounded-xl object-cover" />
 					{/if}
 					<div>
 						<div class="text-xs uppercase tracking-[0.28em] text-slate-400">{runtimeLabel}</div>
-						<h2 class="mt-1 text-3xl font-semibold" style={`font-family:${app.theme.heading_font}, sans-serif;`}>{app.name}</h2>
+						<h2 class="mt-1 text-3xl font-semibold" style={`font-family:${app.theme.heading_font}, sans-serif;`}>{headerTitle}</h2>
 					</div>
 				</div>
 				<p class="mt-3 max-w-3xl text-sm text-slate-500">{app.description}</p>

@@ -20,6 +20,26 @@
 	let sortDirection = $state<'asc' | 'desc'>('asc');
 
 	const columns = $derived(result?.columns ?? []);
+	const configuredColumns = $derived(
+		Array.isArray(widget.columns)
+			? widget.columns.filter((column) => column && typeof column.key === 'string' && column.key.length > 0)
+			: [],
+	);
+	const visibleColumns = $derived(
+		configuredColumns.length > 0
+			? configuredColumns
+					.map((column) => ({
+						name: column.key,
+						label: column.label || column.key,
+						index: columns.findIndex((candidate) => candidate.name === column.key),
+					}))
+					.filter((column) => column.index >= 0)
+			: columns.map((column, index) => ({
+					name: column.name,
+					label: column.name,
+					index,
+				})),
+	);
 	const columnIndexMap = $derived(new Map(columns.map((column, index) => [column.name, index])));
 	const effectiveSearch = $derived(`${globalSearch} ${localSearch}`.trim().toLowerCase());
 	const filteredRows = $derived.by(() => {
@@ -51,7 +71,11 @@
 
 	const pageSize = $derived(Math.max(widget.pageSize, 1));
 	const totalPages = $derived(Math.max(1, Math.ceil(sortedRows.length / pageSize)));
-	const pagedRows = $derived(sortedRows.slice((currentPage - 1) * pageSize, currentPage * pageSize));
+	const pagedRows = $derived(
+		sortedRows
+			.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+			.map((row) => visibleColumns.map((column) => row[column.index] ?? '')),
+	);
 
 	$effect(() => {
 		widget.defaultSortColumn;
@@ -95,15 +119,15 @@
 		/>
 	</div>
 
-	{#if result && columns.length > 0}
+	{#if result && visibleColumns.length > 0}
 		<div class="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800">
 			<table class="min-w-full text-left text-sm">
 				<thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-900 dark:text-slate-400">
 					<tr>
-						{#each columns as column}
+						{#each visibleColumns as column}
 							<th class="border-b border-slate-200 px-3 py-2 font-semibold dark:border-slate-800">
 								<button class="inline-flex items-center gap-1" onclick={() => toggleSort(column.name)}>
-									<span>{column.name}</span>
+									<span>{column.label}</span>
 									{#if sortColumn === column.name}
 										<span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
 									{/if}

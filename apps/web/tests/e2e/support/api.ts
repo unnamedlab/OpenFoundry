@@ -177,6 +177,8 @@ const demoTemplate = {
       show_branding: true,
       custom_css: null,
       builder_experience: 'workshop',
+      ontology_source_type_id: null,
+      object_set_variables: [],
       consumer_mode: {
         enabled: false,
         allow_guest_access: false,
@@ -194,6 +196,11 @@ const demoTemplate = {
         briefing_template: '',
         suggested_questions: [],
         scenario_presets: [],
+      },
+      workshop_header: {
+        title: null,
+        icon: 'cube',
+        color: '#3b82f6',
       },
       slate: {
         enabled: false,
@@ -227,7 +234,47 @@ const demoTemplate = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+const demoObjectSet = {
+  id: 'object-set-1',
+  name: 'Order object set',
+  description: 'Reusable set of order objects.',
+  base_object_type_id: demoObjectType.id,
+  filters: [],
+  traversals: [],
+  join: null,
+  projections: ['item_name', 'status'],
+  what_if_label: null,
+  policy: {
+    allow_export: true,
+    max_rows: 500,
+    requires_reason: false,
+    required_restricted_view_id: null,
+  },
+  materialized_snapshot: null,
+  materialized_at: null,
+  materialized_row_count: 0,
+  owner_id: demoUser.id,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
+};
+
 const demoWidgetCatalog = [
+  {
+    widget_type: 'table',
+    label: 'Object Table',
+    description: 'Paginated object-set records with configurable properties, variable bindings, and default sort.',
+    category: 'data',
+    default_props: {
+      page_size: 10,
+      striped: true,
+      columns: [],
+      object_set_variable_id: null,
+      object_set_variable_name: null,
+    },
+    default_size: { width: 8, height: 5 },
+    supported_bindings: ['object_set', 'dataset', 'query', 'ontology'],
+    supports_children: false,
+  },
   {
     widget_type: 'chart.line',
     label: 'Line chart',
@@ -425,6 +472,49 @@ export async function mockFrontendApis(page: Page) {
 
     if (pathname === '/api/v1/ontology/types') {
       return json(route, { data: [demoObjectType], total: 1, page: 1, per_page: 100 });
+    }
+
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}/properties`) {
+      return json(route, {
+        data: [
+          {
+            id: 'property-1',
+            object_type_id: demoObjectType.id,
+            name: 'item_name',
+            display_name: 'Item name',
+            description: 'The order item name.',
+            property_type: 'string',
+            required: true,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+          {
+            id: 'property-2',
+            object_type_id: demoObjectType.id,
+            name: 'status',
+            display_name: 'Status',
+            description: 'The order status.',
+            property_type: 'string',
+            required: false,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/v1/ontology/object-sets') {
+      return json(route, { data: [demoObjectSet] });
     }
 
     if (pathname === '/api/v1/ontology/actions') {

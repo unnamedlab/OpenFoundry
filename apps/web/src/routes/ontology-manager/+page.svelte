@@ -1,7 +1,15 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import Glyph from '$components/ui/Glyph.svelte';
+  import {
+    createApp,
+    getApp,
+    listApps,
+    type AppDefinition,
+    type AppSummary
+  } from '$lib/api/apps';
   import {
     attachInterfaceToType,
     attachSharedPropertyType,
@@ -50,6 +58,11 @@
     updateProperty,
     upsertProjectMembership
   } from '$lib/api/ontology';
+  import {
+    createDefaultSettings,
+    createDefaultTheme,
+    createPage
+  } from '$lib/utils/apps';
 
   type ManagerSection = 'discover' | 'types' | 'interfaces' | 'shared' | 'links' | 'projects' | 'changes' | 'advanced';
   type ReviewFilter = 'all' | 'errors' | 'warnings';
@@ -201,6 +214,7 @@
   const branchOptions = ['main', 'working-copy', 'release-candidate'];
   const propertyTypeOptions = ['string', 'integer', 'float', 'boolean', 'date', 'datetime', 'json', 'embedding'];
   const projectRoleOptions: OntologyProjectRole[] = ['owner', 'editor', 'viewer'];
+  const workshopBlue4 = '#3b82f6';
 
   let loading = $state(true);
   let loadError = $state('');
@@ -236,6 +250,10 @@
 
   let selectedProjectMemberships = $state<OntologyProjectMembership[]>([]);
   let selectedProjectResources = $state<OntologyProjectResourceBinding[]>([]);
+  let workshopDependents = $state<AppSummary[]>([]);
+  let loadingWorkshopDependents = $state(false);
+  let workshopDependentError = $state('');
+  let creatingWorkshopDependent = $state(false);
 
   let changeQueue = $state<StagedChange[]>([]);
   let recentItems = $state<RecentItem[]>([]);
@@ -579,6 +597,104 @@
     };
   }
 
+  function workshopInboxNameForType(typeItem: ObjectType) {
+    const base = typeItem.display_name?.trim() || typeItem.name || 'Object';
+    if (/[sxz]$/i.test(base) || /(ch|sh)$/i.test(base)) return `${base}es Inbox`;
+    if (/[^aeiou]y$/i.test(base)) return `${base.slice(0, -1)}ies Inbox`;
+    if (/s$/i.test(base)) return `${base} Inbox`;
+    return `${base}s Inbox`;
+  }
+
+  function widgetDependsOnOntologyType(widget: AppDefinition['pages'][number]['widgets'][number], typeId: string): boolean {
+    const bindingMatches = widget.binding?.source_type === 'ontology' && widget.binding.source_id === typeId;
+    if (bindingMatches) return true;
+    return widget.children.some((child) => widgetDependsOnOntologyType(child, typeId));
+  }
+
+  function appDependsOnOntologyType(app: AppDefinition, typeId: string) {
+    if (app.settings.ontology_source_type_id === typeId) return true;
+    if (app.settings.slate.quiver_embed.primary_type_id === typeId) return true;
+    if (app.settings.slate.quiver_embed.secondary_type_id === typeId) return true;
+    return app.pages.some((page) => page.widgets.some((widget) => widgetDependsOnOntologyType(widget, typeId)));
+  }
+
+  async function loadWorkshopDependents(typeId: string) {
+    if (!typeId) {
+      workshopDependents = [];
+      workshopDependentError = '';
+      return;
+    }
+
+    const requestedTypeId = typeId;
+    loadingWorkshopDependents = true;
+    workshopDependentError = '';
+
+    try {
+      const appResponse = await listApps({ per_page: 100 });
+      const apps = await Promise.all(
+        appResponse.data.map(async (summary) => ({
+          summary,
+          app: await getApp(summary.id)
+        }))
+      );
+
+      if (selectedTypeId !== requestedTypeId) return;
+
+      workshopDependents = apps
+        .filter(({ app }) => appDependsOnOntologyType(app, requestedTypeId))
+        .map(({ summary }) => summary)
+        .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+    } catch (cause) {
+      if (selectedTypeId !== requestedTypeId) return;
+      workshopDependentError = cause instanceof Error ? cause.message : 'Failed to load Workshop dependents';
+      workshopDependents = [];
+    } finally {
+      if (selectedTypeId === requestedTypeId) {
+        loadingWorkshopDependents = false;
+      }
+    }
+  }
+
+  async function createWorkshopDependent() {
+    if (!selectedType) return;
+
+    creatingWorkshopDependent = true;
+    workshopDependentError = '';
+
+    try {
+      const page = createPage('Overview', '/');
+      const name = workshopInboxNameForType(selectedType);
+      const settings = createDefaultSettings(page.id);
+      const app = await createApp({
+        name,
+        description: `Operational inbox built from ${selectedType.display_name}.`,
+        status: 'draft',
+        pages: [page],
+        theme: {
+          ...createDefaultTheme(),
+          primary_color: workshopBlue4
+        },
+        settings: {
+          ...settings,
+          ontology_source_type_id: selectedType.id,
+          workshop_header: {
+            ...settings.workshop_header,
+            title: name,
+            icon: 'cube',
+            color: workshopBlue4
+          }
+        }
+      });
+
+      await loadWorkshopDependents(selectedType.id);
+      await goto(`/apps?appId=${app.id}`);
+    } catch (cause) {
+      workshopDependentError = cause instanceof Error ? cause.message : 'Failed to create Workshop module';
+    } finally {
+      creatingWorkshopDependent = false;
+    }
+  }
+
   async function loadCatalog() {
     loading = true;
     loadError = '';
@@ -624,6 +740,7 @@
     if (!id) return;
     const typeItem = objectTypeMap.get(id);
     if (typeItem) loadTypeDraft(typeItem);
+    void loadWorkshopDependents(id);
     try {
       const [detail, propertiesResponse, sharedProps, interfacesResponse, objectsResponse] = await Promise.all([
         getObjectType(id),
@@ -2187,6 +2304,85 @@
                 <input bind:value={createTypeDraft.color} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm" placeholder="Color" />
                 <textarea bind:value={createTypeDraft.description} class="min-h-[90px] w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm" placeholder="Description"></textarea>
                 <button class="w-full rounded-2xl bg-[#2458b8] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1d4f91]" onclick={stageTypeCreate}>Stage new object type</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
+            <div class="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Dependents</div>
+                <h2 class="mt-2 text-2xl font-semibold text-slate-900">Workshop</h2>
+                <p class="mt-1 text-sm text-slate-600">Create and track Workshop modules that depend on this ontology object type.</p>
+              </div>
+              <div class="rounded-full bg-[#eef4ff] px-3 py-1 text-sm font-semibold text-[#2458b8]">{workshopDependents.length}</div>
+            </div>
+
+            <div class="mt-5 grid gap-4 xl:grid-cols-[240px_1fr]">
+              <div class="rounded-[24px] border border-[#dbe4f1] bg-[#f8fbff] p-4">
+                <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Dependent types</div>
+                <button class="mt-3 flex w-full items-center justify-between rounded-2xl border border-[#bfd1ef] bg-white px-4 py-3 text-left transition hover:border-[#8eabd8]">
+                  <span class="flex items-center gap-2 font-medium text-slate-800">
+                    <Glyph name="cube" size={16} />
+                    Workshop
+                  </span>
+                  <span class="rounded-full bg-[#eef4ff] px-2 py-0.5 text-xs font-semibold text-[#2458b8]">{workshopDependents.length}</span>
+                </button>
+              </div>
+
+              <div class="rounded-[24px] border border-[#dbe4f1] bg-[#fbfcff]">
+                <div class="border-b border-[#dbe4f1] px-5 py-4">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div class="text-sm font-semibold text-slate-900">{workshopDependents.length === 0 ? 'No Workshop modules' : 'Workshop modules'}</div>
+                      <div class="mt-1 text-sm text-slate-600">Workshop lets you build interactive applications for operational users directly from this ontology object.</div>
+                    </div>
+                    <button
+                      class="rounded-2xl bg-[#2458b8] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1d4f91] disabled:cursor-not-allowed disabled:opacity-60"
+                      onclick={() => void createWorkshopDependent()}
+                      disabled={creatingWorkshopDependent}
+                    >
+                      {creatingWorkshopDependent ? 'Creating…' : workshopDependents.length === 0 ? 'Create your first' : 'Create new'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="px-5 py-5">
+                  {#if workshopDependentError}
+                    <div class="rounded-2xl border border-[#efc5c5] bg-[#fff5f5] px-4 py-3 text-sm text-[#9b2c2c]">{workshopDependentError}</div>
+                  {:else if loadingWorkshopDependents}
+                    <div class="rounded-2xl border border-[#dbe4f1] bg-white px-4 py-8 text-center text-sm text-slate-600">Loading Workshop dependents…</div>
+                  {:else if workshopDependents.length === 0}
+                    <div class="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-[#bfd1ef] bg-white px-6 py-10 text-center">
+                      <div class="flex h-14 w-14 items-center justify-center rounded-full bg-[#eef4ff] text-[#2458b8]">
+                        <Glyph name="search" size={24} />
+                      </div>
+                      <div>
+                        <div class="text-lg font-semibold text-slate-900">No Workshop modules</div>
+                        <p class="mt-2 max-w-xl text-sm text-slate-600">Create a linked Workshop inbox to give operators a dedicated application surface for {selectedType.display_name}.</p>
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="grid gap-3 md:grid-cols-2">
+                      {#each workshopDependents as dependent}
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-white px-4 py-4 shadow-sm">
+                          <div class="flex items-start justify-between gap-3">
+                            <div>
+                              <div class="font-medium text-slate-900">{dependent.name}</div>
+                              <div class="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{dependent.status}</div>
+                            </div>
+                            <span class="rounded-full bg-[#eef4ff] px-2 py-1 text-xs font-semibold text-[#2458b8]">{dependent.page_count} pages</span>
+                          </div>
+                          <p class="mt-3 text-sm text-slate-600">{dependent.description || 'No description yet.'}</p>
+                          <div class="mt-4 flex flex-wrap gap-2">
+                            <a href={`/apps?appId=${dependent.id}`} class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]">Open in Workshop</a>
+                            <a href={`/apps/runtime/${dependent.slug}`} class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]">Open runtime</a>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
               </div>
             </div>
           </div>

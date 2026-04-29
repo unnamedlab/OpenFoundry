@@ -23,16 +23,23 @@ pub fn widget_catalog() -> Vec<WidgetCatalogItem> {
     vec![
         WidgetCatalogItem {
             widget_type: "table".to_string(),
-            label: "Table".to_string(),
-            description: "Paginated records from a dataset, ontology object list, or SQL query."
+            label: "Object Table".to_string(),
+            description: "Paginated object-set records with configurable properties, variable bindings, and default sort."
                 .to_string(),
             category: "data".to_string(),
-            default_props: json!({ "page_size": 10, "striped": true }),
+            default_props: json!({
+                "page_size": 10,
+                "striped": true,
+                "columns": [],
+                "object_set_variable_id": null,
+                "object_set_variable_name": null
+            }),
             default_size: WidgetDefaultSize {
                 width: 8,
                 height: 5,
             },
             supported_bindings: vec![
+                "object_set".to_string(),
                 "dataset".to_string(),
                 "query".to_string(),
                 "ontology".to_string(),

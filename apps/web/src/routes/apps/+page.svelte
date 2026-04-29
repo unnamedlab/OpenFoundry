@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import Glyph from '$components/ui/Glyph.svelte';
 	import { createTranslator, currentLocale } from '$lib/i18n/store';
 
 	import AppRenderer from '$lib/components/apps/AppRenderer.svelte';
 	import {
+		type AppObjectSetVariable,
 		createApp,
 		createAppFromTemplate,
 		deleteApp,
@@ -33,7 +35,14 @@
 	import { listAgents, type AgentDefinition } from '$lib/api/ai';
 	import { listRepositories, type RepositoryDefinition } from '$lib/api/code-repos';
 	import { listDatasets, type Dataset } from '$lib/api/datasets';
-	import { listObjectTypes, type ObjectType } from '$lib/api/ontology';
+	import {
+		listObjectSets,
+		listObjectTypes,
+		listProperties,
+		type ObjectSetDefinition,
+		type ObjectType,
+		type Property,
+	} from '$lib/api/ontology';
 	import { notifications } from '$stores/notifications';
 	import {
 		cloneValue,
@@ -50,11 +59,29 @@
 		error: string;
 	};
 
+	const WORKSHOP_BLUE_4 = '#3b82f6';
+	const workshopHeaderIconOptions = ['cube', 'object', 'folder', 'bookmark', 'sparkles'] as const;
+	type WorkshopHeaderIconOption = (typeof workshopHeaderIconOptions)[number];
+	const workshopHeaderIconLabels: Record<WorkshopHeaderIconOption, string> = {
+		cube: 'Cube',
+		object: 'Object',
+		folder: 'Folder',
+		bookmark: 'Bookmark',
+		sparkles: 'Sparkles',
+	};
+	const workshopHeaderColorPresets = [
+		{ label: 'Blue 4', value: WORKSHOP_BLUE_4 },
+		{ label: 'Blue 5', value: '#2458b8' },
+		{ label: 'Emerald 4', value: '#10b981' },
+		{ label: 'Slate 5', value: '#475569' },
+	] as const;
+
 	let apps = $state<AppSummary[]>([]);
 	let templates = $state<AppTemplate[]>([]);
 	let widgetCatalog = $state<WidgetCatalogItem[]>([]);
 	let datasets = $state<Dataset[]>([]);
 	let objectTypes = $state<ObjectType[]>([]);
+	let objectSets = $state<ObjectSetDefinition[]>([]);
 	let agents = $state<AgentDefinition[]>([]);
 	let repositories = $state<RepositoryDefinition[]>([]);
 	let versions = $state<AppVersion[]>([]);
@@ -66,10 +93,15 @@
 	let publishNotes = $state('');
 	let previewEmbed = $state('');
 	let previewUrl = $state('');
+	let widgetSearch = $state('');
 	let draggedWidgetType = $state('');
 	let draggedWidgetId = $state('');
+	let draggedTableColumnKey = $state('');
 	let selectedWorkspaceFilePath = $state('');
 	let newWorkspaceFilePath = $state('');
+	let objectSetVariableDraftName = $state('');
+	let objectSetVariableDraftObjectSetId = $state('');
+	let objectTypePropertiesById = $state<Record<string, Property[]>>({});
 	let draft = $state<AppDefinition>(createEmptyAppDraft());
 	let builderState = $state<BuilderState>({
 		loading: true,
@@ -102,6 +134,71 @@
 		return currentPage()?.widgets.find((widget) => widget.id === selectedWidgetId);
 	}
 
+	function createBuilderId() {
+		if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+			return crypto.randomUUID();
+		}
+
+		return `object_set_var_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+	}
+
+	function objectSetVariables() {
+		return draft.settings.object_set_variables ?? [];
+	}
+
+	function selectedTableVariableId() {
+		const value = selectedWidget()?.props.object_set_variable_id;
+		return typeof value === 'string' && value.length > 0 ? value : '';
+	}
+
+	function selectedTableObjectSetVariable() {
+		return objectSetVariables().find((variable) => variable.id === selectedTableVariableId()) ?? null;
+	}
+
+	function selectedTableObjectSet() {
+		const variable = selectedTableObjectSetVariable();
+		if (!variable?.object_set_id) return null;
+		return objectSets.find((objectSet) => objectSet.id === variable.object_set_id) ?? null;
+	}
+
+	function selectedTableColumns() {
+		const value = selectedWidget()?.props.columns;
+		if (!Array.isArray(value)) return [] as Array<{ key: string; label: string }>;
+		return value
+			.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+			.map((entry) => ({
+				key: typeof entry.key === 'string' ? entry.key : '',
+				label: typeof entry.label === 'string' ? entry.label : (typeof entry.key === 'string' ? entry.key : ''),
+			}))
+			.filter((entry) => entry.key.length > 0);
+	}
+
+	function selectedTableProperties() {
+		const objectTypeId = selectedTableObjectSet()?.base_object_type_id;
+		if (!objectTypeId) return [] as Property[];
+		return objectTypePropertiesById[objectTypeId] ?? [];
+	}
+
+	function objectTypeLabel(typeId: string | null | undefined) {
+		if (!typeId) return 'Unknown object type';
+		return objectTypes.find((objectType) => objectType.id === typeId)?.display_name ?? 'Unknown object type';
+	}
+
+	function objectSetLabel(objectSetId: string | null | undefined) {
+		if (!objectSetId) return 'Unassigned object set';
+		return objectSets.find((objectSet) => objectSet.id === objectSetId)?.name ?? 'Unassigned object set';
+	}
+
+	function updateObjectSetVariables(nextVariables: AppObjectSetVariable[]) {
+		draft = {
+			...draft,
+			settings: {
+				...draft.settings,
+				object_set_variables: nextVariables,
+			},
+		};
+	}
+
 	function normalizeWidgets(widgets: AppWidget[]) {
 		return widgets.map((widget, index) => ({
 			...widget,
@@ -110,6 +207,19 @@
 				y: index * 2,
 			},
 		}));
+	}
+
+	function mapWidgetsDeep(
+		widgets: AppWidget[],
+		updater: (widget: AppWidget) => AppWidget,
+	): AppWidget[] {
+		return widgets.map((widget) => {
+			const nextWidget = updater(widget);
+			return {
+				...nextWidget,
+				children: mapWidgetsDeep(nextWidget.children ?? [], updater),
+			};
+		});
 	}
 
 	function syncSelection() {
@@ -139,12 +249,13 @@
 	}
 
 	async function loadRegistry() {
-		const [appResponse, templateResponse, catalogResponse, datasetResponse, typeResponse, agentResponse, repositoryResponse] = await Promise.all([
+		const [appResponse, templateResponse, catalogResponse, datasetResponse, typeResponse, objectSetResponse, agentResponse, repositoryResponse] = await Promise.all([
 			listApps({ search: search || undefined, per_page: 50 }),
 			listAppTemplates(),
 			listWidgetCatalog(),
 			listDatasets({ per_page: 100 }),
 			listObjectTypes({ per_page: 100 }).catch(() => ({ data: [] as ObjectType[], total: 0, page: 1, per_page: 100 })),
+			listObjectSets().catch(() => ({ data: [] as ObjectSetDefinition[] })),
 			listAgents().catch(() => ({ data: [] as AgentDefinition[], total: 0 })),
 			listRepositories().catch(() => ({ items: [] as RepositoryDefinition[] })),
 		]);
@@ -154,6 +265,7 @@
 		widgetCatalog = catalogResponse;
 		datasets = datasetResponse.data;
 		objectTypes = typeResponse.data;
+		objectSets = objectSetResponse.data;
 		agents = agentResponse.data;
 		repositories = repositoryResponse.items;
 	}
@@ -600,6 +712,156 @@
 		}));
 	}
 
+	async function ensureObjectTypePropertiesLoaded(typeId: string | null | undefined) {
+		if (!typeId || objectTypePropertiesById[typeId]) return;
+		try {
+			const properties = await listProperties(typeId);
+			objectTypePropertiesById = {
+				...objectTypePropertiesById,
+				[typeId]: properties,
+			};
+		} catch {
+			objectTypePropertiesById = {
+				...objectTypePropertiesById,
+				[typeId]: [],
+			};
+		}
+	}
+
+	function updateTableVariableWidgetReference(variable: AppObjectSetVariable | null) {
+		updateSelectedWidget((widget) => ({
+			...widget,
+			binding: {
+				...ensureBinding(widget),
+				source_type: 'object_set',
+				source_id: variable?.object_set_id ?? null,
+				query_text: null,
+			},
+			props: {
+				...widget.props,
+				object_set_variable_id: variable?.id ?? null,
+				object_set_variable_name: variable?.name ?? null,
+			},
+		}));
+	}
+
+	function syncVariableReferences(variableId: string, nextVariable: AppObjectSetVariable) {
+		draft = {
+			...draft,
+			settings: {
+				...draft.settings,
+				object_set_variables: objectSetVariables().map((variable) => variable.id === variableId ? nextVariable : variable),
+			},
+			pages: draft.pages.map((page) => ({
+				...page,
+				widgets: mapWidgetsDeep(page.widgets, (widget) => {
+					if (widget.props.object_set_variable_id !== variableId) {
+						return widget;
+					}
+					return {
+						...widget,
+						binding: {
+							...ensureBinding(widget),
+							source_type: 'object_set',
+							source_id: nextVariable.object_set_id,
+							query_text: null,
+						},
+						props: {
+							...widget.props,
+							object_set_variable_name: nextVariable.name,
+						},
+					};
+				}),
+			})),
+		};
+	}
+
+	function assignObjectSetVariable(variableId: string) {
+		const variable = objectSetVariables().find((entry) => entry.id === variableId) ?? null;
+		if (!variable) return;
+		updateTableVariableWidgetReference(variable);
+		objectSetVariableDraftName = variable.name;
+		objectSetVariableDraftObjectSetId = variable.object_set_id ?? '';
+		void ensureObjectTypePropertiesLoaded(variable.object_type_id);
+	}
+
+	function createObjectSetVariableForTable() {
+		const objectSetId = objectSetVariableDraftObjectSetId;
+		if (!objectSetId) {
+			notifications.warning('Select an object set first');
+			return;
+		}
+
+		const objectSet = objectSets.find((entry) => entry.id === objectSetId);
+		if (!objectSet) {
+			notifications.warning('Selected object set is unavailable');
+			return;
+		}
+
+		const variable: AppObjectSetVariable = {
+			id: createBuilderId(),
+			name: objectSetVariableDraftName.trim() || `${objectSet.name} variable`,
+			object_set_id: objectSet.id,
+			object_type_id: objectSet.base_object_type_id,
+		};
+		updateObjectSetVariables([...objectSetVariables(), variable]);
+		updateTableVariableWidgetReference(variable);
+		objectSetVariableDraftName = variable.name;
+		void ensureObjectTypePropertiesLoaded(variable.object_type_id);
+	}
+
+	function updateSelectedObjectSetVariableName(value: string) {
+		const variable = selectedTableObjectSetVariable();
+		if (!variable) return;
+		syncVariableReferences(variable.id, {
+			...variable,
+			name: value.trim() || variable.name,
+		});
+	}
+
+	function updateSelectedObjectSetVariableObjectSet(objectSetId: string) {
+		const variable = selectedTableObjectSetVariable();
+		if (!variable) return;
+		const objectSet = objectSets.find((entry) => entry.id === objectSetId) ?? null;
+		const nextVariable: AppObjectSetVariable = {
+			...variable,
+			object_set_id: objectSet?.id ?? null,
+			object_type_id: objectSet?.base_object_type_id ?? null,
+		};
+		syncVariableReferences(variable.id, nextVariable);
+		void ensureObjectTypePropertiesLoaded(nextVariable.object_type_id);
+	}
+
+	function setTableColumns(columns: Array<{ key: string; label: string }>) {
+		updateSelectedWidgetProps('columns', columns);
+	}
+
+	function addAllTableProperties() {
+		const columns = selectedTableProperties().map((property) => ({
+			key: property.name,
+			label: property.display_name,
+		}));
+		setTableColumns(columns);
+		if (!String(selectedWidget()?.props.default_sort_column ?? '').trim() && columns.length > 0) {
+			updateSelectedWidgetProps('default_sort_column', columns[0].key);
+		}
+	}
+
+	function moveTableColumn(sourceKey: string, targetKey: string) {
+		if (sourceKey === targetKey) return;
+		const columns = [...selectedTableColumns()];
+		const sourceIndex = columns.findIndex((column) => column.key === sourceKey);
+		const targetIndex = columns.findIndex((column) => column.key === targetKey);
+		if (sourceIndex < 0 || targetIndex < 0) return;
+		const [moved] = columns.splice(sourceIndex, 1);
+		columns.splice(targetIndex, 0, moved);
+		setTableColumns(columns);
+	}
+
+	function removeTableColumn(columnKey: string) {
+		setTableColumns(selectedTableColumns().filter((column) => column.key !== columnKey));
+	}
+
 	function addEvent() {
 		updateSelectedWidget((widget) => ({
 				...widget,
@@ -805,9 +1067,54 @@
 		return widget?.binding?.source_type ?? 'static';
 	}
 
+	function filteredWidgetCatalog() {
+		const query = widgetSearch.trim().toLowerCase();
+		if (!query) return widgetCatalog;
+		return widgetCatalog.filter((item) =>
+			[item.label, item.description, item.category, item.widget_type]
+				.some((value) => value.toLowerCase().includes(query)),
+		);
+	}
+
+	function resolveWorkshopHeaderIcon(value: string | null | undefined): WorkshopHeaderIconOption {
+		return workshopHeaderIconOptions.find((icon) => icon === value) ?? 'cube';
+	}
+
+	function updateWorkshopHeader(
+		patch: Partial<AppDefinition['settings']['workshop_header']>,
+	) {
+		draft = {
+			...draft,
+			settings: {
+				...draft.settings,
+				workshop_header: {
+					...draft.settings.workshop_header,
+					...patch,
+				},
+			},
+		};
+	}
+
+	function getWorkshopHeaderColorValue() {
+		return draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4;
+	}
+
 	$effect(() => {
 		draft.pages.length;
 		syncSelection();
+	});
+
+	$effect(() => {
+		const variable = selectedTableObjectSetVariable();
+		if (selectedWidget()?.widget_type !== 'table') return;
+		if (variable) {
+			objectSetVariableDraftName = variable.name;
+			objectSetVariableDraftObjectSetId = variable.object_set_id ?? '';
+			void ensureObjectTypePropertiesLoaded(variable.object_type_id);
+			return;
+		}
+		objectSetVariableDraftName = '';
+		objectSetVariableDraftObjectSetId = '';
 	});
 
 	$effect(() => {
@@ -816,6 +1123,10 @@
 	});
 
 	onMount(() => {
+		const appId = new URLSearchParams(window.location.search).get('appId');
+		if (appId) {
+			selectedAppId = appId;
+		}
 		void load();
 	});
 
@@ -915,8 +1226,15 @@
 
 			<div>
 				<div class="mb-3 text-xs uppercase tracking-[0.24em] text-slate-400">Widget palette</div>
+				<input
+					type="text"
+					value={widgetSearch}
+					oninput={(event) => widgetSearch = (event.currentTarget as HTMLInputElement).value}
+					placeholder="Search widgets"
+					class="mb-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+				/>
 				<div class="grid gap-2 sm:grid-cols-2">
-					{#each widgetCatalog as item (item.widget_type)}
+					{#each filteredWidgetCatalog() as item (item.widget_type)}
 						<button
 							type="button"
 							draggable="true"
@@ -929,6 +1247,11 @@
 						</button>
 					{/each}
 				</div>
+				{#if filteredWidgetCatalog().length === 0}
+					<div class="mt-3 rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+						No widgets match “{widgetSearch}”.
+					</div>
+				{/if}
 				<p class="mt-3 text-xs text-slate-400">Drag a widget onto the canvas or click to append it to the current page.</p>
 			</div>
 		</section>
@@ -1247,6 +1570,80 @@
 		</section>
 
 		<section class="space-y-5 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+			<div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+				<div class="flex items-start justify-between gap-3">
+					<div>
+						<div class="text-xs uppercase tracking-[0.22em] text-slate-400">Workshop header</div>
+						<div class="mt-1 text-sm text-slate-500">Mirror the ontology-linked Workshop header with a title, icon, and curated color preset.</div>
+					</div>
+					<div
+						class="flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
+						style={`background:${draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4}1a; color:${draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4};`}
+					>
+						<Glyph name={resolveWorkshopHeaderIcon(draft.settings.workshop_header.icon)} size={14} />
+						<span>{draft.settings.workshop_header.title || draft.name || 'Workshop header'}</span>
+					</div>
+				</div>
+
+				<div class="mt-4 grid gap-3 sm:grid-cols-2">
+					<label class="text-sm sm:col-span-2">
+						<span class="mb-1 block text-slate-500">Header title</span>
+						<input
+							type="text"
+							value={draft.settings.workshop_header.title ?? ''}
+							oninput={(event) => updateWorkshopHeader({ title: (event.currentTarget as HTMLInputElement).value || null })}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						/>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Ontology object type</span>
+						<select
+							value={draft.settings.ontology_source_type_id ?? ''}
+							oninput={(event) => draft = { ...draft, settings: { ...draft.settings, ontology_source_type_id: (event.currentTarget as HTMLSelectElement).value || null } }}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						>
+							<option value="">Unlinked</option>
+							{#each objectTypes as objectType (objectType.id)}
+								<option value={objectType.id}>{objectType.display_name}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Icon</span>
+						<select
+							value={resolveWorkshopHeaderIcon(draft.settings.workshop_header.icon)}
+							oninput={(event) => updateWorkshopHeader({ icon: (event.currentTarget as HTMLSelectElement).value })}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						>
+							{#each workshopHeaderIconOptions as icon}
+								<option value={icon}>{workshopHeaderIconLabels[icon]}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Color preset</span>
+						<select
+							value={getWorkshopHeaderColorValue()}
+							oninput={(event) => updateWorkshopHeader({ color: (event.currentTarget as HTMLSelectElement).value || WORKSHOP_BLUE_4 })}
+							class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+						>
+							{#each workshopHeaderColorPresets as preset}
+								<option value={preset.value}>{preset.label}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="text-sm">
+						<span class="mb-1 block text-slate-500">Header color</span>
+						<input
+							type="color"
+							value={draft.settings.workshop_header.color ?? WORKSHOP_BLUE_4}
+							oninput={(event) => updateWorkshopHeader({ color: (event.currentTarget as HTMLInputElement).value || WORKSHOP_BLUE_4 })}
+							class="h-10 w-full rounded-xl border border-slate-200 px-1 py-1 dark:border-slate-700 dark:bg-slate-900"
+						/>
+					</label>
+				</div>
+			</div>
+
 			<div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
 				<div class="text-xs uppercase tracking-[0.22em] text-slate-400">App theming</div>
 				<div class="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1585,7 +1982,7 @@
 						</div>
 
 						<div class="rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
-							<div class="text-xs uppercase tracking-[0.22em] text-slate-400">Binding</div>
+							<div class="text-xs uppercase tracking-[0.22em] text-slate-400">{selectedWidget()?.widget_type === 'table' ? 'Input data' : 'Binding'}</div>
 							<div class="mt-3 space-y-3">
 								{#if selectedWidget()?.widget_type === 'agent'}
 									<div class="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500">
@@ -1600,13 +1997,95 @@
 										<span class="mb-1 block text-slate-500">Source type</span>
 										<select value={widgetBindingType(selectedWidget())} oninput={(event) => updateSelectedWidgetBinding((binding) => ({ ...binding, source_type: (event.currentTarget as HTMLSelectElement).value }))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
 											<option value="static">Static</option>
+											{#if selectedWidget()?.widget_type === 'table'}<option value="object_set">Object set</option>{/if}
 											<option value="dataset">Dataset</option>
 											<option value="query">Query</option>
 											<option value="ontology">Ontology</option>
 										</select>
 									</label>
 
-									{#if widgetBindingType(selectedWidget()) === 'dataset'}
+									{#if selectedWidget()?.widget_type === 'table' && widgetBindingType(selectedWidget()) === 'object_set'}
+										<label class="text-sm">
+											<span class="mb-1 block text-slate-500">Object Set</span>
+											<select
+												value={selectedTableVariableId() || '__new__'}
+												oninput={(event) => {
+													const value = (event.currentTarget as HTMLSelectElement).value;
+													if (value === '__new__') {
+														updateTableVariableWidgetReference(null);
+														return;
+													}
+													assignObjectSetVariable(value);
+												}}
+												class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+											>
+												{#each objectSetVariables() as variable (variable.id)}
+													<option value={variable.id}>{variable.name}</option>
+												{/each}
+												<option value="__new__">New object set variable</option>
+											</select>
+										</label>
+
+										{#if selectedTableObjectSetVariable()}
+											<div class="grid gap-3 sm:grid-cols-2">
+												<label class="text-sm">
+													<span class="mb-1 block text-slate-500">Variable name</span>
+													<input
+														type="text"
+														value={objectSetVariableDraftName}
+														oninput={(event) => objectSetVariableDraftName = (event.currentTarget as HTMLInputElement).value}
+														onblur={() => updateSelectedObjectSetVariableName(objectSetVariableDraftName)}
+														class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+													/>
+												</label>
+												<label class="text-sm">
+													<span class="mb-1 block text-slate-500">Starting object set</span>
+													<select
+														value={selectedTableObjectSetVariable()?.object_set_id ?? ''}
+														oninput={(event) => updateSelectedObjectSetVariableObjectSet((event.currentTarget as HTMLSelectElement).value)}
+														class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+													>
+														<option value="">Select starting object set</option>
+														{#each objectSets as objectSet (objectSet.id)}
+															<option value={objectSet.id}>{objectSet.name}</option>
+														{/each}
+													</select>
+												</label>
+											</div>
+											<div class="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500 dark:bg-slate-950">
+												{selectedTableObjectSetVariable()?.name} → {objectSetLabel(selectedTableObjectSetVariable()?.object_set_id)} · {objectTypeLabel(selectedTableObjectSetVariable()?.object_type_id)}
+											</div>
+										{:else}
+											<div class="grid gap-3 sm:grid-cols-2">
+												<label class="text-sm">
+													<span class="mb-1 block text-slate-500">Variable name</span>
+													<input
+														type="text"
+														value={objectSetVariableDraftName}
+														oninput={(event) => objectSetVariableDraftName = (event.currentTarget as HTMLInputElement).value}
+														placeholder="Order object set"
+														class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+													/>
+												</label>
+												<label class="text-sm">
+													<span class="mb-1 block text-slate-500">Select starting object set</span>
+													<select
+														value={objectSetVariableDraftObjectSetId}
+														oninput={(event) => objectSetVariableDraftObjectSetId = (event.currentTarget as HTMLSelectElement).value}
+														class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+													>
+														<option value="">Select starting object set</option>
+														{#each objectSets as objectSet (objectSet.id)}
+															<option value={objectSet.id}>{objectSet.name}</option>
+														{/each}
+													</select>
+												</label>
+											</div>
+											<button type="button" class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900" onclick={createObjectSetVariableForTable}>
+												Create object set variable
+											</button>
+										{/if}
+									{:else if widgetBindingType(selectedWidget()) === 'dataset'}
 										<label class="text-sm">
 											<span class="mb-1 block text-slate-500">Dataset</span>
 											<select value={selectedWidget()?.binding?.source_id ?? ''} oninput={(event) => updateSelectedWidgetBinding((binding) => ({ ...binding, source_id: (event.currentTarget as HTMLSelectElement).value }))} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
@@ -1712,22 +2191,74 @@
 								</label>
 							</div>
 						{:else if selectedWidget()?.widget_type === 'table'}
-							<div class="grid gap-3 sm:grid-cols-3">
-								<label class="text-sm">
-									<span class="mb-1 block text-slate-500">Page size</span>
-									<input type="number" min="1" value={Number(selectedWidget()?.props.page_size ?? 10)} oninput={(event) => updateSelectedWidgetProps('page_size', Number((event.currentTarget as HTMLInputElement).value) || 10)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900" />
-								</label>
-								<label class="text-sm">
-									<span class="mb-1 block text-slate-500">Default sort</span>
-									<input type="text" value={String(selectedWidget()?.props.default_sort_column ?? '')} oninput={(event) => updateSelectedWidgetProps('default_sort_column', (event.currentTarget as HTMLInputElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900" />
-								</label>
-								<label class="text-sm">
-									<span class="mb-1 block text-slate-500">Direction</span>
-									<select value={String(selectedWidget()?.props.default_sort_direction ?? 'asc')} oninput={(event) => updateSelectedWidgetProps('default_sort_direction', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-										<option value="asc">Ascending</option>
-										<option value="desc">Descending</option>
-									</select>
-								</label>
+							<div class="space-y-4">
+								<div class="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+									<div class="flex items-center justify-between gap-3">
+										<div>
+											<div class="text-xs uppercase tracking-[0.22em] text-slate-400">Column configuration</div>
+											<div class="mt-1 text-sm text-slate-500">Select which properties appear in the Object Table and drag them into order.</div>
+										</div>
+										<button type="button" class="rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900" onclick={addAllTableProperties} disabled={selectedTableProperties().length === 0}>
+											Add all properties
+										</button>
+									</div>
+
+									<div class="mt-4 space-y-2">
+										{#if selectedTableColumns().length === 0}
+											<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700">
+												Select an object set variable, then add properties to configure the table columns.
+											</div>
+										{:else}
+											{#each selectedTableColumns() as column (column.key)}
+												<div
+													class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-3 dark:border-slate-700"
+													role="listitem"
+													draggable="true"
+													ondragstart={() => draggedTableColumnKey = column.key}
+													ondragover={(event) => event.preventDefault()}
+													ondrop={() => {
+														moveTableColumn(draggedTableColumnKey, column.key);
+														draggedTableColumnKey = '';
+													}}
+												>
+													<div class="flex items-center gap-3">
+														<span class="cursor-grab select-none text-slate-400">⋮⋮</span>
+														<div>
+															<div class="font-medium text-slate-900 dark:text-slate-100">{column.label}</div>
+															<div class="text-xs text-slate-500">{column.key}</div>
+														</div>
+													</div>
+													<button type="button" class="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900" onclick={() => removeTableColumn(column.key)}>
+														Remove
+													</button>
+												</div>
+											{/each}
+										{/if}
+									</div>
+								</div>
+
+								<div class="grid gap-3 sm:grid-cols-3">
+									<label class="text-sm">
+										<span class="mb-1 block text-slate-500">Page size</span>
+										<input type="number" min="1" value={Number(selectedWidget()?.props.page_size ?? 10)} oninput={(event) => updateSelectedWidgetProps('page_size', Number((event.currentTarget as HTMLInputElement).value) || 10)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900" />
+									</label>
+									<label class="text-sm">
+										<span class="mb-1 block text-slate-500">Default sort</span>
+										<select value={String(selectedWidget()?.props.default_sort_column ?? '')} oninput={(event) => updateSelectedWidgetProps('default_sort_column', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+											<option value="">Select a property to sort by</option>
+											{#each selectedTableColumns() as column (column.key)}
+												<option value={column.key}>{column.label}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="text-sm">
+										<span class="mb-1 block text-slate-500">Direction</span>
+										<select value={String(selectedWidget()?.props.default_sort_direction ?? 'asc')} oninput={(event) => updateSelectedWidgetProps('default_sort_direction', (event.currentTarget as HTMLSelectElement).value)} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+											<option value="asc">Ascending</option>
+											<option value="desc">Descending</option>
+										</select>
+									</label>
+								</div>
 							</div>
 						{:else if selectedWidget()?.widget_type === 'form'}
 							<label class="text-sm">
