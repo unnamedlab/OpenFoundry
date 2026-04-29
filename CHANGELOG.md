@@ -33,13 +33,25 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - This `CHANGELOG.md` with Keep a Changelog conventions.
 
 ### Changed
-- _(add entries here)_
+- **BREAKING:** Replaced the Redis container image with **Valkey 8** (OSS,
+  BSD-3-Clause fork hosted by the Linux Foundation) across the Compose stack.
+  The Compose service is renamed `redis` → `valkey`, the volume `redis_data` →
+  `valkey_data`, the image variable `OPENFOUNDRY_REDIS_IMAGE` →
+  `OPENFOUNDRY_VALKEY_IMAGE` (default `valkey/valkey:8-alpine`), and the
+  intra-cluster `REDIS_URL` now points to `redis://valkey:6379`. The Rust
+  `redis-rs` client is unchanged; Valkey speaks the same wire protocol.
+  Migration: `docker compose down` then `docker compose up -d` (the old
+  `redis_data` volume is no longer referenced; recreate state if needed).
 
 ### Deprecated
 - _(add entries here)_
 
 ### Removed
-- _(add entries here)_
+- Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+  (Apache-2.0). Por ahora pgvector cubre el caso embebido. Se eliminan el
+  servicio `qdrant` del compose, los volúmenes y variables
+  `OPENFOUNDRY_QDRANT_*` / `QDRANT_URL`, las referencias en helm/terraform y
+  el módulo vacío `libs/vector-store/src/qdrant.rs`.
 
 ### Fixed
 - _(add entries here)_
