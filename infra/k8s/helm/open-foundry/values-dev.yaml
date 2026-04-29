@@ -7,6 +7,13 @@ global:
   networkPolicy:
     enabled: false
 
+# Dev keeps the S3-compatible backend served by RustFS (Apache-2.0).
+# We do NOT use MinIO here. RustFS speaks the S3 API, so the
+# `libs/storage-abstraction` layer remains untouched.
+objectStore:
+  backend: rustfs
+  endpoint: http://rustfs:9000
+
 services:
   gateway:
     replicas: 1
