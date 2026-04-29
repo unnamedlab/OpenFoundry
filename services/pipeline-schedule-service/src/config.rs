@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub dataset_service_url: String,
     #[serde(default = "default_workflow_service_url")]
     pub workflow_service_url: String,
+    #[serde(default = "default_nats_url")]
+    pub nats_url: String,
     #[serde(default = "default_ai_service_url")]
     pub ai_service_url: String,
     #[serde(default = "default_storage_backend")]
@@ -56,6 +58,10 @@ fn default_dataset_service_url() -> String {
 
 fn default_workflow_service_url() -> String {
     "http://localhost:50137".to_string()
+}
+
+fn default_nats_url() -> String {
+    "nats://localhost:4222".to_string()
 }
 
 fn default_ai_service_url() -> String {
