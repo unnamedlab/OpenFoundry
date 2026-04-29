@@ -78,9 +78,16 @@ content:
     storageClassName: ceph-rbd
     accessModes:
       - ReadWriteOnce
+  # PDB for the content cluster.  With `redundancy: 2` and 3 replicas a
+  # single voluntary disruption is safe (two surviving copies still hold
+  # the full document set), so we default to `maxUnavailable: 1`.
+  # `minAvailable` is kept as a backward-compatible alternative — set it
+  # to a non-empty value and leave `maxUnavailable` empty to use it
+  # instead.
   podDisruptionBudget:
     enabled: true
-    minAvailable: 2
+    maxUnavailable: 1
+    minAvailable: ""
 
 container:
   replicas: 2
@@ -154,6 +161,11 @@ containerSecurityContext:
 topologySpreadConstraints:
   enabled: true
   maxSkew: 1
+  # Spread content/configserver/container pods across failure zones first
+  # (T8 HA: redundancy=2, nodes=3 — losing a zone must not take down a
+  # majority of replicas).  Use `kubernetes.io/hostname` for clusters
+  # without zone labels.
+  topologyKey: topology.kubernetes.io/zone
   whenUnsatisfiable: ScheduleAnyway
 
 podAntiAffinity:
