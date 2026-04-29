@@ -121,20 +121,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Qdrant (Vector DB) ────────────────────────────────────
-  qdrant:
-    <<: *common
-    image: ${OPENFOUNDRY_QDRANT_IMAGE:-qdrant/qdrant:v1.12.5}
-    ports:
-      - "${OPENFOUNDRY_QDRANT_HTTP_HOST_PORT:-6333}:6333"
-      - "${OPENFOUNDRY_QDRANT_GRPC_HOST_PORT:-6334}:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6333/healthz"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+  # Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+  # (Apache-2.0). Por ahora pgvector cubre el caso embebido.
 
   identity-federation-service:
     <<: *app-common
@@ -2393,7 +2381,6 @@ volumes:
   nats_data:
   minio_data:
   meilisearch_data:
-  qdrant_data:
   streaming_archive_data:
   event_streaming_archive_data:
   query_data:

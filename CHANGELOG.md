@@ -39,7 +39,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - _(add entries here)_
 
 ### Removed
-- _(add entries here)_
+- Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+  (Apache-2.0). Por ahora pgvector cubre el caso embebido. Se eliminan el
+  servicio `qdrant` del compose, los volúmenes y variables
+  `OPENFOUNDRY_QDRANT_*` / `QDRANT_URL`, las referencias en helm/terraform y
+  el módulo vacío `libs/vector-store/src/qdrant.rs`.
 
 ### Fixed
 - _(add entries here)_

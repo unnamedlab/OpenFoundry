@@ -209,7 +209,7 @@ Current repo audit: 24 components are shipped. Enterprise auth remains the only 
 - [x] **LLM gateway** — Multi-provider routing (OpenAI, Anthropic, Ollama/local), load balancing, fallback
 - [x] **Prompt management** — Versioned prompt templates, variable interpolation
 - [x] **RAG pipeline** — Document chunking, embedding generation, semantic retrieval + reranking
-- [x] **Knowledge bases** — Index datasets and ontology into vector store (Qdrant)
+- [x] **Knowledge bases** — Index datasets and ontology into vector store (pgvector; Qdrant se retira por restricción de licencia OSS, sustituto futuro: Vespa Apache-2.0)
 - [x] **AI agents** — Plan → Act → Observe loop, tool calling, task decomposition
 - [x] **Platform copilot** — Natural language → SQL, pipeline suggestions, ontology help
 - [x] **Guardrails** — Output validation, PII detection, toxicity filtering

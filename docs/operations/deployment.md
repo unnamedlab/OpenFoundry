@@ -14,7 +14,10 @@ The Compose stack defines:
 - NATS
 - MinIO
 - Meilisearch
-- Qdrant
+- pgvector (extensión sobre PostgreSQL)
+
+> Qdrant se retira por restricción de licencia OSS; sustituto futuro: Vespa
+> (Apache-2.0). Por ahora pgvector cubre el caso embebido.
 
 Development overrides live in `infra/docker-compose.dev.yml`.
 
