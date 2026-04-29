@@ -3,9 +3,12 @@
 Fecha: 29 de abril de 2026
 
 OpenFoundry usa **Trino** (Apache-2.0) como motor de consultas federadas
-sobre las distintas fuentes analíticas: Iceberg (catálogo Polaris) sobre
-Ceph RGW, PostgreSQL operado por CloudNativePG, Kafka (solo lectura para
-troubleshooting) y, cuando exista, ClickHouse.
+sobre las distintas fuentes analíticas: Iceberg (catálogo REST servido
+por **Lakekeeper** — ver
+[`docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md`](../../docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md),
+que supersede Apache Polaris) sobre Ceph RGW, PostgreSQL operado por
+CloudNativePG, Kafka (solo lectura para troubleshooting) y, cuando
+exista, ClickHouse.
 
 Manifestos: `infra/k8s/trino/`
 Chart upstream: `trino/trino` desde `https://trinodb.github.io/charts/`
@@ -29,7 +32,8 @@ Chart upstream: `trino/trino` desde `https://trinodb.github.io/charts/`
 ### 2.1 Prerrequisitos
 
 - Cluster Kubernetes con Linkerd instalado y la política mTLS activa.
-- Polaris desplegado en el namespace `polaris` con un warehouse `openfoundry`.
+- Lakekeeper desplegado en el namespace `lakekeeper` con un warehouse `openfoundry`
+  (ver `infra/k8s/lakekeeper/` y ADR-0008).
 - CloudNativePG con la base `openfoundry` y un rol read-mostly para Trino.
 - Bucket `openfoundry-iceberg` provisto por Rook (ver `infra/k8s/rook/`).
 - `kubectl` y `helm` ≥ 3.14 con acceso al cluster.
@@ -43,7 +47,7 @@ y a los workers desde estos Secrets:
 |---------------------------------|-----------------------------------------|--------------------------------------|
 | `trino-internal-shared-secret`  | `shared-secret`                         | Handshake interno entre coordinators |
 | `trino-s3-iceberg`              | `S3_ICEBERG_ACCESS_KEY`, `S3_ICEBERG_SECRET_KEY` | Acceso S3 para Iceberg      |
-| `trino-polaris-oauth`           | `POLARIS_OAUTH2_CREDENTIAL`             | Cliente OAuth2 contra Polaris        |
+| `trino-lakekeeper-oauth`        | `LAKEKEEPER_OAUTH2_CREDENTIAL`          | Cliente OAuth2 contra Lakekeeper     |
 | `trino-postgres-credentials`    | `PG_TRINO_USER`, `PG_TRINO_PASSWORD`    | Conexión JDBC a CNPG                 |
 
 ```bash
@@ -55,8 +59,8 @@ kubectl -n trino create secret generic trino-internal-shared-secret \
 kubectl -n trino create secret generic trino-s3-iceberg \
   --from-literal=S3_ICEBERG_ACCESS_KEY="$AWS_ACCESS_KEY_ID" \
   --from-literal=S3_ICEBERG_SECRET_KEY="$AWS_SECRET_ACCESS_KEY"
-kubectl -n trino create secret generic trino-polaris-oauth \
-  --from-literal=POLARIS_OAUTH2_CREDENTIAL="trino:$(vault read -field=password secret/polaris/trino)"
+kubectl -n trino create secret generic trino-lakekeeper-oauth \
+  --from-literal=LAKEKEEPER_OAUTH2_CREDENTIAL="trino:$(vault read -field=password secret/lakekeeper/trino)"
 kubectl -n trino create secret generic trino-postgres-credentials \
   --from-literal=PG_TRINO_USER=trino_ro \
   --from-literal=PG_TRINO_PASSWORD="$(vault read -field=password secret/cnpg/trino_ro)"
@@ -102,7 +106,7 @@ recargarlos uno a uno sin tocar el chart.
 
 | Catálogo     | ConfigMap                       | Backend                                     |
 |--------------|---------------------------------|---------------------------------------------|
-| `iceberg`    | `trino-catalog-iceberg`         | Polaris REST + Ceph RGW S3                  |
+| `iceberg`    | `trino-catalog-iceberg`         | Lakekeeper REST + Ceph RGW S3 (ADR-0008)    |
 | `postgresql` | `trino-catalog-postgresql`      | CNPG `openfoundry-pg-rw.cnpg.svc:5432`      |
 | `kafka`      | `trino-catalog-kafka`           | `kafka-bootstrap.kafka.svc:9092` (read-only)|
 
@@ -233,7 +237,7 @@ hay que persistirlos desde el pod.
 | Síntoma                                              | Diagnóstico                                                                                | Acción                                                          |
 |------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | `Catalog 'iceberg' does not exist`                   | ConfigMap no montado o `subPath` mal escrito                                               | `kubectl -n trino exec deploy/trino-coordinator -- ls /etc/trino/catalog` |
-| `Failed to authenticate with Polaris`                | Secret `trino-polaris-oauth` desincronizado                                                | Rotar credencial en Vault y recrear el Secret + rollout         |
+| `Failed to authenticate with Lakekeeper`             | Secret `trino-lakekeeper-oauth` desincronizado                                             | Rotar credencial en Vault y recrear el Secret + rollout         |
 | `S3 SignatureDoesNotMatch`                           | Credenciales S3 expiradas o reloj desincronizado                                           | Recosechar OBC creds (runbook ceph §4); revisar NTP del nodo    |
 | `Coordinator HA: not elected, going passive`         | Comportamiento normal del standby                                                          | Ninguna; verificar tráfico vía `linkerd edges`                  |
 | Queries colgadas tras `helm upgrade`                 | Worker no completó graceful shutdown                                                       | `kubectl rollout undo` o esperar al `terminationGracePeriodSeconds` |
@@ -256,6 +260,6 @@ hay que persistirlos desde el pod.
 
 - Documentación Trino: https://trino.io/docs/current/
 - Chart upstream: https://github.com/trinodb/charts
-- Polaris (Iceberg REST catalog): https://polaris.apache.org
+- Lakekeeper (Iceberg REST catalog, ADR-0008): https://lakekeeper.io
 - Linkerd mTLS: https://linkerd.io/2/features/automatic-mtls/
 - Runbook Ceph (backend S3): `infra/runbooks/ceph.md`

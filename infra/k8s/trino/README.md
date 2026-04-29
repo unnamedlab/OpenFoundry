@@ -3,8 +3,9 @@
 These manifests deploy [Trino](https://trino.io) (Apache-2.0) as the
 **edge BI gateway** for OpenFoundry: a stable federated SQL endpoint
 exposed to **external JDBC/ODBC clients** (Tableau, Superset, ad-hoc SQL
-notebooks, third-party BI tools) that need to span Iceberg/Polaris,
-PostgreSQL/CNPG, Kafka and ClickHouse through a single ANSI-SQL surface.
+notebooks, third-party BI tools) that need to span Iceberg (Lakekeeper
+REST catalog — see ADR-0008), PostgreSQL/CNPG, Kafka and ClickHouse
+through a single ANSI-SQL surface.
 
 > **Role:** edge BI gateway only. Trino sits **outside** the platform's
 > internal fan-out and is **not** the internal query hub. All
@@ -23,7 +24,7 @@ PostgreSQL/CNPG, Kafka and ClickHouse through a single ANSI-SQL surface.
 | File                                  | Purpose                                                          |
 |---------------------------------------|------------------------------------------------------------------|
 | `values.yaml`                         | Values for the upstream `trino/trino` Helm chart                 |
-| `iceberg-catalog-configmap.yaml`      | `iceberg.properties` — REST catalog (Polaris) over Ceph S3       |
+| `iceberg-catalog-configmap.yaml`      | `iceberg.properties` — REST catalog (Lakekeeper) over Ceph S3    |
 | `postgresql-catalog-configmap.yaml`   | `postgresql.properties` — CloudNativePG primary                  |
 | `kafka-catalog-configmap.yaml`        | `kafka.properties` — read-only, troubleshooting only             |
 | `coordinator-pdb.yaml`                | `PodDisruptionBudget` (`minAvailable: 1`) for the coordinators   |
@@ -43,7 +44,7 @@ helm repo update
 kubectl create namespace trino
 kubectl -n trino apply -f - <<'YAML'
 # trino-internal-shared-secret, trino-s3-iceberg, trino-postgres-credentials,
-# trino-polaris-oauth — see infra/runbooks/trino.md §3.
+# trino-lakekeeper-oauth — see infra/runbooks/trino.md §3.
 YAML
 
 # 1. Catalog ConfigMaps (must exist before pods start; mounted as volumes).

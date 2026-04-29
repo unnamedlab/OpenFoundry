@@ -1,6 +1,12 @@
 ---
-# Iceberg catalog backed by Apache Polaris (REST catalog) and the in-cluster
+# Iceberg catalog backed by Lakekeeper (REST catalog) and the in-cluster
 # Ceph RGW S3 endpoint provisioned by Rook (see infra/k8s/rook/).
+#
+# Lakekeeper is the single Iceberg REST catalog for OpenFoundry per
+# docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md
+# (supersedes Apache Polaris). The URL must match the one published in
+# infra/k8s/helm/open-foundry/values.yaml (icebergRestCatalog.url) and
+# infra/k8s/lakekeeper/values.yaml (LAKEKEEPER__BASE_URI).
 #
 # The data is stored in the `openfoundry-iceberg` bucket (ObjectBucketClaim
 # in infra/k8s/rook/bucket.yaml). S3 credentials are taken from the
@@ -19,11 +25,11 @@ data:
   iceberg.properties: |
     connector.name=iceberg
     iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=http://polaris.polaris.svc:8181/api/catalog
+    iceberg.rest-catalog.uri=http://lakekeeper.lakekeeper.svc:8181
     iceberg.rest-catalog.warehouse=openfoundry
     iceberg.rest-catalog.security=OAUTH2
-    iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_OAUTH2_CREDENTIAL}
-    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
+    iceberg.rest-catalog.oauth2.credential=${ENV:LAKEKEEPER_OAUTH2_CREDENTIAL}
+    iceberg.rest-catalog.oauth2.scope=catalog
     iceberg.file-format=PARQUET
     iceberg.compression-codec=ZSTD
     # S3 (Ceph RGW) settings for the underlying storage.
