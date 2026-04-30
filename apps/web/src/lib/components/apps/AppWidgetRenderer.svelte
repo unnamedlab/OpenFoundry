@@ -4,7 +4,7 @@
 	import TableWidget from '$lib/components/dashboard/TableWidget.svelte';
 	import { getDataset, type Dataset } from '$lib/api/datasets';
 	import type { ObjectInstance } from '$lib/api/ontology';
-	import { listObjects } from '$lib/api/ontology';
+	import { evaluateObjectSet, listObjects } from '$lib/api/ontology';
 	import { executeQuery, type QueryResult } from '$lib/api/queries';
 	import type { AppWidget, WidgetEvent } from '$lib/api/apps';
 	import AppWidgetRenderer from './AppWidgetRenderer.svelte';
@@ -74,8 +74,22 @@
 		description: widget.description,
 		layout: { colSpan: 1, rowSpan: 1 },
 		query: { sql: '', limit: numberProp('limit', 50) },
+		columns: arrayProp('columns')
+			.filter((column): column is Record<string, unknown> => Boolean(column && typeof column === 'object'))
+			.map((column) => ({
+				key: typeof column.key === 'string' ? column.key : '',
+				label: typeof column.label === 'string' ? column.label : (typeof column.key === 'string' ? column.key : ''),
+			}))
+			.filter((column) => column.key.length > 0),
 		pageSize: Math.max(1, numberProp('page_size', 10)),
-		defaultSortColumn: stringProp('default_sort_column', result?.columns[0]?.name ?? ''),
+		defaultSortColumn: stringProp(
+			'default_sort_column',
+			(
+				arrayProp('columns')
+					.find((column): column is Record<string, unknown> => Boolean(column && typeof column === 'object' && typeof column.key === 'string'))
+					?.key as string | undefined
+			) ?? result?.columns[0]?.name ?? '',
+		),
 		defaultSortDirection: stringProp('default_sort_direction', 'asc') === 'desc' ? 'desc' as const : 'asc' as const,
 	});
 
@@ -196,6 +210,15 @@
 				return;
 			}
 
+			if (widget.binding.source_type === 'object_set') {
+				if (!widget.binding.source_id) {
+					throw new Error('Object set binding requires a saved object set');
+				}
+				const response = await evaluateObjectSet(widget.binding.source_id, { limit: widget.binding.limit ?? 25 });
+				result = objectSetRowsToQueryResult(response.rows);
+				return;
+			}
+
 			if (widget.binding.source_type === 'dataset') {
 				if (!widget.binding.source_id) {
 					throw new Error('Dataset binding requires a dataset');
@@ -305,6 +328,18 @@
 				['tags', datasetValue.tags.join(', ') || 'none'],
 			],
 			total_rows: 6,
+			execution_time_ms: 0,
+		};
+	}
+
+	function objectSetRowsToQueryResult(rows: Record<string, unknown>[]): QueryResult {
+		const fieldNames = Array.from(
+			new Set(rows.flatMap((entry) => Object.keys(entry ?? {}))),
+		);
+		return {
+			columns: fieldNames.map((name) => ({ name, data_type: 'text' })),
+			rows: rows.map((entry) => fieldNames.map((field) => stringifyValue(entry?.[field]))),
+			total_rows: rows.length,
 			execution_time_ms: 0,
 		};
 	}

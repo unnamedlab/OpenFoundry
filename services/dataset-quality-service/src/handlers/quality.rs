@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use event_bus_control::contracts::DatasetQualityRefreshRequested;
 use uuid::Uuid;
 
 use crate::{
@@ -60,7 +61,21 @@ pub async fn refresh_dataset_quality(
             .into_response();
     }
 
-    match profiler::refresh_dataset_quality(&state, &dataset, None).await {
+    match profiler::process_refresh_request(
+        &state,
+        DatasetQualityRefreshRequested {
+            dataset_id,
+            requested_by: None,
+            reason: "manual_refresh".to_string(),
+            context: serde_json::json!({
+                "trigger": {
+                    "type": "manual_refresh",
+                }
+            }),
+        },
+    )
+    .await
+    {
         Ok(response) => Json(response).into_response(),
         Err(error) => {
             tracing::error!("refresh dataset quality failed: {error}");
@@ -230,7 +245,20 @@ pub async fn refresh_dataset_quality_internal(
     State(state): State<AppState>,
     Path(dataset_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    refresh_dataset_quality(State(state), Path(dataset_id))
-        .await
-        .into_response()
+    match profiler::process_refresh_request(
+        &state,
+        DatasetQualityRefreshRequested::for_upload(dataset_id),
+    )
+    .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => {
+            tracing::error!("internal refresh dataset quality failed: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response()
+        }
+    }
 }

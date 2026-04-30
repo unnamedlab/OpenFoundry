@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
 
   import {
     askCopilot,
@@ -513,8 +514,14 @@
     loading = true;
     error = '';
     try {
+      const requestedPipelineId = $page.url.searchParams.get('pipeline');
       await Promise.all([loadRegistry(), loadStreamingRegistry(), loadAiRegistry()]);
-      if (selectedPipelineId) {
+      const preferredPipelineId =
+        requestedPipelineId && pipelines.some((pipeline) => pipeline.id === requestedPipelineId)
+          ? requestedPipelineId
+          : selectedPipelineId;
+      if (preferredPipelineId) {
+        selectedPipelineId = preferredPipelineId;
         await selectPipeline(selectedPipelineId);
       } else if (pipelines.length > 0) {
         await selectPipeline(pipelines[0].id);

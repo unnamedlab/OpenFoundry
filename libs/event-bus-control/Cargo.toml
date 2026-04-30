@@ -1,0 +1,51 @@
+[package]
+name = "event-bus-control"
+description = "Control plane event bus: NATS JetStream client wrapper for low-latency, short-retention messaging"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-nats]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "event_bus_control"
+required-features = []
+crate-type = ["lib"]

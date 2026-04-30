@@ -21,6 +21,10 @@ export default defineConfig({
 
   ignoreDeadLinks: [
     /^https?:\/\/localhost/,
+    // Cross-monorepo links from docs/architecture/* into source code
+    // (libs/, tools/, services/, infra/, ...). VitePress cannot resolve
+    // files outside the docs/ root; these are intentional source references.
+    /(^|\/)\.\.\/\.\.\//,
   ],
 
   locales: {
@@ -147,6 +151,7 @@ export default defineConfig({
             { text: "Overview", link: "/security-governance/" },
             { text: "Identity and access", link: "/security-governance/identity-and-access" },
             { text: "Policies and authorization", link: "/security-governance/policies-and-authorization" },
+            { text: "Policy bundles in-process", link: "/security-governance/policy-bundles" },
             { text: "Restricted views and data controls", link: "/security-governance/restricted-views-and-data-controls" },
             { text: "Audit and traceability", link: "/security-governance/audit-and-traceability" },
             { text: "ABAC and CBAC model", link: "/security-governance/abac-and-cbac-model/" },
@@ -173,6 +178,8 @@ export default defineConfig({
             { text: "Services and ports", link: "/architecture/services-and-ports" },
             { text: "Contracts and SDKs", link: "/architecture/contracts-and-sdks" },
             { text: "Capability map", link: "/architecture/capability-map" },
+            { text: "ADR-0007 — Search engine choice", link: "/architecture/adr/ADR-0007-search-engine-choice" },
+            { text: "ADR-0008 — Iceberg REST Catalog (Lakekeeper)", link: "/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper" },
           ],
         },
         {

@@ -1,0 +1,71 @@
+# Values for the upstream CloudNativePG operator Helm chart.
+#
+#   helm repo add cnpg https://cloudnative-pg.github.io/charts
+#   helm install -n cnpg-system --create-namespace cnpg \
+#     cnpg/cloudnative-pg \
+#     -f infra/k8s/cnpg/operator/values.yaml
+#
+# License rationale: CloudNativePG (cnpg/cloudnative-pg) is Apache-2.0,
+# matching the OSS-only policy already documented in
+# `infra/k8s/strimzi/README.md` and the iceberg-catalog subchart at
+# `infra/k8s/helm/open-foundry/charts/iceberg-catalog/templates/cnpg-cluster.yaml`.
+#
+# Topology rationale:
+#   * 3 replicas of the operator deployment with leader election (default
+#     in the chart) so that the control-plane survives the loss of one
+#     pod or one zone without an HA gap. The non-leader replicas remain
+#     hot-standby and take over within seconds.
+#   * Hardened pod spec mirroring the Strimzi operator values
+#     (`infra/k8s/strimzi/values-strimzi-operator.yaml`): non-root,
+#     read-only rootfs, no capabilities, RuntimeDefault seccomp.
+#   * Resources sized for a small/medium cluster; tune via overrides in
+#     environment-specific values files.
+
+replicas: 3
+
+# Watch all namespaces by default; service-specific Cluster CRs (e.g.
+# apicurio, lakekeeper, iceberg-catalog) live in their own namespaces.
+config:
+  clusterWide: true
+
+# Pin to the chart-default tag (do not float). Override the registry
+# mirror for air-gapped envs at install time.
+image:
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 200Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# Pod-level hardening — runs as non-root, read-only rootfs, no caps.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true
+
+# Spread the 3 operator replicas across zones so a zonal outage cannot
+# take the whole control-plane down at once.
+affinity:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: cloudnative-pg
+
+# Expose operator metrics for Prometheus (the chart creates the
+# ServiceMonitor when the Prometheus Operator CRDs are present).
+monitoring:
+  podMonitorEnabled: false
+  serviceMonitorEnabled: true

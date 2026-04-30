@@ -29,7 +29,17 @@ This is reflected in service folders such as `data-connector`, `dataset-service`
 
 The P3 flow shows that OpenFoundry is not only a data movement stack. It also models meaning, interfaces, and governed domain structures through ontology-centric APIs.
 
-That capability is reflected in `ontology-service`, `audit-service`, `auth-service`, and related shared middleware.
+That capability is reflected in a family of dedicated ontology services:
+
+- `ontology-definition-service` — control plane for schema, governance, and definitions
+- `object-database-service` — write authority for object and link instances
+- `ontology-query-service` — serving plane for search, graph, views, and KNN
+- `ontology-actions-service` — action validation and execution
+- `ontology-security-service` — policy compilation and permission-aware query filters
+- `ontology-funnel-service` — batch ingestion
+- `ontology-functions-service` — function runtime
+
+Together with `audit-service`, `auth-service`, and related shared middleware, these services implement the CQRS ontology stack described in the architecture documentation.
 
 ### Developer platform
 

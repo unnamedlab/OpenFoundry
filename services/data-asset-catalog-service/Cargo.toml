@@ -42,6 +42,9 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
+[dependencies.event-bus-control]
+workspace = true
+
 [dependencies.datafusion]
 workspace = true
 

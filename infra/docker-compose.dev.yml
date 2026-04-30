@@ -1,11 +1,22 @@
 # Dev overrides — lighter resource limits, extra debugging
+#
+# Meilisearch is intentionally NOT part of the default dev stack. It lives
+# here under the optional `demo` profile so the very first walkthrough
+# ("instant search demo") can still be brought up with:
+#
+#     docker compose -f compose.yaml -f infra/docker-compose.dev.yml \
+#         --profile demo up -d meilisearch
+#
+# The production / DX search engine is Vespa (see infra/docker-compose.yml
+# and docs/architecture/adr/ADR-0007-search-engine-choice.md). No service
+# or test depends on Meilisearch.
 services:
   postgres:
     environment:
-      POSTGRES_MULTIPLE_DATABASES: "openfoundry_auth_service,openfoundry_dataset_service,openfoundry_pipeline_service,openfoundry_ontology_service,openfoundry_audit_service,openfoundry_ai_service,openfoundry_app_builder_service,openfoundry_code_repo_service,openfoundry_code_repository_review_service,openfoundry_data_connector,openfoundry_fusion_service,openfoundry_geospatial_service,openfoundry_marketplace_service,openfoundry_ml_service,openfoundry_nexus_service,openfoundry_notification_service,openfoundry_report_service,openfoundry_event_streaming_service,openfoundry_workflow_automation_service"
+      POSTGRES_MULTIPLE_DATABASES: "openfoundry_auth_service,openfoundry_dataset_service,openfoundry_pipeline_service,openfoundry_ontology_service,openfoundry_audit_service,openfoundry_ai_service,openfoundry_app_builder_service,openfoundry_code_repo_service,openfoundry_code_repository_review_service,openfoundry_data_connector,openfoundry_fusion_service,openfoundry_geospatial_service,openfoundry_marketplace_service,openfoundry_ml_service,openfoundry_nexus_service,openfoundry_notification_service,openfoundry_report_service,openfoundry_event_streaming_service,openfoundry_workflow_automation_service,openfoundry_iceberg_catalog"
 
-  redis:
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --loglevel verbose
+  valkey:
+    command: valkey-server --maxmemory 128mb --maxmemory-policy allkeys-lru --loglevel verbose
 
   nats:
     command: --jetstream --store_dir /data --http_port 8222 -DV
@@ -14,3 +25,26 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+
+  # ── Meilisearch (opt-in, first-run demo only) ──────────────
+  # Brought up only with `--profile demo`. Not a production dependency,
+  # not used by any service or smoke test.
+  meilisearch:
+    profiles: ["demo"]
+    restart: unless-stopped
+    image: ${OPENFOUNDRY_MEILISEARCH_IMAGE:-getmeili/meilisearch:v1.11}
+    ports:
+      - "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-7700}:7700"
+    environment:
+      MEILI_MASTER_KEY: masterKey
+      MEILI_ENV: development
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  meilisearch_data:

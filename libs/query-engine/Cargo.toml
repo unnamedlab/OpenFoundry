@@ -14,8 +14,20 @@ workspace = true
 [package.rust-version]
 workspace = true
 
+[features]
+default = ["flight-client"]
+# Enables the Apache Arrow Flight SQL `TableProvider` so any data plane service
+# can federate queries against a remote Flight SQL endpoint as if it were a
+# regular DataFusion table. On by default because it is a core capability.
+flight-client = ["dep:arrow-flight", "dep:tonic", "dep:futures", "dep:prost"]
+
 [dependencies.arrow]
 version = "53"
+
+[dependencies.arrow-flight]
+version = "53"
+features = ["flight-sql-experimental"]
+optional = true
 
 [dependencies.async-trait]
 workspace = true
@@ -23,13 +35,41 @@ workspace = true
 [dependencies.datafusion]
 workspace = true
 
+[dependencies.futures]
+workspace = true
+optional = true
+
+[dependencies.prost]
+workspace = true
+optional = true
+
 [dependencies.thiserror]
 workspace = true
 
 [dependencies.tokio]
 workspace = true
 
+[dependencies.tonic]
+workspace = true
+optional = true
+
 [dependencies.tracing]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+
+[dev-dependencies.futures]
+workspace = true
+
+[dev-dependencies.prost]
+workspace = true
+
+[dev-dependencies.tokio-stream]
+version = "0.1"
+features = ["net"]
+
+[dev-dependencies.tonic]
 workspace = true
 
 [lib]

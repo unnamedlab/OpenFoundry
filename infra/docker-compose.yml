@@ -31,6 +31,9 @@ services:
       POSTGRES_USER: openfoundry
       POSTGRES_PASSWORD: openfoundry
       POSTGRES_DB: openfoundry
+      # Comma-separated extra databases created by ./init-db/01-create-databases.sh.
+      # Override (extend) in `docker-compose.dev.yml` for full per-service split.
+      POSTGRES_MULTIPLE_DATABASES: ${OPENFOUNDRY_POSTGRES_EXTRA_DATABASES:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
@@ -40,17 +43,17 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Redis ───────────────────────────────────────────────────
-  redis:
+  # ── Valkey (OSS Redis-compatible store, BSD-3) ─────────────
+  valkey:
     <<: *common
-    image: ${OPENFOUNDRY_REDIS_IMAGE:-redis:7-alpine}
+    image: ${OPENFOUNDRY_VALKEY_IMAGE:-valkey/valkey:8-alpine}
     ports:
       - "${OPENFOUNDRY_REDIS_HOST_PORT:-6379}:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: valkey-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - valkey_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -104,37 +107,46 @@ services:
       mc mb --ignore-existing local/openfoundry-artifacts
       "
 
-  # ── Meilisearch ────────────────────────────────────────────
-  meilisearch:
+  # ── Vespa Lite (DX search engine, Apache-2.0) ──────────────
+  # Single-node container of the same Vespa engine that runs in production
+  # (see infra/runbooks/vespa.md and docs/architecture/adr/ADR-0007-search-engine-choice.md).
+  # Exposes the config server on 19071 (deploy endpoint) and the container
+  # cluster on 8080 (query/feed); the latter is remapped to host port
+  # ${OPENFOUNDRY_VESPA_QUERY_HOST_PORT:-18080} to avoid clashing with the
+  # API gateway. Use this for hybrid (BM25 + vector + filters + ranking)
+  # search during local development; pgvector still covers the embedded
+  # vector case.
+  #
+  # Meilisearch is no longer part of the default DX stack; it lives under
+  # the optional `--profile demo` in infra/docker-compose.dev.yml for
+  # first-run demos only (no production code or test depends on it).
+  vespa:
     <<: *common
-    image: ${OPENFOUNDRY_MEILISEARCH_IMAGE:-getmeili/meilisearch:v1.11}
+    image: ${OPENFOUNDRY_VESPA_IMAGE:-vespaengine/vespa:8.450.30}
+    hostname: vespa
     ports:
-      - "${OPENFOUNDRY_MEILISEARCH_HOST_PORT:-7700}:7700"
-    environment:
-      MEILI_MASTER_KEY: masterKey
-      MEILI_ENV: development
+      - "${OPENFOUNDRY_VESPA_QUERY_HOST_PORT:-18080}:8080"
+      - "${OPENFOUNDRY_VESPA_CONFIG_HOST_PORT:-19071}:19071"
     volumes:
-      - meilisearch_data:/meili_data
+      - vespa_data:/opt/vespa/var
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7700/health"]
-      interval: 5s
+      test: ["CMD", "curl", "-fsS", "http://localhost:19071/state/v1/health"]
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 60s
 
-  # ── Qdrant (Vector DB) ────────────────────────────────────
-  qdrant:
-    <<: *common
-    image: ${OPENFOUNDRY_QDRANT_IMAGE:-qdrant/qdrant:v1.12.5}
-    ports:
-      - "${OPENFOUNDRY_QDRANT_HTTP_HOST_PORT:-6333}:6333"
-      - "${OPENFOUNDRY_QDRANT_GRPC_HOST_PORT:-6334}:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6333/healthz"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+  # Qdrant se retiró por restricción de licencia OSS; fue sustituido por
+  # Vespa (Apache-2.0). pgvector cubre el caso embebido.
+
+  # ── Iceberg REST Catalog ───────────────────────────────────
+  # Apache Polaris was removed from the default DX stack on 2026-04-30
+  # (see ADR-0008). In Kubernetes the Iceberg REST Catalog is provided by
+  # Lakekeeper (`infra/k8s/lakekeeper/`); there is no Polaris/Lakekeeper
+  # service in this Compose file. Services that read `ICEBERG_CATALOG_URL`
+  # (e.g. dataset-versioning-service, event-streaming-service) treat the
+  # variable as optional and fall back to the legacy dataset writer when
+  # it is unset — see `services/*/storage/factory.rs`.
 
   identity-federation-service:
     <<: *app-common
@@ -149,12 +161,12 @@ services:
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_auth_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       PUBLIC_WEB_ORIGIN: ${OPENFOUNDRY_PUBLIC_WEB_ORIGIN:-http://localhost:3000}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://valkey:6379
       NATS_URL: nats://nats:4222
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      valkey:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -1944,8 +1956,11 @@ services:
       PORT: 50114
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_notification_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      NATS_URL: nats://nats:4222
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_NOTIFICATION_HOST_PORT:-50114}:50114"
@@ -2062,7 +2077,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://valkey:6379
       AUTH_SERVICE_URL: http://identity-federation-service:50112
       IDENTITY_FEDERATION_SERVICE_URL: http://identity-federation-service:50112
       SESSION_GOVERNANCE_SERVICE_URL: http://session-governance-service:50074
@@ -2165,7 +2180,7 @@ services:
       CODE_SECURITY_SCANNING_SERVICE_URL: http://code-security-scanning-service:50154
       CODE_REPOSITORY_REVIEW_SERVICE_URL: http://code-repository-review-service:50155
     depends_on:
-      redis:
+      valkey:
         condition: service_healthy
       checkpoints-purpose-service:
         condition: service_started
@@ -2386,11 +2401,10 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
+  valkey_data:
   nats_data:
   minio_data:
-  meilisearch_data:
-  qdrant_data:
+  vespa_data:
   streaming_archive_data:
   event_streaming_archive_data:
   query_data:

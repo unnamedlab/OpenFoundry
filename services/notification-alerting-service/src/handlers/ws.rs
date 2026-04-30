@@ -6,6 +6,9 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::Utc;
+use event_bus_control::subscriber;
+use futures::StreamExt;
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
@@ -87,20 +90,81 @@ async fn websocket_loop(mut socket: WebSocket, state: AppState, user_id: uuid::U
         return;
     }
 
-    let mut rx = state.notification_bus.subscribe();
-    while let Ok(event) = rx.recv().await {
+    let Some(bus) = state.notification_bus.clone() else {
+        return;
+    };
+
+    let stream = match bus.stream().await {
+        Ok(stream) => stream,
+        Err(error) => {
+            tracing::warn!(?error, "failed to load notification stream for websocket");
+            return;
+        }
+    };
+    let consumer_name = format!("notifications-ws-user-{user_id}-{}", Uuid::now_v7());
+    let consumer =
+        match subscriber::create_consumer(&stream, &consumer_name, Some(bus.subject())).await {
+            Ok(consumer) => consumer,
+            Err(error) => {
+                tracing::warn!(?error, "failed to create notification websocket consumer");
+                return;
+            }
+        };
+    let mut messages = match consumer.messages().await {
+        Ok(messages) => messages,
+        Err(error) => {
+            tracing::warn!(?error, "failed to stream notification websocket messages");
+            if let Err(error) = stream.delete_consumer(&consumer_name).await {
+                tracing::warn!(
+                    ?error,
+                    consumer = %consumer_name,
+                    "failed to clean up notification websocket consumer"
+                );
+            }
+            return;
+        }
+    };
+
+    while let Some(message) = messages.next().await {
+        let Ok(message) = message else {
+            tracing::warn!("notification websocket consumer stream failed");
+            break;
+        };
+        let event = match serde_json::from_slice::<NotificationEnvelope>(&message.payload) {
+            Ok(envelope) => envelope.payload,
+            Err(error) => {
+                tracing::warn!(?error, "failed to decode notification event payload");
+                let _ = message.ack().await;
+                continue;
+            }
+        };
+
         if !targets_user(&event, user_id) {
+            let _ = message.ack().await;
             continue;
         }
 
         let payload = match serde_json::to_string(&event) {
             Ok(payload) => payload,
-            Err(_) => continue,
+            Err(error) => {
+                tracing::warn!(?error, "failed to serialize notification websocket event");
+                let _ = message.ack().await;
+                continue;
+            }
         };
 
+        let _ = message.ack().await;
         if socket.send(Message::Text(payload.into())).await.is_err() {
             break;
         }
+    }
+
+    if let Err(error) = stream.delete_consumer(&consumer_name).await {
+        tracing::warn!(
+            ?error,
+            consumer = %consumer_name,
+            "failed to clean up notification websocket consumer"
+        );
     }
 }
 
@@ -109,4 +173,9 @@ fn targets_user(event: &NotificationEvent, user_id: uuid::Uuid) -> bool {
         .user_id
         .map(|target| target == user_id)
         .unwrap_or(true)
+}
+
+#[derive(Debug, Deserialize)]
+struct NotificationEnvelope {
+    payload: NotificationEvent,
 }

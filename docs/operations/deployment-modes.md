@@ -8,9 +8,8 @@ The local stack lives under `infra/`:
 
 - `infra/docker-compose.yml`
 - `infra/docker-compose.dev.yml`
-- `infra/docker-compose.monitoring.yml`
 
-These files provide the backing services needed for day-to-day development and smoke execution. The `just infra-up` and `just dev-stack` commands are the normal contributor entrypoints.
+These files provide the backing services needed for day-to-day development and smoke execution. The `just infra-up` and `just dev-stack` commands are the normal contributor entrypoints. A monitoring overlay will be reintroduced as part of the formal observability work (T17); see `docs/observability/index.md`.
 
 ## Kubernetes Via Helm
 

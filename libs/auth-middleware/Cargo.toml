@@ -29,6 +29,9 @@ workspace = true
 [dependencies.jsonwebtoken]
 workspace = true
 
+[dependencies.rand]
+workspace = true
+
 [dependencies.serde]
 workspace = true
 

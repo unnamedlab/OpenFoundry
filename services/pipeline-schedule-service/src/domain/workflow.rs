@@ -7,8 +7,12 @@ use crate::{
     models::{
         schedule::{BackfillRunResult, DueRunRecord, ScheduleTargetKind, ScheduleWindow},
         workflow::WorkflowDefinition,
-        workflow_execution::{InternalTriggeredRunRequest, WorkflowRun},
     },
+};
+use event_bus_control::{
+    Publisher, connect, subscriber,
+    topics::{streams, subjects},
+    workflows::WorkflowRunRequested,
 };
 
 pub async fn load_workflow(
@@ -74,33 +78,29 @@ pub async fn trigger_internal_workflow_run(
     trigger_type: &str,
     started_by: Option<Uuid>,
     context: Value,
-) -> Result<WorkflowRun, String> {
-    let endpoint = format!(
-        "{}/internal/workflows/{workflow_id}/runs/trigger",
-        state.workflow_service_url.trim_end_matches('/'),
-    );
-
-    let response = state
-        .http_client
-        .post(endpoint)
-        .json(&InternalTriggeredRunRequest {
-            trigger_type: trigger_type.to_string(),
-            started_by,
-            context,
-        })
-        .send()
+) -> Result<WorkflowRunRequested, String> {
+    let js = connect(&state.nats_url)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("failed to connect to NATS: {error}"))?;
+    subscriber::ensure_stream(&js, streams::EVENTS, &[subjects::WORKFLOWS])
+        .await
+        .map_err(|error| format!("failed to ensure workflow event stream: {error}"))?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "workflow-service trigger failed with status {status}: {body}"
-        ));
-    }
+    let request = WorkflowRunRequested {
+        workflow_id,
+        trigger_type: trigger_type.to_string(),
+        started_by,
+        context,
+        correlation_id: Uuid::now_v7(),
+    };
+    let subject = format!("{}.run.requested", subjects::WORKFLOWS);
 
-    response.json::<WorkflowRun>().await.map_err(|error| error.to_string())
+    Publisher::new(js, "pipeline-schedule-service")
+        .publish(&subject, "workflow.run.requested", &request)
+        .await
+        .map_err(|error| format!("failed to publish workflow.run.requested: {error}"))?;
+
+    Ok(request)
 }
 
 pub async fn run_due_cron_workflows(state: &AppState) -> Result<usize, String> {
@@ -141,7 +141,7 @@ pub async fn trigger_event_workflows(
     event_name: &str,
     actor_id: Uuid,
     event_context: Value,
-) -> Result<Vec<WorkflowRun>, String> {
+) -> Result<Vec<WorkflowRunRequested>, String> {
     let workflows = sqlx::query_as::<_, WorkflowDefinition>(
         r#"SELECT * FROM workflows
            WHERE status = 'active'
@@ -201,7 +201,7 @@ pub async fn backfill_workflow_runs(
                 }
             }),
         );
-        let run = trigger_internal_workflow_run(
+        trigger_internal_workflow_run(
             state,
             workflow.id,
             "backfill",
@@ -216,8 +216,8 @@ pub async fn backfill_workflow_runs(
             scheduled_for: window.scheduled_for,
             window_start: window.window_start,
             window_end: window.window_end,
-            run_id: Some(run.id),
-            status: "triggered".to_string(),
+            run_id: None,
+            status: "requested".to_string(),
         });
     }
 

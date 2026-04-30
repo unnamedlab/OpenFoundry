@@ -41,6 +41,46 @@ workspace = true
 [dependencies.url]
 workspace = true
 
+# Optional Iceberg integration (Apache-2.0). Enabled via the `iceberg` feature.
+[dependencies.iceberg]
+version = "0.9"
+optional = true
+
+[dependencies.iceberg-catalog-rest]
+version = "0.9"
+optional = true
+
+# `iceberg` 0.9 re-exports neither `arrow-array` nor `parquet`, but our
+# `iceberg` module needs them to construct `RecordBatch`es and Parquet
+# `WriterProperties`. We pin the same versions iceberg-rust depends on.
+[dependencies.arrow-array]
+version = "57.1"
+optional = true
+
+[dependencies.parquet]
+version = "57.1"
+optional = true
+features = ["async"]
+
+[features]
+default = []
+# Enables the `iceberg` module that wraps the apache iceberg-rust crate
+# (Apache-2.0). Off by default so that consumers that don't need Iceberg
+# tables don't pull in the extra ~300 transitive crates.
+iceberg = [
+    "dep:iceberg",
+    "dep:iceberg-catalog-rest",
+    "dep:arrow-array",
+    "dep:parquet",
+]
+
+[dev-dependencies]
+arrow-array = "57.1"
+arrow-schema = "57.1"
+parquet = { version = "57.1", features = ["async"] }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
 [lib]
 path = "src/lib.rs"
 name = "storage_abstraction"

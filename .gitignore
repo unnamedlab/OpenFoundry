@@ -26,6 +26,10 @@ target/
 *.profraw
 *.profdata
 
+# Python (tooling under /tools)
+__pycache__/
+*.py[cod]
+
 # Node / SvelteKit
 node_modules/
 .pnpm-store/

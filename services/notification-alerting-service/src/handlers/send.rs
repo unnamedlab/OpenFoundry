@@ -85,12 +85,17 @@ pub async fn create_notification(
     }
 
     let unread_count = unread_count(state, notification.user_id).await.unwrap_or(0);
-    let _ = state.notification_bus.send(NotificationEvent {
-        kind: "notification.created".to_string(),
-        user_id: notification.user_id,
-        notification: Some(notification.clone()),
-        unread_count,
-    });
+    if let Err(error) = state
+        .publish_notification_event(NotificationEvent {
+            kind: "notification.created".to_string(),
+            user_id: notification.user_id,
+            notification: Some(notification.clone()),
+            unread_count,
+        })
+        .await
+    {
+        tracing::warn!(?error, "failed to publish notification.created event");
+    }
 
     Ok(notification)
 }

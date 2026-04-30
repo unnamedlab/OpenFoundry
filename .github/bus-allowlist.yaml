@@ -1,0 +1,185 @@
+# Bus contract allowlist — see ADR-0011
+#
+# Snapshot of which services are allowed to depend on each event-bus crate:
+#   * control -> libs/event-bus-control (NATS JetStream, control plane)
+#   * data    -> libs/event-bus-data    (Apache Kafka, data plane)
+#
+# Enforced by /tools/bus-lint/check_bus.py on every pull request via the
+# `bus-contract` job in .github/workflows/ci.yml.
+#
+# To add or remove a bus dependency on a service, update both the service's
+# Cargo.toml AND the corresponding entry below in the same PR. The CI lint
+# will fail any drift between these two sources of truth.
+#
+# Service keys are the directory name under /services/ (which matches the
+# crate `package.name`).
+#
+# -----------------------------------------------------------------------------
+# Sections (see /docs/architecture/bus-audit.md):
+#
+#   - "current" — what `services/*/Cargo.toml` declares TODAY. This is the
+#     only section the lint parses (it lives directly under `services:`),
+#     and therefore the only one that must stay byte-for-byte in sync with
+#     the Cargo.toml dependencies. Drift here breaks CI.
+#
+#   - "target"  — what the audit recommends AFTER any proposed Kafka -> NATS
+#     migrations. It is documentation only: the lint script
+#     (tools/bus-lint/check_bus.py) ignores comment-only lines, so this
+#     block is a `#`-prefixed YAML fragment intended for human reviewers
+#     and for diffing against the active `services:` block when migration
+#     PRs land.
+#
+# Audit result (2026-04-29): no service currently depends on
+# `event-bus-data`. The recommended target is identical to the current
+# state — the `target` block below mirrors `current` until a future PR
+# legitimately adds a data-plane dependency (e.g. CDC, lineage firehose).
+# -----------------------------------------------------------------------------
+
+# === current === (active; parsed by tools/bus-lint/check_bus.py)
+services:
+  app-builder-service:
+    - control
+  application-curation-service:
+    - control
+  audit-compliance-service:
+    - control
+  connector-management-service:
+    - control
+  data-asset-catalog-service:
+    - control
+  dataset-quality-service:
+    - control
+  entity-resolution-service:
+    - control
+  event-streaming-service:
+    - control
+  federation-product-exchange-service:
+    - control
+  geospatial-intelligence-service:
+    - control
+  global-branch-service:
+    - control
+  identity-federation-service:
+    - control
+  ingestion-replication-service:
+    - control
+  lineage-service:
+    - control
+  marketplace-catalog-service:
+    - control
+  marketplace-service:
+    - control
+  nexus-service:
+    - control
+  notebook-runtime-service:
+    - control
+  notification-alerting-service:
+    - control
+  object-database-service:
+    - control
+  ontology-actions-service:
+    - control
+  ontology-definition-service:
+    - control
+  ontology-functions-service:
+    - control
+  ontology-funnel-service:
+    - control
+  ontology-query-service:
+    - control
+  ontology-security-service:
+    - control
+  pipeline-authoring-service:
+    - control
+  pipeline-build-service:
+    - control
+  pipeline-schedule-service:
+    - control
+  product-distribution-service:
+    - control
+  report-service:
+    - control
+  sql-bi-gateway-service:
+    - control
+  virtual-table-service:
+    - control
+  workflow-automation-service:
+    - control
+
+# === target === (informational; ignored by the lint — see header)
+#
+# Post-migration target after applying the recommendations of
+# /docs/architecture/bus-audit.md. Today this mirrors `current` because the
+# audit found 0 services using `event-bus-data` for control semantics, so
+# there is nothing to migrate. This block is kept so that future migration
+# PRs have a clear before/after diff to update.
+#
+# target:
+#   app-builder-service:
+#     - control
+#   application-curation-service:
+#     - control
+#   audit-compliance-service:
+#     - control
+#   connector-management-service:
+#     - control
+#   data-asset-catalog-service:
+#     - control
+#   dataset-quality-service:
+#     - control
+#   entity-resolution-service:
+#     - control
+#   event-streaming-service:
+#     - control
+#   federation-product-exchange-service:
+#     - control
+#   geospatial-intelligence-service:
+#     - control
+#   global-branch-service:
+#     - control
+#   identity-federation-service:
+#     - control
+#   ingestion-replication-service:
+#     - control
+#   lineage-service:
+#     - control
+#   marketplace-catalog-service:
+#     - control
+#   marketplace-service:
+#     - control
+#   nexus-service:
+#     - control
+#   notebook-runtime-service:
+#     - control
+#   notification-alerting-service:
+#     - control
+#   object-database-service:
+#     - control
+#   ontology-actions-service:
+#     - control
+#   ontology-definition-service:
+#     - control
+#   ontology-functions-service:
+#     - control
+#   ontology-funnel-service:
+#     - control
+#   ontology-query-service:
+#     - control
+#   ontology-security-service:
+#     - control
+#   pipeline-authoring-service:
+#     - control
+#   pipeline-build-service:
+#     - control
+#   pipeline-schedule-service:
+#     - control
+#   product-distribution-service:
+#     - control
+#   report-service:
+#     - control
+#   sql-bi-gateway-service:
+#     - control
+#   virtual-table-service:
+#     - control
+#   workflow-automation-service:
+#     - control

@@ -3,10 +3,10 @@ name: CI — Rust
 on:
   push:
     branches: [main]
-    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", "justfile"]
+    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", ".github/bus-allowlist.yaml", "justfile"]
   pull_request:
     branches: [main]
-    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", "justfile"]
+    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", ".github/bus-allowlist.yaml", "justfile"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -55,8 +55,8 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
-      redis:
-        image: redis:7-alpine
+      valkey:
+        image: valkey/valkey:8-alpine
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://test:test@localhost:5432/test
@@ -243,3 +243,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  bus-contract:
+    name: Bus contract (ADR-0011)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check service bus allowlist
+        run: python3 tools/bus-lint/check_bus.py

@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package open_foundry.ingestion_replication.v1;
+
+// IngestionControlPlane is a Kubernetes-native control plane: clients submit
+// an `IngestJobSpec` and the service materialises Strimzi `KafkaConnector`
+// (Debezium) and, optionally, `FlinkDeployment` (Apache Flink Kubernetes
+// Operator) custom resources in the cluster.
+service IngestionControlPlane {
+  // Validate, persist and materialise an IngestJob.
+  rpc CreateIngestJob(CreateIngestJobRequest) returns (IngestJob);
+  // Fetch a single IngestJob by id.
+  rpc GetIngestJob(GetIngestJobRequest) returns (IngestJob);
+  // List all IngestJobs known to this service.
+  rpc ListIngestJobs(ListIngestJobsRequest) returns (ListIngestJobsResponse);
+  // Delete the IngestJob and remove the associated Kubernetes resources.
+  rpc DeleteIngestJob(DeleteIngestJobRequest) returns (DeleteIngestJobResponse);
+}
+
+// IngestJobSpec is the user-facing definition of an ingest pipeline.
+message IngestJobSpec {
+  // Logical name (used to derive Kubernetes resource names).
+  string name = 1;
+  // Kubernetes namespace in which to materialise the resources.
+  string namespace = 2;
+  // Source kind. Currently supported: "postgres".
+  string source = 3;
+  // Postgres source configuration (required when source = "postgres").
+  PostgresSource postgres = 4;
+  // Strimzi KafkaConnect cluster name to attach the connector to.
+  string kafka_connect_cluster = 5;
+  // Optional Iceberg sink. When present a FlinkDeployment is materialised.
+  IcebergSink iceberg_sink = 6;
+}
+
+message PostgresSource {
+  string hostname = 1;
+  int32 port = 2;
+  string database = 3;
+  string user = 4;
+  // Reference to a Kubernetes Secret name holding the password.
+  string password_secret = 5;
+  // Logical replication slot name.
+  string slot_name = 6;
+  // Logical replication publication name.
+  string publication_name = 7;
+  // Tables to capture (schema-qualified, e.g. "public.orders").
+  repeated string tables = 8;
+  // Destination Kafka topic prefix; defaults to the IngestJob name.
+  string topic_prefix = 9;
+}
+
+message IcebergSink {
+  // Iceberg warehouse location, e.g. "s3://lake/warehouse".
+  string warehouse = 1;
+  // Iceberg catalog name.
+  string catalog_name = 2;
+  // Destination database (namespace) in the Iceberg catalog.
+  string database = 3;
+  // Destination table.
+  string table = 4;
+  // Container image for the Flink job. Defaults to a stable Flink image.
+  string flink_image = 5;
+  // Apache Flink version (e.g. "v1_18").
+  string flink_version = 6;
+}
+
+message CreateIngestJobRequest { IngestJobSpec spec = 1; }
+message GetIngestJobRequest { string id = 1; }
+message DeleteIngestJobRequest { string id = 1; }
+message DeleteIngestJobResponse {}
+message ListIngestJobsRequest {}
+message ListIngestJobsResponse { repeated IngestJob jobs = 1; }
+
+// IngestJob is the persisted view of a submitted spec plus its current
+// reconciliation state.
+message IngestJob {
+  string id = 1;
+  IngestJobSpec spec = 2;
+  // One of: "pending", "materialized", "failed".
+  string status = 3;
+  string kafka_connector_name = 4;
+  string flink_deployment_name = 5;
+  string created_at = 6;
+  string updated_at = 7;
+  string error = 8;
+}

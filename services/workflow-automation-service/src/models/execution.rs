@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use event_bus_control::contracts::WorkflowTriggerRequested;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -36,14 +37,7 @@ pub struct InternalLineageRunRequest {
     pub context: Value,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct InternalTriggeredRunRequest {
-    pub trigger_type: String,
-    #[serde(default)]
-    pub started_by: Option<Uuid>,
-    #[serde(default)]
-    pub context: Value,
-}
+pub type InternalTriggeredRunRequest = WorkflowTriggerRequested;
 
 #[derive(Debug, Deserialize)]
 pub struct ListRunsQuery {

@@ -17,9 +17,15 @@ use crate::{
     },
     models::project::{
         BindOntologyProjectResourceRequest, CreateOntologyProjectRequest,
-        ListOntologyProjectMembershipsResponse, ListOntologyProjectResourcesResponse,
+        CreateOntologyProjectBranchRequest, CreateOntologyProjectMigrationRequest,
+        CreateOntologyProjectProposalRequest, ListOntologyProjectBranchesResponse,
+        ListOntologyProjectMembershipsResponse, ListOntologyProjectMigrationsResponse,
+        ListOntologyProjectProposalsResponse, ListOntologyProjectResourcesResponse,
         ListOntologyProjectsQuery, ListOntologyProjectsResponse, OntologyProject,
-        OntologyProjectMembership, OntologyProjectResourceBinding, UpdateOntologyProjectRequest,
+        OntologyProjectBranch, OntologyProjectMembership, OntologyProjectMigration,
+        OntologyProjectProposal, OntologyProjectResourceBinding, OntologyProjectWorkingState,
+        ReplaceOntologyProjectWorkingStateRequest, UpdateOntologyProjectBranchRequest,
+        UpdateOntologyProjectProposalRequest, UpdateOntologyProjectRequest,
         UpsertOntologyProjectMembershipRequest,
     },
 };
@@ -83,6 +89,23 @@ fn normalize_optional_slug(
         Some(value) => normalize_slug(value, field_name).map(Some),
         None => Ok(None),
     }
+}
+
+fn normalize_branch_name(value: &str) -> Result<String, String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err("branch name is required".to_string());
+    }
+    if !normalized
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '/')
+    {
+        return Err(
+            "branch name must contain only lowercase letters, digits, hyphens, and slashes"
+                .to_string(),
+        );
+    }
+    Ok(normalized)
 }
 
 async fn load_project(state: &AppState, id: Uuid) -> Result<Option<OntologyProject>, String> {
@@ -557,5 +580,386 @@ pub async fn unbind_project_resource(
         Err(error) => db_error(format!(
             "failed to unbind ontology resource from project: {error}"
         )),
+    }
+}
+
+pub async fn get_project_working_state(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(_) = (match load_project(&state, project_id).await {
+        Ok(project) => project,
+        Err(error) => return db_error(error),
+    }) else {
+        return not_found("ontology project not found");
+    };
+
+    if let Err(error) = ensure_project_view_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectWorkingState>(
+        r#"SELECT project_id, changes, updated_by, updated_at
+           FROM ontology_project_working_states
+           WHERE project_id = $1"#,
+    )
+    .bind(project_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(working_state)) => Json(working_state).into_response(),
+        Ok(None) => Json(OntologyProjectWorkingState {
+            project_id,
+            changes: json!([]),
+            updated_by: claims.sub,
+            updated_at: chrono::Utc::now(),
+        })
+        .into_response(),
+        Err(error) => db_error(format!(
+            "failed to load ontology project working state: {error}"
+        )),
+    }
+}
+
+pub async fn replace_project_working_state(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<ReplaceOntologyProjectWorkingStateRequest>,
+) -> impl IntoResponse {
+    let Some(_) = (match load_project(&state, project_id).await {
+        Ok(project) => project,
+        Err(error) => return db_error(error),
+    }) else {
+        return not_found("ontology project not found");
+    };
+
+    if let Err(error) = ensure_project_edit_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectWorkingState>(
+        r#"INSERT INTO ontology_project_working_states (project_id, changes, updated_by)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (project_id)
+           DO UPDATE SET changes = EXCLUDED.changes, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+           RETURNING project_id, changes, updated_by, updated_at"#,
+    )
+    .bind(project_id)
+    .bind(body.changes)
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(working_state) => Json(working_state).into_response(),
+        Err(error) => db_error(format!(
+            "failed to replace ontology project working state: {error}"
+        )),
+    }
+}
+
+pub async fn list_project_branches(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(_) = (match load_project(&state, project_id).await {
+        Ok(project) => project,
+        Err(error) => return db_error(error),
+    }) else {
+        return not_found("ontology project not found");
+    };
+
+    if let Err(error) = ensure_project_view_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectBranch>(
+        r#"SELECT id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
+                  enable_indexing, created_by, created_at, updated_at, latest_rebased_at
+           FROM ontology_project_branches
+           WHERE project_id = $1
+           ORDER BY updated_at DESC"#,
+    )
+    .bind(project_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(data) => Json(ListOntologyProjectBranchesResponse { data }).into_response(),
+        Err(error) => db_error(format!("failed to list ontology project branches: {error}")),
+    }
+}
+
+pub async fn create_project_branch(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<CreateOntologyProjectBranchRequest>,
+) -> impl IntoResponse {
+    let Some(_) = (match load_project(&state, project_id).await {
+        Ok(project) => project,
+        Err(error) => return db_error(error),
+    }) else {
+        return not_found("ontology project not found");
+    };
+
+    if let Err(error) = ensure_project_edit_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    let name = match normalize_branch_name(&body.name) {
+        Ok(name) => name,
+        Err(error) => return invalid(error),
+    };
+
+    match sqlx::query_as::<_, OntologyProjectBranch>(
+        r#"INSERT INTO ontology_project_branches
+              (id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
+               enable_indexing, created_by, latest_rebased_at)
+           VALUES ($1, $2, $3, $4, 'draft', NULL, $5, $6, $7, $8, NOW())
+           RETURNING id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
+                     enable_indexing, created_by, created_at, updated_at, latest_rebased_at"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(project_id)
+    .bind(name)
+    .bind(body.description.unwrap_or_else(|| "Isolated ontology branch for testing and review.".to_string()))
+    .bind(body.changes)
+    .bind(json!({}))
+    .bind(body.enable_indexing.unwrap_or(false))
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(branch) => Json(branch).into_response(),
+        Err(error) => db_error(format!("failed to create ontology project branch: {error}")),
+    }
+}
+
+pub async fn update_project_branch(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((project_id, branch_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateOntologyProjectBranchRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = ensure_project_edit_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectBranch>(
+        r#"UPDATE ontology_project_branches
+           SET description = COALESCE($3, description),
+               status = COALESCE($4, status),
+               proposal_id = COALESCE($5, proposal_id),
+               changes = COALESCE($6, changes),
+               conflict_resolutions = COALESCE($7, conflict_resolutions),
+               enable_indexing = COALESCE($8, enable_indexing),
+               latest_rebased_at = COALESCE($9, latest_rebased_at),
+               updated_at = NOW()
+           WHERE project_id = $1 AND id = $2
+           RETURNING id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
+                     enable_indexing, created_by, created_at, updated_at, latest_rebased_at"#,
+    )
+    .bind(project_id)
+    .bind(branch_id)
+    .bind(body.description)
+    .bind(body.status)
+    .bind(body.proposal_id)
+    .bind(body.changes)
+    .bind(body.conflict_resolutions)
+    .bind(body.enable_indexing)
+    .bind(body.latest_rebased_at)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(branch)) => Json(branch).into_response(),
+        Ok(None) => not_found("ontology project branch not found"),
+        Err(error) => db_error(format!("failed to update ontology project branch: {error}")),
+    }
+}
+
+pub async fn list_project_proposals(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> impl IntoResponse {
+    if let Err(error) = ensure_project_view_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectProposal>(
+        r#"SELECT id, project_id, branch_id, title, description, status, reviewer_ids, tasks, comments,
+                  created_by, created_at, updated_at
+           FROM ontology_project_proposals
+           WHERE project_id = $1
+           ORDER BY updated_at DESC"#,
+    )
+    .bind(project_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(data) => Json(ListOntologyProjectProposalsResponse { data }).into_response(),
+        Err(error) => db_error(format!("failed to list ontology project proposals: {error}")),
+    }
+}
+
+pub async fn create_project_proposal(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<CreateOntologyProjectProposalRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = ensure_project_edit_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    let branch = match sqlx::query_as::<_, OntologyProjectBranch>(
+        r#"SELECT id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
+                  enable_indexing, created_by, created_at, updated_at, latest_rebased_at
+           FROM ontology_project_branches
+           WHERE project_id = $1 AND id = $2"#,
+    )
+    .bind(project_id)
+    .bind(body.branch_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(branch)) => branch,
+        Ok(None) => return not_found("ontology project branch not found"),
+        Err(error) => return db_error(format!("failed to load ontology project branch: {error}")),
+    };
+
+    let proposal = match sqlx::query_as::<_, OntologyProjectProposal>(
+        r#"INSERT INTO ontology_project_proposals
+              (id, project_id, branch_id, title, description, status, reviewer_ids, tasks, comments, created_by)
+           VALUES ($1, $2, $3, $4, $5, 'in_review', $6, $7, $8, $9)
+           RETURNING id, project_id, branch_id, title, description, status, reviewer_ids, tasks, comments,
+                     created_by, created_at, updated_at"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(project_id)
+    .bind(body.branch_id)
+    .bind(body.title)
+    .bind(body.description.unwrap_or_else(|| "Ontology proposal generated from the current branch.".to_string()))
+    .bind(body.reviewer_ids.unwrap_or_else(|| json!([])))
+    .bind(body.tasks)
+    .bind(body.comments.unwrap_or_else(|| json!([])))
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(proposal) => proposal,
+        Err(error) => return db_error(format!("failed to create ontology project proposal: {error}")),
+    };
+
+    match sqlx::query(
+        r#"UPDATE ontology_project_branches
+           SET status = 'in_review', proposal_id = $3, updated_at = NOW()
+           WHERE project_id = $1 AND id = $2"#,
+    )
+    .bind(project_id)
+    .bind(branch.id)
+    .bind(proposal.id)
+    .execute(&state.db)
+    .await
+    {
+        Ok(_) => Json(proposal).into_response(),
+        Err(error) => db_error(format!("failed to link proposal to branch: {error}")),
+    }
+}
+
+pub async fn update_project_proposal(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((project_id, proposal_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateOntologyProjectProposalRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = ensure_project_edit_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectProposal>(
+        r#"UPDATE ontology_project_proposals
+           SET title = COALESCE($3, title),
+               description = COALESCE($4, description),
+               status = COALESCE($5, status),
+               reviewer_ids = COALESCE($6, reviewer_ids),
+               tasks = COALESCE($7, tasks),
+               comments = COALESCE($8, comments),
+               updated_at = NOW()
+           WHERE project_id = $1 AND id = $2
+           RETURNING id, project_id, branch_id, title, description, status, reviewer_ids, tasks, comments,
+                     created_by, created_at, updated_at"#,
+    )
+    .bind(project_id)
+    .bind(proposal_id)
+    .bind(body.title)
+    .bind(body.description)
+    .bind(body.status)
+    .bind(body.reviewer_ids)
+    .bind(body.tasks)
+    .bind(body.comments)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(proposal)) => Json(proposal).into_response(),
+        Ok(None) => not_found("ontology project proposal not found"),
+        Err(error) => db_error(format!("failed to update ontology project proposal: {error}")),
+    }
+}
+
+pub async fn list_project_migrations(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> impl IntoResponse {
+    if let Err(error) = ensure_project_view_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectMigration>(
+        r#"SELECT id, project_id, source_project_id, target_project_id, resources, submitted_at, status, note, submitted_by
+           FROM ontology_project_migrations
+           WHERE project_id = $1
+           ORDER BY submitted_at DESC"#,
+    )
+    .bind(project_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(data) => Json(ListOntologyProjectMigrationsResponse { data }).into_response(),
+        Err(error) => db_error(format!("failed to list ontology project migrations: {error}")),
+    }
+}
+
+pub async fn create_project_migration(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<CreateOntologyProjectMigrationRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = ensure_project_edit_access(&state.db, &claims, project_id).await {
+        return forbidden(error);
+    }
+
+    match sqlx::query_as::<_, OntologyProjectMigration>(
+        r#"INSERT INTO ontology_project_migrations
+              (id, project_id, source_project_id, target_project_id, resources, status, note, submitted_by)
+           VALUES ($1, $2, $3, $4, $5, 'planned', $6, $7)
+           RETURNING id, project_id, source_project_id, target_project_id, resources, submitted_at, status, note, submitted_by"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(project_id)
+    .bind(body.source_project_id)
+    .bind(body.target_project_id)
+    .bind(body.resources)
+    .bind(body.note.unwrap_or_default())
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(migration) => Json(migration).into_response(),
+        Err(error) => db_error(format!("failed to create ontology project migration: {error}")),
     }
 }

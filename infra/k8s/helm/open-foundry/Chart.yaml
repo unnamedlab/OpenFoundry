@@ -4,3 +4,10 @@ description: OpenFoundry platform chart with autoscaling-aware service deploymen
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+
+dependencies:
+  - name: vespa
+    alias: vespa
+    version: 0.1.0
+    repository: ""
+    condition: vespa.enabled

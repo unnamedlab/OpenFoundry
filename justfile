@@ -135,6 +135,14 @@ sdk-java-check:
 sdk-java-compile:
     find sdks/java/openfoundry-sdk/src/main/java -name '*.java' -print0 | xargs -0 javac --release 17
 
+# Validate the Strimzi Kafka cluster manifest against the KRaft contract
+kafka-kraft-lint:
+    python3 tools/kafka-lint/check_kraft.py
+
+# Validate the Rook-Ceph manifests against the quorum / rack-awareness contract
+ceph-topology-lint:
+    python3 tools/ceph-lint/check_topology.py
+
 # Validate the Helm chart across base/dev/staging/prod overlays
 helm-check:
     helm lint infra/k8s/helm/open-foundry -f infra/k8s/helm/open-foundry/values.yaml -f infra/k8s/helm/open-foundry/values-dev.yaml
@@ -181,7 +189,8 @@ proto-breaking:
 
 # ── Docker ───────────────────────────────────────────────────
 
-# Start dev infrastructure (Postgres, Redis, NATS, MinIO, Meilisearch)
+# Start dev infrastructure (Postgres, Redis, NATS, MinIO, Vespa Lite). Add
+# `--profile demo` to also bring up the optional Meilisearch (see ADR-0007).
 infra-up:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
 
@@ -203,9 +212,10 @@ stack-up wave:
 infra-down:
     docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down
 
-# Start with monitoring stack
-infra-up-full:
-    docker compose -p "${OPENFOUNDRY_DOCKER_PROJECT_NAME:-openfoundry-dev}" -f infra/docker-compose.yml -f infra/docker-compose.dev.yml -f infra/docker-compose.monitoring.yml up -d
+# NOTE: `infra-up-full` (dev stack + monitoring) was removed because the
+# `infra/docker-compose.monitoring.yml` stub was empty and gave a false signal
+# of an existing monitoring stack. The recipe will be reintroduced as part of
+# the formal observability work (T17). See docs/observability/index.md.
 
 # Build all Docker images
 docker-build:

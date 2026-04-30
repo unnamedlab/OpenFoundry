@@ -108,6 +108,16 @@ spec:
             - name: {{ $envKey }}
               value: {{ $envValue | quote }}
 {{- end }}
+{{- range $envKey, $envRef := ($service.envSecrets | default dict) }}
+            - name: {{ $envKey }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $envRef.secretName | quote }}
+                  key: {{ $envRef.key | quote }}
+{{- if hasKey $envRef "optional" }}
+                  optional: {{ $envRef.optional }}
+{{- end }}
+{{- end }}
 {{- if eq $serviceName "identity-federation-service" }}
             - name: PUBLIC_WEB_ORIGIN
               value: {{ $.Values.global.publicWebOrigin | quote }}

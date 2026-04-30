@@ -4,154 +4,156 @@ The ontology architecture is the part of OpenFoundry that turns many independent
 
 Without this layer, the repo is still a capable data and workflow platform. With this layer, it can become a governed semantic operating system.
 
-## Control plane and data plane
+## CQRS model and the three planes
 
-A useful mental model is to separate the ontology into two cooperating planes.
+The ontology stack is structured as a CQRS (Command Query Responsibility Segregation) architecture across three cooperating planes.
 
 ### Control plane
 
-The control plane defines:
+Owned by `ontology-definition-service` (port 50103).
 
-- object types
-- properties
-- interfaces
-- link types
-- action types
-- function packages
-- object-set definitions
+The control plane is the single source of truth for all schema and governance definitions:
 
-### Data plane
-
-The data plane executes:
-
-- ingestion
-- indexing
-- search
-- object reads
-- object writes
-- permission shaping
-- AI-assisted retrieval
-
-OpenFoundry already has pieces of both planes, but they are distributed across several services rather than concentrated into one named subsystem.
-
-## The six main concerns in the current repo
-
-### 1. Metadata authority
-
-`services/ontology-service` is the clearest semantic control-plane service in the repository.
-
-It already exposes managed resources for:
-
-- object types
-- properties
-- interfaces
+- object types, properties, and interfaces
 - shared property types
-- links
-- actions
-- function packages
-- object sets
+- link types
+- action type definitions
+- function package metadata and versioning
+- object-set definitions
+- funnel source definitions
+- project, branch, proposal, and migration governance
 
-### 2. Ingestion and indexing path
+Schema changes are compiled into versioned `schema_bundle` snapshots and distributed to cells.  The control plane never serves operational object data, graph traversal, or search results.
 
-OpenFoundry now exposes a more explicit ontology ingestion path for batch indexing.
+### Write plane
 
-The ontology-facing orchestration sits in:
+Owned by `object-database-service` (port 50104).
 
-- `services/ontology-service/src/handlers/funnel.rs`
-- `services/ontology-service/src/models/funnel.rs`
+The write plane is the single write authority for all operational object data:
 
-And it coordinates the lower-level platform services behind it:
+- `object_instances` — current mutable state of every object
+- `link_instances` — current mutable state of every link
+- `object_revisions` — append-only audit history for every object mutation
+- `link_revisions` — append-only audit history for every link mutation
+- `write_outbox` — transactional outbox for publishing change events to NATS JetStream
 
-- `services/data-connector`
-- `services/dataset-service`
-- `services/pipeline-service`
-- `services/streaming-service`
+Every mutation (direct write, action execution, or funnel upsert) goes through `object-database-service`.  It writes the current state, appends a revision record, and inserts an outbox row in a single transaction.  No other service mutates object or link data directly.
 
-This matters because the platform no longer depends only on an implicit combination of datasets and pipelines. It now has a named batch funnel abstraction that maps external rows into ontology object types and records funnel runs.
+### Read / serving plane
 
-The same area is also becoming the natural observability surface for ontology ingestion, because funnel sources and runs can now expose health summaries instead of leaving builders to infer indexing health only from generic service logs.
+Owned by `ontology-query-service` (port 50105).
 
-### 3. Query and read layer
+The read plane serves all hot query paths exclusively from pre-computed read models.  It never scans the write-side tables for search, graph, or KNN:
 
-Ontology reads naturally span:
+- `obj_current_projection` — denormalized current state for point lookups and filter queries
+- `link_adjacency_projection` — pre-expanded adjacency list for graph and neighbor serving
+- `search_document_projection` — hybrid FTS + vector serving document (lexical and semantic search)
+- `knn_vector_projection` — per-property vector store for nearest-neighbor retrieval
+- `object_view_projection` — enriched object view cache for the UI surface
+- `object_set_membership` — incremental row-level representation of object-set members
+- `funnel_health_projection` — explicit health model for funnel sources
 
-- `services/sql-bi-gateway-service`
-- `services/ontology-service`
-- `services/geospatial-service`
-- `services/gateway`
+Read models are refreshed asynchronously by consumers reading from the `write_outbox` stream.
 
-This is the layer that should eventually serve object loading, graph traversal, search, and application-facing query patterns.
+## The seven ontology services
 
-### 4. Mutation and decision layer
+| Service | Port | Responsibility |
+| --- | --- | --- |
+| `ontology-definition-service` | 50103 | Control plane: schema, governance, definitions |
+| `object-database-service` | 50104 | Write authority: objects, links, revisions, outbox |
+| `ontology-query-service` | 50105 | Serving: search, graph, views, KNN, object sets |
+| `ontology-actions-service` | 50106 | Mutations: action validation, planning, execution |
+| `ontology-funnel-service` | 50107 | Ingestion: batch funnel runs, health, backfills |
+| `ontology-functions-service` | 50108 | Function runtime: TypeScript / Python sandbox |
+| `ontology-security-service` | 50109 | Security: policy compilation, visibility pushdown |
 
-Controlled writes already map well to:
+## Write path
 
-- `services/ontology-service`
-- `services/workflow-automation-service`
-- `services/notification-alerting-service`
-- `services/audit-service`
+```text
+caller (action / funnel / direct API)
+    |
+    v
+object-database-service
+    |-- writes object_instances + object_revisions + write_outbox (one transaction)
+    |
+    v
+NATS JetStream (write_outbox relay)
+    |
+    +--> ontology-query-service projection consumers
+    |       (refresh obj_current_projection, link_adjacency_projection,
+    |        search_document_projection, knn_vector_projection,
+    |        object_view_projection, object_set_membership,
+    |        funnel_health_projection)
+    |
+    +--> ontology-security-service bundle invalidation consumer
+```
 
-This is where action execution, workflow handoffs, and operational state change meet.
+## Read path
 
-### 5. Governance layer
+```text
+API client
+    |
+    v
+gateway -> ontology-query-service
+    |
+    +--> Redis cache (hot objects, recent search results)
+    |
+    +--> obj_current_projection        (filter / point-lookup queries)
+    +--> link_adjacency_projection     (graph traversal, neighbors)
+    +--> search_document_projection    (hybrid search)
+    +--> knn_vector_projection         (KNN queries)
+    +--> object_view_projection        (enriched object view)
+    +--> object_set_membership         (object-set serving)
+    |
+    +--> policy_visibility_projection  (security pushdown, compiled by ontology-security-service)
+```
 
-A usable ontology must be permission-aware and reviewable.
+Fallback: when a request requires read-your-own-write consistency, `ontology-query-service` may perform a targeted point-read against `object-database-service` for the specific object ID.
 
-In the current repo, this concern maps primarily to:
+## Security path
 
-- `services/auth-service`
-- `services/audit-service`
-- `libs/auth-middleware`
+`ontology-security-service` (port 50109) compiles access policies into `policy_bundle` snapshots and expands them into `policy_visibility_projection` rows.  Query and action services consume these projections as SQL predicates, eliminating the need to fetch objects before filtering.
 
-### 6. Intelligence and retrieval layer
+Policy bundles are versioned and distributed to cells.  Each cell applies the latest local bundle without a synchronous call to the security service.
 
-The programmable and AI-aware layer is implied by:
+## What reads the transactional store
 
-- `services/ai-service`
-- `services/ml-service`
-- `services/notebook-runtime-service`
-- `libs/vector-store`
-- `tools/of-cli`
+Only narrow cases bypass the read models and go directly to the write store:
 
-This is the layer that can make ontology entities retrievable, explainable, and actionable in AI-assisted workflows.
+- GET /objects/{id} — when the caller needs strong consistency after a write
+- GET /links/{id} — same
+- CRUD of definitions in the control plane
+- Action validation against the current state of a specific object
+- Governance flows (branch/proposal/migration reads)
 
-## What is already concrete
+Everything else (search, graph, KNN, object views, object-set serving, neighbors, analytics) reads from projections.
 
-The ontology architecture is not only aspirational in this repo.
+## Cell topology
 
-There are already concrete REST surfaces for:
+Each deployment cell contains a complete ontology stack:
 
-- metadata CRUD
-- action validation and execution
-- function validation and simulation
-- object search
-- object graph access
-- object sets with policy and materialization
+- `edge-gateway-service`
+- `object-database-service` with Postgres HA managed by CloudNativePG (CNPG) — see [ADR-0010](../../architecture/adr/ADR-0010-cnpg-postgres-operator.md)
+- `ontology-query-service` with local Redis HA and read replicas
+- `ontology-actions-service`
+- `ontology-security-service`
+- `ontology-funnel-service`
+- `ontology-functions-service`
+- local NATS JetStream (3-node cluster)
 
-That makes the architecture real enough to document as a platform slice, not only as a future design note.
+`ontology-definition-service` operates as a regional/global control plane and distributes `schema_bundle` and `policy_bundle` snapshots to each cell.
 
-## What still needs consolidation
+Objects live in a single home cell.  Searches are cell-local first.  Cross-cell queries are explicit federation fan-outs, not transparent remote joins.
 
-The current architecture still looks distributed rather than fully converged.
+## What still needs work
 
-The main gaps are:
+The main gaps to reach this target:
 
-- streaming indexing still lacks the same explicit ontology-facing orchestration that batch now has
-- no visible persistent merge layer for datasource state plus user edits
-- no unified contract surface in protobuf for some ontology resources
-- no clearly separated storage backends for semantic reads versus writeback history
-
-That is not necessarily a weakness for an early-stage system, but it does mean that several concepts still exist more as patterns across services than as fully named platform subsystems.
-
-## Recommended architecture direction
-
-If OpenFoundry continues toward a stronger ontology platform, the next architectural milestones should be:
-
-1. strengthen metadata contracts
-2. formalize indexing and materialization
-3. unify query and search semantics
-4. make object edits durable and conflict-aware
-5. expose permission-aware semantic retrieval everywhere
+- projection consumer workers (write_outbox → read models) not yet implemented
+- pgvector activation for knn_vector_projection and search_document_projection (Phase 2)
+- per-cell schema and policy bundle replication (Phase 3)
+- physical database separation of control plane, write store, and read store (Phase 2)
+- Redis cache layer integration in ontology-query-service (Phase 2)
 
 ## Related pages
 

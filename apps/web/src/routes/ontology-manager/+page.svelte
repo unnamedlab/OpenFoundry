@@ -1,7 +1,24 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import Glyph from '$components/ui/Glyph.svelte';
+  import { getMe, type UserProfile } from '$lib/api/auth';
+  import { listDatasets, previewDataset, type Dataset, type DatasetPreviewResponse } from '$lib/api/datasets';
+  import {
+    createApp,
+    getApp,
+    listApps,
+    type AppDefinition,
+    type AppSummary
+  } from '$lib/api/apps';
+  import {
+    createApp,
+    getApp,
+    listApps,
+    type AppDefinition,
+    type AppSummary
+  } from '$lib/api/apps';
   import {
     attachInterfaceToType,
     attachSharedPropertyType,
@@ -9,7 +26,9 @@
     createInterface,
     createInterfaceProperty,
     createLinkType,
+    createOntologyFunnelSource,
     createObjectType,
+    createProjectBranch,
     createProject,
     createProperty,
     createSharedPropertyType,
@@ -24,6 +43,7 @@
     listObjectSets,
     listObjects,
     listObjectTypes,
+    listProjectBranches,
     listProjectMemberships,
     listProjectResources,
     listProjects,
@@ -31,12 +51,15 @@
     listSharedPropertyTypes,
     listTypeInterfaces,
     listTypeSharedPropertyTypes,
+    getProjectWorkingState,
+    replaceProjectWorkingState,
     type InterfaceProperty,
     type LinkType,
     type ObjectSetDefinition,
     type ObjectType,
     type OntologyInterface,
     type OntologyProject,
+    type OntologyBranch,
     type OntologyProjectMembership,
     type OntologyProjectResourceBinding,
     type OntologyProjectRole,
@@ -50,6 +73,11 @@
     updateProperty,
     upsertProjectMembership
   } from '$lib/api/ontology';
+  import {
+    createDefaultSettings,
+    createDefaultTheme,
+    createPage
+  } from '$lib/utils/apps';
 
   type ManagerSection = 'discover' | 'types' | 'interfaces' | 'shared' | 'links' | 'projects' | 'changes' | 'advanced';
   type ReviewFilter = 'all' | 'errors' | 'warnings';
@@ -198,9 +226,9 @@
     { id: 'advanced', label: 'Advanced', glyph: 'settings' }
   ];
 
-  const branchOptions = ['main', 'working-copy', 'release-candidate'];
   const propertyTypeOptions = ['string', 'integer', 'float', 'boolean', 'date', 'datetime', 'json', 'embedding'];
   const projectRoleOptions: OntologyProjectRole[] = ['owner', 'editor', 'viewer'];
+  const workshopBlue4 = '#3b82f6';
 
   let loading = $state(true);
   let loadError = $state('');
@@ -236,10 +264,42 @@
 
   let selectedProjectMemberships = $state<OntologyProjectMembership[]>([]);
   let selectedProjectResources = $state<OntologyProjectResourceBinding[]>([]);
+  let workshopDependents = $state<AppSummary[]>([]);
+  let loadingWorkshopDependents = $state(false);
+  let workshopDependentError = $state('');
+  let creatingWorkshopDependent = $state(false);
 
   let changeQueue = $state<StagedChange[]>([]);
   let recentItems = $state<RecentItem[]>([]);
   let favoriteKeys = $state<string[]>([]);
+  let currentUser = $state<UserProfile | null>(null);
+  let datasets = $state<Dataset[]>([]);
+  let datasetPreview = $state<DatasetPreviewResponse | null>(null);
+  let projectBranches = $state<OntologyBranch[]>([]);
+  let branchMenuOpen = $state(false);
+  let branchBusy = $state(false);
+  let branchError = $state('');
+  let branchDraftName = $state('');
+  let branchDraftDescription = $state('');
+  let branchDraftQuery = $state('');
+  let branchEnableIndexing = $state(true);
+  let wizardOpen = $state(false);
+  let wizardStep = $state(1);
+  let wizardBusy = $state(false);
+  let wizardError = $state('');
+  let wizardSuccess = $state('');
+  let wizardDatasetSearch = $state('');
+  let wizardPluralNameTouched = $state(false);
+  let wizardDraft = $state({
+    dataset_id: '',
+    object_name: '',
+    display_name: '',
+    plural_name: '',
+    description: '',
+    primary_key_column: '',
+    title_column: '',
+    mapped_columns: [] as string[]
+  });
 
   let typeDraft = $state<TypeDraft>({ display_name: '', description: '', icon: '', color: '' });
   let createTypeDraft = $state<CreateTypeDraft>({ name: '', display_name: '', description: '', icon: '', color: '' });
@@ -326,6 +386,27 @@
   const selectedSharedProperty = $derived(sharedPropertyTypes.find((item) => item.id === selectedSharedPropertyId) ?? null);
   const selectedLink = $derived(linkTypes.find((item) => item.id === selectedLinkId) ?? null);
   const selectedProject = $derived(projects.find((item) => item.id === selectedProjectId) ?? null);
+  const selectedProjectRole = $derived.by(() => {
+    const current = currentUser;
+    if (!current || !selectedProject) return null;
+    if (selectedProject.owner_id === current.id) return 'owner' as const;
+    return selectedProjectMemberships.find((item) => item.user_id === current.id)?.role ?? 'viewer';
+  });
+  const canEditSelectedProject = $derived(selectedProjectRole === 'owner' || selectedProjectRole === 'editor');
+  const activeProjectBranch = $derived(
+    projectBranches.find((item) => item.name === activeBranch) ?? projectBranches.find((item) => item.status === 'main') ?? null
+  );
+  const branchIndexingEnabled = $derived(activeProjectBranch?.enable_indexing ?? activeBranch === 'main');
+  const filteredBranchMatches = $derived.by(() => {
+    const query = branchDraftQuery.trim().toLowerCase();
+    if (!query) return projectBranches.slice(0, 6);
+    return projectBranches.filter((item) => item.name.toLowerCase().includes(query)).slice(0, 6);
+  });
+  const filteredWizardDatasets = $derived.by(() => {
+    const query = wizardDatasetSearch.trim().toLowerCase();
+    if (!query) return datasets;
+    return datasets.filter((item) => `${item.name} ${item.description ?? ''}`.toLowerCase().includes(query));
+  });
 
   const filteredObjectTypes = $derived.by(() => filterBySearch(objectTypes, searchQuery, (item) => `${item.name} ${item.display_name} ${item.description}`));
   const filteredInterfaces = $derived.by(() => filterBySearch(interfaces, searchQuery, (item) => `${item.name} ${item.display_name} ${item.description}`));
@@ -406,7 +487,6 @@
 
   onMount(() => {
     loadPreferences();
-    loadWorkingState();
     void loadCatalog();
   });
 
@@ -427,6 +507,60 @@
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  }
+
+  function normalizeBranchName(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9/_-]+/g, '-')
+      .replace(/\/{2,}/g, '/')
+      .replace(/(^|\/)[_-]+/g, '$1')
+      .replace(/[_-]+(\/|$)/g, '$1')
+      .replace(/^\/+|\/+$/g, '');
+  }
+
+  function pluralizeLabel(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/\b\w+s$/i.test(trimmed)) return trimmed;
+    if (/(s|x|z|ch|sh)$/i.test(trimmed)) return `${trimmed}es`;
+    if (/[^aeiou]y$/i.test(trimmed)) return `${trimmed.slice(0, -1)}ies`;
+    return `${trimmed}s`;
+  }
+
+  function currentUsernameSlug() {
+    const source = currentUser?.email?.split('@')[0] || currentUser?.name || 'your_username';
+    return normalizeBranchName(source) || 'your_username';
+  }
+
+  function defaultBranchName() {
+    return `${currentUsernameSlug()}/e2espeedrun`;
+  }
+
+  function syncWizardNames(value: string) {
+    wizardDraft.display_name = value;
+    wizardDraft.object_name = normalizeName(value);
+    if (!wizardPluralNameTouched) {
+      wizardDraft.plural_name = pluralizeLabel(value);
+    }
+  }
+
+  function resetWizardDraft() {
+    wizardDraft = {
+      dataset_id: '',
+      object_name: '',
+      display_name: '',
+      plural_name: '',
+      description: '',
+      primary_key_column: '',
+      title_column: '',
+      mapped_columns: []
+    };
+    wizardStep = 1;
+    wizardDatasetSearch = '';
+    wizardPluralNameTouched = false;
+    datasetPreview = null;
   }
 
   function storageKey(name: string) {
@@ -450,18 +584,22 @@
     window.localStorage.setItem(storageKey('recent'), JSON.stringify(recentItems));
   }
 
-  function loadWorkingState() {
-    if (!browser) return;
+  async function loadWorkingState(projectId = selectedProjectId) {
+    if (!projectId) {
+      changeQueue = [];
+      return;
+    }
     try {
-      changeQueue = JSON.parse(window.localStorage.getItem(storageKey('working-state')) ?? '[]');
+      const workingState = await getProjectWorkingState(projectId);
+      changeQueue = workingState.changes as StagedChange[];
     } catch {
       changeQueue = [];
     }
   }
 
-  function persistWorkingState() {
-    if (!browser) return;
-    window.localStorage.setItem(storageKey('working-state'), JSON.stringify(changeQueue));
+  async function persistWorkingState(projectId = selectedProjectId) {
+    if (!projectId || !canEditSelectedProject) return;
+    await replaceProjectWorkingState(projectId, changeQueue);
   }
 
   function recentSectionKey(section: Exclude<ManagerSection, 'discover' | 'changes' | 'advanced'>, id: string) {
@@ -509,17 +647,17 @@
     changeQueue = [change, ...changeQueue];
     saveSuccess = '';
     saveError = '';
-    persistWorkingState();
+    void persistWorkingState();
   }
 
   function removeChange(id: string) {
     changeQueue = changeQueue.filter((change) => change.id !== id);
-    persistWorkingState();
+    void persistWorkingState();
   }
 
   function clearChanges() {
     changeQueue = [];
-    persistWorkingState();
+    void persistWorkingState();
   }
 
   function buildChange(params: Omit<StagedChange, 'id' | 'createdAt'>): StagedChange {
@@ -579,11 +717,111 @@
     };
   }
 
+  function workshopInboxNameForType(typeItem: ObjectType) {
+    const base = typeItem.display_name?.trim() || typeItem.name || 'Object';
+    if (/[sxz]$/i.test(base) || /(ch|sh)$/i.test(base)) return `${base}es Inbox`;
+    if (/[^aeiou]y$/i.test(base)) return `${base.slice(0, -1)}ies Inbox`;
+    if (/s$/i.test(base)) return `${base} Inbox`;
+    return `${base}s Inbox`;
+  }
+
+  function widgetDependsOnOntologyType(widget: AppDefinition['pages'][number]['widgets'][number], typeId: string): boolean {
+    const bindingMatches = widget.binding?.source_type === 'ontology' && widget.binding.source_id === typeId;
+    if (bindingMatches) return true;
+    return widget.children.some((child) => widgetDependsOnOntologyType(child, typeId));
+  }
+
+  function appDependsOnOntologyType(app: AppDefinition, typeId: string) {
+    if (app.settings.ontology_source_type_id === typeId) return true;
+    if (app.settings.slate.quiver_embed.primary_type_id === typeId) return true;
+    if (app.settings.slate.quiver_embed.secondary_type_id === typeId) return true;
+    return app.pages.some((page) => page.widgets.some((widget) => widgetDependsOnOntologyType(widget, typeId)));
+  }
+
+  async function loadWorkshopDependents(typeId: string) {
+    if (!typeId) {
+      workshopDependents = [];
+      workshopDependentError = '';
+      return;
+    }
+
+    const requestedTypeId = typeId;
+    loadingWorkshopDependents = true;
+    workshopDependentError = '';
+
+    try {
+      const appResponse = await listApps({ per_page: 100 });
+      const apps = await Promise.all(
+        appResponse.data.map(async (summary) => ({
+          summary,
+          app: await getApp(summary.id)
+        }))
+      );
+
+      if (selectedTypeId !== requestedTypeId) return;
+
+      workshopDependents = apps
+        .filter(({ app }) => appDependsOnOntologyType(app, requestedTypeId))
+        .map(({ summary }) => summary)
+        .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+    } catch (cause) {
+      if (selectedTypeId !== requestedTypeId) return;
+      workshopDependentError = cause instanceof Error ? cause.message : 'Failed to load Workshop dependents';
+      workshopDependents = [];
+    } finally {
+      if (selectedTypeId === requestedTypeId) {
+        loadingWorkshopDependents = false;
+      }
+    }
+  }
+
+  async function createWorkshopDependent() {
+    if (!selectedType) return;
+
+    creatingWorkshopDependent = true;
+    workshopDependentError = '';
+
+    try {
+      const page = createPage('Overview', '/');
+      const name = workshopInboxNameForType(selectedType);
+      const settings = createDefaultSettings(page.id);
+      const app = await createApp({
+        name,
+        description: `Operational inbox built from ${selectedType.display_name}.`,
+        status: 'draft',
+        pages: [page],
+        theme: {
+          ...createDefaultTheme(),
+          primary_color: workshopBlue4
+        },
+        settings: {
+          ...settings,
+          ontology_source_type_id: selectedType.id,
+          workshop_header: {
+            ...settings.workshop_header,
+            title: name,
+            icon: 'cube',
+            color: workshopBlue4
+          }
+        }
+      });
+
+      await loadWorkshopDependents(selectedType.id);
+      await goto(`/apps?appId=${app.id}`);
+    } catch (cause) {
+      workshopDependentError = cause instanceof Error ? cause.message : 'Failed to create Workshop module';
+    } finally {
+      creatingWorkshopDependent = false;
+    }
+  }
+
   async function loadCatalog() {
     loading = true;
     loadError = '';
     try {
-      const [typesResponse, interfacesResponse, sharedResponse, linksResponse, projectsResponse, objectSetsResponse] = await Promise.all([
+      const [me, datasetResponse, typesResponse, interfacesResponse, sharedResponse, linksResponse, projectsResponse, objectSetsResponse] = await Promise.all([
+        getMe(),
+        listDatasets({ page: 1, per_page: 200 }),
         listObjectTypes({ page: 1, per_page: 200 }),
         listInterfaces({ page: 1, per_page: 200 }),
         listSharedPropertyTypes({ page: 1, per_page: 200 }),
@@ -592,6 +830,8 @@
         listObjectSets().catch(() => ({ data: [] }))
       ]);
 
+      currentUser = me;
+      datasets = datasetResponse.data;
       objectTypes = typesResponse.data;
       interfaces = interfacesResponse.data;
       sharedPropertyTypes = sharedResponse.data;
@@ -607,7 +847,9 @@
 
       if (selectedTypeId) await loadSelectedType(selectedTypeId);
       if (selectedInterfaceId) await loadSelectedInterface(selectedInterfaceId);
-      if (selectedProjectId) await loadSelectedProject(selectedProjectId);
+      if (selectedProjectId) {
+        await Promise.all([loadSelectedProject(selectedProjectId), loadWorkingState(selectedProjectId)]);
+      }
 
       if (!linkDraft.source_type_id && objectTypes[0]) linkDraft.source_type_id = objectTypes[0].id;
       if (!linkDraft.target_type_id && objectTypes[1]) linkDraft.target_type_id = objectTypes[1].id;
@@ -624,6 +866,7 @@
     if (!id) return;
     const typeItem = objectTypeMap.get(id);
     if (typeItem) loadTypeDraft(typeItem);
+    void loadWorkshopDependents(id);
     try {
       const [detail, propertiesResponse, sharedProps, interfacesResponse, objectsResponse] = await Promise.all([
         getObjectType(id),
@@ -677,12 +920,17 @@
     const projectItem = projectMap.get(id);
     if (projectItem) loadProjectDraft(projectItem);
     try {
-      const [memberships, resources] = await Promise.all([
+      const [memberships, resources, branches] = await Promise.all([
         listProjectMemberships(id),
-        listProjectResources(id)
+        listProjectResources(id),
+        listProjectBranches(id).catch(() => [])
       ]);
       selectedProjectMemberships = memberships;
       selectedProjectResources = resources;
+      projectBranches = branches;
+      if (!branches.some((item) => item.name === activeBranch)) {
+        activeBranch = branches.find((item) => item.status === 'main')?.name ?? branches[0]?.name ?? 'main';
+      }
       if (projectItem) markRecent('projects', projectItem.id, projectItem.display_name);
     } catch (cause) {
       saveError = cause instanceof Error ? cause.message : 'Failed to load project detail';
@@ -716,7 +964,7 @@
   function selectProject(id: string) {
     selectedProjectId = id;
     activeSection = 'projects';
-    void loadSelectedProject(id);
+    void Promise.all([loadSelectedProject(id), loadWorkingState(id)]);
   }
 
   function stageTypeUpdate() {
@@ -1407,7 +1655,7 @@
     }
 
     changeQueue = [...importedChanges, ...changeQueue];
-    persistWorkingState();
+    void persistWorkingState();
     importSummary = `Imported ${importedChanges.length} working-state edits from JSON.`;
     activeSection = 'changes';
   }
@@ -1796,6 +2044,220 @@
     refreshing = false;
   }
 
+  function toggleBranchMenu() {
+    branchMenuOpen = !branchMenuOpen;
+    branchError = '';
+    branchDraftQuery = '';
+    if (!branchDraftName) branchDraftName = defaultBranchName();
+  }
+
+  function selectActiveBranch(name: string) {
+    activeBranch = name;
+    branchMenuOpen = false;
+    branchError = '';
+  }
+
+  async function createOntologyBranchFromManager() {
+    if (!selectedProjectId || !canEditSelectedProject) {
+      branchError = 'Select an editable ontology project before creating a branch.';
+      return;
+    }
+    const normalizedName = normalizeBranchName(branchDraftName || defaultBranchName());
+    if (!normalizedName) {
+      branchError = 'Branch name is required.';
+      return;
+    }
+
+    branchBusy = true;
+    branchError = '';
+    try {
+      const nextBranch = await createProjectBranch(selectedProjectId, {
+        name: normalizedName,
+        description: branchDraftDescription.trim() || 'Foundry-style branch created from Ontology Manager.',
+        changes: changeQueue,
+        enable_indexing: branchEnableIndexing
+      });
+      projectBranches = [nextBranch, ...projectBranches.filter((item) => item.id !== nextBranch.id)];
+      activeBranch = nextBranch.name;
+      branchMenuOpen = false;
+      branchDraftName = defaultBranchName();
+      branchDraftDescription = '';
+      saveSuccess = 'Ontology branch created.';
+      saveError = '';
+    } catch (cause) {
+      branchError = cause instanceof Error ? cause.message : 'Failed to create ontology branch';
+    } finally {
+      branchBusy = false;
+    }
+  }
+
+  function openDatasourceWizard() {
+    resetWizardDraft();
+    wizardOpen = true;
+    wizardError = '';
+    wizardSuccess = '';
+  }
+
+  function closeDatasourceWizard() {
+    wizardOpen = false;
+    wizardStep = 1;
+    wizardError = '';
+  }
+
+  async function nextWizardStep() {
+    wizardError = '';
+    if (wizardStep === 1) {
+      if (!wizardDraft.dataset_id) {
+        wizardError = 'Select a datasource.';
+        return;
+      }
+      wizardStep = 2;
+      return;
+    }
+    if (wizardStep === 2) {
+      if (!wizardDraft.display_name.trim()) {
+        wizardError = 'Name is required.';
+        return;
+      }
+      if (!wizardDraft.plural_name.trim()) {
+        wizardError = 'Plural name is required.';
+        return;
+      }
+      wizardStep = 3;
+    }
+  }
+
+  async function loadWizardDatasetPreview(datasetId: string) {
+    wizardDraft.dataset_id = datasetId;
+    wizardError = '';
+    wizardSuccess = '';
+    datasetPreview = datasetId ? await previewDataset(datasetId, { limit: 20 }).catch(() => null) : null;
+    wizardDraft.mapped_columns = datasetPreview?.columns?.map((column) => column.name) ?? [];
+    if (!wizardDraft.object_name) {
+      const dataset = datasets.find((item) => item.id === datasetId);
+      syncWizardNames(titleCase(normalizeName(dataset?.name ?? '')));
+      wizardDraft.description = dataset?.description ?? '';
+    }
+    if (!wizardDraft.primary_key_column && datasetPreview?.columns?.[0]?.name) {
+      wizardDraft.primary_key_column = datasetPreview.columns[0].name;
+    }
+    if (!wizardDraft.title_column && datasetPreview?.columns?.[1]?.name) {
+      wizardDraft.title_column = datasetPreview.columns[1].name;
+    }
+  }
+
+  function inferPropertyType(column?: { field_type?: string; data_type?: string; nullable?: boolean }) {
+    const value = (column?.field_type ?? column?.data_type ?? 'string').toLowerCase();
+    if (value.includes('int')) return 'integer';
+    if (value.includes('float') || value.includes('double') || value.includes('decimal')) return 'float';
+    if (value.includes('bool')) return 'boolean';
+    if (value.includes('time')) return 'datetime';
+    if (value.includes('date')) return 'date';
+    if (value.includes('json')) return 'json';
+    return 'string';
+  }
+
+  function toggleMappedColumn(columnName: string, enabled: boolean) {
+    wizardDraft.mapped_columns = enabled
+      ? [...new Set([...wizardDraft.mapped_columns, columnName])]
+      : wizardDraft.mapped_columns.filter((item) => item !== columnName);
+  }
+
+  async function createObjectFromDatasource() {
+    if (!selectedProjectId || !canEditSelectedProject) {
+      wizardError = 'Select an ontology where you have edit permissions before creating an object.';
+      return;
+    }
+    if (!wizardDraft.dataset_id) {
+      wizardError = 'Select a datasource.';
+      return;
+    }
+    if (!wizardDraft.display_name.trim()) {
+      wizardError = 'Name is required.';
+      return;
+    }
+    if (!wizardDraft.primary_key_column) {
+      wizardError = 'Choose a primary key column.';
+      return;
+    }
+    if (!wizardDraft.title_column) {
+      wizardError = 'Choose a title column.';
+      return;
+    }
+    if (wizardDraft.mapped_columns.length === 0) {
+      wizardError = 'Keep at least one mapped property.';
+      return;
+    }
+    if (!wizardDraft.mapped_columns.includes(wizardDraft.primary_key_column)) {
+      wizardError = 'The primary key must remain mapped.';
+      return;
+    }
+    if (!wizardDraft.mapped_columns.includes(wizardDraft.title_column)) {
+      wizardError = 'The title field must remain mapped.';
+      return;
+    }
+
+    wizardBusy = true;
+    wizardError = '';
+    wizardSuccess = '';
+
+    try {
+      const createdType = await createObjectType({
+        name: normalizeName(wizardDraft.object_name || wizardDraft.display_name),
+        display_name: wizardDraft.display_name.trim() || titleCase(normalizeName(wizardDraft.object_name || wizardDraft.display_name)),
+        description: wizardDraft.description.trim() || undefined,
+        primary_key_property: normalizeName(wizardDraft.primary_key_column)
+      });
+
+      await bindProjectResource(selectedProjectId, { resource_kind: 'object_type', resource_id: createdType.id });
+
+      const columns = (datasetPreview?.columns ?? []).filter((column) => wizardDraft.mapped_columns.includes(column.name));
+      for (const column of columns) {
+        const propertyName = normalizeName(column.name);
+        await createProperty(createdType.id, {
+          name: propertyName,
+          display_name: titleCase(propertyName),
+          description:
+            column.name === wizardDraft.primary_key_column
+              ? 'Primary key selected in the datasource wizard.'
+              : column.name === wizardDraft.title_column
+                ? 'Suggested title field from datasource wizard.'
+                : undefined,
+          property_type: inferPropertyType(column),
+          required: propertyName === normalizeName(wizardDraft.primary_key_column) ? true : !(column.nullable ?? true),
+          unique_constraint: propertyName === normalizeName(wizardDraft.primary_key_column),
+          time_dependent: false
+        });
+      }
+
+      if (branchIndexingEnabled) {
+        await createOntologyFunnelSource({
+          name: `${normalizeName(wizardDraft.object_name || wizardDraft.display_name)}-source`,
+          description: `Datasource-backed indexing flow for ${wizardDraft.display_name || wizardDraft.object_name}.`,
+          object_type_id: createdType.id,
+          dataset_id: wizardDraft.dataset_id,
+          dataset_branch: 'main',
+          preview_limit: 500,
+          property_mappings: columns.map((column) => ({
+            source_field: column.name,
+            target_property: normalizeName(column.name)
+          }))
+        });
+      }
+
+      wizardSuccess = branchIndexingEnabled
+        ? 'Object type created from datasource and saved to ontology.'
+        : 'Object type created from datasource. Indexing remains disabled on the current branch.';
+      closeDatasourceWizard();
+      resetWizardDraft();
+      await loadCatalog();
+    } catch (cause) {
+      wizardError = cause instanceof Error ? cause.message : 'Failed to create object from datasource';
+    } finally {
+      wizardBusy = false;
+    }
+  }
+
   function titleCase(value: string) {
     return value
       .split('_')
@@ -1853,12 +2315,80 @@
           />
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <label class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" for="branch-select">Branch</label>
-          <select id="branch-select" bind:value={activeBranch} class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm">
-            {#each branchOptions as branch}
-              <option value={branch}>{branch}</option>
-            {/each}
-          </select>
+          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ontology branch</span>
+          <div class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700">
+            {activeBranch}
+          </div>
+          <div class="relative">
+            <button
+              class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#86a6dc]"
+              onclick={toggleBranchMenu}
+              disabled={!selectedProjectId}
+            >
+              New
+            </button>
+            {#if branchMenuOpen}
+              <div class="absolute right-0 z-20 mt-2 w-[360px] rounded-[24px] border border-[#d2dcec] bg-white p-4 shadow-[0_24px_80px_rgba(21,55,110,0.18)]">
+                <input
+                  bind:value={branchDraftName}
+                  class="w-full rounded-2xl border border-[#9fb8df] px-3 py-2.5 text-sm outline-none transition focus:border-[#6186c5]"
+                  placeholder={defaultBranchName()}
+                />
+                <div class="mt-4 text-sm font-medium text-slate-700">Create a new branch</div>
+                <button
+                  class="mt-2 flex w-full items-center justify-between rounded-2xl border border-[#dbe4f1] bg-[#f8fbff] px-3 py-3 text-left text-sm text-slate-700 transition hover:border-[#bfd1ef]"
+                  onclick={() => (branchDraftName = defaultBranchName())}
+                  type="button"
+                >
+                  <span>{normalizeBranchName(branchDraftName || defaultBranchName()) || defaultBranchName()}</span>
+                  <span class="rounded-lg bg-[#e7eefb] px-2 py-1 text-xs text-[#315ea8]">Suggested</span>
+                </button>
+                <div class="mt-4 text-xs uppercase tracking-[0.18em] text-slate-500">Existing ontology branches</div>
+                <input
+                  bind:value={branchDraftQuery}
+                  class="mt-2 w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm outline-none transition focus:border-[#86a6dc]"
+                  placeholder="Search branches"
+                />
+                <div class="mt-2 max-h-40 space-y-2 overflow-auto">
+                  {#if filteredBranchMatches.length > 0}
+                    {#each filteredBranchMatches as branch}
+                      <button
+                        class="flex w-full items-center justify-between rounded-2xl border border-[#e4ebf5] bg-[#fbfcff] px-3 py-2 text-left text-sm text-slate-700 transition hover:border-[#bfd1ef]"
+                        onclick={() => selectActiveBranch(branch.name)}
+                        type="button"
+                      >
+                        <span>{branch.name}</span>
+                        <span class="text-xs text-slate-500">{branch.status}</span>
+                      </button>
+                    {/each}
+                  {:else}
+                    <div class="rounded-2xl border border-dashed border-[#dbe4f1] px-3 py-5 text-center text-sm text-slate-500">No results</div>
+                  {/if}
+                </div>
+                <label class="mt-4 flex items-center gap-2 rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm text-slate-700">
+                  <input type="checkbox" bind:checked={branchEnableIndexing} />
+                  Enable indexing
+                </label>
+                <label class="mt-3 block text-sm text-slate-700">
+                  <span class="mb-2 block font-medium">Description</span>
+                  <textarea bind:value={branchDraftDescription} rows="3" class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 outline-none transition focus:border-[#86a6dc]"></textarea>
+                </label>
+                {#if branchError}
+                  <div class="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{branchError}</div>
+                {/if}
+                <button
+                  class="mt-4 w-full rounded-2xl bg-[#2d8a4b] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#25733f] disabled:bg-[#93c5a2]"
+                  onclick={createOntologyBranchFromManager}
+                  disabled={branchBusy || !canEditSelectedProject}
+                >
+                  {branchBusy ? 'Creating…' : 'Create branch'}
+                </button>
+              </div>
+            {/if}
+          </div>
+          <div class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm text-slate-700">
+            Access {selectedProjectRole ?? 'viewer'}
+          </div>
           <button
             class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#86a6dc]"
             onclick={refreshManager}
@@ -2093,19 +2623,200 @@
             <div class="space-y-6">
               <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
                 <h2 class="text-xl font-semibold text-slate-900">Working state</h2>
-                <p class="mt-1 text-sm text-slate-600">Save applies queued ontology edits. Discard clears the local branch working state.</p>
+                <p class="mt-1 text-sm text-slate-600">Save applies queued ontology edits. Discard clears the backend working state for the selected ontology.</p>
                 <div class="mt-4 flex flex-wrap gap-3">
-                  <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e]" onclick={applyChanges} disabled={saving || pendingChanges === 0}>
+                  <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={applyChanges} disabled={saving || pendingChanges === 0 || !canEditSelectedProject}>
                     {saving ? 'Saving…' : 'Save changes'}
                   </button>
-                  <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={clearChanges} disabled={pendingChanges === 0}>
+                  <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df] disabled:opacity-50" onclick={clearChanges} disabled={pendingChanges === 0 || !canEditSelectedProject}>
                     Discard all
                   </button>
                   <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (activeSection = 'changes')}>
                     Review edits
                   </button>
                 </div>
+                {#if !canEditSelectedProject}
+                  <p class="mt-3 text-xs text-amber-700">You currently have viewer access. Switch ontology or create/use an editable branch before saving.</p>
+                {/if}
               </div>
+
+              <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
+                <h2 class="text-xl font-semibold text-slate-900">Create object from datasource</h2>
+                <p class="mt-1 text-sm text-slate-600">Match the Foundry training flow: create or switch to a branch, use an existing datasource, name the object, and confirm the mapped properties before saving.</p>
+                {#if wizardError}
+                  <div class="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{wizardError}</div>
+                {/if}
+                {#if wizardSuccess}
+                  <div class="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{wizardSuccess}</div>
+                {/if}
+                <div class="mt-4 rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] p-4">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div class="text-sm font-semibold text-slate-900">Current branch</div>
+                      <div class="mt-1 text-sm text-slate-600">{activeBranch} · indexing {branchIndexingEnabled ? 'enabled' : 'disabled'}</div>
+                    </div>
+                    <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={openDatasourceWizard} disabled={!canEditSelectedProject}>
+                      Use existing datasource
+                    </button>
+                  </div>
+                  <p class="mt-3 text-sm text-slate-600">The branch toggle controls whether the datasource-backed object also provisions indexing immediately.</p>
+                </div>
+                <div class="mt-4 flex flex-wrap gap-3">
+                  <button class="rounded-2xl border border-[#d2dcec] bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (activeSection = 'projects')}>
+                    Review ontology permissions
+                  </button>
+                </div>
+              </div>
+
+              {#if wizardOpen}
+                <div class="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/35 px-4 py-8">
+                  <div class="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-[32px] border border-[#dbe4f1] bg-white p-6 shadow-[0_32px_120px_rgba(15,23,42,0.28)]">
+                    <div class="flex items-start justify-between gap-4">
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Create a new object type</div>
+                        <h3 class="mt-2 text-2xl font-semibold text-slate-900">Use existing datasource</h3>
+                        <p class="mt-2 text-sm text-slate-600">Select a datasource, name the object, and keep the auto-mapped properties aligned with the training flow.</p>
+                      </div>
+                      <button class="rounded-2xl border border-[#d2dcec] px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#9fb8df]" onclick={closeDatasourceWizard}>
+                        Close
+                      </button>
+                    </div>
+
+                    <div class="mt-6 grid gap-3 md:grid-cols-3">
+                      {#each [
+                        { id: 1, label: 'Select datasource' },
+                        { id: 2, label: 'Name object type' },
+                        { id: 3, label: 'Define object properties' }
+                      ] as step}
+                        <div class={`rounded-2xl border px-4 py-3 text-sm ${wizardStep === step.id ? 'border-[#8eabd8] bg-[#eef4ff] text-[#183d70]' : 'border-[#e4ebf5] bg-[#fbfcff] text-slate-500'}`}>
+                          <div class="font-semibold">Step {step.id}</div>
+                          <div class="mt-1">{step.label}</div>
+                        </div>
+                      {/each}
+                    </div>
+
+                    {#if wizardStep === 1}
+                      <div class="mt-6 space-y-4">
+                        <label class="block text-sm text-slate-700">
+                          <span class="mb-2 block font-medium">Select datasource</span>
+                          <input bind:value={wizardDatasetSearch} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 outline-none transition focus:border-[#86a6dc]" placeholder="Search datasource" />
+                        </label>
+                        <div class="grid gap-3">
+                          {#each filteredWizardDatasets as dataset}
+                            <button
+                              class={`rounded-2xl border px-4 py-4 text-left transition ${wizardDraft.dataset_id === dataset.id ? 'border-[#8eabd8] bg-[#eef4ff]' : 'border-[#e4ebf5] bg-[#fbfcff] hover:border-[#bfd1ef]'}`}
+                              onclick={() => void loadWizardDatasetPreview(dataset.id)}
+                              type="button"
+                            >
+                              <div class="font-medium text-slate-800">{dataset.name}</div>
+                              <div class="mt-1 text-sm text-slate-500">{dataset.description || 'Datasource deployed earlier in the flow.'}</div>
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+                    {:else if wizardStep === 2}
+                      <div class="mt-6 grid gap-4 md:grid-cols-2">
+                        <label class="space-y-2 text-sm text-slate-700">
+                          <span class="font-medium">Name</span>
+                          <input
+                            value={wizardDraft.display_name}
+                            oninput={(event) => syncWizardNames((event.currentTarget as HTMLInputElement).value)}
+                            class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"
+                            placeholder={`${currentUsernameSlug()} Order`}
+                          />
+                        </label>
+                        <label class="space-y-2 text-sm text-slate-700">
+                          <span class="font-medium">Plural name</span>
+                          <input
+                            bind:value={wizardDraft.plural_name}
+                            oninput={() => (wizardPluralNameTouched = true)}
+                            class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"
+                            placeholder={`${currentUsernameSlug()} Orders`}
+                          />
+                        </label>
+                        <label class="space-y-2 text-sm text-slate-700 md:col-span-2">
+                          <span class="font-medium">Description</span>
+                          <textarea bind:value={wizardDraft.description} rows="3" class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5"></textarea>
+                        </label>
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] px-4 py-3 text-sm text-slate-600 md:col-span-2">
+                          API name preview: <span class="font-mono text-slate-800">{wizardDraft.object_name || 'order'}</span>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="mt-6 space-y-4">
+                        <div class="grid gap-4 md:grid-cols-2">
+                          <label class="space-y-2 text-sm text-slate-700">
+                            <span class="font-medium">Primary key</span>
+                            <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.primary_key_column}>
+                              <option value="">Select primary key</option>
+                              {#each datasetPreview?.columns ?? [] as column}
+                                <option value={column.name}>{column.name}</option>
+                              {/each}
+                            </select>
+                          </label>
+                          <label class="space-y-2 text-sm text-slate-700">
+                            <span class="font-medium">Title</span>
+                            <select class="w-full rounded-2xl border border-[#d2dcec] bg-white px-3 py-2.5" bind:value={wizardDraft.title_column}>
+                              <option value="">Select title column</option>
+                              {#each datasetPreview?.columns ?? [] as column}
+                                <option value={column.name}>{column.name}</option>
+                              {/each}
+                            </select>
+                          </label>
+                        </div>
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] p-4">
+                          <div class="text-sm font-semibold text-slate-900">Mapped object properties</div>
+                          <p class="mt-1 text-sm text-slate-600">All columns from the backing datasource are mapped by default. You can remove mappings here before saving.</p>
+                          <div class="mt-4 grid gap-2">
+                            {#each datasetPreview?.columns ?? [] as column}
+                              <label class="flex items-center justify-between gap-3 rounded-2xl border border-[#e4ebf5] bg-white px-3 py-3 text-sm text-slate-700">
+                                <span class="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={wizardDraft.mapped_columns.includes(column.name)}
+                                    onchange={(event) => toggleMappedColumn(column.name, (event.currentTarget as HTMLInputElement).checked)}
+                                  />
+                                  <span>{column.name}</span>
+                                </span>
+                                <span class="text-xs text-slate-500">{inferPropertyType(column)}</span>
+                              </label>
+                            {/each}
+                          </div>
+                        </div>
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-[#fbfcff] px-4 py-3 text-sm text-slate-600">
+                          {#if branchIndexingEnabled}
+                            Indexing is enabled on this branch, so saving will also create the datasource-backed indexing source.
+                          {:else}
+                            Indexing is disabled on this branch, so saving will create the object type without a funnel source for now.
+                          {/if}
+                        </div>
+                      </div>
+                    {/if}
+
+                    <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-[#e4ebf5] pt-5">
+                      <div class="flex gap-3">
+                        <button class="rounded-2xl border border-[#d2dcec] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={closeDatasourceWizard}>
+                          Cancel
+                        </button>
+                        {#if wizardStep > 1}
+                          <button class="rounded-2xl border border-[#d2dcec] px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]" onclick={() => (wizardStep -= 1)}>
+                            Back
+                          </button>
+                        {/if}
+                      </div>
+                      {#if wizardStep < 3}
+                        <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e]" onclick={nextWizardStep}>
+                          Next
+                        </button>
+                      {:else}
+                        <button class="rounded-2xl bg-[#183d70] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#14345e] disabled:bg-[#8fa7c7]" onclick={createObjectFromDatasource} disabled={wizardBusy || !canEditSelectedProject}>
+                          {wizardBusy ? 'Creating…' : 'Create object type'}
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/if}
 
               <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
                 <h2 class="text-xl font-semibold text-slate-900">Cleanup recommendations</h2>
@@ -2187,6 +2898,85 @@
                 <input bind:value={createTypeDraft.color} class="w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm" placeholder="Color" />
                 <textarea bind:value={createTypeDraft.description} class="min-h-[90px] w-full rounded-2xl border border-[#d2dcec] px-3 py-2.5 text-sm" placeholder="Description"></textarea>
                 <button class="w-full rounded-2xl bg-[#2458b8] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1d4f91]" onclick={stageTypeCreate}>Stage new object type</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-[28px] border border-[#dbe4f1] bg-white p-6 shadow-sm">
+            <div class="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Dependents</div>
+                <h2 class="mt-2 text-2xl font-semibold text-slate-900">Workshop</h2>
+                <p class="mt-1 text-sm text-slate-600">Create and track Workshop modules that depend on this ontology object type.</p>
+              </div>
+              <div class="rounded-full bg-[#eef4ff] px-3 py-1 text-sm font-semibold text-[#2458b8]">{workshopDependents.length}</div>
+            </div>
+
+            <div class="mt-5 grid gap-4 xl:grid-cols-[240px_1fr]">
+              <div class="rounded-[24px] border border-[#dbe4f1] bg-[#f8fbff] p-4">
+                <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Dependent types</div>
+                <button class="mt-3 flex w-full items-center justify-between rounded-2xl border border-[#bfd1ef] bg-white px-4 py-3 text-left transition hover:border-[#8eabd8]">
+                  <span class="flex items-center gap-2 font-medium text-slate-800">
+                    <Glyph name="cube" size={16} />
+                    Workshop
+                  </span>
+                  <span class="rounded-full bg-[#eef4ff] px-2 py-0.5 text-xs font-semibold text-[#2458b8]">{workshopDependents.length}</span>
+                </button>
+              </div>
+
+              <div class="rounded-[24px] border border-[#dbe4f1] bg-[#fbfcff]">
+                <div class="border-b border-[#dbe4f1] px-5 py-4">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div class="text-sm font-semibold text-slate-900">{workshopDependents.length === 0 ? 'No Workshop modules' : 'Workshop modules'}</div>
+                      <div class="mt-1 text-sm text-slate-600">Workshop lets you build interactive applications for operational users directly from this ontology object.</div>
+                    </div>
+                    <button
+                      class="rounded-2xl bg-[#2458b8] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1d4f91] disabled:cursor-not-allowed disabled:opacity-60"
+                      onclick={() => void createWorkshopDependent()}
+                      disabled={creatingWorkshopDependent}
+                    >
+                      {creatingWorkshopDependent ? 'Creating…' : workshopDependents.length === 0 ? 'Create your first' : 'Create new'}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="px-5 py-5">
+                  {#if workshopDependentError}
+                    <div class="rounded-2xl border border-[#efc5c5] bg-[#fff5f5] px-4 py-3 text-sm text-[#9b2c2c]">{workshopDependentError}</div>
+                  {:else if loadingWorkshopDependents}
+                    <div class="rounded-2xl border border-[#dbe4f1] bg-white px-4 py-8 text-center text-sm text-slate-600">Loading Workshop dependents…</div>
+                  {:else if workshopDependents.length === 0}
+                    <div class="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-[#bfd1ef] bg-white px-6 py-10 text-center">
+                      <div class="flex h-14 w-14 items-center justify-center rounded-full bg-[#eef4ff] text-[#2458b8]">
+                        <Glyph name="search" size={24} />
+                      </div>
+                      <div>
+                        <div class="text-lg font-semibold text-slate-900">No Workshop modules</div>
+                        <p class="mt-2 max-w-xl text-sm text-slate-600">Create a linked Workshop inbox to give operators a dedicated application surface for {selectedType.display_name}.</p>
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="grid gap-3 md:grid-cols-2">
+                      {#each workshopDependents as dependent}
+                        <div class="rounded-2xl border border-[#dbe4f1] bg-white px-4 py-4 shadow-sm">
+                          <div class="flex items-start justify-between gap-3">
+                            <div>
+                              <div class="font-medium text-slate-900">{dependent.name}</div>
+                              <div class="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{dependent.status}</div>
+                            </div>
+                            <span class="rounded-full bg-[#eef4ff] px-2 py-1 text-xs font-semibold text-[#2458b8]">{dependent.page_count} pages</span>
+                          </div>
+                          <p class="mt-3 text-sm text-slate-600">{dependent.description || 'No description yet.'}</p>
+                          <div class="mt-4 flex flex-wrap gap-2">
+                            <a href={`/apps?appId=${dependent.id}`} class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]">Open in Workshop</a>
+                            <a href={`/apps/runtime/${dependent.slug}`} class="rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#9fb8df]">Open runtime</a>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
               </div>
             </div>
           </div>

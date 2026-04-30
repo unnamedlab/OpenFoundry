@@ -18,6 +18,18 @@
   const user = auth.user;
   const t = $derived.by(() => createTranslator($currentLocale));
   const languageOptions = supportedLocales;
+  let createMenuOpen = $state(false);
+  let createMenuSearch = $state('');
+  let createMenuCategory = $state<'all' | 'integration'>('all');
+  let createMenuRef = $state<HTMLDivElement | null>(null);
+
+  const isPipelineBuilderVisible = $derived.by(() => {
+    const searchTerm = createMenuSearch.trim().toLowerCase();
+    const matchesCategory = createMenuCategory === 'all' || createMenuCategory === 'integration';
+    const title = t('nav.pipelineBuilder').toLowerCase();
+    const description = t('topbar.pipelineBuilderDescription').toLowerCase();
+    return matchesCategory && (!searchTerm || title.includes(searchTerm) || description.includes(searchTerm));
+  });
 
   const titleMap: Record<string, MessageKey> = {
     '/': 'nav.home',
@@ -50,7 +62,40 @@
     auth.logout();
     goto('/auth/login');
   }
+
+  function closeCreateMenu() {
+    createMenuOpen = false;
+    createMenuSearch = '';
+    createMenuCategory = 'all';
+  }
+
+  function toggleCreateMenu() {
+    createMenuOpen = !createMenuOpen;
+    if (!createMenuOpen) {
+      createMenuSearch = '';
+      createMenuCategory = 'all';
+    }
+  }
+
+  function openPipelineBuilder() {
+    closeCreateMenu();
+    goto('/pipelines/new');
+  }
+
+  function handleWindowClick(event: MouseEvent) {
+    if (!createMenuOpen || !createMenuRef) return;
+    if (createMenuRef.contains(event.target as Node)) return;
+    closeCreateMenu();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && createMenuOpen) {
+      closeCreateMenu();
+    }
+  }
 </script>
+
+<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
 <header class="of-topbar">
   <div class="of-topbar__crumbs">
@@ -69,6 +114,55 @@
   </div>
 
   <div class="of-topbar__actions">
+    <div class="of-topbar__create-menu" bind:this={createMenuRef}>
+      <button type="button" class="of-topbar__action of-topbar__action--primary" aria-haspopup="dialog" aria-expanded={createMenuOpen} onclick={toggleCreateMenu}>
+        <Glyph name="plus" size={14} />
+        <span>{t('topbar.createNew')}</span>
+        <Glyph name="chevron-down" size={12} />
+      </button>
+
+      {#if createMenuOpen}
+        <div class="of-topbar__create-panel" role="dialog" aria-label={t('topbar.createNew')}>
+          <label class="of-topbar__create-search">
+            <span class="of-topbar__create-search-icon">
+              <Glyph name="search" size={14} />
+            </span>
+            <input bind:value={createMenuSearch} type="search" placeholder={t('topbar.createSearchPlaceholder')} aria-label={t('topbar.createSearchPlaceholder')} />
+          </label>
+
+          <div class="of-topbar__create-body">
+            <div class="of-topbar__create-categories">
+              <button type="button" class="of-topbar__create-category" data-active={createMenuCategory === 'all'} onclick={() => (createMenuCategory = 'all')}>
+                {t('topbar.createCategoryAll')}
+              </button>
+              <button type="button" class="of-topbar__create-category" data-active={createMenuCategory === 'integration'} onclick={() => (createMenuCategory = 'integration')}>
+                {t('topbar.createCategoryIntegration')}
+              </button>
+            </div>
+
+            <div class="of-topbar__create-results">
+              {#if isPipelineBuilderVisible}
+                <button type="button" class="of-topbar__create-item" onclick={openPipelineBuilder}>
+                  <span class="of-topbar__create-item-icon">
+                    <Glyph name="graph" size={17} />
+                  </span>
+                  <span class="of-topbar__create-item-copy">
+                    <span class="of-topbar__create-item-title">{t('nav.pipelineBuilder')}</span>
+                    <span class="of-topbar__create-item-description">{t('topbar.pipelineBuilderDescription')}</span>
+                  </span>
+                  <span class="of-topbar__create-item-arrow">
+                    <Glyph name="chevron-right" size={14} />
+                  </span>
+                </button>
+              {:else}
+                <div class="of-topbar__create-empty">{t('topbar.createEmpty')}</div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {/if}
+    </div>
+
     <label class="of-topbar__action">
       <span>{t('topbar.userLanguage')}</span>
       <select

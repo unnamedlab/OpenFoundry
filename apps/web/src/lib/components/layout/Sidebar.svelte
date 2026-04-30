@@ -20,7 +20,8 @@
     | 'graph'
     | 'help'
     | 'settings'
-    | 'sparkles';
+    | 'sparkles'
+    | 'link';
 
   type NavItem = {
     href: string;
@@ -82,7 +83,7 @@
     { href: '/search', labelKey: 'nav.search', icon: 'search', hint: 'Ctrl + J' },
     { href: '/object-monitors', labelKey: 'nav.notifications', icon: 'bell' },
     { href: '/dashboards', labelKey: 'nav.recent', icon: 'history' },
-    { href: '/reports', labelKey: 'nav.files', icon: 'folder' }
+    { href: '/projects', labelKey: 'nav.files', icon: 'folder' }
   ];
 
   const launcherCopy: Record<LocaleKey, LauncherText> = {
@@ -138,6 +139,20 @@
       categoryIds: ['all', 'platform', 'integration'],
       createHref: '/datasets/upload',
       browseHref: '/datasets'
+    },
+    {
+      id: 'data-connection',
+      href: '/data-connection',
+      icon: 'link',
+      name: { en: 'Data Connection', es: 'Data Connection' },
+      description: {
+        en: 'Sync data from external systems via sources, egress policies, and batch syncs.',
+        es: 'Sincroniza datos de sistemas externos mediante sources, políticas de egress y batch syncs.'
+      },
+      badge: { en: 'Data integration', es: 'Integración de datos' },
+      categoryIds: ['all', 'integration'],
+      createHref: '/data-connection/new',
+      browseHref: '/data-connection'
     },
     {
       id: 'pipelines',

@@ -209,7 +209,7 @@ Current repo audit: 24 components are shipped. Enterprise auth remains the only 
 - [x] **LLM gateway** — Multi-provider routing (OpenAI, Anthropic, Ollama/local), load balancing, fallback
 - [x] **Prompt management** — Versioned prompt templates, variable interpolation
 - [x] **RAG pipeline** — Document chunking, embedding generation, semantic retrieval + reranking
-- [x] **Knowledge bases** — Index datasets and ontology into vector store (Qdrant)
+- [x] **Knowledge bases** — Index datasets and ontology into vector store (pgvector; Qdrant se retira por restricción de licencia OSS, sustituto futuro: Vespa Apache-2.0)
 - [x] **AI agents** — Plan → Act → Observe loop, tool calling, task decomposition
 - [x] **Platform copilot** — Natural language → SQL, pipeline suggestions, ontology help
 - [x] **Guardrails** — Output validation, PII detection, toxicity filtering
@@ -384,6 +384,89 @@ Every contribution accelerates the roadmap. Here's where help is most needed:
 | **Phase 2** | Enterprise SSO | Wire SAML sign-in flow, provider validation, and end-to-end login testing |
 
 **Want to contribute?** Check the [issues labeled `help wanted`](https://github.com/open-foundry/open-foundry/labels/help%20wanted) or comment on this roadmap's [tracking issue](#).
+
+---
+
+## 🛡️ Data plane hardening (2026 Q2-Q3)
+
+Sixteen verifiable milestones that consolidate OpenFoundry's data plane
+around the five target planes documented in
+[`docs/architecture/runtime-topology.md`](./docs/architecture/runtime-topology.md)
+(storage, ingestion, compute, control, relational state). Each item is a
+concrete, already-merged change in the monorepo, anchored to one of the
+ADRs 0008–0012 in [`docs/architecture/adr/`](./docs/architecture/adr/).
+
+- [x] **1. ADR-0008 — Single Iceberg REST Catalog (Lakekeeper).** Decision
+  to standardise the lakehouse on Lakekeeper as the only Iceberg REST
+  catalog; tightens `infra/storage-abstraction/README.md`. See
+  [`docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md`](./docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
+- [x] **2. ADR-0009 — Internal query fabric: DataFusion + Flight SQL.**
+  Service-to-service SQL travels exclusively over Flight SQL P2P;
+  Trino is repositioned as edge BI only. See
+  [`docs/architecture/adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md`](./docs/architecture/adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
+- [x] **3. ADR-0010 — CloudNativePG as the single Postgres operator.**
+  All service-owned Postgres instances move to CNPG; HA with synchronous
+  replicas and barman-cloud PITR. See
+  [`docs/architecture/adr/ADR-0010-cnpg-postgres-operator.md`](./docs/architecture/adr/ADR-0010-cnpg-postgres-operator.md).
+- [x] **4. ADR-0011 — Control vs Data bus contract enforcement.** NATS
+  JetStream for control, Kafka for data; `tools/bus-lint/check_bus.py`
+  enforces the contract in CI. See
+  [`docs/architecture/adr/ADR-0011-control-vs-data-bus-contract.md`](./docs/architecture/adr/ADR-0011-control-vs-data-bus-contract.md).
+- [x] **5. ADR-0012 — Data-plane SLOs, SLIs and error budgets.** Latency
+  budgets per layer (Flight SQL, Iceberg scans, Kafka acks, ClickHouse,
+  Vespa, NATS) with Prometheus SLIs and freeze policy. See
+  [`docs/architecture/adr/ADR-0012-data-plane-slos.md`](./docs/architecture/adr/ADR-0012-data-plane-slos.md).
+- [x] **6. CloudNativePG operator + cluster templates.** Operator install
+  and nil-safe cluster template under `infra/k8s/cnpg/` for service-owned
+  Postgres provisioning aligned with ADR-0010.
+- [x] **7. Lakekeeper Iceberg REST Catalog deployment.** Kubernetes
+  manifests under `infra/k8s/lakekeeper/` materialising the ADR-0008
+  decision; `libs/storage-abstraction/` README tightened accordingly.
+- [x] **8. Rook Ceph: rbd-fast pool + RGW EC 4+2 object store.** Storage
+  plane upgrade in `infra/k8s/rook/` providing fast block storage and
+  erasure-coded S3 object storage for the lakehouse.
+- [x] **9. Strimzi Kafka rack/zone awareness +
+  `RackAwareReplicaSelector`.** Multi-AZ resilience for the Kafka data
+  plane in `infra/k8s/strimzi/`.
+- [x] **10. ClickHouse cluster scale-out (shards=2, replicas=3).** Time-
+  series storage tier upgraded under
+  `infra/k8s/clickhouse/` with the `openfoundry` cluster topology.
+- [x] **11. Flink scheduled Iceberg maintenance jobs.** Rewrite, expire
+  snapshots and orphan-file cleanup with HA + RGW checkpoints and
+  documented 7-day / 90-day retention under `infra/k8s/flink/`.
+- [x] **12. Bus-lint: control vs data bus contract.** Static check in
+  `tools/bus-lint/check_bus.py` wired into CI to block cross-bus
+  regressions implementing ADR-0011.
+- [x] **13. Bus-usage audit (current/target allowlist).** Audit document
+  [`docs/architecture/bus-audit.md`](./docs/architecture/bus-audit.md)
+  splits real `event-bus-data` usage into a current and target allowlist.
+- [x] **14. Trino edge BI removed — superseded by item 17.** ~Trino~
+  was originally repositioned as edge-BI-only; under
+  [`ADR-0014`](./docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md)
+  the Trino deployment has been **removed entirely** in favour of a
+  real Apache Arrow Flight SQL server inside `sql-bi-gateway-service`.
+  See item 17 below.
+- [x] **15. ADR-0007 consolidation — Vespa Lite for DX.** Production and
+  DX search both run on Vespa (Vespa Lite single-node for DX);
+  Meilisearch is **already demoted** — it is no longer part of the
+  default DX stack in `infra/docker-compose.yml` /
+  `infra/docker-compose.dev.yml`, and is gated behind the optional
+  `--profile demo` as a first-run demo only. See
+  [`docs/architecture/adr/ADR-0007-search-engine-choice.md`](./docs/architecture/adr/ADR-0007-search-engine-choice.md).
+- [x] **16. Chaos suite for data-plane no-SPOF properties.** Smoke/chaos
+  scenarios under `smoke/` exercising broker failover, Postgres failover
+  and Iceberg catalog availability to assert the no-single-point-of-
+  failure properties of the hardened data plane.
+- [x] **17. ADR-0014 — Retire Trino, single Flight SQL edge gateway.**
+  `sql-bi-gateway-service` is rewritten as a real Apache Arrow Flight
+  SQL server (port `50133`) backed by DataFusion, with per-statement
+  routing to `sql-warehousing-service` (Iceberg), ClickHouse, Vespa and
+  Postgres. Auth, tenant quotas, audit and saved queries are applied
+  uniformly on the Flight SQL surface. The previous Trino deployment
+  under `infra/k8s/trino/` and its ClickHouse catalog
+  (`infra/k8s/clickhouse/trino-catalog.yaml`) are deleted. Tableau /
+  Superset connect with the Apache Arrow Flight SQL JDBC driver. See
+  [`docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md`](./docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md).
 
 ---
 

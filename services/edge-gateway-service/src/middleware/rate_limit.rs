@@ -515,10 +515,9 @@ mod tests {
             .expect("valid request")
     }
 
-    fn token(secret: &str, requests_per_minute: u32) -> String {
-        let jwt_config = JwtConfig::new(secret);
+    fn token(jwt_config: &JwtConfig, requests_per_minute: u32) -> String {
         let claims: Claims = build_access_claims(
-            &jwt_config,
+            jwt_config,
             Uuid::now_v7(),
             "demo@example.com",
             "Demo User",
@@ -533,13 +532,13 @@ mod tests {
             vec!["password".to_string()],
         );
 
-        encode_token(&jwt_config, &claims).expect("token should encode")
+        encode_token(jwt_config, &claims).expect("token should encode")
     }
 
     #[tokio::test]
     async fn allows_requests_within_anonymous_burst() {
         let app = test_app(RateLimitState::in_memory(
-            JwtConfig::new("test-secret"),
+            JwtConfig::generate(),
             RateLimitConfig {
                 anonymous_requests_per_minute: 2,
                 burst_size: 2,
@@ -587,7 +586,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_requests_when_burst_is_exhausted() {
         let app = test_app(RateLimitState::in_memory(
-            JwtConfig::new("test-secret"),
+            JwtConfig::generate(),
             RateLimitConfig {
                 anonymous_requests_per_minute: 2,
                 burst_size: 2,
@@ -631,7 +630,7 @@ mod tests {
     #[tokio::test]
     async fn isolates_anonymous_buckets_by_forwarded_ip() {
         let app = test_app(RateLimitState::in_memory(
-            JwtConfig::new("test-secret"),
+            JwtConfig::generate(),
             RateLimitConfig {
                 anonymous_requests_per_minute: 1,
                 burst_size: 1,
@@ -657,8 +656,9 @@ mod tests {
 
     #[tokio::test]
     async fn honors_tenant_quota_from_jwt_claims() {
+        let jwt_config = JwtConfig::generate();
         let app = test_app(RateLimitState::in_memory(
-            JwtConfig::new("test-secret"),
+            jwt_config.clone(),
             RateLimitConfig {
                 anonymous_requests_per_minute: 20,
                 burst_size: 10,
@@ -666,7 +666,7 @@ mod tests {
                 redis_key_prefix: default_redis_key_prefix(),
             },
         ));
-        let token = token("test-secret", 1);
+        let token = token(&jwt_config, 1);
 
         let first = app
             .clone()

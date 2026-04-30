@@ -5,16 +5,74 @@ const demoUser = {
   email: 'operator@openfoundry.dev',
   name: 'OpenFoundry Operator',
   is_active: true,
-  roles: ['admin'],
+  roles: ['operator'],
   groups: ['platform'],
-  permissions: ['*'],
+  permissions: [],
   organization_id: 'org-1',
-  attributes: {},
+  attributes: { workspace: 'operations' },
   mfa_enabled: false,
   mfa_enforced: false,
   auth_source: 'local',
   created_at: '2026-01-01T00:00:00Z',
 };
+
+const demoSpaces = [
+  {
+    id: 'space-1',
+    slug: 'operations',
+    display_name: 'Operations Command',
+    description: 'Operational workspaces and secure project containers.',
+    space_kind: 'private',
+    owner_peer_id: demoUser.organization_id,
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-2',
+    slug: 'research',
+    display_name: 'Research Lab',
+    description: 'Experimental workspaces for exploratory teams.',
+    space_kind: 'private',
+    owner_peer_id: 'org-2',
+    region: 'eu-west-1',
+    member_peer_ids: [demoUser.organization_id],
+    governance_tags: [],
+    status: 'active',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+  {
+    id: 'space-3',
+    slug: 'archive',
+    display_name: 'Archive Vault',
+    description: 'Archived space that should not accept new projects.',
+    space_kind: 'private',
+    owner_peer_id: 'org-9',
+    region: 'eu-west-1',
+    member_peer_ids: [],
+    governance_tags: [],
+    status: 'paused',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
+
+const demoProjects = [
+  {
+    id: 'project-1',
+    slug: 'ops-readiness',
+    display_name: 'Ops readiness',
+    description: 'Operations review workspace',
+    workspace_slug: 'operations',
+    owner_id: demoUser.id,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+  },
+];
 
 const demoDataset = {
   id: 'dataset-1',
@@ -96,6 +154,30 @@ const demoObjectType = {
   updated_at: '2026-01-02T00:00:00Z',
 };
 
+const demoProject = {
+  id: 'project-1',
+  slug: 'ontology-training',
+  display_name: 'Ontology Training',
+  description: 'Editable ontology for guided training flows.',
+  workspace_slug: 'training',
+  owner_id: demoUser.id,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
+};
+
+const demoDatasetPreview = {
+  dataset_id: demoDataset.id,
+  columns: [
+    { name: 'tail_number', field_type: 'string', nullable: false },
+    { name: 'platform_name', field_type: 'string', nullable: false },
+    { name: 'status', field_type: 'string', nullable: true },
+  ],
+  rows: [
+    { tail_number: 'AF-101', platform_name: 'Atlas', status: 'ready' },
+    { tail_number: 'AF-102', platform_name: 'Comet', status: 'maintenance' },
+  ],
+};
+
 const demoTemplate = {
   id: 'template-1',
   key: 'ops-cockpit',
@@ -119,6 +201,8 @@ const demoTemplate = {
       show_branding: true,
       custom_css: null,
       builder_experience: 'workshop',
+      ontology_source_type_id: null,
+      object_set_variables: [],
       consumer_mode: {
         enabled: false,
         allow_guest_access: false,
@@ -136,6 +220,11 @@ const demoTemplate = {
         briefing_template: '',
         suggested_questions: [],
         scenario_presets: [],
+      },
+      workshop_header: {
+        title: null,
+        icon: 'cube',
+        color: '#3b82f6',
       },
       slate: {
         enabled: false,
@@ -169,7 +258,47 @@ const demoTemplate = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+const demoObjectSet = {
+  id: 'object-set-1',
+  name: 'Order object set',
+  description: 'Reusable set of order objects.',
+  base_object_type_id: demoObjectType.id,
+  filters: [],
+  traversals: [],
+  join: null,
+  projections: ['item_name', 'status'],
+  what_if_label: null,
+  policy: {
+    allow_export: true,
+    max_rows: 500,
+    requires_reason: false,
+    required_restricted_view_id: null,
+  },
+  materialized_snapshot: null,
+  materialized_at: null,
+  materialized_row_count: 0,
+  owner_id: demoUser.id,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
+};
+
 const demoWidgetCatalog = [
+  {
+    widget_type: 'table',
+    label: 'Object Table',
+    description: 'Paginated object-set records with configurable properties, variable bindings, and default sort.',
+    category: 'data',
+    default_props: {
+      page_size: 10,
+      striped: true,
+      columns: [],
+      object_set_variable_id: null,
+      object_set_variable_name: null,
+    },
+    default_size: { width: 8, height: 5 },
+    supported_bindings: ['object_set', 'dataset', 'query', 'ontology'],
+    supports_children: false,
+  },
   {
     widget_type: 'chart.line',
     label: 'Line chart',
@@ -212,6 +341,82 @@ export async function seedAuthenticatedSession(page: Page) {
 }
 
 export async function mockFrontendApis(page: Page) {
+  const objectTypes = [demoObjectType];
+  let projectResources = [{ project_id: demoProject.id, resource_kind: 'object_type', resource_id: demoObjectType.id, bound_by: demoUser.id, created_at: '2026-01-02T00:00:00Z' }];
+  const propertiesByType: Record<string, Array<Record<string, unknown>>> = {
+    [demoObjectType.id]: [
+      {
+        id: 'property-1',
+        object_type_id: demoObjectType.id,
+        name: 'tail_number',
+        display_name: 'Tail Number',
+        description: '',
+        property_type: 'string',
+        required: true,
+        unique_constraint: true,
+        time_dependent: false,
+        default_value: null,
+        validation_rules: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+    ],
+  };
+  let workingState = {
+    project_id: demoProject.id,
+    changes: [],
+    updated_by: demoUser.id,
+    updated_at: '2026-01-02T00:00:00Z',
+  };
+  let branches = [
+    {
+      id: 'branch-main',
+      project_id: demoProject.id,
+      name: 'main',
+      description: 'Live ontology branch',
+      status: 'main',
+      proposal_id: null,
+      changes: [],
+      conflict_resolutions: {},
+      enable_indexing: true,
+      created_by: demoUser.id,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+      latest_rebased_at: '2026-01-02T00:00:00Z',
+    },
+  ];
+  let proposals: Array<Record<string, unknown>> = [];
+  let migrations: Array<Record<string, unknown>> = [];
+  const projects = [...demoProjects];
+  const projectFolders = new Map<string, Array<{
+    id: string;
+    project_id: string;
+    parent_folder_id: string | null;
+    name: string;
+    slug: string;
+    description: string;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  }>>([
+    [
+      'project-1',
+      [
+        {
+          id: 'folder-1',
+          project_id: 'project-1',
+          parent_folder_id: null,
+          name: 'Planning',
+          slug: 'planning',
+          description: 'Starter folder inside Ops readiness.',
+          created_by: demoUser.id,
+          created_at: '2026-01-02T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
+      ],
+    ],
+  ]);
+
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -239,12 +444,69 @@ export async function mockFrontendApis(page: Page) {
       return json(route, [demoUser]);
     }
 
+    if (pathname === '/api/v1/nexus/spaces') {
+      return json(route, { items: demoSpaces });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'GET') {
+      return json(route, { data: projects, total: projects.length, page: 1, per_page: 100 });
+    }
+
+    if (pathname === '/api/v1/ontology/projects' && request.method() === 'POST') {
+      const body = request.postDataJSON() as {
+        slug: string;
+        display_name?: string;
+        description?: string;
+        workspace_slug?: string;
+        folders?: Array<{
+          name: string;
+          description?: string;
+          parent_folder_id?: string | null;
+        }>;
+      };
+      const created = {
+        id: `project-${projects.length + 1}`,
+        slug: body.slug,
+        display_name: body.display_name ?? body.slug,
+        description: body.description ?? '',
+        workspace_slug: body.workspace_slug ?? null,
+        owner_id: demoUser.id,
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z',
+      };
+      projects.unshift(created);
+      projectFolders.set(
+        created.id,
+        (body.folders ?? []).map((folder, index) => ({
+          id: `folder-${created.id}-${index + 1}`,
+          project_id: created.id,
+          parent_folder_id: folder.parent_folder_id ?? null,
+          name: folder.name,
+          slug: folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+          description: folder.description ?? '',
+          created_by: demoUser.id,
+          created_at: '2026-01-03T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z',
+        })),
+      );
+      return json(route, created, 201);
+    }
+
+    const projectFolderMatch = pathname.match(/^\/api\/v1\/ontology\/projects\/([^/]+)\/folders$/);
+    if (projectFolderMatch && request.method() === 'GET') {
+      return json(route, { data: projectFolders.get(projectFolderMatch[1]) ?? [] });
+    }
+
     if (pathname === '/api/v1/datasets/catalog/facets') {
       return json(route, { tags: [{ value: 'operations', count: 1 }] });
     }
 
     if (pathname === '/api/v1/datasets') {
       return json(route, { data: [demoDataset], page: 1, per_page: 100, total: 1, total_pages: 1 });
+    }
+
+    if (pathname === `/api/v1/datasets/${demoDataset.id}/preview`) {
+      return json(route, demoDatasetPreview);
     }
 
     if (pathname === `/api/v1/datasets/${demoDataset.id}/quality`) {
@@ -282,8 +544,254 @@ export async function mockFrontendApis(page: Page) {
       return json(route, { data: [], total: 0 });
     }
 
-    if (pathname === '/api/v1/ontology/types') {
-      return json(route, { data: [demoObjectType], total: 1, page: 1, per_page: 100 });
+    if (pathname === '/api/v1/ontology/types' && request.method() === 'GET') {
+      return json(route, { data: objectTypes, total: objectTypes.length, page: 1, per_page: 100 });
+    }
+
+    if (pathname === '/api/v1/ontology/types' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `object-type-${objectTypes.length + 1}`,
+        owner_id: demoUser.id,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        ...body,
+      };
+      objectTypes.unshift(created);
+      propertiesByType[created.id] = [];
+      return json(route, created, 201);
+    }
+
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}`) {
+      return json(route, demoObjectType);
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/types\/[^/]+\/properties$/) && request.method() === 'GET') {
+      const typeId = pathname.split('/')[5];
+      return json(route, { data: propertiesByType[typeId] ?? [] });
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/types\/[^/]+\/properties$/) && request.method() === 'POST') {
+      const typeId = pathname.split('/')[5];
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `property-${(propertiesByType[typeId]?.length ?? 0) + 1}`,
+        object_type_id: typeId,
+        default_value: null,
+        validation_rules: null,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        ...body,
+      };
+      propertiesByType[typeId] = [...(propertiesByType[typeId] ?? []), created];
+      return json(route, created, 201);
+    }
+
+    if (pathname === '/api/v1/ontology/projects') {
+      return json(route, { data: [demoProject], total: 1, page: 1, per_page: 100 });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/memberships`) {
+      return json(route, {
+        data: [{ project_id: demoProject.id, user_id: demoUser.id, role: 'owner', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' }],
+      });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/resources`) {
+      if (request.method() === 'GET') return json(route, { data: projectResources });
+      if (request.method() === 'POST') {
+        const body = JSON.parse(request.postData() ?? '{}');
+        const created = { project_id: demoProject.id, bound_by: demoUser.id, created_at: '2026-01-02T00:00:00Z', ...body };
+        projectResources = [...projectResources.filter((item) => !(item.resource_kind === created.resource_kind && item.resource_id === created.resource_id)), created];
+        return json(route, created, 201);
+      }
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/projects\/project-1\/resources\/[^/]+\/[^/]+$/) && request.method() === 'DELETE') {
+      const [, , , , , resourceKind, resourceId] = pathname.split('/');
+      projectResources = projectResources.filter((item) => !(item.resource_kind === resourceKind && item.resource_id === resourceId));
+      return json(route, {}, 204);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/working-state` && request.method() === 'GET') {
+      return json(route, workingState);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/working-state` && request.method() === 'PUT') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      workingState = { ...workingState, changes: body.changes ?? [], updated_at: '2026-01-02T01:00:00Z' };
+      return json(route, workingState);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/branches` && request.method() === 'GET') {
+      return json(route, { data: branches });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/branches` && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `branch-${branches.length + 1}`,
+        project_id: demoProject.id,
+        status: 'draft',
+        proposal_id: null,
+        conflict_resolutions: {},
+        enable_indexing: Boolean(body.enable_indexing),
+        created_by: demoUser.id,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        latest_rebased_at: '2026-01-02T00:00:00Z',
+        ...body,
+      };
+      branches = [created, ...branches];
+      return json(route, created, 201);
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/projects\/project-1\/branches\/[^/]+$/) && request.method() === 'PATCH') {
+      const branchId = pathname.split('/').pop()!;
+      const body = JSON.parse(request.postData() ?? '{}');
+      const updated = branches.find((branch) => branch.id === branchId);
+      if (!updated) return json(route, { error: 'not found' }, 404);
+      Object.assign(updated, body, { updated_at: '2026-01-02T01:00:00Z' });
+      return json(route, updated);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/proposals` && request.method() === 'GET') {
+      return json(route, { data: proposals });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/proposals` && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `proposal-${proposals.length + 1}`,
+        project_id: demoProject.id,
+        created_by: demoUser.id,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        reviewer_ids: [],
+        comments: [],
+        status: 'in_review',
+        ...body,
+      };
+      proposals = [created, ...proposals];
+      return json(route, created, 201);
+    }
+
+    if (pathname.match(/^\/api\/v1\/ontology\/projects\/project-1\/proposals\/[^/]+$/) && request.method() === 'PATCH') {
+      const proposalId = pathname.split('/').pop()!;
+      const body = JSON.parse(request.postData() ?? '{}');
+      const updated = proposals.find((proposal) => proposal.id === proposalId);
+      if (!updated) return json(route, { error: 'not found' }, 404);
+      Object.assign(updated, body, { updated_at: '2026-01-02T01:00:00Z' });
+      return json(route, updated);
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/migrations` && request.method() === 'GET') {
+      return json(route, { data: migrations });
+    }
+
+    if (pathname === `/api/v1/ontology/projects/${demoProject.id}/migrations` && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      const created = {
+        id: `migration-${migrations.length + 1}`,
+        project_id: demoProject.id,
+        submitted_by: demoUser.id,
+        submitted_at: '2026-01-02T00:00:00Z',
+        status: 'planned',
+        ...body,
+      };
+      migrations = [created, ...migrations];
+      return json(route, created, 201);
+    }
+
+    if (pathname === '/api/v1/ontology/funnel/sources' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}');
+      return json(route, { id: 'funnel-source-1', pipeline_id: null, dataset_branch: 'main', dataset_version: null, default_marking: 'public', status: 'active', trigger_context: {}, owner_id: demoUser.id, last_run_at: null, created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z', ...body }, 201);
+    }
+
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}/properties`) {
+      return json(route, {
+        data: [
+          {
+            id: 'property-1',
+            object_type_id: demoObjectType.id,
+            name: 'item_name',
+            display_name: 'Item name',
+            description: 'The order item name.',
+            property_type: 'string',
+            required: true,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+          {
+            id: 'property-2',
+            object_type_id: demoObjectType.id,
+            name: 'status',
+            display_name: 'Status',
+            description: 'The order status.',
+            property_type: 'string',
+            required: false,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/v1/ontology/object-sets') {
+      return json(route, { data: [demoObjectSet] });
+    }
+
+    if (pathname === `/api/v1/ontology/types/${demoObjectType.id}/properties`) {
+      return json(route, {
+        data: [
+          {
+            id: 'property-1',
+            object_type_id: demoObjectType.id,
+            name: 'item_name',
+            display_name: 'Item name',
+            description: 'The order item name.',
+            property_type: 'string',
+            required: true,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+          {
+            id: 'property-2',
+            object_type_id: demoObjectType.id,
+            name: 'status',
+            display_name: 'Status',
+            description: 'The order status.',
+            property_type: 'string',
+            required: false,
+            unique_constraint: false,
+            time_dependent: false,
+            default_value: null,
+            validation_rules: null,
+            inline_edit_config: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/v1/ontology/object-sets') {
+      return json(route, { data: [demoObjectSet] });
     }
 
     if (pathname === '/api/v1/ontology/actions') {
