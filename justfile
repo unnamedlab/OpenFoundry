@@ -135,6 +135,10 @@ sdk-java-check:
 sdk-java-compile:
     find sdks/java/openfoundry-sdk/src/main/java -name '*.java' -print0 | xargs -0 javac --release 17
 
+# Validate the Strimzi Kafka cluster manifest against the KRaft contract
+kafka-kraft-lint:
+    python3 tools/kafka-lint/check_kraft.py
+
 # Validate the Helm chart across base/dev/staging/prod overlays
 helm-check:
     helm lint infra/k8s/helm/open-foundry -f infra/k8s/helm/open-foundry/values.yaml -f infra/k8s/helm/open-foundry/values-dev.yaml

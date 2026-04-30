@@ -1,0 +1,31 @@
+name: CI — Kafka KRaft lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/k8s/strimzi/**"
+      - "tools/kafka-lint/**"
+      - ".github/workflows/kafka-lint.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/k8s/strimzi/**"
+      - "tools/kafka-lint/**"
+      - ".github/workflows/kafka-lint.yml"
+
+jobs:
+  kraft-contract:
+    name: Kafka KRaft contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --no-cache-dir pyyaml==6.0.2
+      - name: Lint Strimzi Kafka manifest
+        run: python3 tools/kafka-lint/check_kraft.py
