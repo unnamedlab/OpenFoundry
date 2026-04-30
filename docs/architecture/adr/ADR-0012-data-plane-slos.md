@@ -7,7 +7,7 @@
   - `docs/architecture/adr/ADR-0007-search-engine-choice.md` (Vespa as the
     sole production search engine).
   - `infra/k8s/clickhouse/`, `infra/k8s/vespa/`, `infra/k8s/strimzi/`,
-    `infra/k8s/flink/`, `infra/k8s/trino/` — the Kubernetes packaging of the
+    `infra/k8s/flink/` — the Kubernetes packaging of the
     data-plane components covered by this ADR.
   - `infra/docker-compose.monitoring.yml` — Prometheus / Grafana / Loki /
     Tempo stack used to compute the SLIs below.
@@ -283,7 +283,7 @@ This ADR should be revisited if **any** of the following becomes true:
 ## References
 
 - `infra/k8s/clickhouse/`, `infra/k8s/vespa/`, `infra/k8s/strimzi/`,
-  `infra/k8s/flink/`, `infra/k8s/trino/` — data-plane component packaging.
+  `infra/k8s/flink/` — data-plane component packaging.
 - `infra/docker-compose.monitoring.yml` — Prometheus / Grafana / Loki /
   Tempo stack used to host the dashboards above.
 - `docs/operations/index.md` — operations entry point, links to this ADR.

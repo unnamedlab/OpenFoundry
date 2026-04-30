@@ -27,8 +27,8 @@ groups:
         annotations:
           summary: "Lakekeeper instance {{ $labels.instance }} is down"
           description: |
-            Iceberg REST catalog unreachable; Trino/DataFusion writers
-            will fail commits. See infra/k8s/lakekeeper/.
+            Iceberg REST catalog unreachable; DataFusion (sql-warehousing-service)
+            and the Flight SQL gateway writers will fail commits. See infra/k8s/lakekeeper/.
 
   - name: lakekeeper.errors
     rules:

@@ -11,19 +11,20 @@ fan-out under `gateway` with that target shape.
 
 ```text
                                      External BI clients
-                                  (Tableau / Superset / JDBC / ODBC)
+                                  (Tableau / Superset / Arrow Flight SQL JDBC)
                                               |
                                               v
                                    +----------------------+
-                                   |  Trino (edge BI ONLY)|   <-- outside the
-                                   |  infra/k8s/trino     |       internal
-                                   |  Iceberg / PG / CH   |       fan-out;
-                                   |  ANSI-SQL only       |       see ADR-0009
-                                   +----------------------+
+                                   | sql-bi-gateway       |   <-- single edge SQL
+                                   |  service (:50133)    |       surface; real
+                                   |  Apache Arrow        |       Flight SQL server
+                                   |  Flight SQL server   |       (DataFusion +
+                                   |  ADR-0014            |        multi-backend
+                                   +----------------------+        routing)
                                               :
-                                              : (read-only catalog access:
-                                              :  Lakekeeper/Iceberg, CNPG, Kafka,
-                                              :  ClickHouse — never internal RPC)
+                                              : (per-statement routing into the
+                                              :  COMPUTE plane: Iceberg, ClickHouse,
+                                              :  Vespa, Postgres — see ADR-0014)
                                               :
 Browser / API Client                          :
         |                                     :
@@ -67,12 +68,12 @@ Browser / API Client                          :
         |                | (catalog/scan)     | (CDC/firehose)     | (writes)
         |                |                    |                    |
         |     ┌─────────────────────────── COMPUTE PLANE ────────────────────────────┐
-        +---> │ sql-bi-gateway-service  (edge SQL router, :50133)                    │
+        +---> │ sql-bi-gateway-service  (Flight SQL gateway, :50133 — ADR-0014)       │
         |     │   ├── sql-warehousing-service (DataFusion / Iceberg, Flight SQL P2P, │
         |     │   │     :50123) — official internal compute pool (ADR-0009)          │
         |     │   ├── ClickHouse  (time-series queries)                              │
         |     │   ├── Vespa       (search / hybrid retrieval, ADR-0007)              │
-        |     │   └── Trino       (edge BI ONLY, never internal — ADR-0009)          │
+        |     │   └── Postgres    (OLTP reference catalogue — CNPG)                  │
         |     │ ml-service · ai-service · ontology-functions-service ·               │
         |     │ ontology-query-service · notebook-runtime-service ·                  │
         |     │ report-service · geospatial-service · pipeline-build-service ·       │
@@ -94,11 +95,16 @@ Browser / API Client                          :
               nexus-service, …) — each anchored to one of the five planes above.
 ```
 
-> Trino is intentionally drawn **outside** the gateway fan-out and
-> **outside** the compute plane's internal lane: it is an *edge BI ONLY*
-> gateway for external JDBC/ODBC clients, not a participant in
-> service-to-service traffic. Internal services reach data through Flight
-> SQL P2P via `sql-bi-gateway-service` / `sql-warehousing-service` — see
+> `sql-bi-gateway-service` is the **single** edge SQL surface for
+> external BI clients (Tableau, Superset, Arrow Flight SQL JDBC). It is
+> a real Apache Arrow Flight SQL server (not a proxy) backed by
+> DataFusion that classifies each statement and routes it to the
+> appropriate compute-plane backend (Iceberg via `sql-warehousing-service`,
+> ClickHouse, Vespa, Postgres). The retired Trino edge BI deployment is
+> superseded — see
+> [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md).
+> Internal services still reach data through Flight SQL P2P via
+> `sql-warehousing-service` per
 > [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
 
 ### Plane → owning ADR
@@ -179,7 +185,7 @@ latency budgets for both buses live in
   for hours or days (CDC, ingestion, lineage events feeding the catalog),
   and is consumed by both online services and batch/analytics jobs.
   Kafka's partitioned, long-retention log model is the right shape for
-  this — and most third-party data tooling (Flink, Trino, Spark, Iceberg
+  this — and most third-party data tooling (Flink, Spark, Iceberg
   ingest paths) expects Kafka.
 
 Splitting the buses also gives us independent operational envelopes:
@@ -257,11 +263,12 @@ through a central federated coordinator. See
   - ClickHouse for time-series,
   - Vespa for search / hybrid retrieval (cf.
     [ADR-0007](./adr/ADR-0007-search-engine-choice.md)),
-  - Trino for **external BI only** (Tableau, Superset, heterogeneous
-    JDBC/ODBC clients).
-- Trino under `infra/k8s/trino/` is retained as the **edge BI** surface.
-  It is not used as an internal query hub; new services must not depend on
-  Trino for service-to-service SQL.
+  - `sql-bi-gateway-service` for **external BI** (Tableau, Superset,
+    heterogeneous Arrow Flight SQL JDBC/ODBC clients) — see
+    [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md).
+- The previous Trino edge BI deployment under `infra/k8s/trino/` has
+  been removed; new services must not depend on Trino for service-to-service
+  SQL or for BI access.
 
 ## Frontend Coupling
 

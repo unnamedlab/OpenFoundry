@@ -11,11 +11,12 @@ follow.
 | ----------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------------------------------------------- |
 | [`ADR-0007-search-engine-choice.md`](./ADR-0007-search-engine-choice.md)                                                                  | Accepted | 2026-04-29 | Search engine choice — Vespa only (no OpenSearch)                                      |
 | [`ADR-0008-iceberg-rest-catalog-lakekeeper.md`](./ADR-0008-iceberg-rest-catalog-lakekeeper.md)                                            | Accepted | 2026-04-29 | Iceberg REST Catalog — Lakekeeper only                                                 |
-| [`ADR-0009-internal-query-fabric-datafusion-flightsql.md`](./ADR-0009-internal-query-fabric-datafusion-flightsql.md)                      | Accepted | 2026-04-29 | Internal query fabric — DataFusion + Flight SQL (Trino as edge BI only)                |
+| [`ADR-0009-internal-query-fabric-datafusion-flightsql.md`](./ADR-0009-internal-query-fabric-datafusion-flightsql.md)                      | Superseded by [ADR-0014](./ADR-0014-retire-trino-flight-sql-only.md) | 2026-04-29 | Internal query fabric — DataFusion + Flight SQL (Trino as edge BI only)                |
 | [`ADR-0010-cnpg-postgres-operator.md`](./ADR-0010-cnpg-postgres-operator.md)                                                              | Accepted | 2026-04-29 | CloudNativePG (CNPG) as the single PostgreSQL operator                                 |
 | [`ADR-0011-control-vs-data-bus-contract.md`](./ADR-0011-control-vs-data-bus-contract.md)                                                  | Accepted | 2026-04-29 | Control vs Data bus — contract enforcement (NATS JetStream vs Kafka)                   |
 | [`ADR-0012-data-plane-slos.md`](./ADR-0012-data-plane-slos.md)                                                                            | Accepted | 2026-04-29 | Data-plane SLOs, SLIs and error budgets                                                |
 | [`ADR-0013-kafka-kraft-no-spof-policy.md`](./ADR-0013-kafka-kraft-no-spof-policy.md)                                                      | Accepted | 2026-04-30 | Kafka KRaft no-SPOF policy and upgrade procedure                                       |
+| [`ADR-0014-retire-trino-flight-sql-only.md`](./ADR-0014-retire-trino-flight-sql-only.md)                                                  | Accepted | 2026-04-30 | Retire Trino, single Flight SQL edge gateway                                           |
 
 ADR-0001 through ADR-0006 are historical placeholders and are intentionally
 not present in this repository: the data-plane consolidation effort that
@@ -38,11 +39,12 @@ confusion in a single lookup.
 | ROADMAP plan item                            | ADR file (on disk)                                                                                                   | Subject                                                              |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | **1.** ADR-0008 — Iceberg REST catalog       | [`ADR-0008-iceberg-rest-catalog-lakekeeper.md`](./ADR-0008-iceberg-rest-catalog-lakekeeper.md)                       | Single Iceberg REST catalog (Lakekeeper).                            |
-| **2.** ADR-0009 — Internal query fabric      | [`ADR-0009-internal-query-fabric-datafusion-flightsql.md`](./ADR-0009-internal-query-fabric-datafusion-flightsql.md) | DataFusion + Flight SQL P2P; Trino is edge-BI only.                  |
+| **2.** ADR-0009 — Internal query fabric      | [`ADR-0009-internal-query-fabric-datafusion-flightsql.md`](./ADR-0009-internal-query-fabric-datafusion-flightsql.md) | DataFusion + Flight SQL P2P; Trino as edge BI **superseded** by ADR-0014. |
 | **3.** ADR-0010 — Postgres operator          | [`ADR-0010-cnpg-postgres-operator.md`](./ADR-0010-cnpg-postgres-operator.md)                                         | CloudNativePG as the single Postgres operator.                       |
 | **4.** ADR-0011 — Bus contract               | [`ADR-0011-control-vs-data-bus-contract.md`](./ADR-0011-control-vs-data-bus-contract.md)                             | Control (NATS) vs Data (Kafka) bus; CI-enforced contract.            |
 | **5.** ADR-0012 — Data-plane SLOs            | [`ADR-0012-data-plane-slos.md`](./ADR-0012-data-plane-slos.md)                                                       | Per-layer latency SLOs/SLIs, error budgets, freeze policy.           |
 | **15.** ADR-0007 consolidation               | [`ADR-0007-search-engine-choice.md`](./ADR-0007-search-engine-choice.md)                                             | Vespa-only search; Vespa Lite for DX; Meilisearch demoted.           |
+| **17.** ADR-0014 — Retire Trino              | [`ADR-0014-retire-trino-flight-sql-only.md`](./ADR-0014-retire-trino-flight-sql-only.md)                             | `sql-bi-gateway-service` becomes a real Flight SQL server; Trino removed. |
 
 ### Why the mismatch exists
 
@@ -60,7 +62,7 @@ disagrees, this README wins.
 
 ## Adding a new ADR
 
-1. Pick the next free four-digit number (currently **`ADR-0014`**) — never
+1. Pick the next free four-digit number (currently **`ADR-0015`**) — never
    reuse a previous number even if the ADR was retracted.
 2. Create `ADR-NNNN-short-kebab-title.md` in this directory.
 3. Use the standard heading layout already in place across `ADR-0007` …

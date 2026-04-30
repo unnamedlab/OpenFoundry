@@ -1,6 +1,6 @@
 [package]
 name = "sql-bi-gateway-service"
-description = "SQL and BI gateway: execute, explain, saved queries and BI tool compatibility"
+description = "Edge SQL gateway: Apache Arrow Flight SQL server for external BI clients (Tableau, Superset) backed by DataFusion with multi-backend routing (ADR-0014)"
 
 [package.edition]
 workspace = true
@@ -17,10 +17,20 @@ workspace = true
 [dependencies.arrow]
 version = "53"
 
+[dependencies.arrow-flight]
+version = "53"
+features = ["flight-sql-experimental"]
+
+[dependencies.async-trait]
+workspace = true
+
 [dependencies.auth-middleware]
 workspace = true
 
 [dependencies.axum]
+workspace = true
+
+[dependencies.bytes]
 workspace = true
 
 [dependencies.chrono]
@@ -29,16 +39,13 @@ workspace = true
 [dependencies.config]
 workspace = true
 
-[dependencies.core-models]
-workspace = true
-
 [dependencies.datafusion]
 workspace = true
 
-[dependencies.event-bus-control]
+[dependencies.futures]
 workspace = true
 
-[dependencies.futures]
+[dependencies.prost]
 workspace = true
 
 [dependencies.query-engine]
@@ -59,6 +66,9 @@ workspace = true
 [dependencies.tokio]
 workspace = true
 
+[dependencies.tonic]
+workspace = true
+
 [dependencies.tracing]
 workspace = true
 
@@ -67,6 +77,14 @@ workspace = true
 
 [dependencies.uuid]
 workspace = true
+
+[dev-dependencies.tokio-stream]
+version = "0.1"
+features = ["net"]
+
+[lib]
+path = "src/lib.rs"
+name = "sql_bi_gateway_service"
 
 [[bin]]
 path = "src/main.rs"

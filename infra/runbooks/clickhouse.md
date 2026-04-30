@@ -8,7 +8,9 @@ paneles BI sub-segundo. El despliegue está operado por el
 **ClickHouse Keeper** como servicio de coordinación (no ZooKeeper).
 
 Manifestos: `infra/k8s/clickhouse/`
-Catálogo Trino: `infra/k8s/clickhouse/trino-catalog.yaml`
+Acceso BI externo: `sql-bi-gateway-service` (Apache Arrow Flight SQL,
+puerto `50133`) — ver
+[`docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md`](../../docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md).
 
 > **Imágenes**: usamos `clickhouse/clickhouse-server` y
 > `clickhouse/clickhouse-keeper` oficiales (Apache-2.0). **No** usamos las
@@ -27,7 +29,7 @@ Catálogo Trino: `infra/k8s/clickhouse/trino-catalog.yaml`
 | Servicio in-cluster (clientes)   | `clickhouse-openfoundry.clickhouse.svc.cluster.local:8123` (HTTP) / `:9000` (TCP) |
 | Servicio Keeper                  | `keeper-openfoundry.clickhouse.svc.cluster.local:2181`                        |
 | Métricas Prometheus              | ClickHouse `:9363/metrics`, Keeper `:7000/metrics`                            |
-| Catálogo Trino                   | ConfigMap `trino-catalog-clickhouse` en namespace `trino`                     |
+| Acceso BI externo                | `sql-bi-gateway-service` (Apache Arrow Flight SQL) en `:50133`                |
 
 Topología por shard:
 
@@ -106,8 +108,9 @@ kubectl -n clickhouse create secret generic clickhouse-users \
   --from-literal=openfoundry-password-sha256="${SHA256}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Reflejar la contraseña en plano para Trino (mismo password literal):
-kubectl -n trino create secret generic clickhouse-trino \
+# Reflejar la contraseña en plano para sql-bi-gateway-service y
+# sql-warehousing-service (mismo password literal):
+kubectl -n openfoundry create secret generic clickhouse-bi \
   --from-literal=CLICKHOUSE_PASSWORD="${PASSWORD}" \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
@@ -169,56 +172,30 @@ ENGINE = Distributed('openfoundry', 'openfoundry', 'events', user_id);
 > El operador rellena `ENGINE = ReplicatedMergeTree` con
 > `('/clickhouse/tables/{shard}/openfoundry.events', '{replica}')`
 > automáticamente cuando no se especifican parámetros. Se recomienda
-> apuntar siempre a la tabla `*_dist` desde dashboards / Trino.
+> apuntar siempre a la tabla `*_dist` desde dashboards y desde el
+> `sql-bi-gateway-service`.
 
-## 4. Catálogo Trino
+## 4. Acceso desde el Flight SQL Gateway
 
-El ConfigMap `trino-catalog-clickhouse` provee
-`clickhouse.properties` para el conector ClickHouse de Trino
-(Apache-2.0). Para enchufarlo en el release Helm de Trino:
+A partir de [ADR-0014](../../docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md)
+ClickHouse no se expone a clientes BI a través de Trino: el único punto
+de entrada externo (Tableau, Superset, JDBC/ODBC notebooks) es
+`sql-bi-gateway-service`, un servidor Apache Arrow Flight SQL en
+`:50133`. El gateway enruta cualquier sentencia con prefijo de catálogo
+`clickhouse.*` al endpoint Flight SQL configurado vía la variable de
+entorno `CLICKHOUSE_FLIGHT_SQL_URL` (ver
+`services/sql-bi-gateway-service/src/config.rs`).
 
-```yaml
-# values.yaml del chart trinodb/trino
-additionalCatalogs: {}  # vacíalo o usa el ConfigMap a continuación
-
-coordinator:
-  additionalVolumes:
-    - name: clickhouse-catalog
-      configMap:
-        name: trino-catalog-clickhouse
-  additionalVolumeMounts:
-    - name: clickhouse-catalog
-      mountPath: /etc/trino/catalog/clickhouse.properties
-      subPath: clickhouse.properties
-  envFrom:
-    - secretRef:
-        name: clickhouse-trino    # exporta CLICKHOUSE_PASSWORD
-
-worker:
-  additionalVolumes:
-    - name: clickhouse-catalog
-      configMap:
-        name: trino-catalog-clickhouse
-  additionalVolumeMounts:
-    - name: clickhouse-catalog
-      mountPath: /etc/trino/catalog/clickhouse.properties
-      subPath: clickhouse.properties
-  envFrom:
-    - secretRef:
-        name: clickhouse-trino
-```
-
-Verificación:
+Verificación end-to-end (sustituye la antigua verificación contra el
+coordinador Trino):
 
 ```bash
-kubectl -n trino exec -it deploy/trino-coordinator -- \
-  trino --execute "SHOW CATALOGS"
-# Debe incluir: clickhouse
+# Desde dentro del cluster, port-forward al gateway:
+kubectl -n openfoundry port-forward svc/sql-bi-gateway-service 50133:50133
 
-kubectl -n trino exec -it deploy/trino-coordinator -- \
-  trino --execute "SHOW SCHEMAS FROM clickhouse"
-kubectl -n trino exec -it deploy/trino-coordinator -- \
-  trino --execute "SELECT count(*) FROM clickhouse.openfoundry.events_dist"
+# Conexión BI (driver Arrow Flight SQL JDBC):
+#   jdbc:arrow-flight-sql://localhost:50133?useEncryption=false
+#   query: SELECT count(*) FROM clickhouse.openfoundry.events_dist
 ```
 
 ## 5. Backups
@@ -300,8 +277,8 @@ kubectl -n clickhouse exec -it chi-openfoundry-openfoundry-0-0-0 -c clickhouse -
   clickhouse-backup restore_remote daily-<fecha>
 ```
 
-El endpoint in-cluster no cambia, así que el catálogo Trino y los
-dashboards no necesitan reconfiguración.
+El endpoint in-cluster no cambia, así que el `sql-bi-gateway-service`
+y los dashboards no necesitan reconfiguración.
 
 ## 7. Limpieza
 
@@ -327,5 +304,6 @@ kubectl delete ns clickhouse
 - Tras aplicar, `kubectl -n clickhouse get chi/openfoundry` reporta
   `shards=2 replicas=2 hosts=4 status=Completed`.
 - `SELECT count() FROM system.clusters WHERE cluster='openfoundry'` = 4.
-- Trino lista el catálogo `clickhouse` en `SHOW CATALOGS` y puede
-  ejecutar `SELECT 1 FROM clickhouse.system.one`.
+- El `sql-bi-gateway-service` puede ejecutar
+  `SELECT 1 FROM clickhouse.system.one` desde un cliente Flight SQL JDBC
+  apuntado a `:50133` cuando `CLICKHOUSE_FLIGHT_SQL_URL` está configurado.
