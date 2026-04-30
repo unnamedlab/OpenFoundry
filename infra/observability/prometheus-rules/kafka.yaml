@@ -81,6 +81,59 @@ groups:
             One or more partitions have no live leader. Producers will
             fail and consumers will stall. This is a page-on-call event.
 
+      - alert: KafkaUnderMinIsrPartitions
+        # Distinct from UnderReplicatedPartitions: this counter goes
+        # non-zero only when a partition's ISR has dropped *below*
+        # `min.insync.replicas` (=2 in this cluster — see the KRaft
+        # contract enforced by tools/kafka-lint/check_kraft.py). At that
+        # point any producer using `acks=all` (which is every producer
+        # in event-bus-data) will start receiving NotEnoughReplicas
+        # errors — i.e. the durability contract is actively broken,
+        # not merely at risk. The JMX metric is exposed by the broker
+        # as kafka.server:type=ReplicaManager,name=UnderMinIsrPartitionCount.
+        expr: sum by (cluster) (kafka_server_replicamanager_underminisrpartitioncount) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Cluster {{ $labels.cluster }} has partitions below min.insync.replicas"
+          description: |
+            `UnderMinIsrPartitionCount > 0` for 2m on cluster
+            `{{ $labels.cluster }}`. Producers configured with
+            `acks=all` are failing writes (NotEnoughReplicas). This
+            violates the data-plane durability contract — page on-call.
+
+      - alert: KafkaActiveControllerCountAbnormal
+        # In KRaft mode (enforced by tools/kafka-lint/check_kraft.py)
+        # exactly one node in the controller quorum must report
+        # ActiveControllerCount=1 at any given time. Sum across the
+        # cluster:
+        #   * 0  -> no active controller; metadata writes (topic
+        #          create/alter, leader election) are stalled.
+        #   * >1 -> split-brain; two nodes both believe they are the
+        #          active controller. This should be impossible under
+        #          Raft but is exactly the failure mode worth paging
+        #          for if it ever appears.
+        # Wait 3m to ride out normal controller failover (Strimzi
+        # rolling restart, leader re-election after a node loss).
+        # Source metric: kafka.controller:type=KafkaController,
+        # name=ActiveControllerCount.
+        expr: sum by (cluster) (kafka_controller_kafkacontroller_activecontrollercount) != 1
+        for: 3m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Cluster {{ $labels.cluster }} active controller count = {{ $value }} (expected 1)"
+          description: |
+            `sum(ActiveControllerCount) = {{ $value }}` on cluster
+            `{{ $labels.cluster }}` for 3m. KRaft expects exactly
+            one active controller. 0 means the quorum has lost
+            leadership (no metadata writes); >1 means split-brain.
+            Inspect controller-pool pods and KRaft quorum status
+            (`kafka-metadata-quorum.sh --status`).
+
   - name: kafka.replication
     rules:
       - alert: KafkaIsrShrinkRateHigh

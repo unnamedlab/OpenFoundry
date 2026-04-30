@@ -65,9 +65,15 @@ threshold can be revisited without re-reading the upstream docs.
 ```bash
 # Syntax + PromQL parse check for every rule file.
 promtool check rules infra/observability/prometheus-rules/*.yaml
+
+# Run alert unit tests (locks in the semantics of the KRaft-contract
+# alerts — see tests/kafka_kraft_test.yaml).
+promtool test rules infra/observability/prometheus-rules/tests/*.yaml
 ```
 
-Run this locally before opening a PR that touches any of these files.
+Run both locally before opening a PR that touches any of these files.
+CI runs the same two commands on every PR — see
+`.github/workflows/prometheus-rules.yml`.
 
 ## Deployment
 
