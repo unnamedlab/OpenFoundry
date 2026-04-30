@@ -140,7 +140,7 @@ mod tests {
             host: "0.0.0.0".to_string(),
             port: 50079,
             database_url: "postgres://localhost/openfoundry".to_string(),
-            jwt_secret: "secret".to_string(),
+            jwt_secret: uuid::Uuid::now_v7().to_string(),
             storage_backend: "s3".to_string(),
             storage_bucket: "datasets".to_string(),
             s3_endpoint: None,

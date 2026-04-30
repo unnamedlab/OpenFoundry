@@ -1978,7 +1978,7 @@ mod tests {
             db: PgPoolOptions::new()
                 .connect_lazy("postgres://postgres:postgres@localhost/openfoundry")
                 .expect("lazy pool should build"),
-            jwt_config: auth_middleware::jwt::JwtConfig::new("test-secret").with_env_defaults(),
+            jwt_config: auth_middleware::jwt::JwtConfig::generate().with_env_defaults(),
             http_client: reqwest::Client::new(),
             dataset_service_url: "http://dataset.local".to_string(),
             workflow_service_url: "http://workflow.local".to_string(),

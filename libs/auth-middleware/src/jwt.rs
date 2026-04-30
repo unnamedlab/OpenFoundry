@@ -1,14 +1,22 @@
-use std::{env, fs};
+use std::path::Path;
+use std::{env, fs, io};
 
 use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode,
 };
+use rand::RngCore;
 use serde_json::Value;
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::claims::{Claims, SessionScope};
 
+/// Number of random bytes used by the auto-generated HS256 secret. 32 bytes
+/// (256 bits) matches the recommended minimum for HMAC-SHA256.
+const GENERATED_SECRET_BYTES: usize = 32;
+
+const JWT_SECRET_ENV_KEYS: &[&str] = &["OPENFOUNDRY_JWT_SECRET", "JWT_SECRET"];
+const JWT_SECRET_PATH_ENV_KEYS: &[&str] = &["OPENFOUNDRY_JWT_SECRET_PATH", "JWT_SECRET_PATH"];
 const JWT_ISSUER_ENV_KEYS: &[&str] = &["OPENFOUNDRY_JWT_ISSUER", "JWT_ISSUER"];
 const JWT_AUDIENCE_ENV_KEYS: &[&str] = &["OPENFOUNDRY_JWT_AUDIENCE", "JWT_AUDIENCE"];
 const JWT_KEY_ID_ENV_KEYS: &[&str] = &["OPENFOUNDRY_JWT_KID", "JWT_KID"];
@@ -63,6 +71,70 @@ impl JwtConfig {
             access_ttl_secs: 3600,
             refresh_ttl_secs: 604_800,
         }
+    }
+
+    /// Build a [`JwtConfig`] backed by a freshly generated, cryptographically
+    /// random 256-bit HS256 secret.
+    ///
+    /// The secret only lives in memory for the lifetime of the returned value
+    /// and is NOT persisted, so tokens issued with it become invalid after a
+    /// process restart. For long-lived deployments prefer
+    /// [`JwtConfig::load_or_generate`] or [`JwtConfig::resolve_unattended`],
+    /// which persist the generated secret to disk so unattended restarts keep
+    /// existing tokens valid.
+    ///
+    /// This constructor is the safe replacement for hard-coded test literals
+    /// such as `JwtConfig::new("secret")`.
+    pub fn generate() -> Self {
+        Self::from_secret_bytes(generate_secret_bytes())
+    }
+
+    /// Build a [`JwtConfig`] from an existing byte slice secret.
+    ///
+    /// Useful for callers that source the secret from a key-management system
+    /// where the raw bytes are already available.
+    pub fn from_secret_bytes(secret: impl Into<Vec<u8>>) -> Self {
+        Self {
+            secret: secret.into(),
+            issuer: None,
+            audience: None,
+            key_id: None,
+            rsa_private_key_pem: None,
+            rsa_public_key_pem: None,
+            access_ttl_secs: 3600,
+            refresh_ttl_secs: 604_800,
+        }
+    }
+
+    /// Load an HS256 secret from `path`, generating and persisting a new
+    /// random secret on first use so deployments can start fully unattended.
+    ///
+    /// On Unix the persisted file is created with mode `0600` so it is only
+    /// readable by the owning process. The parent directory is created with
+    /// mode `0700` if it does not already exist. Subsequent restarts read the
+    /// same secret from disk so tokens issued before the restart remain valid.
+    pub fn load_or_generate(path: impl AsRef<Path>) -> Result<Self, SecretLoadError> {
+        let secret = load_or_generate_secret(path.as_ref())?;
+        Ok(Self::from_secret_bytes(secret))
+    }
+
+    /// Resolve the HS256 secret following an unattended precedence:
+    ///
+    /// 1. `OPENFOUNDRY_JWT_SECRET` / `JWT_SECRET` (raw secret in the env).
+    /// 2. `OPENFOUNDRY_JWT_SECRET_PATH` / `JWT_SECRET_PATH` (file path).
+    /// 3. The supplied `default_path`, auto-generated if missing.
+    ///
+    /// This lets operators inject a managed secret when one is available
+    /// while still allowing the service to boot with no configuration.
+    pub fn resolve_unattended(default_path: impl AsRef<Path>) -> Result<Self, SecretLoadError> {
+        if let Some(secret) = read_first_env(JWT_SECRET_ENV_KEYS) {
+            return Ok(Self::from_secret_bytes(secret.into_bytes()));
+        }
+
+        let path = read_first_env(JWT_SECRET_PATH_ENV_KEYS)
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| default_path.as_ref().to_path_buf());
+        Self::load_or_generate(path)
     }
 
     pub fn with_access_ttl(mut self, secs: i64) -> Self {
@@ -426,6 +498,163 @@ fn read_pem_from_env(value_keys: &[&str], path_keys: &[&str]) -> Option<String> 
         })
 }
 
+/// Errors returned by [`JwtConfig::load_or_generate`] and
+/// [`JwtConfig::resolve_unattended`].
+#[derive(Debug, Error)]
+pub enum SecretLoadError {
+    #[error("failed to access JWT secret at {path}: {source}")]
+    Io {
+        path: std::path::PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("JWT secret file at {path} is empty")]
+    Empty { path: std::path::PathBuf },
+}
+
+fn generate_secret_bytes() -> Vec<u8> {
+    let mut bytes = vec![0u8; GENERATED_SECRET_BYTES];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes
+}
+
+fn load_or_generate_secret(path: &Path) -> Result<Vec<u8>, SecretLoadError> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            // Trim trailing whitespace / newlines that an operator may have
+            // introduced when writing the file by hand. The on-disk format is
+            // hex; leading/trailing whitespace is never significant.
+            let trimmed = trim_ascii_whitespace(&bytes);
+            if trimmed.is_empty() {
+                return Err(SecretLoadError::Empty {
+                    path: path.to_path_buf(),
+                });
+            }
+            // Accept both hex-encoded and raw byte payloads. Hex is preferred
+            // (it is what we write ourselves), but we tolerate raw bytes so a
+            // secret seeded by a key-management system also works.
+            match decode_hex(trimmed) {
+                Some(decoded) if !decoded.is_empty() => Ok(decoded),
+                _ => Ok(trimmed.to_vec()),
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let bytes = generate_secret_bytes();
+            persist_secret(path, &bytes).map_err(|source| SecretLoadError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            tracing::warn!(
+                path = %path.display(),
+                "generated new JWT signing secret; persisted for unattended restarts"
+            );
+            Ok(bytes)
+        }
+        Err(source) => Err(SecretLoadError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn persist_secret(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            create_dir_all_secure(parent)?;
+        }
+    }
+    let encoded = encode_hex(bytes);
+    write_secure(path, encoded.as_bytes())
+}
+
+#[cfg(unix)]
+fn create_dir_all_secure(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    if dir.exists() {
+        return Ok(());
+    }
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+
+#[cfg(not(unix))]
+fn create_dir_all_secure(dir: &Path) -> io::Result<()> {
+    fs::create_dir_all(dir)
+}
+
+#[cfg(unix)]
+fn write_secure(path: &Path, contents: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
+}
+
+#[cfg(not(unix))]
+fn write_secure(path: &Path, contents: &[u8]) -> io::Result<()> {
+    fs::write(path, contents)
+}
+
+fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map(|idx| idx + 1)
+        .unwrap_or(start);
+    &bytes[start..end]
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(nibble: u8) -> char {
+    debug_assert!(nibble < 16, "nibble out of range");
+    match nibble {
+        0..=9 => (b'0' + nibble) as char,
+        _ => (b'a' + (nibble & 0x0f) - 10) as char,
+    }
+}
+
+fn decode_hex(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.is_empty() || bytes.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.chunks_exact(2) {
+        let hi = hex_value(chunk[0])?;
+        let lo = hex_value(chunk[1])?;
+        out.push((hi << 4) | lo);
+    }
+    Some(out)
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -472,7 +701,7 @@ GQIDAQAB
 
     #[test]
     fn rs256_tokens_round_trip_with_standard_claims() {
-        let config = JwtConfig::new("unused")
+        let config = JwtConfig::generate()
             .with_rsa_keys(RSA_PRIVATE_KEY, RSA_PUBLIC_KEY)
             .with_issuer("https://auth.openfoundry.test")
             .with_audience("openfoundry")
@@ -506,7 +735,7 @@ GQIDAQAB
 
     #[test]
     fn rejects_tokens_with_wrong_audience() {
-        let issuer_config = JwtConfig::new("unused")
+        let issuer_config = JwtConfig::generate()
             .with_rsa_keys(RSA_PRIVATE_KEY, RSA_PUBLIC_KEY)
             .with_issuer("https://auth.openfoundry.test")
             .with_audience("openfoundry");
@@ -517,5 +746,45 @@ GQIDAQAB
         let error = decode_token(&verifier_config, &token).expect_err("token should be rejected");
 
         assert!(matches!(error, JwtError::Invalid(_)));
+    }
+
+    #[test]
+    fn generate_produces_distinct_random_secrets() {
+        let first = JwtConfig::generate();
+        let second = JwtConfig::generate();
+        assert_eq!(first.secret.len(), GENERATED_SECRET_BYTES);
+        assert_eq!(second.secret.len(), GENERATED_SECRET_BYTES);
+        assert_ne!(first.secret, second.secret);
+    }
+
+    #[test]
+    fn load_or_generate_persists_and_reuses_secret() {
+        let dir = std::env::temp_dir().join(format!("openfoundry-jwt-{}", Uuid::now_v7()));
+        let path = dir.join("jwt.secret");
+
+        let first = JwtConfig::load_or_generate(&path).expect("first load should succeed");
+        let second = JwtConfig::load_or_generate(&path).expect("second load should succeed");
+        assert_eq!(first.secret, second.secret);
+        assert_eq!(first.secret.len(), GENERATED_SECRET_BYTES);
+
+        // The on-disk format is hex-encoded, never the raw bytes.
+        let on_disk = fs::read(&path).expect("secret file should exist");
+        assert_eq!(on_disk.len(), GENERATED_SECRET_BYTES * 2);
+        assert!(on_disk.iter().all(|byte| byte.is_ascii_hexdigit()));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_or_generate_rejects_empty_secret_file() {
+        let dir = std::env::temp_dir().join(format!("openfoundry-jwt-empty-{}", Uuid::now_v7()));
+        fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("jwt.secret");
+        fs::write(&path, b"   \n").expect("write");
+
+        let error = JwtConfig::load_or_generate(&path).expect_err("empty file should be rejected");
+        assert!(matches!(error, SecretLoadError::Empty { .. }));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
