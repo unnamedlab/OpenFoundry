@@ -171,47 +171,32 @@ catálogo REST en el clúster se publica como `icebergRestCatalog.url` en
 
 ### Local (Docker Compose)
 
-El stack Compose para desarrollo todavía levanta una instancia de
-[Apache Polaris](https://polaris.apache.org/) como Iceberg REST Catalog DX
-(`apache/polaris`, Apache-2.0) con persistencia `relational-jdbc` sobre
-PostgreSQL. Compose declara dos servicios:
+El stack Compose para desarrollo **ya no levanta** un Iceberg REST Catalog
+propio. Apache Polaris (`apache/polaris` + `apache/polaris-admin-tool`) y
+sus servicios `iceberg-catalog-bootstrap` / `iceberg-catalog` fueron
+eliminados de `infra/docker-compose.yml` el 2026-04-30 para cerrar la
+divergencia compose ↔ Kubernetes que dejaba [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md):
+si Lakekeeper es el único catálogo en producción, exponer Polaris en el
+DX por defecto generaba dependencias accidentales sobre un componente
+retirado.
 
-- `iceberg-catalog-bootstrap` — corre `apache/polaris-admin-tool` una vez
-  para crear el realm y las credenciales de cliente raíz. Depende de
-  `postgres` y termina con código 0 cuando concluye.
-- `iceberg-catalog` — corre `apache/polaris`, expone la API REST en el
-  puerto host `8181` (`/api/catalog/v1/...`) y el endpoint de management
-  Quarkus en `8182` (`/q/health/*`, `/q/metrics`). La persistencia apunta
-  a la base `openfoundry_iceberg_catalog` creada por
-  `infra/init-db/01-create-databases.sh` a partir de
-  `POSTGRES_MULTIPLE_DATABASES`.
-
-Levantarlo aislado:
-
-```bash
-docker compose -f infra/docker-compose.yml up iceberg-catalog
-# luego
-curl -s http://localhost:8181/api/catalog/v1/config?warehouse=openfoundry
-```
-
-Esta capa es **sólo para DX**: en Kubernetes el catálogo de referencia es
-Lakekeeper.
+Los servicios que integran con Iceberg (`dataset-versioning-service`,
+`event-streaming-service`, …) leen `ICEBERG_CATALOG_URL` como variable
+**opcional**: si no está definida usan el writer dataset legacy y siguen
+arrancando sin error (ver `services/*/src/storage/factory.rs`). Para
+ejercitar el camino Iceberg en local, apunta esa variable a un Lakekeeper
+externo accesible desde los contenedores.
 
 ### Variables de entorno (Compose)
 
-Las siguientes variables son leídas por el stack Compose (defaults):
+Sin servicio Polaris en Compose ya no quedan variables propias del
+catálogo en `infra/docker-compose.yml`. La única variable relacionada
+con Iceberg sigue siendo opcional para los servicios:
 
 | Variable | Default | Propósito |
 | --- | --- | --- |
-| `OPENFOUNDRY_POLARIS_IMAGE` | `apache/polaris:1.4.0` | Imagen del servidor Polaris |
-| `OPENFOUNDRY_POLARIS_ADMIN_IMAGE` | `apache/polaris-admin-tool:1.4.0` | Imagen del bootstrap |
-| `OPENFOUNDRY_ICEBERG_CATALOG_HOST_PORT` | `8181` | Puerto host de la API REST |
-| `OPENFOUNDRY_ICEBERG_CATALOG_MGMT_HOST_PORT` | `8182` | Puerto host de management |
-| `OPENFOUNDRY_ICEBERG_CATALOG_DB` | `openfoundry_iceberg_catalog` | Base de datos backend |
-| `OPENFOUNDRY_ICEBERG_CATALOG_REALM` | `openfoundry` | Nombre de realm Polaris |
-| `OPENFOUNDRY_ICEBERG_CATALOG_CLIENT_ID` | `root` | Identificador de cliente raíz |
-| `OPENFOUNDRY_ICEBERG_CATALOG_CLIENT_SECRET` | `s3cr3t` | Secret raíz (rotar fuera de dev) |
-| `OPENFOUNDRY_POSTGRES_EXTRA_DATABASES` | `openfoundry_iceberg_catalog` | DBs extra creadas en el primer arranque de Postgres |
+| `ICEBERG_CATALOG_URL` | _unset_ | URL del Iceberg REST Catalog que consumirán los servicios. Si no se define, los servicios usan el dataset writer legacy. |
+| `OPENFOUNDRY_POSTGRES_EXTRA_DATABASES` | _empty_ | DBs extra opcionales creadas en el primer arranque de Postgres por `infra/init-db/01-create-databases.sh`. |
 
 ### Kubernetes
 

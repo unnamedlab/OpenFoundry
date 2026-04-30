@@ -1,0 +1,130 @@
+---
+# CloudNativePG `Cluster` for the event-streaming-service bounded context.
+#
+# Wave-N entry for T13 (per-bounded-context CNPG wiring), generated
+# following the convention documented in
+# `infra/k8s/cnpg/clusters/README.md` and the shape of the pilots
+# `identity-federation-pg.yaml` / `data-asset-catalog-pg.yaml`.
+# Defaults mirror `infra/k8s/cnpg/templates/cluster.yaml`.
+#
+# Wired into `infra/k8s/helm/open-foundry/values.yaml` by setting:
+#   services.event-streaming-service.envSecrets.DATABASE_URL:
+#     secretName: event-streaming-pg-app
+#     key: uri
+# CNPG auto-populates the `uri` key on the `<cluster>-app` Secret
+# with a fully-formatted DSN, so no credential is committed here.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: event-streaming-pg
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: event-streaming-pg
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/part-of: openfoundry
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/bounded-context: event-streaming
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+
+  # See identity-federation-pg.yaml for the durability rationale
+  # (at least one synchronous standby acks every commit).
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
+  postgresql:
+    parameters:
+      synchronous_commit: "on"
+      wal_level: "logical"
+      max_wal_size: "2GB"
+      shared_buffers: "512MB"
+
+  bootstrap:
+    initdb:
+      database: event_streaming
+      owner: event_streaming
+      secret:
+        name: event-streaming-pg-app
+
+  storage:
+    size: 50Gi
+    storageClass: ceph-rbd
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  # Spread instances across zones so a zonal outage cannot take
+  # down the quorum (matches the Kafka topologySpreadConstraints).
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+
+  monitoring:
+    enablePodMonitor: true
+
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: s3://openfoundry-pg-backups/event-streaming-pg
+      # Cluster-local Ceph RGW (rook-ceph). Same endpoint already
+      # used by the Iceberg/Lakekeeper stack — see
+      # `infra/k8s/rook/objectstore.yaml`.
+      endpointURL: http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
+      s3Credentials:
+        accessKeyId:
+          name: event-streaming-pg-backup
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: event-streaming-pg-backup
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+        maxParallel: 4
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+        jobs: 2
+---
+# Bootstrap credentials for the CNPG Cluster. The `password`
+# value below is a placeholder; in every real environment it
+# MUST be overwritten by External Secrets / Vault before the
+# manifest is applied. Mirrors the convention used by
+# `apicurio-pg-app` in `infra/k8s/strimzi/apicurio-registry.yaml`.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: event-streaming-pg-app
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: event-streaming-pg
+    openfoundry.io/managed-by: cnpg
+type: kubernetes.io/basic-auth
+stringData:
+  username: event_streaming
+  password: change-me
+---
+# Object-store credentials for barman-cloud backups. Replace with
+# values projected from External Secrets / Vault before applying.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: event-streaming-pg-backup
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: event-streaming-pg
+    openfoundry.io/managed-by: cnpg
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: change-me
+  ACCESS_SECRET_KEY: change-me

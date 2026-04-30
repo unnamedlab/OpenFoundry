@@ -3691,14 +3691,13 @@ dependencies = [
  "chrono",
  "config",
  "core-models",
- "event-bus",
+ "event-bus-control",
  "futures",
  "globset",
  "prometheus",
  "prost",
  "protoc-bin-vendored",
  "regex",
- "event-bus-control",
  "reqwest",
  "serde",
  "serde_json",
@@ -4889,8 +4888,8 @@ dependencies = [
 name = "ingestion-replication-service"
 version = "0.0.1"
 dependencies = [
- "async-stream",
  "anyhow",
+ "async-stream",
  "async-trait",
  "auth-middleware",
  "axum 0.8.9",
@@ -4900,9 +4899,7 @@ dependencies = [
  "config",
  "core-models",
  "csv",
- "event-bus",
- "prost",
- "prost-types",
+ "event-bus-control",
  "futures",
  "http",
  "http-body-util",
@@ -4910,7 +4907,6 @@ dependencies = [
  "kube",
  "prost",
  "prost-types",
- "event-bus-control",
  "reqwest",
  "schemars 0.8.22",
  "serde",
@@ -4921,8 +4917,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "tonic",
- "tonic-build",
  "tonic",
  "tonic-build",
  "tower 0.5.3",
@@ -6326,7 +6320,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -7411,7 +7405,6 @@ dependencies = [
  "prost",
  "prost-types",
  "regex",
- "syn",
  "syn 2.0.117",
  "tempfile",
 ]
@@ -8725,19 +8718,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap 2.14.0",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
 ]
 
 [[package]]
@@ -10078,7 +10058,6 @@ dependencies = [
  "prost-build",
  "prost-types",
  "quote",
- "syn",
  "syn 2.0.117",
 ]
 
