@@ -491,7 +491,7 @@ mod tests {
         let store = Arc::new(LocalStorage::new(root.to_str().expect("path")).expect("store"));
         let state = AppState {
             db: sqlx::PgPool::connect_lazy("postgres://test:test@localhost/test").expect("pool"),
-            jwt_config: JwtConfig::new("test"),
+            jwt_config: JwtConfig::generate(),
             http_client: reqwest::Client::new(),
             dataset_service_url: "http://localhost:50053".to_string(),
             geospatial_service_url: "http://localhost:50068".to_string(),

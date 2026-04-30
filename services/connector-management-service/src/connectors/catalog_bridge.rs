@@ -595,7 +595,7 @@ mod tests {
             db: sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://postgres:postgres@localhost/openfoundry")
                 .expect("lazy pool"),
-            jwt_config: JwtConfig::new("secret"),
+            jwt_config: JwtConfig::generate(),
             http_client: reqwest::Client::new(),
             dataset_service_url: "http://localhost:50053".to_string(),
             pipeline_service_url: "http://localhost:50080".to_string(),

@@ -9,7 +9,18 @@ pub struct AppConfig {
     #[serde(default = "default_grpc_port")]
     pub grpc_port: u16,
     pub database_url: String,
-    pub jwt_secret: String,
+    /// Optional JWT signing secret. When omitted (the default), the service
+    /// falls back to [`auth_middleware::jwt::JwtConfig::resolve_unattended`],
+    /// which reads the secret from `OPENFOUNDRY_JWT_SECRET` /
+    /// `OPENFOUNDRY_JWT_SECRET_PATH` or auto-generates one and persists it
+    /// under the configured state directory so unattended restarts keep
+    /// existing tokens valid.
+    #[serde(default)]
+    pub jwt_secret: Option<String>,
+    /// Filesystem path used by the unattended JWT secret bootstrap when no
+    /// `jwt_secret` is provided.
+    #[serde(default = "default_jwt_secret_path")]
+    pub jwt_secret_path: String,
     #[serde(default = "default_dataset_service_url")]
     pub dataset_service_url: String,
     #[serde(default = "default_pipeline_service_url")]
@@ -52,6 +63,9 @@ fn default_allow_private_network_egress() -> bool {
 }
 fn default_agent_stale_after_secs() -> u64 {
     120
+}
+fn default_jwt_secret_path() -> String {
+    "/var/lib/openfoundry/ingestion-replication-service/jwt.secret".to_string()
 }
 
 impl AppConfig {

@@ -50,7 +50,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
-    let jwt_config = JwtConfig::new(&config.jwt_secret).with_env_defaults();
+    let jwt_config = match config.jwt_secret.as_deref().map(str::trim) {
+        Some(secret) if !secret.is_empty() => JwtConfig::new(secret).with_env_defaults(),
+        _ => JwtConfig::resolve_unattended(&config.jwt_secret_path)
+            .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?
+            .with_env_defaults(),
+    };
 
     let state = AppState {
         db,
