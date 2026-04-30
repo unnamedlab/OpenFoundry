@@ -18,9 +18,17 @@ The Compose stack defines:
   (see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)
   and `infra/runbooks/vespa.md`)
 - pgvector (extensión sobre PostgreSQL)
-- Apache Polaris (Iceberg REST Catalog, Apache-2.0) — sólo en el stack
-  Compose local; en Kubernetes ha sido reemplazado por Lakekeeper (ver
-  [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md)).
+
+> El stack de Compose por defecto **ya no incluye un Iceberg REST
+> Catalog**. Apache Polaris fue retirado del Compose el 2026-04-30
+> (PR #61) y de los charts Helm de OpenFoundry; en Kubernetes el único
+> catálogo soportado es **Lakekeeper** (`infra/k8s/lakekeeper/`),
+> conforme a
+> [ADR-0008](../architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
+> Los flujos DX que necesiten un catálogo Iceberg local deben apuntar
+> a un Lakekeeper desplegado fuera del Compose (p. ej. minikube/kind +
+> `infra/k8s/lakekeeper/`); ningún servicio del workspace lo consume
+> directamente desde el stack Compose.
 
 > Meilisearch ya **no** forma parte del stack DX por defecto. Sigue
 > disponible como demostración de "first-run" bajo el perfil opcional
