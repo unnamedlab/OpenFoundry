@@ -15,6 +15,7 @@ follow.
 | [`ADR-0010-cnpg-postgres-operator.md`](./ADR-0010-cnpg-postgres-operator.md)                                                              | Accepted | 2026-04-29 | CloudNativePG (CNPG) as the single PostgreSQL operator                                 |
 | [`ADR-0011-control-vs-data-bus-contract.md`](./ADR-0011-control-vs-data-bus-contract.md)                                                  | Accepted | 2026-04-29 | Control vs Data bus — contract enforcement (NATS JetStream vs Kafka)                   |
 | [`ADR-0012-data-plane-slos.md`](./ADR-0012-data-plane-slos.md)                                                                            | Accepted | 2026-04-29 | Data-plane SLOs, SLIs and error budgets                                                |
+| [`ADR-0013-kafka-kraft-no-spof-policy.md`](./ADR-0013-kafka-kraft-no-spof-policy.md)                                                      | Accepted | 2026-04-30 | Kafka KRaft no-SPOF policy and upgrade procedure                                       |
 
 ADR-0001 through ADR-0006 are historical placeholders and are intentionally
 not present in this repository: the data-plane consolidation effort that
@@ -59,7 +60,7 @@ disagrees, this README wins.
 
 ## Adding a new ADR
 
-1. Pick the next free four-digit number (currently **`ADR-0013`**) — never
+1. Pick the next free four-digit number (currently **`ADR-0014`**) — never
    reuse a previous number even if the ADR was retracted.
 2. Create `ADR-NNNN-short-kebab-title.md` in this directory.
 3. Use the standard heading layout already in place across `ADR-0007` …
