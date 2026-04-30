@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import Glyph from '$components/ui/Glyph.svelte';
   import {
     createProject,
@@ -791,7 +792,35 @@
           {:else}
             <div class="divide-y divide-[var(--border-subtle)]">
               {#each visibleRows as row (row.id)}
-                <div class="grid grid-cols-[minmax(0,2.6fr),80px,120px,180px,160px,130px] items-start gap-3 px-4 py-4 hover:bg-[#fbfdff]">
+                {@const projectIdRaw = row.kind === 'project' ? row.id.replace(/^project-/, '') : ''}
+                {@const folderIdRaw = row.kind === 'folder' ? row.id.replace(/^folder-/, '') : ''}
+                {@const folderProjectId = folderIdRaw
+                  ? folders.find((f) => f.id === folderIdRaw)?.project_id ?? ''
+                  : ''}
+                {@const navigationHref =
+                  row.kind === 'project'
+                    ? `/projects/${projectIdRaw}`
+                    : row.kind === 'folder' && folderProjectId
+                      ? `/projects/${folderProjectId}/${folderIdRaw}`
+                      : ''}
+                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+                <div
+                  class={`grid grid-cols-[minmax(0,2.6fr),80px,120px,180px,160px,130px] items-start gap-3 px-4 py-4 ${
+                    navigationHref ? 'cursor-pointer hover:bg-[#fbfdff]' : 'hover:bg-[#fbfdff]'
+                  }`}
+                  role={navigationHref ? 'link' : undefined}
+                  tabindex={navigationHref ? 0 : undefined}
+                  onclick={() => {
+                    if (navigationHref) void goto(navigationHref);
+                  }}
+                  onkeydown={(event) => {
+                    if (!navigationHref) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      void goto(navigationHref);
+                    }
+                  }}
+                >
                   <div class="min-w-0">
                     <div class="flex items-start gap-3">
                       <div class="mt-0.5 rounded-md border border-[var(--border-default)] bg-white p-2 text-[var(--text-muted)]">

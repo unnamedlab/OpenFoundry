@@ -1,8 +1,14 @@
 pub mod enrollments;
+pub mod favorites;
 pub mod organizations;
 pub mod projects;
+pub mod recents;
+pub mod resource_ops;
+pub mod sharing;
 pub mod spaces;
 pub mod tenant_resolution;
+pub mod trash;
+pub mod workspace;
 
 use axum::{Json, http::StatusCode};
 use serde::Serialize;

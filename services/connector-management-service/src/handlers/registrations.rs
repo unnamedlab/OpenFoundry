@@ -34,7 +34,10 @@ use crate::{
     domain::discovery,
     models::{
         connection::Connection,
-        registration::{AutoRegisterRequest, BulkRegisterRequest, ConnectionRegistration},
+        registration::{
+            AutoRegisterRequest, BulkRegisterRequest, ConnectionRegistration,
+            VirtualTableQueryRequest,
+        },
     },
 };
 
@@ -238,6 +241,72 @@ pub async fn auto_register(
         "errors": errors,
     }))
     .into_response()
+}
+
+/// POST /api/v1/data-connection/sources/{id}/registrations/{registration_id}/query
+///
+/// **Zero-copy read** of a registered virtual table. Resolves the registration
+/// to its source `Connection` and dispatches into
+/// [`discovery::query_virtual_table`], which delegates to the matching
+/// connector's in-place reader (Postgres `SELECT … LIMIT n`, S3 Parquet
+/// listing, Iceberg snapshot scan, …). The response is a `VirtualTableQueryResponse`
+/// — rows are returned to the caller verbatim, never persisted in Foundry
+/// storage. This is the primitive backing both:
+///
+///   * Foundry-side compute (Contour, Pipeline Builder, dataset preview)
+///   * External engines via the Iceberg REST catalog at `/iceberg/v1/*`
+///     (see [`crate::handlers::iceberg_catalog`]).
+#[derive(Debug, serde::Deserialize, Default)]
+pub struct QueryRegistrationBody {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+pub async fn query_registration(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((connection_id, registration_id)): Path<(Uuid, Uuid)>,
+    body: Option<Json<QueryRegistrationBody>>,
+) -> impl IntoResponse {
+    let connection = match load_connection(&state, connection_id).await {
+        Ok(connection) => connection,
+        Err(response) => return response,
+    };
+    if !can_manage(&claims, &connection) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let registration = match sqlx::query_as::<_, ConnectionRegistration>(
+        "SELECT * FROM connection_registrations WHERE id = $1 AND connection_id = $2",
+    )
+    .bind(registration_id)
+    .bind(connection_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(reg)) => reg,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("registration lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let limit = body.and_then(|Json(b)| b.limit);
+    let request = VirtualTableQueryRequest {
+        selector: registration.selector.clone(),
+        limit,
+    };
+    match discovery::query_virtual_table(&state, &connection, &request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => {
+            tracing::warn!(
+                connection_id = %connection_id,
+                registration_id = %registration_id,
+                "virtual table query failed: {error}"
+            );
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response()
+        }
+    }
 }
 
 /// DELETE /api/v1/data-connection/sources/{id}/registrations/{registration_id}

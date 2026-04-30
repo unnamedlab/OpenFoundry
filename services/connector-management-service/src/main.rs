@@ -170,6 +170,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/sources/{source_id}/registrations/{registration_id}",
             axum::routing::delete(handlers::registrations::delete_registration),
+        )
+        .route(
+            "/sources/{source_id}/registrations/{registration_id}/query",
+            post(handlers::registrations::query_registration),
+        );
+
+    // Iceberg REST Catalog surface (zero-copy gateway for external engines).
+    // Implements the subset of
+    // https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml
+    // needed for PyIceberg/Trino/Spark to discover and load Foundry virtual
+    // tables. See `handlers::iceberg_catalog` for the semantics of
+    // foundry-vended vs upstream metadata pointers.
+    let iceberg = Router::new()
+        .route("/v1/config", get(handlers::iceberg_catalog::get_config))
+        .route(
+            "/v1/namespaces",
+            get(handlers::iceberg_catalog::list_namespaces),
+        )
+        .route(
+            "/v1/namespaces/{namespace}",
+            get(handlers::iceberg_catalog::get_namespace),
+        )
+        .route(
+            "/v1/namespaces/{namespace}/tables",
+            get(handlers::iceberg_catalog::list_tables),
+        )
+        .route(
+            "/v1/namespaces/{namespace}/tables/{table}",
+            get(handlers::iceberg_catalog::load_table),
         );
 
     // Backwards-compatible aliases under `/connections` for callers still on
@@ -219,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 v1
             },
         )
+        .nest("/iceberg", iceberg)
         .layer(middleware::from_fn_with_state(
             state.jwt_config.clone(),
             optional_auth_layer,
