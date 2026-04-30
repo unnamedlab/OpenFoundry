@@ -626,10 +626,10 @@ fn encode_hex(bytes: &[u8]) -> String {
 }
 
 fn hex_digit(nibble: u8) -> char {
+    debug_assert!(nibble < 16, "nibble out of range");
     match nibble {
         0..=9 => (b'0' + nibble) as char,
-        10..=15 => (b'a' + nibble - 10) as char,
-        _ => unreachable!("nibble out of range"),
+        _ => (b'a' + (nibble & 0x0f) - 10) as char,
     }
 }
 
