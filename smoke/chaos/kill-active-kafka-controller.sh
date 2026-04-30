@@ -69,9 +69,10 @@ quorum_leader_id() {
     out="$(kubectl -n "$NAMESPACE" exec "$probe_pod" -c kafka -- \
       bash -c 'bin/kafka-metadata-quorum.sh --bootstrap-server localhost:9092 describe --status' \
       2>/dev/null || true)"
-    # Línea esperada: "LeaderId:               <int>"
+    # Línea esperada: "LeaderId:               <int>" (Kafka usa
+    # tabulación variable según versión; aceptamos espacios o tabs).
     local leader_id
-    leader_id="$(printf '%s\n' "$out" | awk '/^LeaderId:/ {print $2; exit}')"
+    leader_id="$(printf '%s\n' "$out" | awk '/^[[:space:]]*LeaderId:/ {print $NF; exit}')"
     if [[ -n "$leader_id" && "$leader_id" =~ ^[0-9]+$ ]]; then
       printf '%s' "$leader_id"
       return 0
@@ -97,7 +98,7 @@ active_controller_count_sum() {
       -o jsonpath='{.items[*].metadata.name}'); do
     val="$(kubectl -n "$NAMESPACE" exec "$pod" -c kafka -- \
       bash -c 'curl -sf http://localhost:9404/metrics 2>/dev/null \
-        | awk "/^kafka_controller_kafkacontroller_activecontrollercount[ {]/ {print \$NF; exit}"' \
+        | awk "/^kafka_controller_kafkacontroller_activecontrollercount[[:space:]{]/ {print \$NF; exit}"' \
       2>/dev/null || true)"
     if [[ "$val" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
       # Truncamos a entero (la métrica es 0 o 1 por broker).

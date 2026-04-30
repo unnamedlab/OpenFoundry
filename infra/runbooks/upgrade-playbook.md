@@ -60,7 +60,7 @@ Resumen operacional:
    3. **`spec.kafka.metadataVersion`** sólo cuando el cluster lleve
       estable al menos un ciclo completo de chaos-smoke en la nueva
       `kafka.version`. Este bump **no es reversible**: bloquea el
-      formato on-disk del quorum.
+      formato en disco del quorum.
 3. **Criterios de aborto / rollback inmediato:**
    - Cualquiera de las dos alertas KRaft anteriores se dispara durante
      el rollout.
