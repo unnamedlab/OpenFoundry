@@ -34,6 +34,10 @@ pub async fn discover_sources(
             connectors::jdbc::discover_sources(state, &connection.config, agent_url.as_deref())
                 .await
         }
+        "mysql" => {
+            connectors::mysql::discover_sources(state, &connection.config, agent_url.as_deref())
+                .await
+        }
         "odbc" => {
             connectors::odbc::discover_sources(state, &connection.config, agent_url.as_deref())
                 .await
@@ -43,6 +47,9 @@ pub async fn discover_sources(
                 .await
         }
         "postgresql" => connectors::postgres::discover_sources(&connection.config).await,
+        "s3" => {
+            connectors::s3::discover_sources(state, &connection.config, agent_url.as_deref()).await
+        }
         "rest_api" => {
             connectors::rest_api::discover_sources(state, &connection.config, agent_url.as_deref())
                 .await
@@ -78,6 +85,19 @@ pub async fn discover_sources(
             source_signature: None,
             metadata: serde_json::json!({
                 "connection_type": connection.connector_type,
+            }),
+        }]),
+        "parquet" => Ok(vec![DiscoveredSource {
+            selector: connection.name.clone(),
+            display_name: connection.name.clone(),
+            source_kind: "parquet_file".to_string(),
+            supports_sync: true,
+            // Parquet zero-copy preview is metadata-only in this MVP; the UI
+            // surfaces a single informative row instead of decoded columns.
+            supports_zero_copy: false,
+            source_signature: None,
+            metadata: serde_json::json!({
+                "connection_type": "parquet",
             }),
         }]),
         other => Err(format!(
@@ -129,6 +149,15 @@ pub async fn query_virtual_table(
             )
             .await
         }
+        "mysql" => {
+            connectors::mysql::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
         "odbc" => {
             connectors::odbc::query_virtual_table(
                 state,
@@ -149,6 +178,18 @@ pub async fn query_virtual_table(
         }
         "postgresql" => {
             connectors::postgres::query_virtual_table(&connection.config, request).await
+        }
+        "s3" => {
+            connectors::s3::query_virtual_table(
+                state,
+                &connection.config,
+                request,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "parquet" => {
+            connectors::parquet::query_virtual_table(state, &connection.config, request).await
         }
         "rest_api" => {
             connectors::rest_api::query_virtual_table(

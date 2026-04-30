@@ -18,8 +18,103 @@
 
   let selected = $state<ConnectorCatalogEntry | null>(null);
   let nameInput = $state('');
+  let configInput = $state<Record<string, string>>({});
 
   const filtered = $derived(filterCatalog(catalog, query));
+
+  // Per-connector config schemas. Mirrors the backend `validate_config` checks
+  // in services/connector-management-service/src/connectors/*.rs. Keep field
+  // ids identical to what the Rust validator inspects.
+  type ConfigField = {
+    key: string;
+    label: string;
+    type?: 'text' | 'password' | 'number' | 'url';
+    placeholder?: string;
+    required?: boolean;
+    help?: string;
+  };
+
+  const CONFIG_SCHEMAS: Record<string, ConfigField[]> = {
+    postgresql: [
+      { key: 'host', label: 'Host', placeholder: 'db.example.com', required: true },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '5432', required: true },
+      { key: 'database', label: 'Database', placeholder: 'analytics', required: true },
+      { key: 'user', label: 'User', placeholder: 'foundry_reader', required: true },
+      {
+        key: 'password',
+        label: 'Password',
+        type: 'password',
+        required: true,
+        help: 'Stored as part of the source config in this MVP. Rotate via the credentials tab once available.',
+      },
+    ],
+    mysql: [
+      { key: 'host', label: 'Host', placeholder: 'mysql.internal', required: true },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '3306', required: true },
+      { key: 'database', label: 'Database', placeholder: 'analytics', required: true },
+      { key: 'user', label: 'User', placeholder: 'foundry_reader', required: true },
+      {
+        key: 'password',
+        label: 'Password',
+        type: 'password',
+        help: 'Reads route through the connector agent; provide credentials only when running with a direct connection.',
+      },
+    ],
+    rest_api: [
+      {
+        key: 'base_url',
+        label: 'Base URL',
+        type: 'url',
+        placeholder: 'https://api.example.com',
+        required: true,
+      },
+    ],
+    s3: [
+      {
+        key: 'url',
+        label: 'Bucket URL',
+        placeholder: 's3://my-bucket/prefix/',
+        required: true,
+        help: 'Use the s3:// scheme with a trailing slash, matching the Foundry Amazon S3 source.',
+      },
+      {
+        key: 'endpoint',
+        label: 'Endpoint',
+        placeholder: 's3.us-east-1.amazonaws.com',
+      },
+      { key: 'region', label: 'Region', placeholder: 'us-east-1' },
+      { key: 'access_key_id', label: 'Access Key ID' },
+      { key: 'secret_access_key', label: 'Secret Access Key', type: 'password' },
+    ],
+    parquet: [
+      {
+        key: 'url',
+        label: 'File URL',
+        type: 'url',
+        placeholder: 'https://example.com/data.parquet',
+        help: 'Provide either a remote URL or a local path; the connector validates the PAR1 magic markers before sync.',
+      },
+      { key: 'path', label: 'File path', placeholder: '/var/data/orders.parquet' },
+    ],
+  };
+
+  function schemaFor(type: string | undefined): ConfigField[] {
+    if (!type) return [];
+    return CONFIG_SCHEMAS[type] ?? [];
+  }
+
+  function buildConfigPayload(
+    schema: ConfigField[],
+    raw: Record<string, string>,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const field of schema) {
+      const value = (raw[field.key] ?? '').trim();
+      if (value === '') continue;
+      out[field.key] = field.type === 'number' ? Number(value) : value;
+    }
+    return out;
+  }
 
   async function load() {
     loading = true;
@@ -44,6 +139,17 @@
     if (!entry.available) return;
     selected = entry;
     nameInput = `${entry.name} source`;
+    // Reset config inputs to defaults derived from the schema's placeholders
+    // (port is the main one — we want 5432 prefilled for Postgres).
+    const next: Record<string, string> = {};
+    for (const field of schemaFor(entry.type)) {
+      if (field.type === 'number' && field.placeholder) {
+        next[field.key] = field.placeholder;
+      } else {
+        next[field.key] = '';
+      }
+    }
+    configInput = next;
     createError = '';
   }
 
@@ -54,6 +160,14 @@
       createError = 'A source name is required.';
       return;
     }
+    const schema = schemaFor(selected.type);
+    const missing = schema
+      .filter((f) => f.required && (configInput[f.key] ?? '').trim() === '')
+      .map((f) => f.label);
+    if (missing.length > 0) {
+      createError = `Missing required fields: ${missing.join(', ')}.`;
+      return;
+    }
     creating = true;
     createError = '';
     try {
@@ -61,6 +175,7 @@
         name: nameInput.trim(),
         connector_type: selected.type,
         worker: 'foundry',
+        config: buildConfigPayload(schema, configInput),
       });
       await goto(`/data-connection/sources/${source.id}`);
     } catch (cause) {
@@ -170,6 +285,29 @@
           class="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950"
         />
       </label>
+
+      {#if schemaFor(selected.type).length > 0}
+        <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {#each schemaFor(selected.type) as field (field.key)}
+            <label class="block">
+              <span class="text-xs font-medium text-gray-600 dark:text-gray-300">
+                {field.label}{#if field.required}<span class="ml-0.5 text-rose-500">*</span>{/if}
+              </span>
+              <input
+                type={field.type ?? 'text'}
+                bind:value={configInput[field.key]}
+                placeholder={field.placeholder ?? ''}
+                required={field.required}
+                autocomplete={field.type === 'password' ? 'new-password' : 'off'}
+                class="mt-1 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950"
+              />
+              {#if field.help}
+                <span class="mt-1 block text-[11px] text-gray-500">{field.help}</span>
+              {/if}
+            </label>
+          {/each}
+        </div>
+      {/if}
 
       {#if createError}
         <p class="mt-3 text-xs text-rose-600 dark:text-rose-400">{createError}</p>

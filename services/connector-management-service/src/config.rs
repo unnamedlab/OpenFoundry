@@ -16,6 +16,12 @@ pub struct AppConfig {
     pub ontology_service_url: String,
     #[serde(default = "default_ingestion_replication_service_url")]
     pub ingestion_replication_service_url: String,
+    /// Optional gRPC endpoint of `ingestion-replication-service`. When set
+    /// (e.g. `http://localhost:50091`), `run_sync` issues `CreateIngestJob`
+    /// against it; when empty, the bridge is skipped and runs are recorded
+    /// as `pending` for an out-of-band materialiser to pick up.
+    #[serde(default)]
+    pub ingestion_replication_grpc_url: String,
     #[serde(default = "default_network_boundary_service_url")]
     pub network_boundary_service_url: String,
     #[serde(default = "default_sync_poll_interval_secs")]

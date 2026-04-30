@@ -73,8 +73,15 @@ pub async fn proxy_handler(
         || path == "/api/v1/audit/compliance/posture"
     {
         &config.security_governance_service_url
-    } else if path.starts_with("/api/v1/network-boundaries") {
+    } else if path.starts_with("/api/v1/network-boundaries")
+        || path.starts_with("/api/v1/network-boundary")
+        || path.starts_with("/api/v1/data-connection/egress-policies")
+    {
         &config.network_boundary_service_url
+    } else if path.starts_with("/api/v1/data-connection") {
+        // Data Connection app surface (catalog, sources, capabilities, test, ...).
+        // Egress policies are handled above by network-boundary-service.
+        &config.connector_management_service_url
     } else if path.starts_with("/api/v1/checkpoints-purpose") {
         &config.checkpoints_purpose_service_url
     } else if path.starts_with("/api/v1/retention")

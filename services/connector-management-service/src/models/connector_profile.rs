@@ -93,6 +93,7 @@ pub fn connector_profiles() -> Vec<ConnectorContractProfile> {
         warehouse_profile("snowflake", "Snowflake"),
         warehouse_profile("bigquery", "BigQuery"),
         object_store_profile("s3", "Amazon S3"),
+        object_store_profile("parquet", "Parquet file"),
         event_bus_profile("kafka", "Kafka"),
         event_bus_profile("kinesis", "Amazon Kinesis"),
         saas_profile("salesforce", "Salesforce"),

@@ -1,4 +1,5 @@
 pub mod agent_registry;
+pub mod auto_registration;
 pub mod discovery;
 pub mod egress;
 pub mod hyperauto;

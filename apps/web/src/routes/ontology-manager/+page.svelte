@@ -13,13 +13,6 @@
     type AppSummary
   } from '$lib/api/apps';
   import {
-    createApp,
-    getApp,
-    listApps,
-    type AppDefinition,
-    type AppSummary
-  } from '$lib/api/apps';
-  import {
     attachInterfaceToType,
     attachSharedPropertyType,
     bindProjectResource,

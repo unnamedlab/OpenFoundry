@@ -32,9 +32,12 @@ pub async fn create_connection(
         "kafka" => connectors::kafka::validate_config(&body.config),
         "kinesis" => connectors::kinesis::validate_config(&body.config),
         "jdbc" => connectors::jdbc::validate_config(&body.config),
+        "mysql" => connectors::mysql::validate_config(&body.config),
         "odbc" => connectors::odbc::validate_config(&body.config),
+        "parquet" => connectors::parquet::validate_config(&body.config),
         "power_bi" => connectors::power_bi::validate_config(&body.config),
         "postgresql" => connectors::postgres::validate_config(&body.config),
+        "s3" => connectors::s3::validate_config(&body.config),
         "csv" => connectors::csv::validate_config(&body.config),
         "json" => connectors::json::validate_config(&body.config),
         "rest_api" => connectors::rest_api::validate_config(&body.config),
@@ -180,13 +183,20 @@ pub async fn test_connection(
         "jdbc" => {
             connectors::jdbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
+        "mysql" => {
+            connectors::mysql::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
         "odbc" => {
             connectors::odbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
+        "parquet" => connectors::parquet::test_connection(&state, &conn.config).await,
         "power_bi" => {
             connectors::power_bi::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
         "postgresql" => connectors::postgres::test_connection(&conn.config).await,
+        "s3" => {
+            connectors::s3::test_connection(&state, &conn.config, agent_url.as_deref()).await
+        }
         "csv" => connectors::csv::test_connection(&state, &conn.config).await,
         "json" => connectors::json::test_connection(&state, &conn.config).await,
         "rest_api" => {

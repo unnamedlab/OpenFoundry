@@ -204,6 +204,15 @@ async fn fetch_source_payload(
             )
             .await
         }
+        "mysql" => {
+            connectors::mysql::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
         "odbc" => {
             connectors::odbc::fetch_dataset(
                 state,
@@ -224,6 +233,18 @@ async fn fetch_source_payload(
         }
         "postgresql" => {
             connectors::postgres::fetch_dataset(&connection.config, &job.table_name).await
+        }
+        "s3" => {
+            connectors::s3::fetch_dataset(
+                state,
+                &connection.config,
+                &job.table_name,
+                agent_url.as_deref(),
+            )
+            .await
+        }
+        "parquet" => {
+            connectors::parquet::fetch_dataset(state, &connection.config, &job.table_name).await
         }
         "csv" => connectors::csv::fetch_dataset(state, &connection.config, &job.table_name).await,
         "json" => connectors::json::fetch_dataset(state, &connection.config, &job.table_name).await,

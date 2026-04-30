@@ -600,9 +600,12 @@ mod tests {
             dataset_service_url: "http://localhost:50053".to_string(),
             pipeline_service_url: "http://localhost:50080".to_string(),
             ontology_service_url: "http://localhost:50103".to_string(),
+            ingestion_replication_service_url: "http://localhost:50090".to_string(),
+            ingestion_replication_grpc_url: String::new(),
             allowed_egress_hosts: Vec::new(),
             allow_private_network_egress: true,
-            agent_stale_after: chrono::Duration::seconds(60),
+            agent_stale_after: std::time::Duration::from_secs(60),
+            credential_key: [0u8; 32],
         }
     }
 

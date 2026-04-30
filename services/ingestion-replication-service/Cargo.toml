@@ -18,9 +18,9 @@ workspace = true
 csv = "1.3"
 sha2 = "0.10"
 async-stream = "0.3"
+schemars = "0.8"
 
 [build-dependencies]
-schemars = "0.8"
 
 [dependencies.kube]
 version = "0.95"
