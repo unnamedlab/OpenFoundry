@@ -151,22 +151,40 @@ the disaster-recovery flow with `infra/runbooks/disaster-recovery.md`.
 
 ## Migration wave tracking
 
-The first wave (this directory's pilot PR) wires:
+The first wave (the pilot PR that introduced this directory) wired:
 
 * `identity-federation-service` → `identity-federation-pg`
 * `data-asset-catalog-service`  → `data-asset-catalog-pg`
 
-Subsequent waves should bring 1–2 additional services per PR. Track
-remaining work using `services/*/migrations` as the source of truth:
+A subsequent bulk PR closed **T13** by generating a `Cluster` manifest
+for **every** bounded context with `services/<svc>/migrations/`, so the
+directory now contains one `<bc>-pg.yaml` per service that requires
+Postgres. The `kubectl apply` step itself still rolls out **1–2
+services per PR** so the blast radius of any per-service tuning
+(storage size, resources, logical-replication slots, …) stays small;
+the manifests already in tree are the inventory, not a single-shot
+deploy plan.
+
+Track remaining work using `services/*/migrations` as the source of
+truth and reconcile against the manifest set:
 
 ```bash
+# Bounded contexts that need a Cluster manifest.
 find services -mindepth 2 -maxdepth 2 -type d -name migrations \
-  | sed -E 's|services/||;s|/migrations||' \
-  | sort
+  | sed -E 's|services/||;s|/migrations||;s|-service$||' \
+  | sort > /tmp/bc.txt
+
+# Bounded contexts that already have one.
+ls infra/k8s/cnpg/clusters/*.yaml \
+  | xargs -n1 basename \
+  | sed 's|-pg\.yaml$||' \
+  | sort > /tmp/cluster.txt
+
+diff /tmp/bc.txt /tmp/cluster.txt   # must be empty
 ```
 
-Cross off entries as their `Cluster` manifests land under
-`infra/k8s/cnpg/clusters/`. The grep gate keeps us honest:
+The grep gate stays honest about service-side wiring (the Helm
+`envSecrets.DATABASE_URL` projection per service):
 
 ```bash
 # Should grow by 1–2 lines per wave PR.
