@@ -139,6 +139,10 @@ sdk-java-compile:
 kafka-kraft-lint:
     python3 tools/kafka-lint/check_kraft.py
 
+# Validate the Rook-Ceph manifests against the quorum / rack-awareness contract
+ceph-topology-lint:
+    python3 tools/ceph-lint/check_topology.py
+
 # Validate the Helm chart across base/dev/staging/prod overlays
 helm-check:
     helm lint infra/k8s/helm/open-foundry -f infra/k8s/helm/open-foundry/values.yaml -f infra/k8s/helm/open-foundry/values-dev.yaml
