@@ -255,6 +255,14 @@ services:
     env:
       RUST_LOG: info
       DISTRIBUTED_QUERY_WORKERS: "4"
+    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
+    # provisioned by `infra/k8s/cnpg/clusters/sql-bi-gateway-pg.yaml`.
+    # See the comment on identity-federation-service above for the
+    # `<cluster>-app` Secret projection convention (ADR-0010).
+    envSecrets:
+      DATABASE_URL:
+        secretName: sql-bi-gateway-pg-app
+        key: uri
     resources:
       requests:
         cpu: 500m
@@ -289,6 +297,14 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
+    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
+    # provisioned by `infra/k8s/cnpg/clusters/report-pg.yaml`.
+    # See the comment on identity-federation-service above for the
+    # `<cluster>-app` Secret projection convention (ADR-0010).
+    envSecrets:
+      DATABASE_URL:
+        secretName: report-pg-app
+        key: uri
     resources:
       requests:
         cpu: 300m
@@ -317,6 +333,14 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
+    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
+    # provisioned by `infra/k8s/cnpg/clusters/nexus-pg.yaml`.
+    # See the comment on identity-federation-service above for the
+    # `<cluster>-app` Secret projection convention (ADR-0010).
+    envSecrets:
+      DATABASE_URL:
+        secretName: nexus-pg-app
+        key: uri
     resources:
       requests:
         cpu: 250m
