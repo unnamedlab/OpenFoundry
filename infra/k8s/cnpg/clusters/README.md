@@ -90,3 +90,42 @@ that introduces this directory wires the first two pilots
 (`identity-federation-pg`, `data-asset-catalog-pg`); subsequent waves
 follow the same recipe and update the checklist in
 [`infra/runbooks/cnpg.md`](../../../runbooks/cnpg.md).
+
+## T13 binding coverage (per-service)
+
+Closure of **T13** (each `services/*/migrations` targets its own CNPG
+`Cluster`) is materialised by the binding doc each stateful service
+ships at `services/<svc>/k8s/README.md`. Every such doc points at the
+matching manifest in this directory and at the projected Secret used to
+inject `DATABASE_URL`. The current invariant is:
+
+* **63** services own Postgres state (i.e. ship a non-empty
+  `services/*/migrations/`); **63** matching `Cluster` manifests live
+  in this directory; **63** binding docs exist under
+  `services/*/k8s/README.md`. There must never be drift between these
+  three sets — if you add a `migrations/` directory, you must also add
+  a `<bc>-pg.yaml` here and a `services/<bc>-service/k8s/README.md`.
+* **31** services in `services/` are **stateless** (no `migrations/`)
+  and intentionally have **no** CNPG `Cluster`. They include
+  `edge-gateway-service`, `model-serving-service`, `tool-registry-service`,
+  `widget-registry-service`, `prompt-workflow-service`, etc. They must
+  not be flagged as "missing CNPG cluster" in audits.
+
+A lightweight invariant check that future CI can run:
+
+```bash
+# Every service with migrations/ must have both a CNPG cluster manifest
+# and a k8s/README.md binding.
+for d in services/*/; do
+  svc=$(basename "$d")
+  bc=${svc%-service}
+  has_mig=0
+  [ -d "$d/migrations" ] && [ -n "$(ls -A "$d/migrations" 2>/dev/null)" ] && has_mig=1
+  if [ "$has_mig" = 1 ]; then
+    test -f "infra/k8s/cnpg/clusters/${bc}-pg.yaml" \
+      || { echo "MISSING manifest: ${bc}-pg.yaml"; exit 1; }
+    test -f "$d/k8s/README.md" \
+      || { echo "MISSING binding: $d/k8s/README.md"; exit 1; }
+  fi
+done
+```
