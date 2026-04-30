@@ -76,6 +76,46 @@ spec:
                   operator: In
                   values:
                     - storage
+    # mon: 5 pods spread across availability zones with maxSkew=1.
+    # With 3+ zones the resulting layout is 2-2-1, so the loss of any
+    # single zone leaves >= 3 mons alive and quorum (3 of 5) is preserved.
+    # `whenUnsatisfiable: DoNotSchedule` is intentional: a Pending mon is
+    # strictly preferable to a mon mis-placed against the contract — the
+    # ceph-topology lint (tools/ceph-lint) enforces this on every PR.
+    # `nodeAffinity`/`tolerations` from `placement.all` still apply; only
+    # the spread constraints are added here.
+    mon:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: rook-ceph-mon
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app: rook-ceph-mon
+    # mgr: active/standby, must not share a zone. `ScheduleAnyway` is used
+    # (vs. mon's `DoNotSchedule`) because losing both mgrs does not break
+    # I/O — only balancer/dashboard/metrics — so preferring scheduling over
+    # a hard placement guarantee is the right trade-off.
+    mgr:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: rook-ceph-mgr
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app: rook-ceph-mgr
   resources:
     mon:
       requests:

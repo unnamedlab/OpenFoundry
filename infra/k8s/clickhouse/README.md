@@ -14,7 +14,6 @@ Bitnami restricted-distribution policy.
 | `namespace.yaml`      | `clickhouse` namespace (operator + CRs)                          |
 | `keeper.yaml`         | `ClickHouseKeeperInstallation`, replicas=3 (replaces ZooKeeper)  |
 | `clickhouse.yaml`     | `ClickHouseInstallation`, 1 cluster, shards=2, replicas=3        |
-| `trino-catalog.yaml`  | `ConfigMap` with the Trino catalog properties for this ClickHouse |
 
 The operator itself is not packaged here -- it is installed via the
 upstream `clickhouse-operator` Helm chart (see `infra/runbooks/clickhouse.md`).
@@ -41,10 +40,11 @@ kubectl -n clickhouse wait --for=jsonpath='{.status.status}'=Completed \
 kubectl apply -f clickhouse.yaml
 kubectl -n clickhouse wait --for=jsonpath='{.status.status}'=Completed \
   chi/openfoundry --timeout=20m
-
-# 4. Trino catalog (mounted by the Trino Helm release):
-kubectl apply -f trino-catalog.yaml
 ```
+
+> External BI clients (Tableau / Superset) reach this ClickHouse cluster
+> through `sql-bi-gateway-service` (Apache Arrow Flight SQL, port 50133)
+> per ADR-0014; there is no longer a Trino edge.
 
 See `infra/runbooks/clickhouse.md` for installation, schema bootstrap,
 backup / restore and disaster-recovery procedures.

@@ -1,3 +1,5 @@
+//! Persistent models for the saved-queries side router.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -19,14 +21,6 @@ pub struct CreateSavedQueryRequest {
     pub name: String,
     pub description: Option<String>,
     pub sql: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ExecuteQueryRequest {
-    pub sql: String,
-    pub limit: Option<usize>,
-    pub execution_mode: Option<String>,
-    pub distributed_worker_count: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]

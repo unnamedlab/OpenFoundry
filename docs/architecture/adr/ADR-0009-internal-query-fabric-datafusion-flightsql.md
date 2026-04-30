@@ -1,13 +1,19 @@
 # ADR-0009: Internal query fabric — DataFusion + Flight SQL (Trino as edge BI only)
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0014](./ADR-0014-retire-trino-flight-sql-only.md)
 - **Date:** 2026-04-29
+- **Superseded:** 2026-04-30 — Trino is **removed** entirely; the edge BI surface
+  is now `sql-bi-gateway-service` implemented as a real Apache Arrow Flight SQL
+  server (DataFusion + multi-backend routing). The internal Flight SQL P2P
+  posture from this ADR is **retained**; only the "Trino as edge BI" leg is
+  superseded.
 - **Deciders:** OpenFoundry platform architecture group
 - **Related work:**
   - `libs/query-engine/` (DataFusion + `FlightSqlTableProvider`)
   - `services/sql-warehousing-service/` (DataFusion compute pool, port 50123)
-  - `services/sql-bi-gateway-service/` (edge SQL router, port 50133)
-  - `infra/k8s/trino/` (Trino federated query engine deployment)
+  - `services/sql-bi-gateway-service/` (Apache Arrow Flight SQL gateway, port 50133)
+  - [ADR-0014](./ADR-0014-retire-trino-flight-sql-only.md) — supersedes the
+    Trino-as-edge-BI portion of this ADR
   - [ADR-0007](./ADR-0007-search-engine-choice.md) — Vespa-only search posture
     (precedent for collapsing overlapping stateful backends)
 

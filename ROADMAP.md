@@ -440,9 +440,12 @@ ADRs 0008–0012 in [`docs/architecture/adr/`](./docs/architecture/adr/).
 - [x] **13. Bus-usage audit (current/target allowlist).** Audit document
   [`docs/architecture/bus-audit.md`](./docs/architecture/bus-audit.md)
   splits real `event-bus-data` usage into a current and target allowlist.
-- [x] **14. Trino repositioned as edge BI gateway only.** Documentation
-  and infra notes updated so Trino is reachable only by external
-  JDBC/ODBC clients; no internal RPC dependencies. Anchored to ADR-0009.
+- [x] **14. Trino edge BI removed — superseded by item 17.** ~Trino~
+  was originally repositioned as edge-BI-only; under
+  [`ADR-0014`](./docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md)
+  the Trino deployment has been **removed entirely** in favour of a
+  real Apache Arrow Flight SQL server inside `sql-bi-gateway-service`.
+  See item 17 below.
 - [x] **15. ADR-0007 consolidation — Vespa Lite for DX.** Production and
   DX search both run on Vespa (Vespa Lite single-node for DX);
   Meilisearch is **already demoted** — it is no longer part of the
@@ -454,6 +457,16 @@ ADRs 0008–0012 in [`docs/architecture/adr/`](./docs/architecture/adr/).
   scenarios under `smoke/` exercising broker failover, Postgres failover
   and Iceberg catalog availability to assert the no-single-point-of-
   failure properties of the hardened data plane.
+- [x] **17. ADR-0014 — Retire Trino, single Flight SQL edge gateway.**
+  `sql-bi-gateway-service` is rewritten as a real Apache Arrow Flight
+  SQL server (port `50133`) backed by DataFusion, with per-statement
+  routing to `sql-warehousing-service` (Iceberg), ClickHouse, Vespa and
+  Postgres. Auth, tenant quotas, audit and saved queries are applied
+  uniformly on the Flight SQL surface. The previous Trino deployment
+  under `infra/k8s/trino/` and its ClickHouse catalog
+  (`infra/k8s/clickhouse/trino-catalog.yaml`) are deleted. Tableau /
+  Superset connect with the Apache Arrow Flight SQL JDBC driver. See
+  [`docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md`](./docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md).
 
 ---
 

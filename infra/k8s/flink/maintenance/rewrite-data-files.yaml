@@ -5,7 +5,7 @@
 # Periodic compaction job that bin-packs small data files written by the CDC
 # pipeline (see `infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml`) into
 # 128 MB ZSTD-compressed Parquet files. Reduces small-file pressure on the
-# Trino/Vespa readers and on Lakekeeper's metadata catalog.
+# DataFusion / Vespa readers and on Lakekeeper's metadata catalog.
 #
 # Mode:        application / batch (the job exits when all selected tables
 #              have been rewritten — the k8s CronJob re-creates this

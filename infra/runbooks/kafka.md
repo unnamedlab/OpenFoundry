@@ -53,13 +53,32 @@ kubectl -n kafka annotate pod -l strimzi.io/cluster=openfoundry,strimzi.io/kind=
   strimzi.io/manual-rolling-update=true
 ```
 
-Pre-flight obligatorio antes de cualquier upgrade:
+Pre-flight obligatorio antes de cualquier upgrade (ver también
+[ADR-0013](../../docs/architecture/adr/ADR-0013-kafka-kraft-no-spof-policy.md)
+§"Layer D — Upgrade policy" y `infra/runbooks/upgrade-playbook.md`
+§"KRaft upgrade preflight"):
 
 ```bash
-# Verificar que NO hay particiones under-replicated.
+# 1. Lint del manifest contra el contrato KRaft (Layer A).
+python3 tools/kafka-lint/check_kraft.py
+
+# 2. Sin particiones under-replicated (operación de runtime, Layer B).
 kubectl -n kafka exec -it openfoundry-kafka-0 -c kafka -- \
   bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --under-replicated-partitions
 # Salida esperada: vacía.
+
+# 3. Quorum KRaft sano: exactamente 1 active controller.
+kubectl -n kafka exec -it openfoundry-kafka-0 -c kafka -- \
+  bin/kafka-metadata-quorum.sh --bootstrap-server localhost:9092 describe --status
+
+# 4. Las dos alertas KRaft del Prometheus rules deben estar en silencio
+#    durante la última hora (Layer B):
+#      - KafkaUnderMinIsrPartitions
+#      - KafkaActiveControllerCountAbnormal
+#    Verificar en el Alertmanager / dashboard de Grafana.
+
+# 5. La última ejecución verde del chaos-suite (Layer C) debe ser ≤ 7 días.
+#    Comprobarlo en el workflow `Chaos Smoke (Data Plane no-SPOF)`.
 ```
 
 ### 2.2 Expansión del cluster (añadir brokers)
@@ -238,8 +257,9 @@ Cuando se incorpora un servicio nuevo:
 
 | Síntoma                                 | Causa probable                              | Acción                                                 |
 |-----------------------------------------|---------------------------------------------|--------------------------------------------------------|
-| Productor recibe `NOT_ENOUGH_REPLICAS`  | `min.insync.replicas=2` y un broker caído   | Verificar `kubectl get pods -n kafka`, esperar rolling |
+| Productor recibe `NOT_ENOUGH_REPLICAS`  | `min.insync.replicas=2` y un broker caído   | Verificar `kubectl get pods -n kafka`, esperar rolling. Alerta canónica: `KafkaUnderMinIsrPartitions` (ver [ADR-0013](../../docs/architecture/adr/ADR-0013-kafka-kraft-no-spof-policy.md) §"Layer B"). |
 | `LEADER_NOT_AVAILABLE` tras scale-in    | Particiones quedaron en broker eliminado    | Reasignar (sección 2.3) y reintentar                   |
 | Pods Pending por PVC                    | `ceph-rbd` sin capacidad                    | Ver `infra/runbooks/ceph.md` (expansión de OSDs)       |
 | Apicurio devuelve 503                   | CNPG primario en failover                   | `kubectl -n apicurio get cluster apicurio-pg`          |
 | NetworkPolicy bloquea tráfico legítimo  | Falta etiquetado del servicio               | Ver sección 5 y reaplicar policies                     |
+| Sospecha de pérdida de active controller (cero) o split-brain (dos) | Bug del operador, fallo de red entre controladores, o estado inconsistente tras un upgrade | Alerta `KafkaActiveControllerCountAbnormal`. Inspeccionar `bin/kafka-metadata-quorum.sh ... describe --status`. La validación nightly que cubre este caso es `smoke/chaos/kill-active-kafka-controller.sh` (ver [ADR-0013](../../docs/architecture/adr/ADR-0013-kafka-kraft-no-spof-policy.md) §"Layer C"). |

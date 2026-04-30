@@ -24,6 +24,7 @@ RESULTS_DIR="${CHAOS_RESULTS_DIR:-$ROOT_DIR/smoke/results/chaos}"
 CHAOS_SCRIPTS=(
   "kill-one-mon.sh"
   "kill-one-kafka-broker.sh"
+  "kill-active-kafka-controller.sh"
   "kill-one-clickhouse-replica.sh"
   "kill-one-keeper.sh"
   "kill-one-nats-node.sh"

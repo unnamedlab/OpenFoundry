@@ -20,13 +20,21 @@ that the operator should reconcile.
 ## CRUSH layout and pool assignment
 
 The CephCluster keeps a HA control plane (`mon.count=5`, `mgr.count=2`, see
-`cluster.yaml` lines 30–35) and exposes two purpose-built pools on top of it:
+`cluster.yaml` lines 30–35) and exposes two purpose-built pools on top of it.
+Mon and mgr pods are explicitly spread across availability zones via
+`placement.mon.topologySpreadConstraints` / `placement.mgr.topologySpreadConstraints`
+(`topologyKey: topology.kubernetes.io/zone`, `maxSkew: 1`). With 5 mons across
+3+ zones the resulting layout is 2-2-1, so quorum (3 of 5) survives the loss
+of any single zone. Mons use `whenUnsatisfiable: DoNotSchedule` (a Pending mon
+is preferable to a mis-placed mon); mgrs use `ScheduleAnyway` (mgr loss does
+not break I/O). The contract is enforced on every PR by
+`tools/ceph-lint/check_topology.py` (CI: `.github/workflows/ceph-lint.yml`).
 
 | Pool       | Type                  | Failure domain | Device class | Workload                        |
 |------------|-----------------------|----------------|--------------|---------------------------------|
 | `rbd-fast` | Replicated (size=3)   | `zone`         | `nvme`       | **Kafka** log segments, **Postgres** (PGDATA + WAL) — IOPS-sensitive |
 | `rgw-data` | Erasure coded (k=4, m=2) | `zone`      | default      | **Iceberg** parquet/manifest files via the `rgw-data` `CephObjectStore` |
-| `openfoundry.*` (legacy) | Replicated metadata + EC 8+3 data | `host` | default | Existing `datasets` / `models` / `iceberg` buckets — kept for backwards compatibility |
+| `openfoundry.*` (legacy) | Replicated metadata + EC 8+3 data | `host` | default | Existing `datasets` / `models` / `iceberg` buckets — kept for backwards compatibility (allowlisted in `tools/ceph-lint/check_topology.py::LEGACY_HOST_FAILURE_DOMAIN_ALLOWLIST`) |
 
 Notes:
 

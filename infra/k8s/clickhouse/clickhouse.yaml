@@ -36,7 +36,8 @@ spec:
       default/networks/ip:
         - "127.0.0.1/32"
       default/profile: default
-      # Application user used by Trino, dashboards and ingestion jobs.
+      # Application user used by sql-bi-gateway-service, sql-warehousing-service,
+      # dashboards and ingestion jobs.
       # The password is provided by the secret `clickhouse-users` (key
       # `openfoundry-password`); see runbook §2.3 for how to seed it.
       openfoundry/password_sha256_hex_secret_ref:

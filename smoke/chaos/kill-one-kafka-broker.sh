@@ -12,6 +12,11 @@
 #   - Con `min.insync.replicas=2` y `unclean.leader.election.enable=false`
 #     (cabecera del manifest) matar 1 de 3 brokers debe ser tolerado sin
 #     pérdida ni indisponibilidad sostenida.
+#   - Este script selecciona el *primer* pod Running del pool: en modo
+#     combinado controller+broker dicho pod *podría* ser el active KRaft
+#     controller, pero no necesariamente. Para forzar específicamente
+#     ese caso (no-SPOF del controller) usar
+#     `kill-active-kafka-controller.sh`.
 
 set -euo pipefail
 
