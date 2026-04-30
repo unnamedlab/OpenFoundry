@@ -444,8 +444,11 @@ ADRs 0008–0012 in [`docs/architecture/adr/`](./docs/architecture/adr/).
   and infra notes updated so Trino is reachable only by external
   JDBC/ODBC clients; no internal RPC dependencies. Anchored to ADR-0009.
 - [x] **15. ADR-0007 consolidation — Vespa Lite for DX.** Production and
-  DX search standardised on Vespa; Meilisearch demoted to a
-  `--profile demo` first-run demo only. See
+  DX search both run on Vespa (Vespa Lite single-node for DX);
+  Meilisearch is **already demoted** — it is no longer part of the
+  default DX stack in `infra/docker-compose.yml` /
+  `infra/docker-compose.dev.yml`, and is gated behind the optional
+  `--profile demo` as a first-run demo only. See
   [`docs/architecture/adr/ADR-0007-search-engine-choice.md`](./docs/architecture/adr/ADR-0007-search-engine-choice.md).
 - [x] **16. Chaos suite for data-plane no-SPOF properties.** Smoke/chaos
   scenarios under `smoke/` exercising broker failover, Postgres failover
