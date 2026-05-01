@@ -34,13 +34,14 @@
     passthrough: 'plaintext',
   };
 
-  let host: HTMLDivElement;
+  let host: HTMLDivElement | undefined = $state();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let monacoEditor: any = null;
   let useFallback = $state(false);
 
   onMount(async () => {
     if (transformType === 'passthrough') return;
+    if (!host) return;
     try {
       const monaco = await import('monaco-editor');
       monacoEditor = monaco.editor.create(host, {
