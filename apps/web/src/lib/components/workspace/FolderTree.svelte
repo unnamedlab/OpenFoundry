@@ -140,6 +140,7 @@
       style={`padding-left: ${8 + depth * 14}px`}
       role="treeitem"
       aria-selected={isSelected}
+      tabindex={-1}
       ondragover={(event) => handleDragOver(event, node.id)}
       ondragleave={() => handleDragLeave(node.id)}
       ondrop={(event) => handleDrop(event, node.id)}

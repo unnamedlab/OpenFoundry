@@ -112,6 +112,24 @@ export interface OntologyProjectResourceBinding {
   created_at: string;
 }
 
+export interface OntologyProjectMigrationResource {
+  resource_kind: string;
+  resource_id: string;
+  label?: string;
+}
+
+export interface OntologyProjectMigration {
+  id: string;
+  project_id: string;
+  source_project_id: string;
+  target_project_id: string;
+  resources: OntologyProjectMigrationResource[];
+  submitted_at: string;
+  status: string;
+  note: string;
+  submitted_by: string;
+}
+
 export interface OntologyStagedChange {
   id: string;
   kind: string;

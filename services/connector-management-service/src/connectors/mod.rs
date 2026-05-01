@@ -7,7 +7,9 @@ use crate::models::registration::{DiscoveredSource, VirtualTableQueryResponse};
 
 pub mod bigquery;
 mod catalog_bridge;
+pub mod azure_blob;
 pub mod csv;
+pub mod gcs;
 pub mod http_runtime;
 pub mod iot;
 pub mod jdbc;
@@ -16,6 +18,7 @@ pub mod kafka;
 pub mod kinesis;
 pub mod mysql;
 pub mod odbc;
+pub mod open_table_catalog;
 pub mod parquet;
 pub mod postgres;
 pub mod power_bi;

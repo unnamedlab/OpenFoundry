@@ -30,6 +30,44 @@
   let highlightIndex = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
 
+  // Server-side search: when the input changes, fan a debounced
+  // `GET /users?q=` request. Client-side filtering still narrows the
+  // last response so the UI stays snappy between keystrokes.
+  let lastQueriedTerm = $state('');
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  let searchSeq = 0;
+  const SEARCH_DEBOUNCE_MS = 200;
+  const SEARCH_LIMIT = 50;
+
+  async function runUserSearch(term: string) {
+    if (kind !== 'user') return;
+    const t = term.trim();
+    if (t === lastQueriedTerm) return;
+    lastQueriedTerm = t;
+    const seq = ++searchSeq;
+    loading = true;
+    loadError = '';
+    try {
+      const next = await listUsers(t ? { q: t, limit: SEARCH_LIMIT } : { limit: SEARCH_LIMIT });
+      // Discard stale responses if the user kept typing.
+      if (seq !== searchSeq) return;
+      users = next;
+      usersLoaded = true;
+    } catch (cause) {
+      if (seq !== searchSeq) return;
+      loadError = cause instanceof Error ? cause.message : 'Unable to load users';
+    } finally {
+      if (seq === searchSeq) loading = false;
+    }
+  }
+
+  function scheduleUserSearch(term: string) {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      void runUserSearch(term);
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
   // When `value` changes externally (e.g. parent reset), surface the
   // selected label in the input so the user sees what was committed.
   $effect(() => {
@@ -56,8 +94,9 @@
     loading = true;
     loadError = '';
     try {
-      users = await listUsers();
+      users = await listUsers({ limit: SEARCH_LIMIT });
       usersLoaded = true;
+      lastQueriedTerm = '';
     } catch (cause) {
       loadError = cause instanceof Error ? cause.message : 'Unable to load users';
       users = [];
@@ -142,6 +181,7 @@
     highlightIndex = 0;
     open = true;
     if (!query) onChange({ id: '', label: '' });
+    if (kind === 'user') scheduleUserSearch(query);
   }
 
   function handleBlur() {

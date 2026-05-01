@@ -18,7 +18,7 @@
 
 use serde_json::Value;
 
-use super::{ConnectionTestResult, SyncPayload, catalog_bridge};
+use super::{ConnectionTestResult, SyncPayload, catalog_bridge, open_table_catalog};
 use crate::{
     AppState,
     models::registration::{DiscoveredSource, VirtualTableQueryRequest, VirtualTableQueryResponse},
@@ -40,9 +40,7 @@ pub fn validate_config(config: &Value) -> Result<(), String> {
     // a tabular HTTP catalog. Accept those when present and skip the
     // inline-catalog requirement so the source can be created with only
     // `iceberg_tables[]` / `delta_tables[]` entries.
-    let has_open_table = matches!(config.get("iceberg_tables"), Some(Value::Array(a)) if !a.is_empty())
-        || matches!(config.get("delta_tables"), Some(Value::Array(a)) if !a.is_empty());
-    if has_open_table {
+    if open_table_catalog::has_open_table_catalog(config) {
         if config.get(identity).is_none() {
             return Err(format!(
                 "s3 connector with iceberg_tables/delta_tables requires '{identity}'"
@@ -112,8 +110,7 @@ pub async fn discover_sources(
     // the Iceberg REST catalog then forwards verbatim to clients via
     // LoadTable, fulfilling the zero-copy promise documented in
     // foundry-docs/Data connectivity & integration/Core concepts/Virtual tables.md.
-    sources.extend(open_table_sources(config, "iceberg_tables", "iceberg"));
-    sources.extend(open_table_sources(config, "delta_tables", "delta"));
+    sources.extend(open_table_catalog::discover(config, "s3"));
     if sources.is_empty() {
         return Err("S3 source did not expose any virtual tables".to_string());
     }
@@ -123,42 +120,6 @@ pub async fn discover_sources(
         seen.insert(source.selector.clone(), source);
     }
     Ok(seen.into_values().collect())
-}
-
-fn open_table_sources(config: &Value, key: &str, format: &str) -> Vec<DiscoveredSource> {
-    let Some(items) = config.get(key).and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    items
-        .iter()
-        .filter_map(|item| {
-            let selector = item.get("selector").and_then(Value::as_str)?.to_string();
-            let metadata_location = item.get("metadata_location").and_then(Value::as_str);
-            let table_location = item.get("table_location").and_then(Value::as_str);
-            let display_name = item
-                .get("display_name")
-                .and_then(Value::as_str)
-                .unwrap_or(&selector)
-                .to_string();
-            Some(DiscoveredSource {
-                selector,
-                display_name,
-                source_kind: format!("s3_{format}_table"),
-                supports_sync: false,
-                supports_zero_copy: true,
-                source_signature: item
-                    .get("snapshot_id")
-                    .and_then(|v| v.as_str().map(str::to_string).or(v.as_i64().map(|n| n.to_string()))),
-                metadata: serde_json::json!({
-                    "format": format,
-                    "upstream": {
-                        "metadata_location": metadata_location,
-                        "table_location": table_location,
-                    },
-                }),
-            })
-        })
-        .collect()
 }
 
 pub async fn query_virtual_table(

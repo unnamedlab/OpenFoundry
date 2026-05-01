@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
   import { createTranslator, currentLocale } from '$lib/i18n/store';
+  import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
   import { dashboards } from '$lib/stores/dashboards';
   import {
     formatDashboardTimestamp,
@@ -14,6 +15,7 @@
   const t = $derived.by(() => createTranslator($currentLocale));
 
   let feedback = $state('');
+  let confirmState = $state<{ id: string } | null>(null);
 
   onMount(() => {
     dashboards.restore();
@@ -34,11 +36,13 @@
   }
 
   function deleteDashboard(id: string) {
-    if (!confirm(t('pages.dashboards.confirmDelete'))) {
-      return;
-    }
+    confirmState = { id };
+  }
 
-    dashboards.remove(id);
+  function confirmDelete() {
+    if (!confirmState) return;
+    dashboards.remove(confirmState.id);
+    confirmState = null;
   }
 
   async function shareDashboard(dashboard: DashboardDefinition) {
@@ -125,3 +129,13 @@
     {/each}
   </section>
 </div>
+
+<ConfirmDialog
+  open={confirmState !== null}
+  title={t('pages.dashboards.delete')}
+  message={t('pages.dashboards.confirmDelete')}
+  confirmLabel={t('pages.dashboards.delete')}
+  danger
+  onConfirm={confirmDelete}
+  onCancel={() => (confirmState = null)}
+/>

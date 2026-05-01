@@ -49,6 +49,7 @@
   import { auth } from '$stores/auth';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
+  import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
 
   const currentUser = auth.user;
   const isAuthenticated = auth.isAuthenticated;
@@ -73,6 +74,9 @@
   let ssoProviders = $state<SsoProviderRecord[]>([]);
   let newApiKey = $state<ApiKeyWithSecret | null>(null);
   let policyEvaluation = $state<PolicyEvaluationResult | null>(null);
+
+  // Confirmation dialogs (Phase 6 — replace ad-hoc window.confirm).
+  let deactivateConfirm = $state<{ user: UserProfile; busy: boolean } | null>(null);
 
   let selectedRoleByUser = $state<Record<string, string>>({});
   let selectedGroupByUser = $state<Record<string, string>>({});
@@ -396,15 +400,31 @@
   }
 
   async function handleToggleUser(userProfile: UserProfile) {
+    if (userProfile.is_active) {
+      // Confirm before deactivation — reactivation is a no-op for the user.
+      deactivateConfirm = { user: userProfile, busy: false };
+      return;
+    }
     await withSaving(`user-${userProfile.id}`, async () => {
-      if (userProfile.is_active) {
-        await deactivateUser(userProfile.id);
-      } else {
-        await updateUser(userProfile.id, { is_active: true });
-      }
+      await updateUser(userProfile.id, { is_active: true });
       await refreshUsers();
       notice = 'User state updated.';
     });
+  }
+
+  async function confirmDeactivate() {
+    if (!deactivateConfirm) return;
+    const target = deactivateConfirm.user;
+    deactivateConfirm = { user: target, busy: true };
+    try {
+      await withSaving(`user-${target.id}`, async () => {
+        await deactivateUser(target.id);
+        await refreshUsers();
+        notice = 'User state updated.';
+      });
+    } finally {
+      deactivateConfirm = null;
+    }
   }
 
   async function handleToggleMfaEnforcement(userProfile: UserProfile) {
@@ -1352,3 +1372,16 @@
     {/if}
   </div>
 {/if}
+
+<ConfirmDialog
+  open={deactivateConfirm !== null}
+  title="Deactivate user"
+  message={deactivateConfirm
+    ? `Deactivate ${deactivateConfirm.user.name || deactivateConfirm.user.email}? They will lose access immediately; all sessions will be invalidated. You can reactivate them later.`
+    : ''}
+  confirmLabel="Deactivate"
+  danger
+  busy={deactivateConfirm?.busy ?? false}
+  onConfirm={() => void confirmDeactivate()}
+  onCancel={() => (deactivateConfirm = null)}
+/>

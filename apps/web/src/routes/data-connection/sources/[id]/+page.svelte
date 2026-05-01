@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
   import {
     capabilityLabel,
     dataConnection,
@@ -61,6 +62,7 @@
   let createSyncBusy = $state(false);
   let createSyncError = $state('');
   let runningSyncId = $state<string | null>(null);
+  let deleteConfirm = $state<{ busy: boolean } | null>(null);
 
   async function loadSource() {
     loading = true;
@@ -235,13 +237,20 @@
   }
 
   async function deleteSource() {
-    if (!confirm('Delete this source? Any attached syncs will stop running.')) return;
+    deleteConfirm = { busy: false };
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return;
+    deleteConfirm = { busy: true };
     try {
       await dataConnection.deleteSource(sourceId);
       await goto('/data-connection');
     } catch (cause) {
       console.error('deleteSource failed', cause);
       loadError = cause instanceof Error ? cause.message : 'Failed to delete source';
+    } finally {
+      deleteConfirm = null;
     }
   }
 
@@ -785,3 +794,14 @@
     {/if}
   {/if}
 </div>
+
+<ConfirmDialog
+  open={deleteConfirm !== null}
+  title="Delete data source"
+  message="Delete this source? Any attached syncs will stop running and run history is preserved but inaccessible."
+  confirmLabel="Delete"
+  danger
+  busy={deleteConfirm?.busy ?? false}
+  onConfirm={() => void confirmDelete()}
+  onCancel={() => (deleteConfirm = null)}
+/>

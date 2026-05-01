@@ -76,6 +76,17 @@ pub async fn discover_sources(
         "iot" => {
             connectors::iot::discover_sources(state, &connection.config, agent_url.as_deref()).await
         }
+        // Object stores backing Iceberg/Delta tables. Discovery surfaces
+        // any inline `iceberg_tables[]` / `delta_tables[]` entries; the
+        // Iceberg REST catalog forwards their metadata pointers verbatim
+        // (zero-copy). Per-store credential vending happens at LoadTable
+        // time inside `handlers::credentials_vending`.
+        "azure_blob" | "adls" | "onelake" => {
+            connectors::azure_blob::discover_sources(&connection.config).await
+        }
+        "gcs" | "google_cloud_storage" => {
+            connectors::gcs::discover_sources(&connection.config).await
+        }
         "csv" | "json" => Ok(vec![DiscoveredSource {
             selector: connection.name.clone(),
             display_name: connection.name.clone(),

@@ -8,6 +8,7 @@
     type NotebookKernel,
   } from '$lib/api/notebooks';
   import { goto } from '$app/navigation';
+  import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
 
   let notebooks = $state<Notebook[]>([]);
   let total = $state(0);
@@ -18,6 +19,7 @@
   let newName = $state('');
   let newDescription = $state('');
   let newKernel = $state<NotebookKernel>('python');
+  let confirmState = $state<{ id: string; busy: boolean } | null>(null);
 
   async function load() {
     loading = true;
@@ -38,9 +40,18 @@
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this notebook?')) return;
-    await deleteNotebook(id);
-    load();
+    confirmState = { id, busy: false };
+  }
+
+  async function confirmDelete() {
+    if (!confirmState) return;
+    confirmState = { ...confirmState, busy: true };
+    try {
+      await deleteNotebook(confirmState.id);
+      await load();
+    } finally {
+      confirmState = null;
+    }
   }
 
   onMount(() => {
@@ -108,3 +119,14 @@
     {/if}
   {/if}
 </div>
+
+<ConfirmDialog
+  open={confirmState !== null}
+  title="Delete notebook"
+  message="This permanently removes the notebook and its history. Continue?"
+  confirmLabel="Delete"
+  danger
+  busy={confirmState?.busy ?? false}
+  onConfirm={() => void confirmDelete()}
+  onCancel={() => (confirmState = null)}
+/>

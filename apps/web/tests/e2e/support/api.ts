@@ -61,7 +61,16 @@ const demoSpaces = [
   },
 ];
 
-const demoProjects = [
+const demoProjects: Array<{
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string;
+  workspace_slug: string | null;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}> = [
   {
     id: 'project-1',
     slug: 'ops-readiness',
