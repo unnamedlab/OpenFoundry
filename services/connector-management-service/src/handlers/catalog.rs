@@ -59,6 +59,12 @@ const AVAILABLE_TYPES: &[&str] = &[
     "rest_api",
     "csv",
     "json",
+    // Streaming & specialised: full inline-catalog runtime + validator;
+    // discovery + zero-copy preview already exercised end-to-end.
+    "kafka",
+    "kinesis",
+    "iot",
+    "sap",
 ];
 
 /// GET /api/v1/data-connection/catalog — gallery shape for the UI.

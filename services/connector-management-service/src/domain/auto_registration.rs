@@ -29,7 +29,7 @@ use serde_json::json;
 
 use crate::{
     AppState,
-    domain::discovery,
+    domain::{discovery, update_detection},
     models::{
         connection::Connection,
         registration::{AutoRegisterRequest, DiscoveredSource},
@@ -49,6 +49,16 @@ pub struct ConnectionTickRecord {
     pub discovered: usize,
     pub registered: usize,
     pub errors: usize,
+    /// Per-selector update-detection breakdown:
+    /// `first_seen` / `unchanged` / `changed` / `unknown`. Always
+    /// emitted (possibly empty) so the operator UI can render the chart
+    /// without branching on schema shape.
+    #[serde(default)]
+    pub update_breakdown: std::collections::BTreeMap<String, usize>,
+    /// Selectors whose upstream signature advanced this tick. Operators
+    /// can use this to fire downstream re-materialisation.
+    #[serde(default)]
+    pub changed_selectors: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
 }
@@ -122,6 +132,9 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
         let mut local_registered = 0usize;
         let mut local_errors = 0usize;
         let mut last_error: Option<String> = None;
+        let mut breakdown: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        let mut changed_selectors: Vec<String> = Vec::new();
 
         let discovered = match discovery::discover_sources(state, &connection).await {
             Ok(items) => {
@@ -143,6 +156,8 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
                     discovered: 0,
                     registered: 0,
                     errors: local_errors,
+                    update_breakdown: breakdown,
+                    changed_selectors,
                     last_error,
                 });
                 continue;
@@ -173,6 +188,8 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
                     discovered: local_discovered,
                     registered: 0,
                     errors: local_errors,
+                    update_breakdown: breakdown,
+                    changed_selectors,
                     last_error,
                 });
                 continue;
@@ -180,6 +197,36 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
         };
         let selected: Vec<&DiscoveredSource> = discovery::select_sources(&discovered, &request);
         for source in selected {
+            // Update detection: compare upstream snapshot/version against
+            // what we persisted last tick. Skip the upsert when nothing
+            // moved (still emits a `unchanged` count for the operator).
+            let outcome = match update_detection::evaluate(state, connection.id, source).await {
+                Ok(o) => o,
+                Err(error) => {
+                    tracing::warn!(
+                        connection_id = %connection.id,
+                        selector = %source.selector,
+                        "update_detection failed: {error}"
+                    );
+                    last_error = Some(error);
+                    update_detection::UpdateOutcome {
+                        selector: source.selector.clone(),
+                        state: update_detection::UpdateState::Unknown,
+                        previous_signature: None,
+                        current_signature: source.source_signature.clone(),
+                    }
+                }
+            };
+            *breakdown
+                .entry(outcome.state.as_str().to_string())
+                .or_insert(0) += 1;
+
+            if settings.update_detection
+                && matches!(outcome.state, update_detection::UpdateState::Unchanged)
+            {
+                continue;
+            }
+
             match discovery::upsert_registration(
                 state,
                 connection.id,
@@ -188,13 +235,35 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
                 settings.auto_sync,
                 settings.update_detection,
                 None,
-                json!({ "origin": "auto_registration_scheduler" }),
+                json!({
+                    "origin": "auto_registration_scheduler",
+                    "update_state": outcome.state.as_str(),
+                    "previous_signature": outcome.previous_signature,
+                    "current_signature": outcome.current_signature,
+                }),
             )
             .await
             {
                 Ok(_) => {
                     summary.registered += 1;
                     local_registered += 1;
+                    if matches!(outcome.state, update_detection::UpdateState::Changed) {
+                        changed_selectors.push(source.selector.clone());
+                    }
+                    if let Err(e) = update_detection::record_signature(
+                        state,
+                        connection.id,
+                        &source.selector,
+                        source.source_signature.as_deref(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            connection_id = %connection.id,
+                            selector = %source.selector,
+                            "record_signature failed: {e}"
+                        );
+                    }
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -215,6 +284,8 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
             discovered: local_discovered,
             registered: local_registered,
             errors: local_errors,
+            update_breakdown: breakdown,
+            changed_selectors,
             last_error,
         });
     }

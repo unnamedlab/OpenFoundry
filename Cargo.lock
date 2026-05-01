@@ -432,8 +432,6 @@ dependencies = [
 [[package]]
 name = "arrow-arith"
 version = "53.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31dce77d2985522288edae7206bffd5fc4996491841dda01a13a58415867e681"
 dependencies = [
  "arrow-array 53.4.0",
  "arrow-buffer 53.4.1",
@@ -9898,7 +9896,6 @@ name = "storage-abstraction"
 version = "0.0.1"
 dependencies = [
  "arrow-array 53.4.0",
- "arrow-array 57.3.0",
  "arrow-schema 53.4.1",
  "async-trait",
  "bytes",
@@ -9907,7 +9904,7 @@ dependencies = [
  "iceberg",
  "iceberg-catalog-rest",
  "object_store",
- "parquet 57.3.0",
+ "parquet 53.4.0",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

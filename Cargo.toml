@@ -159,3 +159,13 @@ opt-level = 0
 debug = true
 
 [profile.dev.package]
+
+# Local patch: arrow-arith 53.4.0 calls `d.quarter()` ambiguously between
+# `chrono::Datelike::quarter()` (added upstream in chrono 0.4.40) and
+# `arrow_arith::temporal::ChronoDateExt::quarter()`. Newer chrono is pulled in
+# by `iceberg = ^0.9` (transitive `chrono = ^0.4.41`) and we cannot downgrade.
+# `vendor/arrow-arith/` is a verbatim copy of 53.4.0 with one disambiguation
+# (see vendor/arrow-arith/src/temporal.rs:91). Drop this once we move to
+# datafusion >= 53 / arrow-arith >= 53.4.1.
+[patch.crates-io]
+arrow-arith = { path = "vendor/arrow-arith" }

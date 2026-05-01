@@ -20,6 +20,7 @@ mod handlers;
 mod models;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
@@ -28,6 +29,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
+use storage_abstraction::StorageBackend;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::AppConfig;
@@ -40,6 +42,8 @@ use crate::config::AppConfig;
 pub struct AppState {
     pub db: PgPool,
     pub jwt_config: JwtConfig,
+    pub http_client: reqwest::Client,
+    pub storage: Arc<dyn StorageBackend>,
     pub data_dir: String,
     pub dataset_service_url: String,
     pub workflow_service_url: String,
@@ -72,10 +76,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::migrate!("./migrations").run(&db).await?;
 
     let jwt_config = JwtConfig::new(&app_config.jwt_secret).with_env_defaults();
+    let http_client = reqwest::Client::new();
+    let storage = build_storage(&app_config)?;
 
     let state = AppState {
         db,
         jwt_config: jwt_config.clone(),
+        http_client,
+        storage,
         data_dir: app_config.data_dir.clone(),
         dataset_service_url: app_config.dataset_service_url.clone(),
         workflow_service_url: app_config.workflow_service_url.clone(),
@@ -92,11 +100,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         distributed_compute_timeout_secs: app_config.distributed_compute_timeout_secs,
     };
 
-    // Pipeline Builder app surface. Path scheme matches
-    // `apps/web/src/lib/api/pipelines.ts` so the Svelte canvas can
-    // serialize the graph as `nodes: PipelineNode[]` and POST it here.
+    // Pipeline Builder authoring surface (Foundry: Pipeline Builder app).
+    // CRUD + Validate / Compile / Prune live here; run execution is owned
+    // by `pipeline-build-service` (Foundry: Builds app) and scheduling by
+    // `pipeline-schedule-service` (Foundry: Schedules). The canvas at
+    // `apps/web/src/lib/components/pipeline/PipelineCanvas.svelte`
+    // serializes the in-flight graph as `nodes: PipelineNode[]` and POSTs
+    // it here.
     let pipelines = Router::new()
-        // Authoring (CRUD over `pipelines` rows; `dag` is JSONB of PipelineNode[])
+        // CRUD over `pipelines` rows (`dag` is JSONB of PipelineNode[]).
         .route(
             "/pipelines",
             get(handlers::crud::list_pipelines).post(handlers::crud::create_pipeline),
@@ -107,31 +119,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .put(handlers::crud::update_pipeline)
                 .delete(handlers::crud::delete_pipeline),
         )
-        // Validate + compile + prune. These do NOT require a persisted pipeline;
-        // they accept the in-flight graph from the canvas (Foundry's
-        // "Validate / Preview" buttons before Deploy).
+        // Validate + compile + prune accept an in-flight graph (no persisted
+        // pipeline required). Mirrors Foundry's "Validate" / "Preview" buttons
+        // shown in the canvas toolbar before Deploy.
         .route("/pipelines/_validate", post(handlers::compiler::validate_pipeline))
         .route("/pipelines/_compile", post(handlers::compiler::compile_pipeline))
         .route("/pipelines/_prune", post(handlers::compiler::prune_pipeline))
-        // Run lifecycle (ad-hoc trigger + retry from a node + run history).
-        // Mirrors Foundry's "Deploy", "Build dataset", "Build downstream".
-        .route(
-            "/pipelines/{id}/runs",
-            get(handlers::runs::list_runs).post(handlers::execute::trigger_run),
-        )
-        .route(
-            "/pipelines/{id}/runs/{run_id}",
-            get(handlers::runs::get_run),
-        )
-        .route(
-            "/pipelines/{id}/runs/{run_id}/retry",
-            post(handlers::execute::retry_run),
-        )
-        // Internal: invoked by `pipeline-schedule-service` ticker.
-        .route(
-            "/pipelines/_scheduler/run-due",
-            post(handlers::execute::run_due_scheduled_pipelines),
-        )
         .layer(middleware::from_fn_with_state(
             jwt_config.clone(),
             auth_middleware::layer::auth_layer,
@@ -147,4 +140,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("pipeline-authoring-service listening on http://{}", addr);
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Construct the configured object-storage backend.
+///
+/// `s3` for S3/MinIO (requires region + access/secret); anything else falls
+/// back to the local filesystem rooted at `local_storage_root` or `data_dir`.
+fn build_storage(cfg: &AppConfig) -> Result<Arc<dyn StorageBackend>, Box<dyn std::error::Error>> {
+    if cfg.storage_backend.eq_ignore_ascii_case("s3") {
+        let region = cfg.s3_region.as_deref().unwrap_or("us-east-1");
+        let access = cfg.s3_access_key.as_deref().unwrap_or_default();
+        let secret = cfg.s3_secret_key.as_deref().unwrap_or_default();
+        let s3 = storage_abstraction::s3::S3Storage::new(
+            &cfg.storage_bucket,
+            region,
+            cfg.s3_endpoint.as_deref(),
+            access,
+            secret,
+        )?;
+        Ok(Arc::new(s3))
+    } else {
+        let root = cfg
+            .local_storage_root
+            .clone()
+            .unwrap_or_else(|| cfg.data_dir.clone());
+        std::fs::create_dir_all(&root).ok();
+        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(&root)?))
+    }
 }

@@ -54,11 +54,11 @@ optional = true
 # `iceberg` module needs them to construct `RecordBatch`es and Parquet
 # `WriterProperties`. We pin the same versions iceberg-rust depends on.
 [dependencies.arrow-array]
-version = "57.1"
+version = "53"
 optional = true
 
 [dependencies.parquet]
-version = "57.1"
+version = "53"
 optional = true
 features = ["async"]
 
@@ -77,7 +77,7 @@ iceberg = [
 [dev-dependencies]
 arrow-array = "53"
 arrow-schema = "53"
-parquet = { version = "57.1", features = ["async"] }
+parquet = { version = "53", features = ["async"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 

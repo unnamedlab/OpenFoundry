@@ -4,6 +4,7 @@ pub mod publisher;
 pub mod schemas;
 pub mod subscriber;
 pub mod topics;
+pub mod workflows;
 
 pub use publisher::{PublishError, Publisher};
 pub use schemas::Event;

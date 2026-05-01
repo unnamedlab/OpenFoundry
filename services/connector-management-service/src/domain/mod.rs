@@ -8,3 +8,4 @@ pub mod schema_inference;
 pub mod secret_manager;
 pub mod sync_engine;
 pub mod type_mapping;
+pub mod update_detection;

@@ -211,9 +211,72 @@ export function deletePipeline(id: string) {
   return api.delete(`/pipelines/${id}`);
 }
 
-// Execution
+// Validation / compilation (Foundry: "Validate" and "Preview" buttons in
+// Pipeline Builder before Deploy). These accept the in-flight DAG from the
+// canvas — they do NOT require a persisted pipeline row.
+export interface PipelineValidationIssue {
+  level?: string;
+  message: string;
+  node_id?: string;
+}
+
+export interface PipelineGraphSummary {
+  node_count: number;
+  edge_count: number;
+  root_node_ids: string[];
+  leaf_node_ids: string[];
+}
+
+export interface PipelineValidationResponse {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  next_run_at: string | null;
+  summary: PipelineGraphSummary;
+}
+
+export interface ExecutablePlan {
+  topological_order: string[];
+  stages: string[][];
+  summary: PipelineGraphSummary;
+}
+
+export interface CompilePipelineResponse {
+  validation: PipelineValidationResponse;
+  plan: ExecutablePlan;
+}
+
+export interface PrunePipelineResponse {
+  validation: PipelineValidationResponse;
+  pruned_nodes: PipelineNode[];
+  removed_node_ids: string[];
+}
+
+export interface ValidatePipelineRequest {
+  status: string;
+  schedule_config: PipelineScheduleConfig;
+  nodes: PipelineNode[];
+}
+
+export interface CompilePipelineRequest extends ValidatePipelineRequest {
+  start_from_node?: string | null;
+}
+
+export function validatePipeline(body: ValidatePipelineRequest) {
+  return api.post<PipelineValidationResponse>('/pipelines/_validate', body);
+}
+
+export function compilePipeline(body: CompilePipelineRequest) {
+  return api.post<CompilePipelineResponse>('/pipelines/_compile', body);
+}
+
+export function prunePipeline(body: CompilePipelineRequest) {
+  return api.post<PrunePipelineResponse>('/pipelines/_prune', body);
+}
+
+// Execution (Foundry: "Build dataset" / "Build downstream" / "Run").
 export function triggerRun(pipelineId: string, body?: { from_node_id?: string; context?: Record<string, unknown>; skip_unchanged?: boolean }) {
-  return api.post<PipelineRun>(`/pipelines/${pipelineId}/run`, body ?? {});
+  return api.post<PipelineRun>(`/pipelines/${pipelineId}/runs`, body ?? {});
 }
 
 export function listRuns(pipelineId: string, params?: { page?: number; per_page?: number }) {
@@ -223,12 +286,94 @@ export function listRuns(pipelineId: string, params?: { page?: number; per_page?
   return api.get<{ data: PipelineRun[] }>(`/pipelines/${pipelineId}/runs?${qs}`);
 }
 
+export function getRun(pipelineId: string, runId: string) {
+  return api.get<PipelineRun>(`/pipelines/${pipelineId}/runs/${runId}`);
+}
+
 export function retryPipelineRun(pipelineId: string, runId: string, body?: { from_node_id?: string; skip_unchanged?: boolean }) {
   return api.post<PipelineRun>(`/pipelines/${pipelineId}/runs/${runId}/retry`, body ?? {});
 }
 
+// Scheduler (Foundry: "Schedules" tab and ops dispatch). Forces immediate
+// dispatch of any pipeline whose next_run_at <= now.
 export function runDuePipelines() {
-  return api.post<{ triggered_runs: number }>('/pipelines/triggers/cron/run-due', {});
+  return api.post<{ triggered_runs: number }>('/pipelines/_scheduler/run-due', {});
+}
+
+// Builds queue (Foundry: "Builds" application). Cross-pipeline visibility
+// of every run, abort path, and 24h status summary.
+export interface BuildsQueueQuery {
+  status?: 'running' | 'completed' | 'failed' | 'aborted';
+  trigger_type?: 'manual' | 'scheduled' | 'event' | 'retry';
+  pipeline_id?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export function listBuilds(params: BuildsQueueQuery = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.trigger_type) qs.set('trigger_type', params.trigger_type);
+  if (params.pipeline_id) qs.set('pipeline_id', params.pipeline_id);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: PipelineRun[]; page: number; per_page: number }>(`/builds?${qs}`);
+}
+
+export function getBuildsSummary() {
+  return api.get<{ last_24h: Record<string, number> }>('/builds/_summary');
+}
+
+export function abortBuild(runId: string) {
+  return api.post<PipelineRun>(`/builds/${runId}/abort`, {});
+}
+
+export interface DueRunRecord {
+  target_kind: 'pipeline' | 'workflow';
+  target_id: string;
+  name: string;
+  due_at: string;
+  schedule_expression: string;
+  trigger_type: string;
+}
+
+export interface ScheduleWindow {
+  scheduled_for: string;
+  window_start: string;
+  window_end: string;
+}
+
+export function listDueScheduleRuns(params?: { kind?: 'pipeline' | 'workflow'; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.kind) qs.set('kind', params.kind);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  return api.get<{ data: DueRunRecord[]; total: number }>(`/schedules/due?${qs}`);
+}
+
+export function previewScheduleWindows(body: {
+  target_kind: 'pipeline' | 'workflow';
+  target_id: string;
+  start_at: string;
+  end_at: string;
+  limit?: number;
+}) {
+  return api.post<{ target_kind: string; target_id: string; data: ScheduleWindow[] }>(
+    '/schedules/preview',
+    body,
+  );
+}
+
+export function backfillSchedule(body: {
+  target_kind: 'pipeline' | 'workflow';
+  target_id: string;
+  start_at: string;
+  end_at: string;
+  limit?: number;
+  dry_run?: boolean;
+  context?: Record<string, unknown>;
+  skip_unchanged?: boolean;
+}) {
+  return api.post('/schedules/backfill', body);
 }
 
 // Lineage
