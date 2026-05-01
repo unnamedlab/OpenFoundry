@@ -37,7 +37,28 @@ export interface ConnectorCatalogEntry {
   capabilities: ConnectorCapability[];
   workers: SourceWorker[];
   available: boolean;
+  /**
+   * UI grouping for the catalog gallery. Mirrors the Foundry "Available
+   * connectors" sectioning so users can scan by capability family rather
+   * than scrolling a flat alphabetical list. (Tarea 10 — UI families.)
+   */
+  family?: ConnectorFamily;
 }
+
+export type ConnectorFamily =
+  | 'Storage'
+  | 'Streaming'
+  | 'SaaS'
+  | 'RDBMS'
+  | 'API';
+
+export const CONNECTOR_FAMILY_ORDER: ConnectorFamily[] = [
+  'Storage',
+  'RDBMS',
+  'Streaming',
+  'SaaS',
+  'API',
+];
 
 export interface ConnectorCatalog {
   connectors: ConnectorCatalogEntry[];
@@ -201,6 +222,30 @@ export interface TestConnectionResult {
   latency_ms: number | null;
 }
 
+// Registrations / discovery payloads ----------------------------------------
+
+export interface DiscoveredSource {
+  selector: string;
+  source_kind?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface BulkRegistrationItem {
+  selector: string;
+  source_kind?: string;
+  registration_mode?: 'append' | 'snapshot' | 'cdc' | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ConnectionRegistration {
+  id: string;
+  connection_id: string;
+  selector: string;
+  source_kind: string | null;
+  registration_mode: string | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // REST surface
 // ---------------------------------------------------------------------------
@@ -235,6 +280,17 @@ export const dataConnection = {
   },
   testConnection(id: string): Promise<TestConnectionResult> {
     return api.post(`${BASE}/sources/${id}/test-connection`, {});
+  },
+
+  // Registrations / discovery (Tarea 10 — wizard step 3) ----------------
+  discoverSources(sourceId: string): Promise<{ sources: DiscoveredSource[] }> {
+    return api.post(`${BASE}/sources/${sourceId}/registrations/discover`, {});
+  },
+  bulkRegister(
+    sourceId: string,
+    registrations: BulkRegistrationItem[],
+  ): Promise<{ created: ConnectionRegistration[]; errors?: { selector: string; error: string }[] }> {
+    return api.post(`${BASE}/sources/${sourceId}/registrations/bulk`, { registrations });
   },
 
   // Credentials ------------------------------------------------------------
@@ -297,6 +353,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'file_export', 'exploration'],
     workers: ['foundry'],
     available: true,
+    family: 'Storage',
   },
   {
     type: 'rest_api',
@@ -305,6 +362,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'webhook', 'use_in_code'],
     workers: ['foundry'],
     available: true,
+    family: 'API',
   },
   {
     type: 'postgresql',
@@ -313,6 +371,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'cdc_sync', 'table_export', 'exploration'],
     workers: ['foundry'],
     available: true,
+    family: 'RDBMS',
   },
   {
     type: 'gcs',
@@ -321,6 +380,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'virtual_table', 'exploration', 'file_export'],
     workers: ['foundry'],
     available: true,
+    family: 'Storage',
   },
   {
     type: 'onelake',
@@ -329,6 +389,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'virtual_table', 'exploration', 'file_export'],
     workers: ['foundry'],
     available: true,
+    family: 'Storage',
   },
   {
     type: 'mssql',
@@ -337,6 +398,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'cdc_sync', 'table_export'],
     workers: ['foundry'],
     available: false,
+    family: 'RDBMS',
   },
   {
     type: 'sftp',
@@ -345,6 +407,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'file_export'],
     workers: ['foundry'],
     available: false,
+    family: 'Storage',
   },
   {
     type: 'salesforce',
@@ -353,6 +416,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['batch_sync', 'virtual_table', 'table_export'],
     workers: ['foundry'],
     available: true,
+    family: 'SaaS',
   },
   {
     type: 'snowflake',
@@ -361,6 +425,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['virtual_table', 'batch_sync', 'table_export'],
     workers: ['foundry'],
     available: true,
+    family: 'SaaS',
   },
   {
     type: 'bigquery',
@@ -369,14 +434,16 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['virtual_table', 'batch_sync', 'table_export'],
     workers: ['foundry'],
     available: true,
+    family: 'SaaS',
   },
   {
     type: 'kafka',
     name: 'Apache Kafka',
-    description: 'Coming soon.',
+    description: 'Subscribe to Kafka topics through the streaming bridge (rdkafka backend).',
     capabilities: ['streaming_sync', 'streaming_export'],
     workers: ['foundry'],
-    available: false,
+    available: true,
+    family: 'Streaming',
   },
   {
     type: 'kinesis',
@@ -385,6 +452,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['streaming_sync'],
     workers: ['foundry'],
     available: true,
+    family: 'Streaming',
   },
   {
     type: 'iot',
@@ -393,6 +461,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['streaming_sync'],
     workers: ['foundry'],
     available: true,
+    family: 'Streaming',
   },
   {
     type: 'sap',
@@ -401,6 +470,7 @@ export const FALLBACK_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     capabilities: ['hyperauto', 'batch_sync'],
     workers: ['foundry'],
     available: false,
+    family: 'SaaS',
   },
 ];
 

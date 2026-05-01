@@ -341,6 +341,11 @@ pub async fn run_sync(
     State(state): State<AppState>,
     Path(sync_id): Path<Uuid>,
 ) -> impl IntoResponse {
+    // Tarea 9 — observabilidad: time the entire run_sync handler so we can
+    // emit `connector_sync_duration_seconds` once the connector kind is
+    // known (after the SELECT below). The connector type is captured from
+    // the row.2 column.
+    let started = std::time::Instant::now();
     // Resolve the sync def → source so we can build an `IngestJobSpec` for
     // ingestion-replication-service.
     let source = sqlx::query_as::<_, (Uuid, String, String, serde_json::Value, Uuid)>(
@@ -376,6 +381,17 @@ pub async fn run_sync(
     //   * gRPC ok               → `running`, ingest_job_id stored
     let (status, ingest_job_id, error_msg) =
         materialise_via_bridge(&state, &source.1, &source.2, &source.3).await;
+
+    // Tarea 9 — observabilidad: emit a span event with connector kind so
+    // OTel exporters group sync_run telemetry consistently with
+    // `connector.test_connection`.
+    tracing::info!(
+        target: "connector.run_sync",
+        connector_kind = %source.2,
+        sync_def_id = %sync_id,
+        bridge_status = %status,
+        "sync run dispatched"
+    );
 
     let id = Uuid::now_v7();
     let row = sqlx::query_as::<_, (
@@ -456,6 +472,11 @@ pub async fn run_sync(
             } else {
                 StatusCode::ACCEPTED
             };
+            // Tarea 9 — record duration histogram + (best-effort) row count.
+            let duration_seconds = started.elapsed().as_secs_f64();
+            state
+                .metrics
+                .record_sync(&source.2, 0, duration_seconds, status != "failed");
             (
                 http_status,
                 Json(SyncRunResponse {

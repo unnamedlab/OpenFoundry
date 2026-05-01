@@ -178,7 +178,19 @@ pub async fn test_connection(
                     .into_response();
             }
         };
-    let test_result = match conn.connector_type.as_str() {
+    // Tarea 9 — observabilidad: span the dispatch with the connector kind
+    // and the resolved agent URL so OTel exporters get a uniform attribute
+    // schema across all connectors. We use `Instrument` rather than
+    // `span.enter()` so the future stays `Send`.
+    use tracing::Instrument;
+    let span = tracing::info_span!(
+        "connector.test_connection",
+        connector.kind = %conn.connector_type,
+        connector.id = %connection_id,
+        agent_url = agent_url.as_deref().unwrap_or("<inline>"),
+    );
+    let dispatch = async {
+        match conn.connector_type.as_str() {
         "bigquery" => {
             connectors::bigquery::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
@@ -225,7 +237,9 @@ pub async fn test_connection(
         }
         "iot" => connectors::iot::test_connection(&state, &conn.config, agent_url.as_deref()).await,
         other => Err(format!("unsupported connector type: {other}")),
+        }
     };
+    let test_result = dispatch.instrument(span).await;
 
     let (success, message, latency_ms, details) = match test_result {
         Ok(result) => (
@@ -244,6 +258,9 @@ pub async fn test_connection(
         .bind(new_status)
         .execute(&state.db)
         .await;
+
+    // Tarea 9 — observabilidad: emit `connector_test_total{connector,result}`.
+    state.metrics.record_test(&conn.connector_type, success);
 
     Json(serde_json::json!({
         "success": success,

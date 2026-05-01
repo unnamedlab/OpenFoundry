@@ -606,6 +606,7 @@ mod tests {
             allow_private_network_egress: true,
             agent_stale_after: std::time::Duration::from_secs(60),
             credential_key: [0u8; 32],
+            metrics: crate::metrics::Metrics::new(),
         }
     }
 

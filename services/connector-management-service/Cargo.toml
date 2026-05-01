@@ -129,3 +129,28 @@ workspace = true
 path = "src/main.rs"
 name = "connector-management-service"
 required-features = []
+
+# ---------------------------------------------------------------------------
+# Dev / integration test deps (Tarea 9 — observabilidad + e2e).
+# These are pulled in only by `cargo test` so the production build stays
+# slim. Tests under `tests/` are gated by feature flags and `#[ignore]`,
+# so plain `cargo test` does not spin up Docker.
+# ---------------------------------------------------------------------------
+[dev-dependencies]
+testcontainers = { workspace = true }
+wiremock = { workspace = true }
+
+[dev-dependencies.tokio]
+workspace = true
+
+[dev-dependencies.reqwest]
+workspace = true
+
+[dev-dependencies.sqlx]
+workspace = true
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true
