@@ -309,6 +309,19 @@ async fn load_table_response(connection: &Connection, registration: &ConnectionR
         config.insert(key, value);
     }
 
+    // Compute-pushdown hints. For source systems that are *not* object
+    // stores (Snowflake, Databricks, BigQuery), the upstream catalog does
+    // not own a `metadata.json` we can forward. Instead, Foundry's virtual
+    // table model for these engines sends clients back to the source's
+    // native compute via JDBC / Storage API. We expose the connection
+    // coordinates here so a compatible client (Trino/Spark with the
+    // appropriate connector) can route the query downstream. See
+    // `docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/Core concepts/Virtual tables.md`
+    // (matrix § "Compute pushdown").
+    for (key, value) in pushdown_config(connection, registration) {
+        config.insert(key, value);
+    }
+
     let metadata_location = upstream_metadata
         .map(str::to_string)
         .unwrap_or_else(|| {
@@ -334,6 +347,99 @@ fn vended_ttl_secs() -> i64 {
         .and_then(|raw| raw.parse::<i64>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(900)
+}
+
+/// Build per-engine compute-pushdown config keys for Snowflake/Databricks/
+/// BigQuery virtual tables. Returns an empty vec for object-store sources
+/// (their LoadTable already carries a real `metadata-location`).
+fn pushdown_config(
+    connection: &Connection,
+    registration: &ConnectionRegistration,
+) -> Vec<(&'static str, Value)> {
+    let cfg = &connection.config;
+    let str_field = |k: &str| cfg.get(k).and_then(Value::as_str).map(str::to_string);
+    let mut entries: Vec<(&'static str, Value)> = Vec::new();
+    match connection.connector_type.as_str() {
+        "snowflake" => {
+            entries.push(("pushdown.engine", json!("snowflake")));
+            if let Some(v) = str_field("account") {
+                entries.push(("pushdown.snowflake.account", json!(v)));
+            }
+            if let Some(v) = str_field("warehouse") {
+                entries.push(("pushdown.snowflake.warehouse", json!(v)));
+            }
+            if let Some(v) = str_field("database") {
+                entries.push(("pushdown.snowflake.database", json!(v)));
+            }
+            if let Some(v) = str_field("schema") {
+                entries.push(("pushdown.snowflake.schema", json!(v)));
+            }
+            entries.push((
+                "pushdown.snowflake.fqn",
+                json!(qualify(cfg, &registration.selector)),
+            ));
+        }
+        "databricks" => {
+            entries.push(("pushdown.engine", json!("databricks")));
+            if let Some(v) = str_field("workspace_url") {
+                entries.push(("pushdown.databricks.workspace_url", json!(v)));
+            }
+            if let Some(v) = str_field("http_path") {
+                entries.push(("pushdown.databricks.http_path", json!(v)));
+            }
+            if let Some(v) = str_field("catalog") {
+                entries.push(("pushdown.databricks.catalog", json!(v)));
+            }
+            entries.push((
+                "pushdown.databricks.fqn",
+                json!(qualify(cfg, &registration.selector)),
+            ));
+        }
+        "bigquery" => {
+            entries.push(("pushdown.engine", json!("bigquery")));
+            if let Some(v) = str_field("project_id") {
+                entries.push(("pushdown.bigquery.project_id", json!(v)));
+            }
+            if let Some(v) = str_field("dataset") {
+                entries.push(("pushdown.bigquery.dataset", json!(v)));
+            }
+            entries.push((
+                "pushdown.bigquery.table",
+                json!(qualify(cfg, &registration.selector)),
+            ));
+        }
+        "generic" => {
+            if let Some(v) = str_field("catalog_url") {
+                entries.push(("pushdown.engine", json!("iceberg-rest")));
+                entries.push(("pushdown.iceberg.catalog_url", json!(v)));
+            }
+        }
+        _ => {}
+    }
+    entries
+}
+
+/// Best-effort 3-part name. Selectors that already look fully qualified
+/// (`db.schema.table`) are returned verbatim; otherwise we prefix with the
+/// connection's default database/schema/catalog when present.
+fn qualify(config: &Value, selector: &str) -> String {
+    if selector.matches('.').count() >= 2 {
+        return selector.to_string();
+    }
+    let db = config
+        .get("database")
+        .or_else(|| config.get("catalog"))
+        .or_else(|| config.get("project_id"))
+        .and_then(Value::as_str);
+    let schema = config
+        .get("schema")
+        .or_else(|| config.get("dataset"))
+        .and_then(Value::as_str);
+    match (db, schema) {
+        (Some(d), Some(s)) if !selector.contains('.') => format!("{d}.{s}.{selector}"),
+        (Some(d), _) if !selector.contains('.') => format!("{d}.{selector}"),
+        _ => selector.to_string(),
+    }
 }
 
 /// Minimal Iceberg `TableMetadata`-shaped document. Real Iceberg sources

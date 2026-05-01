@@ -35,6 +35,8 @@ pub const VALID_TYPES: &[&str] = &[
     "mysql",
     "bigquery",
     "csv",
+    "databricks",
+    "generic",
     "jdbc",
     "kafka",
     "kinesis",

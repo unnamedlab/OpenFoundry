@@ -164,8 +164,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post(handlers::registrations::bulk_register),
         )
         .route(
+            "/sources/{id}/registrations/bulk/preview",
+            post(handlers::registrations::bulk_register_preview),
+        )
+        .route(
             "/sources/{id}/registrations/auto",
             post(handlers::registrations::auto_register),
+        )
+        .route(
+            "/sources/{id}/registrations/auto",
+            axum::routing::put(handlers::registrations::update_auto_registration),
+        )
+        .route(
+            "/sources/{id}/registrations/auto/status",
+            get(handlers::registrations::auto_register_status),
         )
         .route(
             "/sources/{source_id}/registrations/{registration_id}",

@@ -36,6 +36,48 @@ use crate::{
     },
 };
 
+/// Per-connection summary of the most recent scheduler tick. Surfaced via
+/// `GET /sources/{id}/registrations/auto/status` so operators can see when
+/// the loop last ran and how many selectors it touched without scraping
+/// logs. Mirrors the "Automatic registration status" panel in Foundry's
+/// source view.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConnectionTickRecord {
+    pub connection_id: uuid::Uuid,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub finished_at: chrono::DateTime<chrono::Utc>,
+    pub discovered: usize,
+    pub registered: usize,
+    pub errors: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+static LAST_RUNS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<uuid::Uuid, ConnectionTickRecord>>,
+> = std::sync::OnceLock::new();
+
+fn last_runs() -> &'static std::sync::Mutex<std::collections::HashMap<uuid::Uuid, ConnectionTickRecord>>
+{
+    LAST_RUNS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Record (or overwrite) the last tick result for a connection. Public so
+/// the one-shot HTTP `auto_register` handler can also publish status.
+pub fn record_run(record: ConnectionTickRecord) {
+    if let Ok(mut guard) = last_runs().lock() {
+        guard.insert(record.connection_id, record);
+    }
+}
+
+/// Read the last recorded tick for a connection, if any.
+pub fn last_run(connection_id: uuid::Uuid) -> Option<ConnectionTickRecord> {
+    last_runs()
+        .lock()
+        .ok()
+        .and_then(|g| g.get(&connection_id).cloned())
+}
+
 /// Background loop. Polls every `tick_interval` and runs [`tick`].
 pub async fn run(state: AppState, tick_interval: Duration) {
     let mut interval = tokio::time::interval(tick_interval);
@@ -75,15 +117,34 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
             continue;
         }
         summary.scanned += 1;
+        let started_at = chrono::Utc::now();
+        let mut local_discovered = 0usize;
+        let mut local_registered = 0usize;
+        let mut local_errors = 0usize;
+        let mut last_error: Option<String> = None;
 
         let discovered = match discovery::discover_sources(state, &connection).await {
-            Ok(items) => items,
+            Ok(items) => {
+                local_discovered = items.len();
+                items
+            }
             Err(error) => {
                 tracing::warn!(
                     connection_id = %connection.id,
                     "auto-registration discover failed: {error}"
                 );
                 summary.errors += 1;
+                local_errors += 1;
+                last_error = Some(error.clone());
+                record_run(ConnectionTickRecord {
+                    connection_id: connection.id,
+                    started_at,
+                    finished_at: chrono::Utc::now(),
+                    discovered: 0,
+                    registered: 0,
+                    errors: local_errors,
+                    last_error,
+                });
                 continue;
             }
         };
@@ -103,6 +164,17 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
                     "auto-registration mode invalid: {error}"
                 );
                 summary.errors += 1;
+                local_errors += 1;
+                last_error = Some(error);
+                record_run(ConnectionTickRecord {
+                    connection_id: connection.id,
+                    started_at,
+                    finished_at: chrono::Utc::now(),
+                    discovered: local_discovered,
+                    registered: 0,
+                    errors: local_errors,
+                    last_error,
+                });
                 continue;
             }
         };
@@ -120,7 +192,10 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
             )
             .await
             {
-                Ok(_) => summary.registered += 1,
+                Ok(_) => {
+                    summary.registered += 1;
+                    local_registered += 1;
+                }
                 Err(error) => {
                     tracing::warn!(
                         connection_id = %connection.id,
@@ -128,9 +203,20 @@ pub async fn tick(state: &AppState) -> Result<TickSummary, String> {
                         "upsert_registration failed: {error}"
                     );
                     summary.errors += 1;
+                    local_errors += 1;
+                    last_error = Some(error);
                 }
             }
         }
+        record_run(ConnectionTickRecord {
+            connection_id: connection.id,
+            started_at,
+            finished_at: chrono::Utc::now(),
+            discovered: local_discovered,
+            registered: local_registered,
+            errors: local_errors,
+            last_error,
+        });
     }
     Ok(summary)
 }
@@ -140,6 +226,28 @@ pub struct TickSummary {
     pub scanned: usize,
     pub registered: usize,
     pub errors: usize,
+}
+
+/// Public, JSON-serialisable view of the per-connection
+/// `config.auto_registration` block. Returned by the status endpoint so
+/// the UI can render the toggle without re-parsing the raw config.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AutoRegistrationSettingsView {
+    pub enabled: bool,
+    pub registration_mode: String,
+    pub auto_sync: bool,
+    pub update_detection: bool,
+    pub selectors: Vec<String>,
+}
+
+pub fn settings_view(config: &serde_json::Value) -> Option<AutoRegistrationSettingsView> {
+    AutoRegistrationSettings::from_config(config).map(|s| AutoRegistrationSettingsView {
+        enabled: s.enabled,
+        registration_mode: s.registration_mode,
+        auto_sync: s.auto_sync,
+        update_detection: s.update_detection,
+        selectors: s.selectors,
+    })
 }
 
 struct AutoRegistrationSettings {

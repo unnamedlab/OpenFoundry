@@ -19,9 +19,9 @@ csv = "1.3"
 sha2 = "0.10"
 hmac = "0.12"
 aes-gcm = "0.10"
-arrow-array = "57.1"
-arrow-schema = "57.1"
-arrow-ipc = "57.1"
+arrow-array = "53"
+arrow-schema = "53"
+arrow-ipc = "53"
 aws-config = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 aws-sdk-sts = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 

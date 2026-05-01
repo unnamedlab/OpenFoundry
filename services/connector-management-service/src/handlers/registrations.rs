@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use crate::{
     AppState,
-    domain::discovery,
+    domain::{auto_registration, discovery},
     models::{
         connection::Connection,
         registration::{
@@ -452,6 +452,189 @@ fn can_manage(claims: &Claims, connection: &Connection) -> bool {
     claims.has_role("admin")
         || claims.has_permission("connections", "write")
         || claims.sub == connection.owner_id
+}
+
+/// POST /api/v1/data-connection/sources/{id}/registrations/bulk/preview
+///
+/// Foundry "bulk register — preview" equivalent. Runs discovery + selector
+/// matching with no DB writes, so the UI can show the user exactly what
+/// would be persisted (matched/unmatched, source_kind, registration_mode)
+/// before confirming. Mirrors the dry-run pane referenced in
+/// `Data connectivity & integration/Core concepts/Virtual tables.md`.
+pub async fn bulk_register_preview(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(connection_id): Path<Uuid>,
+    Json(body): Json<BulkRegisterRequest>,
+) -> impl IntoResponse {
+    let connection = match load_connection(&state, connection_id).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if !can_manage(&claims, &connection) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if body.registrations.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "registrations array is empty" })),
+        )
+            .into_response();
+    }
+
+    let discovered = discovery::discover_sources(&state, &connection)
+        .await
+        .unwrap_or_default();
+    let mut matched = Vec::new();
+    let mut unmatched = Vec::new();
+    let mut invalid = Vec::new();
+    for item in &body.registrations {
+        if let Err(e) = discovery::normalize_registration_mode(item.registration_mode.as_deref()) {
+            invalid.push(json!({ "selector": item.selector, "error": e }));
+            continue;
+        }
+        match discovered.iter().find(|d| d.selector == item.selector) {
+            Some(found) => matched.push(json!({
+                "selector": item.selector,
+                "source_kind": found.source_kind,
+                "supports_zero_copy": found.supports_zero_copy,
+                "supports_sync": found.supports_sync,
+                "registration_mode": item.registration_mode.clone().unwrap_or_else(|| "sync".into()),
+            })),
+            None => unmatched.push(json!({ "selector": item.selector })),
+        }
+    }
+    Json(json!({
+        "discovered_count": discovered.len(),
+        "matched": matched,
+        "unmatched": unmatched,
+        "invalid": invalid,
+    }))
+    .into_response()
+}
+
+/// GET /api/v1/data-connection/sources/{id}/registrations/auto/status
+///
+/// Returns the per-connection auto-registration settings and the most
+/// recent scheduler tick result (if any). Replaces the "scheduler is
+/// dead-code" gap noted on the migration checklist.
+pub async fn auto_register_status(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(connection_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let connection = match load_connection(&state, connection_id).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if !can_manage(&claims, &connection) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let settings = auto_registration::settings_view(&connection.config);
+    let last_run = auto_registration::last_run(connection_id);
+    Json(json!({
+        "connection_id": connection_id,
+        "settings": settings,
+        "last_run": last_run,
+    }))
+    .into_response()
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateAutoRegistrationBody {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub registration_mode: Option<String>,
+    #[serde(default)]
+    pub auto_sync: Option<bool>,
+    #[serde(default)]
+    pub update_detection: Option<bool>,
+    #[serde(default)]
+    pub selectors: Option<Vec<String>>,
+    #[serde(default)]
+    pub interval_secs: Option<u64>,
+}
+
+/// PUT /api/v1/data-connection/sources/{id}/registrations/auto
+///
+/// Merges user-supplied fields into `connection.config.auto_registration`
+/// (creating the block if absent). The recurring scheduler picks up the
+/// new values on its next tick — no restart required.
+pub async fn update_auto_registration(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(connection_id): Path<Uuid>,
+    Json(body): Json<UpdateAutoRegistrationBody>,
+) -> impl IntoResponse {
+    let connection = match load_connection(&state, connection_id).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if !can_manage(&claims, &connection) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if let Some(mode) = body.registration_mode.as_deref() {
+        if let Err(e) = discovery::normalize_registration_mode(Some(mode)) {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        }
+    }
+
+    let mut config = connection.config.clone();
+    let block = config
+        .as_object_mut()
+        .map(|m| {
+            m.entry("auto_registration".to_string())
+                .or_insert(json!({}))
+                .as_object_mut()
+                .map(|b| b as &mut serde_json::Map<String, Value>)
+        })
+        .flatten();
+    let Some(block) = block else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "config is not a JSON object" })),
+        )
+            .into_response();
+    };
+    if let Some(v) = body.enabled {
+        block.insert("enabled".into(), json!(v));
+    }
+    if let Some(v) = body.registration_mode {
+        block.insert("registration_mode".into(), json!(v));
+    }
+    if let Some(v) = body.auto_sync {
+        block.insert("auto_sync".into(), json!(v));
+    }
+    if let Some(v) = body.update_detection {
+        block.insert("update_detection".into(), json!(v));
+    }
+    if let Some(v) = body.selectors {
+        block.insert("selectors".into(), json!(v));
+    }
+    if let Some(v) = body.interval_secs {
+        block.insert("interval_secs".into(), json!(v));
+    }
+
+    let result = sqlx::query(
+        "UPDATE connections SET config = $1, updated_at = NOW() WHERE id = $2",
+    )
+    .bind(&config)
+    .bind(connection_id)
+    .execute(&state.db)
+    .await;
+    match result {
+        Ok(r) if r.rows_affected() > 0 => Json(json!({
+            "connection_id": connection_id,
+            "settings": auto_registration::settings_view(&config),
+        }))
+        .into_response(),
+        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update auto_registration failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn load_connection(

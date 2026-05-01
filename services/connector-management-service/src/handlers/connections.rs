@@ -50,6 +50,9 @@ pub async fn create_connection(
         // modules so discovery and connection-create share the same rules.
         "azure_blob" | "adls" | "onelake" => connectors::azure_blob::validate_config(&body.config),
         "gcs" | "google_cloud_storage" => connectors::gcs::validate_config(&body.config),
+        // Open-table generic / custom source + Databricks Unity Catalog.
+        "generic" => connectors::generic::validate_config(&body.config),
+        "databricks" => connectors::databricks::validate_config(&body.config),
         _ => Ok(()),
     };
 

@@ -87,6 +87,20 @@ pub async fn discover_sources(
         "gcs" | "google_cloud_storage" => {
             connectors::gcs::discover_sources(&connection.config).await
         }
+        // Generic / custom open-table source. Same inline catalog contract
+        // as the dedicated stores; surfaces metadata pointers verbatim.
+        "generic" => connectors::generic::discover_sources(&connection.config).await,
+        // Databricks via Unity Catalog. Inline tables[] entries in the
+        // config behave exactly like snowflake/bigquery; LoadTable enriches
+        // the response with a `pushdown` block routing clients to JDBC.
+        "databricks" => {
+            connectors::databricks::discover_sources(
+                state,
+                &connection.config,
+                agent_url.as_deref(),
+            )
+            .await
+        }
         "csv" | "json" => Ok(vec![DiscoveredSource {
             selector: connection.name.clone(),
             display_name: connection.name.clone(),
