@@ -92,7 +92,7 @@
       await updatePipeline(pipelineId, {
         nodes: [createStarterNode(selectedDatasetIds)],
       });
-      goto(`/pipelines?pipeline=${pipelineId}`);
+      goto(`/pipelines/${pipelineId}/edit`);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Failed to attach datasets';
     } finally {
@@ -102,7 +102,7 @@
 
   function continueWithoutData() {
     if (!pipelineId) return;
-    goto(`/pipelines?pipeline=${pipelineId}`);
+    goto(`/pipelines/${pipelineId}/edit`);
   }
 </script>
 

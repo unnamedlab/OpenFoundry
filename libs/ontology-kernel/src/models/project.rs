@@ -105,7 +105,7 @@ pub struct ListOntologyProjectResourcesResponse {
     pub data: Vec<OntologyProjectResourceBinding>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct OntologyProjectWorkingState {
     pub project_id: Uuid,
     pub changes: Value,

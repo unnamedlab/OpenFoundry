@@ -79,3 +79,6 @@ workspace = true
 path = "src/main.rs"
 name = "ontology-funnel-service"
 required-features = []
+
+[dependencies.ontology-kernel]
+workspace = true
