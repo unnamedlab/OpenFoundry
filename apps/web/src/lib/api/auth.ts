@@ -415,8 +415,12 @@ export function removeUserRole(userId: string, roleId: string) {
   return api.delete<void>(`/users/${userId}/roles/${roleId}`);
 }
 
-export function listGroups() {
-  return api.get<GroupRecord[]>('/groups');
+export function listGroups(params?: { q?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (params?.q) query.set('q', params.q);
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return api.get<GroupRecord[]>(`/groups${qs ? `?${qs}` : ''}`);
 }
 
 export function createGroup(data: { name: string; description?: string | null; role_ids: string[] }) {

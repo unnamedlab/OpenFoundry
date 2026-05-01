@@ -5,10 +5,12 @@
   import Glyph from '$components/ui/Glyph.svelte';
   import ProjectBreadcrumb, { type BreadcrumbItem } from '$components/workspace/ProjectBreadcrumb.svelte';
   import FolderTree from '$components/workspace/FolderTree.svelte';
+  import MoveDialog from '$components/workspace/MoveDialog.svelte';
   import {
     getProject,
     listProjectFolders,
     listProjectResources,
+    listProjects,
     type OntologyProject,
     type OntologyProjectFolder,
     type OntologyProjectResourceBinding,
@@ -16,7 +18,7 @@
   import { recordAccess } from '$lib/api/workspace';
   import { batchApply, moveResource, type BatchAction } from '$lib/api/workspace';
   import { notifications } from '$stores/notifications';
-  import { setProjectWorkspaceContext, type DragSource } from './context';
+  import { setProjectWorkspaceContext, type DragSource, type DragTarget } from './context';
 
   let { children }: { children: any } = $props();
 
@@ -30,6 +32,13 @@
   // level so a drag started on a card survives a navigation between
   // [projectId] ↔ [folderId] (the FolderTree is the same component).
   let dragSource = $state<DragSource | null>(null);
+
+  // Cross-project move (Phase 6 follow-up) — when the user drops a drag
+  // source onto the "Move to other project…" zone we open the existing
+  // MoveDialog pre-loaded with the targets and the full project list.
+  let allProjects = $state<OntologyProject[]>([]);
+  let crossMoveTargets = $state<DragTarget[] | null>(null);
+  let crossDragOver = $state(false);
 
   const projectId = $derived(page.params.projectId ?? '');
   const folderId = $derived(page.params.folderId ?? null);
@@ -85,6 +94,7 @@
       dragSource = null;
     },
     tryDrop,
+    openCrossProjectMove,
   }));
 
   // ---------------------------------------------------------------------
@@ -177,6 +187,52 @@
       );
       return false;
     }
+  }
+
+  function openCrossProjectMove() {
+    if (!dragSource || dragSource.targets.length === 0) return;
+    const folderTargets = dragSource.targets.filter(
+      (t) => t.kind === 'ontology_folder',
+    );
+    if (folderTargets.length > 0) {
+      notifications.warning(
+        'Folders cannot be moved between projects yet — only individual resources.',
+      );
+      dragSource = null;
+      return;
+    }
+    crossMoveTargets = dragSource.targets;
+    dragSource = null;
+    void ensureAllProjects();
+  }
+
+  async function ensureAllProjects() {
+    if (allProjects.length > 0) return;
+    try {
+      const res = await listProjects({ per_page: 200 });
+      allProjects = res.data;
+    } catch (cause) {
+      notifications.error(
+        cause instanceof Error ? cause.message : 'Unable to load projects.',
+      );
+      allProjects = [];
+    }
+  }
+
+  function handleCrossDragOver(event: DragEvent) {
+    if (!dragSource) return;
+    event.preventDefault();
+    crossDragOver = true;
+  }
+
+  function handleCrossDragLeave() {
+    crossDragOver = false;
+  }
+
+  function handleCrossDrop(event: DragEvent) {
+    event.preventDefault();
+    crossDragOver = false;
+    openCrossProjectMove();
   }
 
   async function load() {
@@ -280,6 +336,25 @@
           }}
           canDrop={(id) => dropAccepts(id)}
         />
+        {#if dragSource && dragSource.targets.every((t) => t.kind !== 'ontology_folder')}
+          <div
+            class="m-3 rounded-md border border-dashed px-3 py-2 text-xs"
+            class:border-[var(--accent-strong)]={crossDragOver}
+            class:bg-[var(--accent-soft)]={crossDragOver}
+            class:text-[var(--accent-strong)]={crossDragOver}
+            class:border-[var(--border-default)]={!crossDragOver}
+            class:text-[var(--text-muted)]={!crossDragOver}
+            ondragover={handleCrossDragOver}
+            ondragleave={handleCrossDragLeave}
+            ondrop={handleCrossDrop}
+            role="button"
+            tabindex="-1"
+            aria-label="Move to another project"
+          >
+            <Glyph name="link" size={14} />
+            <span class="ml-1 align-middle">Drop here to move to another project…</span>
+          </div>
+        {/if}
       {/if}
     </nav>
 
@@ -288,3 +363,23 @@
     </main>
   </div>
 </div>
+
+<MoveDialog
+  open={crossMoveTargets !== null}
+  resourceKind={null}
+  resourceId={null}
+  projects={allProjects}
+  initialProjectId={project?.id ?? null}
+  targets={crossMoveTargets?.map((t) => ({
+    kind: t.kind,
+    id: t.id,
+    label: t.label ?? t.id,
+  })) ?? []}
+  onClose={() => {
+    crossMoveTargets = null;
+  }}
+  onMoved={() => {
+    crossMoveTargets = null;
+    void load();
+  }}
+/>

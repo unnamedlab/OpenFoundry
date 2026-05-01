@@ -1,7 +1,7 @@
 use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -46,20 +46,47 @@ pub struct UserGroupRequest {
     pub group_id: Uuid,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ListGroupsQuery {
+    /// Optional case-insensitive substring filter on `name` or `description`.
+    pub q: Option<String>,
+    /// Optional cap on results (default 200, max 500).
+    pub limit: Option<i64>,
+}
+
 pub async fn list_groups(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
+    Query(params): Query<ListGroupsQuery>,
 ) -> impl IntoResponse {
     if let Err(response) = require_permission(&claims, "groups", "read") {
         return response;
     }
 
-    match sqlx::query_as::<_, Group>(
-        "SELECT id, name, description, created_at FROM groups ORDER BY name",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
+    let limit = params.limit.unwrap_or(200).clamp(1, 500);
+    let q_trimmed = params.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
+
+    let groups_result = if let Some(q) = q_trimmed {
+        let pattern = format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        sqlx::query_as::<_, Group>(
+            "SELECT id, name, description, created_at FROM groups \
+             WHERE name ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\' \
+             ORDER BY name LIMIT $2",
+        )
+        .bind(pattern)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, Group>(
+            "SELECT id, name, description, created_at FROM groups ORDER BY name LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    };
+
+    match groups_result {
         Ok(groups) => {
             let mut responses = Vec::with_capacity(groups.len());
             for group in groups {

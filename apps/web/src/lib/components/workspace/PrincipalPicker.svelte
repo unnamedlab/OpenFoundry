@@ -61,10 +61,32 @@
     }
   }
 
-  function scheduleUserSearch(term: string) {
+  async function runGroupSearch(term: string) {
+    if (kind !== 'group') return;
+    const t = term.trim();
+    if (t === lastQueriedTerm) return;
+    lastQueriedTerm = t;
+    const seq = ++searchSeq;
+    loading = true;
+    loadError = '';
+    try {
+      const next = await listGroups(t ? { q: t, limit: SEARCH_LIMIT } : { limit: SEARCH_LIMIT });
+      if (seq !== searchSeq) return;
+      groups = next;
+      groupsLoaded = true;
+    } catch (cause) {
+      if (seq !== searchSeq) return;
+      loadError = cause instanceof Error ? cause.message : 'Unable to load groups';
+    } finally {
+      if (seq === searchSeq) loading = false;
+    }
+  }
+
+  function scheduleSearch(term: string) {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-      void runUserSearch(term);
+      if (kind === 'user') void runUserSearch(term);
+      else void runGroupSearch(term);
     }, SEARCH_DEBOUNCE_MS);
   }
 
@@ -110,8 +132,9 @@
     loading = true;
     loadError = '';
     try {
-      groups = await listGroups();
+      groups = await listGroups({ limit: SEARCH_LIMIT });
       groupsLoaded = true;
+      lastQueriedTerm = '';
     } catch (cause) {
       loadError = cause instanceof Error ? cause.message : 'Unable to load groups';
       groups = [];
@@ -181,7 +204,7 @@
     highlightIndex = 0;
     open = true;
     if (!query) onChange({ id: '', label: '' });
-    if (kind === 'user') scheduleUserSearch(query);
+    scheduleSearch(query);
   }
 
   function handleBlur() {

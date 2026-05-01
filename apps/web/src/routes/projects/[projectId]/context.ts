@@ -41,6 +41,14 @@ export interface ProjectWorkspaceContext {
    * moved. Cycle/no-op cases are handled internally.
    */
   tryDrop(targetFolderId: string | null): Promise<boolean>;
+  /**
+   * Open the cross-project move dialog pre-loaded with the active drag
+   * source. The dialog reuses MoveDialog so users still pick the target
+   * project + folder explicitly. Folder sources are rejected with a
+   * notification because the backend forbids cross-project folder moves
+   * (Phase 1 — would require deep clone of nested resources).
+   */
+  openCrossProjectMove(): void;
 }
 
 const KEY = Symbol('project-workspace');
