@@ -1,7 +1,7 @@
 use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -23,6 +23,15 @@ pub struct UpdateUserRequest {
     pub is_active: Option<bool>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ListUsersQuery {
+    /// Optional case-insensitive substring filter on `name` or `email`.
+    /// Trimmed; whitespace-only values are ignored.
+    pub q: Option<String>,
+    /// Optional cap on results (default 200, max 500).
+    pub limit: Option<i64>,
+}
+
 /// GET /api/v1/users/me
 pub async fn me(State(state): State<AppState>, AuthUser(claims): AuthUser) -> impl IntoResponse {
     match load_user(&state.db, claims.sub).await {
@@ -42,21 +51,48 @@ pub async fn me(State(state): State<AppState>, AuthUser(claims): AuthUser) -> im
 }
 
 /// GET /api/v1/users
+///
+/// Optional query params:
+/// - `q`     — case-insensitive substring matched against `name` or `email`.
+/// - `limit` — cap on rows returned (1..=500, default 200).
 pub async fn list_users(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
+    Query(params): Query<ListUsersQuery>,
 ) -> impl IntoResponse {
     if let Err(response) = require_permission(&claims, "users", "read") {
         return response;
     }
 
-    let users = sqlx::query_as::<_, User>(
-        "SELECT id, email, name, password_hash, is_active, organization_id, attributes, mfa_enforced, auth_source, created_at, updated_at FROM users ORDER BY created_at DESC LIMIT 200",
-    )
-    .fetch_all(&state.db)
-    .await;
+    let limit = params.limit.unwrap_or(200).clamp(1, 500);
+    let q_trimmed = params.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
-    match users {
+    let users_result = if let Some(q) = q_trimmed {
+        let pattern = format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        sqlx::query_as::<_, User>(
+            "SELECT id, email, name, password_hash, is_active, organization_id, attributes, mfa_enforced, auth_source, created_at, updated_at \
+             FROM users \
+             WHERE name ILIKE $1 ESCAPE '\\' OR email ILIKE $1 ESCAPE '\\' \
+             ORDER BY created_at DESC \
+             LIMIT $2",
+        )
+        .bind(pattern)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, User>(
+            "SELECT id, email, name, password_hash, is_active, organization_id, attributes, mfa_enforced, auth_source, created_at, updated_at \
+             FROM users \
+             ORDER BY created_at DESC \
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+    };
+
+    match users_result {
         Ok(users) => {
             let mut responses = Vec::with_capacity(users.len());
             for user in users {

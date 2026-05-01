@@ -1,15 +1,15 @@
 // Lightweight in-memory cache that resolves resource labels by
 // (kind, id). Used to replace `${kind} · ${id.slice(0,8)}…` placeholders
-// in trash, share, and bulk-action UIs without a dedicated cross-service
-// resolver endpoint (which doesn't exist yet on the backend).
+// in trash, share, and bulk-action UIs.
 //
-// For ontology projects/folders we hit the existing endpoints; for any
-// other kind we currently fall back to the placeholder. When a real
-// resource-resolver service ships, swap the per-kind branches below.
+// Backed by `POST /workspace/resources/resolve` which can resolve
+// ontology projects/folders server-side in a single round-trip.
+// Other kinds fall back to the placeholder until the backend grows
+// resolvers for them (datasets, pipelines, notebooks, …).
 
 import type { ResourceKind } from '$lib/api/workspace';
+import { resolveResourceLabels } from '$lib/api/workspace';
 import {
-  getProject,
   listProjectFolders,
   type OntologyProject,
 } from '$lib/api/ontology';
@@ -35,19 +35,32 @@ export function setLabel(kind: ResourceKind, id: string, label: string) {
   cache.set(key(kind, id), { label, loadedAt: Date.now() });
 }
 
-async function resolveOne(kind: ResourceKind, id: string): Promise<string> {
-  if (kind === 'ontology_project') {
-    const project: OntologyProject = await getProject(id);
-    return project.display_name || project.slug;
+async function resolveBatch(
+  targets: Array<{ kind: ResourceKind; id: string }>,
+): Promise<Map<string, string>> {
+  if (targets.length === 0) return new Map();
+  try {
+    const response = await resolveResourceLabels(
+      targets.map((t) => ({ resource_kind: t.kind, resource_id: t.id })),
+    );
+    const out = new Map<string, string>();
+    for (const entry of response.data) {
+      const k = key(entry.resource_kind, entry.resource_id);
+      const label = entry.resolved && entry.label
+        ? entry.label
+        : placeholder(entry.resource_kind, entry.resource_id);
+      out.set(k, label);
+      cache.set(k, { label, loadedAt: Date.now() });
+    }
+    return out;
+  } catch {
+    // Backend unreachable — fall back to placeholders so callers don't
+    // hang. Retry naturally happens on the next access (we don't seed
+    // the cache with placeholders).
+    const fallback = new Map<string, string>();
+    for (const t of targets) fallback.set(key(t.kind, t.id), placeholder(t.kind, t.id));
+    return fallback;
   }
-  if (kind === 'ontology_folder') {
-    // No direct GET /folders/{id} on the client; folder belongs to a
-    // project, but we don't know which without an extra endpoint.
-    // Skip for now and let callers seed the cache via `setLabel` when
-    // they already have the folder loaded (e.g., projects/[projectId]).
-    return placeholder(kind, id);
-  }
-  return placeholder(kind, id);
 }
 
 export async function resolveLabel(kind: ResourceKind, id: string): Promise<string> {
@@ -58,15 +71,10 @@ export async function resolveLabel(kind: ResourceKind, id: string): Promise<stri
   const pending = inflight.get(k);
   if (pending) return pending;
 
-  const promise = resolveOne(kind, id)
-    .then((label) => {
-      cache.set(k, { label, loadedAt: Date.now() });
+  const promise = resolveBatch([{ kind, id }])
+    .then((map) => map.get(k) ?? placeholder(kind, id))
+    .finally(() => {
       inflight.delete(k);
-      return label;
-    })
-    .catch(() => {
-      inflight.delete(k);
-      return placeholder(kind, id);
     });
   inflight.set(k, promise);
   return promise;
@@ -75,10 +83,53 @@ export async function resolveLabel(kind: ResourceKind, id: string): Promise<stri
 export async function resolveLabels(
   targets: Array<{ kind: ResourceKind; id: string }>,
 ): Promise<Map<string, string>> {
-  const results = await Promise.all(
-    targets.map(async (t) => [key(t.kind, t.id), await resolveLabel(t.kind, t.id)] as const),
-  );
-  return new Map(results);
+  // Split cached vs. pending vs. cold so we issue at most one batch
+  // request per call and reuse in-flight requests where possible.
+  const result = new Map<string, string>();
+  const cold: Array<{ kind: ResourceKind; id: string }> = [];
+  const awaitingInflight: Array<Promise<void>> = [];
+
+  for (const t of targets) {
+    const k = key(t.kind, t.id);
+    const hit = cache.get(k);
+    if (hit) {
+      result.set(k, hit.label);
+      continue;
+    }
+    const pending = inflight.get(k);
+    if (pending) {
+      awaitingInflight.push(
+        pending.then((label) => {
+          result.set(k, label);
+        }),
+      );
+      continue;
+    }
+    cold.push(t);
+  }
+
+  if (cold.length > 0) {
+    // Register an inflight promise per cold entry so a concurrent
+    // resolveLabel for the same id deduplicates onto this batch.
+    const batchPromise = resolveBatch(cold);
+    for (const t of cold) {
+      const k = key(t.kind, t.id);
+      const perEntry = batchPromise
+        .then((m) => m.get(k) ?? placeholder(t.kind, t.id))
+        .finally(() => {
+          inflight.delete(k);
+        });
+      inflight.set(k, perEntry);
+      awaitingInflight.push(
+        perEntry.then((label) => {
+          result.set(k, label);
+        }),
+      );
+    }
+  }
+
+  await Promise.all(awaitingInflight);
+  return result;
 }
 
 // Optional helper for callers that already have a project's folder list

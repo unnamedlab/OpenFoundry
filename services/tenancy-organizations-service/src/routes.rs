@@ -8,7 +8,7 @@ use axum::{
 };
 
 use crate::AppState;
-use crate::handlers::{favorites, recents, resource_ops, sharing, trash};
+use crate::handlers::{favorites, recents, resource_ops, resource_resolve, sharing, trash};
 
 pub fn workspace_router() -> Router<AppState> {
     Router::new()
@@ -66,4 +66,8 @@ pub fn workspace_router() -> Router<AppState> {
             delete(resource_ops::soft_delete_resource),
         )
         .route("/resources/batch", post(resource_ops::batch_apply))
+        .route(
+            "/resources/resolve",
+            post(resource_resolve::resolve_resources),
+        )
 }

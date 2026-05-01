@@ -81,6 +81,32 @@
     else updated.delete(key);
     favoriteKeys = updated;
   }
+
+  // ---------------------------------------------------------------------
+  // Drag bus integration — folders & resource bindings publish themselves
+  // as drag sources; the layout's FolderTree handles the actual drop.
+  // ---------------------------------------------------------------------
+
+  function handleFolderDragStart(event: DragEvent, folder: typeof rootFolders[number]) {
+    view.beginDrag({
+      targets: [
+        {
+          kind: 'ontology_folder',
+          id: folder.id,
+          parentFolderId: folder.parent_folder_id,
+          label: folder.name,
+        },
+      ],
+    });
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', `ontology_folder:${folder.id}`);
+    }
+  }
+
+  function handleDragEnd() {
+    view.endDrag();
+  }
 </script>
 
 {#if view.loading}
@@ -100,7 +126,12 @@
       {:else}
         <div class="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {#each rootFolders as folder (folder.id)}
-            <article class="of-panel flex flex-col gap-2 p-3">
+            <article
+              class="of-panel flex flex-col gap-2 p-3"
+              draggable={true}
+              ondragstart={(event) => handleFolderDragStart(event, folder)}
+              ondragend={handleDragEnd}
+            >
               <button
                 type="button"
                 class="flex items-start gap-3 text-left"

@@ -12,12 +12,44 @@
     selectedId = null,
     rootLabel = 'Project root',
     onSelect,
+    onDrop,
+    canDrop,
   }: {
     folders: FolderNode[];
     selectedId?: string | null;
     rootLabel?: string;
     onSelect?: (folderId: string | null) => void;
+    /** Optional drop handler. `null` = project root, otherwise folder id. */
+    onDrop?: (folderId: string | null) => void | Promise<void>;
+    /** Predicate so the tree can suppress invalid drop highlights. */
+    canDrop?: (folderId: string | null) => boolean;
   } = $props();
+
+  // Highlights the folder (or root) under the cursor while dragging.
+  let dragOverId = $state<string | null | undefined>(undefined);
+
+  function acceptsDrop(id: string | null): boolean {
+    if (!onDrop) return false;
+    return canDrop ? canDrop(id) : true;
+  }
+
+  function handleDragOver(event: DragEvent, id: string | null) {
+    if (!acceptsDrop(id)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dragOverId = id;
+  }
+
+  function handleDragLeave(id: string | null) {
+    if (dragOverId === id) dragOverId = undefined;
+  }
+
+  function handleDrop(event: DragEvent, id: string | null) {
+    if (!acceptsDrop(id)) return;
+    event.preventDefault();
+    dragOverId = undefined;
+    void onDrop?.(id);
+  }
 
   type TreeNode = FolderNode & { children: TreeNode[] };
 
@@ -77,8 +109,11 @@
       selectedId === null
         ? 'bg-[#eef4fd] text-[#2458b8] font-semibold'
         : 'text-[var(--text-default)] hover:bg-[var(--bg-hover)]'
-    }`}
+    } ${dragOverId === null ? 'ring-2 ring-inset ring-[#3f7be0] bg-[#eef4fd]' : ''}`}
     onclick={() => onSelect?.(null)}
+    ondragover={(event) => handleDragOver(event, null)}
+    ondragleave={() => handleDragLeave(null)}
+    ondrop={(event) => handleDrop(event, null)}
   >
     <Glyph name="home" size={14} />
     <span class="truncate">{rootLabel}</span>
@@ -101,8 +136,13 @@
         isSelected
           ? 'bg-[#eef4fd] text-[#2458b8] font-semibold'
           : 'text-[var(--text-default)] hover:bg-[var(--bg-hover)]'
-      }`}
+      } ${dragOverId === node.id ? 'ring-2 ring-inset ring-[#3f7be0] bg-[#eef4fd]' : ''}`}
       style={`padding-left: ${8 + depth * 14}px`}
+      role="treeitem"
+      aria-selected={isSelected}
+      ondragover={(event) => handleDragOver(event, node.id)}
+      ondragleave={() => handleDragLeave(node.id)}
+      ondrop={(event) => handleDrop(event, node.id)}
     >
       {#if hasChildren}
         <button

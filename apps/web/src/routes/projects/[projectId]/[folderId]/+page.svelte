@@ -74,6 +74,32 @@
     else updated.delete(key);
     favoriteKeys = updated;
   }
+
+  // Drag bus (Phase 6) — publish subfolder cards as drag sources so the
+  // FolderTree on the layout can serve as a drop target.
+  function handleFolderDragStart(
+    event: DragEvent,
+    target: typeof childFolders[number],
+  ) {
+    view.beginDrag({
+      targets: [
+        {
+          kind: 'ontology_folder',
+          id: target.id,
+          parentFolderId: target.parent_folder_id,
+          label: target.name,
+        },
+      ],
+    });
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', `ontology_folder:${target.id}`);
+    }
+  }
+
+  function handleDragEnd() {
+    view.endDrag();
+  }
 </script>
 
 {#if view.loading}
@@ -119,7 +145,12 @@
       {:else}
         <div class="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {#each childFolders as child (child.id)}
-            <article class="of-panel flex flex-col gap-2 p-3">
+            <article
+              class="of-panel flex flex-col gap-2 p-3"
+              draggable={true}
+              ondragstart={(event) => handleFolderDragStart(event, child)}
+              ondragend={handleDragEnd}
+            >
               <button
                 type="button"
                 class="flex items-start gap-3 text-left"

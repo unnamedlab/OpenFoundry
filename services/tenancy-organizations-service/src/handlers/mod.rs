@@ -4,6 +4,7 @@ pub mod organizations;
 pub mod projects;
 pub mod recents;
 pub mod resource_ops;
+pub mod resource_resolve;
 pub mod sharing;
 pub mod spaces;
 pub mod tenant_resolution;

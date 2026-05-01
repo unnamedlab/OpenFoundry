@@ -14,8 +14,9 @@
     type OntologyProjectResourceBinding,
   } from '$lib/api/ontology';
   import { recordAccess } from '$lib/api/workspace';
+  import { batchApply, moveResource, type BatchAction } from '$lib/api/workspace';
   import { notifications } from '$stores/notifications';
-  import { setProjectWorkspaceContext } from './context';
+  import { setProjectWorkspaceContext, type DragSource } from './context';
 
   let { children }: { children: any } = $props();
 
@@ -24,6 +25,11 @@
   let resources = $state<OntologyProjectResourceBinding[]>([]);
   let loading = $state(true);
   let error = $state('');
+
+  // Drag bus shared with detail pages via context. Lives at the layout
+  // level so a drag started on a card survives a navigation between
+  // [projectId] ↔ [folderId] (the FolderTree is the same component).
+  let dragSource = $state<DragSource | null>(null);
 
   const projectId = $derived(page.params.projectId ?? '');
   const folderId = $derived(page.params.folderId ?? null);
@@ -71,7 +77,107 @@
     loading,
     error,
     reload: load,
+    dragSource,
+    beginDrag: (source) => {
+      dragSource = source;
+    },
+    endDrag: () => {
+      dragSource = null;
+    },
+    tryDrop,
   }));
+
+  // ---------------------------------------------------------------------
+  // Drag bus implementation
+  // ---------------------------------------------------------------------
+
+  // Walk the parent chain so we can reject dropping a folder into itself
+  // or any of its own descendants.
+  function isDescendantFolder(candidateId: string, ancestorFolderId: string): boolean {
+    if (candidateId === ancestorFolderId) return true;
+    const byId = new Map(folders.map((f) => [f.id, f] as const));
+    let cursor: string | null = candidateId;
+    const guard = new Set<string>();
+    while (cursor && !guard.has(cursor)) {
+      guard.add(cursor);
+      const node = byId.get(cursor);
+      if (!node) return false;
+      if (node.id === ancestorFolderId) return true;
+      cursor = node.parent_folder_id;
+    }
+    return false;
+  }
+
+  function dropAccepts(targetFolderId: string | null): boolean {
+    if (!dragSource || dragSource.targets.length === 0) return false;
+    if (!project) return false;
+    for (const target of dragSource.targets) {
+      // No-op: dropping a folder onto its own current location.
+      const currentParent = target.parentFolderId ?? null;
+      if (target.kind === 'ontology_folder') {
+        if (target.id === targetFolderId) return false;
+        if (currentParent === targetFolderId) return false;
+        if (
+          targetFolderId !== null &&
+          isDescendantFolder(targetFolderId, target.id)
+        ) {
+          return false;
+        }
+      } else if (currentParent === targetFolderId) {
+        // Resource binding already lives at this destination.
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function tryDrop(targetFolderId: string | null): Promise<boolean> {
+    if (!dragSource || !project) return false;
+    const source = dragSource;
+    if (!dropAccepts(targetFolderId)) {
+      dragSource = null;
+      return false;
+    }
+    const targets = source.targets;
+    dragSource = null;
+
+    try {
+      if (targets.length === 1) {
+        const t = targets[0];
+        await moveResource(t.kind, t.id, {
+          target_project_id: project.id,
+          target_folder_id: targetFolderId,
+        });
+        notifications.success(
+          `Moved ${t.label ?? t.kind} to ${targetFolderId ? 'folder' : 'project root'}.`,
+        );
+      } else {
+        const actions: BatchAction[] = targets.map((t) => ({
+          op: 'move',
+          resource_kind: t.kind,
+          resource_id: t.id,
+          target_folder_id: targetFolderId ?? undefined,
+        }));
+        const result = await batchApply(actions);
+        const ok = result.results.filter((r) => r.ok).length;
+        const failed = result.results.length - ok;
+        if (failed === 0) {
+          notifications.success(`Moved ${ok} item(s).`);
+        } else {
+          notifications.warning(
+            `Moved ${ok}/${result.results.length} item(s); ${failed} failed.`,
+          );
+        }
+      }
+      await load();
+      return true;
+    } catch (cause) {
+      notifications.error(
+        cause instanceof Error ? cause.message : 'Move failed.',
+      );
+      return false;
+    }
+  }
 
   async function load() {
     if (!projectId) return;
@@ -169,6 +275,10 @@
           selectedId={folderId}
           rootLabel={project.display_name || project.slug}
           onSelect={handleSelectFolder}
+          onDrop={(id) => {
+            void tryDrop(id);
+          }}
+          canDrop={(id) => dropAccepts(id)}
         />
       {/if}
     </nav>

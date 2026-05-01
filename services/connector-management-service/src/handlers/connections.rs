@@ -46,6 +46,13 @@ pub async fn create_connection(
         "snowflake" => connectors::snowflake::validate_config(&body.config),
         "tableau" => connectors::tableau::validate_config(&body.config),
         "iot" => connectors::iot::validate_config(&body.config),
+        // Cloud object stores: require an account/bucket identifier and
+        // accept inline iceberg_tables[]/delta_tables[] catalogs the same
+        // way `connectors::s3::validate_config` does. The credential vendor
+        // (handlers::credentials_vending) reads the storage-specific keys
+        // (account_key/sas_token, etc.) at LoadTable time.
+        "azure_blob" | "adls" | "onelake" => validate_azure_storage(&body.config),
+        "gcs" | "google_cloud_storage" => validate_gcs(&body.config),
         _ => Ok(()),
     };
 
@@ -262,4 +269,51 @@ pub async fn delete_connection(
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+/// Validates an Azure storage connection (Blob / ADLS Gen2 / OneLake).
+///
+/// Requires `account_name` and at least one credential pathway —
+/// `account_key` (used for SAS generation), a pre-issued `sas_token`, or an
+/// Entra-ID `oauth_token`. Inline `iceberg_tables[]` / `delta_tables[]` may
+/// also be present; the catalog forwards them verbatim.
+fn validate_azure_storage(config: &serde_json::Value) -> Result<(), String> {
+    if config
+        .get("account_name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::is_empty)
+        .unwrap_or(true)
+    {
+        return Err("azure storage source requires 'account_name'".into());
+    }
+    let has_key = config.get("account_key").is_some();
+    let has_sas = config.get("sas_token").is_some();
+    let has_oauth = config.get("oauth_token").is_some();
+    if !(has_key || has_sas || has_oauth) {
+        return Err(
+            "azure storage source requires one of 'account_key', 'sas_token' or 'oauth_token'"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// Validates a GCS / Google Cloud Storage connection.
+///
+/// Requires `bucket` and either an `access_token` (OAuth2) or a
+/// `service_account_json` payload that the credential vendor will use to
+/// mint short-lived tokens.
+fn validate_gcs(config: &serde_json::Value) -> Result<(), String> {
+    if config
+        .get("bucket")
+        .and_then(serde_json::Value::as_str)
+        .map(str::is_empty)
+        .unwrap_or(true)
+    {
+        return Err("gcs source requires 'bucket'".into());
+    }
+    if config.get("access_token").is_none() && config.get("service_account_json").is_none() {
+        return Err("gcs source requires 'access_token' or 'service_account_json'".into());
+    }
+    Ok(())
 }

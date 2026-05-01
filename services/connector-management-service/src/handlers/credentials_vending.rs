@@ -26,6 +26,10 @@ use base64::engine::general_purpose::STANDARD as B64;
 use hmac::{Hmac, Mac};
 use serde_json::{Value, json};
 use sha2::Sha256;
+use std::collections::HashMap;
+use std::sync::OnceLock;
+use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use crate::models::connection::Connection;
 
@@ -76,7 +80,16 @@ pub async fn vend(connection: &Connection, ttl_secs: i64) -> VendedCredentials {
                     .get("assume_role_external_id")
                     .and_then(Value::as_str);
                 let region = cfg.get("region").and_then(Value::as_str);
-                match assume_role(arn, session, external_id, region, ttl_secs).await {
+                match assume_role_cached(
+                    connection.id,
+                    arn,
+                    session,
+                    external_id,
+                    region,
+                    ttl_secs,
+                )
+                .await
+                {
                     Ok(creds) => {
                         entries.push(("s3.access-key-id", json!(creds.access_key_id)));
                         entries.push(("s3.secret-access-key", json!(creds.secret_access_key)));
@@ -110,16 +123,30 @@ pub async fn vend(connection: &Connection, ttl_secs: i64) -> VendedCredentials {
             if let Some(account) = cfg.get("account_name").and_then(Value::as_str) {
                 entries.push(("adls.account-name", json!(account)));
 
-                // Generate a fresh account SAS when the storage account key
-                // is available; otherwise honour any pre-issued token.
+                // Generate a fresh SAS when the storage account key is
+                // available; otherwise honour any pre-issued token.
+                //
+                // When `container_name` is set we issue a *service SAS*
+                // scoped to that single container — strictly narrower than
+                // an account SAS and the recommended option for catalog
+                // vending. Without it we fall back to an account SAS
+                // covering blob+file services.
                 if let Some(key) = cfg.get("account_key").and_then(Value::as_str) {
                     let perms = cfg
                         .get("sas_permissions")
                         .and_then(Value::as_str)
                         .unwrap_or("rl");
-                    match generate_account_sas(account, key, perms, expires_at_ms) {
+                    let container = cfg.get("container_name").and_then(Value::as_str);
+                    let sas_result = match container {
+                        Some(c) => generate_service_sas_container(account, key, c, perms, expires_at_ms),
+                        None => generate_account_sas(account, key, perms, expires_at_ms),
+                    };
+                    match sas_result {
                         Ok(sas) => {
                             entries.push(("adls.sas-token", json!(sas)));
+                            if let Some(c) = container {
+                                entries.push(("adls.container", json!(c)));
+                            }
                             return VendedCredentials {
                                 entries,
                                 expires_at_ms,
@@ -158,11 +185,66 @@ pub async fn vend(connection: &Connection, ttl_secs: i64) -> VendedCredentials {
 
 // ────────────────────────── AWS STS ──────────────────────────
 
+#[derive(Clone)]
 struct AssumedRoleCredentials {
     access_key_id: String,
     secret_access_key: String,
     session_token: String,
     expires_at_ms: Option<i64>,
+}
+
+/// Process-wide cache of `sts:AssumeRole` results keyed by the
+/// `(connection_id, role_arn)` pair. The Iceberg REST `loadTable` endpoint
+/// is hit by every PyIceberg / Spark / Trino client refresh tick — without a
+/// cache we would re-issue an STS call per request and quickly hit
+/// AWS's throttling limits.
+///
+/// Entries are reused while the assumed-role credentials are still
+/// considered "fresh" (more than 20 % of their TTL remaining). The 80 %
+/// reuse window matches what PyIceberg, Trino's `IcebergSessionCatalog` and
+/// AWS's own SDK credential providers do internally.
+static STS_CACHE: OnceLock<Mutex<HashMap<(Uuid, String), AssumedRoleCredentials>>> =
+    OnceLock::new();
+
+fn sts_cache() -> &'static Mutex<HashMap<(Uuid, String), AssumedRoleCredentials>> {
+    STS_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Wraps [`assume_role`] with a fresh-credentials cache. Returns the cached
+/// session if it has more than 20 % of its declared lifetime remaining;
+/// otherwise calls STS, stores the new session and returns it.
+async fn assume_role_cached(
+    connection_id: Uuid,
+    role_arn: &str,
+    session_name: &str,
+    external_id: Option<&str>,
+    region: Option<&str>,
+    ttl_secs: i64,
+) -> Result<AssumedRoleCredentials, String> {
+    let key = (connection_id, role_arn.to_string());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let refresh_threshold_ms = (ttl_secs * 1000) / 5; // refresh at <20% remaining
+
+    {
+        let cache = sts_cache().lock().await;
+        if let Some(entry) = cache.get(&key) {
+            if let Some(expires) = entry.expires_at_ms {
+                if expires - now_ms > refresh_threshold_ms {
+                    tracing::debug!(
+                        connection_id = %connection_id,
+                        remaining_ms = expires - now_ms,
+                        "STS cache hit"
+                    );
+                    return Ok(entry.clone());
+                }
+            }
+        }
+    }
+
+    let fresh = assume_role(role_arn, session_name, external_id, region, ttl_secs).await?;
+    let mut cache = sts_cache().lock().await;
+    cache.insert(key, fresh.clone());
+    Ok(fresh)
 }
 
 async fn assume_role(
@@ -271,6 +353,68 @@ fn generate_account_sas(
     Ok(sas)
 }
 
+/// Builds a **service SAS** scoped to a single blob container, per
+/// <https://learn.microsoft.com/rest/api/storageservices/create-service-sas>.
+///
+/// Strictly narrower than an account SAS: the token can only address blobs
+/// inside the named container, and only for the supplied permission set.
+/// Recommended whenever the caller knows which container backs the table
+/// (which is always true for catalog-vended Iceberg / Delta tables).
+fn generate_service_sas_container(
+    account: &str,
+    account_key_b64: &str,
+    container: &str,
+    permissions: &str,
+    expires_at_ms: i64,
+) -> Result<String, String> {
+    use chrono::{TimeZone, Utc};
+
+    let signed_version = "2022-11-02";
+    let signed_resource = "c"; // container
+    let signed_protocol = "https";
+
+    let expiry = Utc
+        .timestamp_millis_opt(expires_at_ms)
+        .single()
+        .ok_or_else(|| format!("invalid expiry timestamp: {expires_at_ms}"))?;
+    let signed_expiry = expiry.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let signed_start = String::new();
+    let canonicalized_resource = format!("/blob/{account}/{container}");
+
+    // StringToSign for service SAS on a container resource (see Azure docs
+    // link above). Empty positional fields preserve the canonical layout
+    // expected by the storage service.
+    let string_to_sign = format!(
+        "{permissions}\n{start}\n{expiry}\n{canonical}\n\n\n\n{protocol}\n{version}\n{resource}\n\n\n\n\n\n",
+        permissions = permissions,
+        start = signed_start,
+        expiry = signed_expiry,
+        canonical = canonicalized_resource,
+        protocol = signed_protocol,
+        version = signed_version,
+        resource = signed_resource,
+    );
+
+    let key_bytes = B64
+        .decode(account_key_b64.as_bytes())
+        .map_err(|e| format!("account_key is not base64: {e}"))?;
+    let mut mac = HmacSha256::new_from_slice(&key_bytes)
+        .map_err(|e| format!("hmac key error: {e}"))?;
+    mac.update(string_to_sign.as_bytes());
+    let signature = B64.encode(mac.finalize().into_bytes());
+
+    let sas = format!(
+        "sv={ver}&sr={sr}&sp={sp}&se={se}&spr={spr}&sig={sig}",
+        ver = signed_version,
+        sr = signed_resource,
+        sp = url_encode(permissions),
+        se = url_encode(&signed_expiry),
+        spr = signed_protocol,
+        sig = url_encode(&signature),
+    );
+    Ok(sas)
+}
+
 fn url_encode(input: &str) -> String {
     // Conservative percent-encoding matching the Azure SDK behaviour.
     const RESERVED: &[u8] = b"!#$&'()*+,/:;=?@[]";
@@ -303,5 +447,20 @@ mod tests {
         assert!(sas.contains("se=2030-03-17T17%3A46%3A40Z"));
         assert!(sas.contains("spr=https"));
         assert!(sas.contains("sig="));
+    }
+
+    #[test]
+    fn service_sas_is_container_scoped() {
+        let key = B64.encode(b"supersecretkey1234567890123456");
+        let sas =
+            generate_service_sas_container("acct", &key, "warehouse", "rl", 1_900_000_000_000)
+                .unwrap();
+        // Container resource and no service/resource-type fields.
+        assert!(sas.contains("sr=c"));
+        assert!(sas.contains("sp=rl"));
+        assert!(sas.contains("se=2030-03-17T17%3A46%3A40Z"));
+        assert!(sas.contains("sig="));
+        assert!(!sas.contains("ss="));
+        assert!(!sas.contains("srt="));
     }
 }

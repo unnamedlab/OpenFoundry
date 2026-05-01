@@ -9,6 +9,20 @@ import type {
   OntologyProjectFolder,
   OntologyProjectResourceBinding,
 } from '$lib/api/ontology';
+import type { ResourceKind } from '$lib/api/workspace';
+
+export interface DragTarget {
+  kind: ResourceKind;
+  id: string;
+  /** For folder targets, the parent we'd traverse for cycle detection. */
+  parentFolderId?: string | null;
+  /** Optional human label (only used in notifications). */
+  label?: string;
+}
+
+export interface DragSource {
+  targets: DragTarget[];
+}
 
 export interface ProjectWorkspaceContext {
   project: OntologyProject | null;
@@ -17,6 +31,16 @@ export interface ProjectWorkspaceContext {
   loading: boolean;
   error: string;
   reload(): Promise<void>;
+  // Drag bus (Phase 6 — DnD across detail page ↔ FolderTree).
+  dragSource: DragSource | null;
+  beginDrag(source: DragSource): void;
+  endDrag(): void;
+  /**
+   * Attempt to drop the active source onto the given folder (or the
+   * project root if `null`). Returns `true` when something was actually
+   * moved. Cycle/no-op cases are handled internally.
+   */
+  tryDrop(targetFolderId: string | null): Promise<boolean>;
 }
 
 const KEY = Symbol('project-workspace');

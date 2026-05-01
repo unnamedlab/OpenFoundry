@@ -224,3 +224,24 @@ export interface BatchResultEntry {
 export function batchApply(actions: BatchAction[]) {
   return api.post<{ results: BatchResultEntry[] }>('/workspace/resources/batch', { actions });
 }
+
+// ---------------------------------------------------------------------------
+// Cross-resource label resolver (POST /workspace/resources/resolve).
+// Returns canonical labels for ontology projects/folders today; other
+// kinds fall back to `resolved: false` and the caller keeps its
+// placeholder. The frontend `resource-labels.ts` cache batches calls.
+// ---------------------------------------------------------------------------
+
+export interface ResolvedLabel {
+  resource_kind: ResourceKind;
+  resource_id: string;
+  resolved: boolean;
+  label: string | null;
+  description: string | null;
+}
+
+export function resolveResourceLabels(
+  items: Array<{ resource_kind: ResourceKind; resource_id: string }>,
+) {
+  return api.post<{ data: ResolvedLabel[] }>('/workspace/resources/resolve', { items });
+}

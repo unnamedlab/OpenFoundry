@@ -49,4 +49,14 @@ pub const VALID_TYPES: &[&str] = &[
     "snowflake",
     "tableau",
     "iot",
+    // Cloud object storage backends used as Iceberg/Delta lake locations.
+    // Their per-source `validate_config` is intentionally permissive — they
+    // are exercised through the Iceberg REST catalog and the credential
+    // vendor (`handlers::credentials_vending`), not through the row-by-row
+    // virtual-table runtime.
+    "azure_blob",
+    "adls",
+    "onelake",
+    "gcs",
+    "google_cloud_storage",
 ];

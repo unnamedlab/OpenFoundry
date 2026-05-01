@@ -315,8 +315,12 @@ export function completeSsoLogin(data: {
   return api.post<LoginResponse>('/auth/sso/callback', data);
 }
 
-export function listUsers() {
-  return api.get<UserProfile[]>('/users');
+export function listUsers(params?: { q?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (params?.q) query.set('q', params.q);
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return api.get<UserProfile[]>(`/users${qs ? `?${qs}` : ''}`);
 }
 
 export function listScopedSessions() {
