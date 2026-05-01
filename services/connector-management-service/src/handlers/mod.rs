@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod connections;
+pub mod credentials_vending;
 pub mod data_connection;
 pub mod dev_auth;
 pub mod hyperauto;

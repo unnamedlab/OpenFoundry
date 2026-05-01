@@ -152,7 +152,7 @@ pub async fn load_table(
         Ok(None) => return iceberg_not_found("table", &table),
         Err(response) => return response,
     };
-    Json(load_table_response(&connection, &registration)).into_response()
+    Json(load_table_response(&connection, &registration).await).into_response()
 }
 
 // ─────────────────────── helpers ───────────────────────
@@ -278,7 +278,7 @@ fn iceberg_not_found(kind: &str, value: &str) -> axum::response::Response {
 /// is the only party that ever sees the underlying source credential — the
 /// client receives a short-lived, table-scoped snapshot keyed by
 /// `expires-at-ms`.
-fn load_table_response(connection: &Connection, registration: &ConnectionRegistration) -> Value {
+async fn load_table_response(connection: &Connection, registration: &ConnectionRegistration) -> Value {
     let upstream_metadata = registration
         .metadata
         .pointer("/discovery/upstream/metadata_location")
@@ -304,7 +304,8 @@ fn load_table_response(connection: &Connection, registration: &ConnectionRegistr
             )),
         );
     }
-    for (key, value) in vended_credentials(connection) {
+    let vended = super::credentials_vending::vend(connection, vended_ttl_secs()).await;
+    for (key, value) in vended.entries {
         config.insert(key, value);
     }
 
@@ -333,73 +334,6 @@ fn vended_ttl_secs() -> i64 {
         .and_then(|raw| raw.parse::<i64>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(900)
-}
-
-/// Issues a short-lived credential snapshot for the source backing a
-/// virtual table. Today this is a *snapshot vending* implementation: the
-/// catalog mediates access (auth has already been enforced by the caller)
-/// and exposes the credential under spec-compliant keys with a hard
-/// `expires-at-ms`. A future revision will swap the snapshot for real STS
-/// `AssumeRole` calls (S3) and SAS-token issuance (ABFS) — the surface
-/// shape here will not change.
-///
-/// Returns spec keys per the [Iceberg REST OpenAPI spec ↗](
-///   https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml):
-///
-///   * S3:   `s3.access-key-id`, `s3.secret-access-key`, `s3.session-token`,
-///           `s3.region`, `s3.endpoint`, `client.region`
-///   * ADLS: `adls.sas-token.<account>`, `adls.account-name`
-///   * GCS:  `gcs.oauth2.token`, `gcs.project-id`
-///
-/// Always emits `expires-at-ms` so clients refresh through the catalog.
-fn vended_credentials(connection: &Connection) -> Vec<(&'static str, Value)> {
-    let mut out: Vec<(&'static str, Value)> = Vec::new();
-    let cfg = &connection.config;
-    let now = chrono::Utc::now().timestamp_millis();
-    let expires = now + vended_ttl_secs() * 1000;
-    out.push(("expires-at-ms", json!(expires.to_string())));
-
-    match connection.connector_type.as_str() {
-        "s3" => {
-            if let Some(key) = cfg.get("access_key_id").and_then(Value::as_str) {
-                out.push(("s3.access-key-id", json!(key)));
-            }
-            if let Some(secret) = cfg.get("secret_access_key").and_then(Value::as_str) {
-                out.push(("s3.secret-access-key", json!(secret)));
-            }
-            if let Some(token) = cfg.get("session_token").and_then(Value::as_str) {
-                out.push(("s3.session-token", json!(token)));
-            }
-            if let Some(region) = cfg.get("region").and_then(Value::as_str) {
-                out.push(("s3.region", json!(region)));
-                out.push(("client.region", json!(region)));
-            }
-            if let Some(endpoint) = cfg.get("endpoint").and_then(Value::as_str) {
-                out.push(("s3.endpoint", json!(endpoint)));
-            }
-            if cfg.get("path_style").and_then(Value::as_bool).unwrap_or(false) {
-                out.push(("s3.path-style-access", json!("true")));
-            }
-        }
-        "azure_blob" | "adls" | "onelake" => {
-            if let Some(account) = cfg.get("account_name").and_then(Value::as_str) {
-                out.push(("adls.account-name", json!(account)));
-            }
-            if let Some(sas) = cfg.get("sas_token").and_then(Value::as_str) {
-                out.push(("adls.sas-token", json!(sas)));
-            }
-        }
-        "gcs" | "google_cloud_storage" => {
-            if let Some(token) = cfg.get("access_token").and_then(Value::as_str) {
-                out.push(("gcs.oauth2.token", json!(token)));
-            }
-            if let Some(project) = cfg.get("project_id").and_then(Value::as_str) {
-                out.push(("gcs.project-id", json!(project)));
-            }
-        }
-        _ => {}
-    }
-    out
 }
 
 /// Minimal Iceberg `TableMetadata`-shaped document. Real Iceberg sources

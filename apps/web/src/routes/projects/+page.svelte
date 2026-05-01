@@ -7,6 +7,7 @@
     duplicateResource,
     listSharedWithMe,
     listTrash,
+    moveResource,
     purgeResource,
     restoreResource,
     softDeleteResource,
@@ -787,6 +788,150 @@
     selectedKeys = new Set();
   }
 
+  // ---------------------------------------------------------------------------
+  // Drag-and-drop: drag folder rows onto folder rows (move into folder) or
+  // project rows (move to project root). Uses the same backend endpoints as
+  // the Move dialog (`moveResource` for one item, `batchApply` for multi).
+  // ---------------------------------------------------------------------------
+
+  type DragSource = { targets: ActionableTarget[] };
+  let dragSource = $state<DragSource | null>(null);
+  let dragOverKey = $state<string | null>(null);
+
+  function isDescendantFolder(candidateId: string, ancestorFolderId: string): boolean {
+    // Walk up from candidate's chain; if we reach ancestorFolderId, candidate
+    // is inside ancestor (or equal). Used to forbid dropping a folder into
+    // itself or its own subtree.
+    let cursor: string | null = candidateId;
+    const byId = new Map(folders.map((f) => [f.id, f] as const));
+    while (cursor) {
+      if (cursor === ancestorFolderId) return true;
+      const node = byId.get(cursor);
+      cursor = node?.parent_folder_id ?? null;
+    }
+    return false;
+  }
+
+  function handleRowDragStart(event: DragEvent, row: WorkspaceRow) {
+    const target = rowToTarget(row);
+    // Only ontology folders can be dragged today; projects can't be moved.
+    if (!target || target.kind !== 'ontology_folder') {
+      event.preventDefault();
+      return;
+    }
+
+    // If the dragged row is part of the current selection, drag the whole
+    // selection (folders only). Otherwise drag just this row.
+    const all = selectedTargets().filter((t) => t.kind === 'ontology_folder');
+    const inSelection = all.some((t) => rowKey(t) === rowKey(target));
+    const targets = inSelection && all.length > 0 ? all : [target];
+    dragSource = { targets };
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      // Some browsers refuse to start a drag without a data payload.
+      event.dataTransfer.setData('text/plain', targets.map((t) => rowKey(t)).join(','));
+    }
+  }
+
+  function handleRowDragEnd() {
+    dragSource = null;
+    dragOverKey = null;
+  }
+
+  function dropTargetForRow(row: WorkspaceRow): {
+    projectId: string;
+    folderId: string | null;
+    label: string;
+  } | null {
+    if (row.kind === 'project') {
+      const projectId = row.id.replace(/^project-/, '');
+      return { projectId, folderId: null, label: row.name };
+    }
+    if (row.kind === 'folder') {
+      const folderId = row.id.replace(/^folder-/, '');
+      const folder = folders.find((f) => f.id === folderId);
+      if (!folder) return null;
+      return { projectId: folder.project_id, folderId, label: row.name };
+    }
+    return null;
+  }
+
+  function dropAccepts(row: WorkspaceRow): boolean {
+    if (!dragSource || dragSource.targets.length === 0) return false;
+    const dest = dropTargetForRow(row);
+    if (!dest) return false;
+    // Forbid dropping onto self or any descendant of any dragged folder.
+    return dragSource.targets.every((src) => {
+      if (src.kind !== 'ontology_folder') return true;
+      if (dest.folderId && isDescendantFolder(dest.folderId, src.id)) return false;
+      return true;
+    });
+  }
+
+  function handleRowDragOver(event: DragEvent, row: WorkspaceRow) {
+    if (!dropAccepts(row)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    const dest = dropTargetForRow(row);
+    if (dest) dragOverKey = `${row.kind}:${dest.folderId ?? dest.projectId}`;
+  }
+
+  function handleRowDragLeave(row: WorkspaceRow) {
+    const dest = dropTargetForRow(row);
+    if (!dest) return;
+    const key = `${row.kind}:${dest.folderId ?? dest.projectId}`;
+    if (dragOverKey === key) dragOverKey = null;
+  }
+
+  async function handleRowDrop(event: DragEvent, row: WorkspaceRow) {
+    if (!dropAccepts(row)) return;
+    event.preventDefault();
+    const dest = dropTargetForRow(row);
+    const src = dragSource;
+    dragOverKey = null;
+    dragSource = null;
+    if (!dest || !src) return;
+
+    try {
+      if (src.targets.length === 1) {
+        const t = src.targets[0];
+        await moveResource(t.kind, t.id, {
+          target_project_id: dest.projectId,
+          target_folder_id: dest.folderId,
+        });
+        notifications.success(`Moved into ${dest.label}.`);
+      } else {
+        const actions: BatchAction[] = src.targets.map((t) => ({
+          op: 'move',
+          resource_kind: t.kind,
+          resource_id: t.id,
+          target_folder_id: dest.folderId,
+        }));
+        const { results } = await batchApply(actions);
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length === 0) {
+          notifications.success(`Moved ${results.length} item(s) into ${dest.label}.`);
+        } else {
+          notifications.warning(
+            `${results.length - failed.length} succeeded, ${failed.length} failed.`,
+          );
+        }
+        clearSelection();
+      }
+      await loadProjects();
+    } catch (cause) {
+      notifications.error(cause instanceof Error ? cause.message : 'Drag move failed');
+    }
+  }
+
+  function isRowDropTarget(row: WorkspaceRow): boolean {
+    if (!dragSource) return false;
+    const dest = dropTargetForRow(row);
+    if (!dest) return false;
+    return dragOverKey === `${row.kind}:${dest.folderId ?? dest.projectId}`;
+  }
+
   function selectedTargets(): ActionableTarget[] {
     const targets: ActionableTarget[] = [];
     for (const row of allRows) {
@@ -1255,7 +1400,9 @@
                   </span>
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="truncate font-medium text-[var(--text-strong)]">{entry.display_name}</span>
+                      <span class="truncate font-medium text-[var(--text-strong)]">
+                        {cachedLabel(entry.resource_kind, entry.resource_id) ?? entry.display_name}
+                      </span>
                       <span class="of-chip">{entry.resource_kind}</span>
                     </div>
                     <div class="mt-1 text-xs text-[var(--text-muted)]">
@@ -1307,7 +1454,10 @@
       busy={bulkBusy}
       onAction={(id) => void handleBulkAction(id)}
       onClear={clearSelection}
-      actions={[{ id: 'delete', label: 'Move to trash', danger: true }]}
+      actions={[
+        { id: 'move', label: 'Move…' },
+        { id: 'delete', label: 'Move to trash', danger: true },
+      ]}
     />
 
     <section class="of-panel overflow-hidden">
@@ -1367,11 +1517,21 @@
                       : ''}
                 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <div
-                  class={`grid grid-cols-[minmax(0,2.6fr),80px,120px,180px,160px,130px] items-start gap-3 px-4 py-4 ${
-                    navigationHref ? 'cursor-pointer hover:bg-[#fbfdff]' : 'hover:bg-[#fbfdff]'
+                  class={`grid grid-cols-[minmax(0,2.6fr),80px,120px,180px,160px,130px] items-start gap-3 px-4 py-4 transition ${
+                    isRowDropTarget(row)
+                      ? 'bg-[#eef4fd] ring-2 ring-inset ring-[#3f7be0]'
+                      : navigationHref
+                        ? 'cursor-pointer hover:bg-[#fbfdff]'
+                        : 'hover:bg-[#fbfdff]'
                   }`}
                   role={navigationHref ? 'link' : undefined}
                   tabindex={navigationHref ? 0 : undefined}
+                  draggable={row.kind === 'folder'}
+                  ondragstart={(event) => handleRowDragStart(event, row)}
+                  ondragend={handleRowDragEnd}
+                  ondragover={(event) => handleRowDragOver(event, row)}
+                  ondragleave={() => handleRowDragLeave(row)}
+                  ondrop={(event) => void handleRowDrop(event, row)}
                   onclick={() => {
                     if (navigationHref) void goto(navigationHref);
                   }}
@@ -1746,4 +1906,30 @@
   {projects}
   onClose={() => (moveTarget = null)}
   onMoved={() => void loadProjects()}
+/>
+
+<MoveDialog
+  open={bulkMoveOpen}
+  resourceKind={null}
+  resourceId={null}
+  initialProjectId={null}
+  targets={selectedTargets().map((t) => ({ kind: t.kind, id: t.id, label: t.label }))}
+  {projects}
+  onClose={() => (bulkMoveOpen = false)}
+  onMoved={() => {
+    bulkMoveOpen = false;
+    clearSelection();
+    void loadProjects();
+  }}
+/>
+
+<ConfirmDialog
+  open={confirmRequest !== null}
+  title={confirmRequest?.title ?? ''}
+  message={confirmRequest?.message ?? ''}
+  confirmLabel={confirmRequest?.confirmLabel ?? 'Confirm'}
+  danger={confirmRequest?.danger ?? false}
+  busy={confirmBusy}
+  onConfirm={() => void runConfirm()}
+  onCancel={cancelConfirm}
 />

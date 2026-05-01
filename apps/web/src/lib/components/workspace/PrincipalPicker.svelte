@@ -162,6 +162,7 @@
     type="text"
     role="combobox"
     aria-expanded={open}
+    aria-controls="principal-picker-listbox"
     aria-autocomplete="list"
     {placeholder}
     value={query}
@@ -173,6 +174,7 @@
 
   {#if open && (matches.length > 0 || loading || loadError)}
     <ul
+      id="principal-picker-listbox"
       class="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-md border border-[var(--border-default)] bg-white py-1 shadow-lg"
       role="listbox"
     >
