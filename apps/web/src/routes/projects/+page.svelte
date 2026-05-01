@@ -3,6 +3,31 @@
   import { goto } from '$app/navigation';
   import Glyph from '$components/ui/Glyph.svelte';
   import {
+    batchApply,
+    duplicateResource,
+    listSharedWithMe,
+    listTrash,
+    purgeResource,
+    restoreResource,
+    softDeleteResource,
+    type BatchAction,
+    type ResourceKind,
+    type ResourceShare,
+    type TrashEntry,
+  } from '$lib/api/workspace';
+  import RowActionsMenu, {
+    type RowAction,
+  } from '$components/workspace/RowActionsMenu.svelte';
+  import RenameDialog from '$components/workspace/RenameDialog.svelte';
+  import MoveDialog from '$components/workspace/MoveDialog.svelte';
+  import BulkActionsToolbar from '$components/workspace/BulkActionsToolbar.svelte';
+  import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
+  import {
+    cachedLabel,
+    resolveLabels,
+    setLabel as setResourceLabel,
+  } from '$lib/utils/resource-labels';
+  import {
     createProject,
     listProjectFolders,
     listProjects,
@@ -370,10 +395,19 @@
     try {
       const response = await listProjects({ page: 1, per_page: 100 });
       projects = response.data;
+      // Seed the resource label cache so ConfirmDialog/MoveDialog/Trash
+      // entries display human-readable names instead of the
+      // "kind · id-prefix" placeholder.
+      for (const project of response.data) {
+        setResourceLabel('ontology_project', project.id, project.display_name || project.slug);
+      }
       const folderGroups = await Promise.all(
         response.data.map(async (project) => listProjectFolders(project.id).catch(() => [])),
       );
       folders = folderGroups.flat();
+      for (const folder of folders) {
+        setResourceLabel('ontology_folder', folder.id, folder.name);
+      }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Unable to load projects';
       notifications.error(error);
@@ -555,6 +589,381 @@
     return 'File';
   }
 
+  // ---------------------------------------------------------------------------
+  // Phase 3 / Phase 1 backend wiring: real "Shared with you" + "Trash"
+  // ---------------------------------------------------------------------------
+
+  let sharedItems = $state<ResourceShare[]>([]);
+  let sharedLoading = $state(false);
+  let sharedError = $state('');
+  let sharedLoaded = false;
+
+  let trashItems = $state<TrashEntry[]>([]);
+  let trashLoading = $state(false);
+  let trashError = $state('');
+  let trashLoaded = false;
+  let trashBusyKey = $state<string | null>(null);
+  let trashLimit = $state(50);
+  let trashHasMore = $state(false);
+
+  async function loadShared(force = false) {
+    if (sharedLoading || (!force && sharedLoaded)) return;
+    sharedLoading = true;
+    sharedError = '';
+    try {
+      sharedItems = await listSharedWithMe({ limit: 100 });
+      sharedLoaded = true;
+    } catch (cause) {
+      sharedError = cause instanceof Error ? cause.message : 'Unable to load shared items';
+      sharedItems = [];
+    } finally {
+      sharedLoading = false;
+    }
+  }
+
+  async function loadTrash(force = false) {
+    if (trashLoading || (!force && trashLoaded)) return;
+    trashLoading = true;
+    trashError = '';
+    try {
+      trashItems = await listTrash({ limit: trashLimit });
+      trashHasMore = trashItems.length >= trashLimit;
+      trashLoaded = true;
+      // Best-effort label resolution for ontology kinds not pre-cached.
+      const missing = trashItems
+        .filter((entry) => cachedLabel(entry.resource_kind, entry.resource_id).startsWith(`${entry.resource_kind} · `))
+        .map((entry) => ({ kind: entry.resource_kind, id: entry.resource_id }));
+      if (missing.length > 0) void resolveLabels(missing);
+    } catch (cause) {
+      trashError = cause instanceof Error ? cause.message : 'Unable to load trash';
+      trashItems = [];
+    } finally {
+      trashLoading = false;
+    }
+  }
+
+  async function handleRestore(entry: TrashEntry) {
+    const key = `${entry.resource_kind}:${entry.resource_id}`;
+    trashBusyKey = key;
+    try {
+      await restoreResource(entry.resource_kind, entry.resource_id);
+      notifications.success('Resource restored');
+      await loadTrash(true);
+      await loadProjects();
+    } catch (cause) {
+      notifications.error(cause instanceof Error ? cause.message : 'Unable to restore resource');
+    } finally {
+      trashBusyKey = null;
+    }
+  }
+
+  async function handlePurge(entry: TrashEntry) {
+    const key = `${entry.resource_kind}:${entry.resource_id}`;
+    askConfirm({
+      title: `Permanently delete ${entry.display_name}?`,
+      message: 'This cannot be undone. The resource will be removed from trash and the database.',
+      confirmLabel: 'Delete forever',
+      danger: true,
+      run: async () => {
+        trashBusyKey = key;
+        try {
+          await purgeResource(entry.resource_kind, entry.resource_id);
+          notifications.success('Resource permanently deleted');
+          await loadTrash(true);
+        } catch (cause) {
+          notifications.error(cause instanceof Error ? cause.message : 'Unable to purge resource');
+        } finally {
+          trashBusyKey = null;
+        }
+      },
+    });
+  }
+
+  // Lazy-load each tab the first time the user activates it. Keeps the
+  // initial render fast and avoids fetching trash for users who never
+  // open it.
+  $effect(() => {
+    if (activeView === 'shared') void loadShared();
+    else if (activeView === 'trash') void loadTrash();
+  });
+
+  function formatRelative(value: string) {
+    const date = new Date(value);
+    return new Intl.DateTimeFormat('en', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 4: row actions, multi-select & bulk ops
+  // ---------------------------------------------------------------------------
+
+  type ActionableTarget = { kind: ResourceKind; id: string; label: string; projectId: string | null };
+
+  let selectedKeys = $state<Set<string>>(new Set());
+  let bulkBusy = $state(false);
+  let trashSelectedKeys = $state<Set<string>>(new Set());
+  let trashBulkBusy = $state(false);
+
+  let renameTarget = $state<ActionableTarget | null>(null);
+  let moveTarget = $state<ActionableTarget | null>(null);
+  let bulkMoveOpen = $state(false);
+  let actionBusyKey = $state<string | null>(null);
+
+  // ConfirmDialog: a single pending request encapsulates title + body +
+  // executor; the dialog is rendered at template root.
+  type ConfirmRequest = {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => Promise<void>;
+  };
+  let confirmRequest = $state<ConfirmRequest | null>(null);
+  let confirmBusy = $state(false);
+
+  function askConfirm(req: ConfirmRequest) {
+    confirmRequest = req;
+  }
+
+  async function runConfirm() {
+    if (!confirmRequest) return;
+    confirmBusy = true;
+    try {
+      await confirmRequest.run();
+      confirmRequest = null;
+    } finally {
+      confirmBusy = false;
+    }
+  }
+
+  function cancelConfirm() {
+    if (confirmBusy) return;
+    confirmRequest = null;
+  }
+
+  function rowToTarget(row: WorkspaceRow): ActionableTarget | null {
+    if (row.kind === 'project') {
+      const id = row.id.replace(/^project-/, '');
+      return { kind: 'ontology_project', id, label: row.name, projectId: id };
+    }
+    if (row.kind === 'folder') {
+      const id = row.id.replace(/^folder-/, '');
+      const folder = folders.find((f) => f.id === id);
+      return {
+        kind: 'ontology_folder',
+        id,
+        label: row.name,
+        projectId: folder?.project_id ?? null,
+      };
+    }
+    return null;
+  }
+
+  function rowKey(target: ActionableTarget) {
+    return `${target.kind}:${target.id}`;
+  }
+
+  function isRowSelected(row: WorkspaceRow) {
+    const target = rowToTarget(row);
+    return target ? selectedKeys.has(rowKey(target)) : false;
+  }
+
+  function toggleRowSelected(row: WorkspaceRow) {
+    const target = rowToTarget(row);
+    if (!target) return;
+    const next = new Set(selectedKeys);
+    const key = rowKey(target);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    selectedKeys = next;
+  }
+
+  function clearSelection() {
+    selectedKeys = new Set();
+  }
+
+  function selectedTargets(): ActionableTarget[] {
+    const targets: ActionableTarget[] = [];
+    for (const row of allRows) {
+      const target = rowToTarget(row);
+      if (target && selectedKeys.has(rowKey(target))) targets.push(target);
+    }
+    return targets;
+  }
+
+  function rowActionsFor(row: WorkspaceRow): RowAction[] {
+    return [
+      { id: 'rename', label: 'Rename', icon: 'pencil' },
+      { id: 'duplicate', label: 'Duplicate', icon: 'duplicate' },
+      { id: 'move', label: 'Move…', icon: 'move', disabled: row.kind === 'project' },
+      { id: 'delete', label: 'Move to trash', icon: 'delete', danger: true },
+    ];
+  }
+
+  async function handleRowAction(row: WorkspaceRow, actionId: string) {
+    const target = rowToTarget(row);
+    if (!target) return;
+    if (actionId === 'rename') {
+      renameTarget = target;
+      return;
+    }
+    if (actionId === 'move') {
+      moveTarget = target;
+      return;
+    }
+    if (actionId === 'duplicate') {
+      const key = rowKey(target);
+      actionBusyKey = key;
+      try {
+        await duplicateResource(target.kind, target.id, { suffix: ' (copy)' });
+        notifications.success('Duplicated successfully.');
+        await loadProjects();
+      } catch (cause) {
+        notifications.error(cause instanceof Error ? cause.message : 'Unable to duplicate');
+      } finally {
+        actionBusyKey = null;
+      }
+      return;
+    }
+    if (actionId === 'delete') {
+      askConfirm({
+        title: 'Move to trash?',
+        message: `Move "${target.label}" to trash. You can restore it later from the Trash tab.`,
+        confirmLabel: 'Move to trash',
+        danger: true,
+        run: async () => {
+          const key = rowKey(target);
+          actionBusyKey = key;
+          try {
+            await softDeleteResource(target.kind, target.id);
+            notifications.success('Moved to trash.');
+            await loadProjects();
+            if (trashLoaded) await loadTrash(true);
+            const next = new Set(selectedKeys);
+            next.delete(key);
+            selectedKeys = next;
+          } catch (cause) {
+            notifications.error(cause instanceof Error ? cause.message : 'Unable to delete');
+          } finally {
+            actionBusyKey = null;
+          }
+        },
+      });
+    }
+  }
+
+  async function handleBulkAction(actionId: string) {
+    const targets = selectedTargets();
+    if (targets.length === 0) return;
+    if (actionId === 'move') {
+      bulkMoveOpen = true;
+      return;
+    }
+    if (actionId === 'delete') {
+      askConfirm({
+        title: `Move ${targets.length} item(s) to trash?`,
+        message: 'Selected projects and folders will be soft-deleted. Restore them from the Trash tab.',
+        confirmLabel: 'Move to trash',
+        danger: true,
+        run: async () => {
+          bulkBusy = true;
+          try {
+            const actions: BatchAction[] = targets.map((t) => ({
+              op: 'soft_delete',
+              resource_kind: t.kind,
+              resource_id: t.id,
+            }));
+            const { results } = await batchApply(actions);
+            const failed = results.filter((r) => !r.ok);
+            if (failed.length === 0) {
+              notifications.success(`Moved ${results.length} item(s) to trash.`);
+            } else {
+              notifications.warning(
+                `${results.length - failed.length} succeeded, ${failed.length} failed.`,
+              );
+            }
+            clearSelection();
+            await loadProjects();
+            if (trashLoaded) await loadTrash(true);
+          } catch (cause) {
+            notifications.error(cause instanceof Error ? cause.message : 'Bulk delete failed');
+          } finally {
+            bulkBusy = false;
+          }
+        },
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trash multi-select
+  // ---------------------------------------------------------------------------
+
+  function trashKey(entry: TrashEntry) {
+    return `${entry.resource_kind}:${entry.resource_id}`;
+  }
+
+  function isTrashSelected(entry: TrashEntry) {
+    return trashSelectedKeys.has(trashKey(entry));
+  }
+
+  function toggleTrashSelected(entry: TrashEntry) {
+    const key = trashKey(entry);
+    const next = new Set(trashSelectedKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    trashSelectedKeys = next;
+  }
+
+  function clearTrashSelection() {
+    trashSelectedKeys = new Set();
+  }
+
+  async function handleTrashBulk(actionId: 'restore' | 'purge') {
+    const selected = trashItems.filter((entry) => trashSelectedKeys.has(trashKey(entry)));
+    if (selected.length === 0) return;
+    const exec = async () => {
+      trashBulkBusy = true;
+      try {
+        const fn = actionId === 'restore' ? restoreResource : purgeResource;
+        const results = await Promise.allSettled(
+          selected.map((entry) => fn(entry.resource_kind, entry.resource_id)),
+        );
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        if (failed === 0) {
+          notifications.success(
+            actionId === 'restore'
+              ? `Restored ${results.length} item(s).`
+              : `Permanently deleted ${results.length} item(s).`,
+          );
+        } else {
+          notifications.warning(`${results.length - failed} succeeded, ${failed} failed.`);
+        }
+        clearTrashSelection();
+        await loadTrash(true);
+        if (actionId === 'restore') await loadProjects();
+      } finally {
+        trashBulkBusy = false;
+      }
+    };
+    if (actionId === 'purge') {
+      askConfirm({
+        title: `Permanently delete ${selected.length} item(s)?`,
+        message: 'This cannot be undone. Selected resources will be removed from trash and the database.',
+        confirmLabel: 'Delete forever',
+        danger: true,
+        run: exec,
+      });
+    } else {
+      await exec();
+    }
+  }
+
   onMount(() => {
     resetDraft();
     void loadSpaceOptions();
@@ -734,6 +1143,151 @@
       </div>
     {/if}
 
+    {#if activeView === 'shared'}
+      <section class="of-panel p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold text-[var(--text-strong)]">Shared with you</div>
+            <p class="m-0 mt-1 text-sm text-[var(--text-muted)]">
+              Resources other users have explicitly shared with you. Expired shares are filtered out automatically.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="text-sm font-medium text-[var(--text-link)]"
+            onclick={() => loadShared(true)}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {#if sharedLoading}
+          <div class="mt-4 text-sm text-[var(--text-muted)]">Loading shared items…</div>
+        {:else if sharedError}
+          <div class="mt-4 text-sm text-[#b42318]">{sharedError}</div>
+        {:else if sharedItems.length === 0}
+          <div class="mt-4 rounded-md border border-dashed border-[var(--border-default)] bg-[#fbfcfe] p-6 text-center text-sm text-[var(--text-muted)]">
+            Nothing has been shared with you yet.
+          </div>
+        {:else}
+          <ul class="m-0 mt-4 list-none space-y-2 p-0">
+            {#each sharedItems as share (share.id)}
+              <li class="flex items-center justify-between gap-3 rounded-md border border-[var(--border-default)] bg-[#fbfcfe] px-3 py-3">
+                <div class="flex min-w-0 items-start gap-3">
+                  <span class="mt-0.5 rounded-md border border-[var(--border-default)] bg-white p-2 text-[var(--text-muted)]">
+                    <Glyph name="users" size={14} />
+                  </span>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="truncate font-medium text-[var(--text-strong)]">
+                        {share.resource_kind} · {share.resource_id.slice(0, 8)}…
+                      </span>
+                      <span class="of-chip">{share.access_level}</span>
+                    </div>
+                    <div class="mt-1 text-xs text-[var(--text-muted)]">
+                      Shared by {share.sharer_id.slice(0, 8)}… · {formatRelative(share.created_at)}
+                      {#if share.expires_at} · expires {formatRelative(share.expires_at)}{/if}
+                    </div>
+                    {#if share.note}
+                      <div class="mt-1 text-xs text-[var(--text-soft)]">{share.note}</div>
+                    {/if}
+                  </div>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+    {/if}
+
+    {#if activeView === 'trash'}
+      <section class="of-panel p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold text-[var(--text-strong)]">Trash</div>
+            <p class="m-0 mt-1 text-sm text-[var(--text-muted)]">
+              Soft-deleted projects, folders and resources. Restore puts them back where they were; purge removes them permanently.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="text-sm font-medium text-[var(--text-link)]"
+            onclick={() => loadTrash(true)}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {#if trashLoading}
+          <div class="mt-4 text-sm text-[var(--text-muted)]">Loading trash…</div>
+        {:else if trashError}
+          <div class="mt-4 text-sm text-[#b42318]">{trashError}</div>
+        {:else if trashItems.length === 0}
+          <div class="mt-4 rounded-md border border-dashed border-[var(--border-default)] bg-[#fbfcfe] p-6 text-center text-sm text-[var(--text-muted)]">
+            Trash is empty.
+          </div>
+        {:else}
+          <BulkActionsToolbar
+            count={trashSelectedKeys.size}
+            busy={trashBulkBusy}
+            onAction={(id) => void handleTrashBulk(id as 'restore' | 'purge')}
+            onClear={clearTrashSelection}
+            actions={[
+              { id: 'restore', label: 'Restore selected' },
+              { id: 'purge', label: 'Purge selected', danger: true },
+            ]}
+          />
+          <ul class="m-0 mt-4 list-none space-y-2 p-0">
+            {#each trashItems as entry (`${entry.resource_kind}:${entry.resource_id}`)}
+              {@const key = `${entry.resource_kind}:${entry.resource_id}`}
+              {@const busy = trashBusyKey === key}
+              <li class="flex items-center justify-between gap-3 rounded-md border border-[var(--border-default)] bg-[#fbfcfe] px-3 py-3">
+                <div class="flex min-w-0 items-start gap-3">
+                  <input
+                    type="checkbox"
+                    class="mt-2"
+                    aria-label={`Select ${entry.display_name}`}
+                    checked={isTrashSelected(entry)}
+                    onchange={() => toggleTrashSelected(entry)}
+                  />
+                  <span class="mt-0.5 rounded-md border border-[var(--border-default)] bg-white p-2 text-[var(--text-muted)]">
+                    <Glyph name="folder" size={14} />
+                  </span>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="truncate font-medium text-[var(--text-strong)]">{entry.display_name}</span>
+                      <span class="of-chip">{entry.resource_kind}</span>
+                    </div>
+                    <div class="mt-1 text-xs text-[var(--text-muted)]">
+                      Deleted {formatRelative(entry.deleted_at)} by {entry.deleted_by.slice(0, 8)}…
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="of-btn"
+                    disabled={busy}
+                    onclick={() => handleRestore(entry)}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    class="of-btn"
+                    disabled={busy}
+                    onclick={() => handlePurge(entry)}
+                  >
+                    Purge
+                  </button>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+    {/if}
+
     <div class="of-search-shell">
       <div class="of-search-filter">
         <Glyph name="search" size={15} />
@@ -747,6 +1301,14 @@
         />
       </div>
     </div>
+
+    <BulkActionsToolbar
+      count={selectedKeys.size}
+      busy={bulkBusy}
+      onAction={(id) => void handleBulkAction(id)}
+      onClear={clearSelection}
+      actions={[{ id: 'delete', label: 'Move to trash', danger: true }]}
+    />
 
     <section class="of-panel overflow-hidden">
       <div class="grid min-h-[420px] grid-cols-[44px,1fr]">
@@ -823,6 +1385,16 @@
                 >
                   <div class="min-w-0">
                     <div class="flex items-start gap-3">
+                      {#if row.kind === 'project' || row.kind === 'folder'}
+                        <input
+                          type="checkbox"
+                          class="mt-2"
+                          aria-label={`Select ${row.name}`}
+                          checked={isRowSelected(row)}
+                          onclick={(event) => event.stopPropagation()}
+                          onchange={() => toggleRowSelected(row)}
+                        />
+                      {/if}
                       <div class="mt-0.5 rounded-md border border-[var(--border-default)] bg-white p-2 text-[var(--text-muted)]">
                         {#if row.kind === 'portfolio'}
                           <Glyph name="bookmark" size={14} />
@@ -834,7 +1406,7 @@
                           <Glyph name="artifact" size={14} />
                         {/if}
                       </div>
-                      <div class="min-w-0">
+                      <div class="min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-2">
                           <div class="truncate font-semibold text-[var(--text-strong)]">{row.name}</div>
                           <span class="of-chip">{kindLabel(row.kind)}</span>
@@ -843,6 +1415,13 @@
                         <div class="mt-1 text-sm text-[var(--text-muted)]">{row.description}</div>
                         <div class="mt-2 text-xs text-[var(--text-soft)]">{row.location}</div>
                       </div>
+                      {#if row.kind === 'project' || row.kind === 'folder'}
+                        <RowActionsMenu
+                          actions={rowActionsFor(row)}
+                          onSelect={(actionId) => void handleRowAction(row, actionId)}
+                          label={`Actions for ${row.name}`}
+                        />
+                      {/if}
                     </div>
                   </div>
 
@@ -1148,3 +1727,23 @@
     </div>
   </div>
 {/if}
+
+<RenameDialog
+  open={renameTarget !== null}
+  resourceKind={renameTarget?.kind ?? null}
+  resourceId={renameTarget?.id ?? null}
+  currentName={renameTarget?.label ?? ''}
+  onClose={() => (renameTarget = null)}
+  onRenamed={() => void loadProjects()}
+/>
+
+<MoveDialog
+  open={moveTarget !== null}
+  resourceKind={moveTarget?.kind ?? null}
+  resourceId={moveTarget?.id ?? null}
+  resourceLabel={moveTarget?.label}
+  initialProjectId={moveTarget?.projectId ?? null}
+  {projects}
+  onClose={() => (moveTarget = null)}
+  onMoved={() => void loadProjects()}
+/>

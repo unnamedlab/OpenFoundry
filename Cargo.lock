@@ -2049,6 +2049,9 @@ name = "connector-management-service"
 version = "0.0.1"
 dependencies = [
  "aes-gcm",
+ "arrow-array 57.3.0",
+ "arrow-ipc 57.3.0",
+ "arrow-schema 57.3.0",
  "async-trait",
  "auth-middleware",
  "axum 0.8.9",

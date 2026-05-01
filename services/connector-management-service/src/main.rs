@@ -174,6 +174,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/sources/{source_id}/registrations/{registration_id}/query",
             post(handlers::registrations::query_registration),
+        )
+        .route(
+            "/sources/{source_id}/registrations/{registration_id}/query/arrow",
+            post(handlers::registrations::query_registration_arrow),
         );
 
     // Iceberg REST Catalog surface (zero-copy gateway for external engines).

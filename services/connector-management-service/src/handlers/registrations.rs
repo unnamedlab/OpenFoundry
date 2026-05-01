@@ -23,11 +23,16 @@ use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::IntoResponse,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
+
+use arrow_array::{ArrayRef, RecordBatch, StringArray};
+use arrow_ipc::writer::StreamWriter;
+use arrow_schema::{DataType, Field, Schema};
+use std::sync::Arc;
 
 use crate::{
     AppState,
@@ -307,6 +312,110 @@ pub async fn query_registration(
             (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response()
         }
     }
+}
+
+/// POST /api/v1/data-connection/sources/{id}/registrations/{registration_id}/query/arrow
+///
+/// **Arrow IPC streaming** variant of `query_registration`. Encodes the
+/// virtual table response as an Arrow IPC stream
+/// (`application/vnd.apache.arrow.stream`) so engines like DuckDB,
+/// PyArrow, polars and Foundry's own preview pane can consume rows
+/// columnar without per-row JSON deserialization.
+///
+/// This is the lightweight HTTP-friendly cousin of Arrow Flight: a single
+/// schema message followed by N record-batch messages on the same
+/// response body. Until per-connector iterators are exposed we emit a
+/// single batch built from the same `VirtualTableQueryResponse` rows.
+/// All values are encoded as UTF-8 strings (a valid, columnar lowest
+/// common denominator across heterogeneous JSON inputs); a future revision
+/// will infer a native Arrow schema from the connector.
+pub async fn query_registration_arrow(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((connection_id, registration_id)): Path<(Uuid, Uuid)>,
+    body: Option<Json<QueryRegistrationBody>>,
+) -> impl IntoResponse {
+    let connection = match load_connection(&state, connection_id).await {
+        Ok(connection) => connection,
+        Err(response) => return response,
+    };
+    if !can_manage(&claims, &connection) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let registration = match sqlx::query_as::<_, ConnectionRegistration>(
+        "SELECT * FROM connection_registrations WHERE id = $1 AND connection_id = $2",
+    )
+    .bind(registration_id)
+    .bind(connection_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(reg)) => reg,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("registration lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let limit = body.and_then(|Json(b)| b.limit);
+    let request = VirtualTableQueryRequest {
+        selector: registration.selector.clone(),
+        limit,
+    };
+    let response = match discovery::query_virtual_table(&state, &connection, &request).await {
+        Ok(response) => response,
+        Err(error) => {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response();
+        }
+    };
+    match encode_arrow_stream(&response.columns, &response.rows) {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "application/vnd.apache.arrow.stream"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!("arrow encoding failed: {error}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": error }))).into_response()
+        }
+    }
+}
+
+fn encode_arrow_stream(columns: &[String], rows: &[Value]) -> Result<Vec<u8>, String> {
+    let fields: Vec<Field> = columns
+        .iter()
+        .map(|name| Field::new(name, DataType::Utf8, true))
+        .collect();
+    let schema = Arc::new(Schema::new(fields));
+
+    let mut column_data: Vec<Vec<Option<String>>> = columns.iter().map(|_| Vec::new()).collect();
+    for row in rows {
+        for (idx, name) in columns.iter().enumerate() {
+            let cell = row.get(name).map(|v| match v {
+                Value::Null => None,
+                Value::String(s) => Some(s.clone()),
+                other => Some(other.to_string()),
+            });
+            column_data[idx].push(cell.flatten());
+        }
+    }
+    let arrays: Vec<ArrayRef> = column_data
+        .into_iter()
+        .map(|values| Arc::new(StringArray::from(values)) as ArrayRef)
+        .collect();
+    let batch = RecordBatch::try_new(schema.clone(), arrays).map_err(|e| e.to_string())?;
+
+    let mut buffer = Vec::with_capacity(4096);
+    {
+        let mut writer = StreamWriter::try_new(&mut buffer, &schema).map_err(|e| e.to_string())?;
+        writer.write(&batch).map_err(|e| e.to_string())?;
+        writer.finish().map_err(|e| e.to_string())?;
+    }
+    Ok(buffer)
 }
 
 /// DELETE /api/v1/data-connection/sources/{id}/registrations/{registration_id}

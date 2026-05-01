@@ -1,5 +1,6 @@
 <script lang="ts">
   import Glyph from '$components/ui/Glyph.svelte';
+  import ShareDialog from '$components/workspace/ShareDialog.svelte';
   import { notifications } from '$stores/notifications';
   import {
     createFavorite,
@@ -39,6 +40,7 @@
   let loadingShares = $state(false);
   let sharesError = $state('');
   let togglingFavorite = $state(false);
+  let shareDialogOpen = $state(false);
 
   // Reload shares whenever the panel opens for a new resource. Failures
   // are non-fatal — the panel still renders metadata.
@@ -184,7 +186,16 @@
       <section class="mt-6">
         <div class="flex items-center justify-between">
           <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">Shared with</div>
-          <span class="text-xs text-[var(--text-soft)]">{shares.length}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-[var(--text-soft)]">{shares.length}</span>
+            <button
+              type="button"
+              class="text-xs font-medium text-[var(--text-link)] hover:underline"
+              onclick={() => (shareDialogOpen = true)}
+            >
+              Manage
+            </button>
+          </div>
         </div>
 
         {#if loadingShares}
@@ -213,4 +224,15 @@
       </section>
     </div>
   </aside>
+
+  <ShareDialog
+    open={shareDialogOpen}
+    resourceKind={resource.kind}
+    resourceId={resource.id}
+    resourceLabel={resource.name}
+    onClose={() => (shareDialogOpen = false)}
+    onChange={() => {
+      if (resource) void loadShares(resource);
+    }}
+  />
 {/if}
