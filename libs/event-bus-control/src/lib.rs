@@ -1,6 +1,9 @@
 pub mod connectors;
 pub mod contracts;
+#[cfg(feature = "kafka-rdkafka")]
+pub mod kafka_live;
 pub mod publisher;
+pub mod schema_registry;
 pub mod schemas;
 pub mod subscriber;
 pub mod topics;

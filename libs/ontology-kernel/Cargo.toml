@@ -17,6 +17,13 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+# `it` enables integration tests that boot an ephemeral Postgres container
+# via testcontainers (used by `tests/actions_integration.rs`). These tests
+# require Docker and run only in CI / on demand.
+default = []
+it = ["dep:testcontainers"]
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -59,3 +66,37 @@ workspace = true
 
 [dependencies.uuid]
 workspace = true
+
+# Optional, gated behind the `it` feature.
+[dependencies.testcontainers]
+workspace = true
+optional = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true
+features = ["v4", "serde"]
+
+[dev-dependencies.chrono]
+workspace = true
+
+[dev-dependencies.reqwest]
+workspace = true
+
+[dev-dependencies.sqlx]
+workspace = true
+features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
+
+[dev-dependencies.auth-middleware]
+workspace = true
+
+[[test]]
+name = "actions_integration"
+path = "tests/actions_integration.rs"
+required-features = ["it"]

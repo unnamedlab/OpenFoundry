@@ -2469,6 +2469,222 @@ pub async fn load_object_instance(
     .await
 }
 
+// ---------------------------------------------------------------------------
+// Object timeline / lineage of revisions (T9)
+// ---------------------------------------------------------------------------
+//
+// `object_revisions` is an append-only audit log populated on every write to
+// `object_instances` (see `20260429120000_write_path_tables.sql`). The handlers
+// below expose two endpoints:
+//
+//   GET  /ontology/types/:type_id/objects/:obj_id/revisions?limit=
+//   POST /ontology/types/:type_id/objects/:obj_id/revisions/:revision_number/restore
+//
+// Restore reads the historical `properties`/`marking` and applies them to the
+// live `object_instances` row inside a transaction that also writes a new
+// `object_revisions` row tagged with `operation = 'update'` and a stable audit
+// payload. The caller's identity is captured in `changed_by`.
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ObjectRevision {
+    pub id: Uuid,
+    pub object_id: Uuid,
+    pub object_type_id: Uuid,
+    pub operation: String,
+    pub properties: Value,
+    pub marking: String,
+    pub organization_id: Option<Uuid>,
+    pub changed_by: Uuid,
+    pub revision_number: i64,
+    pub written_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListRevisionsQuery {
+    /// Result cap. Clamped to `[1, 500]`. Defaults to 50.
+    pub limit: Option<i64>,
+}
+
+/// `GET /ontology/types/:type_id/objects/:obj_id/revisions`
+///
+/// Returns the most recent revisions for the object, newest first. The caller
+/// must have read access to the live object (its current marking gates
+/// access).
+pub async fn list_object_revisions(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((_type_id, obj_id)): Path<(Uuid, Uuid)>,
+    Query(params): Query<ListRevisionsQuery>,
+) -> impl IntoResponse {
+    let object = match load_object_instance(&state.db, obj_id).await {
+        Ok(Some(object)) => object,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("list revisions lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if let Err(error) = ensure_object_access(&claims, &object) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
+    }
+
+    let limit = params.limit.unwrap_or(50).clamp(1, 500);
+
+    match sqlx::query_as::<_, ObjectRevision>(
+        r#"SELECT id, object_id, object_type_id, operation, properties, marking,
+                  organization_id, changed_by, revision_number, written_at
+           FROM object_revisions
+           WHERE object_id = $1
+           ORDER BY revision_number DESC
+           LIMIT $2"#,
+    )
+    .bind(obj_id)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => Json(json!({
+            "object_id": obj_id,
+            "total": rows.len(),
+            "data": rows,
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::error!("list revisions failed: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// `POST /ontology/types/:type_id/objects/:obj_id/revisions/:revision_number/restore`
+///
+/// Restores the live `object_instances` row to the snapshot captured in the
+/// referenced revision. A new `object_revisions` row is appended with
+/// `operation = 'update'` so the history remains append-only and the action is
+/// auditable.
+pub async fn restore_object_revision(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path((_type_id, obj_id, revision_number)): Path<(Uuid, Uuid, i64)>,
+) -> impl IntoResponse {
+    if revision_number < 1 {
+        return invalid("revision_number must be >= 1");
+    }
+
+    let object = match load_object_instance(&state.db, obj_id).await {
+        Ok(Some(object)) => object,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("restore revision lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if let Err(error) = ensure_object_access(&claims, &object) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
+    }
+
+    let revision = match sqlx::query_as::<_, ObjectRevision>(
+        r#"SELECT id, object_id, object_type_id, operation, properties, marking,
+                  organization_id, changed_by, revision_number, written_at
+           FROM object_revisions
+           WHERE object_id = $1 AND revision_number = $2"#,
+    )
+    .bind(obj_id)
+    .bind(revision_number)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(rev)) => rev,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "revision not found for this object" })),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            tracing::error!("restore revision load failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if revision.operation == "delete" {
+        return invalid("cannot restore a delete revision; create a new object instead");
+    }
+
+    if let Err(error) = validate_marking(&revision.marking) {
+        return invalid(error);
+    }
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(error) => return db_error(format!("begin restore tx: {error}")),
+    };
+
+    let updated = match sqlx::query_as::<_, ObjectInstance>(
+        r#"UPDATE object_instances
+           SET properties = $2::jsonb,
+               marking = $3,
+               updated_at = NOW()
+           WHERE id = $1
+           RETURNING id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at"#,
+    )
+    .bind(obj_id)
+    .bind(&revision.properties)
+    .bind(&revision.marking)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => return db_error(format!("update during restore: {error}")),
+    };
+
+    // Append a new revision row that records this restore operation.
+    let next_rev: Option<i64> = match sqlx::query_scalar(
+        "SELECT MAX(revision_number) FROM object_revisions WHERE object_id = $1",
+    )
+    .bind(obj_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return db_error(format!("read revision counter: {error}")),
+    };
+    let next_revision_number = next_rev.unwrap_or(0) + 1;
+
+    if let Err(error) = sqlx::query(
+        r#"INSERT INTO object_revisions
+                (id, object_id, object_type_id, operation, properties, marking,
+                 organization_id, changed_by, revision_number)
+           VALUES ($1, $2, $3, 'update', $4, $5, $6, $7, $8)"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(obj_id)
+    .bind(updated.object_type_id)
+    .bind(&revision.properties)
+    .bind(&revision.marking)
+    .bind(updated.organization_id)
+    .bind(claims.sub)
+    .bind(next_revision_number)
+    .execute(&mut *tx)
+    .await
+    {
+        return db_error(format!("write restore revision: {error}"));
+    }
+
+    if let Err(error) = tx.commit().await {
+        return db_error(format!("commit restore: {error}"));
+    }
+
+    Json(json!({
+        "object": updated,
+        "restored_from_revision_number": revision.revision_number,
+        "new_revision_number": next_revision_number,
+    }))
+    .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

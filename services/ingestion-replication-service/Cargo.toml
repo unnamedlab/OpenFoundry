@@ -88,6 +88,13 @@ workspace = true
 [dependencies.event-bus-control]
 workspace = true
 
+[features]
+default = []
+# Enables the live Kafka I/O path (rdkafka via librdkafka) in
+# `connectors::kafka`. Default off keeps CI light and the catalog-backed
+# behaviour available; production builds turn it on through the Dockerfile.
+kafka-rdkafka = ["event-bus-control/kafka-rdkafka"]
+
 [dependencies.reqwest]
 workspace = true
 features = ["multipart"]

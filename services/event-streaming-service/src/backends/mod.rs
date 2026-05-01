@@ -1,10 +1,14 @@
 //! Concrete messaging backends behind the [`Backend`] trait.
 
 mod kafka;
+#[cfg(feature = "kafka-rdkafka")]
+mod kafka_rdkafka;
 mod nats;
 mod registry;
 
 pub use kafka::KafkaUnavailableBackend;
+#[cfg(feature = "kafka-rdkafka")]
+pub use kafka_rdkafka::RdKafkaBackend;
 pub use nats::NatsBackend;
 pub use registry::BackendRegistry;
 

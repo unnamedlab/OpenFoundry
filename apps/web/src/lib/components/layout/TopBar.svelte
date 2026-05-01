@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import NotificationBell from '$components/layout/NotificationBell.svelte';
   import Glyph from '$components/ui/Glyph.svelte';
+  import { ontologySearch } from '$lib/stores/ontologySearch';
   import type { MessageKey } from '$lib/i18n/messages';
   import {
     createTranslator,
@@ -175,6 +176,18 @@
         {/each}
       </select>
     </label>
+
+    <button
+      type="button"
+      class="of-topbar__action"
+      onclick={() => ontologySearch.open()}
+      aria-label="Search ontology (⌘K)"
+      title="Search ontology (⌘K)"
+    >
+      <Glyph name="search" size={14} />
+      <span>Search</span>
+      <kbd class="of-topbar__kbd">⌘K</kbd>
+    </button>
 
     <a href="/apps" class="of-topbar__action">
       <Glyph name="cube" size={14} />

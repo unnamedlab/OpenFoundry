@@ -8,6 +8,7 @@ pub mod interface;
 pub mod link_type;
 pub mod object_set;
 pub mod object_type;
+pub mod object_type_binding;
 pub mod object_view;
 pub mod project;
 pub mod property;

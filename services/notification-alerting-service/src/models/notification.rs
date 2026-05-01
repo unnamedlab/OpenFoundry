@@ -20,6 +20,24 @@ pub struct NotificationRecord {
     pub read_at: Option<DateTime<Utc>>,
 }
 
+impl Default for NotificationRecord {
+    fn default() -> Self {
+        Self {
+            id: Uuid::nil(),
+            user_id: None,
+            title: String::new(),
+            body: String::new(),
+            category: String::new(),
+            severity: String::new(),
+            status: String::new(),
+            channels: Value::Null,
+            metadata: Value::Null,
+            created_at: DateTime::<Utc>::from_timestamp(0, 0).unwrap_or_else(Utc::now),
+            read_at: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct NotificationDelivery {
     pub id: Uuid,

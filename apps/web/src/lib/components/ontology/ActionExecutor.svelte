@@ -1,18 +1,31 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import {
+    createActionWhatIfBranch,
+    executeAction,
+    executeActionBatch,
+    validateAction,
+  } from '$lib/api/ontology';
   import type {
     ActionFormCondition,
     ActionFormSchema,
     ActionInputField,
     ActionType,
+    ActionWhatIfBranch,
+    ExecuteActionResponse,
+    ExecuteBatchActionResponse,
     ObjectInstance,
+    ValidateActionResponse,
   } from '$lib/api/ontology';
+  import { notifications } from '$lib/stores/notifications';
 
   export let action: ActionType | null = null;
   export let targetObject: ObjectInstance | null = null;
   export let parameters: Record<string, unknown> = {};
   export let title = 'Structured action form';
   export let emptyMessage = 'This action does not require user-entered parameters.';
+  // Optional batch mode: when populated, executeActionBatch is used.
+  export let batchTargetObjectIds: string[] = [];
 
   type EffectiveField = ActionInputField & { hidden?: boolean };
   type ResolvedSection = {
@@ -26,7 +39,21 @@
 
   const dispatch = createEventDispatcher<{
     change: { parameters: Record<string, unknown> };
+    executed: { response: ExecuteActionResponse | ExecuteBatchActionResponse };
+    whatif: { branch: ActionWhatIfBranch };
+    validated: { response: ValidateActionResponse };
   }>();
+
+  // Submission / validation / what-if state
+  let submitting = false;
+  let validating = false;
+  let creatingWhatIf = false;
+  let validationResult: ValidateActionResponse | null = null;
+  let lastExecution: ExecuteActionResponse | ExecuteBatchActionResponse | null = null;
+  let lastBranch: ActionWhatIfBranch | null = null;
+  let submitError = '';
+  let confirmOpen = false;
+  let justification = '';
 
   let resolvedSections: ResolvedSection[] = [];
   let fieldDrafts: Record<string, string> = {};
@@ -397,6 +424,143 @@
       lastAutoPatched = '';
     }
   }
+
+  // ----- Submit / Validate / What-if --------------------------------------
+
+  function hasFieldErrors(): boolean {
+    return Object.values(fieldErrors).some((message) => Boolean(message));
+  }
+
+  function buildExecutePayload() {
+    return {
+      target_object_id: targetObject?.id,
+      parameters,
+      justification: justification.trim() || undefined,
+    };
+  }
+
+  async function runValidate() {
+    if (!action) return;
+    validating = true;
+    submitError = '';
+    try {
+      const response = await validateAction(action.id, {
+        target_object_id: targetObject?.id,
+        parameters,
+      });
+      validationResult = response;
+      dispatch('validated', { response });
+      if (!response.valid) {
+        notifications.warning(`Validation failed: ${response.errors.join('; ') || 'see preview'}`);
+      } else {
+        notifications.success('Validation OK');
+      }
+    } catch (error) {
+      submitError = error instanceof Error ? error.message : String(error);
+      notifications.error(`Validate failed: ${submitError}`);
+    } finally {
+      validating = false;
+    }
+  }
+
+  async function runWhatIf() {
+    if (!action) return;
+    creatingWhatIf = true;
+    submitError = '';
+    try {
+      const branch = await createActionWhatIfBranch(action.id, {
+        target_object_id: targetObject?.id,
+        parameters,
+        name: `What-if @ ${new Date().toISOString()}`,
+      });
+      lastBranch = branch;
+      dispatch('whatif', { branch });
+      notifications.info('Sandbox branch created');
+    } catch (error) {
+      submitError = error instanceof Error ? error.message : String(error);
+      notifications.error(`What-if failed: ${submitError}`);
+    } finally {
+      creatingWhatIf = false;
+    }
+  }
+
+  function requestExecute() {
+    if (!action) return;
+    if (hasFieldErrors()) {
+      notifications.error('Fix invalid fields before submitting');
+      return;
+    }
+    if (action.confirmation_required) {
+      // Mirror kernel L832 ensure_confirmation_justification: justification mandatory.
+      confirmOpen = true;
+      return;
+    }
+    void doExecute();
+  }
+
+  async function doExecute() {
+    if (!action) return;
+    if (action.confirmation_required && !justification.trim()) {
+      submitError = 'justification is required for confirmation_required actions';
+      return;
+    }
+    submitting = true;
+    submitError = '';
+    try {
+      let response: ExecuteActionResponse | ExecuteBatchActionResponse;
+      if (batchTargetObjectIds.length > 0) {
+        response = await executeActionBatch(action.id, {
+          target_object_ids: batchTargetObjectIds,
+          parameters,
+          justification: justification.trim() || undefined,
+        });
+        notifications.success(
+          `Batch executed: ${(response as ExecuteBatchActionResponse).succeeded}/${(response as ExecuteBatchActionResponse).total}`,
+        );
+      } else {
+        response = await executeAction(action.id, buildExecutePayload());
+        notifications.success(`Action "${action.display_name || action.name}" executed`);
+      }
+      lastExecution = response;
+      confirmOpen = false;
+      justification = '';
+      dispatch('executed', { response });
+    } catch (error) {
+      submitError = error instanceof Error ? error.message : String(error);
+      notifications.error(`Execute failed: ${submitError}`);
+    } finally {
+      submitting = false;
+    }
+  }
+
+  function diffEntries(
+    before: Record<string, unknown> | null | undefined,
+    after: Record<string, unknown> | null | undefined,
+  ): Array<{ key: string; before: unknown; after: unknown; changed: boolean }> {
+    const beforeProps = (before as { properties?: Record<string, unknown> } | null)?.properties ?? before ?? {};
+    const afterProps = (after as { properties?: Record<string, unknown> } | null)?.properties ?? after ?? {};
+    const keys = new Set<string>([
+      ...Object.keys(beforeProps as Record<string, unknown>),
+      ...Object.keys(afterProps as Record<string, unknown>),
+    ]);
+    return [...keys].sort().map((key) => {
+      const beforeValue = (beforeProps as Record<string, unknown>)[key];
+      const afterValue = (afterProps as Record<string, unknown>)[key];
+      return {
+        key,
+        before: beforeValue,
+        after: afterValue,
+        changed: stableStringify(beforeValue) !== stableStringify(afterValue),
+      };
+    });
+  }
+
+  function formatValue(value: unknown): string {
+    if (value === undefined) return '∅';
+    if (value === null) return 'null';
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value);
+  }
 </script>
 
 {#if action}
@@ -597,4 +761,141 @@
       {/if}
     {/each}
   </div>
+
+  <!-- Footer: validate / what-if / execute --------------------------------- -->
+  <footer class="action-footer">
+    {#if submitError}
+      <p class="error" role="alert">{submitError}</p>
+    {/if}
+    {#if validationResult}
+      <div class="validation" data-valid={validationResult.valid}>
+        <strong>{validationResult.valid ? 'Valid ✓' : 'Invalid ✗'}</strong>
+        {#if validationResult.errors.length}
+          <ul>
+            {#each validationResult.errors as message}<li>{message}</li>{/each}
+          </ul>
+        {/if}
+      </div>
+    {/if}
+
+    {#if lastBranch}
+      <section class="whatif">
+        <header>
+          <strong>What-if sandbox</strong>
+          <span>{lastBranch.name}</span>
+        </header>
+        <table>
+          <thead>
+            <tr><th>Property</th><th>Before</th><th>After</th></tr>
+          </thead>
+          <tbody>
+            {#each diffEntries(lastBranch.before_object, lastBranch.after_object) as row (row.key)}
+              <tr class:changed={row.changed}>
+                <td class="key">{row.key}</td>
+                <td class="before">{formatValue(row.before)}</td>
+                <td class="after">{formatValue(row.after)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </section>
+    {/if}
+
+    {#if lastExecution}
+      <section class="audit">
+        <strong>Last execution</strong>
+        <pre>{JSON.stringify(lastExecution, null, 2)}</pre>
+      </section>
+    {/if}
+
+    <div class="actions">
+      <button
+        type="button"
+        class="secondary"
+        disabled={validating || submitting}
+        onclick={() => void runValidate()}
+      >
+        {validating ? 'Validating…' : 'Validate'}
+      </button>
+      <button
+        type="button"
+        class="secondary"
+        disabled={creatingWhatIf || submitting}
+        onclick={() => void runWhatIf()}
+      >
+        {creatingWhatIf ? 'Building…' : 'What-if'}
+      </button>
+      <button type="button" class="primary" disabled={submitting} onclick={requestExecute}>
+        {submitting
+          ? 'Executing…'
+          : batchTargetObjectIds.length > 0
+            ? `Execute on ${batchTargetObjectIds.length} objects`
+            : 'Execute'}
+      </button>
+    </div>
+  </footer>
+
+  {#if confirmOpen}
+    <div class="modal-overlay" role="presentation" onclick={() => (confirmOpen = false)}></div>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Confirm action">
+      <h3>Confirm “{action.display_name || action.name}”</h3>
+      <p>
+        This action requires a written justification (audit-grade).
+      </p>
+      <label>
+        <span>Justification</span>
+        <textarea bind:value={justification} rows="4" placeholder="Why are you running this action?"></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" class="secondary" onclick={() => (confirmOpen = false)} disabled={submitting}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="primary"
+          disabled={submitting || !justification.trim()}
+          onclick={() => void doExecute()}
+        >
+          {submitting ? 'Executing…' : 'Confirm & execute'}
+        </button>
+      </div>
+    </div>
+  {/if}
 {/if}
+
+<style>
+  .action-footer { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+  .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+  .actions .primary { background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
+  .actions .secondary { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
+  .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .error { color: #fca5a5; font-size: 0.85rem; }
+  .validation { padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.85rem; }
+  .validation[data-valid='true'] { background: #064e3b; color: #6ee7b7; }
+  .validation[data-valid='false'] { background: #7f1d1d; color: #fca5a5; }
+  .validation ul { margin: 0.25rem 0 0 1.25rem; }
+
+  .whatif { border: 1px solid #1e293b; border-radius: 8px; padding: 0.75rem; background: #0f172a; }
+  .whatif header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; color: #cbd5e1; font-size: 0.85rem; }
+  .whatif table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .whatif th, .whatif td { padding: 0.25rem 0.5rem; text-align: left; border-bottom: 1px solid #1e293b; vertical-align: top; }
+  .whatif th { color: #64748b; font-weight: 600; }
+  .whatif .key { color: #94a3b8; font-family: monospace; }
+  .whatif .before { color: #fca5a5; font-family: monospace; max-width: 30ch; overflow-wrap: anywhere; }
+  .whatif .after  { color: #6ee7b7; font-family: monospace; max-width: 30ch; overflow-wrap: anywhere; }
+  .whatif tr.changed .before, .whatif tr.changed .after { background: #1e293b; }
+
+  .audit { border: 1px solid #1e293b; border-radius: 8px; padding: 0.5rem 0.75rem; background: #0f172a; }
+  .audit pre { margin: 0.25rem 0 0; font-size: 0.75rem; color: #cbd5e1; max-height: 240px; overflow: auto; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.55); z-index: 80; }
+  .modal {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: #0f172a; border: 1px solid #1e293b; border-radius: 12px;
+    padding: 1.25rem; min-width: 420px; max-width: 540px; z-index: 90;
+    color: #e2e8f0; display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  .modal h3 { margin: 0; font-size: 1rem; }
+  .modal label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+  .modal textarea { font-family: inherit; padding: 0.5rem; border-radius: 6px; border: 1px solid #334155; background: #0b1220; color: inherit; resize: vertical; }
+</style>

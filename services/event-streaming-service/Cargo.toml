@@ -3,6 +3,18 @@ name = "event-streaming-service"
 description = "Event streaming router: dispatches events to the correct messaging backend (NATS for control / signal traffic, Kafka for data) using a declarative routing table"
 build = "build.rs"
 
+[features]
+# Default builds keep the Kafka backend as a stub so CI and `cargo check`
+# do not pull in `librdkafka` (a multi-minute CMake build of a C library).
+# Enable `kafka-rdkafka` in compose / Helm / production images to wire the
+# real Apache Kafka backend backed by `rdkafka` via the `event-bus-data`
+# crate.
+default = []
+kafka-rdkafka = ["dep:rdkafka", "dep:event-bus-data"]
+# Integration tests that require Docker (testcontainers + a real Kafka
+# broker). Implies `kafka-rdkafka`.
+kafka-it = ["kafka-rdkafka", "event-bus-data/it"]
+
 [package.edition]
 workspace = true
 
@@ -104,8 +116,34 @@ workspace = true
 [dependencies.storage-abstraction]
 workspace = true
 
+# --- Optional Kafka backend (gated by the `kafka-rdkafka` feature). ---
+# `event-bus-data` already wraps `rdkafka` 0.36 with sane defaults
+# (idempotent producer, acks=all, explicit commits). We reuse its
+# `DataBusConfig`/`ServicePrincipal` so the streaming router shares the
+# exact same client tuning as the data-plane bus.
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
+# Pulled in transitively via `event-bus-data` but declared here too so
+# Cargo's `dep:rdkafka` feature toggle works and the backend file can
+# `use rdkafka::...` directly without bouncing through the wrapper crate.
+# Feature set must match `event-bus-data` to avoid duplicate librdkafka
+# builds.
+[dependencies.rdkafka]
+version = "0.36"
+default-features = false
+features = ["cmake-build", "ssl", "sasl", "tokio"]
+optional = true
+
 [dev-dependencies.tempfile]
 version = "3"
+
+# Testcontainers is used by the Kafka E2E test (gated by `kafka-it`) to
+# bring up an ephemeral Apache Kafka broker. Already pinned at the
+# workspace level.
+[dev-dependencies.testcontainers]
+workspace = true
 
 [[bin]]
 path = "src/main.rs"

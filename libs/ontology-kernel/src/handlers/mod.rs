@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod bindings;
 pub mod functions;
 pub mod funnel;
 pub mod interfaces;

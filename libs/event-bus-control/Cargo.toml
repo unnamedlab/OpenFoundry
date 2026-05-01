@@ -44,6 +44,40 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+# Schema-registry validators (Avro / JSON Schema / Protobuf descriptor sets).
+# Required by `schema_registry` module — light enough to keep on by default
+# (pure Rust crates, no native deps).
+[dependencies.apache-avro]
+workspace = true
+
+[dependencies.base64]
+workspace = true
+
+[dependencies.jsonschema]
+workspace = true
+
+[dependencies.prost-reflect]
+workspace = true
+
+[dependencies.sha2]
+workspace = true
+
+# Optional: enables the live Kafka helpers (`connectors::kafka_live`) used by
+# data-connection plane connectors (connector-management-service,
+# ingestion-replication-service, virtual-table-service) when probing real
+# brokers for test_connection / discover_sources / query_virtual_table.
+# Default off keeps CI light (no librdkafka build). Production builds enable
+# this through the per-service `kafka-rdkafka` feature.
+[dependencies.rdkafka]
+version = "0.36"
+default-features = false
+features = ["cmake-build", "ssl", "sasl", "tokio"]
+optional = true
+
+[features]
+default = []
+kafka-rdkafka = ["dep:rdkafka"]
+
 [lib]
 path = "src/lib.rs"
 name = "event_bus_control"

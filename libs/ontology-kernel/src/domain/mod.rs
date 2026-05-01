@@ -9,4 +9,5 @@ pub mod rules;
 pub mod schema;
 pub mod search;
 pub mod time_series;
+pub mod traversal;
 pub mod type_system;

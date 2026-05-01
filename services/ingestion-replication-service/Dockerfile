@@ -5,7 +5,7 @@
 FROM rust:1.95-alpine3.23 AS builder
 WORKDIR /workspace
 
-RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 protobuf-dev
+RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 protobuf-dev cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers
 ENV PYO3_PYTHON=python3
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
@@ -13,12 +13,12 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,id=ingestion-replication-service-target,sharing=locked \
-    cargo build --locked --profile docker-release -p ingestion-replication-service  && cp /workspace/target/docker-release/ingestion-replication-service /tmp/ingestion-replication-service  && strip /tmp/ingestion-replication-service
+    cargo build --locked --profile docker-release -p ingestion-replication-service --features kafka-rdkafka  && cp /workspace/target/docker-release/ingestion-replication-service /tmp/ingestion-replication-service  && strip /tmp/ingestion-replication-service
 
 FROM alpine:3.23 AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3
+RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 zlib zstd-libs cyrus-sasl
 
 ENV HOST=0.0.0.0
 ENV PORT=50090

@@ -169,6 +169,64 @@ pub async fn search_ontology(
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct ObjectFulltextSearchQuery {
+    /// Free-text query. Required.
+    pub q: String,
+    /// Optional `object_type_id` filter.
+    #[serde(rename = "type")]
+    pub object_type_id: Option<Uuid>,
+    /// Optional CSV of allowed markings, e.g. `public,confidential`.
+    pub marking: Option<String>,
+    /// Result cap. Clamped to `[1, 200]`.
+    pub limit: Option<i64>,
+}
+
+/// `GET /ontology/search?q=&type=&marking=&limit=`
+///
+/// Postgres `tsvector` + `ts_rank_cd` (BM25-equivalent) full-text search over
+/// `object_instances.searchable_text`. Returns the matching object instances
+/// ranked by relevance, filtered by the caller's clearance + organisation.
+pub async fn search_objects_fulltext(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Query(params): Query<ObjectFulltextSearchQuery>,
+) -> impl IntoResponse {
+    let trimmed = params.q.trim().to_string();
+    if trimmed.is_empty() {
+        return bad_request("q is required");
+    }
+    let markings = params.marking.as_deref().and_then(|raw| {
+        let parts: Vec<String> = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        if parts.is_empty() { None } else { Some(parts) }
+    });
+
+    let request = crate::domain::search::objects_fulltext::ObjectFulltextQuery {
+        query: trimmed.clone(),
+        object_type_id: params.object_type_id,
+        markings,
+        limit: params.limit.unwrap_or(50),
+    };
+
+    match crate::domain::search::objects_fulltext::search_objects(&state, &claims, request).await {
+        Ok(hits) => Json(json!({
+            "query": trimmed,
+            "total": hits.len(),
+            "data": hits,
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::error!("ontology object full-text search failed: {error}");
+            internal_error("ontology full-text search failed")
+        }
+    }
+}
+
 pub async fn get_graph(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,

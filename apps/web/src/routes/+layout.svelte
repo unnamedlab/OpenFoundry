@@ -6,6 +6,7 @@
   import Sidebar from '$components/layout/Sidebar.svelte';
   import TopBar from '$components/layout/TopBar.svelte';
   import CopilotPanel from '$components/ai/CopilotPanel.svelte';
+  import OntologySearch from '$components/ontology/OntologySearch.svelte';
   import { initializeLocale, restoreLocale } from '$lib/i18n/store';
 
   let { children, data } = $props();
@@ -41,4 +42,5 @@
     </div>
   </div>
   <CopilotPanel />
+  <OntologySearch />
 {/if}

@@ -16,6 +16,8 @@ use event_streaming_service::app_config::AppConfig;
 use event_streaming_service::backends::{
     BackendRegistry, KafkaUnavailableBackend, NatsBackend,
 };
+#[cfg(feature = "kafka-rdkafka")]
+use event_streaming_service::backends::RdKafkaBackend;
 use event_streaming_service::grpc::EventRouterService;
 use event_streaming_service::metrics::Metrics;
 use event_streaming_service::router::{BackendId, RouterConfig};
@@ -43,10 +45,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(url = %nats_cfg.url, "NATS backend connected");
     }
     if let Some(_kafka_cfg) = &routes.backends.kafka {
-        registry.insert(Arc::new(KafkaUnavailableBackend::new()));
-        tracing::warn!(
-            "Kafka backend is configured but the real rdkafka integration is not yet enabled (PR 2). Publishes will return UNAVAILABLE."
-        );
+        match build_kafka_backend(_kafka_cfg) {
+            Ok(backend) => {
+                registry.insert(backend);
+                tracing::info!("Kafka backend connected via rdkafka");
+            }
+            Err(reason) => {
+                registry.insert(Arc::new(KafkaUnavailableBackend::new()));
+                tracing::warn!(
+                    reason = %reason,
+                    "Kafka backend is configured but the real rdkafka integration is not active. Publishes will return UNAVAILABLE."
+                );
+            }
+        }
     }
     let _ = BackendId::Kafka; // keep the symbol referenced for clarity
 
@@ -83,6 +94,49 @@ async fn healthz() -> (StatusCode, &'static str) {
     (StatusCode::OK, "ok")
 }
 
+/// Build a real Kafka backend when the `kafka-rdkafka` Cargo feature is
+/// compiled in **and** `KAFKA_BOOTSTRAP_SERVERS` is set. Otherwise return an
+/// `Err` so `main` can fall back to the unavailable stub. The router-level
+/// configuration (`backends.kafka.brokers`) is intentionally ignored when the
+/// env var is present so operators can override the routing file without
+/// editing it (e.g. in dev/CI).
+#[cfg(feature = "kafka-rdkafka")]
+fn build_kafka_backend(
+    kafka_cfg: &event_streaming_service::router::config::KafkaBackendConfig,
+) -> Result<Arc<dyn event_streaming_service::backends::Backend>, String> {
+    use event_bus_data::config::{DataBusConfig, ServicePrincipal};
+    let env_brokers = std::env::var("KAFKA_BOOTSTRAP_SERVERS").ok();
+    let brokers = match env_brokers {
+        Some(v) if !v.is_empty() => v,
+        _ if !kafka_cfg.brokers.is_empty() => kafka_cfg.brokers.join(","),
+        _ => return Err("no Kafka brokers configured (KAFKA_BOOTSTRAP_SERVERS unset and routing file has empty `brokers`)".to_string()),
+    };
+    let service = kafka_cfg
+        .client_id
+        .clone()
+        .or_else(|| std::env::var("KAFKA_CLIENT_ID").ok())
+        .unwrap_or_else(|| "event-streaming-service".to_string());
+    let principal = match (
+        std::env::var("KAFKA_SASL_USERNAME").ok(),
+        std::env::var("KAFKA_SASL_PASSWORD").ok(),
+    ) {
+        (Some(_), Some(password)) => ServicePrincipal::scram_sha_512(service.clone(), password),
+        _ => ServicePrincipal::insecure_dev(service.clone()),
+    };
+    let cfg = DataBusConfig::new(brokers, principal);
+    let group_prefix = format!("{service}-router");
+    RdKafkaBackend::new(cfg, group_prefix)
+        .map(|b| Arc::new(b) as Arc<dyn event_streaming_service::backends::Backend>)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "kafka-rdkafka"))]
+fn build_kafka_backend(
+    _kafka_cfg: &event_streaming_service::router::config::KafkaBackendConfig,
+) -> Result<Arc<dyn event_streaming_service::backends::Backend>, String> {
+    Err("event-streaming-service was built without the `kafka-rdkafka` feature".to_string())
+}
+
 async fn metrics_handler(State(metrics): State<Arc<Metrics>>) -> impl IntoResponse {
     match metrics.render() {
         Ok(body) => (
@@ -97,30 +151,11 @@ async fn metrics_handler(State(metrics): State<Arc<Metrics>>) -> impl IntoRespon
         )
             .into_response(),
     }
-// Stub binary entry point. The crate currently exposes the `storage` module
-// for use by integration tests and by future stream operators; once the
-// streaming runtime is wired up, `main` will instantiate the configured
-// `DatasetWriter` (see `storage::build_dataset_writer`) and inject it into
-// each window/checkpoint sink.
-//
-// Reading `ICEBERG_CATALOG_URL` and `DATASET_WRITER_BACKEND` at startup keeps
-// the documented graceful-degradation path exercised: the service must boot
-// successfully whether or not those variables are set.
+}
 
+// `storage` is exercised by integration tests and by future stream
+// operators; declaring it here keeps the legacy/iceberg writer modules in
+// the build graph until the streaming runtime grows operators that wire
+// them up at startup.
 #[allow(dead_code, unused_imports)]
 mod storage;
-
-fn main() {
-    let backend = std::env::var("DATASET_WRITER_BACKEND")
-        .map(|v| storage::WriterBackendKind::parse(&v))
-        .unwrap_or(storage::WriterBackendKind::Legacy);
-    let catalog_url = std::env::var("ICEBERG_CATALOG_URL").ok();
-    let _settings = storage::WriterSettings {
-        backend,
-        iceberg: storage::IcebergSettings {
-            catalog_url,
-            namespace: "streaming_service".to_string(),
-        },
-    };
-    // Real wiring lands once the streaming runtime grows operators.
-}

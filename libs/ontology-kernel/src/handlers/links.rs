@@ -256,3 +256,91 @@ pub async fn delete_link(
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
+
+// --- Multi-hop traversal ---------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct TraverseQuery {
+    /// Maximum number of hops to walk. Clamped to `[1, 5]`.
+    pub depth: Option<i32>,
+    /// Comma-separated list of `link_type_id` UUIDs to whitelist.
+    pub link_types: Option<String>,
+    /// Comma-separated list of allowed markings (e.g. `public,confidential`).
+    pub markings: Option<String>,
+    /// Hard cap on returned edges. Clamped to `[1, 5000]`.
+    pub limit: Option<i32>,
+}
+
+fn parse_csv_uuid_list(value: Option<&str>) -> Result<Option<Vec<Uuid>>, String> {
+    let Some(raw) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    let mut out = Vec::new();
+    for token in raw.split(',') {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let id = Uuid::parse_str(token)
+            .map_err(|error| format!("invalid uuid '{token}': {error}"))?;
+        out.push(id);
+    }
+    Ok(Some(out))
+}
+
+fn parse_csv_string_list(value: Option<&str>) -> Option<Vec<String>> {
+    let raw = value?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let parts: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    if parts.is_empty() { None } else { Some(parts) }
+}
+
+/// `GET /ontology/objects/:id/traverse?depth=&link_types=&markings=&limit=`
+///
+/// Returns every edge reachable from `:id` within `depth` hops, filtered by
+/// `link_types` (CSV of UUIDs) and `markings` (CSV of marking strings,
+/// defaults to the caller's clearance).
+pub async fn traverse_neighbors(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(starting_object_id): Path<Uuid>,
+    Query(params): Query<TraverseQuery>,
+) -> impl IntoResponse {
+    let link_type_ids = match parse_csv_uuid_list(params.link_types.as_deref()) {
+        Ok(value) => value,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
+    let marking_filter = parse_csv_string_list(params.markings.as_deref());
+
+    let traversal_params = crate::domain::traversal::TraversalParams {
+        starting_object_id,
+        max_depth: params.depth.unwrap_or(2),
+        link_type_ids,
+        marking_filter,
+        limit: params.limit.unwrap_or(500),
+    };
+
+    match crate::domain::traversal::traverse(&state, &claims, traversal_params).await {
+        Ok(edges) => Json(serde_json::json!({
+            "starting_object_id": starting_object_id,
+            "total": edges.len(),
+            "edges": edges,
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::error!("traverse_neighbors failed: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+                .into_response()
+        }
+    }
+}

@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import Glyph from '$components/ui/Glyph.svelte';
+  import { ontologySearch } from '$lib/stores/ontologySearch';
   import { getMe, type UserProfile } from '$lib/api/auth';
   import { listDatasets, previewDataset, type Dataset, type DatasetPreviewResponse } from '$lib/api/datasets';
   import {
@@ -2306,6 +2307,17 @@
             class="min-w-[220px] flex-1 rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm outline-none ring-0 transition focus:border-[#6186c5]"
             placeholder="Search resources, groups, or editors"
           />
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-xl border border-[#d2dcec] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-[#6186c5]"
+            onclick={() => ontologySearch.open(searchQuery)}
+            title="Open global ontology search (⌘K)"
+            aria-label="Open global ontology search"
+          >
+            <Glyph name="search" size={14} />
+            <span>Global search</span>
+            <kbd class="rounded bg-[#eef2f8] px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">⌘K</kbd>
+          </button>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Ontology branch</span>

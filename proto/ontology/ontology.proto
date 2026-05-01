@@ -15,6 +15,11 @@ service OntologyService {
   rpc CreateLinkType(CreateLinkTypeRequest) returns (LinkType);
   rpc ListLinkTypes(ListLinkTypesRequest) returns (ListLinkTypesResponse);
   rpc DeleteLinkType(DeleteLinkTypeRequest) returns (DeleteLinkTypeResponse);
+
+  // ObjectType ↔ dataset bindings ("Models in the Ontology").
+  rpc BindDataset(BindDatasetRequest) returns (ObjectTypeBinding);
+  rpc UnbindDataset(UnbindDatasetRequest) returns (UnbindDatasetResponse);
+  rpc MaterializeBinding(MaterializeBindingRequest) returns (MaterializeBindingResponse);
 }
 
 message ObjectType {
@@ -140,3 +145,78 @@ message DeleteLinkTypeRequest {
 }
 
 message DeleteLinkTypeResponse {}
+
+// --- ObjectType ↔ dataset bindings ---------------------------------------
+
+enum ObjectTypeBindingSyncMode {
+  OBJECT_TYPE_BINDING_SYNC_MODE_UNSPECIFIED = 0;
+  OBJECT_TYPE_BINDING_SYNC_MODE_SNAPSHOT = 1;
+  OBJECT_TYPE_BINDING_SYNC_MODE_INCREMENTAL = 2;
+  OBJECT_TYPE_BINDING_SYNC_MODE_VIEW = 3;
+}
+
+message ObjectTypeBindingPropertyMapping {
+  string source_field = 1;
+  string target_property = 2;
+}
+
+message ObjectTypeBinding {
+  open_foundry.common.Uuid id = 1;
+  open_foundry.common.Uuid object_type_id = 2;
+  open_foundry.common.Uuid dataset_id = 3;
+  string dataset_branch = 4;
+  int32 dataset_version = 5;
+  string primary_key_column = 6;
+  repeated ObjectTypeBindingPropertyMapping property_mapping = 7;
+  ObjectTypeBindingSyncMode sync_mode = 8;
+  string default_marking = 9;
+  int32 preview_limit = 10;
+  open_foundry.common.Uuid owner_id = 11;
+  google.protobuf.Timestamp last_materialized_at = 12;
+  string last_run_status = 13;
+  string last_run_summary_json = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+message BindDatasetRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  open_foundry.common.Uuid dataset_id = 2;
+  string dataset_branch = 3;
+  int32 dataset_version = 4;
+  string primary_key_column = 5;
+  repeated ObjectTypeBindingPropertyMapping property_mapping = 6;
+  ObjectTypeBindingSyncMode sync_mode = 7;
+  string default_marking = 8;
+  int32 preview_limit = 9;
+}
+
+message UnbindDatasetRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  open_foundry.common.Uuid binding_id = 2;
+}
+
+message UnbindDatasetResponse {
+  bool deleted = 1;
+}
+
+message MaterializeBindingRequest {
+  open_foundry.common.Uuid object_type_id = 1;
+  open_foundry.common.Uuid binding_id = 2;
+  string dataset_branch = 3;
+  int32 dataset_version = 4;
+  int32 limit = 5;
+  bool dry_run = 6;
+}
+
+message MaterializeBindingResponse {
+  open_foundry.common.Uuid binding_id = 1;
+  string status = 2;
+  int32 rows_read = 3;
+  int32 inserted = 4;
+  int32 updated = 5;
+  int32 skipped = 6;
+  int32 errors = 7;
+  bool dry_run = 8;
+  repeated string error_details_json = 9;
+}

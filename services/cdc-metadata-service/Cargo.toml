@@ -29,6 +29,9 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
+[dependencies.event-bus-control]
+workspace = true
+
 [dependencies.reqwest]
 workspace = true
 
@@ -57,3 +60,8 @@ workspace = true
 path = "src/main.rs"
 name = "cdc-metadata-service"
 required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "cdc_metadata_service"
+crate-type = ["lib"]

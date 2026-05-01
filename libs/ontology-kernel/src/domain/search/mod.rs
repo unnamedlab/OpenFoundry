@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub mod fulltext;
+pub mod objects_fulltext;
 pub mod semantic;
 
 const DEFAULT_RRF_K: f32 = 60.0;

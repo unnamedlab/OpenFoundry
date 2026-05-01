@@ -5,7 +5,7 @@
 FROM rust:1.95-alpine3.23 AS builder
 WORKDIR /workspace
 
-RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3
+RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers
 ENV PYO3_PYTHON=python3
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
@@ -13,12 +13,12 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,id=connector-management-service-target,sharing=locked \
-    cargo build --locked --profile docker-release -p connector-management-service  && cp /workspace/target/docker-release/connector-management-service /tmp/connector-management-service  && strip /tmp/connector-management-service
+    cargo build --locked --profile docker-release -p connector-management-service --features kafka-rdkafka  && cp /workspace/target/docker-release/connector-management-service /tmp/connector-management-service  && strip /tmp/connector-management-service
 
 FROM alpine:3.23 AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3
+RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 zlib zstd-libs cyrus-sasl
 
 ENV HOST=0.0.0.0
 ENV PORT=50088

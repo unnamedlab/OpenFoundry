@@ -1131,6 +1131,83 @@ export function searchOntology(body: {
   return api.post<{ query: string; total: number; data: SearchResult[] }>('/ontology/search', body);
 }
 
+/**
+ * Object full-text hit returned by `searchObjectsFulltext`.
+ *
+ * `rank` is `ts_rank_cd` (cover-density / BM25-equivalent) over the
+ * `searchable_text` tsvector column on `object_instances`.
+ */
+export interface ObjectFulltextHit {
+  id: string;
+  object_type_id: string;
+  properties: Record<string, unknown>;
+  marking: string;
+  created_at: string;
+  updated_at: string;
+  rank: number;
+}
+
+/**
+ * `GET /ontology/search?q=&type=&marking=&limit=` — Postgres FTS search over
+ * object instances, ranked by `ts_rank_cd` and gated by the caller's
+ * classification clearance.
+ */
+export function searchObjectsFulltext(params: {
+  q: string;
+  type?: string;
+  /** CSV of allowed markings, e.g. `"public,confidential"`. */
+  marking?: string;
+  limit?: number;
+}) {
+  const qs = new URLSearchParams();
+  qs.set('q', params.q);
+  if (params.type) qs.set('type', params.type);
+  if (params.marking) qs.set('marking', params.marking);
+  if (params.limit !== undefined) qs.set('limit', String(params.limit));
+  return api.get<{ query: string; total: number; data: ObjectFulltextHit[] }>(
+    `/ontology/search?${qs.toString()}`,
+  );
+}
+
+/** Edge returned by `traverseObjectNeighbors`. */
+export interface TraversedEdge {
+  link_id: string;
+  link_type_id: string;
+  source_object_id: string;
+  target_object_id: string;
+  marking: string;
+  depth: number;
+  created_at: string;
+}
+
+/**
+ * `GET /ontology/objects/:id/traverse?depth=&link_types=&markings=&limit=` —
+ * multi-hop graph traversal backed by a Postgres recursive CTE.
+ */
+export function traverseObjectNeighbors(
+  objectId: string,
+  params?: {
+    depth?: number;
+    /** CSV of `link_type_id` UUIDs to whitelist. */
+    link_types?: string;
+    /** CSV of allowed markings (defaults to caller clearance). */
+    markings?: string;
+    limit?: number;
+  },
+) {
+  const qs = new URLSearchParams();
+  if (params?.depth !== undefined) qs.set('depth', String(params.depth));
+  if (params?.link_types) qs.set('link_types', params.link_types);
+  if (params?.markings) qs.set('markings', params.markings);
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+  const query = qs.toString();
+  return api.get<{
+    starting_object_id: string;
+    total: number;
+    edges: TraversedEdge[];
+  }>(`/ontology/objects/${objectId}/traverse${query ? `?${query}` : ''}`);
+}
+
 export function getOntologyGraph(params?: {
   root_object_id?: string;
   root_type_id?: string;
@@ -2144,4 +2221,147 @@ export function createProjectMigration(id: string, body: {
   note?: string;
 }) {
   return api.post<OntologyProjectMigration>(`/ontology/projects/${id}/migrations`, body);
+}
+
+// --- Object Type → Dataset bindings (T2 backend) ----------------------------
+
+export type ObjectTypeBindingSyncMode = 'snapshot' | 'incremental' | 'view';
+
+export interface ObjectTypeBindingPropertyMapping {
+  source_column: string;
+  target_property: string;
+  transform?: string | null;
+}
+
+export interface ObjectTypeBinding {
+  id: string;
+  object_type_id: string;
+  dataset_id: string;
+  dataset_branch?: string | null;
+  dataset_version?: number | null;
+  primary_key_column: string;
+  property_mapping: ObjectTypeBindingPropertyMapping[];
+  sync_mode: ObjectTypeBindingSyncMode;
+  default_marking: string;
+  preview_limit: number;
+  owner_id: string;
+  last_materialized_at?: string | null;
+  last_run_status?: string | null;
+  last_run_summary?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterializeBindingResponse {
+  binding_id: string;
+  status: string;
+  rows_read: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  dry_run: boolean;
+  error_details?: unknown[];
+}
+
+export function listObjectTypeBindings(typeId: string) {
+  return api.get<{ data: ObjectTypeBinding[] }>(`/ontology/types/${typeId}/bindings`);
+}
+
+export function createObjectTypeBinding(
+  typeId: string,
+  body: {
+    dataset_id: string;
+    dataset_branch?: string;
+    dataset_version?: number;
+    primary_key_column: string;
+    property_mapping: ObjectTypeBindingPropertyMapping[];
+    sync_mode: ObjectTypeBindingSyncMode;
+    default_marking?: string;
+    preview_limit?: number;
+  },
+) {
+  return api.post<ObjectTypeBinding>(`/ontology/types/${typeId}/bindings`, body);
+}
+
+export function updateObjectTypeBinding(
+  typeId: string,
+  bindingId: string,
+  body: Partial<{
+    dataset_branch: string;
+    dataset_version: number;
+    primary_key_column: string;
+    property_mapping: ObjectTypeBindingPropertyMapping[];
+    sync_mode: ObjectTypeBindingSyncMode;
+    default_marking: string;
+    preview_limit: number;
+  }>,
+) {
+  return api.patch<ObjectTypeBinding>(
+    `/ontology/types/${typeId}/bindings/${bindingId}`,
+    body,
+  );
+}
+
+export function deleteObjectTypeBinding(typeId: string, bindingId: string) {
+  return api.delete(`/ontology/types/${typeId}/bindings/${bindingId}`);
+}
+
+export function materializeObjectTypeBinding(
+  typeId: string,
+  bindingId: string,
+  body?: {
+    dataset_branch?: string;
+    dataset_version?: number;
+    limit?: number;
+    dry_run?: boolean;
+  },
+) {
+  return api.post<MaterializeBindingResponse>(
+    `/ontology/types/${typeId}/bindings/${bindingId}/materialize`,
+    body ?? {},
+  );
+}
+
+// --- Object Timeline / lineage of revisions (T9) ---------------------------
+
+export interface ObjectRevision {
+  id: string;
+  object_id: string;
+  object_type_id: string;
+  operation: 'insert' | 'update' | 'delete' | string;
+  properties: Record<string, unknown>;
+  marking: string;
+  organization_id?: string | null;
+  changed_by: string;
+  revision_number: number;
+  written_at: string;
+}
+
+export interface ListObjectRevisionsResponse {
+  object_id: string;
+  total: number;
+  data: ObjectRevision[];
+}
+
+export interface RestoreObjectRevisionResponse {
+  object: ObjectInstance;
+  restored_from_revision_number: number;
+  new_revision_number: number;
+}
+
+export function listObjectRevisions(typeId: string, objectId: string, params?: { limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+  const tail = qs.toString() ? `?${qs}` : '';
+  return api.get<ListObjectRevisionsResponse>(
+    `/ontology/types/${typeId}/objects/${objectId}/revisions${tail}`,
+  );
+}
+
+export function restoreObjectRevision(typeId: string, objectId: string, revisionNumber: number) {
+  return api.post<RestoreObjectRevisionResponse>(
+    `/ontology/types/${typeId}/objects/${objectId}/revisions/${revisionNumber}/restore`,
+    {},
+  );
 }
