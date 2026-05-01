@@ -6,8 +6,8 @@ use reqwest::Url;
 use serde_json::{Value, json};
 
 use super::{
-    ConnectionTestResult, SyncPayload, add_source_signature, basic_discovered_source, http_runtime,
-    virtual_table_response,
+    ConnectionTestResult, SyncPayload, arrow_payload_from_rows, basic_discovered_source,
+    http_runtime, virtual_table_response,
 };
 use crate::{
     AppState,
@@ -73,54 +73,94 @@ pub async fn fetch_dataset(
     validate_config(config)?;
 
     let soql = soql_query(config, selector)?;
+    let endpoint = if include_deleted(config) {
+        "queryAll"
+    } else {
+        "query"
+    };
     let mut url = api_base_url(config)?
-        .join("query")
+        .join(endpoint)
         .map_err(|error| error.to_string())?;
     url.query_pairs_mut().append_pair("q", &soql);
 
-    let response = http_runtime::get(
-        state,
-        config,
-        url.clone(),
-        http_runtime::header_map(config)?,
-        Some(access_token(config)?.to_string()),
-        agent_url,
-    )
-    .await?;
-    if !(200..300).contains(&response.status) {
-        return Err(format!("Salesforce returned HTTP {}", response.status));
+    let mut all_records: Vec<Value> = Vec::new();
+    let mut total_size: i64 = 0;
+    let mut pages = 0usize;
+    let mut next_url = Some(url.clone());
+
+    while let Some(current_url) = next_url.take() {
+        if pages >= max_pages(config) {
+            tracing::warn!(
+                "salesforce fetch hit max pages ({}); stopping pagination",
+                max_pages(config)
+            );
+            break;
+        }
+        let response = http_runtime::get(
+            state,
+            config,
+            current_url.clone(),
+            http_runtime::header_map(config)?,
+            Some(access_token(config)?.to_string()),
+            agent_url,
+        )
+        .await?;
+        if !(200..300).contains(&response.status) {
+            return Err(format!("Salesforce returned HTTP {}", response.status));
+        }
+        let payload = http_runtime::json_body(&response)?;
+        if let Some(size) = payload.get("totalSize").and_then(Value::as_i64) {
+            total_size = size;
+        }
+        let mut page_records = payload
+            .get("records")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mut record| {
+                if let Value::Object(object) = &mut record {
+                    object.remove("attributes");
+                }
+                record
+            })
+            .collect::<Vec<_>>();
+        all_records.append(&mut page_records);
+        pages += 1;
+
+        if payload
+            .get("done")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            break;
+        }
+        if let Some(path) = payload.get("nextRecordsUrl").and_then(Value::as_str) {
+            let instance = config
+                .get("instance_url")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "salesforce missing 'instance_url'".to_string())?;
+            let base = Url::parse(instance).map_err(|error| error.to_string())?;
+            next_url = Some(base.join(path).map_err(|error| error.to_string())?);
+        }
     }
 
-    let payload = http_runtime::json_body(&response)?;
-    let records = payload
-        .get("records")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|mut record| {
-            if let Value::Object(object) = &mut record {
-                object.remove("attributes");
-            }
-            record
-        })
-        .collect::<Vec<_>>();
-
-    let mut sync_payload = SyncPayload {
-        bytes: serde_json::to_vec(&records).map_err(|error| error.to_string())?,
-        format: "json".to_string(),
-        rows_synced: records.len() as i64,
-        file_name: "salesforce.json".to_string(),
-        metadata: json!({
-            "query": soql,
-            "total_size": payload.get("totalSize").and_then(Value::as_i64).unwrap_or(records.len() as i64),
-            "url": url.as_str(),
-            "headers": response.headers,
-            "agent_url": agent_url,
-        }),
-    };
-    add_source_signature(&mut sync_payload);
-    Ok(sync_payload)
+    let columns = infer_columns(&all_records);
+    let metadata = json!({
+        "query": soql,
+        "endpoint": endpoint,
+        "total_size": total_size,
+        "fetched": all_records.len(),
+        "pages": pages,
+        "url": url.as_str(),
+        "agent_url": agent_url,
+    });
+    arrow_payload_from_rows(
+        format!("salesforce_{}.arrow", sanitize_file_name(selector)),
+        columns,
+        all_records,
+        metadata,
+    )
 }
 
 pub async fn discover_sources(
@@ -178,16 +218,45 @@ pub async fn query_virtual_table(
     request: &VirtualTableQueryRequest,
     agent_url: Option<&str>,
 ) -> Result<VirtualTableQueryResponse, String> {
-    let payload = fetch_dataset(state, config, &request.selector, agent_url).await?;
-    let rows = serde_json::from_slice::<Vec<Value>>(&payload.bytes)
-        .map_err(|error| error.to_string())?
+    validate_config(config)?;
+    // Run a bounded SOQL query directly to avoid materialising a full sync.
+    let limit = request.limit.unwrap_or(50).clamp(1, 500) as i64;
+    let soql = bounded_soql(config, &request.selector, limit)?;
+    let mut url = api_base_url(config)?
+        .join("query")
+        .map_err(|error| error.to_string())?;
+    url.query_pairs_mut().append_pair("q", &soql);
+
+    let response = http_runtime::get(
+        state,
+        config,
+        url.clone(),
+        http_runtime::header_map(config)?,
+        Some(access_token(config)?.to_string()),
+        agent_url,
+    )
+    .await?;
+    if !(200..300).contains(&response.status) {
+        return Err(format!("Salesforce returned HTTP {}", response.status));
+    }
+    let payload = http_runtime::json_body(&response)?;
+    let rows = payload
+        .get("records")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
         .into_iter()
-        .take(request.limit.unwrap_or(50).clamp(1, 500))
+        .map(|mut record| {
+            if let Value::Object(object) = &mut record {
+                object.remove("attributes");
+            }
+            record
+        })
         .collect::<Vec<_>>();
     Ok(virtual_table_response(
         &request.selector,
         rows,
-        payload.metadata,
+        json!({ "query": soql, "url": url.as_str() }),
     ))
 }
 
@@ -243,4 +312,53 @@ fn soql_query(config: &Value, selector: &str) -> Result<String, String> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "salesforce sync requires a SOQL query or object selector".to_string())
+}
+
+fn bounded_soql(config: &Value, selector: &str, limit: i64) -> Result<String, String> {
+    let trimmed = selector.trim();
+    if trimmed.to_ascii_lowercase().starts_with("select ") {
+        return Ok(trimmed.to_string());
+    }
+    if !trimmed.is_empty() {
+        return Ok(format!("SELECT Id, Name FROM {trimmed} LIMIT {limit}"));
+    }
+    let _ = config;
+    Err("salesforce virtual_table requires a selector".to_string())
+}
+
+fn include_deleted(config: &Value) -> bool {
+    config
+        .get("include_deleted")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn max_pages(config: &Value) -> usize {
+    config
+        .get("max_pages")
+        .and_then(Value::as_u64)
+        .unwrap_or(50)
+        .clamp(1, 1_000) as usize
+}
+
+fn infer_columns(records: &[Value]) -> Vec<String> {
+    let mut columns: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for record in records {
+        if let Some(object) = record.as_object() {
+            for key in object.keys() {
+                if seen.insert(key.clone()) {
+                    columns.push(key.clone());
+                }
+            }
+        }
+    }
+    columns
+}
+
+fn sanitize_file_name(selector: &str) -> String {
+    selector
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
 }

@@ -1,5 +1,7 @@
 use serde_json::{Value, json};
 
+use crate::schema_registry::{self, SchemaType};
+
 #[derive(Debug, Clone)]
 pub struct EventStreamTopic {
     pub selector: String,
@@ -24,6 +26,14 @@ pub fn validate_topic_connector_config(
         return Err(format!(
             "{connector_label} requires at least one topic in 'topics'"
         ));
+    }
+
+    // If a topic ships an inline schema (Avro / JSON Schema / Protobuf
+    // descriptor set), validate the configured `sample_messages` against
+    // it. This catches schema/payload drift at registration time instead
+    // of at first read.
+    for topic in &topics {
+        validate_topic_samples(&topic.metadata, &topic.sample_messages, connector_label)?;
     }
 
     Ok(())
@@ -109,6 +119,55 @@ pub fn find_topic_entry(
         .into_iter()
         .find(|topic| topic.selector == selector)
         .ok_or_else(|| format!("{connector_label} topic '{selector}' is not configured"))
+}
+
+/// Validate a topic's `sample_messages` against an inline schema declared
+/// in the topic config. The expected shape is:
+///
+/// ```json
+/// {
+///   "selector": "orders",
+///   "schema": { "type": "avro" | "protobuf" | "json", "text": "..." },
+///   "sample_messages": [ { ... } ]
+/// }
+/// ```
+///
+/// `schema_subject` (a reference to a registered subject in the
+/// cdc-metadata-service Schema Registry) is recognised but only used by
+/// the connector for traceability — actual validation always runs against
+/// the inline `schema.text` when present. This keeps the connector usable
+/// in environments where the registry is offline (catalog_backed mode).
+///
+/// Returns `Ok(())` if no schema is configured (validation is opt-in).
+pub fn validate_topic_samples(
+    topic_metadata: &Value,
+    sample_messages: &[Value],
+    connector_label: &str,
+) -> Result<(), String> {
+    let Some(schema) = topic_metadata.get("schema").filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let schema_type_str = schema
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{connector_label} schema requires 'type'"))?;
+    let schema_type: SchemaType = schema_type_str
+        .parse()
+        .map_err(|error: schema_registry::SchemaError| {
+            format!("{connector_label} {error}")
+        })?;
+    let schema_text = schema
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{connector_label} schema requires 'text'"))?;
+    for (index, sample) in sample_messages.iter().enumerate() {
+        schema_registry::validate_payload(schema_type, schema_text, sample).map_err(|error| {
+            format!(
+                "{connector_label} sample_messages[{index}] does not match schema: {error}"
+            )
+        })?;
+    }
+    Ok(())
 }
 
 pub fn bootstrap_servers(config: &Value) -> Option<&str> {
@@ -206,5 +265,39 @@ mod tests {
     fn sanitizes_file_stems() {
         assert_eq!(sanitize_file_stem("orders.v1", "fallback"), "orders_v1");
         assert_eq!(sanitize_file_stem("///", "fallback"), "fallback");
+    }
+
+    #[test]
+    fn topic_with_inline_avro_schema_validates_samples() {
+        let config = json!({
+            "bootstrap_servers": "broker-a:9092",
+            "topics": [{
+                "selector": "orders",
+                "schema": {
+                    "type": "avro",
+                    "text": r#"{"type":"record","name":"Order","fields":[{"name":"order_id","type":"string"}]}"#
+                },
+                "sample_messages": [{ "order_id": "ord-1" }]
+            }]
+        });
+        validate_topic_connector_config(&config, "kafka connector").expect("samples match schema");
+    }
+
+    #[test]
+    fn topic_with_inline_schema_rejects_invalid_sample() {
+        let config = json!({
+            "bootstrap_servers": "broker-a:9092",
+            "topics": [{
+                "selector": "orders",
+                "schema": {
+                    "type": "json",
+                    "text": r#"{"type":"object","required":["order_id"],"properties":{"order_id":{"type":"string"}}}"#
+                },
+                "sample_messages": [{ "order_id": "ord-1" }, { "wrong_field": 1 }]
+            }]
+        });
+        let error = validate_topic_connector_config(&config, "kafka connector")
+            .expect_err("second sample is missing required field");
+        assert!(error.contains("sample_messages[1]"));
     }
 }

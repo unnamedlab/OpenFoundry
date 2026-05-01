@@ -1,3 +1,4 @@
+#[cfg(feature = "kafka-rdkafka")]
 use std::time::Duration;
 
 use event_bus_control::connectors::{

@@ -48,7 +48,8 @@ pub async fn create_connection(
         "iot" => connectors::iot::validate_config(&body.config),
         // Cloud object stores: validators live in the per-store connector
         // modules so discovery and connection-create share the same rules.
-        "azure_blob" | "adls" | "onelake" => connectors::azure_blob::validate_config(&body.config),
+        "azure_blob" | "adls" => connectors::azure_blob::validate_config(&body.config),
+        "onelake" => connectors::onelake::validate_config(&body.config),
         "gcs" | "google_cloud_storage" => connectors::gcs::validate_config(&body.config),
         // Open-table generic / custom source + Databricks Unity Catalog.
         "generic" => connectors::generic::validate_config(&body.config),
@@ -204,6 +205,8 @@ pub async fn test_connection(
         "s3" => {
             connectors::s3::test_connection(&state, &conn.config, agent_url.as_deref()).await
         }
+        "gcs" | "google_cloud_storage" => connectors::gcs::test_connection(&conn.config).await,
+        "onelake" => connectors::onelake::test_connection(&conn.config).await,
         "csv" => connectors::csv::test_connection(&state, &conn.config).await,
         "json" => connectors::json::test_connection(&state, &conn.config).await,
         "rest_api" => {

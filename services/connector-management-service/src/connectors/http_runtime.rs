@@ -27,6 +27,8 @@ struct AgentProxyRequest {
     headers: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     bearer_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    json_body: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +83,86 @@ pub fn json_body(response: &HttpResponseEnvelope) -> Result<Value, String> {
     serde_json::from_slice(&response.bytes).map_err(|error| error.to_string())
 }
 
+pub async fn post_json(
+    state: &AppState,
+    config: &Value,
+    url: Url,
+    headers: HeaderMap,
+    bearer_token: Option<String>,
+    body: &Value,
+    agent_url: Option<&str>,
+) -> Result<HttpResponseEnvelope, String> {
+    let policy = EgressPolicy::from_state_and_config(state, config);
+    validate_url(&url, &policy)?;
+    if let Some(agent_url) = agent_url {
+        return proxy_via_agent_with_body(
+            state,
+            agent_url,
+            Method::POST,
+            url,
+            headers,
+            bearer_token,
+            Some(body.clone()),
+        )
+        .await;
+    }
+
+    let mut request = state.http_client.post(url.clone()).json(body);
+    if let Some(token) = bearer_token {
+        request = request.bearer_auth(token);
+    }
+    request = request.headers(headers);
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    let status = response.status().as_u16();
+    let headers = header_map_to_strings(response.headers());
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| error.to_string())?
+        .to_vec();
+    Ok(HttpResponseEnvelope {
+        status,
+        headers,
+        bytes,
+    })
+}
+
+pub async fn post_form(
+    state: &AppState,
+    config: &Value,
+    url: Url,
+    headers: HeaderMap,
+    form: &[(String, String)],
+    agent_url: Option<&str>,
+) -> Result<HttpResponseEnvelope, String> {
+    // Form-encoded POST is used for OAuth2 token exchanges; routing through the
+    // connector agent isn't currently supported because it expects JSON bodies.
+    let _ = agent_url;
+    let policy = EgressPolicy::from_state_and_config(state, config);
+    validate_url(&url, &policy)?;
+
+    let response = state
+        .http_client
+        .post(url.clone())
+        .headers(headers)
+        .form(form)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let status = response.status().as_u16();
+    let headers = header_map_to_strings(response.headers());
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| error.to_string())?
+        .to_vec();
+    Ok(HttpResponseEnvelope {
+        status,
+        headers,
+        bytes,
+    })
+}
+
 pub fn header_map(config: &Value) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
     if let Some(header_map) = config.get("headers").and_then(Value::as_object) {
@@ -107,6 +189,18 @@ async fn proxy_via_agent(
     headers: HeaderMap,
     bearer_token: Option<String>,
 ) -> Result<HttpResponseEnvelope, String> {
+    proxy_via_agent_with_body(state, agent_url, method, url, headers, bearer_token, None).await
+}
+
+async fn proxy_via_agent_with_body(
+    state: &AppState,
+    agent_url: &str,
+    method: Method,
+    url: Url,
+    headers: HeaderMap,
+    bearer_token: Option<String>,
+    json_body: Option<Value>,
+) -> Result<HttpResponseEnvelope, String> {
     let proxy_url = Url::parse(agent_url)
         .map_err(|error| error.to_string())?
         .join("/api/v1/connector-agent/http")
@@ -116,6 +210,7 @@ async fn proxy_via_agent(
         url: url.to_string(),
         headers: header_map_to_strings(&headers),
         bearer_token,
+        json_body,
     };
 
     let response = state

@@ -18,6 +18,7 @@
 //! this crate compilable.
 
 pub mod app_config;
+pub mod cdc;
 pub mod control_plane;
 pub mod crds;
 pub mod grpc_service;

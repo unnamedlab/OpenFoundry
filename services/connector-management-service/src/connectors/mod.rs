@@ -3,6 +3,12 @@ use serde_json::Value;
 
 use sha2::{Digest, Sha256};
 
+use std::sync::Arc;
+
+use arrow_array::{ArrayRef, RecordBatch, StringArray};
+use arrow_ipc::writer::StreamWriter;
+use arrow_schema::{DataType, Field, Schema};
+
 use crate::models::registration::{DiscoveredSource, VirtualTableQueryResponse};
 
 pub mod bigquery;
@@ -20,6 +26,7 @@ pub mod kafka;
 pub mod kinesis;
 pub mod mysql;
 pub mod odbc;
+pub mod onelake;
 pub mod open_table_catalog;
 pub mod parquet;
 pub mod postgres;
@@ -103,4 +110,65 @@ pub fn basic_discovered_source(
         source_signature: None,
         metadata,
     }
+}
+
+/// Materialise a column-keyed JSON row set as an Arrow IPC stream so the
+/// dataset-versioning-service can ingest the result as a typed dataset version.
+/// All columns are encoded as nullable Utf8 — sufficient for the productive
+/// connectors that need a portable wire format without per-column type plumbing.
+pub fn materialize_arrow_stream(columns: &[String], rows: &[Value]) -> Result<Vec<u8>, String> {
+    let fields: Vec<Field> = columns
+        .iter()
+        .map(|name| Field::new(name, DataType::Utf8, true))
+        .collect();
+    let schema = Arc::new(Schema::new(fields));
+
+    let mut column_data: Vec<Vec<Option<String>>> =
+        columns.iter().map(|_| Vec::with_capacity(rows.len())).collect();
+    for row in rows {
+        for (idx, name) in columns.iter().enumerate() {
+            let cell = match row.get(name) {
+                Some(Value::Null) | None => None,
+                Some(Value::String(s)) => Some(s.clone()),
+                Some(other) => Some(other.to_string()),
+            };
+            column_data[idx].push(cell);
+        }
+    }
+    let arrays: Vec<ArrayRef> = column_data
+        .into_iter()
+        .map(|values| Arc::new(StringArray::from(values)) as ArrayRef)
+        .collect();
+    let batch =
+        RecordBatch::try_new(schema.clone(), arrays).map_err(|error| error.to_string())?;
+
+    let mut buffer = Vec::with_capacity(4096);
+    {
+        let mut writer = StreamWriter::try_new(&mut buffer, &schema)
+            .map_err(|error| error.to_string())?;
+        writer.write(&batch).map_err(|error| error.to_string())?;
+        writer.finish().map_err(|error| error.to_string())?;
+    }
+    Ok(buffer)
+}
+
+/// Build a `SyncPayload` from in-memory rows, materialising them as an Arrow
+/// IPC stream. The bytes are ready for `upload_dataset` to deliver to the
+/// dataset-versioning-service so a new version is created.
+pub fn arrow_payload_from_rows(
+    file_name: impl Into<String>,
+    columns: Vec<String>,
+    rows: Vec<Value>,
+    metadata: Value,
+) -> Result<SyncPayload, String> {
+    let bytes = materialize_arrow_stream(&columns, &rows)?;
+    let mut payload = SyncPayload {
+        bytes,
+        format: "arrow".to_string(),
+        rows_synced: rows.len() as i64,
+        file_name: file_name.into(),
+        metadata,
+    };
+    add_source_signature(&mut payload);
+    Ok(payload)
 }

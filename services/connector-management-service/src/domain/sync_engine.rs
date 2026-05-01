@@ -243,6 +243,12 @@ async fn fetch_source_payload(
             )
             .await
         }
+        "gcs" | "google_cloud_storage" => {
+            connectors::gcs::fetch_dataset(&connection.config, &job.table_name).await
+        }
+        "onelake" => {
+            connectors::onelake::fetch_dataset(&connection.config, &job.table_name).await
+        }
         "parquet" => {
             connectors::parquet::fetch_dataset(state, &connection.config, &job.table_name).await
         }
@@ -431,6 +437,7 @@ fn mime_for_format(format: &str) -> &'static str {
     match format {
         "csv" => "text/csv",
         "json" => "application/json",
+        "arrow" => "application/vnd.apache.arrow.stream",
         _ => "application/octet-stream",
     }
 }

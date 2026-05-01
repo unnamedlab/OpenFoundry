@@ -71,7 +71,7 @@ version = "1"
 
 [workspace.dependencies.object_store]
 version = "0.11"
-features = ["aws"]
+features = ["aws", "gcp", "azure"]
 
 [workspace.dependencies.ontology-kernel]
 path = "libs/ontology-kernel"

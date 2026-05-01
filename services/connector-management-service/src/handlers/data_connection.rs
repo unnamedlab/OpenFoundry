@@ -273,6 +273,8 @@ pub struct SyncRunResponse {
     pub files_written: i64,
     pub error: Option<String>,
     pub ingest_job_id: Option<String>,
+    pub dataset_version_id: Option<Uuid>,
+    pub content_hash: Option<String>,
 }
 
 pub async fn list_syncs(
@@ -341,9 +343,9 @@ pub async fn run_sync(
 ) -> impl IntoResponse {
     // Resolve the sync def → source so we can build an `IngestJobSpec` for
     // ingestion-replication-service.
-    let source = sqlx::query_as::<_, (Uuid, String, String, serde_json::Value)>(
+    let source = sqlx::query_as::<_, (Uuid, String, String, serde_json::Value, Uuid)>(
         r#"
-        SELECT s.id, s.name, s.connector_type, s.config
+        SELECT s.id, s.name, s.connector_type, s.config, d.output_dataset_id
         FROM batch_sync_defs d
         JOIN connections s ON s.id = d.source_id
         WHERE d.id = $1
@@ -364,6 +366,7 @@ pub async fn run_sync(
         }
         Err(err) => return internal(err),
     };
+    let output_dataset_id = source.4;
 
     // Decide initial status + remote ingest_job_id by attempting the gRPC
     // bridge when the URL is configured. Failures degrade gracefully:
@@ -413,6 +416,41 @@ pub async fn run_sync(
             error,
             ingest_job_id,
         )) => {
+            // After a successful sync_run, register a dataset version with
+            // dataset-versioning-service so the version graph carries the
+            // (content_hash, schema, row_count, source_id) lineage. Failures
+            // are logged but do not flip the run to failed: the ingest may
+            // have already happened out-of-band via the gRPC bridge.
+            let (dataset_version_id, content_hash) = if status == "failed" {
+                (None, None)
+            } else {
+                match register_version_for_run(
+                    &state,
+                    sync_def_id,
+                    output_dataset_id,
+                    source.0,
+                    &source.1,
+                    &source.2,
+                    &source.3,
+                    id,
+                )
+                .await
+                {
+                    Ok(reg) => (
+                        Some(reg.dataset_version_id),
+                        Some(reg.content_hash),
+                    ),
+                    Err(err) => {
+                        tracing::warn!(
+                            sync_run_id = %id,
+                            error = %err,
+                            "dataset version registration failed; sync_run kept without dataset_version_id"
+                        );
+                        (None, None)
+                    }
+                }
+            };
+
             let http_status = if status == "failed" {
                 StatusCode::BAD_GATEWAY
             } else {
@@ -430,12 +468,62 @@ pub async fn run_sync(
                     files_written,
                     error,
                     ingest_job_id,
+                    dataset_version_id,
+                    content_hash,
                 }),
             )
                 .into_response()
         }
         Err(err) => internal(err),
     }
+}
+
+/// Look up `output_dataset_id` for the given sync_def and call
+/// [`crate::domain::dataset_versioning::register_for_run`].
+#[allow(clippy::too_many_arguments)]
+async fn register_version_for_run(
+    state: &AppState,
+    sync_def_id: Uuid,
+    output_dataset_id: Uuid,
+    source_id: Uuid,
+    source_name: &str,
+    connector_type: &str,
+    config: &serde_json::Value,
+    sync_run_id: Uuid,
+) -> Result<crate::domain::dataset_versioning::VersionRegistration, String> {
+    let signature_extra = serde_json::json!({
+        "source_name": source_name,
+        "connector_type": connector_type,
+        "config": config,
+    });
+    let content_hash = crate::domain::dataset_versioning::signature_for_bridge_run(
+        sync_def_id,
+        source_id,
+        output_dataset_id,
+        &signature_extra,
+    );
+    let content = crate::domain::dataset_versioning::VersionContent {
+        source_id,
+        output_dataset_id,
+        content_hash,
+        row_count: 0,
+        size_bytes: 0,
+        schema: serde_json::json!({
+            "connector_type": connector_type,
+            "source_name": source_name,
+        }),
+        message: format!("sync_run {sync_run_id} via {connector_type}"),
+        branch_name: None,
+    };
+    crate::domain::dataset_versioning::register_for_run(
+        &state.db,
+        &state.http_client,
+        &state.dataset_service_url,
+        sync_def_id,
+        sync_run_id,
+        content,
+    )
+    .await
 }
 
 /// Try to issue `CreateIngestJob` against `ingestion-replication-service`.
@@ -494,8 +582,8 @@ pub async fn list_runs(
     State(state): State<AppState>,
     Path(sync_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>, i64, i64, Option<String>, Option<String>)>(
-        "SELECT id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>, i64, i64, Option<String>, Option<String>, Option<Uuid>, Option<String>)>(
+        "SELECT id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id, dataset_version_id, content_hash
          FROM sync_runs WHERE sync_def_id = $1 ORDER BY started_at DESC",
     )
     .bind(sync_id)
@@ -506,9 +594,9 @@ pub async fn list_runs(
         Ok(rows) => {
             let body: Vec<SyncRunResponse> = rows
                 .into_iter()
-                .map(|(id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id)| {
+                .map(|(id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id, dataset_version_id, content_hash)| {
                     SyncRunResponse {
-                        id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id,
+                        id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id, dataset_version_id, content_hash,
                     }
                 })
                 .collect();

@@ -1,5 +1,6 @@
 pub mod agent_registry;
 pub mod auto_registration;
+pub mod dataset_versioning;
 pub mod discovery;
 pub mod egress;
 pub mod hyperauto;

@@ -24,6 +24,9 @@ arrow-schema = "53"
 arrow-ipc = "53"
 aws-config = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 aws-sdk-sts = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
+aws-sdk-kinesis = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
+rumqttc = { version = "0.24", default-features = false, features = ["use-rustls"] }
+prometheus = { workspace = true }
 
 [dependencies.async-trait]
 workspace = true
@@ -67,6 +70,14 @@ default = []
 # `connectors::kafka`. Default off keeps CI light and the catalog-backed
 # behaviour available; production builds turn it on through the Dockerfile.
 kafka-rdkafka = ["event-bus-control/kafka-rdkafka"]
+# E2E feature flags — gate the integration tests under `tests/`. Each
+# requires Docker plus the corresponding workspace toolchain. Default-off
+# keeps `cargo test` light; opt in with e.g.
+# `cargo test -p connector-management-service --features kafka-it --test kafka_real_broker -- --ignored`.
+kafka-it = []
+postgres-it = []
+s3-it = []
+schema-registry-it = []
 
 [dependencies.reqwest]
 workspace = true
@@ -94,6 +105,18 @@ workspace = true
 workspace = true
 
 [dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.object_store]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.jsonwebtoken]
 workspace = true
 
 [dependencies.url]

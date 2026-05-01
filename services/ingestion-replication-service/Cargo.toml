@@ -132,6 +132,18 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dev-dependencies.testcontainers]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true
+
+[dev-dependencies.serde_json]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "ingestion-replication-service"

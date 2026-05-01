@@ -11,6 +11,7 @@ mod credential_crypto;
 mod domain;
 mod handlers;
 mod ingestion_bridge;
+mod metrics;
 mod models;
 
 use std::net::SocketAddr;
@@ -22,7 +23,7 @@ use axum::{
     extract::{Request, State},
     http::header::AUTHORIZATION,
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -52,6 +53,8 @@ pub struct AppState {
     pub agent_stale_after: Duration,
     /// AES-256-GCM data-encryption key for credential ciphertext at rest.
     pub credential_key: [u8; 32],
+    /// Prometheus registry shared across handlers (Tarea 9 — observabilidad).
+    pub metrics: crate::metrics::Metrics,
 }
 
 #[tokio::main]
@@ -96,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         allowed_egress_hosts: app_config.allowed_egress_hosts.clone(),
         agent_stale_after: Duration::from_secs(app_config.agent_stale_after_secs),
         credential_key,
+        metrics: crate::metrics::Metrics::new(),
     };
 
     // Data Connection app surface (matches apps/web/src/lib/api/data-connection.ts).
@@ -270,6 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             optional_auth_layer,
         ))
         .route("/health", get(|| async { "ok" }))
+        .route("/metrics", get(metrics_handler))
         .with_state(state.clone());
 
     // Optional background loop that mirrors Foundry's recurring auto-registration.
@@ -295,6 +300,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Prometheus exposition endpoint (`GET /metrics`). Renders the registry
+/// owned by `AppState::metrics` in the standard text format. Tarea 9.
+async fn metrics_handler(State(state): State<AppState>) -> Response {
+    match state.metrics.render() {
+        Ok(body) => (
+            axum::http::StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+            body,
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!(?error, "failed to render prometheus metrics");
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 /// Best-effort JWT decoder middleware: when the request carries a valid
