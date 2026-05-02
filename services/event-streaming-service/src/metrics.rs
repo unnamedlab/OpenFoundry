@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use prometheus::{
-    Encoder, HistogramVec, IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder,
+    Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder,
     histogram_opts,
 };
 
@@ -38,6 +38,15 @@ pub struct Metrics {
     pub publish_latency_seconds: HistogramVec,
     pub active_subscriptions: IntGaugeVec,
     pub route_resolution_total: IntCounterVec,
+    // Bloque F1 - per-stream / per-topology observability.
+    pub stream_rows_in_total: IntCounterVec,
+    pub stream_rows_archived_total: IntCounterVec,
+    pub stream_lag_ms: IntGaugeVec,
+    pub topology_checkpoint_duration_seconds: HistogramVec,
+    pub topology_checkpoint_size_bytes: IntGaugeVec,
+    pub topology_backpressure_ratio: GaugeVec,
+    pub topology_restarts_total: IntCounterVec,
+    pub dead_letter_total: IntCounterVec,
 }
 
 impl Metrics {
@@ -90,11 +99,93 @@ impl Metrics {
         )
         .expect("valid metric definition");
 
+        // Bloque F1 - per-stream and per-topology metrics.
+        let stream_rows_in_total = IntCounterVec::new(
+            Opts::new(
+                "streaming_stream_rows_in_total",
+                "Total number of rows accepted into a stream (after schema validation).",
+            ),
+            &["stream"],
+        )
+        .expect("valid metric definition");
+
+        let stream_rows_archived_total = IntCounterVec::new(
+            Opts::new(
+                "streaming_stream_rows_archived_total",
+                "Total number of stream rows committed to the cold tier (Iceberg).",
+            ),
+            &["stream"],
+        )
+        .expect("valid metric definition");
+
+        let stream_lag_ms = IntGaugeVec::new(
+            Opts::new(
+                "streaming_stream_lag_ms",
+                "Approximate consumer lag of a stream partition, in milliseconds.",
+            ),
+            &["stream", "partition"],
+        )
+        .expect("valid metric definition");
+
+        let topology_checkpoint_duration_seconds = HistogramVec::new(
+            histogram_opts!(
+                "streaming_topology_checkpoint_duration_seconds",
+                "Wall-clock duration of a topology checkpoint, in seconds.",
+                vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+            ),
+            &["topology"],
+        )
+        .expect("valid metric definition");
+
+        let topology_checkpoint_size_bytes = IntGaugeVec::new(
+            Opts::new(
+                "streaming_topology_checkpoint_size_bytes",
+                "Size in bytes of the latest topology checkpoint.",
+            ),
+            &["topology"],
+        )
+        .expect("valid metric definition");
+
+        let topology_backpressure_ratio = GaugeVec::new(
+            Opts::new(
+                "streaming_topology_backpressure_ratio",
+                "Ratio in [0,1] of operators currently signalling backpressure.",
+            ),
+            &["topology"],
+        )
+        .expect("valid metric definition");
+
+        let topology_restarts_total = IntCounterVec::new(
+            Opts::new(
+                "streaming_topology_restarts_total",
+                "Total number of topology restarts.",
+            ),
+            &["topology", "reason"],
+        )
+        .expect("valid metric definition");
+
+        let dead_letter_total = IntCounterVec::new(
+            Opts::new(
+                "streaming_dead_letter_total",
+                "Total number of events sent to the dead-letter queue.",
+            ),
+            &["stream", "reason"],
+        )
+        .expect("valid metric definition");
+
         registry.register(Box::new(events_published_total.clone())).unwrap();
         registry.register(Box::new(events_received_total.clone())).unwrap();
         registry.register(Box::new(publish_latency_seconds.clone())).unwrap();
         registry.register(Box::new(active_subscriptions.clone())).unwrap();
         registry.register(Box::new(route_resolution_total.clone())).unwrap();
+        registry.register(Box::new(stream_rows_in_total.clone())).unwrap();
+        registry.register(Box::new(stream_rows_archived_total.clone())).unwrap();
+        registry.register(Box::new(stream_lag_ms.clone())).unwrap();
+        registry.register(Box::new(topology_checkpoint_duration_seconds.clone())).unwrap();
+        registry.register(Box::new(topology_checkpoint_size_bytes.clone())).unwrap();
+        registry.register(Box::new(topology_backpressure_ratio.clone())).unwrap();
+        registry.register(Box::new(topology_restarts_total.clone())).unwrap();
+        registry.register(Box::new(dead_letter_total.clone())).unwrap();
 
         Self {
             registry,
@@ -103,7 +194,67 @@ impl Metrics {
             publish_latency_seconds,
             active_subscriptions,
             route_resolution_total,
+            stream_rows_in_total,
+            stream_rows_archived_total,
+            stream_lag_ms,
+            topology_checkpoint_duration_seconds,
+            topology_checkpoint_size_bytes,
+            topology_backpressure_ratio,
+            topology_restarts_total,
+            dead_letter_total,
         }
+    }
+
+    /// Convenience: increment `streaming_stream_rows_in_total`.
+    pub fn record_stream_rows_in(&self, stream: &str, n: u64) {
+        self.stream_rows_in_total
+            .with_label_values(&[stream])
+            .inc_by(n);
+    }
+
+    /// Convenience: increment `streaming_stream_rows_archived_total`.
+    pub fn record_stream_rows_archived(&self, stream: &str, n: u64) {
+        self.stream_rows_archived_total
+            .with_label_values(&[stream])
+            .inc_by(n);
+    }
+
+    /// Convenience: increment `streaming_dead_letter_total`.
+    pub fn record_dead_letter(&self, stream: &str, reason: &str) {
+        self.dead_letter_total
+            .with_label_values(&[stream, reason])
+            .inc();
+    }
+
+    /// Convenience: observe a checkpoint duration + size.
+    pub fn record_checkpoint(&self, topology: &str, duration_seconds: f64, size_bytes: i64) {
+        self.topology_checkpoint_duration_seconds
+            .with_label_values(&[topology])
+            .observe(duration_seconds);
+        self.topology_checkpoint_size_bytes
+            .with_label_values(&[topology])
+            .set(size_bytes);
+    }
+
+    /// Convenience: set the backpressure ratio for a topology.
+    pub fn set_backpressure_ratio(&self, topology: &str, ratio: f64) {
+        self.topology_backpressure_ratio
+            .with_label_values(&[topology])
+            .set(ratio);
+    }
+
+    /// Convenience: increment topology restart counter.
+    pub fn record_topology_restart(&self, topology: &str, reason: &str) {
+        self.topology_restarts_total
+            .with_label_values(&[topology, reason])
+            .inc();
+    }
+
+    /// Convenience: report stream lag for a partition.
+    pub fn set_stream_lag_ms(&self, stream: &str, partition: &str, lag_ms: i64) {
+        self.stream_lag_ms
+            .with_label_values(&[stream, partition])
+            .set(lag_ms);
     }
 
     pub fn registry(&self) -> &Registry {

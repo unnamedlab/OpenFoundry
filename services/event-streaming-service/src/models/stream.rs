@@ -119,8 +119,28 @@ pub struct StreamDefinition {
     pub consistency_guarantee: String,
     #[serde(default)]
     pub stream_profile: StreamProfile,
+    /// Optional Avro schema (Bloque E2). When set the push path validates
+    /// payloads against this schema using
+    /// `event_bus_control::schema_registry::validate_payload`.
+    #[serde(default)]
+    pub schema_avro: Option<Value>,
+    /// SHA-256 fingerprint of the canonicalised Avro schema text.
+    #[serde(default)]
+    pub schema_fingerprint: Option<String>,
+    /// Confluent-style compatibility mode for the next schema evolution.
+    #[serde(default = "default_compatibility")]
+    pub schema_compatibility_mode: String,
+    /// Optional dataset marking name (Bloque E3). When set, callers
+    /// without a matching clearance get filtered out of `list_streams`
+    /// and rejected on `get_stream` / `push_events`.
+    #[serde(default)]
+    pub default_marking: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn default_compatibility() -> String {
+    "BACKWARD".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,6 +174,12 @@ pub struct CreateStreamRequest {
     pub partitions: Option<i32>,
     pub consistency_guarantee: Option<String>,
     pub stream_profile: Option<StreamProfile>,
+    #[serde(default)]
+    pub schema_avro: Option<Value>,
+    #[serde(default)]
+    pub schema_compatibility_mode: Option<String>,
+    #[serde(default)]
+    pub default_marking: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,6 +193,12 @@ pub struct UpdateStreamRequest {
     pub partitions: Option<i32>,
     pub consistency_guarantee: Option<String>,
     pub stream_profile: Option<StreamProfile>,
+    #[serde(default)]
+    pub schema_avro: Option<Value>,
+    #[serde(default)]
+    pub schema_compatibility_mode: Option<String>,
+    #[serde(default)]
+    pub default_marking: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -181,6 +213,10 @@ pub struct StreamRow {
     pub partitions: i32,
     pub consistency_guarantee: String,
     pub stream_profile: SqlJson<StreamProfile>,
+    pub schema_avro: Option<SqlJson<Value>>,
+    pub schema_fingerprint: Option<String>,
+    pub schema_compatibility_mode: String,
+    pub default_marking: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -198,6 +234,10 @@ impl From<StreamRow> for StreamDefinition {
             partitions: value.partitions,
             consistency_guarantee: value.consistency_guarantee,
             stream_profile: value.stream_profile.0,
+            schema_avro: value.schema_avro.map(|v| v.0),
+            schema_fingerprint: value.schema_fingerprint,
+            schema_compatibility_mode: value.schema_compatibility_mode,
+            default_marking: value.default_marking,
             created_at: value.created_at,
             updated_at: value.updated_at,
         }

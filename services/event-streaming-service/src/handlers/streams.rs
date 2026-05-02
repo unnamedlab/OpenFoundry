@@ -1,5 +1,7 @@
-use axum::{Json, extract::{Path, Query}};
+use axum::{Extension, Json, extract::{Path, Query}};
+use auth_middleware::claims::Claims;
 use chrono::{DateTime, Utc};
+use event_bus_control::schema_registry::{self, SchemaType};
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::types::Json as SqlJson;
@@ -7,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    handlers::{ServiceResult, bad_request, db_error, not_found},
+    handlers::{ServiceResult, bad_request, db_error, forbidden, not_found},
     models::{
         ListResponse,
         dead_letter::{
@@ -23,9 +25,84 @@ use crate::{
     },
 };
 
+/// Permission key required to mutate streams (create/update/delete/push).
+const PERM_STREAM_WRITE: &str = "streaming:write";
+
+/// Returns true when the caller can mutate streams. Admins always pass.
+fn can_write_streams(claims: &Claims) -> bool {
+    claims.has_any_role(&["admin", "streaming_admin", "data_engineer"])
+        || claims.has_permission_key(PERM_STREAM_WRITE)
+}
+
+/// Returns true when the caller is allowed to read a stream guarded by
+/// `default_marking`. `None` marking means "no restriction".
+fn caller_allowed_for_marking(claims: &Claims, marking: Option<&str>) -> bool {
+    match marking {
+        None => true,
+        Some(name) if name.is_empty() => true,
+        Some(name) => claims.allows_marking(name),
+    }
+}
+
+/// Compute the canonical SHA-256 fingerprint of an Avro schema document.
+pub(crate) fn compute_avro_fingerprint(schema: &Value) -> Result<String, String> {
+    let text = serde_json::to_string(schema).map_err(|e| e.to_string())?;
+    schema_registry::fingerprint(SchemaType::Avro, &text).map_err(|e| e.to_string())
+}
+
+/// Append a row to `streaming_stream_schema_history`.
+pub(crate) async fn insert_schema_history_row(
+    db: &sqlx::PgPool,
+    stream_id: Uuid,
+    version: i32,
+    schema: &Value,
+    fingerprint: &str,
+    compatibility: &str,
+    created_by: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO streaming_stream_schema_history (
+             id, stream_id, version, schema_avro, fingerprint, compatibility, created_by
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (stream_id, version) DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(stream_id)
+    .bind(version)
+    .bind(SqlJson(schema))
+    .bind(fingerprint)
+    .bind(compatibility)
+    .bind(created_by)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Best-effort audit emitter — produces a structured trace event under
+/// the `audit` target so `audit-trail::middleware::AuditLayer`'s tracer
+/// pipeline picks it up. Schema mirrors `audit-compliance-service`.
+pub(crate) fn emit_audit_event(
+    actor: &Claims,
+    event: &str,
+    resource_type: &str,
+    resource_id: Uuid,
+    extra: serde_json::Value,
+) {
+    tracing::info!(
+        target: "audit",
+        event = event,
+        actor.sub = %actor.sub,
+        actor.email = %actor.email,
+        resource.type = resource_type,
+        resource.id = %resource_id,
+        extra = %extra,
+        "streaming audit event"
+    );
+}
+
 async fn load_stream_row(db: &sqlx::PgPool, id: Uuid) -> Result<StreamRow, sqlx::Error> {
     sqlx::query_as::<_, StreamRow>(
-		"SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, created_at, updated_at
+		"SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, schema_avro, schema_fingerprint, schema_compatibility_mode, default_marking, created_at, updated_at
 		 FROM streaming_streams
 		 WHERE id = $1",
 	)
@@ -166,9 +243,10 @@ async fn insert_dead_letter(
 
 pub async fn list_streams(
     axum::extract::State(state): axum::extract::State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> ServiceResult<ListResponse<StreamDefinition>> {
     let rows = sqlx::query_as::<_, StreamRow>(
-		"SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, created_at, updated_at
+		"SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, schema_avro, schema_fingerprint, schema_compatibility_mode, default_marking, created_at, updated_at
 		 FROM streaming_streams
 		 ORDER BY created_at ASC",
 	)
@@ -176,15 +254,22 @@ pub async fn list_streams(
 	.await
 	.map_err(|cause| db_error(&cause))?;
 
-    Ok(Json(ListResponse {
-        data: rows.into_iter().map(Into::into).collect(),
-    }))
+    let data: Vec<StreamDefinition> = rows
+        .into_iter()
+        .map(StreamDefinition::from)
+        .filter(|stream| caller_allowed_for_marking(&claims, stream.default_marking.as_deref()))
+        .collect();
+    Ok(Json(ListResponse { data }))
 }
 
 pub async fn create_stream(
     axum::extract::State(state): axum::extract::State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateStreamRequest>,
 ) -> ServiceResult<StreamDefinition> {
+    if !can_write_streams(&claims) {
+        return Err(forbidden("caller lacks 'streaming:write' permission"));
+    }
     if payload.name.trim().is_empty() {
         return Err(bad_request("stream name is required"));
     }
@@ -208,9 +293,18 @@ pub async fn create_stream(
     }
 
     let stream_profile = payload.stream_profile.clone().unwrap_or_default();
+    let schema_avro = payload.schema_avro.clone();
+    let schema_fingerprint = schema_avro
+        .as_ref()
+        .and_then(|s| compute_avro_fingerprint(s).ok());
+    let compat_mode = payload
+        .schema_compatibility_mode
+        .clone()
+        .unwrap_or_else(|| "BACKWARD".to_string());
+    let default_marking = payload.default_marking.clone();
     sqlx::query(
-		"INSERT INTO streaming_streams (id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+		"INSERT INTO streaming_streams (id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, schema_avro, schema_fingerprint, schema_compatibility_mode, default_marking)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
 	)
 	.bind(stream_id)
 	.bind(payload.name.trim())
@@ -222,9 +316,32 @@ pub async fn create_stream(
 	.bind(partitions)
 	.bind(&consistency)
 	.bind(SqlJson(stream_profile.clone()))
+	.bind(schema_avro.as_ref().map(SqlJson))
+	.bind(schema_fingerprint.as_deref())
+	.bind(&compat_mode)
+	.bind(default_marking.as_deref())
 	.execute(&state.db)
 	.await
 	.map_err(|cause| db_error(&cause))?;
+
+    // Seed schema history v1 when an Avro schema was supplied at creation
+    // time. Failures here only emit a warning — the stream itself is
+    // already persisted.
+    if let (Some(schema), Some(fp)) = (schema_avro.as_ref(), schema_fingerprint.as_ref()) {
+        let _ = insert_schema_history_row(
+            &state.db,
+            stream_id,
+            1,
+            schema,
+            fp,
+            &compat_mode,
+            "system",
+        )
+        .await
+        .map_err(|err| {
+            tracing::warn!(stream = %stream_id, error = %err, "failed to seed schema history")
+        });
+    }
 
     // Materialise the hot buffer topic for this stream. Errors are logged
     // but do not fail the request — the stream is already persisted and
@@ -251,14 +368,30 @@ pub async fn create_stream(
         .await
         .map_err(|cause| db_error(&cause))?;
 
-    Ok(Json(row.into()))
+    let definition: StreamDefinition = row.into();
+    emit_audit_event(
+        &claims,
+        "streaming.stream.created",
+        "streaming_stream",
+        definition.id,
+        serde_json::json!({
+            "name": definition.name,
+            "default_marking": definition.default_marking,
+            "has_avro_schema": definition.schema_avro.is_some(),
+        }),
+    );
+    Ok(Json(definition))
 }
 
 pub async fn update_stream(
     axum::extract::State(state): axum::extract::State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateStreamRequest>,
 ) -> ServiceResult<StreamDefinition> {
+    if !can_write_streams(&claims) {
+        return Err(forbidden("caller lacks 'streaming:write' permission"));
+    }
     let existing = match load_stream_row(&state.db, id).await {
         Ok(row) => row,
         Err(sqlx::Error::RowNotFound) => return Err(not_found("stream not found")),
@@ -267,6 +400,15 @@ pub async fn update_stream(
 
     let schema = payload.schema.unwrap_or(existing.schema.0);
     let binding = payload.source_binding.unwrap_or(existing.source_binding.0);
+    let new_avro = payload.schema_avro.clone();
+    let new_fingerprint = new_avro
+        .as_ref()
+        .and_then(|s| compute_avro_fingerprint(s).ok());
+    let compat_mode = payload
+        .schema_compatibility_mode
+        .clone()
+        .unwrap_or(existing.schema_compatibility_mode.clone());
+    let new_marking = payload.default_marking.clone();
 
     sqlx::query(
         "UPDATE streaming_streams
@@ -279,6 +421,10 @@ pub async fn update_stream(
 		     partitions = $8,
 		     consistency_guarantee = $9,
 		     stream_profile = $10,
+		     schema_avro = COALESCE($11, schema_avro),
+		     schema_fingerprint = COALESCE($12, schema_fingerprint),
+		     schema_compatibility_mode = $13,
+		     default_marking = COALESCE($14, default_marking),
 		     updated_at = now()
 		 WHERE id = $1",
     )
@@ -303,15 +449,42 @@ pub async fn update_stream(
     .bind(SqlJson(
         payload.stream_profile.unwrap_or(existing.stream_profile.0),
     ))
+    .bind(new_avro.as_ref().map(SqlJson))
+    .bind(new_fingerprint.as_deref())
+    .bind(&compat_mode)
+    .bind(new_marking.as_deref())
     .execute(&state.db)
     .await
     .map_err(|cause| db_error(&cause))?;
+
+    // If a fresh Avro schema was provided, append it to history (next
+    // version after the current max).
+    if let (Some(schema), Some(fp)) = (new_avro.as_ref(), new_fingerprint.as_ref()) {
+        let next_version: i32 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM streaming_stream_schema_history WHERE stream_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|cause| db_error(&cause))?;
+        let _ = insert_schema_history_row(&state.db, id, next_version, schema, fp, &compat_mode, "operator")
+            .await
+            .map_err(|err| tracing::warn!(stream = %id, error = %err, "schema history append failed"));
+    }
 
     let row = load_stream_row(&state.db, id)
         .await
         .map_err(|cause| db_error(&cause))?;
 
-    Ok(Json(row.into()))
+    let definition: StreamDefinition = row.into();
+    emit_audit_event(
+        &claims,
+        "streaming.stream.updated",
+        "streaming_stream",
+        definition.id,
+        serde_json::json!({ "name": definition.name }),
+    );
+    Ok(Json(definition))
 }
 
 pub async fn list_windows(
@@ -443,6 +616,7 @@ pub async fn update_window(
 
 pub async fn push_events(
     axum::extract::State(state): axum::extract::State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(stream_id): Path<Uuid>,
     Json(payload): Json<PushStreamEventsRequest>,
 ) -> ServiceResult<PushStreamEventsResponse> {
@@ -457,6 +631,22 @@ pub async fn push_events(
         Err(sqlx::Error::RowNotFound) => return Err(not_found("stream not found")),
         Err(cause) => return Err(db_error(&cause)),
     };
+
+    if !caller_allowed_for_marking(&claims, stream.default_marking.as_deref()) {
+        return Err(forbidden("caller does not have clearance for this stream"));
+    }
+    if !can_write_streams(&claims) {
+        return Err(forbidden("caller lacks 'streaming:write' permission"));
+    }
+
+    // Pre-parse the Avro schema once when present — avoids re-parsing per
+    // event in the hot loop below. We hand the raw schema text to
+    // `event_bus_control::schema_registry::validate_payload` for each
+    // event.
+    let avro_text: Option<String> = stream
+        .schema_avro
+        .as_ref()
+        .and_then(|s| serde_json::to_string(&s.0).ok());
 
     let mut first_sequence_no = None;
     let mut last_sequence_no = None;
@@ -489,7 +679,34 @@ pub async fn push_events(
             .await
             .map_err(|cause| db_error(&cause))?;
             dead_lettered_events += 1;
+            state
+                .metrics
+                .record_dead_letter(&stream.name, "schema_validation_failed");
             continue;
+        }
+
+        // Bloque E2: Avro validation gate. When the stream has an Avro
+        // schema attached we additionally validate the payload against it.
+        if let Some(text) = avro_text.as_deref() {
+            if let Err(err) =
+                schema_registry::validate_payload(SchemaType::Avro, text, &event.payload)
+            {
+                insert_dead_letter(
+                    &state.db,
+                    stream_id,
+                    event.payload,
+                    event_time,
+                    "avro_validation_failed",
+                    vec![err.to_string()],
+                )
+                .await
+                .map_err(|cause| db_error(&cause))?;
+                dead_lettered_events += 1;
+                state
+                    .metrics
+                    .record_dead_letter(&stream.name, "avro_validation_failed");
+                continue;
+            }
         }
 
         let sequence_no = sqlx::query_scalar::<_, i64>(
@@ -538,6 +755,9 @@ pub async fn push_events(
             .await
             .map_err(|cause| db_error(&cause))?;
             dead_lettered_events += 1;
+            state
+                .metrics
+                .record_dead_letter(&stream.name, "hot_buffer_publish_failed");
             continue;
         }
 
@@ -547,6 +767,10 @@ pub async fn push_events(
         }
         last_sequence_no = Some(sequence_no);
     }
+
+    state
+        .metrics
+        .record_stream_rows_in(&stream.name, accepted_events as u64);
 
     Ok(Json(PushStreamEventsResponse {
         stream_id,

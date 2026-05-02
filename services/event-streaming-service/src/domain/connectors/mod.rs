@@ -1,5 +1,6 @@
 pub mod dataset_sink;
 pub mod http_source;
+pub mod kafka_sink;
 pub mod kafka_source;
 pub mod nats_source;
 pub mod websocket_sink;
@@ -32,6 +33,7 @@ pub fn catalog_entries(
     for sink in &topology.sink_bindings {
         let entry = match sink.connector_type.as_str() {
             "dataset" => dataset_sink::catalog_entry(sink),
+            "kafka" => kafka_sink::catalog_entry(sink),
             "websocket" => websocket_sink::catalog_entry(sink),
             _ => fallback_catalog_entry(sink, "sink"),
         };

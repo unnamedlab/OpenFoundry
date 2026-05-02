@@ -438,3 +438,148 @@ export function deployTopologyToFlink(id: string) {
 export function getTopologyJobGraph(id: string) {
 	return api.get<FlinkJobGraph>(`/streaming/topologies/${id}/job-graph`);
 }
+
+// Bloque E1 — branches
+export interface StreamBranch {
+	id: string;
+	stream_id: string;
+	name: string;
+	parent_branch_id: string | null;
+	status: string;
+	head_sequence_no: number;
+	dataset_branch_id: string | null;
+	description: string | null;
+	created_by: string;
+	created_at: string;
+	archived_at: string | null;
+}
+
+export interface CreateBranchRequest {
+	name: string;
+	parent_branch_id?: string | null;
+	description?: string | null;
+	dataset_branch_id?: string | null;
+}
+
+export interface MergeBranchRequest {
+	target_branch?: string;
+}
+
+export interface MergeBranchResponse {
+	source_branch_id: string;
+	target_branch_id: string;
+	merged_sequence_no: number;
+	message: string;
+}
+
+export interface ArchiveBranchRequest {
+	commit_cold: boolean;
+}
+
+export function listBranches(streamId: string) {
+	return api.get<ListResponse<StreamBranch>>(`/streaming/streams/${streamId}/branches`);
+}
+export function createBranch(streamId: string, body: CreateBranchRequest) {
+	return api.post<StreamBranch>(`/streaming/streams/${streamId}/branches`, body);
+}
+export function deleteBranch(streamId: string, name: string) {
+	return api.delete<{ deleted: boolean; id: string }>(
+		`/streaming/streams/${streamId}/branches/${encodeURIComponent(name)}`
+	);
+}
+export function mergeBranch(streamId: string, name: string, body: MergeBranchRequest) {
+	return api.post<MergeBranchResponse>(
+		`/streaming/streams/${streamId}/branches/${encodeURIComponent(name)}/merge`,
+		body
+	);
+}
+export function archiveBranch(streamId: string, name: string, body: ArchiveBranchRequest) {
+	return api.post<StreamBranch>(
+		`/streaming/streams/${streamId}/branches/${encodeURIComponent(name)}/archive`,
+		body
+	);
+}
+
+// Bloque E2 — schema validation + history
+export interface CompatibilityOutcome {
+	mode: string;
+	compatible: boolean;
+	reason: string | null;
+}
+export interface ValidateSchemaRequest {
+	schema_avro: unknown;
+	sample?: unknown;
+	compatibility?: string;
+}
+export interface ValidateSchemaResponse {
+	valid: boolean;
+	fingerprint: string | null;
+	errors: string[];
+	warnings: string[];
+	compatibility: CompatibilityOutcome | null;
+}
+export interface StreamSchemaVersion {
+	id: string;
+	stream_id: string;
+	version: number;
+	schema_avro: unknown;
+	fingerprint: string;
+	compatibility: string;
+	created_by: string;
+	created_at: string;
+}
+
+export function validateSchema(streamId: string, body: ValidateSchemaRequest) {
+	return api.post<ValidateSchemaResponse>(
+		`/streaming/streams/${streamId}/schema/validate`,
+		body
+	);
+}
+export function getSchemaHistory(streamId: string) {
+	return api.get<ListResponse<StreamSchemaVersion>>(
+		`/streaming/streams/${streamId}/schema/history`
+	);
+}
+
+// Bloque F2 — checkpoints + runtime
+export interface Checkpoint {
+	id: string;
+	topology_id: string;
+	status: string;
+	last_offsets: unknown;
+	state_uri: string | null;
+	savepoint_uri: string | null;
+	trigger: string;
+	duration_ms: number;
+	created_at: string;
+}
+
+export interface ResetTopologyResponse {
+	topology_id: string;
+	runtime_kind: string;
+	checkpoint_id: string | null;
+	restored_offsets: unknown;
+	savepoint_uri: string | null;
+	message: string;
+}
+
+export function listCheckpoints(topologyId: string) {
+	return api.get<ListResponse<Checkpoint>>(
+		`/streaming/topologies/${topologyId}/checkpoints`
+	);
+}
+export function triggerCheckpoint(
+	topologyId: string,
+	body: { trigger?: string; export_savepoint?: boolean } = {}
+) {
+	return api.post<Checkpoint>(`/streaming/topologies/${topologyId}/checkpoints`, body);
+}
+export function resetTopology(
+	topologyId: string,
+	body: { from_checkpoint_id?: string; savepoint_uri?: string }
+) {
+	return api.post<ResetTopologyResponse>(
+		`/streaming/topologies/${topologyId}/reset`,
+		body
+	);
+}

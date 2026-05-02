@@ -22,6 +22,7 @@ pub mod domain;
 pub mod handlers;
 pub mod metrics;
 pub mod models;
+pub mod security;
 
 use crate::config::LakehousePrefixes;
 use crate::domain::markings::MarkingResolver;

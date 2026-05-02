@@ -354,6 +354,10 @@ mod tests {
             partitions: 3,
             consistency_guarantee: "at-least-once".to_string(),
             stream_profile: crate::models::stream::StreamProfile::default(),
+            schema_avro: None,
+            schema_fingerprint: None,
+            schema_compatibility_mode: "BACKWARD".to_string(),
+            default_marking: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

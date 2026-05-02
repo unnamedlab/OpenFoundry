@@ -1,5 +1,7 @@
+pub mod branch;
 pub mod checkpoint;
 pub mod dead_letter;
+pub mod schema_history;
 pub mod sink;
 pub mod stream;
 pub mod topology;

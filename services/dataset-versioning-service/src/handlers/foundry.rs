@@ -528,6 +528,13 @@ pub async fn start_transaction(
         other => internal(other),
     })?;
 
+    // T8.1 — bump the per-(dataset, branch) OPEN gauge. The matching
+    // dec lives in `transaction_action` for the commit/abort paths.
+    crate::metrics::open_gauge(&rid, &target.name).inc();
+    crate::metrics::DATASET_TX_TOTAL
+        .with_label_values(&["open"])
+        .inc();
+
     Ok((StatusCode::CREATED, Json(row)))
 }
 
@@ -600,7 +607,7 @@ pub async fn transaction_action(
     }
 
     // Re-fetch the canonical row (and verify branch/dataset scoping).
-    sqlx::query_as::<_, TransactionOut>(
+    let row = sqlx::query_as::<_, TransactionOut>(
         r#"SELECT id, dataset_id, branch_id, branch_name, tx_type, status,
                   summary, metadata, providence, started_by,
                   started_at, committed_at, aborted_at
@@ -613,13 +620,36 @@ pub async fn transaction_action(
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?
-    .map(Json)
     .ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "transaction not found after action", "txn": txn_id })),
         )
-    })
+    })?;
+
+    // T8.1 — terminal-state transitions: dec the OPEN gauge and bump
+    // the appropriate counter. Done after the re-fetch so we can label
+    // the committed counter by the actual `tx_type` recorded in DB.
+    crate::metrics::open_gauge(&rid, &branch).dec();
+    match action {
+        "commit" => {
+            crate::metrics::DATASET_TRANSACTIONS_COMMITTED_TOTAL
+                .with_label_values(&[row.tx_type.as_str()])
+                .inc();
+            crate::metrics::DATASET_TX_TOTAL
+                .with_label_values(&["commit"])
+                .inc();
+        }
+        "abort" => {
+            crate::metrics::DATASET_TRANSACTIONS_ABORTED_TOTAL.inc();
+            crate::metrics::DATASET_TX_TOTAL
+                .with_label_values(&["abort"])
+                .inc();
+        }
+        _ => unreachable!("action filtered above"),
+    }
+
+    Ok(Json(row))
 }
 
 fn map_commit_error(err: crate::domain::transactions::CommitError) -> (StatusCode, Json<Value>) {
@@ -773,6 +803,10 @@ async fn compute_view_at(
     branch: &str,
     at: Option<DateTime<Utc>>,
 ) -> Result<ViewOut, (StatusCode, Json<Value>)> {
+    // T8.1 — observe the wall-clock cost of materialising a branch view.
+    // The timer drops at the end of the function and records into
+    // `dataset_view_compute_duration_seconds`.
+    let _view_timer = crate::metrics::DATASET_VIEW_COMPUTE_DURATION_SECONDS.start_timer();
     let target = load_branch(state, dataset_id, branch).await?;
 
     let txns: Vec<(Uuid, String, DateTime<Utc>)> = sqlx::query(

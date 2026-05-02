@@ -46,7 +46,14 @@ use event_streaming_service::domain::hot_buffer::{HotBuffer, NatsHotBuffer, Noop
 #[cfg(feature = "kafka-rdkafka")]
 use event_streaming_service::domain::hot_buffer::KafkaHotBuffer;
 use event_streaming_service::grpc::EventRouterService;
-use event_streaming_service::handlers::{checkpoints as checkpoint_handlers, flink as flink_handlers, streams, topologies};
+use event_streaming_service::handlers::{
+    branches as branch_handlers,
+    checkpoints as checkpoint_handlers,
+    flink as flink_handlers,
+    schemas as schema_handlers,
+    streams,
+    topologies,
+};
 use event_streaming_service::metrics::Metrics;
 use event_streaming_service::router::{BackendId, RouteTable, RouterConfig};
 use event_streaming_service::storage::{
@@ -261,6 +268,32 @@ fn build_rest_router(state: AppState, jwt_config: JwtConfig) -> Router {
         .route(
             "/topologies/{id}/job-graph",
             get(flink_handlers::get_job_graph),
+        )
+        // branches (Bloque E1)
+        .route(
+            "/streams/{id}/branches",
+            get(branch_handlers::list_branches).post(branch_handlers::create_branch),
+        )
+        .route(
+            "/streams/{id}/branches/{name}",
+            get(branch_handlers::get_branch).delete(branch_handlers::delete_branch),
+        )
+        .route(
+            "/streams/{id}/branches/{name}/merge",
+            post(branch_handlers::merge_branch),
+        )
+        .route(
+            "/streams/{id}/branches/{name}/archive",
+            post(branch_handlers::archive_branch),
+        )
+        // schema (Bloque E2)
+        .route(
+            "/streams/{id}/schema/validate",
+            post(schema_handlers::validate_schema),
+        )
+        .route(
+            "/streams/{id}/schema/history",
+            get(schema_handlers::list_schema_history),
         )
         .with_state(state)
         .layer(middleware::from_fn_with_state(jwt_config, auth_layer))

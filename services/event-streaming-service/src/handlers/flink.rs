@@ -31,7 +31,7 @@ async fn load_streams(
     db: &sqlx::PgPool,
 ) -> Result<Vec<crate::models::stream::StreamDefinition>, sqlx::Error> {
     let rows = sqlx::query_as::<_, crate::models::stream::StreamRow>(
-        "SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, created_at, updated_at
+        "SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, schema_avro, schema_fingerprint, schema_compatibility_mode, default_marking, created_at, updated_at
            FROM streaming_streams",
     )
     .fetch_all(db)

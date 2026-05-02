@@ -11,6 +11,7 @@ use crate::config::build_dataset_storage_path;
 use crate::models::dataset::{
     CreateDatasetRequest, Dataset, ListDatasetsQuery, UpdateDatasetRequest,
 };
+use crate::security::{emit_audit, require_dataset_write};
 
 /// POST /api/v1/datasets
 pub async fn create_dataset(
@@ -18,6 +19,12 @@ pub async fn create_dataset(
     auth_middleware::layer::AuthUser(claims): auth_middleware::layer::AuthUser,
     Json(body): Json<CreateDatasetRequest>,
 ) -> impl IntoResponse {
+    // T9.2 — RBAC gate. The dataset RID does not yet exist, so the
+    // generic "new" sentinel is passed; future authorization-policy
+    // calls can short-circuit on the project_id from the body.
+    if let Err(resp) = require_dataset_write(&claims, "new") {
+        return resp.into_response();
+    }
     let id = Uuid::now_v7();
     let format = body.format.unwrap_or_else(|| "parquet".to_string());
     let storage_path = build_dataset_storage_path(&state.lakehouse_prefixes.bronze, id);
@@ -53,6 +60,17 @@ pub async fn create_dataset(
             .execute(&state.db)
             .await;
 
+            emit_audit(
+                &claims.sub,
+                "dataset.create",
+                &ds.storage_path,
+                serde_json::json!({
+                    "dataset_id": ds.id,
+                    "name": ds.name,
+                    "format": ds.format,
+                    "tags": ds.tags,
+                }),
+            );
             (StatusCode::CREATED, Json(ds)).into_response()
         }
         Err(e) => {
@@ -145,9 +163,13 @@ pub async fn get_dataset(
 /// PATCH /api/v1/datasets/:id
 pub async fn update_dataset(
     State(state): State<AppState>,
+    auth_middleware::layer::AuthUser(claims): auth_middleware::layer::AuthUser,
     Path(dataset_id): Path<Uuid>,
     Json(body): Json<UpdateDatasetRequest>,
 ) -> impl IntoResponse {
+    if let Err(resp) = require_dataset_write(&claims, &dataset_id.to_string()) {
+        return resp.into_response();
+    }
     let result = sqlx::query_as::<_, Dataset>(
         r#"UPDATE datasets
            SET name = COALESCE($2, name),
@@ -167,7 +189,25 @@ pub async fn update_dataset(
     .await;
 
     match result {
-        Ok(Some(d)) => Json(d).into_response(),
+        Ok(Some(d)) => {
+            // Record which fields were actually targeted; the audit
+            // sink uses this to drive change-history queries.
+            let mut changed: Vec<&'static str> = Vec::new();
+            if body.name.is_some() { changed.push("name"); }
+            if body.description.is_some() { changed.push("description"); }
+            if body.tags.is_some() { changed.push("tags"); }
+            if body.owner_id.is_some() { changed.push("owner_id"); }
+            emit_audit(
+                &claims.sub,
+                "dataset.update",
+                &d.storage_path,
+                serde_json::json!({
+                    "dataset_id": d.id,
+                    "fields_changed": changed,
+                }),
+            );
+            Json(d).into_response()
+        }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("update dataset failed: {e}");
@@ -179,14 +219,20 @@ pub async fn update_dataset(
 /// DELETE /api/v1/datasets/:id
 pub async fn delete_dataset(
     State(state): State<AppState>,
+    auth_middleware::layer::AuthUser(claims): auth_middleware::layer::AuthUser,
     Path(dataset_id): Path<Uuid>,
 ) -> impl IntoResponse {
+    if let Err(resp) = require_dataset_write(&claims, &dataset_id.to_string()) {
+        return resp.into_response();
+    }
     // Delete storage files
+    let mut storage_path: Option<String> = None;
     if let Ok(Some(ds)) = sqlx::query_as::<_, Dataset>("SELECT * FROM datasets WHERE id = $1")
         .bind(dataset_id)
         .fetch_optional(&state.db)
         .await
     {
+        storage_path = Some(ds.storage_path.clone());
         let _ = state.storage.delete(&ds.storage_path).await;
     }
 
@@ -196,7 +242,15 @@ pub async fn delete_dataset(
         .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
+        Ok(r) if r.rows_affected() > 0 => {
+            emit_audit(
+                &claims.sub,
+                "dataset.delete",
+                storage_path.as_deref().unwrap_or("unknown"),
+                serde_json::json!({ "dataset_id": dataset_id }),
+            );
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("delete dataset failed: {e}");

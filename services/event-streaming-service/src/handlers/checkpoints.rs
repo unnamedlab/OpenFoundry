@@ -55,6 +55,7 @@ pub async fn trigger_checkpoint(
     };
     let topology = TopologyDefinition::from(topology_row);
 
+    let started = std::time::Instant::now();
     let cp = checkpoints::take_checkpoint(
         &state.db,
         &state.state_backend,
@@ -65,6 +66,17 @@ pub async fn trigger_checkpoint(
     )
     .await
     .map_err(|cause| internal_error(cause.to_string()))?;
+
+    // Bloque F1: emit checkpoint duration metric. We do not yet track
+    // checkpoint size at the backend layer; this is recorded as 0 and
+    // will be wired once the state-store reports it.
+    let elapsed = started.elapsed().as_secs_f64();
+    let duration = if cp.duration_ms > 0 {
+        cp.duration_ms as f64 / 1000.0
+    } else {
+        elapsed
+    };
+    state.metrics.record_checkpoint(&topology.name, duration, 0);
 
     Ok(Json(cp))
 }

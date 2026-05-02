@@ -27,9 +27,13 @@ use crate::{
 /// POST /api/v1/datasets/:id/upload
 pub async fn upload_data(
     State(state): State<AppState>,
+    auth_middleware::layer::AuthUser(claims): auth_middleware::layer::AuthUser,
     Path(dataset_id): Path<Uuid>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    if let Err(resp) = crate::security::require_dataset_write(&claims, &dataset_id.to_string()) {
+        return resp.into_response();
+    }
     let dataset = match load_dataset(&state, dataset_id).await {
         Ok(Some(dataset)) => dataset,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
@@ -262,6 +266,20 @@ pub async fn upload_data(
     if let Err(error) = trigger_quality_refresh(&state, dataset_id).await {
         tracing::warn!(dataset_id = %dataset_id, "quality refresh failed after upload: {error}");
     }
+
+    crate::security::emit_audit(
+        &claims.sub,
+        "dataset.upload",
+        &dataset.storage_path,
+        json!({
+            "dataset_id": dataset_id,
+            "version": new_version,
+            "size_bytes": size,
+            "row_count": row_count,
+            "transaction_id": transaction.id,
+            "schema_inferred": schema_fields.is_some(),
+        }),
+    );
 
     tracing::info!(dataset_id = %dataset_id, version = new_version, "data uploaded");
     (

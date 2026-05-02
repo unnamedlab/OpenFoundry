@@ -34,15 +34,14 @@
 //! so the marking-propagation logic can be exercised without spinning
 //! up a second service or a database.
 //!
-//! ## Backwards compatibility (`marking_from_tags`)
+//! ## History
 //!
-//! The old code derived a single string marking from the dataset's
-//! tags (`marking:pii`, `classification:confidential`, etc). This
-//! module supersedes that path but [`migrate_legacy_tag_markings`]
-//! is provided so callers (or a one-shot migration job) can populate
-//! `dataset_markings` from the existing tag soup. The legacy
-//! [`marking_from_tags_compat`] helper remains for read paths that
-//! haven't been migrated yet.
+//! Earlier revisions derived a single string marking from the dataset's
+//! tags (`marking:pii`, `classification:confidential`, …) via the
+//! `marking_from_tags` / `migrate_legacy_tag_markings` helpers. T9.1
+//! removed those: `dataset_markings` is now the single source of truth
+//! and effective markings flow exclusively through
+//! [`MarkingResolver::compute`].
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
@@ -270,91 +269,14 @@ fn dedupe(markings: Vec<EffectiveMarking>) -> Vec<EffectiveMarking> {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-// Backwards compatibility helpers (T3.2 closing requirement).
+// Legacy compatibility helpers were removed in T9.1 (Bloque 9). The
+// pre-T3.2 design derived a single "marking" string from a dataset's
+// tag list (`marking:pii`, `classification:confidential`, …). All
+// internal call sites now read directly from `dataset_markings` rows
+// (`source = 'direct'`) and resolve effective markings via
+// [`MarkingResolver::compute`].
 // ───────────────────────────────────────────────────────────────────────
 
-/// Mirrors the legacy `marking_from_tags` collapsed-string behaviour
-/// for read paths that haven't migrated to `Vec<EffectiveMarking>` yet.
-/// Returns the strongest marking present in `tags`, defaulting to
-/// `"public"`.
-pub fn marking_from_tags_compat(tags: &[String]) -> String {
-    for prefix in ["marking:", "classification:"] {
-        if let Some(marking) = tags
-            .iter()
-            .find_map(|tag| tag.strip_prefix(prefix).and_then(normalize_marking))
-        {
-            return marking.to_string();
-        }
-    }
-    if tags.iter().any(|tag| tag.eq_ignore_ascii_case("pii")) {
-        "pii".to_string()
-    } else if tags
-        .iter()
-        .any(|tag| tag.eq_ignore_ascii_case("confidential"))
-    {
-        "confidential".to_string()
-    } else {
-        "public".to_string()
-    }
-}
-
-/// One-shot migration: for every dataset whose tags carry a
-/// `marking:*` / `classification:*` entry but whose `dataset_markings`
-/// table is empty, insert a `direct` row. Idempotent (relies on the
-/// unique index from the migration). Returns the number of rows
-/// inserted.
-///
-/// `lookup_marking_id` resolves a marking *name* (e.g. `"pii"`) to a
-/// catalogued [`MarkingId`]. Names that the resolver doesn't know are
-/// silently skipped; the caller is expected to log them.
-pub async fn migrate_legacy_tag_markings<F>(
-    db: &PgPool,
-    mut lookup_marking_id: F,
-) -> Result<usize, MarkingResolveError>
-where
-    F: FnMut(&str) -> Option<MarkingId>,
-{
-    let datasets: Vec<(String, Vec<String>)> = sqlx::query_as(
-        "SELECT rid, tags FROM datasets WHERE rid IS NOT NULL",
-    )
-    .fetch_all(db)
-    .await?;
-
-    let mut inserted = 0;
-    for (rid, tags) in datasets {
-        let marking_name = marking_from_tags_compat(&tags);
-        let Some(marking_id) = lookup_marking_id(&marking_name) else {
-            continue;
-        };
-        let res = sqlx::query(
-            r#"INSERT INTO dataset_markings
-                   (dataset_rid, marking_id, source, inherited_from)
-               VALUES ($1, $2, 'direct', NULL)
-               ON CONFLICT DO NOTHING"#,
-        )
-        .bind(&rid)
-        .bind(marking_id.as_uuid())
-        .execute(db)
-        .await?;
-        inserted += res.rows_affected() as usize;
-    }
-    Ok(inserted)
-}
-
-fn normalize_marking(value: &str) -> Option<&'static str> {
-    let v = value.trim();
-    if v.eq_ignore_ascii_case("public") {
-        Some("public")
-    } else if v.eq_ignore_ascii_case("confidential") {
-        Some("confidential")
-    } else if v.eq_ignore_ascii_case("pii") {
-        Some("pii")
-    } else if v.eq_ignore_ascii_case("restricted") {
-        Some("restricted")
-    } else {
-        None
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -377,26 +299,6 @@ mod tests {
         ];
         let out = dedupe(dup);
         assert_eq!(out.len(), 3, "{out:?}");
-    }
-
-    #[test]
-    fn marking_from_tags_compat_reads_prefixed_tags() {
-        assert_eq!(
-            marking_from_tags_compat(&["marking:pii".into()]),
-            "pii"
-        );
-        assert_eq!(
-            marking_from_tags_compat(&["classification:confidential".into()]),
-            "confidential"
-        );
-        assert_eq!(
-            marking_from_tags_compat(&["random".into()]),
-            "public"
-        );
-        assert_eq!(
-            marking_from_tags_compat(&["PII".into()]),
-            "pii"
-        );
     }
 
     #[tokio::test]
