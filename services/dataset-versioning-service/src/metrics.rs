@@ -104,6 +104,22 @@ pub static DATASET_BRANCH_FALLBACK_RESOLUTIONS_TOTAL: Lazy<IntCounterVec> = Lazy
     .expect("register dataset_branch_fallback_resolutions_total")
 });
 
+/// T9.2 — RBAC denials at dataset-versioning mutation endpoints,
+/// labelled by the high-level operation that was rejected
+/// (branch.create, branch.delete, transaction.open, …). Distinct from
+/// marking-enforcement denials; surfaces missing scopes vs. clearance
+/// gaps.
+pub static DATASET_RBAC_DENIALS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        Opts::new(
+            "dataset_rbac_denials_total",
+            "Dataset mutation requests rejected by the in-process RBAC gate",
+        ),
+        &["operation"],
+    )
+    .expect("register dataset_rbac_denials_total")
+});
+
 /// Sugar — `metrics::open_gauge(rid, branch).inc()` is more readable
 /// than threading `with_label_values` through every handler.
 pub fn open_gauge(dataset_rid: &str, branch: &str) -> IntGauge {
@@ -123,5 +139,16 @@ pub fn init() {
     let _ = DATASET_VIEW_COMPUTE_DURATION_SECONDS.get_sample_count();
     for outcome in ["hit", "miss"] {
         let _ = DATASET_BRANCH_FALLBACK_RESOLUTIONS_TOTAL.with_label_values(&[outcome]);
+    }
+    for op in [
+        "branch.create",
+        "branch.delete",
+        "branch.reparent",
+        "branch.fallbacks.update",
+        "transaction.open",
+        "transaction.commit",
+        "transaction.abort",
+    ] {
+        let _ = DATASET_RBAC_DENIALS_TOTAL.with_label_values(&[op]);
     }
 }

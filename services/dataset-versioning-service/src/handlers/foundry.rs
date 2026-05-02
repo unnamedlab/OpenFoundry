@@ -277,6 +277,7 @@ pub async fn create_branch(
     Path(rid): Path<String>,
     Json(body): Json<CreateBranchBody>,
 ) -> Result<(StatusCode, Json<BranchOut>), (StatusCode, Json<Value>)> {
+    crate::security::require_dataset_write(&user.0, &rid, "branch.create")?;
     let name = body.name.trim();
     if name.is_empty() {
         return Err(bad_request("branch name is required"));
@@ -369,6 +370,16 @@ pub async fn create_branch(
         head = ?initial_head,
         "branch created"
     );
+    crate::security::emit_audit(
+        &user.0.sub,
+        "branch.create",
+        &rid,
+        json!({
+            "branch": row.name,
+            "parent_branch_id": parent_branch_id,
+            "initial_head": initial_head,
+        }),
+    );
     Ok((StatusCode::CREATED, Json(row)))
 }
 
@@ -383,9 +394,10 @@ pub async fn get_branch(
 
 pub async fn delete_branch(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path((rid, branch)): Path<(String, String)>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    crate::security::require_dataset_write(&user.0, &rid, "branch.delete")?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let target = load_branch(&state, dataset_id, &branch).await?;
 
@@ -418,6 +430,12 @@ pub async fn delete_branch(
 
     tx.commit().await.map_err(internal)?;
     tracing::info!(rid, branch = %target.name, "branch soft-deleted (children re-parented)");
+    crate::security::emit_audit(
+        &user.0.sub,
+        "branch.delete",
+        &rid,
+        json!({ "branch": target.name, "branch_id": target.id }),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -430,6 +448,7 @@ pub async fn branch_action(
     Path((rid, branch_action)): Path<(String, String)>,
     Json(body): Json<ReparentBody>,
 ) -> Result<Json<BranchOut>, (StatusCode, Json<Value>)> {
+    crate::security::require_dataset_write(&user.0, &rid, "branch.reparent")?;
     let (branch, action) = match branch_action.split_once(':') {
         Some(parts) => parts,
         None => {
@@ -475,6 +494,15 @@ pub async fn branch_action(
     .map_err(internal)?;
 
     tracing::info!(rid, branch = %row.name, new_parent = ?new_parent_id, "branch reparented");
+    crate::security::emit_audit(
+        "system",
+        "branch.reparent",
+        &rid,
+        json!({
+            "branch": row.name,
+            "new_parent_id": new_parent_id,
+        }),
+    );
     Ok(Json(row))
 }
 
@@ -488,6 +516,7 @@ pub async fn start_transaction(
     Path((rid, branch)): Path<(String, String)>,
     Json(body): Json<StartTransactionBody>,
 ) -> Result<(StatusCode, Json<TransactionOut>), (StatusCode, Json<Value>)> {
+    crate::security::require_dataset_write(&user.0, &rid, "transaction.open")?;
     let tx_type =
         TxType::from_str(&body.tx_type).map_err(|_| bad_request("invalid transaction type"))?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
@@ -535,6 +564,17 @@ pub async fn start_transaction(
         .with_label_values(&["open"])
         .inc();
 
+    crate::security::emit_audit(
+        &user.0.sub,
+        "transaction.open",
+        &rid,
+        json!({
+            "branch": target.name,
+            "transaction_id": row.id,
+            "tx_type": tx_type.as_str(),
+        }),
+    );
+
     Ok((StatusCode::CREATED, Json(row)))
 }
 
@@ -576,7 +616,7 @@ pub async fn get_transaction(
 /// resuelve el dataset, llama al dominio y mapea el resultado a HTTP.
 pub async fn transaction_action(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path((rid, branch, txn_action)): Path<(String, String, String)>,
 ) -> Result<Json<TransactionOut>, (StatusCode, Json<Value>)> {
     use crate::domain::transactions as txn_domain;
@@ -592,6 +632,14 @@ pub async fn transaction_action(
             ));
         }
     };
+    // Gate as soon as we know which action was requested so the metric
+    // label matches the audit `action` field.
+    let op_label: &'static str = match action {
+        "commit" => "transaction.commit",
+        "abort" => "transaction.abort",
+        _ => return Err(bad_request("unsupported transaction action")),
+    };
+    crate::security::require_dataset_write(&user.0, &rid, op_label)?;
     let txn_id =
         Uuid::parse_str(txn_str).map_err(|_| bad_request("transaction id is not a valid UUID"))?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
@@ -648,6 +696,17 @@ pub async fn transaction_action(
         }
         _ => unreachable!("action filtered above"),
     }
+
+    crate::security::emit_audit(
+        &user.0.sub,
+        op_label,
+        &rid,
+        json!({
+            "branch": branch,
+            "transaction_id": txn_id,
+            "tx_type": row.tx_type.as_str(),
+        }),
+    );
 
     Ok(Json(row))
 }
@@ -1007,10 +1066,11 @@ pub async fn list_fallbacks(
 
 pub async fn put_fallbacks(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path((rid, branch)): Path<(String, String)>,
     Json(body): Json<PutFallbacksBody>,
 ) -> Result<Json<Vec<FallbackEntry>>, (StatusCode, Json<Value>)> {
+    crate::security::require_dataset_write(&user.0, &rid, "branch.fallbacks.update")?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let target = load_branch(&state, dataset_id, &branch).await?;
     // Sanity: ningún nombre vacío y sin auto-referencias triviales.
@@ -1057,5 +1117,14 @@ pub async fn put_fallbacks(
     .fetch_all(&state.db)
     .await
     .map_err(internal)?;
+    crate::security::emit_audit(
+        &user.0.sub,
+        "branch.fallbacks.update",
+        &rid,
+        json!({
+            "branch": target.name,
+            "chain": body.chain,
+        }),
+    );
     Ok(Json(rows))
 }

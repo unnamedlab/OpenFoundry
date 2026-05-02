@@ -23,6 +23,7 @@ pub mod domain;
 pub mod handlers;
 pub mod metrics;
 pub mod models;
+pub mod security;
 pub mod storage;
 
 /// Estado compartido por todos los handlers.
