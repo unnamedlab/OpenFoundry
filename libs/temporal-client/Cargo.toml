@@ -1,0 +1,51 @@
+[package]
+name = "temporal-client"
+description = "Domain-typed Temporal workflow client facade for Rust services"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+# The official Rust SDK (`temporal-client`/`temporal-sdk-core`, repo
+# `temporalio/sdk-core`) is still pre-release as of 2026-05. We do
+# **not** take a hard dependency on it from the workspace yet —
+# instead this crate defines a `WorkflowClient` trait that domain code
+# uses (`Arc<dyn WorkflowClient>` pattern, mirroring `Arc<dyn
+# ObjectStore>` from S1). The concrete gRPC-backed implementation
+# lands behind the `grpc` feature once the upstream API stabilises;
+# the crate ships today with a `NoopWorkflowClient` for tests and a
+# `LoggingWorkflowClient` for local development.
+
+[features]
+default = []
+# Reserved for the gRPC implementation against Temporal Frontend.
+# When enabled, pulls in the official `temporal-client` crate plus
+# `tonic`. Disabled by default so the workspace compiles without
+# network-bound prereleases.
+grpc = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lib]
+path = "src/lib.rs"
+name = "temporal_client"
+crate-type = ["lib"]

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: of-shared
+description: |
+  OpenFoundry shared library chart. Hosts the `define` blocks consumed
+  by the five release-aligned charts (of-platform, of-data-engine,
+  of-ontology, of-ml-aip, of-apps-ops). This chart is NEVER installed
+  on its own — it is referenced via `dependencies.alias: of-shared`.
+type: library
+version: 0.1.0
+appVersion: "0.1.0"

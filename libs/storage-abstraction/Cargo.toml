@@ -29,6 +29,13 @@ workspace = true
 [dependencies.object_store]
 workspace = true
 
+[dependencies.serde]
+workspace = true
+features = ["derive"]
+
+[dependencies.serde_json]
+workspace = true
+
 [dependencies.thiserror]
 workspace = true
 

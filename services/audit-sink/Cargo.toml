@@ -1,0 +1,67 @@
+[package]
+name = "audit-sink"
+description = "Kafka -> Iceberg audit-log sink (consumes audit.events.v1, batch-writes to of.audit.events)"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+# Kafka consumer is gated behind a feature flag so the pure-logic
+# library stays compilable in CI without librdkafka.
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
+[dependencies.prometheus]
+workspace = true
+optional = true
+
+[features]
+default = []
+# Production wiring: rdkafka subscriber + Iceberg writer + metrics.
+runtime = ["dep:event-bus-data", "dep:prometheus"]
+
+[lib]
+path = "src/lib.rs"
+name = "audit_sink"
+crate-type = ["lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "audit-sink"
+required-features = ["runtime"]

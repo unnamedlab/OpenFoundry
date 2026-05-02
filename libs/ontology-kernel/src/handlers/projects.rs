@@ -16,9 +16,9 @@ use crate::{
         load_resource_project_id,
     },
     models::project::{
-        BindOntologyProjectResourceRequest, CreateOntologyProjectRequest,
-        CreateOntologyProjectBranchRequest, CreateOntologyProjectMigrationRequest,
-        CreateOntologyProjectProposalRequest, ListOntologyProjectBranchesResponse,
+        BindOntologyProjectResourceRequest, CreateOntologyProjectBranchRequest,
+        CreateOntologyProjectMigrationRequest, CreateOntologyProjectProposalRequest,
+        CreateOntologyProjectRequest, ListOntologyProjectBranchesResponse,
         ListOntologyProjectMembershipsResponse, ListOntologyProjectMigrationsResponse,
         ListOntologyProjectProposalsResponse, ListOntologyProjectResourcesResponse,
         ListOntologyProjectsQuery, ListOntologyProjectsResponse, OntologyProject,

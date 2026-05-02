@@ -11,6 +11,7 @@ pub mod domain;
 pub mod handlers;
 pub mod metrics;
 pub mod models;
+pub mod stores;
 
 use auth_middleware::jwt::JwtConfig;
 use sqlx::PgPool;
@@ -24,6 +25,11 @@ use sqlx::PgPool;
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    /// Storage trait bag — see [`stores::Stores`]. Handlers migrated as
+    /// part of S1.4–S1.7 of the Cassandra-Foundry parity plan route their
+    /// I/O through this field; legacy handlers still use [`Self::db`]
+    /// directly. Both fields coexist while the migration is in flight.
+    pub stores: stores::Stores,
     pub http_client: reqwest::Client,
     pub jwt_config: JwtConfig,
     pub audit_service_url: String,

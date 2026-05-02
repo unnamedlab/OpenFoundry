@@ -14,10 +14,16 @@ workspace = true
 [package.rust-version]
 workspace = true
 
+[dependencies.async-trait]
+workspace = true
+
 [dependencies.auth-middleware]
 workspace = true
 
 [dependencies.axum]
+workspace = true
+
+[dependencies.cassandra-kernel]
 workspace = true
 
 [dependencies.chrono]
@@ -27,6 +33,9 @@ workspace = true
 workspace = true
 
 [dependencies.core-models]
+workspace = true
+
+[dependencies.thiserror]
 workspace = true
 
 [dependencies.serde]
@@ -46,6 +55,14 @@ workspace = true
 
 [dependencies.uuid]
 workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[lib]
+path = "src/lib.rs"
+name = "session_governance_service"
 
 [[bin]]
 path = "src/main.rs"

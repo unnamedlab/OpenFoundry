@@ -16,16 +16,16 @@
 //! Apache Arrow Flight SQL client against `sql-warehousing-service` to support
 //! large datasets without paginating the JSON preview.
 
+use auth_middleware::{
+    Claims,
+    jwt::{build_access_claims, encode_token},
+    layer::AuthUser,
+};
 use axum::{
     Json,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-};
-use auth_middleware::{
-    Claims,
-    jwt::{build_access_claims, encode_token},
-    layer::AuthUser,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -39,13 +39,12 @@ use crate::{
         },
         schema::{load_effective_properties, validate_object_properties},
     },
-    models::object_type_binding::{
-        CreateObjectTypeBindingRequest, ListObjectTypeBindingsResponse,
-        MaterializeBindingRequest, MaterializeBindingResponse, ObjectTypeBinding,
-        ObjectTypeBindingPropertyMapping, ObjectTypeBindingRow, ObjectTypeBindingSyncMode,
-        UpdateObjectTypeBindingRequest,
-    },
     models::object_type::ObjectType,
+    models::object_type_binding::{
+        CreateObjectTypeBindingRequest, ListObjectTypeBindingsResponse, MaterializeBindingRequest,
+        MaterializeBindingResponse, ObjectTypeBinding, ObjectTypeBindingPropertyMapping,
+        ObjectTypeBindingRow, ObjectTypeBindingSyncMode, UpdateObjectTypeBindingRequest,
+    },
 };
 
 // --- error helpers ---------------------------------------------------------
@@ -110,13 +109,10 @@ async fn ensure_can_manage(
     if claims.has_role("admin") {
         return Ok(());
     }
-    let project_id = load_resource_project_id(
-        &state.db,
-        OntologyResourceKind::ObjectType,
-        object_type.id,
-    )
-    .await
-    .map_err(|error| internal(format!("failed to load project binding: {error}")))?;
+    let project_id =
+        load_resource_project_id(&state.db, OntologyResourceKind::ObjectType, object_type.id)
+            .await
+            .map_err(|error| internal(format!("failed to load project binding: {error}")))?;
     ensure_resource_manage_access(&state.db, claims, object_type.owner_id, project_id)
         .await
         .map_err(forbidden)
@@ -247,12 +243,10 @@ pub async fn create_object_type_binding(
             Ok(binding) => (StatusCode::CREATED, Json(binding)).into_response(),
             Err(error) => internal(error),
         },
-        Err(sqlx::Error::Database(db_err)) if db_err.constraint().is_some() => {
-            invalid(format!(
-                "binding violates constraint '{}'",
-                db_err.constraint().unwrap_or("unknown")
-            ))
-        }
+        Err(sqlx::Error::Database(db_err)) if db_err.constraint().is_some() => invalid(format!(
+            "binding violates constraint '{}'",
+            db_err.constraint().unwrap_or("unknown")
+        )),
         Err(error) => internal(format!("failed to insert binding: {error}")),
     }
 }
@@ -399,13 +393,11 @@ pub async fn delete_object_type_binding(
     if let Err(response) = ensure_can_manage_by_id(&state, &claims, object_type_id).await {
         return response;
     }
-    match sqlx::query(
-        "DELETE FROM object_type_bindings WHERE id = $1 AND object_type_id = $2",
-    )
-    .bind(binding_id)
-    .bind(object_type_id)
-    .execute(&state.db)
-    .await
+    match sqlx::query("DELETE FROM object_type_bindings WHERE id = $1 AND object_type_id = $2")
+        .bind(binding_id)
+        .bind(object_type_id)
+        .execute(&state.db)
+        .await
     {
         Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
         Ok(_) => not_found("binding not found"),
@@ -490,10 +482,7 @@ async fn fetch_dataset_preview(
         .map_err(|error| format!("failed to decode dataset preview payload: {error}"))
 }
 
-fn project_row(
-    row: &Value,
-    mapping: &[ObjectTypeBindingPropertyMapping],
-) -> Result<Value, String> {
+fn project_row(row: &Value, mapping: &[ObjectTypeBindingPropertyMapping]) -> Result<Value, String> {
     let Some(object) = row.as_object() else {
         return Err("dataset preview row is not a JSON object".to_string());
     };
@@ -698,7 +687,9 @@ pub async fn materialize_object_type_binding(
         &claims,
         &binding,
         limit,
-        body.dataset_branch.as_deref().or(binding.dataset_branch.as_deref()),
+        body.dataset_branch
+            .as_deref()
+            .or(binding.dataset_branch.as_deref()),
         body.dataset_version.or(binding.dataset_version),
     )
     .await

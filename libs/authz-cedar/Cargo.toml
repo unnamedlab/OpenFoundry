@@ -1,0 +1,76 @@
+[package]
+name = "authz-cedar"
+description = "Embedded Cedar policy engine for OpenFoundry (ADR-0027)."
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "authz_cedar"
+crate-type = ["lib"]
+
+[features]
+default = []
+# Enables the Postgres-backed `PgPolicyStore` loader that pulls policies
+# from `pg-policy.cedar_policies` at startup. Off by default so consumers
+# that only need the in-memory `PolicyStore` (tests, dev tooling) do not
+# pay the sqlx compile cost.
+postgres = ["dep:sqlx"]
+# Enables the NATS subscriber (`nats::PolicyReloadSubscriber`) that
+# listens on `authz.policy.changed` and triggers `PolicyStore` hot-reload.
+nats = ["dep:async-nats", "dep:futures"]
+# Enables the Axum `AuthzGuard<A, R>` extractor and the
+# `AuthzEngine` wiring helpers.
+axum = ["dep:axum", "dep:auth-middleware", "dep:http"]
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+cedar-policy = "4"
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+optional = true
+
+[dependencies.async-nats]
+workspace = true
+optional = true
+
+[dependencies.futures]
+workspace = true
+optional = true
+
+[dependencies.axum]
+workspace = true
+optional = true
+
+[dependencies.auth-middleware]
+workspace = true
+optional = true
+
+[dependencies.http]
+version = "1"
+optional = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

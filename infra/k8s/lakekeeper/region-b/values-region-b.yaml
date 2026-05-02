@@ -1,0 +1,109 @@
+---
+# S7.1.b — Lakekeeper deployment in region B (READ-ONLY).
+#
+# This overlay is loaded **on top of**
+# `infra/k8s/lakekeeper/values.yaml` and only changes what differs from
+# region A. Apply with:
+#
+#   helm upgrade --install lakekeeper lakekeeper/lakekeeper \
+#     --kube-context region-b \
+#     -n lakekeeper --create-namespace \
+#     -f infra/k8s/lakekeeper/values.yaml \
+#     -f infra/k8s/lakekeeper/region-b/values-region-b.yaml
+#
+# Read-only invariant
+# -------------------
+# The Lakekeeper REST catalog itself does not have a global "read only"
+# switch — read-only-ness in region B is enforced by **three**
+# independent mechanisms (defence in depth):
+#
+#   1. The Postgres backend (`pg-lakekeeper` cluster) in region B is a
+#      CNPG **replica cluster** following the primary in region A via
+#      streaming async replication (S7.4.a). Replicas reject every
+#      write at the SQL layer.
+#   2. The Ceph RGW endpoint in region B is the SECONDARY zone of the
+#      `openfoundry` realm; writes are forwarded to the primary
+#      automatically by the multisite layer, but Lakekeeper region B is
+#      configured to point at this zone explicitly so that any commit
+#      attempt routes through the read-only zone.
+#   3. `authz.backend: read_only_allowall` (chart-level overlay below)
+#      blocks every mutating endpoint at the catalog before it touches
+#      the backend. This is the user-facing 403, surfaced to clients
+#      before any backend round-trip.
+
+catalog:
+  # Region B is sized for steady-state read traffic only. Keep replicas
+  # for HA but cut requests to half of region A.
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  config:
+    LAKEKEEPER__BASE_URI: "http://lakekeeper.lakekeeper.svc:8181"
+    # ── S3 backend ── point at the SECONDARY Ceph RGW (region B) ─────
+    # Same bucket name (`openfoundry-iceberg`) — the multisite layer
+    # ensures the data is the same.
+    LAKEKEEPER__S3_ENDPOINT: "http://rook-ceph-rgw-rgw-data.rook-ceph.svc:80"
+    LAKEKEEPER__S3_REGION: "us-east-1"
+    LAKEKEEPER__S3_PATH_STYLE_ACCESS: "true"
+    LAKEKEEPER__S3_BUCKET: "openfoundry-iceberg"
+
+  # S3 credentials in region B are the **secondary zone**'s read-only
+  # user — minted by the bootstrap runbook (`ceph-multisite-bootstrap.md`)
+  # and projected via the same `lakekeeper-s3` Secret name as region A
+  # so the chart is identical at the env-var level.
+  extraEnv:
+    - name: LAKEKEEPER__S3_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: lakekeeper-s3
+          key: AWS_ACCESS_KEY_ID
+    - name: LAKEKEEPER__S3_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: lakekeeper-s3
+          key: AWS_SECRET_ACCESS_KEY
+
+# ── External Postgres = CNPG replica cluster `pg-lakekeeper-replica` ──
+# Built by S7.4.a as a streaming-async follower of region A's
+# `pg-lakekeeper` primary. Both Service names exist on the replica
+# cluster but `-rw` resolves to the (read-only) primary endpoint of the
+# replica, which Postgres rejects writes against — that is the point.
+externalDatabase:
+  type: postgres
+  host_read: "pg-lakekeeper-replica-r.lakekeeper.svc.cluster.local"
+  host_write: "pg-lakekeeper-replica-rw.lakekeeper.svc.cluster.local"
+  port: 5432
+  database: "lakekeeper"
+  userSecret: "pg-lakekeeper-replica-app"
+  userSecretKey: "username"
+  passwordSecret: "pg-lakekeeper-replica-app"
+  passwordSecretKey: "password"
+
+# ── Authorisation: read-only ─────────────────────────────────────────
+# Lakekeeper's `allowall` authoriser permits every operation including
+# writes; replace it with `read_only_allowall` so DDL / commit RPCs are
+# rejected at the API layer with HTTP 403 instead of crashing later in
+# the Postgres replica.
+#
+# NOTE: this is a Lakekeeper feature flag — confirm the spelling in the
+# version pinned by `catalog.image.tag` before deploying. If the build
+# in use does not expose `read_only_allowall`, fall back to OPA-mode
+# with a Rego policy denying all `*:write*` actions. The README in this
+# folder documents both options.
+authz:
+  backend: "read_only_allowall"
+
+# Disable the secret backend's encryption-key rotation in region B —
+# the encryption key MUST match region A so URLs minted there decrypt
+# here. Same Secret name, value sync-ed by External Secrets.
+secretBackend:
+  type: "Postgres"
+  postgres:
+    encryptionKeySecret: "lakekeeper-encryption-key"
+    encryptionKeySecretKey: "encryptionKey"

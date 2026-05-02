@@ -15,9 +15,7 @@
 
 use std::sync::OnceLock;
 
-use prometheus::{
-    HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, exponential_buckets,
-};
+use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, exponential_buckets};
 
 /// Singleton store. Initialised the first time
 /// [`register_action_metrics`] is called by a binary; subsequent calls are
@@ -168,12 +166,21 @@ mod tests {
 
     #[test]
     fn failure_type_from_http_status_classifies_common_codes() {
-        assert_eq!(FailureType::from_http_status(400), FailureType::InvalidParameter);
-        assert_eq!(FailureType::from_http_status(403), FailureType::Authentication);
+        assert_eq!(
+            FailureType::from_http_status(400),
+            FailureType::InvalidParameter
+        );
+        assert_eq!(
+            FailureType::from_http_status(403),
+            FailureType::Authentication
+        );
         assert_eq!(FailureType::from_http_status(409), FailureType::Conflict);
         assert_eq!(FailureType::from_http_status(429), FailureType::ScaleLimit);
         assert_eq!(FailureType::from_http_status(503), FailureType::SideEffect);
-        assert_eq!(FailureType::from_http_status(200), FailureType::Unclassified);
+        assert_eq!(
+            FailureType::from_http_status(200),
+            FailureType::Unclassified
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "ontology-definition-service"
-description = "Ontology definition and type system service"
+description = "Ontology schema-of-types service (object/link/action types) — declarative schema persisted in pg-schemas.ontology_schema"
 
 [package.edition]
 workspace = true
@@ -14,38 +14,21 @@ workspace = true
 [package.rust-version]
 workspace = true
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "ontology-definition-service"
+required-features = []
+
 [dependencies.auth-middleware]
 workspace = true
 
 [dependencies.axum]
 workspace = true
 
-[dependencies.axum-extra]
-workspace = true
-
-[dependencies.chrono]
-workspace = true
-
 [dependencies.config]
-workspace = true
-
-[dependencies.core-models]
-workspace = true
-
-[dependencies.event-bus-control]
-workspace = true
-
-[dependencies.futures]
-workspace = true
-
-[dependencies.pyo3]
-workspace = true
-features = ["abi3-py311"]
-
-[dependencies.reqwest]
-workspace = true
-
-[dependencies.semver]
 workspace = true
 
 [dependencies.serde]
@@ -54,16 +37,10 @@ workspace = true
 [dependencies.serde_json]
 workspace = true
 
-[dependencies.sqlx]
-workspace = true
-
 [dependencies.thiserror]
 workspace = true
 
 [dependencies.tokio]
-workspace = true
-
-[dependencies.tonic]
 workspace = true
 
 [dependencies.tracing]
@@ -72,13 +49,38 @@ workspace = true
 [dependencies.tracing-subscriber]
 workspace = true
 
+[dependencies.tower-http]
+workspace = true
+
 [dependencies.uuid]
 workspace = true
 
-[[bin]]
-path = "src/main.rs"
-name = "ontology-definition-service"
-required-features = []
+[dependencies.chrono]
+workspace = true
 
+# S1.6 — declarative schema lives in `pg-schemas.ontology_schema`.
+# We keep `sqlx` because the bounded context here is a schema
+# registry: object_types, properties, link_types, action_types,
+# interfaces, shared_property_types, projects, etc. (handlers in
+# `libs/ontology-kernel`). Cassandra is NOT used by this service.
+[dependencies.sqlx]
+workspace = true
+
+# S1.6.e — emit `ontology.schema.v1` events on definition change.
+# The platform bus is NATS JetStream; Debezium bridges to Kafka
+# downstream for catalog/indexing/SDK-gen consumers.
+[dependencies.event-bus-control]
+workspace = true
+
+# Domain models (object_types, link_types, action_types, …) live
+# in `libs/ontology-kernel/src/models`. We re-export them through
+# the shell's API surface as the kernel handlers migrate.
 [dependencies.ontology-kernel]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.serde_json]
 workspace = true

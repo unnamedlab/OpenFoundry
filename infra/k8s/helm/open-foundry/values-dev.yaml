@@ -63,3 +63,48 @@ services:
     autoscaling:
       minReplicas: 1
       maxReplicas: 2
+  # S4.3 — single replica, OpenSearch backend in dev.
+  ontology-indexer:
+    replicas: 1
+    env:
+      SEARCH_BACKEND: opensearch
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 2
+  audit-sink:
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 1
+  ai-sink:
+    replicas: 1
+    autoscaling:
+      minReplicas: 1
+      maxReplicas: 1
+
+# ── Search backend (S4.4) ───────────────────────────────────
+# Dev / CI uses OpenSearch — Vespa subchart is left disabled to
+# keep the kind cluster light. Application code does not see the
+# difference (libs/search-abstraction).
+search:
+  backend: opensearch
+
+vespa:
+  enabled: false
+
+# S5.6 — Trino disabled in dev (kind/k3d clusters cannot host the
+# 6+ cores the coordinator pair requires). Local analytics fall back
+# to the DataFusion `SessionContext` inside `sql-bi-gateway-service`.
+trino:
+  enabled: false
+
+# S5.7 — Spark Operator disabled in dev. Maintenance jobs run as
+# manual `kubectl apply -f infra/k8s/spark-jobs/<job>.yaml` against
+# the staging cluster only.
+spark-operator:
+  enabled: false
+
+# S5.4 — Mimir disabled in dev; Prometheus keeps its 7-day local
+# retention and is dropped on every cluster recycle.
+mimir:
+  enabled: false

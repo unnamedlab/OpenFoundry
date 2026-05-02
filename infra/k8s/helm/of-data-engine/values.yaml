@@ -1,0 +1,21 @@
+release: of-data-engine
+
+image:
+  registry: ghcr.io/openfoundry
+  tag: "0.1.0"
+
+migrations:
+  pg-schemas:
+    enabled: true
+    dsnSecret: { name: pg-schemas-app, key: dsn }
+  pg-runtime-config:
+    enabled: true
+    dsnSecret: { name: pg-runtime-config-app, key: dsn }
+
+services:
+  connector-management-service:    { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }
+  ingestion-replication-service:   { replicas: 3, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "200m", memory: "512Mi" }, limits: { cpu: "1",    memory: "1Gi"   } } }
+  dataset-versioning-service:      { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }
+  lineage-service:                 { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }
+  pipeline-build-service:          { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "200m", memory: "512Mi" }, limits: { cpu: "1",    memory: "1Gi"   } } }
+  sql-bi-gateway-service:          { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "200m", memory: "512Mi" }, limits: { cpu: "1",    memory: "1Gi"   } } }

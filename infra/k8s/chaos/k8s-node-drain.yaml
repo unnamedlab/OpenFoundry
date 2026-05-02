@@ -1,0 +1,96 @@
+# S8.4 — Chaos Mesh: drain one worker node weekly.
+# Validates that PDBs are honoured (no service drops below
+# minAvailable) and that all Pods reschedule within 5 minutes.
+#
+# `StressChaos` of the kubelet would not exercise the eviction code
+# path; we use Chaos Mesh's `KernelChaos` + cordon hook instead, then
+# rely on the `kubectl drain` Workflow below.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Workflow
+metadata:
+  name: chaos-k8s-node-drain
+  namespace: chaos-mesh
+spec:
+  entry: drain-and-restore
+  templates:
+    - name: drain-and-restore
+      templateType: Serial
+      deadline: 30m
+      children:
+        - drain-node
+        - wait-reschedule
+        - uncordon-node
+    - name: drain-node
+      templateType: Task
+      task:
+        container:
+          name: kubectl
+          image: bitnami/kubectl:1.30
+          command:
+            - sh
+            - -c
+            - |
+              NODE=$(kubectl get nodes -l openfoundry.io/chaos-eligible=true \
+                  -o jsonpath='{.items[0].metadata.name}')
+              echo "draining $NODE"
+              kubectl cordon "$NODE"
+              kubectl drain "$NODE" \
+                  --ignore-daemonsets \
+                  --delete-emptydir-data \
+                  --disable-eviction=false \
+                  --timeout=300s
+              echo "$NODE" > /tmp/node
+    - name: wait-reschedule
+      templateType: Suspend
+      deadline: 5m
+    - name: uncordon-node
+      templateType: Task
+      task:
+        container:
+          name: kubectl
+          image: bitnami/kubectl:1.30
+          command:
+            - sh
+            - -c
+            - |
+              NODE=$(cat /tmp/node)
+              kubectl uncordon "$NODE"
+---
+# Cron Schedule that triggers the Workflow above every Friday 02:00 UTC.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-k8s-node-drain-cron
+  namespace: chaos-mesh
+spec:
+  schedule: "0 2 * * 5"
+  type: Workflow
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  workflow:
+    entry: drain-and-restore
+    templates:
+      - name: drain-and-restore
+        templateType: Serial
+        deadline: 30m
+        children:
+          - drain-node
+          - wait-reschedule
+          - uncordon-node
+      - name: drain-node
+        templateType: Task
+        task:
+          container:
+            name: kubectl
+            image: bitnami/kubectl:1.30
+            command: ["sh", "-c", "kubectl drain $(kubectl get nodes -l openfoundry.io/chaos-eligible=true -o jsonpath='{.items[0].metadata.name}') --ignore-daemonsets --delete-emptydir-data --timeout=300s"]
+      - name: wait-reschedule
+        templateType: Suspend
+        deadline: 5m
+      - name: uncordon-node
+        templateType: Task
+        task:
+          container:
+            name: kubectl
+            image: bitnami/kubectl:1.30
+            command: ["sh", "-c", "for n in $(kubectl get nodes -o jsonpath='{.items[?(@.spec.unschedulable==true)].metadata.name}'); do kubectl uncordon $n; done"]

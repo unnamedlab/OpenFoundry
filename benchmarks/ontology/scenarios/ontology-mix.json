@@ -1,0 +1,54 @@
+{
+  "base_url": "${OF_BENCH_BASE_URL}",
+  "default_headers": {
+    "Authorization": "Bearer ${OF_BENCH_TOKEN}",
+    "X-Consistency": "strong"
+  },
+  "warmup_iterations": 5,
+  "measure_iterations": 50,
+  "scenarios": [
+    {
+      "name": "ontology-read-by-id-strong",
+      "method": "GET",
+      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/${OF_BENCH_OBJECT_ID}",
+      "expected_status": 200,
+      "tags": ["ontology", "read", "by-id", "strong"]
+    },
+    {
+      "name": "ontology-read-by-id-eventual",
+      "method": "GET",
+      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/${OF_BENCH_OBJECT_ID}",
+      "headers": { "X-Consistency": "eventual" },
+      "expected_status": 200,
+      "tags": ["ontology", "read", "by-id", "eventual", "cache"]
+    },
+    {
+      "name": "ontology-read-by-type-strong",
+      "method": "GET",
+      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/by-type/${OF_BENCH_TYPE_ID}?limit=50",
+      "expected_status": 200,
+      "tags": ["ontology", "read", "by-type", "strong"]
+    },
+    {
+      "name": "ontology-read-by-type-eventual",
+      "method": "GET",
+      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/by-type/${OF_BENCH_TYPE_ID}?limit=50",
+      "headers": { "X-Consistency": "eventual" },
+      "expected_status": 200,
+      "tags": ["ontology", "read", "by-type", "eventual"]
+    },
+    {
+      "name": "ontology-action-execute",
+      "method": "POST",
+      "path": "/api/v1/ontology/actions/${OF_BENCH_ACTION_ID}/execute",
+      "expected_status": 200,
+      "tags": ["ontology", "write", "actions"],
+      "headers": { "Content-Type": "application/json" },
+      "body": {
+        "tenant_id": "${OF_BENCH_TENANT}",
+        "target_object_id": "${OF_BENCH_OBJECT_ID}",
+        "payload": { "source": "of-cli-bench" }
+      }
+    }
+  ]
+}

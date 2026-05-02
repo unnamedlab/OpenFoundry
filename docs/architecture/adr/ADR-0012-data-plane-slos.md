@@ -289,3 +289,132 @@ This ADR should be revisited if **any** of the following becomes true:
 - `docs/operations/index.md` — operations entry point, links to this ADR.
 - `docs/architecture/adr/ADR-0007-search-engine-choice.md` — Vespa as the
   sole production search engine, on which SLI 2.5 depends.
+
+---
+
+## Addendum 2026-05 — Ontology hot path on Cassandra (S1.9.c)
+
+The Stream S1 migration plan
+(`docs/architecture/migration-plan-cassandra-foundry-parity.md`) added
+Apache Cassandra 5.0.2 as the **primary store** for the ontology hot
+path (objects, links, actions log, security visibility projection,
+revisions). The bench harness defined in
+[`benchmarks/ontology/`](../../../benchmarks/ontology/) (S1.8) is the
+canonical source for the SLOs below; this addendum records the
+**SLOs that S1 commits to** and the SLIs by which compliance is
+measured.
+
+### A.1 Latency SLOs — ontology hot path
+
+Workload mix per S1.8.b (80 % read by-id / 15 % read by-type / 5 %
+write), measured at the read service boundary on a 3-node Cassandra
+5.0.2 cluster (RF=3, LOCAL_QUORUM for `strong` reads, LOCAL_ONE +
+moka cache for `eventual` reads).
+
+| # | Operation | p50 | p95 | p99 |
+|---|---|---|---|---|
+| A1 | `GET /api/v1/ontology/objects/{tenant}/{id}` (read by id, mixed strong/eventual) | < 5 ms | **< 15 ms** | < 35 ms |
+| A2 | `GET /api/v1/ontology/objects/{tenant}/by-type/{type_id}?limit=50` | < 5 ms | **< 20 ms** | < 50 ms |
+| A3 | `POST /api/v1/ontology/actions/{id}/execute` (writeback w/ outbox) | < 20 ms | **< 80 ms** | < 200 ms |
+| A4 | Sustained throughput on the mix above | 5 000 RPS sostenidos sin `dropped_iterations` |
+
+The **bold p95 targets** are load-bearing for the freeze policy in
+section 3 (an A1/A2 budget exhaustion behaves like the Flight SQL one;
+an A3 budget exhaustion behaves like Kafka producer ack).
+
+### A.2 SLIs — Prometheus queries
+
+The read service (`ontology-query-service`, S1.5) and the actions
+service (`ontology-actions-service`, S1.4) expose
+`http_request_duration_seconds_bucket` with the labels
+`{route, method, status, consistency}`. Cache hit rate is tracked via
+`ontology_query_cache_hits_total` / `ontology_query_cache_misses_total`
+(S1.5.a).
+
+```promql
+# A1 — read by id p95.
+histogram_quantile(
+  0.95,
+  sum by (le) (
+    rate(http_request_duration_seconds_bucket{
+      service="ontology-query",
+      route="/api/v1/ontology/objects/:tenant/:object_id"
+    }[5m])
+  )
+)
+
+# A1 cache hit ratio (rolling 1 h).
+sum(rate(ontology_query_cache_hits_total[1h]))
+/
+(sum(rate(ontology_query_cache_hits_total[1h]))
+ + sum(rate(ontology_query_cache_misses_total[1h])))
+
+# A3 — writeback p95 (idempotent path included).
+histogram_quantile(
+  0.95,
+  sum by (le) (
+    rate(http_request_duration_seconds_bucket{
+      service="ontology-actions",
+      route="/api/v1/ontology/actions/:id/execute"
+    }[5m])
+  )
+)
+```
+
+### A.3 Storage-layer SLIs (Cassandra)
+
+In addition to the application-level SLIs, Cassandra-side health is
+tracked via the JMX exporter shipped by the k8ssandra-operator
+sidecar (see `infra/k8s/cassandra/cluster-prod.yaml`):
+
+| SLI | Metric | Threshold |
+|---|---|---|
+| Local read p99 | `org_apache_cassandra_metrics_table_readlatency{quantile="0.99",keyspace="ontology_objects"}` | < 5 ms |
+| Local write p99 | `org_apache_cassandra_metrics_table_writelatency{quantile="0.99"}` | < 3 ms |
+| Compacted partition max | `org_apache_cassandra_metrics_table_compactedpartitionmaximumbytes` | < 100 MiB |
+| Tombstones per slice (avg) | `org_apache_cassandra_metrics_table_tombstonescannedhistogram{quantile="0.99"}` | < 100 |
+| `ReadStage` dropped | `org_apache_cassandra_metrics_threadpools_droppedtasks{path="ReadStage"}` | == 0 |
+
+Mantenimiento operativo de estos thresholds vive en el runbook
+[`benchmarks/ontology/runbooks/hot-partitions.md`](../../../benchmarks/ontology/runbooks/hot-partitions.md).
+
+### A.4 Resultados de baseline observados (run 2026-05-XX)
+
+> **Pendiente de poblar al cierre formal de S1.9** con los números de
+> la primera ejecución verde en el cluster prod. La estructura de la
+> tabla queda lista para que el ingeniero on-call rellene los valores
+> sin reformatear el ADR.
+
+| Operación | p50 medido | p95 medido | p99 medido | Run id |
+|---|---|---|---|---|
+| A1 read by id (strong) | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| A1 read by id (eventual, cache hit) | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| A2 list by type | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| A3 action execute | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Throughput (mix) | _TBD_ RPS | — | — | _TBD_ |
+
+Cada run alimenta `benchmarks/results/ontology-mix-k6.json` y un
+snapshot post-run de `nodetool tablestats -F json`. Esos artefactos
+son la evidencia primaria; esta tabla los resume.
+
+### A.5 Error budgets
+
+Mantenemos el patrón de la sección 3: **99.5 %** de las requests bajo
+el bound p95 = 0.5 % de presupuesto mensual. Para A4 (throughput
+sostenido) el budget es de tipo binario por run: cualquier run que
+reporte `dropped_iterations > 0.01 %` consume budget igual a la
+duración del run.
+
+### A.6 Conditions to revisit
+
+Además de las tres condiciones generales del ADR original, este
+addendum se reabre si:
+
+1. La PK de `objects_by_type` cambia (hot-tenant mitigation, S1.8.e),
+   porque `route` y la cardinalidad de partición cambian.
+2. El cache moka del read service se elimina o se reemplaza por un
+   side-cache distribuido — la separación strong / eventual deja de
+   ser observable a través de los hits/misses locales.
+3. El bridge NATS↔Kafka del path de invalidación (S1.5.b) se
+   reemplaza por un path puro Kafka, lo que cambia las métricas que
+   alimentan A1 cache hit ratio.

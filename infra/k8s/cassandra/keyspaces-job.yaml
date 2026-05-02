@@ -1,0 +1,151 @@
+---
+# Helm post-install / post-upgrade Job that bootstraps the six
+# OpenFoundry application keyspaces against the production cluster.
+#
+# Why a Job and not the operator:
+#   * k8ssandra-operator deliberately does not own application schema.
+#     Application keyspace ownership belongs to OpenFoundry release
+#     pipelines (versioned, idempotent CQL), not to infra reconciliation.
+#   * Temporal is excluded — its keyspaces (`temporal_persistence`,
+#     `temporal_visibility`) are bootstrapped by `temporal-cassandra-tool`
+#     from the Temporal frontend chart (see ADR-0021).
+#
+# The DDL only declares the keyspaces. Tables live in
+# docs/architecture/data-model-cassandra.md and are created by each
+# service's own migration step (libs/cassandra-kernel, S0.4) so
+# schema evolution stays close to the code that owns it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: of-cass-prod-keyspaces-bootstrap
+  namespace: cassandra
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cassandra-keyspaces-bootstrap
+        app.kubernetes.io/part-of: openfoundry
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cqlsh
+          image: cassandra:5.0.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: CASSANDRA_HOST
+              value: "of-cass-prod-dc1-service.cassandra.svc"
+            - name: CASSANDRA_PORT
+              value: "9042"
+            - name: CQLSH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: of-cass-prod-superuser
+                  key: username
+            - name: CQLSH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: of-cass-prod-superuser
+                  key: password
+          volumeMounts:
+            - name: cql
+              mountPath: /cql
+            - name: tmp
+              mountPath: /tmp
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              # Wait for native transport to be reachable. Helm hook
+              # may run before the cluster is fully ready; retry up to
+              # ~5 minutes.
+              for i in $(seq 1 60); do
+                if cqlsh "${CASSANDRA_HOST}" "${CASSANDRA_PORT}" \
+                    -u "${CQLSH_USER}" -p "${CQLSH_PASSWORD}" \
+                    -e "DESCRIBE CLUSTER" >/dev/null 2>&1; then
+                  echo "Cassandra reachable on attempt $i"; break
+                fi
+                echo "waiting for Cassandra... ($i/60)"; sleep 5
+              done
+
+              cqlsh "${CASSANDRA_HOST}" "${CASSANDRA_PORT}" \
+                -u "${CQLSH_USER}" -p "${CQLSH_PASSWORD}" \
+                --file=/cql/keyspaces.cql
+      volumes:
+        - name: cql
+          configMap:
+            name: of-cass-prod-keyspaces-cql
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: of-cass-prod-keyspaces-cql
+  namespace: cassandra
+data:
+  keyspaces.cql: |
+    -- OpenFoundry application keyspaces.
+    --
+    -- All keyspaces use NetworkTopologyStrategy with RF=3 in each of
+    -- the four datacenters (3 in region A per ADR-0020 + `dc-b1` in
+    -- region B per S7.2.b). DCs that do not yet exist in dev are
+    -- simply ignored by Cassandra; this DDL is therefore safe to
+    -- apply against the dev cluster too.
+    --
+    -- DURABLE_WRITES is left at the default (true). Anyone tempted to
+    -- set it false should re-read ADR-0020 first.
+
+    CREATE KEYSPACE IF NOT EXISTS ontology_objects
+      WITH replication = {
+        'class': 'NetworkTopologyStrategy',
+        'dc1': '3', 'dc2': '3', 'dc3': '3', 'dc-b1': '3'
+      };
+
+    CREATE KEYSPACE IF NOT EXISTS ontology_indexes
+      WITH replication = {
+        'class': 'NetworkTopologyStrategy',
+        'dc1': '3', 'dc2': '3', 'dc3': '3', 'dc-b1': '3'
+      };
+
+    CREATE KEYSPACE IF NOT EXISTS actions_log
+      WITH replication = {
+        'class': 'NetworkTopologyStrategy',
+        'dc1': '3', 'dc2': '3', 'dc3': '3', 'dc-b1': '3'
+      };
+
+    CREATE KEYSPACE IF NOT EXISTS auth_runtime
+      WITH replication = {
+        'class': 'NetworkTopologyStrategy',
+        'dc1': '3', 'dc2': '3', 'dc3': '3', 'dc-b1': '3'
+      };
+
+    CREATE KEYSPACE IF NOT EXISTS notifications_inbox
+      WITH replication = {
+        'class': 'NetworkTopologyStrategy',
+        'dc1': '3', 'dc2': '3', 'dc3': '3', 'dc-b1': '3'
+      };
+
+    CREATE KEYSPACE IF NOT EXISTS agent_state
+      WITH replication = {
+        'class': 'NetworkTopologyStrategy',
+        'dc1': '3', 'dc2': '3', 'dc3': '3', 'dc-b1': '3'
+      };
+
+    -- Verify.
+    DESCRIBE KEYSPACES;

@@ -1,0 +1,22 @@
+# S8.4 — Chaos Mesh: kill one Cassandra Pod weekly.
+# Validates ADR-0020 SLO (P95 reads <= 25 ms) survives a node loss.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-cassandra-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 2 * * 2"          # every Tuesday 02:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - cassandra
+      labelSelectors:
+        app.kubernetes.io/name: cassandra
+        cassandra.datastax.com/datacenter: dc1
+    gracePeriod: 0

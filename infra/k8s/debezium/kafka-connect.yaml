@@ -1,0 +1,146 @@
+---
+# S4.1.b — Strimzi KafkaConnect cluster running Debezium 2.x.
+#
+# Two replicas (HA), JBOD-less stateless pods (Connect persists
+# offsets in the internal Kafka topics declared below). The image
+# is built once at deploy time via Strimzi's `build` block — we add
+# the Apicurio Avro converter and the Debezium outbox SMT.
+#
+# Internal Connect topics (`config`, `offset`, `status`) use RF=3
+# and are owned exclusively by this Connect cluster (see ACLs in
+# `kafka-user-debezium-connect.yaml`).
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: debezium
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/component: debezium-connect
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  replicas: 2
+  bootstrapServers: openfoundry-kafka-bootstrap.kafka.svc:9093
+  authentication:
+    type: tls
+    certificateAndKey:
+      secretName: debezium-connect-user
+      certificate: user.crt
+      key: user.key
+  tls:
+    trustedCertificates:
+      - secretName: openfoundry-cluster-ca-cert
+        certificate: ca.crt
+  config:
+    group.id: debezium-connect
+    # Each cluster's internal topics — RF 3, ISR 2 to match the data
+    # plane's durability budget.
+    config.storage.topic: __debezium-connect-configs
+    offset.storage.topic: __debezium-connect-offsets
+    status.storage.topic: __debezium-connect-status
+    config.storage.replication.factor: 3
+    offset.storage.replication.factor: 3
+    status.storage.replication.factor: 3
+    config.storage.partitions: 1
+    offset.storage.partitions: 50
+    status.storage.partitions: 5
+    # Use Apicurio's Avro converter — schema-registry-aware, OSS,
+    # Apache-2.0. We deliberately avoid Confluent's converter.
+    key.converter: io.apicurio.registry.utils.converter.AvroConverter
+    value.converter: io.apicurio.registry.utils.converter.AvroConverter
+    key.converter.apicurio.registry.url: http://apicurio-registry.apicurio:8080/apis/registry/v2
+    value.converter.apicurio.registry.url: http://apicurio-registry.apicurio:8080/apis/registry/v2
+    key.converter.apicurio.registry.auto-register: "true"
+    value.converter.apicurio.registry.auto-register: "true"
+    key.converter.apicurio.registry.find-latest: "true"
+    value.converter.apicurio.registry.find-latest: "true"
+    # Internal converters stay JSON without schemas — they only carry
+    # Connect's own state.
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+    # Producer hardening: full ISR ack, idempotence, deterministic
+    # ordering. Combined with the application-side deterministic
+    # `event_id`, a task restart cannot duplicate a record.
+    producer.acks: all
+    producer.enable.idempotence: "true"
+    producer.max.in.flight.requests.per.connection: "5"
+    producer.compression.type: zstd
+    # Source connectors poll the WAL slot — keep the read-side budget
+    # tight so we surface stalls quickly.
+    consumer.fetch.min.bytes: "1"
+    # Health & observability.
+    metrics.recording.level: INFO
+  build:
+    output:
+      type: docker
+      image: registry.local/openfoundry/debezium-connect:2.7.0
+      pushSecret: registry-local-pull
+    plugins:
+      - name: debezium-connector-postgres
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz
+      - name: apicurio-avro-converter
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/apicurio/apicurio-registry-distro-connect-converter/2.6.4.Final/apicurio-registry-distro-connect-converter-2.6.4.Final.tar.gz
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  jvmOptions:
+    "-Xms": 1536m
+    "-Xmx": 1536m
+  metricsConfig:
+    type: jmxPrometheusExporter
+    valueFrom:
+      configMapKeyRef:
+        name: debezium-connect-metrics
+        key: metrics-config.yaml
+  template:
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              strimzi.io/cluster: debezium
+              strimzi.io/kind: KafkaConnect
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: debezium-connect-metrics
+  namespace: kafka
+data:
+  metrics-config.yaml: |
+    lowercaseOutputName: true
+    rules:
+      - pattern: "kafka.connect<type=connect-worker-metrics><>([a-zA-Z-]+)"
+        name: kafka_connect_worker_$1
+        type: GAUGE
+      - pattern: "kafka.connect<type=connect-worker-metrics, connector=([^>]+)><>([a-zA-Z-]+)"
+        name: kafka_connect_worker_connector_$2
+        type: GAUGE
+        labels:
+          connector: "$1"
+      - pattern: "kafka.connect<type=connector-task-metrics, connector=([^,]+), task=([0-9]+)><>([a-zA-Z-]+)"
+        name: kafka_connect_connector_task_$3
+        type: GAUGE
+        labels:
+          connector: "$1"
+          task: "$2"
+      - pattern: "kafka.connect<type=connect-coordinator-metrics><>([a-zA-Z-]+)"
+        name: kafka_connect_coordinator_$1
+        type: GAUGE
+      - pattern: "debezium.postgres<type=connector-metrics, context=(streaming|snapshot), server=([^>]+)><>([a-zA-Z-]+)"
+        name: debezium_postgres_$3
+        type: GAUGE
+        labels:
+          context: "$1"
+          server: "$2"

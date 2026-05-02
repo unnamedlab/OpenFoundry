@@ -1,0 +1,80 @@
+[package]
+name = "ontology-indexer"
+description = "Stateless Kafka consumer that materialises ontology events into the search backend (Vespa prod / OpenSearch dev)"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.search-abstraction]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+# Kafka consumer is gated behind a feature flag so the pure-logic
+# library stays compilable in CI without librdkafka.
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
+[dependencies.prometheus]
+workspace = true
+optional = true
+
+[features]
+default = []
+# Production-side wiring: rdkafka subscriber + Prometheus metrics.
+runtime = ["dep:event-bus-data", "dep:prometheus"]
+# Vespa backend (production target per ADR-0028).
+vespa = ["search-abstraction/vespa"]
+# OpenSearch backend (dev / CI).
+opensearch = ["search-abstraction/opensearch"]
+
+[lib]
+path = "src/lib.rs"
+name = "ontology_indexer"
+crate-type = ["lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "ontology-indexer"
+required-features = ["runtime"]

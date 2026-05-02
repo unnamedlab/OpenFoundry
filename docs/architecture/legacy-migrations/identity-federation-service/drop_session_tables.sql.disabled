@@ -1,0 +1,22 @@
+-- S3.2.e — DROP legacy Postgres session tables after Cassandra
+-- cutover.
+--
+-- DO NOT EXECUTE THIS MIGRATION YET. See sibling README.md for the
+-- gate. The runtime cutover gate must be satisfied before this
+-- file is renamed to drop the `.disabled` suffix.
+--
+-- This file deliberately uses the `.disabled` suffix so `sqlx
+-- migrate run` skips it.
+--
+-- The dropped tables originate from the migrations under
+-- `services/identity-federation-service/migrations/`, specifically
+-- the rows defined in `20260419000001_initial_auth.sql` and
+-- `20260425193000_scoped_sessions_security.sql`. JWKS material in
+-- `pg-schemas.auth_schema.jwks_keys` is **not** dropped — it stays
+-- in Postgres per ADR-0026 (custody is Vault transit; Postgres only
+-- holds the public mirror metadata).
+
+DROP TABLE IF EXISTS scoped_session_audit;
+DROP TABLE IF EXISTS scoped_sessions;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS oauth_pending_state;

@@ -1,0 +1,15 @@
+[package]
+name = "db-pool"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Dual-pool (writer/reader) sqlx wrapper for OpenFoundry services."
+
+[dependencies]
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

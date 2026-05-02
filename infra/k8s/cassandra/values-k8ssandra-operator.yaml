@@ -1,0 +1,61 @@
+---
+# Helm values for the upstream `k8ssandra/k8ssandra-operator` chart.
+#
+# The chart installs the umbrella operator, which in turn manages
+# cass-operator (Cassandra StatefulSet), Reaper (repairs), Medusa
+# (backups) and the related CRDs. Stargate is intentionally left
+# disabled — see infra/k8s/cassandra/README.md.
+#
+# License: Apache-2.0 (operator) + Apache-2.0 (sub-operators).
+#
+# Apply:
+#   helm install k8ssandra-operator k8ssandra/k8ssandra-operator \
+#     --namespace k8ssandra-operator --create-namespace \
+#     -f infra/k8s/cassandra/values-k8ssandra-operator.yaml
+
+# The operator must be cluster-scoped so that a single control-plane
+# deployment can manage K8ssandraCluster CRs across all namespaces.
+global:
+  clusterScoped: true
+
+# The operator's webhook needs cert-manager (already installed
+# cluster-wide per the platform prereqs).
+cass-operator:
+  manager:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+# Single replica for the umbrella controller; the controller is
+# stateless and active-passive coordination is handled via a
+# Kubernetes lease.
+manager:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 256Mi
+    limits:
+      cpu: "500m"
+      memory: 512Mi
+  # Run as restricted (default for k8ssandra >= 1.18) so we satisfy
+  # the same PodSecurity baseline used by the rest of the platform.
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+# Topology spread across zones for the controller pod.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: topology.kubernetes.io/zone
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: k8ssandra-operator

@@ -1,17 +1,32 @@
 //! `pipeline-schedule-service` binary entry point.
 //!
-//! Cron + event scheduler for both pipelines and workflows. Implements the
-//! "Schedules" surface from Foundry Pipeline Builder + Action / Workflow
-//! schedules: lists due runs, previews next windows, backfills historical
-//! windows, and runs an in-process ticker that polls
-//! `pipelines.next_run_at` / `workflow_definitions.next_run_at` and
-//! dispatches them. Cron-driven workflow runs are emitted as
-//! `WorkflowRunRequested` events on NATS; pipeline runs are executed
-//! in-process via the shared `domain::executor` shim from
-//! `pipeline-authoring-service`.
+//! ## Status: post-S2.4 substrate (Temporal Schedules)
 //!
-//! The ticker cadence is bounded by `scheduler_tick_interval_secs`
-//! (default 30s); this matches Foundry's "minute-resolution cron" guidance.
+//! Per Stream **S2.4** of
+//! `docs/architecture/migration-plan-cassandra-foundry-parity.md` and
+//! ADR-0021, the in-process **tick loop** that polled
+//! `pipelines.next_run_at` / `workflow_definitions.next_run_at` and
+//! fired runs from this binary has been **removed**. Cron-driven and
+//! event-driven runs are now dispatched by **Temporal Schedules**
+//! through the typed [`temporal_client::PipelineScheduleClient`]
+//! facade in [`crate::domain::temporal_schedule`]. Temporal owns:
+//!   - exactly-once dispatch under N replicas (no row-locking races);
+//!   - durable cron evaluation (no in-process clock skew);
+//!   - HA failover (the schedule survives any worker restart).
+//!
+//! What stays here:
+//!   - REST CRUD over schedule **definitions** (Postgres remains the
+//!     declarative source of truth, as called out in S2.4.b).
+//!   - Backfill / preview helpers that compute windows for the UI.
+//!   - The `_scheduler/run-due` admin endpoints, kept temporarily as
+//!     break-glass while the cutover from the legacy ticker to
+//!     Temporal Schedules is completed PR-by-PR.
+//!
+//! What does **not** stay here:
+//!   - `tokio::spawn`-based ticker (deleted, was 25 LOC in `main`).
+//!   - In-process pipeline executor (delegated to the worker
+//!     in `workers-go/pipeline/`, which registers the `PipelineRun`
+//!     workflow type and is what every Temporal Schedule fires).
 
 mod config;
 mod domain;
@@ -20,7 +35,6 @@ mod models;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
@@ -30,13 +44,19 @@ use axum::{
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use storage_abstraction::StorageBackend;
+use temporal_client::{Namespace, PipelineScheduleClient, WorkflowClient};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::AppConfig;
 
-/// Shared state. Field set covers what the shimmed `executor`,
-/// `engine::runtime` and `lineage` modules read PLUS `nats_url` for the
-/// NATS publisher in `domain::workflow`.
+/// Shared state.
+///
+/// **Field set frozen** — the path-pulled `engine::runtime` tests
+/// from `pipeline-authoring-service` construct this struct
+/// positionally, so adding fields here would break that test target.
+/// The Temporal client is therefore injected as an Axum `Extension`
+/// instead of as a state field; see [`Extension<PipelineScheduleClient>`]
+/// extractors in [`crate::handlers::temporal_schedule`].
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -78,6 +98,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http_client = reqwest::Client::new();
     let storage = build_storage(&app_config)?;
 
+    // Substrate-grade Temporal wiring. The `LoggingWorkflowClient`
+    // emits a `tracing::info!` per call and yields deterministic
+    // run_ids — handy for `/api/v1/data-integration/schedules/*`
+    // smoke tests until the gRPC backend lands. The namespace is the
+    // one provisioned by `infra/k8s/temporal/` (S2.1.b).
+    let temporal_namespace =
+        std::env::var("TEMPORAL_NAMESPACE").unwrap_or_else(|_| "default".to_string());
+    let workflow_client: Arc<dyn WorkflowClient> = Arc::new(temporal_client::LoggingWorkflowClient);
+    let pipeline_schedule_client =
+        PipelineScheduleClient::new(workflow_client, Namespace::new(temporal_namespace));
+
     let state = AppState {
         db,
         jwt_config: jwt_config.clone(),
@@ -100,37 +131,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         distributed_compute_timeout_secs: app_config.distributed_compute_timeout_secs,
     };
 
-    // Background ticker: fires every `tick_secs` to dispatch any
-    // pipeline/workflow whose `next_run_at <= now()`.
-    //
-    // We delegate to `domain::executor::run_due_scheduled_pipelines` and
-    // `domain::workflow::run_due_cron_workflows`; both are idempotent
-    // (next_run_at is advanced atomically before execution) so concurrent
-    // replicas only race on the row lock without double-firing.
-    let tick_secs = std::env::var("SCHEDULER_TICK_INTERVAL_SECS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(30);
-    {
-        let ticker_state = state.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(tick_secs));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                interval.tick().await;
-                match domain::executor::run_due_scheduled_pipelines(&ticker_state).await {
-                    Ok(0) => {}
-                    Ok(n) => tracing::info!(triggered = n, "scheduler dispatched pipeline runs"),
-                    Err(e) => tracing::warn!(error = %e, "scheduler pipeline tick failed"),
-                }
-                match domain::workflow::run_due_cron_workflows(&ticker_state).await {
-                    Ok(0) => {}
-                    Ok(n) => tracing::info!(triggered = n, "scheduler dispatched workflow runs"),
-                    Err(e) => tracing::warn!(error = %e, "scheduler workflow tick failed"),
-                }
-            }
-        });
-    }
+    // S2.4.a — the in-process tick loop has been removed. Temporal
+    // Schedules (created via `pipeline_schedule_client.create`) own
+    // exactly-once dispatch from now on. The legacy
+    // `_scheduler/run-due` REST endpoints below remain as
+    // break-glass for ops; they are scheduled for removal once
+    // every persisted schedule has been migrated.
 
     // Schedule + workflow surface. Auth is enforced by the layered middleware
     // (matches the `_user: AuthUser` extractors in every handler).
@@ -138,6 +144,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/schedules/due", get(handlers::schedule::list_due_runs))
         .route("/schedules/preview", post(handlers::schedule::preview_windows))
         .route("/schedules/backfill", post(handlers::schedule::backfill_runs))
+        .route(
+            "/schedules/temporal",
+            post(handlers::temporal_schedule::create_schedule),
+        )
+        .route(
+            "/schedules/temporal/{schedule_id}",
+            axum::routing::delete(handlers::temporal_schedule::delete_schedule),
+        )
         .route(
             "/workflows/_scheduler/run-due",
             post(handlers::workflow::run_due_cron_workflows),
@@ -160,6 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .nest("/api/v1/data-integration", scheduler)
         .route("/healthz", get(|| async { "ok" }))
+        .layer(axum::Extension(pipeline_schedule_client))
         .with_state(state);
 
     let addr: SocketAddr = format!("{}:{}", app_config.host, app_config.port).parse()?;

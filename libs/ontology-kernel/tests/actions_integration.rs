@@ -21,17 +21,14 @@ use std::path::{Path as FsPath, PathBuf};
 
 use auth_middleware::{claims::Claims, jwt::JwtConfig, layer::AuthUser};
 use axum::{
-    Json,
-    body,
+    Json, body,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use chrono::Utc;
 use ontology_kernel::{
-    AppState,
-    handlers::actions::execute_action,
-    models::action_type::ExecuteActionRequest,
+    AppState, handlers::actions::execute_action, models::action_type::ExecuteActionRequest,
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
@@ -76,11 +73,7 @@ async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool) {
     // the TCP connect until the second one succeeds.
     let mut attempts = 0;
     let pool = loop {
-        match PgPoolOptions::new()
-            .max_connections(4)
-            .connect(&url)
-            .await
-        {
+        match PgPoolOptions::new().max_connections(4).connect(&url).await {
             Ok(pool) => break pool,
             Err(error) if attempts < 30 => {
                 attempts += 1;
@@ -97,6 +90,20 @@ async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool) {
 /// Apply every `*.sql` file under both ontology-definition-service and
 /// object-database-service, sorted by filename so the cross-service
 /// chronological order is preserved.
+/// Apply every `*.sql` file from the **archived** ontology Postgres
+/// migrations under `docs/architecture/legacy-migrations/`, sorted by
+/// filename so the cross-service chronological order is preserved.
+///
+/// Background: as part of S1.4.d / S1.6.c / S1.7 the per-service
+/// `migrations/` directories were archived after the schema was
+/// consolidated under `pg-schemas.ontology_schema` and the hot path
+/// pivoted to Cassandra. Those SQL files remain the canonical source
+/// for the kernel handlers that have **not yet** been migrated to the
+/// `Arc<dyn ObjectStore>` substrate (S1.4.b). This test exercises that
+/// legacy code path; the new Cassandra-backed E2E for the writeback
+/// helper lives in
+/// `services/ontology-actions-service/tests/writeback_e2e.rs` (S1.4.f
+/// / S1.9.a).
 async fn apply_migrations(pool: &PgPool) {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
@@ -105,11 +112,13 @@ async fn apply_migrations(pool: &PgPool) {
         .expect("workspace root resolvable")
         .to_path_buf();
 
+    let archive_root = workspace_root.join("docs/architecture/legacy-migrations");
+
     let dirs = [
-        workspace_root.join("services/ontology-definition-service/migrations"),
-        workspace_root.join("services/object-database-service/migrations"),
-        // TASK Q — `action_executions` ledger lives in the actions service.
-        workspace_root.join("services/ontology-actions-service/migrations"),
+        archive_root.join("ontology-definition-service"),
+        archive_root.join("object-database-service"),
+        // S1.4.d — `action_executions` ledger lives in the actions service.
+        archive_root.join("ontology-actions-service"),
     ];
 
     let mut files: Vec<PathBuf> = Vec::new();
@@ -131,8 +140,8 @@ async fn apply_migrations(pool: &PgPool) {
     });
 
     for path in files {
-        let sql = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read migration {path:?}: {e}"));
+        let sql =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("read migration {path:?}: {e}"));
         sqlx::raw_sql(&sql)
             .execute(pool)
             .await
@@ -143,6 +152,7 @@ async fn apply_migrations(pool: &PgPool) {
 fn build_app_state(pool: PgPool) -> AppState {
     AppState {
         db: pool,
+        stores: ontology_kernel::stores::Stores::in_memory(),
         http_client: reqwest::Client::new(),
         jwt_config: JwtConfig::new("integration-test-secret"),
         // Point external services at an unreachable port so audit/notify
@@ -379,9 +389,7 @@ async fn execute_action_updates_object_and_emits_audit_attempt() {
 use ontology_kernel::handlers::actions::{
     ActionMetricsQuery, execute_action_batch, get_action_metrics, validate_action,
 };
-use ontology_kernel::models::action_type::{
-    ExecuteBatchActionRequest, ValidateActionRequest,
-};
+use ontology_kernel::models::action_type::{ExecuteBatchActionRequest, ValidateActionRequest};
 
 /// Insert an object type plus every property listed (all `string`, the first
 /// one acting as the primary key + unique constraint).
@@ -646,9 +654,7 @@ async fn execute_action_batch_returns_per_target_failure_for_unknown_target() {
         .count();
     let failed = results
         .iter()
-        .filter(|entry| {
-            entry["status"] == json!("failed") || entry["status"] == json!("denied")
-        })
+        .filter(|entry| entry["status"] == json!("failed") || entry["status"] == json!("denied"))
         .count();
     assert_eq!(succeeded, 1);
     assert_eq!(failed, 1);
@@ -815,14 +821,8 @@ async fn function_backed_without_batched_caps_target_count_at_twenty() {
     let object_type_id = Uuid::new_v4();
     let action_id = Uuid::new_v4();
 
-    seed_object_type_with_string_props(
-        &pool,
-        user_id,
-        object_type_id,
-        "lot",
-        &["sku", "status"],
-    )
-    .await;
+    seed_object_type_with_string_props(&pool, user_id, object_type_id, "lot", &["sku", "status"])
+        .await;
 
     // Insert a function-backed action with a config that does NOT enable
     // `batched_execution`. `execute_action_batch` should reject any payload
@@ -961,4 +961,3 @@ async fn revert_after_second_edit_returns_409_conflict() {
     // action_executions.applied_at`, the revert handler should refuse with
     // HTTP 409 + `failure_type:"conflict"`.
 }
-

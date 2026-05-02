@@ -1,0 +1,46 @@
+---
+# S5.7.b — expire snapshots older than per-namespace retention.
+#
+# CRITICAL: this job MUST never be allowed to touch `of_audit.*` —
+# the audit namespace is WORM (S5.1.c). The `--allowlist` argument
+# below is the single source of truth and the
+# `SparkApplicationTargetsWormNamespace` Prometheus alert pages
+# immediately if anybody adds `of_audit` to it.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: iceberg-expire-snapshots
+  namespace: openfoundry-spark
+  labels:
+    openfoundry.io/component: iceberg-maintenance
+spec:
+  type: Scala
+  mode: cluster
+  image: apache/spark:3.5.3
+  mainClass: org.openfoundry.spark.iceberg.ExpireSnapshotsJob
+  mainApplicationFile: "s3a://openfoundry-spark-jars/iceberg-maintenance-0.1.0.jar"
+  arguments:
+    # First arg is ALWAYS the allowlist — never `of_audit`.
+    - "--allowlist=of_lineage,of_ai,of_metrics_long"
+    # Per-namespace retention overrides (default 30 days).
+    - "--retain-days=of_lineage:90,of_ai:365,of_metrics_long:1825"
+    - "--catalog=lakekeeper"
+    - "--catalog-uri=http://lakekeeper.lakekeeper.svc:8181"
+  sparkVersion: "3.5.3"
+  restartPolicy:
+    type: OnFailure
+    onFailureRetries: 1
+    onFailureRetryInterval: 120
+  driver:
+    cores: 1
+    memory: "2g"
+    serviceAccount: spark-jobs-non-audit
+  executor:
+    cores: 1
+    instances: 2
+    memory: "2g"
+  sparkConf:
+    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
+    spark.sql.catalog.lakekeeper.type: "rest"
+    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181"

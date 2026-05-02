@@ -1,0 +1,49 @@
+---
+# S6.2 — PgBouncer Pooler for `pg-policy` (transaction mode).
+# See `pg-schemas-pooler.yaml` for the design rationale shared by all
+# Poolers.
+#
+# Caveat: transaction-pooling clients of `pg-policy` MUST NOT rely on
+# session-level features (advisory locks scoped to a session,
+# `SET LOCAL` outside a transaction, `LISTEN/NOTIFY`, prepared
+# statements named at the protocol level without `prepared_statements:
+# false`). Audit/security services already follow this rule; new
+# services attaching here must do the same.
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: pg-policy-pooler
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-policy
+    openfoundry.io/managed-by: cnpg
+spec:
+  cluster:
+    name: pg-policy
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "50"
+      reserve_pool_size: "10"
+      reserve_pool_timeout: "5"
+      server_idle_timeout: "120"
+      server_lifetime: "3600"
+      query_wait_timeout: "30"
+  monitoring:
+    enablePodMonitor: true
+  template:
+    spec:
+      containers: []
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    cnpg.io/poolerName: pg-policy-pooler

@@ -32,6 +32,16 @@ pub struct AppConfig {
     pub node_runtime_command: String,
     #[serde(default = "default_connector_management_service_url")]
     pub connector_management_service_url: String,
+    /// Cassandra contact points (`host:port,host:port,…`). When empty
+    /// the binary falls back to the in-memory `ObjectStore` — used by
+    /// the smoke test and by developers who run the service with no
+    /// Cassandra cluster reachable. Production *must* set this.
+    #[serde(default)]
+    pub cassandra_contact_points: String,
+    /// DC name used by the Cassandra load-balancing policy. Defaults
+    /// to `dc1` so it lines up with the dev compose stack.
+    #[serde(default = "default_cassandra_local_dc")]
+    pub cassandra_local_dc: String,
 }
 
 fn default_host() -> String {
@@ -70,6 +80,10 @@ fn default_connector_management_service_url() -> String {
 
 fn default_node_runtime_command() -> String {
     "node".to_string()
+}
+
+fn default_cassandra_local_dc() -> String {
+    "dc1".to_string()
 }
 
 impl AppConfig {

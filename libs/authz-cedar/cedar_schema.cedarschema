@@ -1,0 +1,94 @@
+// OpenFoundry Cedar authorization schema.
+//
+// Derived from `libs/core-models` per ADR-0027:
+//   * `User`       — caller identity (mirrors auth-middleware claims)
+//   * `Marking`    — classification label (`core-models::MarkingId`)
+//   * `Branch`     — dataset branch (`core-models::BranchName`)
+//   * `Dataset`    — versioned dataset RID (`core-models::DatasetRid`)
+//   * `Object`     — ontology object instance (`{type, id}`-keyed)
+//   * `OntologyAction` — ontology action *type* that mutates `Object`s
+//     (the entity is named `OntologyAction` because Cedar reserves the
+//     bare `Action` identifier for its built-in action namespace).
+//
+// Entity attributes are intentionally narrow: we only materialise the
+// fields that policies actually inspect today. New fields are additive
+// — Cedar's schema validator rejects undeclared attributes, so adding
+// one here means we can start writing policies against it immediately
+// without touching the engine wrapper.
+//
+// Actions modeled (exhaustive — extend in lock-step with services):
+//   * `read`            on `Object`, `Dataset`, `Branch`
+//   * `write`           on `Object`, `Dataset`
+//   * `delete`          on `Object`, `Dataset`
+//   * `branch::create`  on `Dataset`
+//   * `branch::merge`   on `Branch`
+//   * `action::invoke`  on `OntologyAction` (ontology action types)
+//
+// `clearances` carries the *set of marking ids* the user is allowed to
+// see; `markings` on a resource is the set of effective markings on
+// that resource (direct + inherited). The canonical clearance check
+// is therefore `principal.clearances.containsAll(resource.markings)`,
+// which is what the default `forbid` policy in the bootstrap migration
+// expresses.
+
+entity User = {
+  "tenant": String,
+  "clearances": Set<Marking>,
+  "roles": Set<String>,
+};
+
+entity Marking = {
+  "name": String,
+};
+
+entity Branch in [Dataset] = {
+  "name": String,
+  "dataset_rid": String,
+};
+
+entity Dataset = {
+  "rid": String,
+  "tenant": String,
+  "markings": Set<Marking>,
+};
+
+entity Object = {
+  "type": String,
+  "tenant": String,
+  "markings": Set<Marking>,
+};
+
+entity OntologyAction = {
+  "type": String,
+  "tenant": String,
+};
+
+action "read" appliesTo {
+  principal: [User],
+  resource:  [Object, Dataset, Branch],
+};
+
+action "write" appliesTo {
+  principal: [User],
+  resource:  [Object, Dataset],
+};
+
+action "delete" appliesTo {
+  principal: [User],
+  resource:  [Object, Dataset],
+};
+
+action "branch::create" appliesTo {
+  principal: [User],
+  resource:  [Dataset],
+};
+
+action "branch::merge" appliesTo {
+  principal: [User],
+  resource:  [Branch],
+};
+
+action "action::invoke" appliesTo {
+  principal: [User],
+  resource:  [OntologyAction],
+};

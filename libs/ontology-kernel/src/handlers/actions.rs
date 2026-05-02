@@ -16,12 +16,16 @@ use chrono::Utc;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use storage_abstraction::repositories::{
+    ActionLogEntry, LinkTypeId, ObjectId, Page, ReadConsistency, TenantId,
+};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     domain::{
         access::{clearance_rank, ensure_object_access, marking_rank, validate_marking},
+        composition,
         function_metrics::{FunctionPackageRunContext, record_function_package_run},
         function_runtime::{
             ResolvedInlineFunction, execute_inline_function, resolve_inline_function_config,
@@ -204,6 +208,60 @@ fn default_source_role() -> String {
 
 fn default_http_method() -> String {
     "POST".to_string()
+}
+
+fn tenant_from_claims(claims: &Claims) -> TenantId {
+    TenantId(
+        claims
+            .org_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "default".to_string()),
+    )
+}
+
+fn stable_link_instance_id(
+    link_type_id: Uuid,
+    source_object_id: Uuid,
+    target_object_id: Uuid,
+) -> Uuid {
+    let material =
+        format!("openfoundry/ontology-link/{link_type_id}/{source_object_id}/{target_object_id}");
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, material.as_bytes())
+}
+
+async fn persist_link_instance(
+    state: &AppState,
+    claims: &Claims,
+    actor_id: Uuid,
+    link_type: &LinkType,
+    source_object_id: Uuid,
+    target_object_id: Uuid,
+    properties: Option<Value>,
+    error_context: &str,
+) -> Result<LinkInstance, String> {
+    let created_at = Utc::now();
+    let payload = properties.clone().unwrap_or_else(|| json!({}));
+    composition::create_link(
+        state.stores.links.as_ref(),
+        tenant_from_claims(claims),
+        LinkTypeId(link_type.id.to_string()),
+        ObjectId(source_object_id.to_string()),
+        ObjectId(target_object_id.to_string()),
+        payload,
+        created_at.timestamp_millis(),
+    )
+    .await
+    .map_err(|e| format!("{error_context}: {e}"))?;
+
+    Ok(LinkInstance {
+        id: stable_link_instance_id(link_type.id, source_object_id, target_object_id),
+        link_type_id: link_type.id,
+        source_object_id,
+        target_object_id,
+        properties,
+        created_by: actor_id,
+        created_at,
+    })
 }
 
 fn split_action_config(
@@ -1127,7 +1185,9 @@ fn validate_struct_parameter_value(
 
     for sub_field in sub_fields {
         let provided = object.get(&sub_field.name);
-        let resolved = provided.cloned().or_else(|| sub_field.default_value.clone());
+        let resolved = provided
+            .cloned()
+            .or_else(|| sub_field.default_value.clone());
         match resolved {
             Some(value) => {
                 if let Err(error) = validate_property_value(&sub_field.property_type, &value) {
@@ -1368,7 +1428,11 @@ fn resolve_notification_recipients(
             "notification side effect resolved {} recipients which exceeds the scale limit ({} max{})",
             recipients.len(),
             recipient_cap,
-            if from_function { ", recipients from a function" } else { "" }
+            if from_function {
+                ", recipients from a function"
+            } else {
+                ""
+            }
         ));
     }
 
@@ -1557,20 +1621,17 @@ async fn create_link_from_instruction(
         return Err("linked object does not match configured link type".to_string());
     }
 
-    sqlx::query_as::<_, LinkInstance>(
-		r#"INSERT INTO link_instances (id, link_type_id, source_object_id, target_object_id, properties, created_by)
-		   VALUES ($1, $2, $3, $4, $5, $6)
-		   RETURNING *"#,
-	)
-	.bind(Uuid::now_v7())
-	.bind(link_type.id)
-	.bind(source_object_id)
-	.bind(target_object_id)
-	.bind(instruction.properties.clone())
-	.bind(actor_id)
-	.fetch_one(&state.db)
-	.await
-	.map_err(|e| format!("failed to create link from function response: {e}"))
+    persist_link_instance(
+        state,
+        claims,
+        actor_id,
+        &link_type,
+        source_object_id,
+        target_object_id,
+        instruction.properties.clone(),
+        "failed to create link from function response",
+    )
+    .await
 }
 
 fn derive_function_effects(
@@ -1669,12 +1730,8 @@ async fn validate_action_definition(
     // ActionWebhookInputsDoNotHaveExpectedType` rejection at edit time.
     let webhook_envelope = parse_action_envelope(config)?;
     if let Some(envelope) = webhook_envelope.as_ref() {
-        if envelope.batched_execution
-            && operation_kind != ActionOperationKind::InvokeFunction
-        {
-            return Err(
-                "batched_execution is only valid on function-backed actions".to_string(),
-            );
+        if envelope.batched_execution && operation_kind != ActionOperationKind::InvokeFunction {
+            return Err("batched_execution is only valid on function-backed actions".to_string());
         }
         if let Some(writeback) = envelope.webhook_writeback.as_ref() {
             validate_webhook_call_config(writeback, &input_names, "webhook_writeback")?;
@@ -2496,20 +2553,17 @@ async fn execute_plan(
             target_object_id,
             ..
         } => {
-            let link = sqlx::query_as::<_, LinkInstance>(
-				r#"INSERT INTO link_instances (id, link_type_id, source_object_id, target_object_id, properties, created_by)
-				   VALUES ($1, $2, $3, $4, $5, $6)
-				   RETURNING *"#,
-			)
-			.bind(Uuid::now_v7())
-			.bind(link_type.id)
-			.bind(source_object_id)
-			.bind(target_object_id)
-			.bind(properties)
-			.bind(claims.sub)
-			.fetch_one(&state.db)
-			.await
-            .map_err(|e| format!("failed to execute create_link action: {e}"))?;
+            let link = persist_link_instance(
+                state,
+                claims,
+                claims.sub,
+                &link_type,
+                source_object_id,
+                target_object_id,
+                properties,
+                "failed to execute create_link action",
+            )
+            .await?;
 
             Ok(ExecutedAction {
                 target_object_id: Some(target.id),
@@ -3170,8 +3224,8 @@ async fn execute_loaded_action(
     body: ExecuteActionRequest,
 ) -> Response {
     // TASK F — instrument every execution with Prometheus counters and a
-    // best-effort row in `action_executions` so the JSON metrics endpoint
-    // can aggregate latency/failure counts without scraping Prometheus.
+    // best-effort Cassandra action-log row so the JSON metrics endpoint can
+    // aggregate latency/failure counts without scraping Prometheus.
     let started_at = std::time::Instant::now();
     let action_id_for_metric = action.id;
     let action_id_label = action.id.to_string();
@@ -3261,8 +3315,7 @@ async fn execute_loaded_action(
     // never observe partial state. Captured `output_parameters` are merged
     // into `body.parameters` so downstream rules can reference them.
     if let Some(writeback_cfg) = webhook_writeback_cfg.as_ref() {
-        if let Err(error) =
-            run_webhook_writeback(state, writeback_cfg, &mut body.parameters).await
+        if let Err(error) = run_webhook_writeback(state, writeback_cfg, &mut body.parameters).await
         {
             record_action_failure_metric(
                 state,
@@ -3456,11 +3509,14 @@ async fn execute_loaded_action(
 /// substrings before falling back to `Unclassified`.
 fn classify_execute_plan_error(error: &str) -> crate::metrics::FailureType {
     let lower = error.to_ascii_lowercase();
-    if lower.contains("forbidden") || lower.contains("permission") || lower.contains("unauthorized") {
+    if lower.contains("forbidden") || lower.contains("permission") || lower.contains("unauthorized")
+    {
         crate::metrics::FailureType::Authentication
-    } else if lower.contains("conflict") || lower.contains("unique") || lower.contains("duplicate") {
+    } else if lower.contains("conflict") || lower.contains("unique") || lower.contains("duplicate")
+    {
         crate::metrics::FailureType::Conflict
-    } else if lower.contains("rate limit") || lower.contains("too many") || lower.contains("quota") {
+    } else if lower.contains("rate limit") || lower.contains("too many") || lower.contains("quota")
+    {
         crate::metrics::FailureType::ScaleLimit
     } else if lower.contains("timeout") || lower.contains("upstream") || lower.contains("network") {
         crate::metrics::FailureType::SideEffect
@@ -3542,10 +3598,9 @@ async fn record_action_failure_metric(
     }
 }
 
-/// Inserts a non-revertible row into `action_executions` purely for the
-/// metrics aggregation endpoint. TASK E will refactor this once the revert
-/// flow lands so successful executions reuse the same persistence path with
-/// `revertible = TRUE` + a previous-state snapshot.
+/// Append an execution attempt to the Cassandra action log. Revertible
+/// execution history still has its own residual PG path, but metrics no
+/// longer depend on `action_executions`.
 async fn persist_action_attempt_row(
     state: &AppState,
     claims: &Claims,
@@ -3555,37 +3610,38 @@ async fn persist_action_attempt_row(
     status: &str,
     failure_type: Option<&str>,
     duration_ms: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"INSERT INTO action_executions (
-               id, action_id, target_object_id, target_object_type_id,
-               parameters, previous_object_state, revertible,
-               applied_by, applied_at, organization_id,
-               status, failure_type, duration_ms
-           ) VALUES ($1, $2, $3, NULL, $4::jsonb, NULL, FALSE, $5, NOW(), $6,
-                     $7, $8, $9)"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(action_id)
-    .bind(target_object_id)
-    .bind(parameters)
-    .bind(claims.sub)
-    .bind(claims.org_id)
-    .bind(status)
-    .bind(failure_type)
-    .bind(duration_ms)
-    .execute(&state.db)
-    .await?;
-    Ok(())
+) -> Result<(), String> {
+    let payload = json!({
+        "action_type_id": action_id,
+        "target_object_id": target_object_id,
+        "parameters": parameters,
+        "status": status,
+        "failure_type": failure_type,
+        "duration_ms": duration_ms,
+        "organization_id": claims.org_id,
+    });
+    state
+        .stores
+        .actions
+        .append(ActionLogEntry {
+            tenant: tenant_from_claims(claims),
+            action_id: Uuid::now_v7().to_string(),
+            kind: "action_attempt".to_string(),
+            subject: claims.sub.to_string(),
+            object: target_object_id.map(|id| ObjectId(id.to_string())),
+            payload,
+            recorded_at_ms: Utc::now().timestamp_millis(),
+        })
+        .await
+        .map_err(|e| format!("failed to append action attempt to action log: {e}"))
 }
 
-/// `GET /api/v1/ontology/actions/{id}/metrics?window=30d` — aggregates the
-/// `action_executions` table for the requested window and returns
-/// success/failure counts plus P95 duration. Source-of-truth lives in the
-/// service's own database so the endpoint never depends on Prometheus
-/// scraping. The same data is also exported as Prometheus counters.
+/// `GET /api/v1/ontology/actions/{id}/metrics?window=30d` — aggregates
+/// Cassandra action-log attempts for the requested window and returns
+/// success/failure counts plus P95 duration. The same data is also exported
+/// as Prometheus counters.
 pub async fn get_action_metrics(
-    _user: AuthUser,
+    AuthUser(claims): AuthUser,
     State(state): State<AppState>,
     Path(action_id): Path<Uuid>,
     Query(params): Query<ActionMetricsQuery>,
@@ -3594,65 +3650,115 @@ pub async fn get_action_metrics(
     let window_seconds = match parse_window_to_seconds(&window) {
         Ok(secs) => secs,
         Err(message) => {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": message })))
-                .into_response();
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response();
         }
     };
 
-    let aggregate = match sqlx::query_as::<_, ActionMetricsAggregateRow>(
-        r#"SELECT
-               COUNT(*) FILTER (WHERE status = 'success') AS success_count,
-               COUNT(*) FILTER (WHERE status = 'failure') AS failure_count,
-               PERCENTILE_CONT(0.95) WITHIN GROUP (
-                   ORDER BY duration_ms::double precision
-               ) FILTER (WHERE duration_ms IS NOT NULL) AS p95_duration_ms
-           FROM action_executions
-           WHERE action_id = $1
-             AND applied_at >= NOW() - make_interval(secs => $2)"#,
-    )
-    .bind(action_id)
-    .bind(window_seconds as f64)
-    .fetch_one(&state.db)
-    .await
+    let window_ms = match i64::try_from(window_seconds)
+        .ok()
+        .and_then(|seconds| seconds.checked_mul(1_000))
     {
-        Ok(row) => row,
-        Err(error) => return db_error(format!("failed to aggregate action metrics: {error}")),
+        Some(ms) => ms,
+        None => return db_error(format!("window overflow: {window}")),
     };
+    let cutoff_ms = Utc::now().timestamp_millis().saturating_sub(window_ms);
+    let tenant = tenant_from_claims(&claims);
+    let action_id_filter = action_id.to_string();
+    let mut success_count = 0_i64;
+    let mut failure_count = 0_i64;
+    let mut durations = Vec::new();
+    let mut failure_categories = std::collections::BTreeMap::<String, i64>::new();
+    let mut next_token = None;
+    let mut reached_cutoff = false;
 
-    let categories = match sqlx::query_as::<_, ActionFailureCategoryRow>(
-        r#"SELECT failure_type, COUNT(*) AS count
-           FROM action_executions
-           WHERE action_id = $1
-             AND applied_at >= NOW() - make_interval(secs => $2)
-             AND failure_type IS NOT NULL
-           GROUP BY failure_type
-           ORDER BY count DESC"#,
-    )
-    .bind(action_id)
-    .bind(window_seconds as f64)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(error) => {
-            return db_error(format!("failed to load failure categories: {error}"));
+    loop {
+        let page = match state
+            .stores
+            .actions
+            .list_recent(
+                &tenant,
+                Page {
+                    size: 5_000,
+                    token: next_token.take(),
+                },
+                ReadConsistency::Eventual,
+            )
+            .await
+        {
+            Ok(page) => page,
+            Err(error) => return db_error(format!("failed to aggregate action metrics: {error}")),
+        };
+
+        for entry in page.items {
+            if entry.recorded_at_ms < cutoff_ms {
+                reached_cutoff = true;
+                break;
+            }
+            if entry.kind != "action_attempt" {
+                continue;
+            }
+            let Some(payload_action_id) =
+                entry.payload.get("action_type_id").and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if payload_action_id != action_id_filter {
+                continue;
+            }
+
+            match entry.payload.get("status").and_then(Value::as_str) {
+                Some("success") => success_count += 1,
+                Some("failure") => {
+                    failure_count += 1;
+                    if let Some(failure_type) =
+                        entry.payload.get("failure_type").and_then(Value::as_str)
+                    {
+                        *failure_categories
+                            .entry(failure_type.to_string())
+                            .or_insert(0) += 1;
+                    }
+                }
+                _ => {}
+            }
+            if let Some(duration_ms) = entry.payload.get("duration_ms").and_then(Value::as_f64) {
+                durations.push(duration_ms);
+            }
         }
-    };
 
-    let failure_categories: std::collections::BTreeMap<String, i64> = categories
-        .into_iter()
-        .map(|row| (row.failure_type, row.count))
-        .collect();
+        if reached_cutoff {
+            break;
+        }
+        match page.next_token {
+            Some(token) => next_token = Some(token),
+            None => break,
+        }
+    }
 
     Json(ActionMetricsResponse {
         action_id,
         window,
-        success_count: aggregate.success_count.unwrap_or(0),
-        failure_count: aggregate.failure_count.unwrap_or(0),
-        p95_duration_ms: aggregate.p95_duration_ms,
+        success_count,
+        failure_count,
+        p95_duration_ms: percentile_95_duration_ms(durations),
         failure_categories,
     })
     .into_response()
+}
+
+fn percentile_95_duration_ms(mut samples: Vec<f64>) -> Option<f64> {
+    if samples.is_empty() {
+        return None;
+    }
+    samples.sort_by(|a, b| a.total_cmp(b));
+    let rank = 0.95 * (samples.len().saturating_sub(1) as f64);
+    let lower = rank.floor() as usize;
+    let upper = rank.ceil() as usize;
+    if lower == upper {
+        return samples.get(lower).copied();
+    }
+    let lower_value = samples[lower];
+    let upper_value = samples[upper];
+    Some(lower_value + (upper_value - lower_value) * (rank - lower as f64))
 }
 
 /// Parse strings like `30d`, `12h`, `45m`, `120s`, `2w`. Returns the window
@@ -3662,10 +3768,7 @@ fn parse_window_to_seconds(input: &str) -> Result<u64, String> {
     if trimmed.is_empty() {
         return Err("window must not be empty".into());
     }
-    let (number_part, suffix) = match trimmed
-        .char_indices()
-        .find(|(_, c)| !c.is_ascii_digit())
-    {
+    let (number_part, suffix) = match trimmed.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
         Some((idx, _)) => (&trimmed[..idx], &trimmed[idx..]),
         None => (trimmed, "d"),
     };
@@ -3698,19 +3801,6 @@ pub struct ActionMetricsResponse {
     pub failure_count: i64,
     pub p95_duration_ms: Option<f64>,
     pub failure_categories: std::collections::BTreeMap<String, i64>,
-}
-
-#[derive(sqlx::FromRow)]
-struct ActionMetricsAggregateRow {
-    success_count: Option<i64>,
-    failure_count: Option<i64>,
-    p95_duration_ms: Option<f64>,
-}
-
-#[derive(sqlx::FromRow)]
-struct ActionFailureCategoryRow {
-    failure_type: String,
-    count: i64,
 }
 
 pub async fn execute_action(
@@ -3887,8 +3977,7 @@ pub async fn execute_inline_edit_batch(
             continue;
         };
 
-        let target = match load_and_authorize_target(&state, &claims, edit.object_id, type_id)
-            .await
+        let target = match load_and_authorize_target(&state, &claims, edit.object_id, type_id).await
         {
             Ok(target) => target,
             Err(errors) => {

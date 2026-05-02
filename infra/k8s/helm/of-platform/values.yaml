@@ -1,0 +1,71 @@
+# of-platform values — owns gateway, identity, authz, tenancy.
+release: of-platform
+
+image:
+  registry: ghcr.io/openfoundry
+  tag: "0.1.0"
+
+# S8.5 — Single ingress entrypoint owned by of-platform; the other
+# four releases register HTTPRoutes against the same gateway service.
+ingress:
+  enabled: true
+  className: traefik
+  host: openfoundry.local
+  path: /
+  pathType: Prefix
+  serviceName: edge-gateway-service
+  servicePort: 8080
+  annotations: {}
+  tls: []
+
+# S8.3 — Postgres migrations as Helm pre-upgrade Jobs.
+# Each entry produces one Job that runs `migrator migrate run --source
+# /migrations/<key>` against the DSN in the named secret.
+migrations:
+  pg-schemas:
+    enabled: true
+    dsnSecret: { name: pg-schemas-app, key: dsn }
+  pg-policy:
+    enabled: true
+    dsnSecret: { name: pg-policy-app, key: dsn }
+
+services:
+  edge-gateway-service:
+    replicas: 3
+    ports: [{ name: http, containerPort: 8080 }]
+    resources:
+      requests: { cpu: "200m", memory: "256Mi" }
+      limits:   { cpu: "1",    memory: "512Mi" }
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    pdb:
+      enabled: true
+      minAvailable: 2
+  identity-federation-service:
+    replicas: 2
+    ports: [{ name: http, containerPort: 8080 }]
+    resources:
+      requests: { cpu: "100m", memory: "256Mi" }
+      limits:   { cpu: "500m", memory: "512Mi" }
+    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: 80 }
+    pdb: { enabled: true, minAvailable: 1 }
+  authorization-policy-service:
+    replicas: 2
+    ports: [{ name: http, containerPort: 8080 }]
+    resources:
+      requests: { cpu: "100m", memory: "256Mi" }
+      limits:   { cpu: "500m", memory: "512Mi" }
+    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: 80 }
+    pdb: { enabled: true, minAvailable: 1 }
+  tenancy-organizations-service:
+    replicas: 2
+    ports: [{ name: http, containerPort: 8080 }]
+    resources:
+      requests: { cpu: "100m", memory: "256Mi" }
+      limits:   { cpu: "500m", memory: "512Mi" }
+    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: 80 }
+    pdb: { enabled: true, minAvailable: 1 }

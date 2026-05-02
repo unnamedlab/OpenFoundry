@@ -22,6 +22,9 @@ roxmltree = "0.20"
 sha1 = "0.10"
 sha2 = "0.10"
 
+[dependencies.async-trait]
+workspace = true
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -29,6 +32,9 @@ workspace = true
 workspace = true
 
 [dependencies.base64]
+workspace = true
+
+[dependencies.cassandra-kernel]
 workspace = true
 
 [dependencies.chrono]
@@ -58,6 +64,9 @@ workspace = true
 [dependencies.sqlx]
 workspace = true
 
+[dependencies.thiserror]
+workspace = true
+
 [dependencies.tokio]
 workspace = true
 
@@ -66,6 +75,14 @@ workspace = true
 
 [dependencies.url]
 workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[lib]
+path = "src/lib.rs"
+name = "oauth_integration_service"
 
 [dependencies.uuid]
 workspace = true

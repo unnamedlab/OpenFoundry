@@ -47,6 +47,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub postgres_flight_sql_url: Option<String>,
 
+    /// Optional Flight SQL endpoint that fronts the Trino analytical
+    /// engine (ADR-0029, S5.6). When unset, statements that target the
+    /// `trino.*` catalog return [`crate::routing::RoutingError::BackendUnavailable`].
+    /// Example: `http://trino-flight-sql-proxy.trino:50133`.
+    #[serde(default)]
+    pub trino_flight_sql_url: Option<String>,
+
     /// When true, the Flight SQL server accepts requests without a JWT.
     /// Intended **only** for local development and CI; production deployments
     /// must leave this at the default (`false`).

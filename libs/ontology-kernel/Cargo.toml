@@ -23,8 +23,23 @@ path = "src/lib.rs"
 # require Docker and run only in CI / on demand.
 default = []
 it = ["dep:testcontainers"]
+# `legacy-pg` exposes the temporary PostgresObjectStore / PostgresLinkStore /
+# PostgresActionLogStore adapters that map the new `storage-abstraction`
+# traits onto the existing PG schema. They exist only to keep the kernel
+# green while handlers are migrated one service at a time
+# (S1.4–S1.7 of `docs/architecture/migration-plan-cassandra-foundry-parity.md`).
+# Once every handler routes through `Stores`, this feature is deleted.
+legacy-pg = []
+# `mocks` re-exports the `mockall`-generated trait mocks from
+# `crate::stores::mock` for downstream services that want to compose
+# their own unit tests against the kernel surface without depending on
+# the full `storage-abstraction` test infrastructure.
+mocks = ["dep:mockall"]
 
 [dependencies.auth-middleware]
+workspace = true
+
+[dependencies.async-trait]
 workspace = true
 
 [dependencies.axum]
@@ -58,14 +73,30 @@ workspace = true
 [dependencies.sqlx]
 workspace = true
 
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.outbox]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
 [dependencies.tokio]
 workspace = true
+
+# Optional: only present when the `mocks` feature is enabled. Used by
+# `crate::stores::mock` to materialise `MockObjectStore` etc.
+[dependencies.mockall]
+workspace = true
+optional = true
 
 [dependencies.tracing]
 workspace = true
 
 [dependencies.uuid]
 workspace = true
+features = ["v5"]
 
 [dependencies.prometheus]
 workspace = true
@@ -78,6 +109,9 @@ optional = true
 [dev-dependencies.tokio]
 workspace = true
 features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.mockall]
+workspace = true
 
 [dev-dependencies.serde_json]
 workspace = true
@@ -103,3 +137,8 @@ workspace = true
 name = "actions_integration"
 path = "tests/actions_integration.rs"
 required-features = ["it"]
+
+[[test]]
+name = "composition"
+path = "tests/composition.rs"
+required-features = ["mocks"]

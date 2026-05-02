@@ -9,8 +9,7 @@ pub mod config;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
-    Router,
-    middleware,
+    Router, middleware,
     routing::{delete, get, post},
 };
 use ontology_kernel::{

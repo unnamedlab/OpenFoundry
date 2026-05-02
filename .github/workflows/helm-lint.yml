@@ -1,0 +1,47 @@
+name: helm-lint
+# S8.6 — Gate the of-shared library + 5 release charts on every PR.
+# Each release runs `helm dependency update`, `helm lint`, and
+# `helm template <release>` to catch template breakage before merge.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/k8s/helm/**'
+      - '.github/workflows/helm-lint.yml'
+  pull_request:
+    paths:
+      - 'infra/k8s/helm/**'
+      - '.github/workflows/helm-lint.yml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release:
+          - of-platform
+          - of-data-engine
+          - of-ontology
+          - of-ml-aip
+          - of-apps-ops
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: helm dependency update
+        working-directory: infra/k8s/helm/${{ matrix.release }}
+        run: helm dependency update .
+      - name: helm lint
+        working-directory: infra/k8s/helm/${{ matrix.release }}
+        run: helm lint .
+      - name: helm template
+        working-directory: infra/k8s/helm/${{ matrix.release }}
+        run: helm template ${{ matrix.release }} . > /tmp/${{ matrix.release }}.yaml
+      - name: kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /tmp kubeconform
+          /tmp/kubeconform -strict -ignore-missing-schemas -summary /tmp/${{ matrix.release }}.yaml

@@ -1,0 +1,18 @@
+-- S2.7.b — DROP `automation_queues` + `automation_queue_runs` after
+-- Temporal cutover.
+--
+-- DO NOT EXECUTE THIS MIGRATION YET. It is staged here so the shape
+-- of the cutover is reviewable in the same PR that migrates the
+-- runtime to Temporal. The runtime cutover gate is documented in
+-- `docs/architecture/legacy-migrations/automation-operations-service/README.md`.
+--
+-- This file deliberately uses the `.disabled` suffix so `sqlx
+-- migrate run` skips it. To execute (after the gate is satisfied):
+--   1. rename to `<timestamp>_drop_automation_queues.sql`;
+--   2. run `cargo sqlx migrate run --source services/automation-operations-service/migrations`;
+--   3. record the cutover in `CHANGELOG.md`.
+
+DROP INDEX IF EXISTS idx_automation_queue_runs_parent_id;
+DROP INDEX IF EXISTS idx_automation_queues_created_at;
+DROP TABLE IF EXISTS automation_queue_runs;
+DROP TABLE IF EXISTS automation_queues;

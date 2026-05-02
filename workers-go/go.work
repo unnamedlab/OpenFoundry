@@ -1,0 +1,9 @@
+go 1.25.0
+
+use (
+	./approvals
+	./automation-ops
+	./pipeline
+	./reindex
+	./workflow-automation
+)

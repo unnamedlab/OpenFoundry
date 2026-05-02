@@ -1,0 +1,16 @@
+-- S2.5.d — DROP `workflow_approvals` after Temporal cutover.
+--
+-- DO NOT EXECUTE THIS MIGRATION YET. It is staged here so the
+-- shape of the cutover is reviewable in the same PR that migrates
+-- the runtime to Temporal. The runtime cutover gate is documented
+-- in `docs/architecture/legacy-migrations/approvals-service/README.md`.
+--
+-- This file deliberately uses the `.disabled` suffix so `sqlx
+-- migrate run` skips it. To execute (after the gate is satisfied):
+--   1. rename to `<timestamp>_drop_workflow_approvals.sql`;
+--   2. run `cargo sqlx migrate run --source services/workflow-automation-service/migrations`;
+--   3. record the cutover in `CHANGELOG.md`.
+
+DROP INDEX IF EXISTS idx_workflow_approvals_assigned;
+DROP INDEX IF EXISTS idx_workflow_approvals_run;
+DROP TABLE IF EXISTS workflow_approvals;

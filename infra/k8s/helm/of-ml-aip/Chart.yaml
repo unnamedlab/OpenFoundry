@@ -1,0 +1,13 @@
+apiVersion: v2
+name: of-ml-aip
+description: |
+  OpenFoundry ML and AIP release. Owns model catalog/deployment,
+  agent runtime, LLM catalog, retrieval context, AI evaluation and
+  the ai-sink Kafka consumer.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: of-shared
+    version: 0.1.0
+    repository: file://../of-shared

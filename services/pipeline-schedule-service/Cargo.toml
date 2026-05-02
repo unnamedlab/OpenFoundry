@@ -74,6 +74,9 @@ workspace = true
 [dependencies.storage-abstraction]
 workspace = true
 
+[dependencies.temporal-client]
+workspace = true
+
 [dependencies.thiserror]
 workspace = true
 
@@ -91,6 +94,10 @@ workspace = true
 
 [dependencies.uuid]
 workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
 
 [[bin]]
 path = "src/main.rs"

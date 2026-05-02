@@ -1,0 +1,41 @@
+[package]
+name = "outbox"
+description = "Transactional outbox helper for OpenFoundry (Postgres + Debezium, ADR-0022)"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+# Enables the heavy integration test that boots a Postgres testcontainer,
+# applies the migration and round-trips an event through `enqueue()`.
+# Off by default so `cargo test -p outbox` stays a no-IO unit run.
+it-postgres = []
+
+[lib]
+path = "src/lib.rs"
+name = "outbox"
+crate-type = ["lib"]

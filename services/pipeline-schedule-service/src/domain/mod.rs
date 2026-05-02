@@ -7,4 +7,5 @@ pub mod executor;
 #[path = "../../../lineage-service/src/domain/lineage/mod.rs"]
 pub mod lineage;
 pub mod schedule;
+pub mod temporal_schedule;
 pub mod workflow;

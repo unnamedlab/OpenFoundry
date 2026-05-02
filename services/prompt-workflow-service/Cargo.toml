@@ -53,6 +53,11 @@ workspace = true
 [dependencies.vector-store]
 workspace = true
 
+[lib]
+path = "src/lib.rs"
+name = "prompt_workflow_service"
+crate-type = ["lib"]
+
 [[bin]]
 path = "src/main.rs"
 name = "prompt-workflow-service"

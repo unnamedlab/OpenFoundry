@@ -2,6 +2,53 @@
 
 The canonical technical documentation for this repository now lives in [`docs/`](docs/).
 
+## Post-S8 service pyramid (≤ 30 services + 4 sinks, 5 Helm releases)
+
+Stream S8 (cleanup & hardening) consolidates the original 97 service
+crates down to 30 ownership boundaries, packaged as five Helm
+releases. See
+[`docs/architecture/adr/ADR-0030-service-consolidation-30-targets.md`](docs/architecture/adr/ADR-0030-service-consolidation-30-targets.md),
+[`docs/architecture/adr/ADR-0031-helm-chart-split-five-releases.md`](docs/architecture/adr/ADR-0031-helm-chart-split-five-releases.md)
+and the per-service status table in
+[`docs/architecture/service-consolidation-map.md`](docs/architecture/service-consolidation-map.md).
+
+```
+                        ┌─────────────────────────┐
+                        │   apps/web (SvelteKit)  │
+                        └────────────┬────────────┘
+                                     │
+   ┌───────────────────────┬─────────┴─────────┬──────────────────────┬───────────────────────┐
+   │  of-platform          │  of-data-engine   │  of-ontology         │  of-ml-aip            │
+   │  edge-gateway         │  connector-mgmt   │  ontology-definition │  model-catalog        │
+   │  identity-federation  │  ingestion-repl   │  ontology-actions    │  model-deployment     │
+   │  authorization-policy │  dataset-versioni │  ontology-query      │  agent-runtime        │
+   │  tenancy-orgs         │  lineage          │  object-database     │  llm-catalog          │
+   │                       │  pipeline-build   │  ontology-indexer*   │  retrieval-context    │
+   │                       │  sql-bi-gateway   │  outbox-relay*       │  ai-evaluation        │
+   │                       │                   │                      │  ai-sink*             │
+   └───────────────────────┴───────────────────┴──────────────────────┴───────────────────────┘
+                                     │
+                        ┌────────────┴────────────────────────────────────┐
+                        │  of-apps-ops                                    │
+                        │  application-composition  notebook-runtime      │
+                        │  ontology-exploratory     solution-design       │
+                        │  workflow-automation      notification-alerting │
+                        │  audit-compliance + audit-sink*                 │
+                        │  telemetry-governance                           │
+                        │  federation-product-exchange                    │
+                        │  code-repository-review   sdk-generation        │
+                        │  entity-resolution                              │
+                        └─────────────────────────────────────────────────┘
+                                     │
+   ┌─────────┬───────────┬──────────┬┴────────┬─────────┬───────────┬─────────────┐
+   │ Cassandra│ Postgres │  Kafka   │ Iceberg │ Vespa   │ Temporal  │ Ceph (S3)   │
+   │ (S7 mre) │ (CNPG +  │ (Strimzi │ (Lake-  │ (search │ (workflow │ (multisite, │
+   │          │  PgBoun) │  + MM2)  │  keeper)│  + RAG) │  engine)  │  S7)        │
+   └──────────┴──────────┴──────────┴─────────┴─────────┴───────────┴─────────────┘
+
+   * = Kafka sinks (out of the 30-service count).
+```
+
 Recommended entry points:
 
 - [`docs/index.md`](docs/index.md) for the technical documentation homepage

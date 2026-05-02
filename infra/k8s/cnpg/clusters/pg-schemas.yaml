@@ -1,0 +1,98 @@
+---
+# S6.1.b — `pg-schemas` consolidated CNPG cluster.
+#
+# Hosts the schemas of catalog/registry/definition/metadata services
+# (data assets, datasets, lineage, model registry, ontology defs,
+# marketplace, etc.). 23 schemas total — see `bootstrap.initdb.postInitApplicationSQLRefs`
+# below for the exhaustive list.
+#
+# Sized for steady-state CRUD + read-heavy catalog scans:
+#   * 3 instances, 1 sync replica (no silent data loss)
+#   * 100Gi storage per instance (catalog growth 5y horizon)
+#   * Barman to Ceph S3, 30d retention, gzip
+#
+# Connectivity:
+#   * Read-write   : pg-schemas-rw.openfoundry.svc.cluster.local:5432
+#   * Read-only    : pg-schemas-ro.openfoundry.svc.cluster.local:5432
+#   * Pooler (txn) : pg-schemas-pooler-rw.openfoundry.svc.cluster.local:5432
+#   * Database     : `app`. Per-service schemas are created by the
+#                    bootstrap SQL ConfigMap referenced below.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-schemas
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-schemas
+    app.kubernetes.io/component: postgres
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: schemas
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
+  postgresql:
+    parameters:
+      synchronous_commit: "on"
+      wal_level: "replica"
+      max_wal_size: "4GB"
+      shared_buffers: "1GB"
+      work_mem: "32MB"
+      effective_cache_size: "4GB"
+      max_connections: "400"
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: pg-schemas-app
+      postInitApplicationSQLRefs:
+        configMapRefs:
+          - name: pg-schemas-bootstrap-sql
+            key: bootstrap.sql
+
+  storage:
+    size: 100Gi
+    storageClass: ceph-rbd
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 16Gi
+
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+
+  monitoring:
+    enablePodMonitor: true
+
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/pg-schemas"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:
+          name: pg-schemas-backup
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: pg-schemas-backup
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+        maxParallel: 4
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+        jobs: 2

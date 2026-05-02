@@ -1,3 +1,19 @@
+//! Ontology link CRUD handlers.
+//!
+//! ## Migration to `storage-abstraction` traits (S1.2 → S1.4)
+//!
+//! Pure business logic for link composition lives in
+//! [`crate::domain::composition`] and operates on
+//! `&dyn storage_abstraction::repositories::LinkStore`. New services that
+//! target Cassandra MUST call `composition::create_link` /
+//! `composition::delete_link` directly from their handlers, constructing
+//! the store from `AppState::stores.links`.
+//!
+//! The functions below still issue raw `sqlx` queries against the legacy
+//! `link_instances` Postgres table. They are scheduled to be deleted in
+//! S1.4 once `ontology-actions-service` is fully migrated; do not extend
+//! them — add new behaviour to `domain::composition` instead.
+
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -281,8 +297,8 @@ fn parse_csv_uuid_list(value: Option<&str>) -> Result<Option<Vec<Uuid>>, String>
         if token.is_empty() {
             continue;
         }
-        let id = Uuid::parse_str(token)
-            .map_err(|error| format!("invalid uuid '{token}': {error}"))?;
+        let id =
+            Uuid::parse_str(token).map_err(|error| format!("invalid uuid '{token}': {error}"))?;
         out.push(id);
     }
     Ok(Some(out))

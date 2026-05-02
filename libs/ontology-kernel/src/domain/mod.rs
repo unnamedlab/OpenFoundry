@@ -1,4 +1,5 @@
 pub mod access;
+pub mod composition;
 pub mod function_metrics;
 pub mod function_runtime;
 pub mod graph;
@@ -11,3 +12,4 @@ pub mod search;
 pub mod time_series;
 pub mod traversal;
 pub mod type_system;
+pub mod writeback;

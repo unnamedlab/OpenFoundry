@@ -4,6 +4,20 @@ This directory contains the deployment artifacts used to run OpenFoundry locally
 
 ## Deployment modes
 
+> **S8.2 update** — the umbrella `k8s/helm/open-foundry` chart is
+> deprecated (removal date 2026-08-01). New work targets the five
+> release-aligned charts; see
+> [`k8s/helm/MIGRATION.md`](k8s/helm/MIGRATION.md) and
+> [ADR-0031](../docs/architecture/adr/ADR-0031-helm-chart-split-five-releases.md).
+>
+> ```bash
+> helm upgrade --install of-platform    k8s/helm/of-platform    -f k8s/helm/of-platform/values.yaml
+> helm upgrade --install of-data-engine k8s/helm/of-data-engine -f k8s/helm/of-data-engine/values.yaml
+> helm upgrade --install of-ontology    k8s/helm/of-ontology    -f k8s/helm/of-ontology/values.yaml
+> helm upgrade --install of-ml-aip      k8s/helm/of-ml-aip      -f k8s/helm/of-ml-aip/values.yaml
+> helm upgrade --install of-apps-ops    k8s/helm/of-apps-ops    -f k8s/helm/of-apps-ops/values.yaml
+> ```
+
 - `docker-compose.yml`: local control-plane dependencies plus optional `app` profile for `auth-service`, `gateway`, `web`, and an `nginx` edge proxy, with image overrides such as `OPENFOUNDRY_POSTGRES_IMAGE` for mirrored or air-gapped registries.
 - `k8s/helm/open-foundry/values-multicloud.yaml`: multi-cloud SaaS topology with workload identity and Apollo-driven gated fleet sync.
 - `k8s/helm/open-foundry/values-airgap.yaml`: air-gapped / sovereign deployment posture with private registry mirroring and public-egress shutdown.

@@ -178,18 +178,19 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
-    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
-    # provisioned by `infra/k8s/cnpg/clusters/identity-federation-pg.yaml`.
-    # CNPG auto-generates the `<cluster>-app` Secret with a ready-to-use
-    # `uri` key (`postgresql://user:pass@<cluster>-rw:5432/<db>`), so we
-    # project it straight into `DATABASE_URL` via `valueFrom.secretKeyRef`
-    # — no DSN string is committed in this file. Operator rotations of
-    # the CNPG-managed credential propagate without a Helm upgrade.
-    # See ADR-0010 and `infra/runbooks/cnpg.md`.
+    # Postgres DSN routed through the consolidated CNPG `pg-policy`
+    # cluster (S6.1.b) — schema `identity_federation`, role
+    # `svc_identity_federation`. The `<bc>-db-dsn` Secret is sync-ed by
+    # External Secrets Operator from Vault and contains pre-built URLs
+    # with the right `search_path` query option and Pooler/replica host;
+    # see ADR-0010 and `infra/k8s/cnpg/poolers/README.md`.
     envSecrets:
       DATABASE_URL:
-        secretName: identity-federation-pg-app
-        key: uri
+        secretName: identity-federation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: identity-federation-db-dsn
+        key: reader_url
     resources:
       requests:
         cpu: 200m
@@ -218,14 +219,17 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
-    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
-    # provisioned by `infra/k8s/cnpg/clusters/data-asset-catalog-pg.yaml`.
-    # See the comment on identity-federation-service above for the
-    # `<cluster>-app` Secret projection convention.
+    # Postgres DSN routed through the consolidated CNPG `pg-schemas`
+    # cluster (S6.1.b) — schema `data_asset_catalog`, role
+    # `svc_data_asset_catalog`. See `identity-federation-service`
+    # above for the `<bc>-db-dsn` Secret convention.
     envSecrets:
       DATABASE_URL:
-        secretName: data-asset-catalog-pg-app
-        key: uri
+        secretName: data-asset-catalog-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: data-asset-catalog-db-dsn
+        key: reader_url
     resources:
       requests:
         cpu: 300m
@@ -255,14 +259,16 @@ services:
     env:
       RUST_LOG: info
       DISTRIBUTED_QUERY_WORKERS: "4"
-    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
-    # provisioned by `infra/k8s/cnpg/clusters/sql-bi-gateway-pg.yaml`.
-    # See the comment on identity-federation-service above for the
-    # `<cluster>-app` Secret projection convention (ADR-0010).
+    # Postgres DSN routed through the consolidated CNPG `pg-runtime-config`
+    # cluster (S6.1.b) — schema `sql_bi_gateway`, role `svc_sql_bi_gateway`.
+    # See `identity-federation-service` for the `<bc>-db-dsn` convention.
     envSecrets:
       DATABASE_URL:
-        secretName: sql-bi-gateway-pg-app
-        key: uri
+        secretName: sql-bi-gateway-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: sql-bi-gateway-db-dsn
+        key: reader_url
     resources:
       requests:
         cpu: 500m
@@ -297,14 +303,16 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
-    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
-    # provisioned by `infra/k8s/cnpg/clusters/report-pg.yaml`.
-    # See the comment on identity-federation-service above for the
-    # `<cluster>-app` Secret projection convention (ADR-0010).
+    # Postgres DSN routed through the consolidated CNPG `pg-runtime-config`
+    # cluster (S6.1.b) — schema `report`, role `svc_report`.
+    # See `identity-federation-service` for the `<bc>-db-dsn` convention.
     envSecrets:
       DATABASE_URL:
-        secretName: report-pg-app
-        key: uri
+        secretName: report-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: report-db-dsn
+        key: reader_url
     resources:
       requests:
         cpu: 300m
@@ -333,14 +341,16 @@ services:
     replicas: 2
     env:
       RUST_LOG: info
-    # Postgres DSN comes from the per-bounded-context CNPG `Cluster`
-    # provisioned by `infra/k8s/cnpg/clusters/nexus-pg.yaml`.
-    # See the comment on identity-federation-service above for the
-    # `<cluster>-app` Secret projection convention (ADR-0010).
+    # Postgres DSN routed through the consolidated CNPG `pg-schemas`
+    # cluster (S6.1.b) — schema `nexus`, role `svc_nexus`.
+    # See `identity-federation-service` for the `<bc>-db-dsn` convention.
     envSecrets:
       DATABASE_URL:
-        secretName: nexus-pg-app
-        key: uri
+        secretName: nexus-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: nexus-db-dsn
+        key: reader_url
     resources:
       requests:
         cpu: 250m

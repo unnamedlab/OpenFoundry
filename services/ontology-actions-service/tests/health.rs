@@ -54,11 +54,7 @@ async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool) {
 
     let mut attempts = 0;
     let pool = loop {
-        match PgPoolOptions::new()
-            .max_connections(4)
-            .connect(&url)
-            .await
-        {
+        match PgPoolOptions::new().max_connections(4).connect(&url).await {
             Ok(pool) => break pool,
             Err(error) if attempts < 30 => {
                 attempts += 1;
@@ -69,10 +65,10 @@ async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool) {
         }
     };
 
-    sqlx::migrate!("./migrations")
+    sqlx::migrate!("../../docs/architecture/legacy-migrations/ontology-actions-service")
         .run(&pool)
         .await
-        .expect("apply ontology-actions-service migrations");
+        .expect("apply archived ontology-actions-service migrations");
 
     (container, pool)
 }
@@ -80,6 +76,7 @@ async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool) {
 fn build_state(pool: PgPool, jwt_config: JwtConfig) -> AppState {
     AppState {
         db: pool,
+        stores: ontology_kernel::stores::Stores::in_memory(),
         http_client: reqwest::Client::new(),
         jwt_config,
         // Pointed at unreachable URLs on purpose: the smoke test never

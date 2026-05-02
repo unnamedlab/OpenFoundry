@@ -14,38 +14,27 @@ workspace = true
 [package.rust-version]
 workspace = true
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "ontology-query-service"
+required-features = []
+
+[dependencies]
+async-trait = { workspace = true }
+
 [dependencies.auth-middleware]
 workspace = true
 
 [dependencies.axum]
 workspace = true
 
-[dependencies.axum-extra]
-workspace = true
-
-[dependencies.chrono]
-workspace = true
-
 [dependencies.config]
 workspace = true
 
-[dependencies.core-models]
-workspace = true
-
-[dependencies.event-bus-control]
-workspace = true
-
 [dependencies.futures]
-workspace = true
-
-[dependencies.pyo3]
-workspace = true
-features = ["abi3-py311"]
-
-[dependencies.reqwest]
-workspace = true
-
-[dependencies.semver]
 workspace = true
 
 [dependencies.serde]
@@ -54,16 +43,10 @@ workspace = true
 [dependencies.serde_json]
 workspace = true
 
-[dependencies.sqlx]
-workspace = true
-
 [dependencies.thiserror]
 workspace = true
 
 [dependencies.tokio]
-workspace = true
-
-[dependencies.tonic]
 workspace = true
 
 [dependencies.tracing]
@@ -72,13 +55,50 @@ workspace = true
 [dependencies.tracing-subscriber]
 workspace = true
 
-[dependencies.uuid]
+# S1.5 wiring — Cassandra read path + caching.
+[dependencies.ontology-kernel]
 workspace = true
 
-[[bin]]
-path = "src/main.rs"
-name = "ontology-query-service"
-required-features = []
+[dependencies.cassandra-kernel]
+workspace = true
+features = ["repos"]
 
-[dependencies.ontology-kernel]
+[dependencies.storage-abstraction]
+workspace = true
+
+# S1.5.a — local read cache. The `future` feature enables the
+# async API we need (`get_with`, `invalidate`, …).
+[dependencies.moka]
+workspace = true
+
+# S1.5.b — invalidation bus. The platform's primary control-plane
+# bus is NATS JetStream (see `libs/event-bus-control`); Debezium
+# bridges the Kafka topic `ontology.write.v1` into the JetStream
+# subject of the same name. We subscribe via `async-nats` here
+# rather than pulling `librdkafka` into every replica of the
+# read service.
+[dependencies.async-nats]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
+[dev-dependencies]
+tower = { workspace = true }
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.http-body-util]
+version = "0.1"
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true
+features = ["v4", "v7", "serde"]
+
+[dev-dependencies.async-trait]
 workspace = true

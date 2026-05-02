@@ -42,6 +42,30 @@ workspace = true
 workspace = true
 features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
 
+# Optional Cassandra harness (feature `it-cassandra`). Off by
+# default so consumers that only need Postgres don't pull the Scylla
+# driver into their compile graph.
+[dependencies.scylla]
+workspace = true
+optional = true
+
+[features]
+default = []
+# Enables `testing::cassandra::boot_cassandra`. Pulls the `scylla`
+# driver. Crates that consume the helper should re-export an
+# `it-cassandra` feature of their own that turns this one on:
+#
+# ```toml
+# [features]
+# it-cassandra = ["testing/it-cassandra"]
+# ```
+it-cassandra = ["dep:scylla"]
+# Enables `testing::temporal::boot_temporal`. The harness only uses
+# `testcontainers`, so this feature exists only to keep the gating
+# convention symmetric with `it-cassandra`. Crates that consume it
+# should re-export an `it-temporal` feature of their own.
+it-temporal = []
+
 [lib]
 path = "src/lib.rs"
 name = "testing"

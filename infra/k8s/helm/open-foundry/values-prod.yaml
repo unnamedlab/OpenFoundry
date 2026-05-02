@@ -75,3 +75,62 @@ services:
     autoscaling:
       minReplicas: 3
       maxReplicas: 10
+  # S4.3 — Kafka -> Vespa indexer.
+  ontology-indexer:
+    replicas: 3
+    env:
+      SEARCH_BACKEND: vespa
+    autoscaling:
+      minReplicas: 3
+      maxReplicas: 9
+  # S4.5/S5.1 — Kafka audit.events.v1 -> Iceberg of_audit.events.
+  audit-sink:
+    replicas: 2
+    autoscaling:
+      minReplicas: 2
+      maxReplicas: 6
+  # S5.3 — Kafka ai.events.v1 -> Iceberg of_ai.{prompts,responses,evaluations,traces}.
+  ai-sink:
+    replicas: 2
+    autoscaling:
+      minReplicas: 2
+      maxReplicas: 8
+
+# ── Search backend (S4.4) ───────────────────────────────────
+# Production: Vespa is non-negotiable per ADR-0028. OpenSearch is
+# only allowed in `values-dev.yaml` for CI economy. The dimensioning
+# numbers behind these knobs live in
+# `infra/k8s/helm/open-foundry/charts/vespa/README.md`.
+search:
+  backend: vespa
+
+vespa:
+  enabled: true
+
+# S5.6 — Trino as Iceberg analytical engine (ADR-0029).
+# Override-only block; full chart values live in
+# `infra/k8s/trino/values.yaml`.
+trino:
+  enabled: true
+  coordinator:
+    replicas: 2
+  worker:
+    autoscaling:
+      enabled: true
+      minReplicas: 4
+      maxReplicas: 16
+
+# S5.7 — Spark Operator for nightly Iceberg maintenance + the
+# metrics-long aggregation job. Full values in
+# `infra/k8s/spark-operator/values.yaml`.
+spark-operator:
+  enabled: true
+  webhook:
+    enable: true
+
+# S5.4 — Mimir long-term metrics storage. Full values in
+# `infra/k8s/observability/mimir/values.yaml`.
+mimir:
+  enabled: true
+  monolithic:
+    replicas: 3

@@ -1,0 +1,23 @@
+# S8.4 — Chaos Mesh: kill one Strimzi broker Pod weekly.
+# Validates Kafka MM2 + ISR resilience (consumer lag returns to
+# baseline within 90 s).
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-kafka-broker-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 2 * * 3"          # every Wednesday 02:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - kafka
+      labelSelectors:
+        strimzi.io/cluster: openfoundry-a
+        strimzi.io/component-type: broker
+    gracePeriod: 0

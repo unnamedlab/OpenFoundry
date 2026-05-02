@@ -1,0 +1,18 @@
+release: of-ml-aip
+
+image:
+  registry: ghcr.io/openfoundry
+  tag: "0.1.0"
+
+migrations:
+  pg-schemas:
+    enabled: false
+
+services:
+  model-catalog-service:      { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }
+  model-deployment-service:   { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "200m", memory: "512Mi" }, limits: { cpu: "1",    memory: "1Gi"   } } }
+  agent-runtime-service:      { replicas: 3, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "200m", memory: "512Mi" }, limits: { cpu: "1",    memory: "1Gi"   } } }
+  llm-catalog-service:        { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }
+  retrieval-context-service:  { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "200m", memory: "512Mi" }, limits: { cpu: "1",    memory: "1Gi"   } } }
+  ai-evaluation-service:      { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }
+  ai-sink:                    { replicas: 2, ports: [{ name: http, containerPort: 8080 }], resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }

@@ -1,0 +1,23 @@
+# S8.4 — Chaos Mesh: kill one Temporal history Pod weekly.
+# Validates in-flight workflows continue (no
+# WorkflowExecutionTimedOut metric increment).
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-temporal-history-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 2 * * 4"          # every Thursday 02:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - temporal
+      labelSelectors:
+        app.kubernetes.io/name: temporal
+        app.kubernetes.io/component: history
+    gracePeriod: 0

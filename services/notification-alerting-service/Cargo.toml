@@ -70,6 +70,11 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[lib]
+path = "src/lib.rs"
+name = "notification_alerting_service"
+crate-type = ["lib"]
+
 [[bin]]
 path = "src/main.rs"
 name = "notification-alerting-service"

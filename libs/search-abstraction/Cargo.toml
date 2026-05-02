@@ -1,0 +1,43 @@
+[package]
+name = "search-abstraction"
+description = "Search backend abstraction (Vespa for prod, OpenSearch for dev/CI) for OpenFoundry"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+storage-abstraction = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dependencies.reqwest]
+workspace = true
+optional = true
+
+[features]
+default = []
+# Vespa HTTP client backend. Production target per ADR-0028.
+vespa = ["dep:reqwest"]
+# OpenSearch HTTP client backend. Dev / CI fallback per ADR-0028.
+opensearch = ["dep:reqwest"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lib]
+path = "src/lib.rs"
+name = "search_abstraction"
+crate-type = ["lib"]

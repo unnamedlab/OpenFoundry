@@ -1,0 +1,8 @@
+{{- if .Values.ingress }}
+{{- if .Values.ingress.enabled }}
+{{ include "of-shared.ingress" (dict
+    "name" (printf "%s-gateway" .Values.release)
+    "release" .Values.release
+    "ingress" .Values.ingress) }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,42 @@
+---
+# S5.7.b — rewrite small Iceberg data files into 256MB targets across
+# the non-WORM namespaces. The first CLI argument carries the
+# allowlist so the `SparkApplicationTargetsWormNamespace` alert can
+# detect a misconfiguration via operator metrics. NEVER include
+# `of_audit` in the allowlist.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: iceberg-rewrite-data-files
+  namespace: openfoundry-spark
+  labels:
+    openfoundry.io/component: iceberg-maintenance
+spec:
+  type: Scala
+  mode: cluster
+  image: apache/spark:3.5.3
+  mainClass: org.openfoundry.spark.iceberg.RewriteDataFilesJob
+  mainApplicationFile: "s3a://openfoundry-spark-jars/iceberg-maintenance-0.1.0.jar"
+  arguments:
+    - "--allowlist=of_lineage,of_ai,of_metrics_long"
+    - "--target-file-size-bytes=268435456"
+    - "--catalog=lakekeeper"
+    - "--catalog-uri=http://lakekeeper.lakekeeper.svc:8181"
+  sparkVersion: "3.5.3"
+  restartPolicy:
+    type: OnFailure
+    onFailureRetries: 2
+    onFailureRetryInterval: 60
+  driver:
+    cores: 1
+    memory: "2g"
+    serviceAccount: spark-jobs-non-audit
+  executor:
+    cores: 2
+    instances: 4
+    memory: "4g"
+  sparkConf:
+    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
+    spark.sql.catalog.lakekeeper.type: "rest"
+    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181"

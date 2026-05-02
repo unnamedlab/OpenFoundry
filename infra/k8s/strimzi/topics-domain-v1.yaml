@@ -1,0 +1,142 @@
+---
+# S4.2.a — Versioned domain topics owned by the outbox / EventRouter.
+#
+# Naming convention pinned by ADR-0022 and the migration plan
+# (`docs/architecture/migration-plan-cassandra-foundry-parity.md` §S4):
+#
+#   <domain>.<entity>.<event>.v<N>
+#
+# Schema versions are NEW topics (never silent breaks). RF=3 +
+# min.insync.replicas=2 inherited from the cluster defaults
+# (`kafka-cluster.yaml`).
+#
+# These four topics are intentionally additive to the legacy topics
+# in `kafka-topics.yaml` (`audit.events`, `lineage.events`, etc.),
+# which remain in place for backward compatibility during S4.5
+# consumer wiring. Once every consumer is on `*.v1`, the legacy
+# topics are decommissioned in S5.5.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: ontology.object.changed.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "604800000"        # 7d
+    compression.type: producer
+    segment.ms: "3600000"
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: ontology.action.applied.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+    openfoundry.io/domain: ontology
+    openfoundry.io/version: v1
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "2592000000"       # 30d (replay window for action audit)
+    compression.type: producer
+    segment.ms: "21600000"
+---
+# `audit.events.v1` — long-lived. Cassandra/Kafka act as the buffer;
+# Iceberg sink (`audit-sink`, S4.5/S5.1) takes ownership of long-term
+# storage. Until the sink is live we cap retention at 1y; after the
+# sink is wired we lower it to the buffer window only.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audit.events.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: audit
+    openfoundry.io/version: v1
+spec:
+  partitions: 24
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    # Plan calls for "retention=infinite + sink Iceberg". Kafka has
+    # no true "infinite" retention; we set ~10y which is operationally
+    # equivalent until the Iceberg sink is the system of record.
+    retention.ms: "315360000000"     # 10y
+    compression.type: producer
+    segment.ms: "86400000"
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: lineage.events.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: lineage
+    openfoundry.io/version: v1
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "604800000"        # 7d (lineage-sink → Iceberg owns history)
+    compression.type: producer
+    segment.ms: "3600000"
+---
+# DLQ for the outbox connector. RF=3 + ISR=2.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: __dlq.outbox-pg-policy.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: dlq
+spec:
+  partitions: 6
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "1209600000"       # 14d (long enough to triage)
+    compression.type: producer
+---
+# `ai.events.v1` — producer-direct topic for AI-platform events
+# (S5.3.a). Producers: `agent-runtime-service`, `prompt-workflow-
+# service`. Consumer: `ai-sink` (S5.3.b) materialising into
+# `of_ai.{prompts,responses,evaluations,traces}`. Retention is 7d:
+# Iceberg is the SoR, Kafka is just the buffer.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: ai.events.v1
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/topic-class: domain
+spec:
+  partitions: 12
+  replicas: 3
+  config:
+    min.insync.replicas: "2"
+    cleanup.policy: delete
+    retention.ms: "604800000"        # 7d
+    compression.type: producer
+    segment.ms: "3600000"

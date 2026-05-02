@@ -1,0 +1,45 @@
+# Spark Operator Helm values (S5.7.a).
+#
+# Chart: spark-operator/spark-operator (Apache-2.0).
+# Repo: https://kubeflow.github.io/spark-operator
+# Pin to a chart version that ships Spark 3.5.x base image.
+
+image:
+  registry: docker.io
+  repository: kubeflow/spark-operator
+  tag: "v2.0.2"
+
+sparkJobNamespaces:
+  - openfoundry-spark
+
+webhook:
+  enable: true
+  port: 9443
+
+controller:
+  workers: 10
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+metrics:
+  enable: true
+  port: 8090
+  endpoint: /metrics
+  prometheusMonitor:
+    enable: true
+    labels:
+      role: alert-rules
+
+# RBAC — operator can create SparkApplications + manage executor pods,
+# but ONLY in `openfoundry-spark`. Audit namespace is denied at the
+# K8s RBAC level (defence-in-depth on top of the explicit allowlist
+# inside each job).
+rbac:
+  create: true
+  createClusterRole: true
+  createRole: true

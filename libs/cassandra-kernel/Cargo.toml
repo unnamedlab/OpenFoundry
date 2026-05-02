@@ -1,0 +1,52 @@
+[package]
+name = "cassandra-kernel"
+description = "Shared Cassandra (CQL) client kernel for OpenFoundry services"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+scylla = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dependencies.storage-abstraction]
+workspace = true
+optional = true
+
+[features]
+default = []
+# Provides Cassandra-backed implementations of the
+# `storage_abstraction::repositories` traits. Off by default so the
+# kernel itself stays tiny; turn on with `-F repos` in services that
+# need the repository surface (ontology, action-log, auth-runtime, …).
+repos = ["dep:storage-abstraction"]
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+name = "cassandra_kernel"
+crate-type = ["lib"]

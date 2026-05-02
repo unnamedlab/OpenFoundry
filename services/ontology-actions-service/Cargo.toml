@@ -95,10 +95,39 @@ required-features = []
 [dependencies.ontology-kernel]
 workspace = true
 
+# S1.4.a / S1.4.e — production wiring of `Arc<dyn ObjectStore>` and the
+# transactional outbox helper. The kernel re-exports `domain::writeback`
+# which is the only call site that still needs `sqlx` from this binary.
+[dependencies.cassandra-kernel]
+workspace = true
+features = ["repos"]
+
+[dependencies.storage-abstraction]
+workspace = true
+
 # Smoke test: spins up Postgres via testcontainers, applies migrations and
 # verifies the public surface of `build_router`. See `tests/health.rs`.
 [dev-dependencies]
 testcontainers = { workspace = true }
+
+[dev-dependencies.outbox]
+workspace = true
+
+[dev-dependencies.cassandra-kernel]
+workspace = true
+features = ["repos"]
+
+[dev-dependencies.storage-abstraction]
+workspace = true
+
+[dev-dependencies.futures]
+workspace = true
+
+[dev-dependencies.tracing-subscriber]
+workspace = true
+
+[dev-dependencies.scylla]
+workspace = true
 
 [dev-dependencies.tokio]
 workspace = true
@@ -119,7 +148,7 @@ features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
 
 [dev-dependencies.uuid]
 workspace = true
-features = ["v4", "serde"]
+features = ["v4", "v5", "v7", "serde"]
 
 [dev-dependencies.chrono]
 workspace = true

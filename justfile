@@ -44,6 +44,36 @@ test-actions:
     cargo test -p ontology-kernel --features it --test actions_integration --test actions_scale -- --include-ignored
     cd apps/web && pnpm exec playwright test tests/e2e/action-types.spec.ts
 
+# Run every Cassandra-backed integration test across the workspace.
+# Crates opt in by exposing an `it-cassandra` feature that turns on
+# `testing/it-cassandra` (see `libs/testing/Cargo.toml`). Requires
+# Docker; each test boots an ephemeral `cassandra:5.0` container.
+test-cassandra:
+    cargo test --workspace --features testing/it-cassandra -- --include-ignored
+
+# Run every Temporal-backed integration test across the workspace.
+# Crates opt in by exposing an `it-temporal` feature that turns on
+# `testing/it-temporal`. Requires Docker; each test boots an
+# ephemeral `temporalio/auto-setup:1.24` container.
+test-temporal:
+    cargo test --workspace --features testing/it-temporal -- --include-ignored
+
+# Boot a one-shot Cassandra 5 node on localhost:9042 for ad-hoc dev
+# work (cqlsh sessions, schema scratching). Foreground; Ctrl-C to
+# tear down. For a real multi-node dev cluster use the k8s manifests
+# under `infra/k8s/cassandra/`.
+dev-up-cassandra:
+    docker run --rm -it --name of-cass-dev \
+        -p 9042:9042 \
+        -e CASSANDRA_CLUSTER_NAME=of-dev \
+        -e CASSANDRA_DC=dc1 \
+        -e CASSANDRA_RACK=rack1 \
+        -e CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch \
+        -e HEAP_NEWSIZE=128M \
+        -e MAX_HEAP_SIZE=512M \
+        cassandra:5.0
+    cd apps/web && pnpm exec playwright test tests/e2e/action-types.spec.ts
+
 # ── Lint & Format ────────────────────────────────────────────
 
 # Run all lints
@@ -78,6 +108,30 @@ run-gateway:
 # Run the OpenFoundry CLI
 of args='':
     cargo run -p of-cli -- {{args}}
+
+# ── Go workers (Temporal) ────────────────────────────────────
+
+# Build every Go worker under workers-go/. Uses the workspace go.work.
+go-build:
+    cd workers-go && go build ./...
+
+# Run go test across every module in workers-go/.
+go-test:
+    cd workers-go && go test ./...
+
+# Tidy go.sum across every module in workers-go/.
+go-tidy:
+    cd workers-go/workflow-automation && go mod tidy
+    cd workers-go/pipeline && go mod tidy
+    cd workers-go/approvals && go mod tidy
+    cd workers-go/automation-ops && go mod tidy
+
+# Run a single Temporal worker locally (foreground; Ctrl-C to stop).
+# Expects a running Temporal frontend on TEMPORAL_HOST_PORT
+# (default 127.0.0.1:7233 — boot one with
+# `docker run --rm -p 7233:7233 -p 8233:8233 temporalio/auto-setup:1.24`).
+go-worker name:
+    cd workers-go/{{name}} && go run .
 
 # ── Database ─────────────────────────────────────────────────
 
@@ -166,6 +220,20 @@ terraform-schema:
 # Run reproducible benchmark suite against a live stack
 bench-critical-paths:
     cargo run -p of-cli -- bench run --scenario benchmarks/scenarios/critical-paths.json --output benchmarks/results/critical-paths.json
+
+# Run the ontology hot-path mixed workload (S1.8) against a live stack via k6.
+# Requires k6 1.0+ and OF_BENCH_* env vars (see benchmarks/ontology/README.md).
+bench-ontology:
+    mkdir -p benchmarks/results
+    k6 run --summary-export=benchmarks/results/ontology-mix-summary.json \
+        --out json=benchmarks/results/ontology-mix-k6.json \
+        benchmarks/ontology/k6/ontology-mix.js
+
+# Sequential latency baseline for the ontology hot path (sin RPS shape).
+bench-ontology-baseline:
+    cargo run -p of-cli -- bench run \
+        --scenario benchmarks/ontology/scenarios/ontology-mix.json \
+        --output benchmarks/results/ontology-mix-baseline.json
 
 # Run the critical-path smoke suite against a live stack
 smoke-critical-paths:

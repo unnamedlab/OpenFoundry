@@ -1,0 +1,58 @@
+[package]
+name = "ai-sink"
+description = "Kafka -> Iceberg AI-event sink (consumes ai.events.v1, fans out to of_ai.{prompts,responses,evaluations,traces})"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
+[dependencies.prometheus]
+workspace = true
+optional = true
+
+[features]
+default = []
+runtime = ["dep:event-bus-data", "dep:prometheus"]
+
+[lib]
+path = "src/lib.rs"
+name = "ai_sink"
+crate-type = ["lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "ai-sink"
+required-features = ["runtime"]

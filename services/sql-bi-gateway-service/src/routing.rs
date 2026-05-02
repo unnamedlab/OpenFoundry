@@ -11,6 +11,7 @@
 //!   SELECT * FROM clickhouse.events_dist   -> Backend::ClickHouse
 //!   SELECT * FROM vespa.documents          -> Backend::Vespa
 //!   SELECT * FROM postgres.public.users    -> Backend::Postgres
+//!   SELECT * FROM trino.of_lineage.runs    -> Backend::Trino
 //!   SELECT 1                               -> Backend::Iceberg (default / DataFusion local)
 //! ```
 //!
@@ -38,6 +39,10 @@ pub enum Backend {
     Vespa,
     /// OLTP reference data (PostgreSQL via CloudNativePG).
     Postgres,
+    /// Iceberg analytical engine (Trino, ADR-0029, S5.6). Used for
+    /// multi-namespace joins and time-windowed aggregates that the
+    /// local DataFusion plan cannot serve efficiently.
+    Trino,
 }
 
 impl Backend {
@@ -49,6 +54,7 @@ impl Backend {
             Backend::ClickHouse => "clickhouse",
             Backend::Vespa => "vespa",
             Backend::Postgres => "postgres",
+            Backend::Trino => "trino",
         }
     }
 
@@ -59,6 +65,7 @@ impl Backend {
             Backend::ClickHouse,
             Backend::Vespa,
             Backend::Postgres,
+            Backend::Trino,
         ]
     }
 }
@@ -88,6 +95,7 @@ pub struct BackendRouter {
     clickhouse_flight_sql_url: Option<String>,
     vespa_flight_sql_url: Option<String>,
     postgres_flight_sql_url: Option<String>,
+    trino_flight_sql_url: Option<String>,
 }
 
 /// Routing failure. Returned when a statement targets a backend that has
@@ -109,6 +117,7 @@ impl BackendRouter {
             clickhouse_flight_sql_url: normalize(config.clickhouse_flight_sql_url.as_deref()),
             vespa_flight_sql_url: normalize(config.vespa_flight_sql_url.as_deref()),
             postgres_flight_sql_url: normalize(config.postgres_flight_sql_url.as_deref()),
+            trino_flight_sql_url: normalize(config.trino_flight_sql_url.as_deref()),
         }
     }
 
@@ -133,6 +142,11 @@ impl BackendRouter {
                 self.postgres_flight_sql_url
                     .clone()
                     .ok_or(RoutingError::BackendUnavailable(Backend::Postgres))?,
+            ),
+            Backend::Trino => Some(
+                self.trino_flight_sql_url
+                    .clone()
+                    .ok_or(RoutingError::BackendUnavailable(Backend::Trino))?,
             ),
         };
         Ok(RoutingDecision {
@@ -167,6 +181,7 @@ pub fn classify(sql: &str) -> Backend {
                     "clickhouse" => Backend::ClickHouse,
                     "vespa" => Backend::Vespa,
                     "postgres" | "postgresql" => Backend::Postgres,
+                    "trino" => Backend::Trino,
                     _ => Backend::Iceberg,
                 };
             }
@@ -186,6 +201,16 @@ mod tests {
         vespa: Option<&str>,
         postgres: Option<&str>,
     ) -> AppConfig {
+        cfg_with_trino(warehousing, clickhouse, vespa, postgres, None)
+    }
+
+    fn cfg_with_trino(
+        warehousing: Option<&str>,
+        clickhouse: Option<&str>,
+        vespa: Option<&str>,
+        postgres: Option<&str>,
+        trino: Option<&str>,
+    ) -> AppConfig {
         AppConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
@@ -196,6 +221,7 @@ mod tests {
             clickhouse_flight_sql_url: clickhouse.map(str::to_string),
             vespa_flight_sql_url: vespa.map(str::to_string),
             postgres_flight_sql_url: postgres.map(str::to_string),
+            trino_flight_sql_url: trino.map(str::to_string),
             allow_anonymous: false,
         }
     }
@@ -223,6 +249,47 @@ mod tests {
             classify("SELECT * FROM postgresql.public.users"),
             Backend::Postgres
         );
+        assert_eq!(
+            classify("SELECT * FROM trino.of_lineage.runs"),
+            Backend::Trino
+        );
+    }
+
+    #[test]
+    fn trino_routes_to_configured_endpoint() {
+        let router = BackendRouter::from_config(&cfg_with_trino(
+            None,
+            None,
+            None,
+            None,
+            Some("http://trino-flight-sql-proxy.trino:50133"),
+        ));
+        let decision = router
+            .route("SELECT * FROM trino.of_metrics_long.service_metrics_daily")
+            .expect("trino route should succeed when configured");
+        assert_eq!(decision.backend, Backend::Trino);
+        assert_eq!(
+            decision.remote_endpoint.as_deref(),
+            Some("http://trino-flight-sql-proxy.trino:50133")
+        );
+    }
+
+    #[test]
+    fn missing_trino_endpoint_is_an_explicit_error() {
+        let router = BackendRouter::from_config(&cfg(None, None, None, None));
+        let err = router
+            .route("SELECT * FROM trino.of_lineage.runs")
+            .expect_err("trino backend must be configured");
+        match err {
+            RoutingError::BackendUnavailable(Backend::Trino) => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backend_all_includes_trino() {
+        assert!(Backend::all().contains(&Backend::Trino));
+        assert_eq!(Backend::Trino.as_str(), "trino");
     }
 
     #[test]

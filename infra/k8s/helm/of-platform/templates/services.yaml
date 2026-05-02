@@ -1,0 +1,33 @@
+{{- $release := .Values.release -}}
+{{- range $name, $svc := .Values.services }}
+---
+{{- $ctx := dict
+    "name" $name
+    "release" $release
+    "image" (printf "%s/%s:%s" $.Values.image.registry $name $.Values.image.tag)
+    "replicas" $svc.replicas
+    "ports" $svc.ports
+    "resources" $svc.resources
+    "env" (default (list) $svc.env)
+}}
+{{ include "of-shared.serviceaccount" (dict "name" $name "release" $release "annotations" (default dict $svc.serviceAccountAnnotations)) }}
+---
+{{ include "of-shared.deployment" $ctx }}
+---
+{{ include "of-shared.service" $ctx }}
+---
+{{ include "of-shared.networkpolicy" (merge $ctx (dict "allowFrom" (list))) }}
+{{- if $svc.autoscaling }}
+{{- if $svc.autoscaling.enabled }}
+---
+{{ include "of-shared.hpa" (dict "name" $name "release" $release "autoscaling" $svc.autoscaling) }}
+{{- end }}
+{{- end }}
+{{- if $svc.pdb }}
+{{- if $svc.pdb.enabled }}
+---
+{{ include "of-shared.pdb" (dict "name" $name "release" $release "pdb" $svc.pdb) }}
+{{- end }}
+{{- end }}
+{{- end }}
+

@@ -1,0 +1,154 @@
+---
+# S7.1.c — Iceberg cross-region replication smoke test.
+#
+# What it does:
+#   1. In region A: writes a one-row Iceberg table
+#      `iceberg.smoke_replication.heartbeat_<ts>` via Trino-on-Spark or
+#      directly via Spark (whichever is present). The table lives in the
+#      `openfoundry-iceberg` warehouse, so its parquet files land in
+#      Ceph zone A.
+#   2. Records the wall-clock timestamp of the commit response.
+#   3. In region B (this Job runs THERE): polls Lakekeeper region B
+#      for the new table, then opens it via Spark and validates the
+#      single row is readable. Exits non-zero if the table is not
+#      visible after `MAX_WAIT_SECONDS=120` (chosen 2× the SLO of 60 s).
+#
+# Run as a one-shot Job after every multisite change or quarterly as a
+# DR drill canary. Wire to a CronJob if the platform team wants
+# continuous lag observability instead.
+#
+# Prereqs:
+#   * Region A: Spark on K8s (S5.7) + Lakekeeper region A.
+#   * Region B: Spark on K8s + Lakekeeper region B (S7.1.b).
+#   * Ceph multisite healthy (S7.1.a, runbook
+#     `infra/runbooks/ceph-multisite-bootstrap.md`).
+#
+# Observability: prints a single line
+#   `iceberg_replication_lag_seconds <float>`
+# captured by the prometheus pushgateway sidecar in real deployments
+# (omitted here for brevity — the smoke target is correctness, not
+# steady-state observability).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iceberg-replication-smoke
+  namespace: lakekeeper
+  labels:
+    app.kubernetes.io/name: iceberg-replication-smoke
+    app.kubernetes.io/part-of: openfoundry-dr
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iceberg-replication-smoke
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smoke
+          image: apache/spark:3.5.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: REGION_A_CATALOG_URL
+              value: "http://lakekeeper.lakekeeper.svc.region-a.openfoundry:8181/catalog"
+            - name: REGION_B_CATALOG_URL
+              value: "http://lakekeeper.lakekeeper.svc:8181/catalog"
+            - name: WAREHOUSE
+              value: "openfoundry-iceberg"
+            - name: MAX_WAIT_SECONDS
+              value: "120"
+            - name: SPARK_LOCAL_DIRS
+              value: /tmp/spark
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: smoke
+              mountPath: /opt/smoke
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -o pipefail
+              TS=$(date -u +%s)
+              TABLE="smoke_replication.heartbeat_${TS}"
+              echo "smoke: writing ${TABLE} via region-A catalog ${REGION_A_CATALOG_URL}"
+              /opt/spark/bin/spark-submit \
+                  --conf "spark.sql.catalog.iceberg=org.apache.iceberg.spark.SparkCatalog" \
+                  --conf "spark.sql.catalog.iceberg.type=rest" \
+                  --conf "spark.sql.catalog.iceberg.uri=${REGION_A_CATALOG_URL}" \
+                  --conf "spark.sql.catalog.iceberg.warehouse=${WAREHOUSE}" \
+                  /opt/smoke/write.py "${TABLE}" "${TS}"
+
+              echo "smoke: polling region-B catalog ${REGION_B_CATALOG_URL} for ${TABLE}"
+              START=$(date -u +%s)
+              while :; do
+                NOW=$(date -u +%s)
+                ELAPSED=$((NOW - START))
+                if [ "${ELAPSED}" -ge "${MAX_WAIT_SECONDS}" ]; then
+                  echo "smoke: FAIL — table not visible in region B after ${ELAPSED}s"
+                  exit 1
+                fi
+                if /opt/spark/bin/spark-submit \
+                    --conf "spark.sql.catalog.iceberg=org.apache.iceberg.spark.SparkCatalog" \
+                    --conf "spark.sql.catalog.iceberg.type=rest" \
+                    --conf "spark.sql.catalog.iceberg.uri=${REGION_B_CATALOG_URL}" \
+                    --conf "spark.sql.catalog.iceberg.warehouse=${WAREHOUSE}" \
+                    /opt/smoke/read.py "${TABLE}" "${TS}" 2>/tmp/read.err; then
+                  LAG=${ELAPSED}
+                  echo "iceberg_replication_lag_seconds ${LAG}"
+                  echo "smoke: OK — table visible in region B after ${LAG}s (SLO 60s)"
+                  if [ "${LAG}" -gt 60 ]; then
+                    echo "smoke: WARN — lag ${LAG}s exceeds SLO 60s"
+                  fi
+                  exit 0
+                fi
+                sleep 5
+              done
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: smoke
+          configMap:
+            name: iceberg-replication-smoke-py
+            defaultMode: 0o555
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iceberg-replication-smoke-py
+  namespace: lakekeeper
+data:
+  write.py: |
+    import sys
+    from pyspark.sql import SparkSession
+    table, ts = sys.argv[1], sys.argv[2]
+    spark = SparkSession.builder.appName("iceberg-replication-smoke-write").getOrCreate()
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS iceberg.smoke_replication")
+    spark.sql(
+        f"CREATE TABLE iceberg.{table} (ts BIGINT, source STRING) USING iceberg"
+    )
+    spark.sql(f"INSERT INTO iceberg.{table} VALUES ({ts}, 'region-a-smoke')")
+    print(f"wrote {table}@{ts}")
+  read.py: |
+    import sys
+    from pyspark.sql import SparkSession
+    table, ts = sys.argv[1], sys.argv[2]
+    spark = SparkSession.builder.appName("iceberg-replication-smoke-read").getOrCreate()
+    rows = spark.sql(f"SELECT ts, source FROM iceberg.{table}").collect()
+    if not rows:
+        raise SystemExit("no rows visible yet")
+    seen = rows[0]
+    if seen["ts"] != int(ts) or seen["source"] != "region-a-smoke":
+        raise SystemExit(f"unexpected row: {seen}")
+    print(f"verified {table}: {seen}")
