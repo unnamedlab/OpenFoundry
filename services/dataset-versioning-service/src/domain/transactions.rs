@@ -116,12 +116,11 @@ pub async fn abort_transaction(db: &PgPool, txn_id: Uuid) -> Result<(), CommitEr
 }
 
 async fn classify_transition_failure(db: &PgPool, txn_id: Uuid) -> Result<(), CommitError> {
-    let row = sqlx::query_scalar::<_, String>(
-        "SELECT status FROM dataset_transactions WHERE id = $1",
-    )
-    .bind(txn_id)
-    .fetch_optional(db)
-    .await?;
+    let row =
+        sqlx::query_scalar::<_, String>("SELECT status FROM dataset_transactions WHERE id = $1")
+            .bind(txn_id)
+            .fetch_optional(db)
+            .await?;
     match row {
         None => Err(CommitError::NotFound),
         Some(state) => Err(CommitError::NotOpen { current: state }),

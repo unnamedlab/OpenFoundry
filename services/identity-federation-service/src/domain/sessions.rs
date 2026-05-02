@@ -1,6 +1,6 @@
 use auth_middleware::{
     claims::SessionScope,
-    jwt::{self, JwtConfig},
+    jwt::{self, JwtConfig, JwtError},
 };
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -9,16 +9,19 @@ use uuid::Uuid;
 use crate::{
     domain::{access, rbac},
     models::{
-        session::{ScopedSession, ScopedSessionKind, ScopedSessionRow, ScopedSessionWithToken},
+        session::{ScopedSession, ScopedSessionKind, ScopedSessionWithToken},
         user::User,
     },
+    sessions_cassandra::{ScopedSessionRecord, SessionsAdapter},
 };
 
 #[derive(Debug)]
 pub enum ScopedSessionError {
     Database(sqlx::Error),
-    Token(auth_middleware::JwtError),
+    Cassandra(cassandra_kernel::KernelError),
+    Token(JwtError),
     InvalidExpiration,
+    Decode(String),
 }
 
 impl From<sqlx::Error> for ScopedSessionError {
@@ -27,39 +30,33 @@ impl From<sqlx::Error> for ScopedSessionError {
     }
 }
 
-impl From<auth_middleware::JwtError> for ScopedSessionError {
-    fn from(value: auth_middleware::JwtError) -> Self {
+impl From<JwtError> for ScopedSessionError {
+    fn from(value: JwtError) -> Self {
         Self::Token(value)
     }
 }
 
-pub async fn list_scoped_sessions(
-    pool: &PgPool,
-    user_id: Uuid,
-) -> Result<Vec<ScopedSession>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, ScopedSessionRow>(
-        r#"SELECT id, user_id, label, session_kind, scope, guest_email, guest_name, expires_at, revoked_at, created_at
-           FROM scoped_sessions
-           WHERE user_id = $1
-           ORDER BY created_at DESC"#,
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
+impl From<cassandra_kernel::KernelError> for ScopedSessionError {
+    fn from(value: cassandra_kernel::KernelError) -> Self {
+        Self::Cassandra(value)
+    }
+}
 
-    rows.into_iter()
-        .map(ScopedSession::try_from)
+pub async fn list_scoped_sessions(
+    sessions: &SessionsAdapter,
+    user_id: Uuid,
+) -> Result<Vec<ScopedSession>, ScopedSessionError> {
+    sessions
+        .list_scoped_sessions(user_id)
+        .await?
+        .into_iter()
+        .map(scoped_session_from_record)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|cause| {
-            sqlx::Error::Decode(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                cause,
-            )))
-        })
 }
 
 pub async fn issue_scoped_session(
     pool: &PgPool,
+    sessions: &SessionsAdapter,
     config: &JwtConfig,
     user: &User,
     label: &str,
@@ -122,20 +119,20 @@ pub async fn issue_scoped_session(
         ),
     )?;
 
-    sqlx::query(
-        r#"INSERT INTO scoped_sessions (id, user_id, label, session_kind, scope, guest_email, guest_name, expires_at)
-           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)"#,
-    )
-    .bind(session_id)
-    .bind(user.id)
-    .bind(label)
-    .bind(session_kind.as_str())
-    .bind(serde_json::to_value(&scope).unwrap_or_default())
-    .bind(guest_email.clone())
-    .bind(guest_name.clone())
-    .bind(expires_at)
-    .execute(pool)
-    .await?;
+    sessions
+        .record_scoped_session(ScopedSessionRecord {
+            id: session_id,
+            user_id: user.id,
+            label: label.to_string(),
+            session_kind: session_kind.as_str().to_string(),
+            scope: serde_json::to_value(&scope).unwrap_or_default(),
+            guest_email: guest_email.clone(),
+            guest_name: guest_name.clone(),
+            expires_at,
+            revoked_at: None,
+            created_at: now,
+        })
+        .await?;
 
     Ok(ScopedSessionWithToken {
         id: session_id,
@@ -151,29 +148,43 @@ pub async fn issue_scoped_session(
 }
 
 pub async fn revoke_scoped_session(
-    pool: &PgPool,
+    sessions: &SessionsAdapter,
     session_id: Uuid,
     user_id: Uuid,
     allow_any_user: bool,
-) -> Result<bool, sqlx::Error> {
-    let result = if allow_any_user {
-        sqlx::query(
-            "UPDATE scoped_sessions SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL",
-        )
-        .bind(session_id)
-        .execute(pool)
-        .await?
-    } else {
-        sqlx::query(
-            "UPDATE scoped_sessions SET revoked_at = NOW() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
-        )
-        .bind(session_id)
-        .bind(user_id)
-        .execute(pool)
-        .await?
-    };
+) -> Result<bool, ScopedSessionError> {
+    Ok(sessions
+        .revoke_scoped_session(session_id, user_id, allow_any_user)
+        .await?)
+}
 
-    Ok(result.rows_affected() > 0)
+fn scoped_session_from_record(
+    record: ScopedSessionRecord,
+) -> Result<ScopedSession, ScopedSessionError> {
+    let session_kind = match record.session_kind.as_str() {
+        "scoped" => ScopedSessionKind::Scoped,
+        "guest" => ScopedSessionKind::Guest,
+        other => {
+            return Err(ScopedSessionError::Decode(format!(
+                "unsupported scoped session kind: {other}"
+            )));
+        }
+    };
+    let scope = serde_json::from_value(record.scope)
+        .map_err(|error| ScopedSessionError::Decode(error.to_string()))?;
+
+    Ok(ScopedSession {
+        id: record.id,
+        user_id: record.user_id,
+        label: record.label,
+        session_kind,
+        scope,
+        guest_email: record.guest_email,
+        guest_name: record.guest_name,
+        expires_at: record.expires_at,
+        revoked_at: record.revoked_at,
+        created_at: record.created_at,
+    })
 }
 
 fn normalize_scope(

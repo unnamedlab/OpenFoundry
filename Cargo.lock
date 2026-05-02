@@ -1022,12 +1022,15 @@ dependencies = [
 name = "audit-sink"
 version = "0.0.1"
 dependencies = [
+ "arrow-array 57.3.0",
+ "arrow-schema 57.3.0",
  "async-trait",
  "chrono",
  "event-bus-data",
  "prometheus",
  "serde",
  "serde_json",
+ "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -10293,6 +10296,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -10948,8 +10952,8 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "storage-abstraction"
 version = "0.0.1"
 dependencies = [
- "arrow-array 53.4.0",
- "arrow-schema 53.4.1",
+ "arrow-array 57.3.0",
+ "arrow-schema 57.3.0",
  "async-trait",
  "bytes",
  "chrono",
@@ -10957,7 +10961,7 @@ dependencies = [
  "iceberg",
  "iceberg-catalog-rest",
  "object_store",
- "parquet 53.4.0",
+ "parquet 57.3.0",
  "serde",
  "serde_json",
  "tempfile",

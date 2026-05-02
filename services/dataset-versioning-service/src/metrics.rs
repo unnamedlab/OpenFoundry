@@ -81,13 +81,15 @@ pub static DATASET_TRANSACTIONS_ABORTED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 /// chosen for read paths that range from instantaneous (cached, single
 /// SNAPSHOT) to multi-second (long branch with many APPENDs).
 pub static DATASET_VIEW_COMPUTE_DURATION_SECONDS: Lazy<Histogram> = Lazy::new(|| {
-    register_histogram!(HistogramOpts::new(
-        "dataset_view_compute_duration_seconds",
-        "Wall-clock seconds spent assembling a branch view from its committed transactions",
+    register_histogram!(
+        HistogramOpts::new(
+            "dataset_view_compute_duration_seconds",
+            "Wall-clock seconds spent assembling a branch view from its committed transactions",
+        )
+        .buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+        ])
     )
-    .buckets(vec![
-        0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
-    ]))
     .expect("register dataset_view_compute_duration_seconds")
 });
 

@@ -313,21 +313,10 @@ pub async fn get_upgrade_readiness(
             );
         }
     };
-    let active_scoped_sessions = match sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM scoped_sessions WHERE revoked_at IS NULL AND expires_at > NOW()",
-    )
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => {
-            tracing::error!("failed to count active scoped sessions: {error}");
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to load upgrade readiness",
-            );
-        }
-    };
+    // Scoped/guest sessions now live in Cassandra. A global active-session
+    // count would require a dedicated materialized metric; do not read the
+    // retired Postgres `scoped_sessions` table here.
+    let active_scoped_sessions = None;
 
     Json(build_upgrade_readiness_response(
         &settings,
@@ -591,7 +580,7 @@ fn build_upgrade_readiness_response(
     settings: &ControlPanelSettings,
     enabled_provider_slugs: &[String],
     enabled_policies: i64,
-    active_scoped_sessions: i64,
+    active_scoped_sessions: Option<i64>,
 ) -> UpgradeReadinessResponse {
     let checks = build_upgrade_readiness_checks(
         settings,
@@ -630,7 +619,7 @@ fn build_upgrade_readiness_checks(
     settings: &ControlPanelSettings,
     enabled_provider_slugs: &[String],
     enabled_policies: i64,
-    active_scoped_sessions: i64,
+    active_scoped_sessions: Option<i64>,
 ) -> Vec<UpgradeReadinessCheck> {
     let mapped_provider_slugs = settings
         .identity_provider_mappings
@@ -811,14 +800,16 @@ fn build_upgrade_readiness_checks(
         UpgradeReadinessCheck {
             id: "temporary_sessions".to_string(),
             label: "Temporary access review".to_string(),
-            status: if active_scoped_sessions <= 25 {
-                "ready".to_string()
-            } else {
-                "warning".to_string()
+            status: match active_scoped_sessions {
+                Some(count) if count <= 25 => "ready".to_string(),
+                Some(_) | None => "warning".to_string(),
             },
-            detail: format!(
-                "{active_scoped_sessions} active scoped/guest session(s) require review"
-            ),
+            detail: match active_scoped_sessions {
+                Some(count) => {
+                    format!("{count} active scoped/guest session(s) require review")
+                }
+                None => "scoped/guest sessions are Cassandra-backed; wire an auth_runtime active-session metric for global readiness counts".to_string(),
+            },
         },
     ]
 }

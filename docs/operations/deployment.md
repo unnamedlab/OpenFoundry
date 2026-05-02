@@ -188,22 +188,24 @@ si Lakekeeper es el único catálogo en producción, exponer Polaris en el
 DX por defecto generaba dependencias accidentales sobre un componente
 retirado.
 
-Los servicios que integran con Iceberg (`dataset-versioning-service`,
-`event-streaming-service`, …) leen `ICEBERG_CATALOG_URL` como variable
-**opcional**: si no está definida usan el writer dataset legacy y siguen
-arrancando sin error (ver `services/*/src/storage/factory.rs`). Para
-ejercitar el camino Iceberg en local, apunta esa variable a un Lakekeeper
-externo accesible desde los contenedores.
+Los servicios que integran con Iceberg leen `ICEBERG_CATALOG_URL` cuando
+se activa el backend Iceberg. En `dataset-versioning-service`,
+`DATASET_WRITER_BACKEND=iceberg` falla en arranque si esa variable no
+está definida; el writer legacy solo se usa cuando el backend configurado
+es explícitamente `legacy`. Para ejercitar el camino Iceberg en local,
+apunta esa variable a un Lakekeeper externo accesible desde los
+contenedores.
 
 ### Variables de entorno (Compose)
 
 Sin servicio Polaris en Compose ya no quedan variables propias del
-catálogo en `infra/docker-compose.yml`. La única variable relacionada
-con Iceberg sigue siendo opcional para los servicios:
+catálogo en `infra/docker-compose.yml`. La variable relacionada con
+Iceberg es obligatoria para los servicios que arranquen con backend
+Iceberg:
 
 | Variable | Default | Propósito |
 | --- | --- | --- |
-| `ICEBERG_CATALOG_URL` | _unset_ | URL del Iceberg REST Catalog que consumirán los servicios. Si no se define, los servicios usan el dataset writer legacy. |
+| `ICEBERG_CATALOG_URL` | _unset_ | URL del Iceberg REST Catalog que consumirán los servicios con backend Iceberg. |
 | `OPENFOUNDRY_POSTGRES_EXTRA_DATABASES` | _empty_ | DBs extra opcionales creadas en el primer arranque de Postgres por `infra/init-db/01-create-databases.sh`. |
 
 ### Kubernetes

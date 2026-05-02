@@ -82,7 +82,12 @@ mod tests {
     fn single_key_outside_grace() {
         let active = key("k2", 5);
         let previous = key("k1", 200);
-        let jwks = build_jwks(&active, Some(&previous), RotationPolicy::ASVS_L2_DEFAULT, Utc::now());
+        let jwks = build_jwks(
+            &active,
+            Some(&previous),
+            RotationPolicy::ASVS_L2_DEFAULT,
+            Utc::now(),
+        );
         assert_eq!(jwks.keys.len(), 1);
         assert_eq!(jwks.keys[0].kid, "k2");
     }
@@ -91,7 +96,12 @@ mod tests {
     fn two_keys_inside_grace() {
         let active = key("k2", 5);
         let previous = key("k1", 95);
-        let jwks = build_jwks(&active, Some(&previous), RotationPolicy::ASVS_L2_DEFAULT, Utc::now());
+        let jwks = build_jwks(
+            &active,
+            Some(&previous),
+            RotationPolicy::ASVS_L2_DEFAULT,
+            Utc::now(),
+        );
         assert_eq!(jwks.keys.len(), 2);
         assert_eq!(jwks.keys[1].status, "grace");
     }

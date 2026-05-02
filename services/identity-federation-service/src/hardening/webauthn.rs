@@ -21,8 +21,7 @@ impl RelyingPartyConfig {
                 .unwrap_or_else(|_| "openfoundry.local".into()),
             rp_origin: std::env::var("OF_WEBAUTHN_RP_ORIGIN")
                 .unwrap_or_else(|_| "https://openfoundry.local".into()),
-            rp_name: std::env::var("OF_WEBAUTHN_RP_NAME")
-                .unwrap_or_else(|_| "OpenFoundry".into()),
+            rp_name: std::env::var("OF_WEBAUTHN_RP_NAME").unwrap_or_else(|_| "OpenFoundry".into()),
         }
     }
 }

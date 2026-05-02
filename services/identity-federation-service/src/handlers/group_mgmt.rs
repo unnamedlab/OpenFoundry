@@ -67,7 +67,12 @@ pub async fn list_groups(
     let q_trimmed = params.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let groups_result = if let Some(q) = q_trimmed {
-        let pattern = format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        let pattern = format!(
+            "%{}%",
+            q.replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
         sqlx::query_as::<_, Group>(
             "SELECT id, name, description, created_at FROM groups \
              WHERE name ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\' \

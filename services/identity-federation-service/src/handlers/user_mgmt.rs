@@ -68,7 +68,12 @@ pub async fn list_users(
     let q_trimmed = params.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let users_result = if let Some(q) = q_trimmed {
-        let pattern = format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        let pattern = format!(
+            "%{}%",
+            q.replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
         sqlx::query_as::<_, User>(
             "SELECT id, email, name, password_hash, is_active, organization_id, attributes, mfa_enforced, auth_source, created_at, updated_at \
              FROM users \

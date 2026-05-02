@@ -13,7 +13,12 @@ use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-async fn post_json(router: &axum::Router, token: &str, uri: &str, body: Value) -> (StatusCode, Value) {
+async fn post_json(
+    router: &axum::Router,
+    token: &str,
+    uri: &str,
+    body: Value,
+) -> (StatusCode, Value) {
     let req = Request::builder()
         .method("POST")
         .uri(uri)

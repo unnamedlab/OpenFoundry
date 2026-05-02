@@ -17,7 +17,8 @@ use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use storage_abstraction::repositories::{
-    ActionLogEntry, LinkTypeId, ObjectId, Page, ReadConsistency, TenantId,
+    ActionLogEntry, LinkTypeId, MarkingId, Object, ObjectId, OwnerId, Page, ReadConsistency,
+    TenantId, TypeId,
 };
 use uuid::Uuid;
 
@@ -32,6 +33,7 @@ use crate::{
         },
         schema::{load_effective_properties, validate_object_properties},
         type_system::{validate_property_type, validate_property_value},
+        writeback,
     },
     models::{
         action_type::{
@@ -1541,6 +1543,7 @@ async fn invoke_http_action(
 
 async fn apply_object_patch(
     state: &AppState,
+    claims: &Claims,
     target: &ObjectInstance,
     patch_value: &Value,
 ) -> Result<ObjectInstance, String> {
@@ -1554,8 +1557,20 @@ async fn apply_object_patch(
         .iter()
         .map(|property| (property.name.as_str(), property.property_type.as_str()))
         .collect::<HashMap<_, _>>();
+    let tenant = tenant_from_claims(claims);
+    let object_id = ObjectId(target.id.to_string());
+    let current = state
+        .stores
+        .objects
+        .get(&tenant, &object_id, ReadConsistency::Strong)
+        .await
+        .map_err(|e| format!("failed to load current object version: {e}"))?;
 
-    let mut next_properties = target.properties.as_object().cloned().unwrap_or_default();
+    let mut next_properties = current
+        .as_ref()
+        .and_then(|object| object.payload.as_object().cloned())
+        .or_else(|| target.properties.as_object().cloned())
+        .unwrap_or_default();
     for (property_name, value) in patch {
         let property_type = property_types
             .get(property_name.as_str())
@@ -1566,19 +1581,63 @@ async fn apply_object_patch(
     }
 
     let normalized = validate_object_properties(&definitions, &Value::Object(next_properties))?;
+    let expected_version = current.as_ref().map(|object| object.version);
+    let next_version = expected_version.map(|version| version + 1).unwrap_or(1);
+    let updated_at = Utc::now();
+    let owner = current
+        .as_ref()
+        .and_then(|object| object.owner.clone())
+        .or_else(|| Some(OwnerId(target.created_by.to_string())));
+    let markings = current
+        .as_ref()
+        .map(|object| object.markings.clone())
+        .filter(|markings| !markings.is_empty())
+        .unwrap_or_else(|| vec![MarkingId(target.marking.clone())]);
 
-    sqlx::query_as::<_, ObjectInstance>(
-        r#"UPDATE object_instances
-		   SET properties = $2::jsonb,
-		       updated_at = NOW()
-		   WHERE id = $1
-		   RETURNING id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at"#,
+    let updated_properties = normalized;
+    let object = Object {
+        tenant: tenant.clone(),
+        id: object_id,
+        type_id: TypeId(target.object_type_id.to_string()),
+        version: next_version,
+        payload: updated_properties.clone(),
+        updated_at_ms: updated_at.timestamp_millis(),
+        owner,
+        markings,
+    };
+    let event_payload = json!({
+        "object_id": target.id,
+        "object_type_id": target.object_type_id,
+        "patch": patch_value,
+        "properties": updated_properties.clone(),
+        "actor_id": claims.sub,
+        "organization_id": target.organization_id,
+        "marking": target.marking.clone(),
+        "version": next_version,
+    });
+
+    writeback::apply_object_with_outbox(
+        &state.db,
+        state.stores.objects.as_ref(),
+        object,
+        expected_version,
+        "object",
+        "ontology.object.changed.v1",
+        event_payload,
     )
-    .bind(target.id)
-    .bind(normalized)
-    .fetch_one(&state.db)
     .await
-    .map_err(|e| format!("failed to apply object patch: {e}"))
+    .map_err(|e| format!("failed to apply object patch via Cassandra writeback: {e}"))?;
+
+    Ok(ObjectInstance {
+        id: target.id,
+        object_type_id: target.object_type_id,
+        properties: updated_properties,
+        created_by: target.created_by,
+        organization_id: target.organization_id,
+        marking: target.marking.clone(),
+        created_at: target.created_at,
+        updated_at,
+    })
 }
 
 async fn create_link_from_instruction(
@@ -2535,7 +2594,7 @@ async fn execute_plan(
 
     match plan {
         ActionPlan::UpdateObject { target, patch } => {
-            let updated = apply_object_patch(state, &target, &Value::Object(patch)).await?;
+            let updated = apply_object_patch(state, claims, &target, &Value::Object(patch)).await?;
             Ok(ExecutedAction {
                 target_object_id: Some(target.id),
                 deleted: false,
@@ -2642,7 +2701,7 @@ async fn execute_plan(
 
                 let object = match object_patch {
                     Some(patch) => Some(json!(
-                        apply_object_patch(state, target_object, &patch).await?
+                        apply_object_patch(state, claims, target_object, &patch).await?
                     )),
                     None => None,
                 };
@@ -2729,7 +2788,7 @@ async fn execute_plan(
 
                         let object = match object_patch {
                             Some(patch) => Some(json!(
-                                apply_object_patch(state, target_object, &patch).await?
+                                apply_object_patch(state, claims, target_object, &patch).await?
                             )),
                             None => None,
                         };

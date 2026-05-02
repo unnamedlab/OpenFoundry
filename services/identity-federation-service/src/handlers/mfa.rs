@@ -259,6 +259,7 @@ pub async fn complete_login(
 
     match jwt::issue_tokens(
         &state.db,
+        &state.sessions,
         &state.jwt_config,
         &user,
         mfa::normalize_scopes(&auth_methods),

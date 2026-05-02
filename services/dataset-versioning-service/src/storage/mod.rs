@@ -10,15 +10,17 @@
 //!   managed by a REST Catalog, addressed by the `dataset_service` namespace.
 //!
 //! [`build_dataset_writer`] picks the backend at startup based on the runtime
-//! configuration and degrades gracefully (legacy writer + warning log) when
-//! Iceberg is requested but `ICEBERG_CATALOG_URL` is not provided.
+//! configuration and fails fast when Iceberg is requested but
+//! `ICEBERG_CATALOG_URL` is not provided.
 
 pub mod factory;
 pub mod iceberg;
 pub mod legacy;
 pub mod writer;
 
-pub use factory::{build_dataset_writer, IcebergSettings, WriterBackendKind, WriterSettings};
+pub use factory::{
+    IcebergSettings, WriterBackendKind, WriterFactoryError, WriterSettings, build_dataset_writer,
+};
 pub use iceberg::{
     IcebergCatalog, IcebergDatasetWriter, IcebergTableRef, InMemoryCatalog, RestCatalogClient,
     SnapshotCommit,

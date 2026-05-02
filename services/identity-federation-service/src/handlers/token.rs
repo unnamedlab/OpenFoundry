@@ -36,7 +36,7 @@ pub async fn refresh(
         }
     };
 
-    let Some(stored_token) = (match get_refresh_token(&state.db, claims.jti).await {
+    let Some(stored_token) = (match get_refresh_token(&state.sessions, claims.jti).await {
         Ok(record) => record,
         Err(e) => {
             tracing::error!("failed to load refresh token: {e}");
@@ -81,7 +81,7 @@ pub async fn refresh(
         }
     };
 
-    if let Err(e) = revoke_refresh_token(&state.db, claims.jti).await {
+    if let Err(e) = revoke_refresh_token(&state.sessions, claims.jti).await {
         tracing::error!("failed to revoke refresh token: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -92,6 +92,7 @@ pub async fn refresh(
 
     match issue_tokens(
         &state.db,
+        &state.sessions,
         &state.jwt_config,
         &user,
         vec!["refresh".to_string()],

@@ -24,12 +24,23 @@ async fn put_then_get_fallbacks_round_trip() {
         .uri(format!("/v1/datasets/{id}/branches"))
         .header("authorization", format!("Bearer {}", h.token))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&json!({
-            "name": "feature",
-            "parent_branch": "master",
-        })).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "name": "feature",
+                "parent_branch": "master",
+            }))
+            .unwrap(),
+        ))
         .unwrap();
-    assert!(h.router.clone().oneshot(req).await.unwrap().status().is_success());
+    assert!(
+        h.router
+            .clone()
+            .oneshot(req)
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
 
     // Configure fallback chain: feature → master.
     let req = Request::builder()
@@ -37,9 +48,12 @@ async fn put_then_get_fallbacks_round_trip() {
         .uri(format!("/v1/datasets/{id}/branches/feature/fallbacks"))
         .header("authorization", format!("Bearer {}", h.token))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&json!({
-            "fallbacks": ["master"],
-        })).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "fallbacks": ["master"],
+            }))
+            .unwrap(),
+        ))
         .unwrap();
     let resp = h.router.clone().oneshot(req).await.expect("router");
     assert!(

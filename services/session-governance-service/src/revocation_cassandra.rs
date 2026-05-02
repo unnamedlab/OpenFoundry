@@ -29,7 +29,10 @@
 use std::sync::Arc;
 
 use cassandra_kernel::Migration;
-use cassandra_kernel::scylla::Session;
+use cassandra_kernel::scylla::{
+    Session,
+    frame::value::{CqlDate, CqlTimestamp},
+};
 use uuid::Uuid;
 
 /// Cassandra keyspace shared with `identity-federation-service`.
@@ -100,6 +103,15 @@ pub fn day_bucket(unix_secs: i64) -> i64 {
     unix_secs - unix_secs.rem_euclid(86_400)
 }
 
+fn cql_ts(unix_secs: i64) -> CqlTimestamp {
+    CqlTimestamp(unix_secs.saturating_mul(1_000))
+}
+
+fn cql_day(unix_secs: i64) -> CqlDate {
+    let days_since_epoch = unix_secs.div_euclid(86_400);
+    CqlDate(((1_i64 << 31) + days_since_epoch) as u32)
+}
+
 /// Revocation reason. The set is deliberately small so audit
 /// pipelines can pin an enum without ad-hoc strings drifting in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,17 +152,100 @@ impl RevocationAdapter {
         Ok(())
     }
 
-    /// Future write path. Will execute two `INSERT … USING TTL`
-    /// statements (one per table) inside a logged batch for atomic
-    /// fan-out. Body filled by the per-handler PR.
+    /// Write the direct lookup row plus the user-scoped audit/fan-out
+    /// row. Both writes are idempotent on their primary keys and TTL
+    /// out automatically after the affected session can no longer be
+    /// valid.
     pub async fn revoke_session(
         &self,
-        _user_id: &str,
-        _session_id: Uuid,
-        _reason: RevocationReason,
-        _revoked_at: i64,
+        user_id: &str,
+        session_id: Uuid,
+        reason: RevocationReason,
+        revoked_at: i64,
     ) -> cassandra_kernel::KernelResult<()> {
+        let prefix = session_id_prefix(session_id);
+        let revoked_at_ts = cql_ts(revoked_at);
+        self.session
+            .query(
+                "INSERT INTO auth_runtime.session_revocation \
+                 (session_id_prefix, session_id, user_id, revoked_at, reason) \
+                 VALUES (?, ?, ?, ?, ?) USING TTL ?",
+                (
+                    prefix.as_str(),
+                    session_id,
+                    user_id,
+                    revoked_at_ts,
+                    reason.as_str(),
+                    SESSION_REVOCATION_TTL_SECS,
+                ),
+            )
+            .await?;
+
+        self.session
+            .query(
+                "INSERT INTO auth_runtime.user_revocation \
+                 (user_id, day_bucket, revoked_at, session_id, reason) \
+                 VALUES (?, ?, ?, ?, ?) USING TTL ?",
+                (
+                    user_id,
+                    cql_day(day_bucket(revoked_at)),
+                    revoked_at_ts,
+                    session_id,
+                    reason.as_str(),
+                    USER_REVOCATION_TTL_SECS,
+                ),
+            )
+            .await?;
         Ok(())
+    }
+
+    /// Fast auth-path check: single-partition lookup by prefixed
+    /// session id.
+    pub async fn is_session_revoked(
+        &self,
+        session_id: Uuid,
+    ) -> cassandra_kernel::KernelResult<bool> {
+        let prefix = session_id_prefix(session_id);
+        let result = self
+            .session
+            .query(
+                "SELECT revoked_at FROM auth_runtime.session_revocation \
+                 WHERE session_id_prefix = ? AND session_id = ?",
+                (prefix.as_str(), session_id),
+            )
+            .await?;
+        Ok(result
+            .rows
+            .as_ref()
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false))
+    }
+
+    /// Recent revocation events for a user/day, used by admin and
+    /// security-review surfaces.
+    pub async fn list_user_revocations(
+        &self,
+        user_id: &str,
+        day_unix_secs: i64,
+    ) -> cassandra_kernel::KernelResult<Vec<(Uuid, String, i64)>> {
+        let result = self
+            .session
+            .query(
+                "SELECT session_id, reason, revoked_at FROM auth_runtime.user_revocation \
+                 WHERE user_id = ? AND day_bucket = ?",
+                (user_id, cql_day(day_bucket(day_unix_secs))),
+            )
+            .await?;
+        let mut items = Vec::new();
+        for row in result.rows_typed_or_empty::<(Uuid, String, CqlTimestamp)>() {
+            let (session_id, reason, revoked_at) = row.map_err(|error| {
+                cassandra_kernel::KernelError::ModellingRule(format!(
+                    "auth_runtime.user_revocation row decode failed: {error}"
+                ))
+            })?;
+            items.push((session_id, reason, revoked_at.0 / 1_000));
+        }
+        Ok(items)
     }
 }
 
@@ -160,9 +255,7 @@ mod tests {
 
     #[test]
     fn session_id_prefix_is_two_bytes_hex() {
-        let id = Uuid::from_bytes([
-            0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ]);
+        let id = Uuid::from_bytes([0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(session_id_prefix(id), "dead");
     }
 

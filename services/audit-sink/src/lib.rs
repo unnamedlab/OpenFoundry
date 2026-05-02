@@ -1,9 +1,9 @@
 //! `audit-sink` — `audit.events.v1` Kafka topic → Iceberg
 //! `of.audit.events`.
 //!
-//! ## Substrate scope
+//! ## Scope
 //!
-//! Pure logic only:
+//! This crate owns:
 //!
 //! 1. Wire format of an `audit.events.v1` record (the same envelope
 //!    `identity-federation-service::hardening::audit_topic` uses).
@@ -11,9 +11,8 @@
 //!    flushes when either is reached.
 //! 3. Iceberg target identifiers (catalog / namespace / table /
 //!    partition spec).
-//!
-//! The Iceberg client (Rust `iceberg` crate) and the Kafka consumer
-//! loop land in a follow-up PR behind the `runtime` feature.
+//! 4. Runtime wiring behind the `runtime` feature: Kafka consume →
+//!    Arrow batch → Iceberg `append_record_batches` → Kafka commit.
 //!
 //! ## Why a separate service
 //!

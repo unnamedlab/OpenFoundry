@@ -28,9 +28,7 @@ pub fn require_dataset_write(
     if claims.has_role(auth_middleware::rbac::roles::ADMIN) {
         return Ok(());
     }
-    if claims.has_permission_key(SCOPE_DATASET_WRITE)
-        || claims.has_permission("dataset", "write")
-    {
+    if claims.has_permission_key(SCOPE_DATASET_WRITE) || claims.has_permission("dataset", "write") {
         return Ok(());
     }
     DATASET_RBAC_DENIALS_TOTAL

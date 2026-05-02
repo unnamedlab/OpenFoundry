@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use auth_middleware::Claims;
-use auth_middleware::jwt::{self, JwtConfig};
+use auth_middleware::jwt::{self, JwtConfig, JwtError};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use serde_json::{Value, json};
@@ -67,7 +67,7 @@ pub fn issue_challenge(
     config: &JwtConfig,
     user: &User,
     auth_method: &str,
-) -> Result<String, auth_middleware::JwtError> {
+) -> Result<String, JwtError> {
     let claims = Claims {
         sub: user.id,
         iat: Utc::now().timestamp(),
@@ -91,17 +91,12 @@ pub fn issue_challenge(
     jwt::encode_token(config, &claims)
 }
 
-pub fn validate_challenge(
-    config: &JwtConfig,
-    token: &str,
-) -> Result<Claims, auth_middleware::JwtError> {
+pub fn validate_challenge(config: &JwtConfig, token: &str) -> Result<Claims, JwtError> {
     let claims = jwt::decode_token(config, token)?;
     if claims.token_use.as_deref() == Some("mfa_challenge") {
         Ok(claims)
     } else {
-        Err(auth_middleware::JwtError::Invalid(
-            "invalid challenge token".to_string(),
-        ))
+        Err(JwtError::Invalid("invalid challenge token".to_string()))
     }
 }
 

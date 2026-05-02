@@ -117,6 +117,9 @@ mod tests {
 
     #[test]
     fn key_separates_routes() {
-        assert_ne!(key("u", "1.1.1.1", "/login"), key("u", "1.1.1.1", "/oauth/token"));
+        assert_ne!(
+            key("u", "1.1.1.1", "/login"),
+            key("u", "1.1.1.1", "/oauth/token")
+        );
     }
 }

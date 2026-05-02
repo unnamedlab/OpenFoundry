@@ -25,13 +25,18 @@ async fn open_commit(
     // Open
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/v1/datasets/{dataset_id}/branches/master/transactions"))
+        .uri(format!(
+            "/v1/datasets/{dataset_id}/branches/master/transactions"
+        ))
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&json!({
-            "type": tx_type,
-            "providence": {},
-        })).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "type": tx_type,
+                "providence": {},
+            }))
+            .unwrap(),
+        ))
         .unwrap();
     let resp = router.clone().oneshot(req).await.expect("router");
     assert_eq!(resp.status(), StatusCode::OK, "open {tx_type}");

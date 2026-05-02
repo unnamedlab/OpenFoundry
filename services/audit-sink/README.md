@@ -31,9 +31,10 @@ history is append-only; no compaction touches old snapshots.
 | Consumer group | `audit-sink` |
 | Sink lag SLO | P99 < 90s |
 
-## Substrate vs runtime
+## Runtime
 
 * **Pure logic** (always compiled): envelope decoder, batch policy,
   Iceberg target constants.
 * **Runtime wiring** behind feature `runtime`: Kafka consumer loop,
-  Iceberg writer (Rust `iceberg` crate, follow-up PR per S5.1.b).
+  Arrow batch builder and Iceberg `append_record_batches`. Offsets are
+  committed only after the Iceberg append succeeds.

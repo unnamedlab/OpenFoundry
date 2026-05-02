@@ -13,13 +13,19 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tower::ServiceExt;
 
-async fn open_commit(router: &axum::Router, token: &str, id: uuid::Uuid) -> (String, DateTime<Utc>) {
+async fn open_commit(
+    router: &axum::Router,
+    token: &str,
+    id: uuid::Uuid,
+) -> (String, DateTime<Utc>) {
     let req = Request::builder()
         .method("POST")
         .uri(format!("/v1/datasets/{id}/branches/master/transactions"))
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/json")
-        .body(Body::from(b"{\"type\":\"SNAPSHOT\",\"providence\":{}}".to_vec()))
+        .body(Body::from(
+            b"{\"type\":\"SNAPSHOT\",\"providence\":{}}".to_vec(),
+        ))
         .unwrap();
     let resp = router.clone().oneshot(req).await.expect("router");
     assert_eq!(resp.status(), StatusCode::OK);
@@ -28,7 +34,9 @@ async fn open_commit(router: &axum::Router, token: &str, id: uuid::Uuid) -> (Str
     let txn = v["id"].as_str().unwrap().to_string();
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/v1/datasets/{id}/branches/master/transactions/{txn}:commit"))
+        .uri(format!(
+            "/v1/datasets/{id}/branches/master/transactions/{txn}:commit"
+        ))
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/json")
         .body(Body::from(b"{}".to_vec()))

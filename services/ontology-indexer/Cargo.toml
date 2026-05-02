@@ -62,8 +62,10 @@ optional = true
 
 [features]
 default = []
-# Production-side wiring: rdkafka subscriber + Prometheus metrics.
-runtime = ["dep:event-bus-data", "dep:prometheus"]
+# Production-side wiring: rdkafka subscriber + Prometheus metrics. Vespa is
+# enabled with runtime so the binary has a production-safe backend available;
+# dev builds can additionally enable `opensearch`.
+runtime = ["dep:event-bus-data", "dep:prometheus", "vespa"]
 # Vespa backend (production target per ADR-0028).
 vespa = ["search-abstraction/vespa"]
 # OpenSearch backend (dev / CI).

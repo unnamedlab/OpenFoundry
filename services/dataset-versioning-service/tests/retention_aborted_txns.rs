@@ -33,7 +33,9 @@ async fn aborted_transactions_are_marked_for_retention() {
         .uri(format!("/v1/datasets/{id}/branches/master/transactions"))
         .header("authorization", format!("Bearer {}", h.token))
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&json!({"type":"APPEND","providence":{}})).unwrap()))
+        .body(Body::from(
+            serde_json::to_vec(&json!({"type":"APPEND","providence":{}})).unwrap(),
+        ))
         .unwrap();
     let resp = h.router.clone().oneshot(req).await.expect("router");
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
@@ -42,12 +44,22 @@ async fn aborted_transactions_are_marked_for_retention() {
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/v1/datasets/{id}/branches/master/transactions/{txn}:abort"))
+        .uri(format!(
+            "/v1/datasets/{id}/branches/master/transactions/{txn}:abort"
+        ))
         .header("authorization", format!("Bearer {}", h.token))
         .header("content-type", "application/json")
         .body(Body::from(b"{}".to_vec()))
         .unwrap();
-    assert!(h.router.clone().oneshot(req).await.unwrap().status().is_success());
+    assert!(
+        h.router
+            .clone()
+            .oneshot(req)
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
 
     // Direct DB assertion: status/abort metadata recorded.
     let row = sqlx::query("SELECT status, aborted_at FROM dataset_transactions WHERE id = $1")

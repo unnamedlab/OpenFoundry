@@ -63,7 +63,9 @@ impl DatasetWriter for LegacyDatasetWriter {
         }
 
         let data_path = self.data_path(&snapshot);
-        self.backend.put(&data_path, snapshot.payload.clone()).await?;
+        self.backend
+            .put(&data_path, snapshot.payload.clone())
+            .await?;
 
         if !snapshot.metadata.is_null() {
             let meta_bytes = serde_json::to_vec(&snapshot.metadata).map_err(|e| {
@@ -102,8 +104,18 @@ mod tests {
         let outcome = writer.append(snapshot).await.unwrap();
 
         assert_eq!(outcome.backend, "legacy");
-        assert!(backend.exists("dataset_service/ds_1/snapshots/snap_1.bin").await.unwrap());
-        assert!(backend.exists("dataset_service/ds_1/snapshots/snap_1.json").await.unwrap());
+        assert!(
+            backend
+                .exists("dataset_service/ds_1/snapshots/snap_1.bin")
+                .await
+                .unwrap()
+        );
+        assert!(
+            backend
+                .exists("dataset_service/ds_1/snapshots/snap_1.json")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

@@ -37,7 +37,10 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use futures::TryStreamExt;
+use iceberg::CatalogBuilder;
+use iceberg::expr::Predicate;
 use iceberg::spec::DataFileFormat;
+use iceberg::table::Table;
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::writer::base_writer::data_file_writer::DataFileWriterBuilder;
 use iceberg::writer::file_writer::ParquetWriterBuilder;
@@ -50,9 +53,6 @@ use iceberg::{Catalog, NamespaceIdent, TableIdent};
 use iceberg_catalog_rest::{
     REST_CATALOG_PROP_URI, REST_CATALOG_PROP_WAREHOUSE, RestCatalogBuilder,
 };
-use iceberg::CatalogBuilder;
-use iceberg::expr::Predicate;
-use iceberg::table::Table;
 use parquet::file::properties::WriterProperties;
 
 /// Errors returned by the Iceberg integration layer.
@@ -117,10 +117,7 @@ impl IcebergTable {
         namespace: &[&str],
         name: &str,
     ) -> IcebergResult<Self> {
-        let props = HashMap::from([(
-            REST_CATALOG_PROP_URI.to_string(),
-            catalog_url.to_string(),
-        )]);
+        let props = HashMap::from([(REST_CATALOG_PROP_URI.to_string(), catalog_url.to_string())]);
         let catalog = RestCatalogBuilder::default().load("rest", props).await?;
         let catalog: Arc<dyn Catalog> = Arc::new(catalog);
 
@@ -184,10 +181,7 @@ impl IcebergTable {
     /// location (using the table's [`FileIO`], i.e. its underlying
     /// object store) and committed via a `FastAppend` transaction.
     /// On success, the cached [`Table`] snapshot is refreshed.
-    pub async fn append_record_batches(
-        &mut self,
-        batches: Vec<RecordBatch>,
-    ) -> IcebergResult<()> {
+    pub async fn append_record_batches(&mut self, batches: Vec<RecordBatch>) -> IcebergResult<()> {
         if batches.is_empty() {
             return Ok(());
         }
@@ -196,11 +190,8 @@ impl IcebergTable {
         // table's own FileIO (which is configured by the catalog from
         // the same object_store backend).
         let location_generator = DefaultLocationGenerator::new(self.table.metadata().clone())?;
-        let file_name_generator = DefaultFileNameGenerator::new(
-            "data".to_string(),
-            None,
-            DataFileFormat::Parquet,
-        );
+        let file_name_generator =
+            DefaultFileNameGenerator::new("data".to_string(), None, DataFileFormat::Parquet);
         let parquet_builder = ParquetWriterBuilder::new(
             WriterProperties::default(),
             self.table.metadata().current_schema().clone(),
@@ -235,9 +226,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::{Int32Array, RecordBatch, StringArray};
-    use arrow_schema::{
-        DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema,
-    };
+    use arrow_schema::{DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema};
     use iceberg::memory::{MEMORY_CATALOG_WAREHOUSE, MemoryCatalogBuilder};
     use iceberg::spec::{NestedField, PrimitiveType, Schema, Type};
     use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableCreation, TableIdent};
@@ -260,10 +249,8 @@ mod tests {
         // Iceberg writes Arrow files with the field-id metadata key set on
         // each field. Build an Arrow schema that matches what the
         // `ParquetWriterBuilder` expects.
-        let id_meta =
-            HashMap::from([("PARQUET:field_id".to_string(), "1".to_string())]);
-        let name_meta =
-            HashMap::from([("PARQUET:field_id".to_string(), "2".to_string())]);
+        let id_meta = HashMap::from([("PARQUET:field_id".to_string(), "1".to_string())]);
+        let name_meta = HashMap::from([("PARQUET:field_id".to_string(), "2".to_string())]);
         ArrowSchema::new(vec![
             ArrowField::new("id", ArrowDataType::Int32, false).with_metadata(id_meta),
             ArrowField::new("name", ArrowDataType::Utf8, false).with_metadata(name_meta),

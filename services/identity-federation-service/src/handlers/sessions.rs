@@ -30,10 +30,10 @@ pub async fn list_scoped_sessions(
         return json_error(StatusCode::FORBIDDEN, "missing permission sessions:self");
     }
 
-    match sessions::list_scoped_sessions(&state.db, claims.sub).await {
+    match sessions::list_scoped_sessions(&state.sessions, claims.sub).await {
         Ok(items) => Json(items).into_response(),
         Err(error) => {
-            tracing::error!("failed to list scoped sessions: {error}");
+            tracing::error!("failed to list scoped sessions: {error:?}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -105,6 +105,7 @@ pub async fn create_scoped_session(
 
     match sessions::issue_scoped_session(
         &state.db,
+        &state.sessions,
         &state.jwt_config,
         &user,
         body.label.trim(),
@@ -125,8 +126,16 @@ pub async fn create_scoped_session(
             tracing::error!("failed to persist scoped session: {error}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
+        Err(ScopedSessionError::Cassandra(error)) => {
+            tracing::error!("failed to persist scoped session in Cassandra: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
         Err(ScopedSessionError::Token(error)) => {
             tracing::error!("failed to issue scoped session token: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(ScopedSessionError::Decode(error)) => {
+            tracing::error!("failed to decode scoped session: {error}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -211,6 +220,7 @@ pub async fn create_guest_session(
 
     match sessions::issue_scoped_session(
         &state.db,
+        &state.sessions,
         &state.jwt_config,
         &user,
         body.label.trim(),
@@ -231,8 +241,16 @@ pub async fn create_guest_session(
             tracing::error!("failed to persist guest session: {error}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
+        Err(ScopedSessionError::Cassandra(error)) => {
+            tracing::error!("failed to persist guest session in Cassandra: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
         Err(ScopedSessionError::Token(error)) => {
             tracing::error!("failed to issue guest session token: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(ScopedSessionError::Decode(error)) => {
+            tracing::error!("failed to decode guest session: {error}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -248,7 +266,7 @@ pub async fn revoke_scoped_session(
     }
 
     match sessions::revoke_scoped_session(
-        &state.db,
+        &state.sessions,
         session_id,
         claims.sub,
         claims.has_permission("sessions", "write"),
@@ -258,7 +276,7 @@ pub async fn revoke_scoped_session(
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
-            tracing::error!("failed to revoke scoped session: {error}");
+            tracing::error!("failed to revoke scoped session: {error:?}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

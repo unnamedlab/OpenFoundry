@@ -257,7 +257,11 @@ mod tests {
     use bytes::Bytes;
     use storage_abstraction::local::LocalStorage;
 
-    fn fixture() -> (tempfile::TempDir, Arc<dyn StorageBackend>, Arc<InMemoryCatalog>) {
+    fn fixture() -> (
+        tempfile::TempDir,
+        Arc<dyn StorageBackend>,
+        Arc<InMemoryCatalog>,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let store = LocalStorage::new(dir.path().to_str().unwrap()).unwrap();
         (dir, Arc::new(store), Arc::new(InMemoryCatalog::new()))
@@ -266,11 +270,7 @@ mod tests {
     #[tokio::test]
     async fn append_writes_data_file_and_commits_snapshot() {
         let (_guard, backend, catalog) = fixture();
-        let writer = IcebergDatasetWriter::new(
-            backend.clone(),
-            catalog.clone(),
-            "dataset_service",
-        );
+        let writer = IcebergDatasetWriter::new(backend.clone(), catalog.clone(), "dataset_service");
 
         let snapshot = DatasetSnapshot::new("ds_42", "snap_001", Bytes::from_static(b"row"))
             .with_metadata(serde_json::json!({"rows": 1}));
@@ -287,7 +287,10 @@ mod tests {
         let commits = catalog.snapshots(&IcebergTableRef::new("dataset_service", "ds_42"));
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].snapshot_id, "snap_001");
-        assert_eq!(commits[0].data_file, "dataset_service/ds_42/data/snap_001.parquet");
+        assert_eq!(
+            commits[0].data_file,
+            "dataset_service/ds_42/data/snap_001.parquet"
+        );
     }
 
     #[tokio::test]

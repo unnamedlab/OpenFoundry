@@ -17,6 +17,14 @@ workspace = true
 [dependencies.async-trait]
 workspace = true
 
+[dependencies.arrow-array]
+version = "57.3"
+optional = true
+
+[dependencies.arrow-schema]
+version = "57.3"
+optional = true
+
 [dependencies.chrono]
 workspace = true
 
@@ -25,6 +33,11 @@ workspace = true
 
 [dependencies.serde_json]
 workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+features = ["iceberg"]
+optional = true
 
 [dependencies.thiserror]
 workspace = true
@@ -53,8 +66,14 @@ optional = true
 
 [features]
 default = []
-# Production wiring: rdkafka subscriber + Iceberg writer + metrics.
-runtime = ["dep:event-bus-data", "dep:prometheus"]
+# Production wiring: rdkafka subscriber + Iceberg Arrow/Parquet writer + metrics.
+runtime = [
+    "dep:arrow-array",
+    "dep:arrow-schema",
+    "dep:event-bus-data",
+    "dep:prometheus",
+    "dep:storage-abstraction",
+]
 
 [lib]
 path = "src/lib.rs"

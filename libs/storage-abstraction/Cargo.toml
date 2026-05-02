@@ -59,13 +59,13 @@ optional = true
 
 # `iceberg` 0.9 re-exports neither `arrow-array` nor `parquet`, but our
 # `iceberg` module needs them to construct `RecordBatch`es and Parquet
-# `WriterProperties`. We pin the same versions iceberg-rust depends on.
+# `WriterProperties`. These versions must match iceberg-rust's public API.
 [dependencies.arrow-array]
-version = "53"
+version = "57.3"
 optional = true
 
 [dependencies.parquet]
-version = "53"
+version = "57.3"
 optional = true
 features = ["async"]
 
@@ -82,9 +82,9 @@ iceberg = [
 ]
 
 [dev-dependencies]
-arrow-array = "53"
-arrow-schema = "53"
-parquet = { version = "53", features = ["async"] }
+arrow-array = "57.3"
+arrow-schema = "57.3"
+parquet = { version = "57.3", features = ["async"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 

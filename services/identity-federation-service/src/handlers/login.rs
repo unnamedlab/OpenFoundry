@@ -122,6 +122,7 @@ pub async fn login(
 
     match issue_tokens(
         &state.db,
+        &state.sessions,
         &state.jwt_config,
         &user,
         vec!["password".to_string()],

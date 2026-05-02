@@ -108,7 +108,10 @@ mod tests {
     fn sort_matches_target_constant() {
         // `iceberg_target::SORT_ORDER` is `"at ASC"`.
         let upper = SORT_DIRECTION.to_ascii_uppercase();
-        assert_eq!(format!("{} {}", SORT_FIELD, upper), iceberg_target::SORT_ORDER);
+        assert_eq!(
+            format!("{} {}", SORT_FIELD, upper),
+            iceberg_target::SORT_ORDER
+        );
     }
 
     #[test]
@@ -123,9 +126,11 @@ mod tests {
         assert!(!retention::EXPIRE_SNAPSHOTS_ENABLED);
         assert_eq!(retention::SNAPSHOT_RETENTION, "infinite");
         // Property table must encode the same fact for the catalog.
-        assert!(retention::TABLE_PROPERTIES
-            .iter()
-            .any(|(k, v)| *k == "history.expire.min-snapshots-to-keep" && *v == "2147483647"));
+        assert!(
+            retention::TABLE_PROPERTIES
+                .iter()
+                .any(|(k, v)| *k == "history.expire.min-snapshots-to-keep" && *v == "2147483647")
+        );
     }
 
     #[test]

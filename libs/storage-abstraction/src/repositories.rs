@@ -324,11 +324,7 @@ pub trait ObjectStore: Send + Sync {
 
     /// Insert or update with optimistic concurrency.
     /// `expected_version = None` ⇒ insert-only (fails on conflict).
-    async fn put(
-        &self,
-        obj: Object,
-        expected_version: Option<u64>,
-    ) -> RepoResult<PutOutcome>;
+    async fn put(&self, obj: Object, expected_version: Option<u64>) -> RepoResult<PutOutcome>;
 
     /// Delete by `(tenant, id)`. Returns `Ok(false)` if the object
     /// did not exist — deletes are idempotent.
@@ -649,11 +645,7 @@ pub mod noop {
                 .cloned())
         }
 
-        async fn put(
-            &self,
-            obj: Object,
-            expected_version: Option<u64>,
-        ) -> RepoResult<PutOutcome> {
+        async fn put(&self, obj: Object, expected_version: Option<u64>) -> RepoResult<PutOutcome> {
             let mut rows = self.rows.lock().unwrap();
             let key = (obj.tenant.clone(), obj.id.clone());
             match (rows.get(&key).cloned(), expected_version) {
@@ -688,11 +680,7 @@ pub mod noop {
             }
         }
 
-        async fn delete(
-            &self,
-            tenant: &TenantId,
-            id: &ObjectId,
-        ) -> RepoResult<bool> {
+        async fn delete(&self, tenant: &TenantId, id: &ObjectId) -> RepoResult<bool> {
             Ok(self
                 .rows
                 .lock()
@@ -738,7 +726,10 @@ pub mod noop {
                 .collect();
             items.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
             items.truncate(page.size.max(1) as usize);
-            Ok(PagedResult { items, next_token: None })
+            Ok(PagedResult {
+                items,
+                next_token: None,
+            })
         }
 
         async fn list_by_marking(
@@ -751,14 +742,15 @@ pub mod noop {
             let rows = self.rows.lock().unwrap();
             let mut items: Vec<Object> = rows
                 .values()
-                .filter(|o| {
-                    &o.tenant == tenant && o.markings.iter().any(|m| m == marking)
-                })
+                .filter(|o| &o.tenant == tenant && o.markings.iter().any(|m| m == marking))
                 .cloned()
                 .collect();
             items.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
             items.truncate(page.size.max(1) as usize);
-            Ok(PagedResult { items, next_token: None })
+            Ok(PagedResult {
+                items,
+                next_token: None,
+            })
         }
     }
 
@@ -813,11 +805,7 @@ pub mod noop {
             let rows = self.rows.lock().unwrap();
             let items: Vec<Link> = rows
                 .iter()
-                .filter(|l| {
-                    l.tenant == *tenant
-                        && l.link_type == *link_type
-                        && l.from == *from
-                })
+                .filter(|l| l.tenant == *tenant && l.link_type == *link_type && l.from == *from)
                 .take(page.size.max(1) as usize)
                 .cloned()
                 .collect();
@@ -838,11 +826,7 @@ pub mod noop {
             let rows = self.rows.lock().unwrap();
             let items: Vec<Link> = rows
                 .iter()
-                .filter(|l| {
-                    l.tenant == *tenant
-                        && l.link_type == *link_type
-                        && l.to == *to
-                })
+                .filter(|l| l.tenant == *tenant && l.link_type == *link_type && l.to == *to)
                 .take(page.size.max(1) as usize)
                 .cloned()
                 .collect();
@@ -1025,32 +1009,29 @@ pub mod noop {
         ) -> RepoResult<PagedResult<SearchHit>> {
             let rows = self.rows.lock().unwrap();
             let q = query.q.unwrap_or_default().to_lowercase();
-            let mut items: Vec<SearchHit> = rows
-                .values()
-                .filter(|d| d.tenant == query.tenant)
-                .filter(|d| {
-                    query.type_id.as_ref().map_or(true, |t| &d.type_id == t)
-                })
-                .filter(|d| {
-                    query
-                        .filters
-                        .iter()
-                        .all(|(k, v)| d.payload.get(k).and_then(|x| x.as_str()) == Some(v.as_str()))
-                })
-                .filter(|d| {
-                    if q.is_empty() {
-                        true
-                    } else {
-                        d.payload.to_string().to_lowercase().contains(&q)
-                    }
-                })
-                .map(|d| SearchHit {
-                    id: d.id.clone(),
-                    type_id: d.type_id.clone(),
-                    score: 1.0,
-                    snippet: Some(d.payload.clone()),
-                })
-                .collect();
+            let mut items: Vec<SearchHit> =
+                rows.values()
+                    .filter(|d| d.tenant == query.tenant)
+                    .filter(|d| query.type_id.as_ref().map_or(true, |t| &d.type_id == t))
+                    .filter(|d| {
+                        query.filters.iter().all(|(k, v)| {
+                            d.payload.get(k).and_then(|x| x.as_str()) == Some(v.as_str())
+                        })
+                    })
+                    .filter(|d| {
+                        if q.is_empty() {
+                            true
+                        } else {
+                            d.payload.to_string().to_lowercase().contains(&q)
+                        }
+                    })
+                    .map(|d| SearchHit {
+                        id: d.id.clone(),
+                        type_id: d.type_id.clone(),
+                        score: 1.0,
+                        snippet: Some(d.payload.clone()),
+                    })
+                    .collect();
             items.truncate(query.page.size.max(1) as usize);
             Ok(PagedResult {
                 items,
@@ -1070,11 +1051,7 @@ pub mod noop {
             Ok(())
         }
 
-        async fn delete(
-            &self,
-            tenant: &TenantId,
-            id: &ObjectId,
-        ) -> RepoResult<bool> {
+        async fn delete(&self, tenant: &TenantId, id: &ObjectId) -> RepoResult<bool> {
             Ok(self
                 .rows
                 .lock()
@@ -1105,21 +1082,21 @@ pub mod noop {
             }
 
             let rows = self.rows.lock().unwrap();
-            let mut scored: Vec<(f32, &IndexDoc)> = rows
-                .values()
-                .filter(|d| d.tenant == query.tenant)
-                .filter(|d| query.type_id.as_ref().map_or(true, |t| &d.type_id == t))
-                .filter(|d| {
-                    query.filters.iter().all(|(k, v)| {
-                        d.payload.get(k).and_then(|x| x.as_str()) == Some(v.as_str())
+            let mut scored: Vec<(f32, &IndexDoc)> =
+                rows.values()
+                    .filter(|d| d.tenant == query.tenant)
+                    .filter(|d| query.type_id.as_ref().map_or(true, |t| &d.type_id == t))
+                    .filter(|d| {
+                        query.filters.iter().all(|(k, v)| {
+                            d.payload.get(k).and_then(|x| x.as_str()) == Some(v.as_str())
+                        })
                     })
-                })
-                .filter_map(|d| {
-                    d.embedding
-                        .as_ref()
-                        .map(|e| (cosine(e, &query.embedding), d))
-                })
-                .collect();
+                    .filter_map(|d| {
+                        d.embedding
+                            .as_ref()
+                            .map(|e| (cosine(e, &query.embedding), d))
+                    })
+                    .collect();
             scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
             scored.truncate(query.k.max(1));
             Ok(scored
@@ -1162,10 +1139,7 @@ mod tests {
         let s = InMemoryObjectStore::default();
         let o = obj("t1", "obj1", "type1", 0);
 
-        assert_eq!(
-            s.put(o.clone(), None).await.unwrap(),
-            PutOutcome::Inserted
-        );
+        assert_eq!(s.put(o.clone(), None).await.unwrap(), PutOutcome::Inserted);
 
         // Update with correct expected version succeeds.
         let outcome = s.put(o.clone(), Some(1)).await.unwrap();
@@ -1257,7 +1231,10 @@ mod tests {
             .list_by_owner(
                 &TenantId("t1".into()),
                 &OwnerId("alice".into()),
-                Page { size: 10, token: None },
+                Page {
+                    size: 10,
+                    token: None,
+                },
                 ReadConsistency::Eventual,
             )
             .await
@@ -1268,7 +1245,10 @@ mod tests {
             .list_by_marking(
                 &TenantId("t1".into()),
                 &MarkingId("secret".into()),
-                Page { size: 10, token: None },
+                Page {
+                    size: 10,
+                    token: None,
+                },
                 ReadConsistency::Eventual,
             )
             .await
@@ -1280,7 +1260,10 @@ mod tests {
             .list_by_owner(
                 &TenantId("t2".into()),
                 &OwnerId("alice".into()),
-                Page { size: 10, token: None },
+                Page {
+                    size: 10,
+                    token: None,
+                },
                 ReadConsistency::Eventual,
             )
             .await

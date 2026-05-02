@@ -20,11 +20,7 @@ pub struct DatasetSnapshot {
 }
 
 impl DatasetSnapshot {
-    pub fn new(
-        table: impl Into<String>,
-        snapshot_id: impl Into<String>,
-        payload: Bytes,
-    ) -> Self {
+    pub fn new(table: impl Into<String>, snapshot_id: impl Into<String>, payload: Bytes) -> Self {
         Self {
             table: table.into(),
             snapshot_id: snapshot_id.into(),

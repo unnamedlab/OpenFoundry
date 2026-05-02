@@ -87,11 +87,7 @@ impl RotationPolicy {
     /// Returns true iff `now` falls inside the dual-publication
     /// window where both the previous and the current key must
     /// appear in JWKS.
-    pub fn is_in_grace(
-        &self,
-        prev_activated_at: DateTime<Utc>,
-        now: DateTime<Utc>,
-    ) -> bool {
+    pub fn is_in_grace(&self, prev_activated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
         let (rotate_at, retire_at) = self.rotate_and_retire(prev_activated_at);
         now >= rotate_at && now < retire_at
     }

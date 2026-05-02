@@ -47,16 +47,14 @@ Anything else fails loudly (`panic!`) at startup.
 | Lag SLO | P99 < 5 s (`ontology_indexer_lag_seconds`) |
 | Alert | [`prometheus-rules-indexer.yaml`](../../infra/k8s/observability/prometheus-rules-indexer.yaml) |
 
-## Substrate vs runtime
+## Runtime
 
-This crate ships:
+This crate ships both:
 
 1. **Pure logic** (always compiled) — payload decoder
    ([`decode_object_changed`](src/lib.rs)), `BackendKind` selector,
    topic + metric name constants.
 2. **Runtime wiring** behind feature `runtime` — Kafka consumer
-   loop, Prometheus metrics. The binary requires `runtime`.
-
-The actual consumer loop is wired handler-by-handler in follow-up
-PRs (same substrate-first pattern as
-[S3.2.d](../identity-federation-service)).
+   loop that calls `SearchBackend::index` / `SearchBackend::delete`
+   and commits Kafka offsets only after the backend write succeeds.
+   The binary requires `runtime`.

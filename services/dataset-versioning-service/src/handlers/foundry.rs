@@ -324,7 +324,12 @@ pub async fn create_branch(
                 ));
             }
             (Some(row.get::<Uuid, _>("branch_id")), Some(txn_id))
-        } else if let Some(p) = body.parent_branch.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        } else if let Some(p) = body
+            .parent_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
             let parent = load_branch(&state, dataset_id, p).await?;
             (Some(parent.id), parent.head_transaction_id)
         } else {
@@ -547,13 +552,17 @@ pub async fn start_transaction(
     .fetch_one(&state.db)
     .await
     .map_err(|e| match e {
-        sqlx::Error::Database(db) if db.constraint() == Some("uq_dataset_transactions_one_open_per_branch") => (
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "branch already has an OPEN transaction",
-                "branch": target.name,
-            })),
-        ),
+        sqlx::Error::Database(db)
+            if db.constraint() == Some("uq_dataset_transactions_one_open_per_branch") =>
+        {
+            (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "branch already has an OPEN transaction",
+                    "branch": target.name,
+                })),
+            )
+        }
         other => internal(other),
     })?;
 

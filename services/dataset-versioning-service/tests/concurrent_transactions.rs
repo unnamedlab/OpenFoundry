@@ -26,10 +26,13 @@ async fn fifty_concurrent_branch_appends_complete_without_corruption() {
             .uri(format!("/v1/datasets/{id}/branches"))
             .header("authorization", format!("Bearer {}", h.token))
             .header("content-type", "application/json")
-            .body(Body::from(serde_json::to_vec(&json!({
-                "name": format!("br-{i}"),
-                "parent_branch": "master",
-            })).unwrap()))
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "name": format!("br-{i}"),
+                    "parent_branch": "master",
+                }))
+                .unwrap(),
+            ))
             .unwrap();
         let resp = h.router.clone().oneshot(req).await.expect("router");
         assert!(resp.status().is_success(), "create br-{i}");
@@ -47,7 +50,9 @@ async fn fifty_concurrent_branch_appends_complete_without_corruption() {
                 .uri(format!("/v1/datasets/{id}/branches/{branch}/transactions"))
                 .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
-                .body(Body::from(b"{\"type\":\"APPEND\",\"providence\":{}}".to_vec()))
+                .body(Body::from(
+                    b"{\"type\":\"APPEND\",\"providence\":{}}".to_vec(),
+                ))
                 .unwrap();
             let resp = router.clone().oneshot(req).await.expect("router");
             assert!(resp.status().is_success(), "open on {branch}");

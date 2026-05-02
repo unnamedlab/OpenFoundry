@@ -14,13 +14,26 @@
 //! `pg-schemas.auth_schema.jwks_keys` (rare rotation, custody in
 //! Vault).
 //!
-//! The bin (`src/main.rs`) is intentionally empty during the cutover.
+//! The bin (`src/main.rs`) is intentionally thin during the cutover.
 //! Handler-by-handler refactor is sequenced through follow-up PRs;
-//! this crate exposes the substrate (typed adapters, pure functions,
-//! testable trait surfaces) the new handlers will consume. Legacy
-//! `handlers/*` and `models/*` directories under `src/` remain in
-//! place but are NOT re-exported from this lib — they stay private
-//! to the bin until each handler is migrated.
+//! this crate exposes the substrate (typed adapters, domain functions,
+//! testable trait surfaces) the new handlers consume. Runtime session
+//! and refresh-token domain code now routes through Cassandra adapters;
+//! Postgres remains for control-plane user/RBAC reads.
 
+use auth_middleware::jwt::JwtConfig;
+use sessions_cassandra::SessionsAdapter;
+use sqlx::PgPool;
+
+pub mod domain;
+pub mod handlers;
 pub mod hardening;
+pub mod models;
 pub mod sessions_cassandra;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db: PgPool,
+    pub jwt_config: JwtConfig,
+    pub sessions: SessionsAdapter,
+}

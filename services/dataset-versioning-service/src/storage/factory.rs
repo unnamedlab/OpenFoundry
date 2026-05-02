@@ -1,6 +1,6 @@
 //! Selects the [`DatasetWriter`] implementation at startup based on runtime
-//! configuration, with graceful degradation when Iceberg is requested but no
-//! REST Catalog endpoint has been provided.
+//! configuration. If Iceberg is requested, the REST Catalog endpoint is
+//! mandatory so the service cannot silently fall back to legacy writes.
 
 use std::sync::Arc;
 
@@ -31,8 +31,7 @@ impl WriterBackendKind {
 /// Iceberg-specific runtime settings.
 #[derive(Debug, Clone)]
 pub struct IcebergSettings {
-    /// REST Catalog endpoint, e.g. `http://iceberg-catalog:8181`. When `None`
-    /// the factory falls back to the legacy writer with a warning log.
+    /// REST Catalog endpoint, e.g. `http://iceberg-catalog:8181`.
     pub catalog_url: Option<String>,
     /// Catalog namespace this service writes into. For
     /// `dataset-versioning-service` this is `dataset_service`.
@@ -46,25 +45,49 @@ pub struct WriterSettings {
     pub iceberg: IcebergSettings,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum WriterFactoryError {
+    #[error("DATASET_WRITER_BACKEND=iceberg requires ICEBERG_CATALOG_URL")]
+    MissingIcebergCatalogUrl,
+}
+
+impl WriterSettings {
+    pub fn validate(&self) -> Result<(), WriterFactoryError> {
+        if self.backend == WriterBackendKind::Iceberg
+            && self
+                .iceberg
+                .catalog_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .is_none()
+        {
+            return Err(WriterFactoryError::MissingIcebergCatalogUrl);
+        }
+        Ok(())
+    }
+}
+
 /// Build the configured writer.
 ///
 /// * If `backend == Legacy`, returns the legacy writer wrapping `storage`.
 /// * If `backend == Iceberg` and `iceberg.catalog_url` is set, returns the
 ///   Iceberg writer talking to the REST Catalog at that URL.
-/// * If `backend == Iceberg` but `iceberg.catalog_url` is `None`, logs a
-///   warning and falls back to the legacy writer. This is the documented
-///   "graceful degradation" path so the service still starts.
 pub fn build_dataset_writer(
     storage: Arc<dyn StorageBackend>,
     settings: &WriterSettings,
-) -> Arc<dyn DatasetWriter> {
+) -> Result<Arc<dyn DatasetWriter>, WriterFactoryError> {
+    settings.validate()?;
     match settings.backend {
         WriterBackendKind::Legacy => {
             tracing::info!(
                 namespace = %settings.iceberg.namespace,
                 "dataset writer: using legacy backend"
             );
-            Arc::new(LegacyDatasetWriter::new(storage, settings.iceberg.namespace.clone()))
+            Ok(Arc::new(LegacyDatasetWriter::new(
+                storage,
+                settings.iceberg.namespace.clone(),
+            )))
         }
         WriterBackendKind::Iceberg => match &settings.iceberg.catalog_url {
             Some(url) if !url.trim().is_empty() => {
@@ -74,22 +97,13 @@ pub fn build_dataset_writer(
                     "dataset writer: using Iceberg backend"
                 );
                 let catalog = Arc::new(RestCatalogClient::new(url.clone()));
-                Arc::new(IcebergDatasetWriter::new(
+                Ok(Arc::new(IcebergDatasetWriter::new(
                     storage,
                     catalog,
                     settings.iceberg.namespace.clone(),
-                ))
+                )))
             }
-            _ => {
-                tracing::warn!(
-                    namespace = %settings.iceberg.namespace,
-                    "ICEBERG_CATALOG_URL is not configured; falling back to legacy dataset writer"
-                );
-                Arc::new(LegacyDatasetWriter::new(
-                    storage,
-                    settings.iceberg.namespace.clone(),
-                ))
-            }
+            _ => unreachable!("WriterSettings::validate rejects empty Iceberg catalog URL"),
         },
     }
 }
@@ -100,14 +114,14 @@ pub fn build_dataset_writer(
 pub fn build_dataset_writer_with_in_memory_catalog(
     storage: Arc<dyn StorageBackend>,
     settings: &WriterSettings,
-) -> Arc<dyn DatasetWriter> {
+) -> Result<Arc<dyn DatasetWriter>, WriterFactoryError> {
     if settings.backend == WriterBackendKind::Iceberg {
         let catalog = Arc::new(InMemoryCatalog::new());
-        return Arc::new(IcebergDatasetWriter::new(
+        return Ok(Arc::new(IcebergDatasetWriter::new(
             storage,
             catalog,
             settings.iceberg.namespace.clone(),
-        ));
+        )));
     }
     build_dataset_writer(storage, settings)
 }
@@ -126,16 +140,28 @@ mod tests {
     #[test]
     fn parse_backend_defaults_to_legacy() {
         assert_eq!(WriterBackendKind::parse(""), WriterBackendKind::Legacy);
-        assert_eq!(WriterBackendKind::parse("legacy"), WriterBackendKind::Legacy);
-        assert_eq!(WriterBackendKind::parse("anything"), WriterBackendKind::Legacy);
-        assert_eq!(WriterBackendKind::parse("Iceberg"), WriterBackendKind::Iceberg);
-        assert_eq!(WriterBackendKind::parse("ICEBERG"), WriterBackendKind::Iceberg);
+        assert_eq!(
+            WriterBackendKind::parse("legacy"),
+            WriterBackendKind::Legacy
+        );
+        assert_eq!(
+            WriterBackendKind::parse("anything"),
+            WriterBackendKind::Legacy
+        );
+        assert_eq!(
+            WriterBackendKind::parse("Iceberg"),
+            WriterBackendKind::Iceberg
+        );
+        assert_eq!(
+            WriterBackendKind::parse("ICEBERG"),
+            WriterBackendKind::Iceberg
+        );
     }
 
     #[test]
-    fn iceberg_without_url_falls_back_to_legacy() {
+    fn iceberg_without_url_fails_fast() {
         let (_g, s) = storage();
-        let writer = build_dataset_writer(
+        let err = build_dataset_writer(
             s,
             &WriterSettings {
                 backend: WriterBackendKind::Iceberg,
@@ -144,8 +170,9 @@ mod tests {
                     namespace: "dataset_service".to_string(),
                 },
             },
-        );
-        assert_eq!(writer.backend_name(), "legacy");
+        )
+        .unwrap_err();
+        assert_eq!(err, WriterFactoryError::MissingIcebergCatalogUrl);
     }
 
     #[test]
@@ -160,14 +187,15 @@ mod tests {
                     namespace: "dataset_service".to_string(),
                 },
             },
-        );
+        )
+        .unwrap();
         assert_eq!(writer.backend_name(), "iceberg");
     }
 
     #[test]
-    fn iceberg_with_blank_url_falls_back_to_legacy() {
+    fn iceberg_with_blank_url_fails_fast() {
         let (_g, s) = storage();
-        let writer = build_dataset_writer(
+        let err = build_dataset_writer(
             s,
             &WriterSettings {
                 backend: WriterBackendKind::Iceberg,
@@ -176,7 +204,8 @@ mod tests {
                     namespace: "dataset_service".to_string(),
                 },
             },
-        );
-        assert_eq!(writer.backend_name(), "legacy");
+        )
+        .unwrap_err();
+        assert_eq!(err, WriterFactoryError::MissingIcebergCatalogUrl);
     }
 }

@@ -272,6 +272,7 @@ pub async fn complete_login(
     };
     match jwt::issue_tokens(
         &state.db,
+        &state.sessions,
         &state.jwt_config,
         &user,
         vec![provider_auth_method],

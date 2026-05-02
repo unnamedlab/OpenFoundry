@@ -29,7 +29,8 @@ async fn healthz_returns_200_and_metrics_exposes_dataset_prefix() {
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let body = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(
-        body.lines().any(|l| !l.starts_with('#') && l.starts_with("dataset_")),
+        body.lines()
+            .any(|l| !l.starts_with('#') && l.starts_with("dataset_")),
         "expected `dataset_*` metric line in /metrics, got:\n{body}"
     );
 }

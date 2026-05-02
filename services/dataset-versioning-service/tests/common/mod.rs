@@ -37,12 +37,13 @@ pub async fn spawn() -> Harness {
     let dir = tempfile::tempdir().expect("temp storage root");
     let backend: Arc<dyn StorageBackend> =
         Arc::new(LocalStorage::new(dir.path().to_str().unwrap()).expect("local storage"));
-    let writer: Arc<dyn DatasetWriter> =
-        Arc::new(LegacyDatasetWriter::new(backend, "tests"));
+    let writer: Arc<dyn DatasetWriter> = Arc::new(LegacyDatasetWriter::new(backend, "tests"));
 
     let jwt_config = fixtures::jwt_config();
-    let token =
-        fixtures::dev_token(&jwt_config, vec!["dataset.read".into(), "dataset.write".into()]);
+    let token = fixtures::dev_token(
+        &jwt_config,
+        vec!["dataset.read".into(), "dataset.write".into()],
+    );
 
     let mock = wiremock::MockServer::start().await;
     let neighbour = mock.uri();
