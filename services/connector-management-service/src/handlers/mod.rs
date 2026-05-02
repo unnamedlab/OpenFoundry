@@ -6,3 +6,4 @@ pub mod dev_auth;
 pub mod hyperauto;
 pub mod iceberg_catalog;
 pub mod registrations;
+pub mod webhooks;

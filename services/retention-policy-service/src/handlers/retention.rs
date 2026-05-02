@@ -1,7 +1,9 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
+    http::StatusCode,
 };
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
@@ -14,11 +16,32 @@ use crate::{
     },
 };
 
-pub async fn list_policies(State(state): State<AppState>) -> ServiceResult<Vec<RetentionPolicy>> {
+/// Query string for `GET /v1/policies`.
+///
+/// All fields are optional and AND-combined. The catalog/UI uses
+/// `dataset_rid` to fetch the policies that apply to a single dataset
+/// (T4.4 Retention tab); the deletion runner uses `active=true` to
+/// enumerate work to do.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ListPoliciesQuery {
+    /// Restrict to policies whose selector matches this dataset RID
+    /// (direct match, project membership, or `all_datasets=true`).
+    pub dataset_rid: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub marking_id: Option<Uuid>,
+    pub active: Option<bool>,
+    pub system_only: Option<bool>,
+}
+
+pub async fn list_policies(
+    State(state): State<AppState>,
+    Query(query): Query<ListPoliciesQuery>,
+) -> ServiceResult<Vec<RetentionPolicy>> {
     let policies = retention::load_policies(&state.db)
         .await
         .map_err(internal_error)?;
-    Ok(Json(policies))
+    Ok(Json(retention::filter_policies(policies, &query)))
 }
 
 pub async fn create_policy(
@@ -35,11 +58,13 @@ pub async fn create_policy(
         return Err(bad_request("updated_by is required"));
     }
     let rules = retention::policy_rules_payload(&request).map_err(internal_error)?;
+    let selector = serde_json::to_value(&request.selector).map_err(|e| internal_error(e.to_string()))?;
+    let criteria = serde_json::to_value(&request.criteria).map_err(|e| internal_error(e.to_string()))?;
 
     let row = sqlx::query_as::<_, crate::models::retention::RetentionPolicyRow>(
-        "INSERT INTO retention_policies (id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-         RETURNING id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, created_at, updated_at",
+        "INSERT INTO retention_policies (id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, selector, criteria, grace_period_minutes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13)
+         RETURNING id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, is_system, selector, criteria, grace_period_minutes, last_applied_at, next_run_at, created_at, updated_at",
     )
     .bind(Uuid::now_v7())
     .bind(&request.name)
@@ -51,6 +76,9 @@ pub async fn create_policy(
     .bind(rules)
     .bind(&request.updated_by)
     .bind(request.active)
+    .bind(selector)
+    .bind(criteria)
+    .bind(request.grace_period_minutes)
     .fetch_one(&state.db)
     .await
     .map_err(|cause| internal_error(cause.to_string()))?;
@@ -73,12 +101,14 @@ pub async fn update_policy(
     };
     retention::apply_update(&mut policy, request);
     let rules = retention::updated_rules_payload(&policy.rules).map_err(internal_error)?;
+    let selector = serde_json::to_value(&policy.selector).map_err(|e| internal_error(e.to_string()))?;
+    let criteria = serde_json::to_value(&policy.criteria).map_err(|e| internal_error(e.to_string()))?;
 
     let row = sqlx::query_as::<_, crate::models::retention::RetentionPolicyRow>(
         "UPDATE retention_policies
-         SET name = $2, scope = $3, target_kind = $4, retention_days = $5, legal_hold = $6, purge_mode = $7, rules = $8::jsonb, updated_by = $9, active = $10, updated_at = NOW()
+         SET name = $2, scope = $3, target_kind = $4, retention_days = $5, legal_hold = $6, purge_mode = $7, rules = $8::jsonb, updated_by = $9, active = $10, selector = $11::jsonb, criteria = $12::jsonb, grace_period_minutes = $13, updated_at = NOW()
          WHERE id = $1
-         RETURNING id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, created_at, updated_at",
+         RETURNING id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, is_system, selector, criteria, grace_period_minutes, last_applied_at, next_run_at, created_at, updated_at",
     )
     .bind(policy_id)
     .bind(&policy.name)
@@ -90,6 +120,9 @@ pub async fn update_policy(
     .bind(rules)
     .bind(&policy.updated_by)
     .bind(policy.active)
+    .bind(selector)
+    .bind(criteria)
+    .bind(policy.grace_period_minutes)
     .fetch_one(&state.db)
     .await
     .map_err(|cause| internal_error(cause.to_string()))?;
@@ -97,6 +130,48 @@ pub async fn update_policy(
     Ok(Json(
         RetentionPolicy::try_from(row).map_err(internal_error)?,
     ))
+}
+
+/// `GET /v1/policies/{id}`.
+pub async fn get_policy(
+    State(state): State<AppState>,
+    Path(policy_id): Path<Uuid>,
+) -> ServiceResult<RetentionPolicy> {
+    match retention::load_policy(&state.db, policy_id)
+        .await
+        .map_err(internal_error)?
+    {
+        Some(policy) => Ok(Json(policy)),
+        None => Err(not_found("retention policy not found")),
+    }
+}
+
+/// `DELETE /v1/policies/{id}`. System policies (`is_system = true`)
+/// can never be deleted: returns 409 Conflict.
+pub async fn delete_policy(
+    State(state): State<AppState>,
+    Path(policy_id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, Json<crate::handlers::ErrorResponse>)> {
+    let Some(existing) = retention::load_policy(&state.db, policy_id)
+        .await
+        .map_err(internal_error)?
+    else {
+        return Err(not_found("retention policy not found"));
+    };
+    if existing.is_system {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(crate::handlers::ErrorResponse {
+                error: "system policies cannot be deleted".into(),
+            }),
+        ));
+    }
+    sqlx::query("DELETE FROM retention_policies WHERE id = $1")
+        .bind(policy_id)
+        .execute(&state.db)
+        .await
+        .map_err(|cause| internal_error(cause.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn list_jobs(State(state): State<AppState>) -> ServiceResult<Vec<RetentionJob>> {

@@ -18,8 +18,9 @@ use ontology_kernel::{
     handlers::actions::{
         create_action_type, create_action_what_if_branch, delete_action_type,
         delete_action_what_if_branch, execute_action, execute_action_batch, execute_inline_edit,
-        get_action_type, list_action_types, list_action_what_if_branches, update_action_type,
-        validate_action,
+        execute_inline_edit_batch, get_action_metrics, get_action_type, list_action_types,
+        list_action_what_if_branches, list_applicable_actions, update_action_type,
+        upload_action_attachment, validate_action,
     },
 };
 
@@ -42,6 +43,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/actions/{id}/validate", post(validate_action))
         .route("/actions/{id}/execute", post(execute_action))
+        .route("/actions/{id}/metrics", get(get_action_metrics))
         .route(
             "/actions/{id}/execute-batch",
             post(execute_action_batch),
@@ -57,7 +59,23 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/types/{type_id}/properties/{property_id}/objects/{obj_id}/inline-edit",
             post(execute_inline_edit),
-        );
+        )
+        // TASK L — Bulk inline-edit endpoint. Validates each entry
+        // independently and rejects duplicates targeting the same object.
+        .route(
+            "/types/{type_id}/inline-edit-batch",
+            post(execute_inline_edit_batch),
+        )
+        // TASK N — Applicable actions helper. Filters actions attached to
+        // an object type by selection kind (single vs bulk).
+        .route(
+            "/types/{type_id}/applicable-actions",
+            get(list_applicable_actions),
+        )
+        // TASK P — Attachment upload endpoint. Returns an opaque
+        // attachment_rid that callers thread through as the value of
+        // `attachment` or `media_reference` action parameters.
+        .route("/actions/uploads", post(upload_action_attachment));
 
     Router::new()
         .nest("/api/v1/ontology", actions)

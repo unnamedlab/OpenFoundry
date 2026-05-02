@@ -28,6 +28,10 @@ pub struct AppConfig {
     pub s3_secret_key: Option<String>,
     #[serde(default)]
     pub local_storage_root: Option<String>,
+    /// T4.2 — interval (in seconds) between retention runner ticks.
+    /// `0` disables the worker (used by tests / one-shot CLI runs).
+    #[serde(default = "default_retention_tick_interval")]
+    pub retention_tick_interval: u64,
 }
 
 fn default_host() -> String {
@@ -56,6 +60,10 @@ fn default_storage_backend() -> String {
 
 fn default_storage_bucket() -> String {
     "datasets".to_string()
+}
+
+fn default_retention_tick_interval() -> u64 {
+    300
 }
 
 impl AppConfig {

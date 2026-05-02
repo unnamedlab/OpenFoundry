@@ -117,7 +117,10 @@ pub struct GatewayConfig {
     pub document_reporting_service_url: String,
     #[serde(default = "default_entity_resolution_service_url")]
     pub entity_resolution_service_url: String,
-    #[serde(default = "default_streaming_service_url")]
+    #[serde(
+        default = "default_streaming_service_url",
+        alias = "event_streaming_service_url"
+    )]
     pub streaming_service_url: String,
     #[serde(default = "default_report_service_url")]
     pub report_service_url: String,
@@ -317,7 +320,7 @@ fn default_entity_resolution_service_url() -> String {
 }
 
 fn default_streaming_service_url() -> String {
-    "http://localhost:50054".to_string()
+    "http://localhost:50121".to_string()
 }
 
 fn default_report_service_url() -> String {

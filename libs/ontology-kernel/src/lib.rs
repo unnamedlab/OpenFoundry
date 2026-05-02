@@ -9,6 +9,7 @@
 pub mod config;
 pub mod domain;
 pub mod handlers;
+pub mod metrics;
 pub mod models;
 
 use auth_middleware::jwt::JwtConfig;
@@ -33,4 +34,9 @@ pub struct AppState {
     pub notification_service_url: String,
     pub search_embedding_provider: String,
     pub node_runtime_command: String,
+    /// Base URL of `connector-management-service`. Used by TASK G to invoke
+    /// registered webhooks (writeback + side effects). When empty, the kernel
+    /// logs a warning and skips the call.
+    #[doc(hidden)]
+    pub connector_management_service_url: String,
 }

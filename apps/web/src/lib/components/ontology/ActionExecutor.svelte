@@ -18,6 +18,9 @@
     ValidateActionResponse,
   } from '$lib/api/ontology';
   import { notifications } from '$lib/stores/notifications';
+  // TASK P — File picker that uploads via the ontology-actions upload
+  // endpoint and returns the resulting attachment_rid.
+  import FileUpload from '$lib/components/ui/FileUpload.svelte';
 
   export let action: ActionType | null = null;
   export let targetObject: ObjectInstance | null = null;
@@ -637,23 +640,106 @@
                       value={renderMediaDraft(field)}
                       oninput={(event) => handleMediaFieldInput(field, (event.currentTarget as HTMLTextAreaElement).value)}
                     ></textarea>
+                    <!-- TASK P — Optional file picker for media uploads.
+                         The returned storage_uri is stored as the field
+                         value so the existing `media_reference` validation
+                         keeps working. -->
+                    <FileUpload
+                      label="Upload media"
+                      onUploaded={(attachment) =>
+                        handleMediaFieldInput(field, JSON.stringify({ uri: attachment.storage_uri }))}
+                    />
                     {#if fieldErrors[field.name]}
                       <p class="text-xs text-rose-600 dark:text-rose-300">{fieldErrors[field.name]}</p>
                     {/if}
                   </div>
-                {:else if field.property_type === 'media_reference'}
+                {:else if field.property_type === 'attachment'}
+                  <!-- TASK P — Attachment parameter. Uploads via
+                       `/api/v1/ontology/actions/uploads` and stores the
+                       returned attachment_rid as the field value. -->
                   <div class="space-y-2">
-                    <textarea
+                    <input
                       id={`action-field-${field.name}`}
-                      rows={3}
-                      class="w-full rounded-2xl border border-slate-300 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100 dark:border-slate-700"
-                      spellcheck="false"
-                      placeholder={'https://cdn.example.com/file.png or {"uri":"s3://bucket/file.png"}'}
-                      value={renderMediaDraft(field)}
-                      oninput={(event) => handleMediaFieldInput(field, (event.currentTarget as HTMLTextAreaElement).value)}
-                    ></textarea>
+                      type="text"
+                      class="w-full rounded-2xl border border-slate-300 px-4 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                      placeholder="ri.attachments.<uuid>"
+                      value={(fieldValue(field) as string | undefined) ?? ''}
+                      oninput={(event) => updateField(field.name, (event.currentTarget as HTMLInputElement).value)}
+                    />
+                    <FileUpload
+                      label="Upload attachment"
+                      onUploaded={(attachment) => updateField(field.name, attachment.attachment_rid)}
+                    />
                     {#if fieldErrors[field.name]}
                       <p class="text-xs text-rose-600 dark:text-rose-300">{fieldErrors[field.name]}</p>
+                    {/if}
+                  </div>
+                {:else if field.property_type === 'struct'}
+                  <!-- TASK J — Struct parameter rendered as a grouped sub-form. Each
+                       sub-field follows the same simple input pattern; values are
+                       merged into a single object via `updateField`. -->
+                  <div class="space-y-3 rounded-2xl border border-dashed border-slate-300 p-3 dark:border-slate-700">
+                    {#if field.struct_fields && field.struct_fields.length > 0}
+                      {#each field.struct_fields as subField (subField.name)}
+                        {@const parent = (fieldValue(field) as Record<string, unknown> | null) ?? {}}
+                        {@const subValue = parent[subField.name] ?? subField.default_value ?? ''}
+                        <div class="space-y-1">
+                          <label
+                            class="block text-xs font-semibold text-slate-700 dark:text-slate-200"
+                            for={`action-field-${field.name}-${subField.name}`}
+                          >
+                            {subField.display_name ?? subField.name}{subField.required ? ' *' : ''}
+                          </label>
+                          {#if subField.property_type === 'boolean'}
+                            <input
+                              id={`action-field-${field.name}-${subField.name}`}
+                              type="checkbox"
+                              checked={Boolean(subValue)}
+                              onchange={(event) =>
+                                updateField(field.name, {
+                                  ...parent,
+                                  [subField.name]: (event.currentTarget as HTMLInputElement).checked
+                                })}
+                            />
+                          {:else if subField.property_type === 'integer' || subField.property_type === 'float'}
+                            <input
+                              id={`action-field-${field.name}-${subField.name}`}
+                              type="number"
+                              step={subField.property_type === 'float' ? 'any' : '1'}
+                              value={subValue === '' ? '' : String(subValue ?? '')}
+                              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              oninput={(event) => {
+                                const raw = (event.currentTarget as HTMLInputElement).value;
+                                const next = !raw.trim()
+                                  ? undefined
+                                  : subField.property_type === 'integer'
+                                    ? Number.parseInt(raw, 10)
+                                    : Number.parseFloat(raw);
+                                updateField(field.name, { ...parent, [subField.name]: next });
+                              }}
+                            />
+                          {:else}
+                            <input
+                              id={`action-field-${field.name}-${subField.name}`}
+                              type={subField.property_type === 'date' ? 'date' : 'text'}
+                              value={typeof subValue === 'string' ? subValue : String(subValue ?? '')}
+                              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              oninput={(event) =>
+                                updateField(field.name, {
+                                  ...parent,
+                                  [subField.name]: (event.currentTarget as HTMLInputElement).value
+                                })}
+                            />
+                          {/if}
+                          {#if subField.description}
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">{subField.description}</p>
+                          {/if}
+                        </div>
+                      {/each}
+                    {:else}
+                      <p class="text-xs text-amber-700 dark:text-amber-300">
+                        Struct parameter is missing struct_fields metadata.
+                      </p>
                     {/if}
                   </div>
                 {:else}

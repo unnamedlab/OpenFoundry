@@ -14,7 +14,10 @@ use crate::{
     models::{
         ListResponse,
         listing::{CreateListingRequest, ListingDefinition, UpdateListingRequest},
-        package::{PackageVersion, PublishVersionRequest},
+        package::{
+            ActionTypeDependencies, IncludeActionRequest, MarketplaceArtifact, PackageVersion,
+            PublishVersionRequest,
+        },
     },
 };
 
@@ -192,4 +195,107 @@ pub async fn publish_version(
         .find(|entry| entry.id == version_id)
         .ok_or_else(|| internal_error("created version could not be reloaded"))?;
     Ok(Json(version))
+}
+
+/// TASK O — `POST /api/v1/marketplace/products/:id/include-action/:action_id`
+///
+/// Embeds the supplied action type plus its dependency manifest into the
+/// target listing's most recent (or explicitly chosen) package version.
+/// Artifacts are stored under `manifest.artifacts` as an array of
+/// [`MarketplaceArtifact`] entries; the importer in
+/// `product-distribution-service` reads this field to recreate the action
+/// on install with remapped dependency IDs.
+pub async fn include_action_in_product(
+    Path((id, action_id)): Path<(uuid::Uuid, uuid::Uuid)>,
+    State(state): State<AppState>,
+    Json(request): Json<IncludeActionRequest>,
+) -> ServiceResult<PackageVersion> {
+    load_listing_row(&state.db, id)
+        .await
+        .map_err(|cause| db_error(&cause))?
+        .ok_or_else(|| not_found("listing not found"))?;
+    let mut versions = load_versions(&state.db, id)
+        .await
+        .map_err(|cause| db_error(&cause))?;
+    if versions.is_empty() {
+        return Err(bad_request(
+            "listing has no published versions; publish at least one before including action types",
+        ));
+    }
+    let version = if let Some(version_id) = request.version_id {
+        versions
+            .into_iter()
+            .find(|entry| entry.id == version_id)
+            .ok_or_else(|| not_found("requested version_id was not found for this listing"))?
+    } else {
+        // `load_versions` orders by published_at DESC.
+        versions.remove(0)
+    };
+
+    let artifact = MarketplaceArtifact::ActionType {
+        action_type: ensure_action_id_matches(&request.action_type, action_id)?,
+        dependencies: ActionTypeDependencies {
+            object_type_ids: request.dependencies.object_type_ids,
+            function_package_ids: request.dependencies.function_package_ids,
+            webhooks: request.dependencies.webhooks,
+        },
+    };
+
+    let mut manifest = match version.manifest {
+        serde_json::Value::Object(map) => map,
+        serde_json::Value::Null => serde_json::Map::new(),
+        other => {
+            return Err(internal_error(format!(
+                "manifest must be a JSON object, found {other:?}"
+            )));
+        }
+    };
+    let mut artifacts = manifest
+        .remove("artifacts")
+        .and_then(|value| match value {
+            serde_json::Value::Array(items) => Some(items),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let artifact_value = serde_json::to_value(&artifact)
+        .map_err(|cause| internal_error(cause.to_string()))?;
+    artifacts.push(artifact_value);
+    manifest.insert(
+        "artifacts".to_string(),
+        serde_json::Value::Array(artifacts),
+    );
+
+    let updated_manifest = serde_json::Value::Object(manifest);
+    sqlx::query("UPDATE marketplace_package_versions SET manifest = $1::jsonb WHERE id = $2")
+        .bind(&updated_manifest)
+        .bind(version.id)
+        .execute(&state.db)
+        .await
+        .map_err(|cause| db_error(&cause))?;
+
+    let refreshed = load_versions(&state.db, id)
+        .await
+        .map_err(|cause| db_error(&cause))?
+        .into_iter()
+        .find(|entry| entry.id == version.id)
+        .ok_or_else(|| internal_error("updated version could not be reloaded"))?;
+    Ok(Json(refreshed))
+}
+
+fn ensure_action_id_matches(
+    action_type: &serde_json::Value,
+    action_id: uuid::Uuid,
+) -> Result<serde_json::Value, (axum::http::StatusCode, Json<crate::handlers::ErrorResponse>)> {
+    let id_value = action_type
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| bad_request("action_type payload is missing an `id` field"))?;
+    let parsed = uuid::Uuid::parse_str(id_value)
+        .map_err(|cause| bad_request(format!("action_type.id is not a UUID: {cause}")))?;
+    if parsed != action_id {
+        return Err(bad_request(format!(
+            "action_type.id ({parsed}) does not match URL action_id ({action_id})"
+        )));
+    }
+    Ok(action_type.clone())
 }

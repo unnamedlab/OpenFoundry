@@ -53,6 +53,12 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.async-trait]
+version = "0.1"
+
+[dependencies.thiserror]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "lineage-deletion-service"

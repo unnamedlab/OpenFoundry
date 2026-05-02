@@ -36,6 +36,14 @@ test-svc svc:
 test-verbose:
     cargo test --workspace -- --nocapture
 
+# TASK Q — Action types end-to-end coverage. Runs the Rust integration
+# suite under `libs/ontology-kernel/tests/actions_integration.rs` (boots an
+# ephemeral Postgres via testcontainers — Docker required) plus the
+# Playwright spec at `apps/web/tests/e2e/action-types.spec.ts`.
+test-actions:
+    cargo test -p ontology-kernel --features it --test actions_integration --test actions_scale -- --include-ignored
+    cd apps/web && pnpm exec playwright test tests/e2e/action-types.spec.ts
+
 # ── Lint & Format ────────────────────────────────────────────
 
 # Run all lints

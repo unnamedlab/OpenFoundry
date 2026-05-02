@@ -34,6 +34,12 @@ export interface ConnectorBinding {
 	config: Record<string, unknown>;
 }
 
+export interface StreamProfile {
+	high_throughput: boolean;
+	compressed: boolean;
+	partitions: number | null;
+}
+
 export interface StreamDefinition {
 	id: string;
 	name: string;
@@ -42,6 +48,9 @@ export interface StreamDefinition {
 	schema: StreamSchema;
 	source_binding: ConnectorBinding;
 	retention_hours: number;
+	partitions: number;
+	consistency_guarantee: string;
+	stream_profile: StreamProfile;
 	created_at: string;
 	updated_at: string;
 }
@@ -279,7 +288,7 @@ export function updateStream(id: string, body: {
 	source_binding?: ConnectorBinding;
 	retention_hours?: number;
 }) {
-	return api.patch<StreamDefinition>(`/streaming/streams/${id}`, body);
+	return api.put<StreamDefinition>(`/streaming/streams/${id}`, body);
 }
 
 export function pushStreamEvents(id: string, body: {
@@ -288,7 +297,7 @@ export function pushStreamEvents(id: string, body: {
 		event_time?: string;
 	}>;
 }) {
-	return api.post<PushStreamEventsResponse>(`/streaming/streams/${id}/events`, body);
+	return api.post<PushStreamEventsResponse>(`/streaming/streams/${id}/push`, body);
 }
 
 export function listDeadLetters(streamId: string) {
@@ -336,7 +345,7 @@ export function updateWindow(id: string, body: {
 	aggregation_keys?: string[];
 	measure_fields?: string[];
 }) {
-	return api.patch<WindowDefinition>(`/streaming/windows/${id}`, body);
+	return api.put<WindowDefinition>(`/streaming/windows/${id}`, body);
 }
 
 export function listTopologies() {
@@ -372,7 +381,7 @@ export function updateTopology(id: string, body: {
 	sink_bindings?: ConnectorBinding[];
 	state_backend?: string;
 }) {
-	return api.patch<TopologyDefinition>(`/streaming/topologies/${id}`, body);
+	return api.put<TopologyDefinition>(`/streaming/topologies/${id}`, body);
 }
 
 export function runTopology(id: string) {
@@ -396,4 +405,36 @@ export function listConnectors() {
 
 export function getLiveTail() {
 	return api.get<LiveTailResponse>('/streaming/live-tail');
+}
+
+// ---- Bloque D — Flink runtime ------------------------------------------
+
+export type DeployFlinkResponse = {
+	topology_id: string;
+	deployment_name: string | null;
+	namespace: string | null;
+	sql_warnings: string[];
+	sql: string;
+	message: string;
+};
+
+export type FlinkJobGraph = {
+	job_id: string | null;
+	vertices: Array<{
+		id: string;
+		name: string | null;
+		parallelism: number | null;
+		status: string | null;
+	}>;
+	edges: Array<{ source: string; target: string }>;
+	raw: unknown;
+	message?: string;
+};
+
+export function deployTopologyToFlink(id: string) {
+	return api.post<DeployFlinkResponse>(`/streaming/topologies/${id}/deploy`, {});
+}
+
+export function getTopologyJobGraph(id: string) {
+	return api.get<FlinkJobGraph>(`/streaming/topologies/${id}/job-graph`);
 }

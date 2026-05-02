@@ -27,6 +27,7 @@ async fn load_topology_row(db: &sqlx::PgPool, id: Uuid) -> Result<TopologyRow, s
     sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
 		        backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+		        checkpoint_interval_ms, runtime_kind, flink_job_name, flink_deployment_name, flink_job_id, flink_namespace, consistency_guarantee,
 		        created_at, updated_at
 		 FROM streaming_topologies
 		 WHERE id = $1",
@@ -57,7 +58,7 @@ async fn load_all_streams(
     db: &sqlx::PgPool,
 ) -> Result<Vec<crate::models::stream::StreamDefinition>, sqlx::Error> {
     let rows = sqlx::query_as::<_, StreamRow>(
-		"SELECT id, name, description, status, schema, source_binding, retention_hours, created_at, updated_at
+		"SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, created_at, updated_at
 		 FROM streaming_streams
 		 ORDER BY created_at ASC",
 	)
@@ -416,7 +417,7 @@ pub async fn get_overview(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> ServiceResult<StreamingOverview> {
     let stream_rows = sqlx::query_as::<_, StreamRow>(
-		"SELECT id, name, description, status, schema, source_binding, retention_hours, created_at, updated_at
+		"SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, created_at, updated_at
 		 FROM streaming_streams",
 	)
 	.fetch_all(&state.db)
@@ -426,6 +427,7 @@ pub async fn get_overview(
     let topology_rows = sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
 		        backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+		        checkpoint_interval_ms, runtime_kind, flink_job_name, flink_deployment_name, flink_job_id, flink_namespace, consistency_guarantee,
 		        created_at, updated_at
 		 FROM streaming_topologies",
     )
@@ -494,6 +496,7 @@ pub async fn list_topologies(
     let rows = sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
 		        backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+		        checkpoint_interval_ms, runtime_kind, flink_job_name, flink_deployment_name, flink_job_id, flink_namespace, consistency_guarantee,
 		        created_at, updated_at
 		 FROM streaming_topologies
 		 ORDER BY created_at ASC",
@@ -523,6 +526,13 @@ pub async fn create_topology(
         source_stream_ids,
         sink_bindings,
         state_backend,
+        checkpoint_interval_ms,
+        runtime_kind,
+        flink_job_name,
+        flink_deployment_name,
+        flink_job_id,
+        flink_namespace,
+        consistency_guarantee,
     } = payload;
 
     if name.trim().is_empty() {
@@ -558,8 +568,11 @@ pub async fn create_topology(
     sqlx::query(
         "INSERT INTO streaming_topologies (
 		    id, name, description, status, nodes, edges, join_definition, cep_definition,
-		    backpressure_policy, source_stream_ids, sink_bindings, state_backend
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+		    backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+		    checkpoint_interval_ms, runtime_kind, flink_job_name,
+		    flink_deployment_name, flink_job_id, flink_namespace,
+		    consistency_guarantee
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
     )
     .bind(topology_id)
     .bind(name.trim())
@@ -573,6 +586,13 @@ pub async fn create_topology(
     .bind(SqlJson(source_stream_ids))
     .bind(SqlJson(sink_bindings))
     .bind(state_backend.unwrap_or_else(|| "rocksdb".to_string()))
+    .bind(checkpoint_interval_ms.unwrap_or(60_000).clamp(1_000, 86_400_000))
+    .bind(runtime_kind.unwrap_or_else(|| "builtin".to_string()))
+    .bind(flink_job_name)
+    .bind(flink_deployment_name)
+    .bind(flink_job_id)
+    .bind(flink_namespace)
+    .bind(consistency_guarantee.unwrap_or_else(|| "at-least-once".to_string()))
     .execute(&state.db)
     .await
     .map_err(|cause| db_error(&cause))?;
@@ -620,6 +640,19 @@ pub async fn update_topology(
     let state_backend = payload
         .state_backend
         .unwrap_or(existing_definition.state_backend.clone());
+    let checkpoint_interval_ms = payload
+        .checkpoint_interval_ms
+        .unwrap_or(existing_definition.checkpoint_interval_ms)
+        .clamp(1_000, 86_400_000);
+    let runtime_kind = payload
+        .runtime_kind
+        .unwrap_or(existing_definition.runtime_kind.clone());
+    let flink_job_name = payload
+        .flink_job_name
+        .or(existing_definition.flink_job_name.clone());
+    let consistency_guarantee = payload
+        .consistency_guarantee
+        .unwrap_or(existing_definition.consistency_guarantee.clone());
     let streams = load_all_streams(&state.db)
         .await
         .map_err(|cause| db_error(&cause))?;
@@ -653,6 +686,13 @@ pub async fn update_topology(
 		     source_stream_ids = $10,
 		     sink_bindings = $11,
 		     state_backend = $12,
+		     checkpoint_interval_ms = $13,
+		     runtime_kind = $14,
+		     flink_job_name = $15,
+		     flink_deployment_name = COALESCE($16, flink_deployment_name),
+		     flink_job_id = COALESCE($17, flink_job_id),
+		     flink_namespace = COALESCE($18, flink_namespace),
+		     consistency_guarantee = $19,
 		     updated_at = now()
 		 WHERE id = $1",
     )
@@ -668,6 +708,13 @@ pub async fn update_topology(
     .bind(SqlJson(source_stream_ids))
     .bind(SqlJson(sink_bindings))
     .bind(state_backend)
+    .bind(checkpoint_interval_ms)
+    .bind(runtime_kind)
+    .bind(flink_job_name)
+    .bind(payload.flink_deployment_name)
+    .bind(payload.flink_job_id)
+    .bind(payload.flink_namespace)
+    .bind(consistency_guarantee)
     .execute(&state.db)
     .await
     .map_err(|cause| db_error(&cause))?;
@@ -699,6 +746,37 @@ pub async fn run_topology(
         .await
         .map_err(|message| bad_request(message))?;
     let run_id = Uuid::now_v7();
+
+    // C4 — exactly-once gating for the in-process engine. When the
+    // operator declares `exactly-once` semantics we only surface output
+    // (live tail + materialised events) once a checkpoint has been
+    // committed within the configured interval. Otherwise the events
+    // are persisted in the run row but suppressed from downstream
+    // consumers until the next checkpoint barrier.
+    let mut execution = execution;
+    if topology.consistency_guarantee == "exactly-once" && topology.runtime_kind == "builtin" {
+        let stale_threshold_ms = i64::from(topology.checkpoint_interval_ms.saturating_mul(2));
+        let recent: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+            "SELECT created_at FROM streaming_topology_checkpoints
+             WHERE topology_id = $1 AND status = 'committed'
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|cause| db_error(&cause))?;
+        let fresh = recent
+            .map(|ts| (chrono::Utc::now() - ts).num_milliseconds() <= stale_threshold_ms)
+            .unwrap_or(false);
+        if !fresh {
+            tracing::info!(
+                topology_id = %id,
+                consistency = %topology.consistency_guarantee,
+                "exactly-once gate: holding live tail emission until next checkpoint"
+            );
+            execution.live_tail.clear();
+        }
+    }
 
     sqlx::query(
         "INSERT INTO streaming_topology_runs (
@@ -875,6 +953,7 @@ pub async fn list_connectors(
     let topologies = sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
 		        backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+		        checkpoint_interval_ms, runtime_kind, flink_job_name, flink_deployment_name, flink_job_id, flink_namespace, consistency_guarantee,
 		        created_at, updated_at
 		 FROM streaming_topologies
 		 ORDER BY created_at ASC",
@@ -955,6 +1034,7 @@ pub async fn get_live_tail(
     let topologies = sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
 		        backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+		        checkpoint_interval_ms, runtime_kind, flink_job_name, flink_deployment_name, flink_job_id, flink_namespace, consistency_guarantee,
 		        created_at, updated_at
 		 FROM streaming_topologies
 		 ORDER BY created_at ASC",
@@ -1013,6 +1093,9 @@ mod tests {
             },
             source_binding: ConnectorBinding::default(),
             retention_hours: 72,
+            partitions: 3,
+            consistency_guarantee: "at-least-once".to_string(),
+            stream_profile: crate::models::stream::StreamProfile::default(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

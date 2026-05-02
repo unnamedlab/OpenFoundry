@@ -421,7 +421,14 @@ export type ActionOperationKind =
   | 'create_link'
   | 'delete_object'
   | 'invoke_function'
-  | 'invoke_webhook';
+  | 'invoke_webhook'
+  // TASK I — Interface-typed operations. Action logs are not yet supported
+  // for these variants (mirrors Foundry's documented limitation).
+  | 'create_interface'
+  | 'modify_interface'
+  | 'delete_interface'
+  | 'create_interface_link'
+  | 'delete_interface_link';
 
 export interface ActionInputField {
   name: string;
@@ -430,6 +437,8 @@ export interface ActionInputField {
   property_type: string;
   required: boolean;
   default_value?: unknown;
+  /** TASK J — Sub-fields for struct-typed parameters. */
+  struct_fields?: ActionInputField[];
 }
 
 export interface ActionFormCondition {
@@ -1323,6 +1332,26 @@ export function getActionType(id: string) {
   return api.get<ActionType>(`/ontology/actions/${id}`);
 }
 
+/** TASK N — Lists action types attached to an object type, optionally
+ * filtered by selection kind so callers can render single-object vs bulk
+ * action surfaces independently. */
+export interface ApplicableActionEntry {
+  action_type: ActionType;
+  selection_kind: 'single' | 'bulk';
+}
+
+export function listApplicableActions(
+  typeId: string,
+  selectionKind?: 'single' | 'bulk',
+) {
+  const qs = new URLSearchParams();
+  if (selectionKind) qs.set('selection_kind', selectionKind);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return api.get<{ data: ApplicableActionEntry[]; total: number }>(
+    `/ontology/types/${typeId}/applicable-actions${suffix}`,
+  );
+}
+
 export function createActionType(body: CreateActionTypeBody) {
   return api.post<ActionType>('/ontology/actions', body);
 }
@@ -1356,6 +1385,30 @@ export function executeActionBatch(id: string, body: {
   justification?: string;
 }) {
   return api.post<ExecuteBatchActionResponse>(`/ontology/actions/${id}/execute-batch`, body);
+}
+
+// TASK F — Action metrics endpoint backed by `action_executions` aggregation.
+export interface ActionMetricsResponse {
+  action_id: string;
+  window: string;
+  success_count: number;
+  failure_count: number;
+  p95_duration_ms: number | null;
+  failure_categories: Record<string, number>;
+}
+
+export interface GetActionMetricsParams {
+  /** e.g. `30d`, `12h`, `45m`, `120s`, `2w`. Defaults to `30d` server-side. */
+  window?: string;
+}
+
+export function getActionMetrics(actionId: string, params?: GetActionMetricsParams) {
+  const qs = new URLSearchParams();
+  if (params?.window) qs.set('window', params.window);
+  const query = qs.toString();
+  return api.get<ActionMetricsResponse>(
+    `/ontology/actions/${actionId}/metrics${query ? `?${query}` : ''}`,
+  );
 }
 
 export function listActionWhatIfBranches(
@@ -1958,6 +2011,30 @@ export function executeInlineEdit(
   return api.post<ExecuteActionResponse>(
     `/ontology/types/${typeId}/objects/${objectId}/inline-edit/${propertyId}`,
     body,
+  );
+}
+
+/** TASK L — Bulk inline-edit endpoint. Each entry is validated and
+ * executed individually; entries targeting the same `object_id` are
+ * rejected up-front by the backend. */
+export interface InlineEditBatchEntry {
+  property_id: string;
+  object_id: string;
+  value: unknown;
+  justification?: string;
+}
+
+export interface InlineEditBatchResponse {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: { property_id: string; object_id: string; status: 'success' | 'failure'; error?: string }[];
+}
+
+export function executeInlineEditBatch(typeId: string, edits: InlineEditBatchEntry[]) {
+  return api.post<InlineEditBatchResponse>(
+    `/ontology/types/${typeId}/inline-edit-batch`,
+    { edits },
   );
 }
 

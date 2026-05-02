@@ -30,6 +30,8 @@ pub struct AppConfig {
     pub notification_service_url: String,
     #[serde(default = "default_node_runtime_command")]
     pub node_runtime_command: String,
+    #[serde(default = "default_connector_management_service_url")]
+    pub connector_management_service_url: String,
 }
 
 fn default_host() -> String {
@@ -61,6 +63,11 @@ fn default_search_embedding_provider() -> String {
 fn default_notification_service_url() -> String {
     "http://localhost:50114".to_string()
 }
+
+fn default_connector_management_service_url() -> String {
+    "http://localhost:50130".to_string()
+}
+
 fn default_node_runtime_command() -> String {
     "node".to_string()
 }

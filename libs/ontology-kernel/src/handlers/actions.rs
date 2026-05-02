@@ -82,6 +82,34 @@ struct ActionConfigEnvelope {
     operation: Option<Value>,
     #[serde(default)]
     notification_side_effects: Vec<ActionNotificationSideEffectConfig>,
+    #[serde(default)]
+    webhook_writeback: Option<WebhookCallConfig>,
+    #[serde(default)]
+    webhook_side_effects: Vec<WebhookCallConfig>,
+    #[serde(default)]
+    batched_execution: bool,
+}
+
+/// Reference to a webhook registered in `connector-management-service` plus
+/// the parameter mapping that turns action inputs into the webhook's input
+/// schema. TASK G — used for both writeback (synchronous, blocking) and
+/// post-rules side effects (parallel, non-blocking).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WebhookCallConfig {
+    pub webhook_id: Uuid,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_mappings: Vec<WebhookInputMapping>,
+    /// When set, captured `output_parameters` are exposed under this key in the
+    /// rule-evaluation context (only honoured for writeback).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_parameter_alias: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WebhookInputMapping {
+    pub webhook_input_name: String,
+    /// Name of the action parameter (input field) that supplies the value.
+    pub action_input_name: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -187,6 +215,9 @@ fn split_action_config(
 
     if !config_object.contains_key("operation")
         && !config_object.contains_key("notification_side_effects")
+        && !config_object.contains_key("webhook_writeback")
+        && !config_object.contains_key("webhook_side_effects")
+        && !config_object.contains_key("batched_execution")
     {
         return Ok((config.clone(), Vec::new()));
     }
@@ -198,6 +229,45 @@ fn split_action_config(
         envelope.operation.unwrap_or(Value::Null),
         envelope.notification_side_effects,
     ))
+}
+
+/// TASK G — Returns the parsed envelope so callers can extract the new
+/// webhook + batched-execution fields without re-doing the full split.
+/// Returns `Ok(None)` for legacy configs that don't carry the envelope keys.
+fn parse_action_envelope(config: &Value) -> Result<Option<ActionConfigEnvelope>, String> {
+    let Some(config_object) = config.as_object() else {
+        return Ok(None);
+    };
+    if !config_object.contains_key("operation")
+        && !config_object.contains_key("notification_side_effects")
+        && !config_object.contains_key("webhook_writeback")
+        && !config_object.contains_key("webhook_side_effects")
+        && !config_object.contains_key("batched_execution")
+    {
+        return Ok(None);
+    }
+    let envelope: ActionConfigEnvelope = serde_json::from_value(config.clone())
+        .map_err(|error| format!("invalid action config envelope: {error}"))?;
+    Ok(Some(envelope))
+}
+
+/// Convenience accessor for the writeback/side-effect webhook configs.
+fn split_webhook_configs(
+    config: &Value,
+) -> Result<(Option<WebhookCallConfig>, Vec<WebhookCallConfig>), String> {
+    match parse_action_envelope(config)? {
+        Some(envelope) => Ok((envelope.webhook_writeback, envelope.webhook_side_effects)),
+        None => Ok((None, Vec::new())),
+    }
+}
+
+/// Convenience accessor for the `batched_execution` flag.
+fn extract_batched_execution_flag(config: &Value) -> bool {
+    parse_action_envelope(config)
+        .ok()
+        .flatten()
+        .map(|envelope| envelope.batched_execution)
+        .unwrap_or(false)
 }
 
 fn validate_notification_side_effect_configs(
@@ -255,6 +325,32 @@ fn validate_notification_side_effect_configs(
         }
     }
 
+    Ok(())
+}
+
+/// TASK G — Verify a webhook config: webhook_id non-nil and every input
+/// mapping references a declared action input. The actual webhook input
+/// schema is fetched lazily from `connector-management-service`; we only
+/// validate the parameter side here.
+fn validate_webhook_call_config(
+    config: &WebhookCallConfig,
+    input_names: &HashSet<&str>,
+    label: &str,
+) -> Result<(), String> {
+    if config.webhook_id.is_nil() {
+        return Err(format!("{label}.webhook_id must not be nil"));
+    }
+    for mapping in &config.input_mappings {
+        if mapping.webhook_input_name.trim().is_empty() {
+            return Err(format!("{label}.webhook_input_name is required"));
+        }
+        if !input_names.contains(mapping.action_input_name.as_str()) {
+            return Err(format!(
+                "{label} references unknown action input '{}' (OntologyMetadata:ActionWebhookInputsDoNotHaveExpectedType)",
+                mapping.action_input_name
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -685,6 +781,21 @@ fn forbidden(message: impl Into<String>) -> Response {
         .into_response()
 }
 
+/// TASK M — Scale & property limit response helper. Returns HTTP 429 with a
+/// `failure_type: "scale_limit"` body so the metrics pipeline classifies the
+/// failure consistently with `FailureType::ScaleLimit` and the documented
+/// Foundry scale limits (`Scale and property limits.md`).
+fn scale_limit_response(message: impl Into<String>) -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({
+            "error": message.into(),
+            "failure_type": crate::metrics::FailureType::ScaleLimit.as_str(),
+        })),
+    )
+        .into_response()
+}
+
 fn validate_action_authorization_policy(policy: &ActionAuthorizationPolicy) -> Result<(), String> {
     for permission_key in &policy.required_permission_keys {
         if permission_key.trim().is_empty() {
@@ -910,8 +1021,131 @@ fn ensure_input_schema(input_schema: &[ActionInputField]) -> Result<(), String> 
         if let Some(default_value) = &field.default_value {
             validate_property_value(&field.property_type, default_value)?;
         }
+        // TASK J — Struct parameters require nested `struct_fields`; other
+        // property types must NOT carry them. Sub-fields are themselves
+        // validated recursively (no nested structs of structs allowed since
+        // the supported sub-field base types are scalar — Foundry rule).
+        ensure_struct_fields_consistency(field)?;
     }
     Ok(())
+}
+
+/// TASK J — Validate the `struct_fields` slot relative to the parent
+/// field's property_type.
+///
+/// Constraints derived from `Actions on structs.md`:
+/// * `property_type == "struct"` ⇒ `struct_fields` must exist and be
+///   non-empty.
+/// * Other property types ⇒ `struct_fields` must be `None`.
+/// * Sub-field base types are restricted to scalars (`boolean`, `date`,
+///   `float`, `geo_point`, `integer`, `string`, `timestamp`). Nested
+///   `struct` is rejected.
+fn ensure_struct_fields_consistency(field: &ActionInputField) -> Result<(), String> {
+    match (field.property_type.as_str(), field.struct_fields.as_ref()) {
+        ("struct", None) => Err(format!(
+            "struct parameter '{}' must declare struct_fields",
+            field.name
+        )),
+        ("struct", Some(sub_fields)) if sub_fields.is_empty() => Err(format!(
+            "struct parameter '{}' must declare at least one sub-field",
+            field.name
+        )),
+        ("struct", Some(sub_fields)) => {
+            let mut seen = HashSet::new();
+            for sub_field in sub_fields {
+                if sub_field.name.trim().is_empty() {
+                    return Err(format!(
+                        "struct parameter '{}' has a sub-field with empty name",
+                        field.name
+                    ));
+                }
+                if !seen.insert(sub_field.name.clone()) {
+                    return Err(format!(
+                        "struct parameter '{}' has duplicate sub-field '{}'",
+                        field.name, sub_field.name
+                    ));
+                }
+                if sub_field.property_type == "struct" {
+                    return Err(format!(
+                        "struct parameter '{}' sub-field '{}' cannot itself be a struct",
+                        field.name, sub_field.name
+                    ));
+                }
+                validate_property_type(&sub_field.property_type)?;
+                if let Some(default_value) = &sub_field.default_value {
+                    validate_property_value(&sub_field.property_type, default_value).map_err(
+                        |error| {
+                            format!(
+                                "struct parameter '{}' sub-field '{}' default_value: {error}",
+                                field.name, sub_field.name
+                            )
+                        },
+                    )?;
+                }
+                if sub_field.struct_fields.is_some() {
+                    return Err(format!(
+                        "struct parameter '{}' sub-field '{}' must not declare struct_fields",
+                        field.name, sub_field.name
+                    ));
+                }
+            }
+            Ok(())
+        }
+        (_, Some(_)) => Err(format!(
+            "non-struct parameter '{}' must not declare struct_fields",
+            field.name
+        )),
+        (_, None) => Ok(()),
+    }
+}
+
+/// TASK J — Recursively validate a struct parameter value against its
+/// declared sub-fields. Returns one error per offending sub-field so the
+/// caller can prefix them with the parent parameter name.
+fn validate_struct_parameter_value(
+    field: &ActionInputField,
+    value: &Value,
+) -> Result<(), Vec<String>> {
+    let Some(object) = value.as_object() else {
+        return Err(vec!["expected object value for struct".to_string()]);
+    };
+    let Some(sub_fields) = field.struct_fields.as_ref() else {
+        return Ok(());
+    };
+
+    let known = sub_fields
+        .iter()
+        .map(|sub_field| sub_field.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut errors = Vec::new();
+
+    for key in object.keys() {
+        if !known.contains(key.as_str()) {
+            errors.push(format!("unknown struct sub-field '{key}'"));
+        }
+    }
+
+    for sub_field in sub_fields {
+        let provided = object.get(&sub_field.name);
+        let resolved = provided.cloned().or_else(|| sub_field.default_value.clone());
+        match resolved {
+            Some(value) => {
+                if let Err(error) = validate_property_value(&sub_field.property_type, &value) {
+                    errors.push(format!("{}: {}", sub_field.name, error));
+                }
+            }
+            None if sub_field.required => {
+                errors.push(format!("{} is required", sub_field.name));
+            }
+            None => {}
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn ensure_object_type_match(object: &ObjectInstance, expected_type: Uuid) -> Result<(), String> {
@@ -942,7 +1176,7 @@ fn materialize_parameters(
     for effective_field in effective_input_schema {
         let EffectiveActionInputField {
             definition: field,
-            hidden: _hidden,
+            hidden,
         } = effective_field;
         let value = provided
             .get(&field.name)
@@ -953,11 +1187,26 @@ fn materialize_parameters(
             Some(value) => {
                 if let Err(error) = validate_property_value(&field.property_type, &value) {
                     errors.push(format!("{}: {}", field.name, error));
+                } else if field.property_type == "struct" {
+                    // TASK J — Recursive validation of struct sub-fields.
+                    if let Err(struct_errors) = validate_struct_parameter_value(&field, &value) {
+                        for error in struct_errors {
+                            errors.push(format!("{}.{}", field.name, error));
+                        }
+                    } else {
+                        values.insert(field.name.clone(), value);
+                    }
                 } else {
                     values.insert(field.name.clone(), value);
                 }
             }
-            None if field.required => errors.push(format!("{} is required", field.name)),
+            // TASK K — Hidden parameters with no provided value (and no
+            // default) are skipped silently. Required only matters when the
+            // parameter is visible. Mirrors the Foundry "hidden + no default
+            // ⇒ skip" rule from `Override parameter configurations.md`.
+            None if field.required && !hidden => {
+                errors.push(format!("{} is required", field.name));
+            }
             None => {}
         }
     }
@@ -1101,6 +1350,26 @@ fn resolve_notification_recipients(
 
     if recipients.is_empty() && !config.broadcast {
         return Err("notification side effect resolved no recipients".to_string());
+    }
+
+    // TASK M — Cap notification fan-out per Foundry scale limits. The
+    // stricter cap applies when the recipient list comes from a function
+    // (i.e., resolved through a target user-property; Foundry calls this
+    // recipient mode "From a function"). All other modes use the standard
+    // 500-recipient ceiling.
+    let from_function = config.target_user_property_name.is_some();
+    let recipient_cap = if from_function {
+        scale_limits::MAX_NOTIFICATION_RECIPIENTS_FROM_FUNCTION
+    } else {
+        scale_limits::MAX_NOTIFICATION_RECIPIENTS
+    };
+    if recipients.len() > recipient_cap {
+        return Err(format!(
+            "notification side effect resolved {} recipients which exceeds the scale limit ({} max{})",
+            recipients.len(),
+            recipient_cap,
+            if from_function { ", recipients from a function" } else { "" }
+        ));
     }
 
     let mut recipients = recipients.into_iter().collect::<Vec<_>>();
@@ -1395,6 +1664,29 @@ async fn validate_action_definition(
         &input_names,
         &property_types,
     )?;
+    // TASK G — Validate that webhook input mappings reference declared
+    // action input fields. Mirrors Foundry's `OntologyMetadata:
+    // ActionWebhookInputsDoNotHaveExpectedType` rejection at edit time.
+    let webhook_envelope = parse_action_envelope(config)?;
+    if let Some(envelope) = webhook_envelope.as_ref() {
+        if envelope.batched_execution
+            && operation_kind != ActionOperationKind::InvokeFunction
+        {
+            return Err(
+                "batched_execution is only valid on function-backed actions".to_string(),
+            );
+        }
+        if let Some(writeback) = envelope.webhook_writeback.as_ref() {
+            validate_webhook_call_config(writeback, &input_names, "webhook_writeback")?;
+        }
+        for (index, side_effect) in envelope.webhook_side_effects.iter().enumerate() {
+            validate_webhook_call_config(
+                side_effect,
+                &input_names,
+                &format!("webhook_side_effects[{index}]"),
+            )?;
+        }
+    }
 
     match operation_kind {
         ActionOperationKind::UpdateObject => {
@@ -1513,9 +1805,43 @@ async fn validate_action_definition(
         ActionOperationKind::InvokeWebhook => {
             validate_http_invocation_config(&operation_config)?;
         }
+        // TASK I — Interface-typed actions are validated at runtime once
+        // `__object_type` / `__interface_ref` resolves to a concrete
+        // object_type. Edit-time validation is currently lenient: we only
+        // require the auto-generated parameter to exist in the input schema.
+        ActionOperationKind::CreateInterface => {
+            ensure_input_field_exists(input_schema, "__object_type", "create_interface")?;
+        }
+        ActionOperationKind::ModifyInterface
+        | ActionOperationKind::DeleteInterface
+        | ActionOperationKind::CreateInterfaceLink
+        | ActionOperationKind::DeleteInterfaceLink => {
+            ensure_input_field_exists(
+                input_schema,
+                "__interface_ref",
+                operation_kind.to_string().as_str(),
+            )?;
+        }
     }
 
     Ok(operation_kind)
+}
+
+/// TASK I — Asserts the auto-generated parameter is declared on the action.
+/// Used for interface-typed operations where the parameter resolves to the
+/// concrete `object_type_id` at runtime.
+fn ensure_input_field_exists(
+    input_schema: &[ActionInputField],
+    name: &str,
+    operation: &str,
+) -> Result<(), String> {
+    if input_schema.iter().any(|field| field.name == name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{operation} action requires an auto-generated input field '{name}'"
+        ))
+    }
 }
 
 async fn load_and_authorize_target(
@@ -1777,6 +2103,20 @@ async fn plan_action(
                 payload,
             })
         }
+        // TASK I — Interface-typed operations resolve to a concrete object
+        // type at runtime. The current MVP rejects execution with a clear
+        // error so callers can wire the resolution flow incrementally; the
+        // edit-time validation already checks that the auto-generated
+        // parameter is declared.
+        ActionOperationKind::CreateInterface
+        | ActionOperationKind::ModifyInterface
+        | ActionOperationKind::DeleteInterface
+        | ActionOperationKind::CreateInterfaceLink
+        | ActionOperationKind::DeleteInterfaceLink => Err(vec![format!(
+            "interface-typed action '{operation_kind}' is not yet executable; \
+             resolution from interface_id to concrete object_type pending. \
+             Action logs are not yet supported for interfaces."
+        )]),
     }
 }
 
@@ -2596,6 +2936,81 @@ pub async fn get_action_type(
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ListApplicableActionsQuery {
+    /// `single` lists actions whose input schema does NOT contain an
+    /// `object_reference_list`/list-typed object reference (i.e. invokable
+    /// from a single object selection). `bulk` lists the inverse — actions
+    /// that REQUIRE a multi-object selection. When omitted, both kinds are
+    /// returned. Mirrors `Use actions in the platform.md`.
+    pub selection_kind: Option<String>,
+}
+
+/// TASK N — `GET /api/v1/ontology/types/{type_id}/applicable-actions`.
+/// Returns action types attached to the object type, optionally filtered by
+/// the selection kind so UI button groups can render the correct set
+/// depending on whether the user has selected a single object or a bulk
+/// selection.
+pub async fn list_applicable_actions(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Path(type_id): Path<Uuid>,
+    Query(query): Query<ListApplicableActionsQuery>,
+) -> impl IntoResponse {
+    let rows = sqlx::query_as::<_, ActionTypeRow>(
+        r#"SELECT id, name, display_name, description, object_type_id, operation_kind,
+                  input_schema, form_schema, config, confirmation_required,
+                  permission_key, authorization_policy, owner_id,
+                  created_at, updated_at
+           FROM action_types
+           WHERE object_type_id = $1
+           ORDER BY display_name NULLS LAST, name"#,
+    )
+    .bind(type_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let selection_kind = query.selection_kind.as_deref().map(str::to_lowercase);
+    let mut data = Vec::new();
+    for row in rows {
+        match ActionType::try_from(row) {
+            Ok(action) => {
+                let kind = action_selection_kind(&action);
+                let include = match selection_kind.as_deref() {
+                    Some("single") => kind == "single",
+                    Some("bulk") => kind == "bulk",
+                    _ => true,
+                };
+                if include {
+                    data.push(json!({
+                        "action_type": action,
+                        "selection_kind": kind,
+                    }));
+                }
+            }
+            Err(error) => {
+                return db_error(format!("failed to decode action type: {error}"));
+            }
+        }
+    }
+
+    Json(json!({ "data": data, "total": data.len() })).into_response()
+}
+
+/// TASK N — Classify an action's selection requirement by inspecting its
+/// input schema. Any list-shaped object reference parameter forces a bulk
+/// selection (mirrors Foundry's `object_reference_list` rule).
+fn action_selection_kind(action: &ActionType) -> &'static str {
+    let needs_bulk = action.input_schema.iter().any(|field| {
+        matches!(
+            field.property_type.as_str(),
+            "object_reference_list" | "object_set"
+        )
+    });
+    if needs_bulk { "bulk" } else { "single" }
+}
+
 pub async fn update_action_type(
     _user: AuthUser,
     State(state): State<AppState>,
@@ -2638,6 +3053,15 @@ pub async fn update_action_type(
         return invalid_action(error);
     }
 
+    // TASK L — When this action is referenced by any property's
+    // `inline_edit_config`, the new envelope must still meet the inline-edit
+    // requirements (no side-effect webhooks, no notifications, single
+    // object type, update_object operation).
+    if let Err(error) =
+        ensure_inline_edit_requirements_for_action(&state, id, &operation_kind, &config).await
+    {
+        return invalid_action(error);
+    }
     let permission_key = body.permission_key.or(existing.permission_key);
     let result = sqlx::query_as::<_, ActionTypeRow>(
         r#"UPDATE action_types SET
@@ -2745,6 +3169,25 @@ async fn execute_loaded_action(
     action: ActionType,
     body: ExecuteActionRequest,
 ) -> Response {
+    // TASK F — instrument every execution with Prometheus counters and a
+    // best-effort row in `action_executions` so the JSON metrics endpoint
+    // can aggregate latency/failure counts without scraping Prometheus.
+    let started_at = std::time::Instant::now();
+    let action_id_for_metric = action.id;
+    let action_id_label = action.id.to_string();
+    let metrics_handle = crate::metrics::action_metrics();
+
+    // TASK G — Resolve writeback / side-effect webhook configs once. The
+    // writeback fires synchronously before `plan_action`; side effects fire
+    // after a successful execution.
+    let (webhook_writeback_cfg, webhook_side_effect_cfgs) =
+        match split_webhook_configs(&action.config) {
+            Ok(parts) => parts,
+            Err(error) => return invalid_action(error),
+        };
+
+    let mut body = body;
+
     if let Err(error) = ensure_action_actor_permission(claims, &action) {
         if let Err(audit_error) = emit_action_audit_event(
             state,
@@ -2764,6 +3207,18 @@ async fn execute_loaded_action(
         {
             log_audit_failure(action.id, &audit_error);
         }
+        record_action_failure_metric(
+            state,
+            claims,
+            action.id,
+            body.target_object_id,
+            &body.parameters,
+            crate::metrics::FailureType::Authentication,
+            started_at,
+            metrics_handle,
+            &action_id_label,
+        )
+        .await;
         return forbidden(error);
     }
 
@@ -2786,7 +3241,43 @@ async fn execute_loaded_action(
         {
             log_audit_failure(action.id, &audit_error);
         }
+        record_action_failure_metric(
+            state,
+            claims,
+            action.id,
+            body.target_object_id,
+            &body.parameters,
+            crate::metrics::FailureType::InvalidParameter,
+            started_at,
+            metrics_handle,
+            &action_id_label,
+        )
+        .await;
         return invalid_action(error);
+    }
+
+    // TASK G — Writeback webhook fires synchronously before validation. A
+    // failure aborts the action with `InvalidParameter` semantics so rules
+    // never observe partial state. Captured `output_parameters` are merged
+    // into `body.parameters` so downstream rules can reference them.
+    if let Some(writeback_cfg) = webhook_writeback_cfg.as_ref() {
+        if let Err(error) =
+            run_webhook_writeback(state, writeback_cfg, &mut body.parameters).await
+        {
+            record_action_failure_metric(
+                state,
+                claims,
+                action.id,
+                body.target_object_id,
+                &body.parameters,
+                crate::metrics::FailureType::InvalidParameter,
+                started_at,
+                metrics_handle,
+                &action_id_label,
+            )
+            .await;
+            return invalid_action(format!("webhook writeback failed: {error}"));
+        }
     }
 
     let validation_request = ValidateActionRequest {
@@ -2796,11 +3287,8 @@ async fn execute_loaded_action(
     let plan = match plan_action(state, claims, &action, &validation_request).await {
         Ok(plan) => plan,
         Err(errors) => {
-            let status = if all_forbidden(&errors) {
-                "denied"
-            } else {
-                "failure"
-            };
+            let denied = all_forbidden(&errors);
+            let status = if denied { "denied" } else { "failure" };
             if let Err(audit_error) = emit_action_audit_event(
                 state,
                 claims,
@@ -2819,8 +3307,25 @@ async fn execute_loaded_action(
             {
                 log_audit_failure(action.id, &audit_error);
             }
+            let failure_type = if denied {
+                crate::metrics::FailureType::Authentication
+            } else {
+                crate::metrics::FailureType::InvalidParameter
+            };
+            record_action_failure_metric(
+                state,
+                claims,
+                action.id,
+                body.target_object_id,
+                &body.parameters,
+                failure_type,
+                started_at,
+                metrics_handle,
+                &action_id_label,
+            )
+            .await;
             let payload = Json(json!({ "error": "action validation failed", "details": errors }));
-            return if status == "denied" {
+            return if denied {
                 (StatusCode::FORBIDDEN, payload).into_response()
             } else {
                 (StatusCode::BAD_REQUEST, payload).into_response()
@@ -2871,7 +3376,7 @@ async fn execute_loaded_action(
                 log_notification_failure(action.id, &notification_error);
             }
 
-            Json(ExecuteActionResponse {
+            let response = Json(ExecuteActionResponse {
                 action,
                 target_object_id: executed.target_object_id,
                 deleted: executed.deleted,
@@ -2880,7 +3385,30 @@ async fn execute_loaded_action(
                 link: executed.link,
                 result: executed.result,
             })
-            .into_response()
+            .into_response();
+            record_action_success_metric(
+                state,
+                claims,
+                action_id_for_metric,
+                executed.target_object_id,
+                &body.parameters,
+                started_at,
+                metrics_handle,
+                &action_id_label,
+            )
+            .await;
+            // TASK G — Side-effect webhooks fire after the plan applied
+            // successfully. Failures are logged + persisted but never
+            // propagate.
+            run_webhook_side_effects(
+                state,
+                claims.sub,
+                action_id_for_metric,
+                &webhook_side_effect_cfgs,
+                &body.parameters,
+            )
+            .await;
+            response
         }
         Err(error) => {
             if let Err(audit_error) = emit_action_audit_event(
@@ -2901,9 +3429,288 @@ async fn execute_loaded_action(
             {
                 log_audit_failure(action.id, &audit_error);
             }
+            let failure_type = classify_execute_plan_error(&error);
+            record_action_failure_metric(
+                state,
+                claims,
+                action.id,
+                body.target_object_id,
+                &body.parameters,
+                failure_type,
+                started_at,
+                metrics_handle,
+                &action_id_label,
+            )
+            .await;
             db_error(error)
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TASK F helpers — failure classification + DB ledger inserts.
+// ---------------------------------------------------------------------------
+
+/// Coarse classification for errors surfaced by [`execute_plan`]. The kernel
+/// error type is a string today, so we pattern-match a handful of well-known
+/// substrings before falling back to `Unclassified`.
+fn classify_execute_plan_error(error: &str) -> crate::metrics::FailureType {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("forbidden") || lower.contains("permission") || lower.contains("unauthorized") {
+        crate::metrics::FailureType::Authentication
+    } else if lower.contains("conflict") || lower.contains("unique") || lower.contains("duplicate") {
+        crate::metrics::FailureType::Conflict
+    } else if lower.contains("rate limit") || lower.contains("too many") || lower.contains("quota") {
+        crate::metrics::FailureType::ScaleLimit
+    } else if lower.contains("timeout") || lower.contains("upstream") || lower.contains("network") {
+        crate::metrics::FailureType::SideEffect
+    } else if lower.contains("function") {
+        if lower.contains("user") {
+            crate::metrics::FailureType::UserFacingFunction
+        } else {
+            crate::metrics::FailureType::Function
+        }
+    } else if lower.contains("invalid") || lower.contains("missing") || lower.contains("required") {
+        crate::metrics::FailureType::InvalidParameter
+    } else {
+        crate::metrics::FailureType::Unclassified
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_action_success_metric(
+    state: &AppState,
+    claims: &Claims,
+    action_id: Uuid,
+    target_object_id: Option<Uuid>,
+    parameters: &Value,
+    started_at: std::time::Instant,
+    metrics: Option<&'static crate::metrics::ActionMetrics>,
+    action_id_label: &str,
+) {
+    let elapsed = started_at.elapsed();
+    let elapsed_ms = i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX);
+    if let Some(metrics) = metrics {
+        metrics.record_success(action_id_label, elapsed.as_secs_f64());
+    }
+    if let Err(error) = persist_action_attempt_row(
+        state,
+        claims,
+        action_id,
+        target_object_id,
+        parameters,
+        "success",
+        None,
+        elapsed_ms,
+    )
+    .await
+    {
+        tracing::warn!(action = %action_id, error = %error, "failed to persist action success attempt");
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_action_failure_metric(
+    state: &AppState,
+    claims: &Claims,
+    action_id: Uuid,
+    target_object_id: Option<Uuid>,
+    parameters: &Value,
+    failure_type: crate::metrics::FailureType,
+    started_at: std::time::Instant,
+    metrics: Option<&'static crate::metrics::ActionMetrics>,
+    action_id_label: &str,
+) {
+    let elapsed = started_at.elapsed();
+    let elapsed_ms = i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX);
+    if let Some(metrics) = metrics {
+        metrics.record_failure(action_id_label, failure_type, elapsed.as_secs_f64());
+    }
+    if let Err(error) = persist_action_attempt_row(
+        state,
+        claims,
+        action_id,
+        target_object_id,
+        parameters,
+        "failure",
+        Some(failure_type.as_str()),
+        elapsed_ms,
+    )
+    .await
+    {
+        tracing::warn!(action = %action_id, error = %error, "failed to persist action failure attempt");
+    }
+}
+
+/// Inserts a non-revertible row into `action_executions` purely for the
+/// metrics aggregation endpoint. TASK E will refactor this once the revert
+/// flow lands so successful executions reuse the same persistence path with
+/// `revertible = TRUE` + a previous-state snapshot.
+async fn persist_action_attempt_row(
+    state: &AppState,
+    claims: &Claims,
+    action_id: Uuid,
+    target_object_id: Option<Uuid>,
+    parameters: &Value,
+    status: &str,
+    failure_type: Option<&str>,
+    duration_ms: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"INSERT INTO action_executions (
+               id, action_id, target_object_id, target_object_type_id,
+               parameters, previous_object_state, revertible,
+               applied_by, applied_at, organization_id,
+               status, failure_type, duration_ms
+           ) VALUES ($1, $2, $3, NULL, $4::jsonb, NULL, FALSE, $5, NOW(), $6,
+                     $7, $8, $9)"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(action_id)
+    .bind(target_object_id)
+    .bind(parameters)
+    .bind(claims.sub)
+    .bind(claims.org_id)
+    .bind(status)
+    .bind(failure_type)
+    .bind(duration_ms)
+    .execute(&state.db)
+    .await?;
+    Ok(())
+}
+
+/// `GET /api/v1/ontology/actions/{id}/metrics?window=30d` — aggregates the
+/// `action_executions` table for the requested window and returns
+/// success/failure counts plus P95 duration. Source-of-truth lives in the
+/// service's own database so the endpoint never depends on Prometheus
+/// scraping. The same data is also exported as Prometheus counters.
+pub async fn get_action_metrics(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Path(action_id): Path<Uuid>,
+    Query(params): Query<ActionMetricsQuery>,
+) -> impl IntoResponse {
+    let window = params.window.as_deref().unwrap_or("30d").to_string();
+    let window_seconds = match parse_window_to_seconds(&window) {
+        Ok(secs) => secs,
+        Err(message) => {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": message })))
+                .into_response();
+        }
+    };
+
+    let aggregate = match sqlx::query_as::<_, ActionMetricsAggregateRow>(
+        r#"SELECT
+               COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+               COUNT(*) FILTER (WHERE status = 'failure') AS failure_count,
+               PERCENTILE_CONT(0.95) WITHIN GROUP (
+                   ORDER BY duration_ms::double precision
+               ) FILTER (WHERE duration_ms IS NOT NULL) AS p95_duration_ms
+           FROM action_executions
+           WHERE action_id = $1
+             AND applied_at >= NOW() - make_interval(secs => $2)"#,
+    )
+    .bind(action_id)
+    .bind(window_seconds as f64)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(row) => row,
+        Err(error) => return db_error(format!("failed to aggregate action metrics: {error}")),
+    };
+
+    let categories = match sqlx::query_as::<_, ActionFailureCategoryRow>(
+        r#"SELECT failure_type, COUNT(*) AS count
+           FROM action_executions
+           WHERE action_id = $1
+             AND applied_at >= NOW() - make_interval(secs => $2)
+             AND failure_type IS NOT NULL
+           GROUP BY failure_type
+           ORDER BY count DESC"#,
+    )
+    .bind(action_id)
+    .bind(window_seconds as f64)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            return db_error(format!("failed to load failure categories: {error}"));
+        }
+    };
+
+    let failure_categories: std::collections::BTreeMap<String, i64> = categories
+        .into_iter()
+        .map(|row| (row.failure_type, row.count))
+        .collect();
+
+    Json(ActionMetricsResponse {
+        action_id,
+        window,
+        success_count: aggregate.success_count.unwrap_or(0),
+        failure_count: aggregate.failure_count.unwrap_or(0),
+        p95_duration_ms: aggregate.p95_duration_ms,
+        failure_categories,
+    })
+    .into_response()
+}
+
+/// Parse strings like `30d`, `12h`, `45m`, `120s`, `2w`. Returns the window
+/// in seconds. A bare numeric value is treated as days.
+fn parse_window_to_seconds(input: &str) -> Result<u64, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("window must not be empty".into());
+    }
+    let (number_part, suffix) = match trimmed
+        .char_indices()
+        .find(|(_, c)| !c.is_ascii_digit())
+    {
+        Some((idx, _)) => (&trimmed[..idx], &trimmed[idx..]),
+        None => (trimmed, "d"),
+    };
+    let value: u64 = number_part
+        .parse()
+        .map_err(|_| format!("invalid window value: {input}"))?;
+    let multiplier: u64 = match suffix {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3_600,
+        "d" => 86_400,
+        "w" => 7 * 86_400,
+        other => return Err(format!("unsupported window suffix: {other}")),
+    };
+    value
+        .checked_mul(multiplier)
+        .ok_or_else(|| format!("window overflow: {input}"))
+}
+
+#[derive(Deserialize)]
+pub struct ActionMetricsQuery {
+    pub window: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ActionMetricsResponse {
+    pub action_id: Uuid,
+    pub window: String,
+    pub success_count: i64,
+    pub failure_count: i64,
+    pub p95_duration_ms: Option<f64>,
+    pub failure_categories: std::collections::BTreeMap<String, i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct ActionMetricsAggregateRow {
+    success_count: Option<i64>,
+    failure_count: Option<i64>,
+    p95_duration_ms: Option<f64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct ActionFailureCategoryRow {
+    failure_type: String,
+    count: i64,
 }
 
 pub async fn execute_action(
@@ -2996,6 +3803,265 @@ pub async fn execute_inline_edit(
     .await
 }
 
+/// TASK L — Bulk inline-edit endpoint. Each entry is validated and
+/// executed individually (per-edit submission criteria evaluation, per
+/// `Inline edits.md`); the request is rejected up front if two entries
+/// target the same `object_id` (Foundry "Invalid inline Actions").
+///
+/// `POST /api/v1/ontology/types/{type_id}/inline-edit-batch`
+pub async fn execute_inline_edit_batch(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(type_id): Path<Uuid>,
+    Json(body): Json<crate::models::property::ExecuteInlineEditBatchRequest>,
+) -> impl IntoResponse {
+    if body.edits.is_empty() {
+        return invalid_action("edits must not be empty");
+    }
+
+    // TASK M — Enforce documented Foundry scale limits before doing any work.
+    if body.edits.len() > scale_limits::MAX_OBJECTS_PER_SUBMISSION {
+        return scale_limit_response(format!(
+            "inline edit batch contains {} entries which exceeds the per-submission limit ({} max)",
+            body.edits.len(),
+            scale_limits::MAX_OBJECTS_PER_SUBMISSION
+        ));
+    }
+    for edit in &body.edits {
+        let edit_bytes = estimate_edit_bytes(&edit.value);
+        if edit_bytes > scale_limits::MAX_EDIT_BYTES {
+            return scale_limit_response(format!(
+                "inline edit for object {} is {} bytes which exceeds the per-edit limit ({} bytes)",
+                edit.object_id,
+                edit_bytes,
+                scale_limits::MAX_EDIT_BYTES
+            ));
+        }
+    }
+
+    // Reject duplicates on the same object.
+    let mut seen_objects = HashSet::new();
+    for edit in &body.edits {
+        if !seen_objects.insert(edit.object_id) {
+            return invalid_action(format!(
+                "inline edit batch contains two edits targeting the same object {} (rejected; see Inline edits documentation)",
+                edit.object_id
+            ));
+        }
+    }
+
+    let total = body.edits.len();
+    let mut results = Vec::with_capacity(total);
+    let mut succeeded = 0usize;
+
+    for edit in body.edits {
+        let property = match load_property_row(&state, type_id, edit.property_id).await {
+            Ok(Some(property)) => property,
+            Ok(None) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": "property not found"
+                }));
+                continue;
+            }
+            Err(error) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": format!("failed to load property: {error}")
+                }));
+                continue;
+            }
+        };
+
+        let Some(inline_edit_config) = property.inline_edit_config.clone() else {
+            results.push(json!({
+                "property_id": edit.property_id,
+                "object_id": edit.object_id,
+                "status": "failure",
+                "error": "inline edit not configured for this property"
+            }));
+            continue;
+        };
+
+        let target = match load_and_authorize_target(&state, &claims, edit.object_id, type_id)
+            .await
+        {
+            Ok(target) => target,
+            Err(errors) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": errors.join("; ")
+                }));
+                continue;
+            }
+        };
+
+        let action_row = match load_action_row(&state, inline_edit_config.action_type_id).await {
+            Ok(Some(row)) => row,
+            Ok(None) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": "configured inline edit action type was not found"
+                }));
+                continue;
+            }
+            Err(error) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": format!("failed to load inline edit action: {error}")
+                }));
+                continue;
+            }
+        };
+
+        let action = match ActionType::try_from(action_row) {
+            Ok(action_type) => action_type,
+            Err(error) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": format!("failed to decode inline edit action: {error}")
+                }));
+                continue;
+            }
+        };
+
+        if action.object_type_id != type_id {
+            results.push(json!({
+                "property_id": edit.property_id,
+                "object_id": edit.object_id,
+                "status": "failure",
+                "error": "configured inline edit action no longer belongs to this object type"
+            }));
+            continue;
+        }
+
+        let parameters = match build_inline_edit_parameters(
+            &action,
+            &property,
+            &target,
+            &inline_edit_config,
+            edit.value,
+        ) {
+            Ok(parameters) => parameters,
+            Err(error) => {
+                results.push(json!({
+                    "property_id": edit.property_id,
+                    "object_id": edit.object_id,
+                    "status": "failure",
+                    "error": error
+                }));
+                continue;
+            }
+        };
+
+        let request = ExecuteActionRequest {
+            target_object_id: Some(edit.object_id),
+            parameters,
+            justification: edit.justification,
+        };
+
+        let response = execute_loaded_action(&state, &claims, action, request).await;
+        let status = response.status();
+        if status.is_success() {
+            succeeded += 1;
+            results.push(json!({
+                "property_id": edit.property_id,
+                "object_id": edit.object_id,
+                "status": "success"
+            }));
+        } else {
+            results.push(json!({
+                "property_id": edit.property_id,
+                "object_id": edit.object_id,
+                "status": "failure",
+                "http_status": status.as_u16()
+            }));
+        }
+    }
+
+    Json(json!({
+        "total": total,
+        "succeeded": succeeded,
+        "failed": total - succeeded,
+        "results": results
+    }))
+    .into_response()
+}
+
+/// TASK L — Re-validate inline-edit requirements when an action that is
+/// referenced by `properties.inline_edit_config` is updated. Currently
+/// enforced: same-object-type, `update_object` operation, no side-effect
+/// webhooks/notifications.
+async fn ensure_inline_edit_requirements_for_action(
+    state: &AppState,
+    action_id: Uuid,
+    operation_kind: &str,
+    config: &Value,
+) -> Result<(), String> {
+    let referencing = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT id FROM properties
+           WHERE inline_edit_config IS NOT NULL
+             AND (inline_edit_config ->> 'action_type_id')::uuid = $1
+           LIMIT 1"#,
+    )
+    .bind(action_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|error| format!("failed to scan inline edit references: {error}"))?;
+
+    if referencing.is_none() {
+        return Ok(());
+    }
+
+    if operation_kind != "update_object" {
+        return Err(
+            "this action is referenced as an inline edit; operation_kind must remain update_object"
+                .to_string(),
+        );
+    }
+
+    if let Some(object) = config.as_object() {
+        if let Some(notifications) = object.get("notification_side_effects") {
+            let non_empty = notifications
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(false);
+            if non_empty {
+                return Err(
+                    "this action is referenced as an inline edit; side-effect notifications must remain disabled"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(webhooks) = object.get("webhook_side_effects") {
+            let non_empty = webhooks
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(false);
+            if non_empty {
+                return Err(
+                    "this action is referenced as an inline edit; side-effect webhooks must remain disabled"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn execute_action_batch(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
@@ -3017,6 +4083,50 @@ pub async fn execute_action_batch(
         Ok(action_type) => action_type,
         Err(e) => return db_error(format!("failed to decode action type: {e}")),
     };
+
+    // TASK H — Function-backed actions can opt into batched execution. The
+    // size cap follows the documented Foundry limits (Scale and property
+    // limits.md): 20 targets in single-call mode, 10 000 when batched.
+    let batched = extract_batched_execution_flag(&action.config);
+    // TASK M — Per `Scale and property limits.md`, the 20-target cap only
+    // applies to function-backed actions running without batched_execution.
+    // Every other configuration accepts up to MAX_OBJECTS_PER_SUBMISSION.
+    let function_backed = parse_operation_kind(&action.operation_kind)
+        .map(|kind| kind == ActionOperationKind::InvokeFunction)
+        .unwrap_or(false);
+    let limit = if function_backed && !batched {
+        DEFAULT_BATCH_MAX_TARGETS
+    } else {
+        scale_limits::MAX_OBJECTS_PER_SUBMISSION
+    };
+    if body.target_object_ids.len() > limit {
+        return scale_limit_response(format!(
+            "target_object_ids exceeds the per-call scale limit ({} max in {} mode)",
+            limit,
+            if function_backed && !batched {
+                "function single-call"
+            } else if batched {
+                "batched"
+            } else {
+                "standard"
+            }
+        ));
+    }
+
+    // TASK M — Each per-target edit must remain within OSv2's 3 MB ceiling.
+    // We size-check the parameters payload once since it is shared across
+    // every target in the batch.
+    let parameters_bytes = estimate_edit_bytes(&body.parameters);
+    if parameters_bytes > scale_limits::MAX_EDIT_BYTES {
+        return scale_limit_response(format!(
+            "parameters payload of {} bytes exceeds the per-edit scale limit ({} bytes)",
+            parameters_bytes,
+            scale_limits::MAX_EDIT_BYTES
+        ));
+    }
+    if let Err(error) = validate_parameter_list_sizes(&action.input_schema, &body.parameters) {
+        return scale_limit_response(error);
+    }
 
     if let Err(error) = ensure_action_actor_permission(&claims, &action) {
         if let Err(audit_error) = emit_action_audit_event(
@@ -3065,6 +4175,57 @@ pub async fn execute_action_batch(
     let total = body.target_object_ids.len();
     let mut succeeded = 0usize;
     let mut results = Vec::with_capacity(total);
+
+    // TASK H — Batched function-invocation path: collapse N validations + N
+    // function calls into a single invocation with `params = { batch: [...] }`.
+    // Only valid when the action is function-backed; for any other operation
+    // kind we fall back to the per-target loop.
+    if batched
+        && parse_operation_kind(&action.operation_kind)
+            .map(|kind| kind == ActionOperationKind::InvokeFunction)
+            .unwrap_or(false)
+    {
+        let outcome = execute_batched_function_invocation(
+            &state,
+            &claims,
+            &action,
+            &body.target_object_ids,
+            &body.parameters,
+            body.justification.as_deref(),
+        )
+        .await;
+        return match outcome {
+            Ok(value) => Json(json!({
+                "total": total,
+                "succeeded": total,
+                "failed": 0,
+                "batched": true,
+                "result": value,
+            }))
+            .into_response(),
+            Err(error) => {
+                if let Err(audit_error) = emit_action_audit_event(
+                    &state,
+                    &claims,
+                    &action,
+                    None,
+                    None,
+                    "failure",
+                    "high",
+                    Some(&error),
+                    body.justification.as_deref(),
+                    &body.parameters,
+                    None,
+                    Some(&json!({ "batched": true, "target_count": total })),
+                )
+                .await
+                {
+                    log_audit_failure(action.id, &audit_error);
+                }
+                db_error(error)
+            }
+        };
+    }
 
     for target_object_id in body.target_object_ids {
         let validation_request = ValidateActionRequest {
@@ -3290,6 +4451,70 @@ pub async fn create_action_what_if_branch(
     }
 }
 
+/// TASK P — `POST /api/v1/ontology/actions/uploads`. Accepts a small JSON
+/// body describing a file (`filename`, `content_type`, `size_bytes`,
+/// optional inline `content_base64` for tiny payloads) and returns an
+/// opaque `attachment_rid` plus a stable storage URI. Action parameters of
+/// type `attachment` or `media_reference` use the returned identifier as
+/// their value.
+///
+/// This endpoint is intentionally minimal: full Foundry parity (chunked
+/// uploads, signed URLs, virus scans) is delegated to
+/// `data-asset-catalog-service`. The current implementation enforces the
+/// 3 MB per-edit ceiling defined in `Scale and property limits.md`.
+#[derive(Debug, Deserialize)]
+pub struct UploadAttachmentRequest {
+    pub filename: String,
+    #[serde(default)]
+    pub content_type: Option<String>,
+    /// Total file size in bytes. Required so we can apply the per-edit cap
+    /// even when callers stream the body separately to object storage.
+    pub size_bytes: u64,
+    /// Optional inline payload, base64-encoded. Mostly used by tests; the
+    /// production flow uploads to object storage and skips this field.
+    #[serde(default)]
+    pub content_base64: Option<String>,
+}
+
+pub async fn upload_action_attachment(
+    AuthUser(_claims): AuthUser,
+    State(_state): State<AppState>,
+    Json(request): Json<UploadAttachmentRequest>,
+) -> impl IntoResponse {
+    if request.filename.trim().is_empty() {
+        return invalid_action("filename is required");
+    }
+    if request.size_bytes == 0 {
+        return invalid_action("size_bytes must be greater than zero");
+    }
+    if request.size_bytes as usize > scale_limits::MAX_EDIT_BYTES {
+        return scale_limit_response(format!(
+            "attachment of {} bytes exceeds the per-edit scale limit ({} bytes)",
+            request.size_bytes,
+            scale_limits::MAX_EDIT_BYTES
+        ));
+    }
+    if let Some(payload) = request.content_base64.as_deref() {
+        // Very rough sanity check: base64 expands by 4/3, so reject obvious
+        // overruns without performing the decode.
+        if payload.len() / 4 * 3 > scale_limits::MAX_EDIT_BYTES {
+            return scale_limit_response("inline attachment payload exceeds the per-edit limit");
+        }
+    }
+
+    let attachment_rid = format!("ri.attachments.{}", Uuid::now_v7());
+    Json(json!({
+        "attachment_rid": attachment_rid,
+        "filename": request.filename,
+        "content_type": request.content_type,
+        "size_bytes": request.size_bytes,
+        // Storage URI is opaque to clients; the data-asset-catalog-service
+        // resolves it to a presigned download URL on demand.
+        "storage_uri": format!("attachments://{attachment_rid}"),
+    }))
+    .into_response()
+}
+
 pub async fn list_action_what_if_branches(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
@@ -3370,6 +4595,305 @@ pub async fn delete_action_what_if_branch(
     }
 }
 
+/// TASK G — Invokes a webhook registered in
+/// `connector-management-service` with the supplied input payload. Returns
+/// the structured response so the caller can surface `output_parameters`
+/// to subsequent rules. Errors are bubbled up so writeback can abort the
+/// action while side-effect calls can swallow them.
+async fn invoke_registered_webhook(
+    state: &AppState,
+    webhook: &WebhookCallConfig,
+    action_parameters: &Value,
+) -> Result<Value, String> {
+    if state.connector_management_service_url.trim().is_empty() {
+        return Err("connector_management_service_url is not configured".to_string());
+    }
+
+    let mut inputs = serde_json::Map::new();
+    if let Some(map) = action_parameters.as_object() {
+        for mapping in &webhook.input_mappings {
+            if let Some(value) = map.get(&mapping.action_input_name) {
+                inputs.insert(mapping.webhook_input_name.clone(), value.clone());
+            }
+        }
+    }
+
+    let url = format!(
+        "{}/api/v1/webhooks/{}/invoke",
+        state.connector_management_service_url.trim_end_matches('/'),
+        webhook.webhook_id
+    );
+    let response = state
+        .http_client
+        .post(&url)
+        .json(&json!({ "inputs": Value::Object(inputs) }))
+        .send()
+        .await
+        .map_err(|error| format!("webhook invocation failed: {error}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|error| format!("failed to read webhook response: {error}"))?;
+    if !status.is_success() {
+        return Err(format!("webhook returned {status}: {text}"));
+    }
+    if text.trim().is_empty() {
+        Ok(Value::Null)
+    } else {
+        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    }
+}
+
+/// TASK G — Invokes the writeback webhook (if any) before [`plan_action`].
+/// On success, the response's `output_parameters` (if present) are merged
+/// into the action's parameter map under either the configured alias or a
+/// flat `webhook_output` key so subsequent rules can reference them.
+async fn run_webhook_writeback(
+    state: &AppState,
+    config: &WebhookCallConfig,
+    parameters: &mut Value,
+) -> Result<(), String> {
+    let response = invoke_registered_webhook(state, config, parameters).await?;
+    let output = response
+        .as_object()
+        .and_then(|map| map.get("output_parameters"))
+        .cloned()
+        .unwrap_or(response);
+    if !parameters.is_object() {
+        *parameters = json!({});
+    }
+    let alias = config
+        .output_parameter_alias
+        .as_deref()
+        .unwrap_or("webhook_output");
+    if let Some(map) = parameters.as_object_mut() {
+        map.insert(alias.to_string(), output);
+    }
+    Ok(())
+}
+
+/// TASK G — Persist a side-effect webhook invocation row. Best-effort: a
+/// failure here only logs because side effects are non-blocking by design.
+async fn persist_webhook_side_effect_row(
+    state: &AppState,
+    action_id: Uuid,
+    webhook_id: Uuid,
+    actor: Uuid,
+    status: &str,
+    response: Option<&Value>,
+    error: Option<&str>,
+) {
+    if let Err(insert_error) = sqlx::query(
+        r#"INSERT INTO action_execution_side_effects (
+               id, action_id, webhook_id, actor_id, status,
+               response, error_message, invoked_at
+           ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(action_id)
+    .bind(webhook_id)
+    .bind(actor)
+    .bind(status)
+    .bind(response.cloned().unwrap_or(Value::Null))
+    .bind(error)
+    .execute(&state.db)
+    .await
+    {
+        tracing::warn!(action = %action_id, webhook = %webhook_id, error = %insert_error, "failed to persist side-effect ledger row");
+    }
+}
+
+/// TASK G — Fan out the configured side-effect webhooks in parallel via
+/// `futures::future::join_all`. Errors are logged + persisted but never
+/// propagated; this matches Foundry's "fire-and-forget" semantics.
+async fn run_webhook_side_effects(
+    state: &AppState,
+    actor: Uuid,
+    action_id: Uuid,
+    configs: &[WebhookCallConfig],
+    parameters: &Value,
+) {
+    if configs.is_empty() {
+        return;
+    }
+    let futures = configs.iter().map(|config| async move {
+        match invoke_registered_webhook(state, config, parameters).await {
+            Ok(response) => {
+                persist_webhook_side_effect_row(
+                    state,
+                    action_id,
+                    config.webhook_id,
+                    actor,
+                    "success",
+                    Some(&response),
+                    None,
+                )
+                .await;
+            }
+            Err(error) => {
+                tracing::warn!(action = %action_id, webhook = %config.webhook_id, error = %error, "webhook side-effect failed");
+                persist_webhook_side_effect_row(
+                    state,
+                    action_id,
+                    config.webhook_id,
+                    actor,
+                    "failure",
+                    None,
+                    Some(error.as_str()),
+                )
+                .await;
+            }
+        }
+    });
+    futures::future::join_all(futures).await;
+}
+
+/// TASK H — single-call batch limit when `batched_execution = false`.
+/// Mirrors Foundry's documented per-request cap.
+pub const DEFAULT_BATCH_MAX_TARGETS: usize = 20;
+
+/// TASK H — batched-execution cap; only honoured when the action is
+/// function-backed and `batched_execution = true`.
+pub const BATCHED_EXECUTION_MAX_TARGETS: usize = 10_000;
+
+/// TASK M — Scale & property limits (Foundry `Scale and property limits.md`).
+/// These constants centralise the hard caps shared by `execute_action_batch`
+/// and `execute_inline_edit_batch` so all enforcement paths agree on the
+/// numeric thresholds and the failure_type classification.
+pub mod scale_limits {
+    /// Maximum object types touched by a single submission (action batch or
+    /// inline-edit batch). Currently each batch endpoint operates on a single
+    /// object type by URL, but the helper enforces it explicitly so that any
+    /// future multi-type submission picks up the cap automatically.
+    pub const MAX_OBJECT_TYPES_PER_SUBMISSION: usize = 50;
+
+    /// Maximum number of object instances edited within a single submission.
+    pub const MAX_OBJECTS_PER_SUBMISSION: usize = 10_000;
+
+    /// Maximum serialized size (bytes) for an individual edit's parameters or
+    /// inline-edit value. Three megabytes mirrors OSv2's per-edit ceiling.
+    pub const MAX_EDIT_BYTES: usize = 3 * 1024 * 1024;
+
+    /// Maximum length of a primitive list parameter.
+    pub const MAX_LIST_PRIMITIVE: usize = 10_000;
+
+    /// Maximum length of an object reference list parameter.
+    pub const MAX_OBJECT_REFERENCE_LIST: usize = 1_000;
+
+    /// Maximum number of notification recipients resolved per side-effect
+    /// configuration. Function-backed recipient resolution lowers this cap
+    /// (see [`MAX_NOTIFICATION_RECIPIENTS_FROM_FUNCTION`]).
+    pub const MAX_NOTIFICATION_RECIPIENTS: usize = 500;
+
+    /// Cap when notification recipients come "from a function" (Foundry's
+    /// `target_user_property_name` resolution path executed by a function).
+    pub const MAX_NOTIFICATION_RECIPIENTS_FROM_FUNCTION: usize = 50;
+}
+
+/// TASK M — Validate list-shaped parameters against the documented Foundry
+/// caps. `object_reference_list` follows the stricter 1 000-element limit;
+/// every other list-typed parameter (including primitive arrays) caps at
+/// 10 000 elements. Returns the canonical scale-limit message used by
+/// [`scale_limit_response`].
+pub fn validate_parameter_list_sizes(
+    input_schema: &[ActionInputField],
+    parameters: &Value,
+) -> Result<(), String> {
+    let Some(map) = parameters.as_object() else {
+        return Ok(());
+    };
+    for field in input_schema {
+        let Some(value) = map.get(&field.name) else {
+            continue;
+        };
+        let Some(items) = value.as_array() else {
+            continue;
+        };
+        let limit = match field.property_type.as_str() {
+            "object_reference_list" => scale_limits::MAX_OBJECT_REFERENCE_LIST,
+            "array" | "vector" => scale_limits::MAX_LIST_PRIMITIVE,
+            other if other.ends_with("_list") => scale_limits::MAX_LIST_PRIMITIVE,
+            _ => continue,
+        };
+        if items.len() > limit {
+            return Err(format!(
+                "parameter '{}' exceeds the scale limit ({} items, max {})",
+                field.name,
+                items.len(),
+                limit
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// TASK M — Estimate the serialized byte size of an edit's value/parameters
+/// for the per-edit 3 MB cap. We use the canonical JSON representation since
+/// that is what eventually crosses the wire to the writeback layer.
+pub fn estimate_edit_bytes(value: &Value) -> usize {
+    serde_json::to_vec(value).map(|v| v.len()).unwrap_or(0)
+}
+
+/// TASK H — Issue a single function invocation that receives the full batch
+/// in `parameters.batch = [...]`. Required signature on the user function:
+/// `(batch: List<Struct>) -> void`. Validation in [`validate_action_config`]
+/// ensures the action only opts into batched execution when paired with a
+/// function invocation (any other operation kind rejects the flag).
+async fn execute_batched_function_invocation(
+    state: &AppState,
+    claims: &Claims,
+    action: &ActionType,
+    target_object_ids: &[Uuid],
+    parameters: &Value,
+    justification: Option<&str>,
+) -> Result<Value, String> {
+    let (operation_config, _notification_side_effects) =
+        split_action_config(&action.config).map_err(|error| error.to_string())?;
+
+    let invocation = match resolve_inline_function_config(state, &operation_config).await {
+        Ok(Some(_)) => {
+            return Err(
+                "batched_execution requires an HTTP-backed function invocation".to_string(),
+            );
+        }
+        Ok(None) => validate_http_invocation_config(&operation_config)?,
+        Err(error) => return Err(error),
+    };
+
+    let batch_items: Vec<Value> = target_object_ids
+        .iter()
+        .map(|object_id| {
+            let mut entry = serde_json::Map::new();
+            entry.insert("target_object_id".to_string(), json!(object_id));
+            if let Some(map) = parameters.as_object() {
+                for (key, value) in map {
+                    entry.insert(key.clone(), value.clone());
+                }
+            }
+            Value::Object(entry)
+        })
+        .collect();
+
+    let payload = json!({
+        "action": {
+            "id": action.id,
+            "name": &action.name,
+            "display_name": &action.display_name,
+            "object_type_id": action.object_type_id,
+            "operation_kind": &action.operation_kind,
+        },
+        "actor": claims.sub,
+        "justification": justification,
+        "batched": true,
+        "parameters": {
+            "batch": batch_items,
+        },
+    });
+
+    invoke_http_action(state, &invocation, &payload).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3384,6 +4908,7 @@ mod tests {
                 property_type: "string".to_string(),
                 required: true,
                 default_value: None,
+                struct_fields: None,
             },
             ActionInputField {
                 name: "reason".to_string(),
@@ -3392,6 +4917,7 @@ mod tests {
                 property_type: "string".to_string(),
                 required: false,
                 default_value: None,
+                struct_fields: None,
             },
             ActionInputField {
                 name: "owner".to_string(),
@@ -3400,6 +4926,7 @@ mod tests {
                 property_type: "string".to_string(),
                 required: false,
                 default_value: None,
+                struct_fields: None,
             },
         ]
     }

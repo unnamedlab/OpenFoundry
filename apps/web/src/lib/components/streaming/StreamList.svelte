@@ -67,8 +67,18 @@
 			{:else}
 				{#each streams as stream}
 					<button class={`w-full rounded-2xl border px-4 py-3 text-left transition ${localDraft.id === stream.id ? 'border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30' : 'border-slate-200 bg-slate-50 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700'}`} onclick={() => onSelect?.(stream.id)} type="button">
-						<div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{stream.name}</div>
-						<div class="mt-1 text-xs text-slate-500">{stream.source_binding.connector_type} • {stream.schema.fields.length} fields • {stream.retention_hours}h retention</div>
+						<div class="flex items-center justify-between gap-2">
+							<div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{stream.name}</div>
+							<div class="flex flex-wrap gap-1">
+								{#if stream.stream_profile?.high_throughput}
+									<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-800 dark:bg-amber-950/40 dark:text-amber-300" title="linger.ms=25, batch.size=256KiB">HT</span>
+								{/if}
+								{#if stream.stream_profile?.compressed}
+									<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" title="compression.type=lz4">LZ4</span>
+								{/if}
+							</div>
+						</div>
+						<div class="mt-1 text-xs text-slate-500">{stream.source_binding.connector_type} • {stream.schema.fields.length} fields • {stream.retention_hours}h retention • {stream.stream_profile?.partitions ?? stream.partitions} part.</div>
 					</button>
 				{/each}
 			{/if}

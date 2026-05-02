@@ -78,6 +78,30 @@ pub struct TopologyDefinition {
     pub source_stream_ids: Vec<Uuid>,
     pub sink_bindings: Vec<ConnectorBinding>,
     pub state_backend: String,
+    /// Periodic checkpoint cadence in milliseconds. The checkpoint
+    /// supervisor uses this as the `tokio::time::interval` period.
+    pub checkpoint_interval_ms: i32,
+    /// Which runtime executes this topology. `builtin` runs in the
+    /// in-process engine; `flink` is materialised as a `FlinkDeployment`
+    /// CRD that the operator manages.
+    pub runtime_kind: String,
+    /// Job name to address when `runtime_kind = "flink"`. Required for
+    /// reset/restore operations targeting Flink.
+    pub flink_job_name: Option<String>,
+    /// Name of the `FlinkDeployment` Custom Resource materialised by
+    /// `runtime/flink/deployer.rs`. May differ from `flink_job_name`
+    /// when several jobs share a session cluster.
+    pub flink_deployment_name: Option<String>,
+    /// Runtime job id reported by the Flink JobManager once the job is
+    /// `RUNNING`. Populated by the metrics poller (D2).
+    pub flink_job_id: Option<String>,
+    /// Kubernetes namespace where the FlinkDeployment lives. Defaults to
+    /// the value of `POD_NAMESPACE` at deployment time.
+    pub flink_namespace: Option<String>,
+    /// End-to-end consistency contract for this topology. Mapped to
+    /// `execution.checkpointing.mode` for Flink and to the in-process
+    /// engine's commit-on-checkpoint behaviour for builtin.
+    pub consistency_guarantee: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -95,6 +119,13 @@ pub struct CreateTopologyRequest {
     pub source_stream_ids: Vec<Uuid>,
     pub sink_bindings: Vec<ConnectorBinding>,
     pub state_backend: Option<String>,
+    pub checkpoint_interval_ms: Option<i32>,
+    pub runtime_kind: Option<String>,
+    pub flink_job_name: Option<String>,
+    pub flink_deployment_name: Option<String>,
+    pub flink_job_id: Option<String>,
+    pub flink_namespace: Option<String>,
+    pub consistency_guarantee: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,6 +141,13 @@ pub struct UpdateTopologyRequest {
     pub source_stream_ids: Option<Vec<Uuid>>,
     pub sink_bindings: Option<Vec<ConnectorBinding>>,
     pub state_backend: Option<String>,
+    pub checkpoint_interval_ms: Option<i32>,
+    pub runtime_kind: Option<String>,
+    pub flink_job_name: Option<String>,
+    pub flink_deployment_name: Option<String>,
+    pub flink_job_id: Option<String>,
+    pub flink_namespace: Option<String>,
+    pub consistency_guarantee: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,6 +246,13 @@ pub struct TopologyRow {
     pub source_stream_ids: SqlJson<Vec<Uuid>>,
     pub sink_bindings: SqlJson<Vec<ConnectorBinding>>,
     pub state_backend: String,
+    pub checkpoint_interval_ms: i32,
+    pub runtime_kind: String,
+    pub flink_job_name: Option<String>,
+    pub flink_deployment_name: Option<String>,
+    pub flink_job_id: Option<String>,
+    pub flink_namespace: Option<String>,
+    pub consistency_guarantee: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -244,6 +289,13 @@ impl From<TopologyRow> for TopologyDefinition {
             source_stream_ids: value.source_stream_ids.0,
             sink_bindings: value.sink_bindings.0,
             state_backend: value.state_backend,
+            checkpoint_interval_ms: value.checkpoint_interval_ms,
+            runtime_kind: value.runtime_kind,
+            flink_job_name: value.flink_job_name,
+            flink_deployment_name: value.flink_deployment_name,
+            flink_job_id: value.flink_job_id,
+            flink_namespace: value.flink_namespace,
+            consistency_guarantee: value.consistency_guarantee,
             created_at: value.created_at,
             updated_at: value.updated_at,
         }

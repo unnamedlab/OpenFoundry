@@ -13,6 +13,15 @@ const VALID_TYPES: &[&str] = &[
     "reference",
     "geo_point",
     "media_reference",
+    // TASK J — Struct property/parameter type. Recursive validation lives in
+    // `handlers/actions::materialize_parameters` (it needs the nested
+    // `struct_fields` schema, which `validate_property_value` does not see).
+    // Here we only check that the value shape is a JSON object.
+    "struct",
+    // TASK P — OSv2-only attachment parameter type. Stores an attachment_rid
+    // returned by `POST /api/v1/ontology/actions/uploads`. Uploads of media
+    // assets keep using `media_reference`.
+    "attachment",
 ];
 
 pub fn validate_property_type(property_type: &str) -> Result<(), String> {
@@ -56,6 +65,15 @@ pub fn validate_property_value(property_type: &str, value: &Value) -> Result<(),
             }
         }
         "json" | "array" => Ok(()),
+        // TASK J — Struct value must be a JSON object; per-field recursive
+        // validation happens in `materialize_parameters` (it has the schema).
+        "struct" => {
+            if value.is_object() {
+                Ok(())
+            } else {
+                Err("expected object value for struct".into())
+            }
+        }
         "vector" => {
             let Some(values) = value.as_array() else {
                 return Err("expected numeric array value for vector".into());
@@ -124,6 +142,26 @@ pub fn validate_property_value(property_type: &str, value: &Value) -> Result<(),
                 .filter(|value| !value.trim().is_empty());
             if uri.is_none() {
                 return Err("media_reference requires a non-empty uri or url".into());
+            }
+            Ok(())
+        }
+        // TASK P — Attachments are stored as `{ "attachment_rid": "..." }`
+        // or as a bare attachment_rid string. The upload endpoint returns
+        // the rid and the caller passes it through as the parameter value.
+        "attachment" => {
+            if value.is_string() {
+                return Ok(());
+            }
+            let Some(object) = value.as_object() else {
+                return Err("expected string or object for attachment".into());
+            };
+            let rid = object
+                .get("attachment_rid")
+                .or_else(|| object.get("rid"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            if rid.is_none() {
+                return Err("attachment requires a non-empty attachment_rid".into());
             }
             Ok(())
         }

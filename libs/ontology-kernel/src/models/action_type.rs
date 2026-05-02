@@ -15,6 +15,19 @@ pub enum ActionOperationKind {
     DeleteObject,
     InvokeFunction,
     InvokeWebhook,
+    /// TASK I — Create an object that implements the configured interface.
+    /// Resolves to a concrete `object_type_id` at runtime via the auto-
+    /// generated `__object_type` parameter.
+    CreateInterface,
+    /// TASK I — Modify an existing object referenced via `__interface_ref`,
+    /// resolving its concrete `object_type_id` at runtime.
+    ModifyInterface,
+    /// TASK I — Delete an existing object referenced via `__interface_ref`.
+    DeleteInterface,
+    /// TASK I — Create a link between two interface-typed endpoints.
+    CreateInterfaceLink,
+    /// TASK I — Delete an existing link between two interface-typed endpoints.
+    DeleteInterfaceLink,
 }
 
 impl std::fmt::Display for ActionOperationKind {
@@ -25,6 +38,11 @@ impl std::fmt::Display for ActionOperationKind {
             Self::DeleteObject => "delete_object",
             Self::InvokeFunction => "invoke_function",
             Self::InvokeWebhook => "invoke_webhook",
+            Self::CreateInterface => "create_interface",
+            Self::ModifyInterface => "modify_interface",
+            Self::DeleteInterface => "delete_interface",
+            Self::CreateInterfaceLink => "create_interface_link",
+            Self::DeleteInterfaceLink => "delete_interface_link",
         };
 
         write!(f, "{value}")
@@ -40,6 +58,12 @@ pub struct ActionInputField {
     #[serde(default)]
     pub required: bool,
     pub default_value: Option<Value>,
+    /// TASK J — Struct parameters carry nested fields. Only meaningful when
+    /// `property_type == "struct"`. Each nested field follows the same
+    /// `ActionInputField` shape (recursive). Other property types must leave
+    /// this empty/None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub struct_fields: Option<Vec<ActionInputField>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

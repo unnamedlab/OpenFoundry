@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{AppState, models::dataset::Dataset};
+use crate::{AppState, domain::markings, models::dataset::Dataset};
 
 #[derive(Debug, Serialize)]
 pub struct InternalDatasetMetadata {
@@ -52,36 +52,11 @@ pub async fn get_dataset_metadata(
     }
 }
 
+/// Legacy thin wrapper preserved so existing tests/binaries that link
+/// against the old symbol continue to compile. New code should use
+/// [`markings::marking_from_tags_compat`] (re-exported below) or, when
+/// a [`crate::domain::markings::MarkingResolver`] is wired into
+/// [`AppState`], `MarkingResolver::compute(rid)`.
 fn marking_from_tags(tags: &[String]) -> String {
-    for prefix in ["marking:", "classification:"] {
-        if let Some(marking) = tags
-            .iter()
-            .find_map(|tag| tag.strip_prefix(prefix).and_then(normalize_marking))
-        {
-            return marking.to_string();
-        }
-    }
-
-    if tags.iter().any(|tag| tag.eq_ignore_ascii_case("pii")) {
-        "pii".to_string()
-    } else if tags
-        .iter()
-        .any(|tag| tag.eq_ignore_ascii_case("confidential"))
-    {
-        "confidential".to_string()
-    } else {
-        "public".to_string()
-    }
-}
-
-fn normalize_marking(value: &str) -> Option<&'static str> {
-    if value.eq_ignore_ascii_case("public") {
-        Some("public")
-    } else if value.eq_ignore_ascii_case("confidential") {
-        Some("confidential")
-    } else if value.eq_ignore_ascii_case("pii") {
-        Some("pii")
-    } else {
-        None
-    }
+    markings::marking_from_tags_compat(tags)
 }

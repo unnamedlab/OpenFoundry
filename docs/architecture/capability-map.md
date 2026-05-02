@@ -41,6 +41,47 @@ That capability is reflected in a family of dedicated ontology services:
 
 Together with `audit-service`, `auth-service`, and related shared middleware, these services implement the CQRS ontology stack described in the architecture documentation.
 
+#### `ontology-actions-service` — runtime detail
+
+`ontology-actions-service` is the dedicated binary that hosts the Action Types
+runtime extracted from the legacy ontology service. Its router is built by
+`ontology_actions_service::build_router` (in `services/ontology-actions-service/src/lib.rs`)
+and the handlers themselves live in `libs/ontology-kernel`. Full HTTP contract,
+environment variables and Foundry mapping are documented in
+[`services/ontology-actions-service/README.md`](../../services/ontology-actions-service/README.md).
+
+Runtime dependencies (configurable via environment variables — defaults match
+the in-cluster service map in `services/edge-gateway-service/src/config.rs`):
+
+- **Postgres** — owns the `action_types`, `action_executions` (revert ledger),
+  `action_what_if_branches` and `action_execution_side_effects` tables.
+  Migrations under `services/ontology-actions-service/migrations/` are applied
+  on startup; the integration suite under
+  `libs/ontology-kernel/tests/actions_integration.rs` reuses the same files.
+- **`audit-compliance-service`** — every `execute_action` /
+  `execute_action_batch` / inline-edit emits a structured audit event (success,
+  denied, failure). Failure to deliver is logged but never aborts the action.
+- **`notification-alerting-service`** — fan-out of action-driven notifications
+  with the TASK M caps (≤ 500 recipients standard, ≤ 50 from a function).
+- **`connector-management-service`** — TASK G writeback / side-effect webhooks.
+  Writeback failures abort the action with HTTP 400; side-effect failures are
+  logged and the action keeps running.
+- **`object-database-service`** — write path for object instances and revisions.
+  `update_object` / `delete_object` / `create_object` plans are applied through
+  the kernel's transactional helpers and a row is appended to `object_revisions`.
+- **`ontology-definition-service`** — schema lookups for object types, property
+  declarations and link definitions referenced by an action's input/output schema.
+
+Observability:
+
+- Prometheus counters exported from `ontology_kernel::metrics` (`action_executions_total`,
+  `action_failures_total{failure_type}`, latency histograms).
+- JSON aggregation surface at `GET /api/v1/ontology/actions/{id}/metrics?window=…`
+  computed directly from the `action_executions` ledger.
+
+End-to-end coverage runs via `just test-actions` (Rust integration suite +
+Playwright spec at `apps/web/tests/e2e/action-types.spec.ts`).
+
 ### Developer platform
 
 The P4 flow demonstrates that the platform also includes repository-like development primitives such as branches, commits, search, and review-oriented flows.

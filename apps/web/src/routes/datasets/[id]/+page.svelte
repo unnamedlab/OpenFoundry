@@ -1,6 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import RetentionPoliciesTab, { type RetentionPolicy } from '$lib/components/dataset/RetentionPoliciesTab.svelte';
+  import DatasetHeader from '$lib/components/dataset/DatasetHeader.svelte';
+  import VirtualizedPreviewTable, {
+    type ColumnDef as PreviewColumnDef,
+    type ColumnStats as PreviewColumnStats,
+  } from '$lib/components/dataset/VirtualizedPreviewTable.svelte';
+  import HistoryTimeline from '$lib/components/dataset/HistoryTimeline.svelte';
+  import CompareTab, { type CompareSide } from '$lib/components/dataset/CompareTab.svelte';
+  import AboutPanel from '$lib/components/dataset/details/AboutPanel.svelte';
+  import SchemaPanel, { type SchemaField } from '$lib/components/dataset/details/SchemaPanel.svelte';
+  import FilesPanel from '$lib/components/dataset/details/FilesPanel.svelte';
+  import JobSpecPanel from '$lib/components/dataset/details/JobSpecPanel.svelte';
+  import SyncStatusPanel from '$lib/components/dataset/details/SyncStatusPanel.svelte';
+  import CustomMetadataPanel from '$lib/components/dataset/details/CustomMetadataPanel.svelte';
+  import CurrentTransactionViewPanel from '$lib/components/dataset/details/CurrentTransactionViewPanel.svelte';
+  import ResourceUsagePanel from '$lib/components/dataset/details/ResourceUsagePanel.svelte';
   import { listUsers, type UserProfile } from '$lib/api/auth';
   import {
     checkoutDatasetBranch,
@@ -12,6 +28,9 @@
     getDatasetQuality,
     getVersions,
     listBranches,
+    listDatasetFilesystem,
+    listDatasetTransactions,
+    previewDataset,
     refreshDatasetQualityProfile,
     updateDataset,
     updateDatasetQualityRule,
@@ -20,10 +39,13 @@
     type CreateDatasetQualityRuleParams,
     type Dataset,
     type DatasetColumnProfile,
+    type DatasetFilesystemEntry,
     type DatasetLintResponse,
+    type DatasetPreviewResponse,
     type DatasetQualityResponse,
     type DatasetQualityRule,
     type DatasetRuleResult,
+    type DatasetTransaction,
     type DatasetVersion,
   } from '$lib/api/datasets';
 
@@ -38,7 +60,70 @@
   let quality = $state<DatasetQualityResponse | null>(null);
   let lint = $state<DatasetLintResponse | null>(null);
   let loading = $state(true);
-  let activeTab = $state<'schema' | 'versions' | 'branches' | 'preview' | 'quality' | 'linter'>('quality');
+  // Legacy inner-tab key. Now derived from the new viewMode +
+  // detailsPanel + healthSubTab so the existing Quality/Linter/
+  // Retention/Versions/Branches templates below keep rendering with
+  // zero changes.
+  // (Initial value below; the $derived runs after viewMode/etc are declared.)
+
+  // ── T5 — Foundry-style top-level view tabs ─────────────────────
+  let viewMode = $state<'preview' | 'history' | 'details' | 'health' | 'compare'>('details');
+  let detailsPanel = $state<
+    'about' | 'schema' | 'files' | 'jobspec' | 'sync' | 'custom' | 'current_tx' | 'resources' | 'retention'
+  >('about');
+  let healthSubTab = $state<'quality' | 'linter'>('quality');
+
+  // History / current-transaction data.
+  let transactions = $state<DatasetTransaction[]>([]);
+  let transactionsLoading = $state(false);
+  let transactionsError = $state('');
+  let rollingBack = $state<string | null>(null);
+
+  // Files / filesystem listing.
+  let filesystemEntries = $state<DatasetFilesystemEntry[]>([]);
+  let filesystemLoading = $state(false);
+  let filesystemError = $state('');
+
+  // Custom metadata (placeholder until the catalog service exposes it).
+  let customMetadata = $state<Record<string, string>>({});
+  let savingCustomMetadata = $state(false);
+  let customMetadataError = $state('');
+
+  // Preview tab state.
+  let previewLoading = $state(false);
+  let previewError = $state('');
+  let previewResponse = $state<DatasetPreviewResponse | null>(null);
+  let selectedTxId = $state<string | null>(null);
+
+  // Compare state.
+  type CompareSelector = { kind: 'transaction' | 'branch'; value: string };
+  let compareSelectorA = $state<CompareSelector>({ kind: 'branch', value: '' });
+  let compareSelectorB = $state<CompareSelector>({ kind: 'branch', value: '' });
+  let compareSideA = $state<CompareSide | null>(null);
+  let compareSideB = $state<CompareSide | null>(null);
+  let compareLoading = $state(false);
+  let compareError = $state('');
+
+  // Derived legacy `activeTab` so the existing in-page templates for
+  // Quality / Linter / Retention / Versions / Branches / Schema render
+  // unchanged based on the new top-level viewMode + sub-tabs.
+  const activeTab = $derived<
+    'schema' | 'versions' | 'branches' | 'preview' | 'quality' | 'linter' | 'retention'
+  >(
+    viewMode === 'health'
+      ? healthSubTab
+      : viewMode === 'history'
+        ? 'versions'
+        : viewMode === 'preview'
+          ? 'preview'
+          : viewMode === 'compare'
+            ? 'preview'
+            : detailsPanel === 'schema'
+              ? 'schema'
+              : detailsPanel === 'retention'
+                ? 'retention'
+                : 'preview',
+  );
   let descriptionInput = $state('');
   let tagsInput = $state('');
   let ownerId = $state('');
@@ -70,6 +155,195 @@
   let customSql = $state('SELECT COUNT(*) AS value FROM dataset');
   let comparisonOperator = $state<RuleOperator>('gte');
   let threshold = $state('1');
+
+  // ── T4.4 — retention policies (controlled by this page) ───────────
+  let retentionPolicies = $state<RetentionPolicy[]>([]);
+  let retentionRelevantOnly = $state(true);
+  let retentionLoading = $state(false);
+  let retentionError = $state('');
+
+  async function fetchRetentionPolicies(rid: string, relevantOnly: boolean) {
+    retentionLoading = true;
+    retentionError = '';
+    try {
+      const url = new URL('/api/v1/policies', window.location.origin);
+      if (relevantOnly) url.searchParams.set('dataset_rid', rid);
+      url.searchParams.set('active', 'true');
+      const response = await fetch(url.toString(), { credentials: 'include' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      retentionPolicies = (await response.json()) as RetentionPolicy[];
+    } catch (err) {
+      retentionError = err instanceof Error ? err.message : String(err);
+      retentionPolicies = [];
+    } finally {
+      retentionLoading = false;
+    }
+  }
+
+  function onToggleRetentionRelevantOnly(next: boolean) {
+    retentionRelevantOnly = next;
+    if (datasetId) void fetchRetentionPolicies(datasetId, next);
+  }
+
+  $effect(() => {
+    if (activeTab === 'retention' && datasetId) {
+      void fetchRetentionPolicies(datasetId, retentionRelevantOnly);
+    }
+  });
+
+  // ── T5 — load helpers for the new view tabs ─────────────────────
+  async function fetchTransactions(rid: string) {
+    transactionsLoading = true;
+    transactionsError = '';
+    try {
+      transactions = await listDatasetTransactions(rid);
+    } catch (cause) {
+      transactionsError = cause instanceof Error ? cause.message : String(cause);
+      transactions = [];
+    } finally {
+      transactionsLoading = false;
+    }
+  }
+
+  async function fetchFilesystem(rid: string) {
+    filesystemLoading = true;
+    filesystemError = '';
+    try {
+      const res = await listDatasetFilesystem(rid);
+      filesystemEntries = res.entries ?? res.items ?? [];
+    } catch (cause) {
+      filesystemError = cause instanceof Error ? cause.message : String(cause);
+      filesystemEntries = [];
+    } finally {
+      filesystemLoading = false;
+    }
+  }
+
+  async function fetchPreview(rid: string) {
+    previewLoading = true;
+    previewError = '';
+    try {
+      previewResponse = await previewDataset(rid, { limit: 5000 });
+    } catch (cause) {
+      previewError = cause instanceof Error ? cause.message : String(cause);
+      previewResponse = null;
+    } finally {
+      previewLoading = false;
+    }
+  }
+
+  function rollbackTransaction(tx: DatasetTransaction) {
+    // T5.3 — Backend endpoint not yet wired. Surface the intent so
+    // operators know what would happen and so the UI can be hooked up
+    // once the dataset-versioning-service exposes the route.
+    rollingBack = tx.id;
+    setTimeout(() => {
+      rollingBack = null;
+      transactionsError =
+        'Rollback API not yet implemented in dataset-versioning-service. ' +
+        `Would create a new SNAPSHOT from transaction ${tx.id}.`;
+    }, 250);
+  }
+
+  // Auto-fetch when the user enters a tab that needs the data.
+  $effect(() => {
+    if (!datasetId) return;
+    if (viewMode === 'history' && transactions.length === 0 && !transactionsLoading) {
+      void fetchTransactions(datasetId);
+    }
+    if (viewMode === 'details' && detailsPanel === 'files' && filesystemEntries.length === 0 && !filesystemLoading) {
+      void fetchFilesystem(datasetId);
+    }
+    if (viewMode === 'details' && detailsPanel === 'current_tx' && transactions.length === 0 && !transactionsLoading) {
+      void fetchTransactions(datasetId);
+    }
+    if (viewMode === 'preview' && !previewResponse && !previewLoading) {
+      void fetchPreview(datasetId);
+    }
+    if (viewMode === 'compare' && transactions.length === 0 && !transactionsLoading) {
+      void fetchTransactions(datasetId);
+    }
+  });
+
+  // Derive Compare sides from currently loaded data. This is a UI-only
+  // diff against what we already have client-side; a true point-in-time
+  // fetch will land when the dataset-versioning-service exposes it.
+  function buildSideFromCurrent(label: string): CompareSide {
+    return {
+      label,
+      schema: previewSchema,
+      files: filesystemEntries,
+    };
+  }
+
+  function changeCompareSelector(which: 'A' | 'B', selector: CompareSelector) {
+    if (which === 'A') {
+      compareSelectorA = selector;
+      compareSideA = buildSideFromCurrent(`${selector.kind}: ${selector.value || '—'}`);
+    } else {
+      compareSelectorB = selector;
+      compareSideB = buildSideFromCurrent(`${selector.kind}: ${selector.value || '—'}`);
+    }
+  }
+
+  // Derive a SchemaField[] from the currently loaded quality profile so
+  // the SchemaPanel and CompareTab have something to render today.
+  const previewSchema = $derived<SchemaField[]>(
+    (quality?.profile?.columns ?? []).map((c) => ({
+      name: c.name,
+      type: (c.field_type ?? 'STRING').toUpperCase(),
+      nullable: c.nullable ?? true,
+    })),
+  );
+
+  // Derive ColumnDef[] for the virtualized preview from whichever
+  // schema source has data first (preview response → quality columns).
+  const previewColumns = $derived<PreviewColumnDef[]>(
+    (previewResponse?.columns?.map((c) => ({
+      name: c.name,
+      field_type: c.field_type ?? c.data_type,
+    })) ??
+      quality?.profile?.columns?.map((c) => ({
+        name: c.name,
+        field_type: c.field_type,
+      })) ??
+      []) as PreviewColumnDef[],
+  );
+
+  const previewRows = $derived<Array<Record<string, unknown>>>(
+    previewResponse?.rows ?? [],
+  );
+
+  // Build per-column stats from the quality profile so the preview
+  // header strip surfaces min / max / null% / distinct without a
+  // separate API call.
+  const previewStats = $derived<Record<string, PreviewColumnStats>>(
+    Object.fromEntries(
+      (quality?.profile?.columns ?? []).map((c) => [
+        c.name,
+        {
+          min: c.min_value,
+          max: c.max_value,
+          null_rate: c.null_rate,
+          distinct_count: c.distinct_count,
+        },
+      ]),
+    ),
+  );
+
+  function saveCustomMetadata(next: Record<string, string>) {
+    // T5.1 — backend store for custom metadata is not yet wired.
+    // Persist locally so the panel reflects the latest edits.
+    savingCustomMetadata = true;
+    customMetadataError = '';
+    try {
+      customMetadata = next;
+    } catch (cause) {
+      customMetadataError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      savingCustomMetadata = false;
+    }
+  }
 
   const datasetId = $derived($page.params.id ?? '');
 
@@ -380,7 +654,23 @@
 
   onMount(() => {
     if (datasetId) {
-      void load();
+      void (async () => {
+        await load();
+        // Deep link: if `?branch=` is set and differs from the loaded
+        // active branch, check it out so reloads / shared links land on
+        // the right branch view.
+        const requested = $page.url.searchParams.get('branch');
+        if (dataset && requested && requested !== dataset.active_branch) {
+          try {
+            checkingOutBranch = requested;
+            dataset = await checkoutDatasetBranch(datasetId, requested);
+          } catch (cause) {
+            console.warn('failed to checkout branch from URL', cause);
+          } finally {
+            checkingOutBranch = '';
+          }
+        }
+      })();
     }
   });
 </script>
@@ -391,144 +681,249 @@
   <div class="py-12 text-center text-gray-500">Dataset not found</div>
 {:else}
   <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold">{dataset.name}</h1>
-        <p class="mt-1 text-gray-500">{dataset.description || 'No description'}</p>
+    <DatasetHeader
+      dataset={dataset}
+      branches={branches}
+      markings={[]}
+      busy={creatingBranch || Boolean(checkingOutBranch)}
+      onSwitchBranch={async (name) => {
+        checkingOutBranch = name;
+        try {
+          dataset = await checkoutDatasetBranch(datasetId, name);
+          versions = await getVersions(datasetId);
+          await refreshLintState(datasetId, true);
+        } finally {
+          checkingOutBranch = '';
+        }
+      }}
+      onCreateBranch={async ({ name, from, description }) => {
+        creatingBranch = true;
+        try {
+          await createDatasetBranch(datasetId, {
+            name,
+            description,
+            source_version: branches.find((b) => b.name === from)?.version,
+          });
+          branches = await listBranches(datasetId);
+        } finally {
+          creatingBranch = false;
+        }
+      }}
+    />
+
+    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div class="rounded-xl border p-4 dark:border-gray-700">
+        <div class="text-sm text-gray-500">Size</div>
+        <div class="text-lg font-semibold">{(dataset.size_bytes / 1024).toFixed(1)} KB</div>
       </div>
-      <div class="flex gap-2">
-        <span class="rounded bg-gray-100 px-3 py-1 text-sm dark:bg-gray-800">{dataset.format}</span>
-        <span class="rounded bg-amber-100 px-3 py-1 text-sm dark:bg-amber-900">{dataset.active_branch}</span>
-        <span class="rounded bg-blue-100 px-3 py-1 text-sm dark:bg-blue-900">v{dataset.current_version}</span>
+      <div class="rounded-xl border p-4 dark:border-gray-700">
+        <div class="text-sm text-gray-500">Rows</div>
+        <div class="text-lg font-semibold">{dataset.row_count.toLocaleString()}</div>
       </div>
-    </div>
-
-    <div class="grid gap-4 xl:grid-cols-[2fr,1fr]">
-      <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div class="rounded-xl border p-4 dark:border-gray-700">
-          <div class="text-sm text-gray-500">Size</div>
-          <div class="text-lg font-semibold">{(dataset.size_bytes / 1024).toFixed(1)} KB</div>
-        </div>
-        <div class="rounded-xl border p-4 dark:border-gray-700">
-          <div class="text-sm text-gray-500">Rows</div>
-          <div class="text-lg font-semibold">{dataset.row_count.toLocaleString()}</div>
-        </div>
-        <div class="rounded-xl border p-4 dark:border-gray-700">
-          <div class="text-sm text-gray-500">Version</div>
-          <div class="text-lg font-semibold">{dataset.current_version}</div>
-        </div>
-        <div class="rounded-xl border p-4 dark:border-gray-700">
-          <div class="text-sm text-gray-500">Quality Score</div>
-          <div class={`text-lg font-semibold ${toneFor(quality?.score ?? null)}`}>
-            {#if quality?.score !== null && quality?.score !== undefined}
-              {quality.score.toFixed(1)}
-            {:else}
-              --
-            {/if}
-          </div>
-        </div>
+      <div class="rounded-xl border p-4 dark:border-gray-700">
+        <div class="text-sm text-gray-500">Version</div>
+        <div class="text-lg font-semibold">{dataset.current_version}</div>
       </div>
-
-      <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="text-xs uppercase tracking-[0.22em] text-gray-400">Catalog Metadata</div>
-            <div class="mt-1 text-sm text-gray-500">Tagging and ownership live with the dataset.</div>
-          </div>
-          <button onclick={saveMetadata} disabled={savingMetadata} class="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-slate-900">
-            {savingMetadata ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-
-        <div class="mt-4 space-y-4">
-          <div>
-            <label for="owner" class="mb-1 block text-sm font-medium">Owner</label>
-            <select id="owner" bind:value={ownerId} class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-              {#each users as user (user.id)}
-                <option value={user.id}>{user.name}</option>
-              {/each}
-            </select>
-          </div>
-
-          <div>
-            <label for="description" class="mb-1 block text-sm font-medium">Description</label>
-            <textarea id="description" bind:value={descriptionInput} rows="3" class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"></textarea>
-          </div>
-
-          <div>
-            <label for="tags" class="mb-1 block text-sm font-medium">Tags</label>
-            <input id="tags" bind:value={tagsInput} placeholder="finance, monthly, curated" class="w-full rounded-xl border border-slate-200 px-3 py-2 dark:border-gray-700 dark:bg-gray-800" />
-            <div class="mt-2 flex flex-wrap gap-2">
-              {#each dataset.tags as tag}
-                <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{tag}</span>
-              {/each}
-            </div>
-          </div>
-
-          <div class="text-sm text-gray-500">Current owner: {ownerName(dataset.owner_id)}</div>
-
-          {#if metadataError}
-            <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">{metadataError}</div>
+      <div class="rounded-xl border p-4 dark:border-gray-700">
+        <div class="text-sm text-gray-500">Quality Score</div>
+        <div class={`text-lg font-semibold ${toneFor(quality?.score ?? null)}`}>
+          {#if quality?.score !== null && quality?.score !== undefined}
+            {quality.score.toFixed(1)}
+          {:else}
+            --
           {/if}
         </div>
       </div>
     </div>
 
+    <!-- T5 — Foundry-style top-level view tabs. -->
     <div class="border-b dark:border-gray-700">
       <nav class="flex gap-4">
-        <button
-          class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
-          class:border-blue-600={activeTab === 'preview'}
-          class:text-blue-600={activeTab === 'preview'}
-          class:border-transparent={activeTab !== 'preview'}
-          onclick={() => activeTab = 'preview'}
-        >Preview</button>
-        <button
-          class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
-          class:border-blue-600={activeTab === 'schema'}
-          class:text-blue-600={activeTab === 'schema'}
-          class:border-transparent={activeTab !== 'schema'}
-          onclick={() => activeTab = 'schema'}
-        >Schema</button>
-        <button
-          class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
-          class:border-blue-600={activeTab === 'versions'}
-          class:text-blue-600={activeTab === 'versions'}
-          class:border-transparent={activeTab !== 'versions'}
-          onclick={() => activeTab = 'versions'}
-        >Versions ({versions.length})</button>
-        <button
-          class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
-          class:border-blue-600={activeTab === 'branches'}
-          class:text-blue-600={activeTab === 'branches'}
-          class:border-transparent={activeTab !== 'branches'}
-          onclick={() => activeTab = 'branches'}
-        >Branches ({branches.length})</button>
-        <button
-          class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
-          class:border-blue-600={activeTab === 'quality'}
-          class:text-blue-600={activeTab === 'quality'}
-          class:border-transparent={activeTab !== 'quality'}
-          onclick={() => activeTab = 'quality'}
-        >Quality</button>
-        <button
-          class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
-          class:border-blue-600={activeTab === 'linter'}
-          class:text-blue-600={activeTab === 'linter'}
-          class:border-transparent={activeTab !== 'linter'}
-          onclick={() => activeTab = 'linter'}
-        >Linter{#if lint?.summary.total_findings} ({lint.summary.total_findings}){/if}</button>
+        {#each [
+          { key: 'preview', label: 'Preview' },
+          { key: 'history', label: 'History' },
+          { key: 'details', label: 'Details' },
+          { key: 'health', label: 'Health' },
+          { key: 'compare', label: 'Compare' },
+        ] as tab (tab.key)}
+          <button
+            class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
+            class:border-blue-600={viewMode === tab.key}
+            class:text-blue-600={viewMode === tab.key}
+            class:border-transparent={viewMode !== tab.key}
+            onclick={() => (viewMode = tab.key as typeof viewMode)}
+          >{tab.label}</button>
+        {/each}
       </nav>
     </div>
 
-    {#if activeTab === 'preview'}
-      <div class="rounded border py-8 text-center text-gray-500 dark:border-gray-700">
-        Data preview will be available after file upload and Parquet integration.
+    {#if viewMode === 'preview'}
+      {#if previewLoading}
+        <div class="rounded border py-8 text-center text-gray-500 dark:border-gray-700">Loading preview…</div>
+      {:else if previewError}
+        <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">{previewError}</div>
+      {:else if previewColumns.length === 0}
+        <div class="rounded border py-8 text-center text-gray-500 dark:border-gray-700">
+          Data preview will appear after upload and the first quality profile refresh.
+        </div>
+      {:else}
+        <VirtualizedPreviewTable
+          columns={previewColumns}
+          rows={previewRows}
+          stats={previewStats}
+          transactions={transactions}
+          selectedTransactionId={selectedTxId}
+          onSelectTransaction={(txId) => (selectedTxId = txId)}
+        />
+      {/if}
+    {:else if viewMode === 'history'}
+      {#if transactionsLoading}
+        <div class="rounded border py-8 text-center text-gray-500 dark:border-gray-700">Loading transactions…</div>
+      {:else if transactionsError}
+        <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">{transactionsError}</div>
+      {/if}
+      <HistoryTimeline
+        transactions={transactions}
+        rollingBack={rollingBack}
+        onView={(tx) => {
+          selectedTxId = tx.id;
+          viewMode = 'preview';
+        }}
+        onRollback={rollbackTransaction}
+      />
+    {:else if viewMode === 'compare'}
+      <CompareTab
+        transactions={transactions}
+        branches={branches}
+        sideA={compareSideA}
+        sideB={compareSideB}
+        selectorA={compareSelectorA}
+        selectorB={compareSelectorB}
+        loading={compareLoading}
+        error={compareError}
+        onChangeSelector={changeCompareSelector}
+      />
+    {:else if viewMode === 'details'}
+      <div class="grid gap-6 lg:grid-cols-[220px,1fr]">
+        <aside class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <ul class="space-y-1 text-sm">
+            {#each [
+              { key: 'about', label: 'About' },
+              { key: 'schema', label: 'Schema' },
+              { key: 'files', label: 'Files' },
+              { key: 'jobspec', label: 'Job spec' },
+              { key: 'sync', label: 'Sync status' },
+              { key: 'custom', label: 'Custom metadata' },
+              { key: 'current_tx', label: 'Current transaction view' },
+              { key: 'resources', label: 'Resource usage metrics' },
+              { key: 'retention', label: 'Retention policies' },
+            ] as item (item.key)}
+              <li>
+                <button
+                  type="button"
+                  class="w-full rounded-lg px-3 py-2 text-left transition-colors"
+                  class:bg-slate-100={detailsPanel === item.key}
+                  class:dark:bg-gray-800={detailsPanel === item.key}
+                  class:font-semibold={detailsPanel === item.key}
+                  class:hover:bg-slate-50={detailsPanel !== item.key}
+                  class:dark:hover:bg-gray-800={detailsPanel !== item.key}
+                  onclick={() => (detailsPanel = item.key as typeof detailsPanel)}
+                >{item.label}</button>
+              </li>
+            {/each}
+          </ul>
+        </aside>
+        <div>
+          {#if detailsPanel === 'about'}
+            <AboutPanel
+              dataset={dataset}
+              users={users}
+              saving={savingMetadata}
+              error={metadataError}
+              onSave={async ({ description, tags, owner_id }) => {
+                descriptionInput = description;
+                tagsInput = tags.join(', ');
+                ownerId = owner_id;
+                await saveMetadata();
+              }}
+            />
+          {:else if detailsPanel === 'schema'}
+            <SchemaPanel fields={previewSchema} format={dataset.format} />
+          {:else if detailsPanel === 'files'}
+            {#if filesystemError}
+              <div class="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">{filesystemError}</div>
+            {/if}
+            <FilesPanel
+              entries={filesystemEntries}
+              currentVersion={dataset.current_version}
+              activeBranch={dataset.active_branch}
+              loading={filesystemLoading}
+            />
+          {:else if detailsPanel === 'jobspec'}
+            <JobSpecPanel jobSpec={null} />
+          {:else if detailsPanel === 'sync'}
+            <SyncStatusPanel state={null} />
+          {:else if detailsPanel === 'custom'}
+            <CustomMetadataPanel
+              initial={customMetadata}
+              saving={savingCustomMetadata}
+              error={customMetadataError}
+              onSave={saveCustomMetadata}
+            />
+          {:else if detailsPanel === 'current_tx'}
+            <CurrentTransactionViewPanel
+              head={transactions[0] ?? null}
+              composedOf={transactions.slice(0, 10)}
+              fileCount={filesystemEntries.length}
+              totalBytes={dataset.size_bytes}
+            />
+          {:else if detailsPanel === 'resources'}
+            <ResourceUsagePanel
+              sizeBytes={dataset.size_bytes}
+              fileCount={filesystemEntries.length}
+              rowCount={dataset.row_count}
+            />
+          {:else if detailsPanel === 'retention'}
+            {#if retentionError}
+              <div class="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+                {retentionError}
+              </div>
+            {/if}
+            <RetentionPoliciesTab
+              policies={retentionPolicies}
+              relevantOnly={retentionRelevantOnly}
+              onToggleRelevantOnly={onToggleRetentionRelevantOnly}
+              loading={retentionLoading}
+            />
+          {/if}
+        </div>
       </div>
+    {:else if viewMode === 'health'}
+      <div class="border-b dark:border-gray-700">
+        <nav class="flex gap-4">
+          <button
+            class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
+            class:border-blue-600={healthSubTab === 'quality'}
+            class:text-blue-600={healthSubTab === 'quality'}
+            class:border-transparent={healthSubTab !== 'quality'}
+            onclick={() => (healthSubTab = 'quality')}
+          >Quality</button>
+          <button
+            class="border-b-2 pb-2 px-1 text-sm font-medium transition-colors"
+            class:border-blue-600={healthSubTab === 'linter'}
+            class:text-blue-600={healthSubTab === 'linter'}
+            class:border-transparent={healthSubTab !== 'linter'}
+            onclick={() => (healthSubTab = 'linter')}
+          >Linter{#if lint?.summary.total_findings} ({lint.summary.total_findings}){/if}</button>
+        </nav>
+      </div>
+
+    {#if false}
+      <span class="hidden">unreachable: keeps the legacy chain below well-formed</span>
+    {:else if activeTab === 'preview'}
+      <div class="hidden"></div>
     {:else if activeTab === 'schema'}
-      <div class="rounded border py-8 text-center text-gray-500 dark:border-gray-700">
-        Schema is now inferred during quality profiling and will appear after the first profile refresh.
-      </div>
+      <div class="hidden"></div>
     {:else if activeTab === 'versions'}
       <div class="space-y-2">
         {#each versions as version (version.id)}
@@ -858,6 +1253,18 @@
           </div>
         </div>
       </div>
+    {:else if activeTab === 'retention'}
+      {#if retentionError}
+        <div class="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+          {retentionError}
+        </div>
+      {/if}
+      <RetentionPoliciesTab
+        policies={retentionPolicies}
+        relevantOnly={retentionRelevantOnly}
+        onToggleRelevantOnly={onToggleRetentionRelevantOnly}
+        loading={retentionLoading}
+      />
     {:else}
       <div class="space-y-6">
         <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:flex-row lg:items-center lg:justify-between">
@@ -1024,5 +1431,7 @@
         {/if}
       </div>
     {/if}
+    {/if}
   </div>
 {/if}
+

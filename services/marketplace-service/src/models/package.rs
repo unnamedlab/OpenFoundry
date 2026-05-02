@@ -133,3 +133,40 @@ fn default_dependency_mode() -> String {
 fn default_release_channel() -> String {
     "stable".to_string()
 }
+
+/// TASK O — Marketplace artifact descriptor used when packaging non-listing
+/// resources (currently action types). `dependencies` carries the IDs the
+/// importer must remap when installing the artifact in a target workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ActionTypeDependencies {
+    #[serde(default)]
+    pub object_type_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub function_package_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub webhooks: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MarketplaceArtifact {
+    /// Packaged action type plus the cross-references required to rebuild
+    /// it on import (object types it acts on, function packages it invokes,
+    /// webhook configurations it talks to).
+    ActionType {
+        action_type: Value,
+        #[serde(default)]
+        dependencies: ActionTypeDependencies,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IncludeActionRequest {
+    /// Optional explicit version id; when omitted the latest published
+    /// version of the listing is targeted.
+    #[serde(default)]
+    pub version_id: Option<Uuid>,
+    pub action_type: Value,
+    #[serde(default)]
+    pub dependencies: ActionTypeDependencies,
+}

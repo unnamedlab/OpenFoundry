@@ -10,6 +10,7 @@
     deleteActionWhatIfBranch,
     executeAction,
     executeActionBatch,
+    getActionMetrics,
     listActionTypes,
     listActionWhatIfBranches,
     listFunctionPackages,
@@ -25,6 +26,7 @@
     type ActionOperationKind,
     type ActionType,
     type ActionWhatIfBranch,
+    type ActionMetricsResponse,
     type ExecuteActionResponse,
     type ExecuteBatchActionResponse,
     type FunctionPackageSummary,
@@ -54,6 +56,19 @@
   interface ActionConfigEnvelopeDraft {
     operation: unknown;
     notification_side_effects: NotificationSideEffectDraft[];
+    /** TASK G — Webhook called synchronously before validation. */
+    webhook_writeback?: WebhookCallConfigDraft | null;
+    /** TASK G — Webhooks fanned out (parallel, non-blocking) after success. */
+    webhook_side_effects?: WebhookCallConfigDraft[];
+    /** TASK H — Function-backed batched execution (10k cap when on). */
+    batched_execution?: boolean;
+  }
+
+  /** TASK G — Webhook reference + parameter mapping draft for the editor. */
+  interface WebhookCallConfigDraft {
+    webhook_id: string;
+    input_mappings: { webhook_input_name: string; action_input_name: string }[];
+    output_parameter_alias?: string | null;
   }
 
   const workbenchTabs: { id: WorkbenchTab; label: string; glyph: 'code' | 'run' | 'object' | 'history' }[] = [
@@ -102,6 +117,39 @@
       value: 'invoke_webhook',
       label: 'Invoke webhook',
       detail: 'Call an external system and attach side effects or notifications.'
+    },
+    // TASK I — Interface-typed action variants. Action logs are not yet
+    // supported for any of these (badged in the wizard); resolution from
+    // interface_id to concrete object_type happens at runtime.
+    {
+      value: 'create_interface',
+      label: 'Create object (interface)',
+      detail:
+        'Create an object that implements the configured interface. Auto-generates the __object_type parameter. Action logs not supported.'
+    },
+    {
+      value: 'modify_interface',
+      label: 'Modify object (interface)',
+      detail:
+        'Modify an interface-typed object referenced via __interface_ref. Action logs not supported.'
+    },
+    {
+      value: 'delete_interface',
+      label: 'Delete object (interface)',
+      detail:
+        'Delete an interface-typed object referenced via __interface_ref. Action logs not supported.'
+    },
+    {
+      value: 'create_interface_link',
+      label: 'Create link (interface)',
+      detail:
+        'Create a link between two interface-typed endpoints. Action logs not supported.'
+    },
+    {
+      value: 'delete_interface_link',
+      label: 'Delete link (interface)',
+      detail:
+        'Delete an existing link between two interface-typed endpoints. Action logs not supported.'
     }
   ];
 
@@ -203,6 +251,74 @@
         headers: {}
       },
       notes: 'Webhook actions return the external response and can fan out notifications after completion.'
+    },
+    // TASK I — Interface-typed templates seed the auto-generated parameter
+    // (`__object_type` for create, `__interface_ref` otherwise) so the kernel
+    // edit-time validation passes.
+    create_interface: {
+      inputSchema: [
+        {
+          name: '__object_type',
+          display_name: 'Concrete object type',
+          description: 'Object type id implementing the interface (resolved at runtime).',
+          property_type: 'string',
+          required: true
+        }
+      ],
+      config: { interface_id: '00000000-0000-0000-0000-000000000000', property_mappings: [] },
+      notes: 'Interface-typed action. Action logs are not yet supported (mirrors Foundry).'
+    },
+    modify_interface: {
+      inputSchema: [
+        {
+          name: '__interface_ref',
+          display_name: 'Interface object reference',
+          description: 'Reference to an interface-typed object (resolved at runtime).',
+          property_type: 'string',
+          required: true
+        }
+      ],
+      config: { interface_id: '00000000-0000-0000-0000-000000000000', property_mappings: [] },
+      notes: 'Interface-typed action. Action logs not yet supported.'
+    },
+    delete_interface: {
+      inputSchema: [
+        {
+          name: '__interface_ref',
+          display_name: 'Interface object reference',
+          description: 'Reference to the interface-typed object to delete.',
+          property_type: 'string',
+          required: true
+        }
+      ],
+      config: { interface_id: '00000000-0000-0000-0000-000000000000' },
+      notes: 'Interface-typed action. Action logs not yet supported.'
+    },
+    create_interface_link: {
+      inputSchema: [
+        {
+          name: '__interface_ref',
+          display_name: 'Interface object reference',
+          description: 'Source endpoint for the interface link (resolved at runtime).',
+          property_type: 'string',
+          required: true
+        }
+      ],
+      config: { interface_link_type_id: '00000000-0000-0000-0000-000000000000' },
+      notes: 'Interface-typed action. Action logs not yet supported.'
+    },
+    delete_interface_link: {
+      inputSchema: [
+        {
+          name: '__interface_ref',
+          display_name: 'Interface object reference',
+          description: 'Source endpoint for the interface link to delete.',
+          property_type: 'string',
+          required: true
+        }
+      ],
+      config: { interface_link_type_id: '00000000-0000-0000-0000-000000000000' },
+      notes: 'Interface-typed action. Action logs not yet supported.'
     }
   };
 
@@ -238,6 +354,10 @@
   let selectedActionId = $state('');
   let selectedTargetObjectId = $state('');
   let activeTab = $state<WorkbenchTab>('authoring');
+  // TASK O — Local state for the Export to Marketplace inline form.
+  let exportToMarketplaceOpen = $state(false);
+  let exportListingId = $state('');
+  let exportToMarketplaceError = $state('');
   let catalogQuery = $state('');
 
   let draftName = $state('');
@@ -251,6 +371,11 @@
   let draftFormSchemaText = $state('{\n  "sections": [],\n  "parameter_overrides": []\n}');
   let draftOperationConfigText = $state('{}');
   let draftNotificationEffectsText = $state('[]');
+  // TASK G — Webhook writeback (single, optional) and side effects (N).
+  let draftWebhookWritebackText = $state('null');
+  let draftWebhookSideEffectsText = $state('[]');
+  // TASK H — Function-backed batched execution toggle.
+  let draftBatchedExecution = $state(false);
 
   let parameters = $state<Record<string, unknown>>({});
   let justification = $state('');
@@ -288,6 +413,64 @@
       denied: events.filter((event) => event.status === 'denied').length,
       critical: events.filter((event) => event.severity === 'critical').length
     };
+  });
+
+  // TASK F — backend-driven metrics for the Monitoring tab. Aggregated from
+  // `action_executions` so success/failure counts and P95 reflect the real
+  // execution path, not just the audit feed.
+  let actionMetricsData = $state<ActionMetricsResponse | null>(null);
+  let actionMetricsLoading = $state(false);
+  let actionMetricsError = $state<string | null>(null);
+  let actionMetricsWindow = $state<'1h' | '24h' | '7d' | '30d'>('30d');
+  let lastLoadedActionMetricsKey = $state('');
+
+  async function loadActionMetrics() {
+    if (!selectedActionId) {
+      actionMetricsData = null;
+      return;
+    }
+    actionMetricsLoading = true;
+    actionMetricsError = null;
+    try {
+      actionMetricsData = await getActionMetrics(selectedActionId, {
+        window: actionMetricsWindow
+      });
+    } catch (error) {
+      actionMetricsError = error instanceof Error ? error.message : String(error);
+      actionMetricsData = null;
+    } finally {
+      actionMetricsLoading = false;
+    }
+  }
+
+  $effect(() => {
+    const key = `${activeTab}|${selectedActionId}|${actionMetricsWindow}`;
+    if (activeTab !== 'monitoring' || !selectedActionId) return;
+    if (key === lastLoadedActionMetricsKey) return;
+    lastLoadedActionMetricsKey = key;
+    void loadActionMetrics();
+  });
+
+  const actionMetricsTotals = $derived.by(() => {
+    const data = actionMetricsData;
+    if (!data) return { total: 0, success: 0, failure: 0, successRatio: 0 };
+    const success = data.success_count;
+    const failure = data.failure_count;
+    const total = success + failure;
+    return {
+      total,
+      success,
+      failure,
+      successRatio: total === 0 ? 0 : success / total
+    };
+  });
+
+  const actionMetricsFailureCategories = $derived.by(() => {
+    const data = actionMetricsData;
+    if (!data) return [] as Array<{ category: string; count: number }>;
+    return Object.entries(data.failure_categories)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
   });
   const draftChecklist = $derived.by(() => {
     const checks = [
@@ -356,12 +539,25 @@
     }
 
     const record = config as Record<string, unknown>;
-    if ('operation' in record || 'notification_side_effects' in record) {
+    if (
+      'operation' in record ||
+      'notification_side_effects' in record ||
+      'webhook_writeback' in record ||
+      'webhook_side_effects' in record ||
+      'batched_execution' in record
+    ) {
       return {
         operation: record.operation ?? {},
         notification_side_effects: Array.isArray(record.notification_side_effects)
           ? (record.notification_side_effects as NotificationSideEffectDraft[])
-          : []
+          : [],
+        webhook_writeback:
+          (record.webhook_writeback as WebhookCallConfigDraft | undefined) ?? null,
+        webhook_side_effects: Array.isArray(record.webhook_side_effects)
+          ? (record.webhook_side_effects as WebhookCallConfigDraft[])
+          : [],
+        batched_execution:
+          typeof record.batched_execution === 'boolean' ? record.batched_execution : false
       };
     }
 
@@ -433,6 +629,9 @@
     draftFormSchemaText = prettyJson(buildDefaultActionFormSchema(template.inputSchema));
     draftOperationConfigText = prettyJson(template.config);
     draftNotificationEffectsText = prettyJson([]);
+    draftWebhookWritebackText = prettyJson(null);
+    draftWebhookSideEffectsText = prettyJson([]);
+    draftBatchedExecution = false;
     selectedActionId = '';
     if (typeId) {
       selectedTypeId = typeId;
@@ -460,6 +659,9 @@
     draftFormSchemaText = prettyJson(action.form_schema);
     draftOperationConfigText = prettyJson(envelope.operation ?? {});
     draftNotificationEffectsText = prettyJson(envelope.notification_side_effects ?? []);
+    draftWebhookWritebackText = prettyJson(envelope.webhook_writeback ?? null);
+    draftWebhookSideEffectsText = prettyJson(envelope.webhook_side_effects ?? []);
+    draftBatchedExecution = envelope.batched_execution ?? false;
     resetRunSurface();
   }
 
@@ -470,6 +672,9 @@
     draftFormSchemaText = prettyJson(buildDefaultActionFormSchema(template.inputSchema));
     draftOperationConfigText = prettyJson(template.config);
     draftNotificationEffectsText = prettyJson([]);
+    draftWebhookWritebackText = prettyJson(null);
+    draftWebhookSideEffectsText = prettyJson([]);
+    draftBatchedExecution = false;
   }
 
   function addInputField() {
@@ -639,6 +844,15 @@
         draftNotificationEffectsText,
         'Notification side effects JSON'
       );
+      // TASK G — Webhook writeback (single, optional) + side effects (list).
+      const webhookWriteback = parseJson<WebhookCallConfigDraft | null>(
+        draftWebhookWritebackText,
+        'Webhook writeback JSON'
+      );
+      const webhookSideEffects = parseJson<WebhookCallConfigDraft[]>(
+        draftWebhookSideEffectsText,
+        'Webhook side effects JSON'
+      );
 
       const payload = {
         display_name: draftDisplayName.trim() || draftName.trim(),
@@ -652,7 +866,10 @@
         form_schema: formSchema,
         config: {
           operation: operationConfig,
-          notification_side_effects: notificationEffects
+          notification_side_effects: notificationEffects,
+          webhook_writeback: webhookWriteback,
+          webhook_side_effects: webhookSideEffects,
+          batched_execution: draftBatchedExecution
         },
         confirmation_required: draftConfirmationRequired,
         permission_key: draftPermissionKey.trim() || undefined,
@@ -1020,6 +1237,19 @@
                 {isCreateMode ? 'New action type' : selectedAction?.display_name}
               </h2>
             </div>
+            <!-- TASK O — Export to Marketplace shortcut. Calls
+                 marketplace-service `include-action` with the selected
+                 action and a minimal dependency manifest derived from
+                 the action's `object_type_id`. -->
+            {#if !isCreateMode && selectedAction}
+              <button
+                type="button"
+                onclick={() => (exportToMarketplaceOpen = true)}
+                class="inline-flex items-center gap-2 rounded-full bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-500"
+              >
+                Export to Marketplace
+              </button>
+            {/if}
             <div class="flex flex-wrap gap-2">
               {#each workbenchTabs as tab}
                 <button
@@ -1037,6 +1267,61 @@
             </div>
           </div>
         </section>
+
+        {#if exportToMarketplaceOpen && selectedAction}
+          <!-- TASK O — Inline form for Export to Marketplace; submits to
+               POST /api/v1/marketplace/products/:id/include-action/:action_id. -->
+          <form
+            class="space-y-3 rounded-2xl border border-violet-200 bg-violet-50/40 p-4 text-sm"
+            onsubmit={async (event) => {
+              event.preventDefault();
+              exportToMarketplaceError = '';
+              try {
+                const response = await fetch(
+                  `/api/v1/marketplace/products/${exportListingId}/include-action/${selectedAction!.id}`,
+                  {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                      action_type: selectedAction,
+                      dependencies: {
+                        object_type_ids: [selectedAction!.object_type_id],
+                        function_package_ids: [],
+                        webhooks: []
+                      }
+                    })
+                  }
+                );
+                if (!response.ok) {
+                  exportToMarketplaceError = `${response.status}: ${await response.text()}`;
+                } else {
+                  exportToMarketplaceOpen = false;
+                  exportListingId = '';
+                }
+              } catch (err) {
+                exportToMarketplaceError = err instanceof Error ? err.message : String(err);
+              }
+            }}
+          >
+            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-700">Export to marketplace</p>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs text-violet-900">Marketplace listing ID</span>
+              <input
+                bind:value={exportListingId}
+                required
+                placeholder="00000000-0000-0000-0000-000000000000"
+                class="rounded-xl border border-violet-300 bg-white px-3 py-2"
+              />
+            </label>
+            {#if exportToMarketplaceError}
+              <p class="text-xs text-rose-600">{exportToMarketplaceError}</p>
+            {/if}
+            <div class="flex items-center gap-2">
+              <button type="submit" class="rounded-full bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white">Include</button>
+              <button type="button" onclick={() => (exportToMarketplaceOpen = false)} class="rounded-full bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+            </div>
+          </form>
+        {/if}
 
         {#if actionError}
           <div class="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</div>
@@ -1307,6 +1592,75 @@
                   spellcheck="false"
                 ></textarea>
               </div>
+
+              <!-- TASK G — Webhook writeback (single, optional) + side effects (N).
+                   Writeback fires synchronously before validation; side effects
+                   fire in parallel after a successful execution and never abort. -->
+              <div class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-semibold text-slate-900">Side effects · Webhooks</p>
+                    <p class="mt-1 text-sm text-slate-500">
+                      Reference webhooks registered in Data Connection. Map action parameters to the webhook's input schema.
+                    </p>
+                  </div>
+                </div>
+                <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Writeback (sync, blocking)</p>
+                    <textarea
+                      rows="10"
+                      placeholder={'null  // or { "webhook_id": "...", "input_mappings": [{...}], "output_parameter_alias": "writeback" }'}
+                      class="mt-2 w-full rounded-2xl border border-slate-300 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100 outline-none transition focus:border-emerald-500"
+                      bind:value={draftWebhookWritebackText}
+                      spellcheck="false"
+                    ></textarea>
+                  </div>
+                  <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Side effects (parallel, fire-and-forget)</p>
+                    <textarea
+                      rows="10"
+                      placeholder={'[\n  { "webhook_id": "...", "input_mappings": [{ "webhook_input_name": "...", "action_input_name": "..." }] }\n]'}
+                      class="mt-2 w-full rounded-2xl border border-slate-300 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100 outline-none transition focus:border-emerald-500"
+                      bind:value={draftWebhookSideEffectsText}
+                      spellcheck="false"
+                    ></textarea>
+                  </div>
+                </div>
+              </div>
+
+              {#if draftOperationKind === 'invoke_function'}
+                <!-- TASK H — Function-backed batched execution toggle. When on, a
+                     single invocation receives `params = { batch: [...] }` and
+                     the per-call cap rises to 10 000 (from 20). -->
+                <div class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <label class="flex items-center justify-between gap-4">
+                    <div>
+                      <p class="text-sm font-semibold text-slate-900">Batched execution</p>
+                      <p class="mt-1 text-sm text-slate-500">
+                        Send all targets in a single function call. Required signature: <code>(batch: List&lt;Struct&gt;) -&gt; void</code>.
+                        Per-request cap rises to 10 000 (single-call default is 20).
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      class="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      bind:checked={draftBatchedExecution}
+                    />
+                  </label>
+                </div>
+              {/if}
+              {#if draftOperationKind.endsWith('_interface') || draftOperationKind.endsWith('_interface_link')}
+                <!-- TASK I — Interface-typed actions: action logs are not yet
+                     supported. Same limitation as Foundry, surfaced inline. -->
+                <div class="rounded-[2rem] border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                  <p class="text-sm font-semibold text-amber-900">Limitation: action logs disabled</p>
+                  <p class="mt-1 text-sm text-amber-800">
+                    Interface-typed actions ({draftOperationKind}) do not yet emit entries to the action log. Mirrors the documented
+                    Foundry behaviour. Audit + metrics still record the execution.
+                  </p>
+                </div>
+              {/if}
 
               {#if draftOperationKind === 'invoke_function'}
                 <div class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -1641,22 +1995,124 @@
         {:else}
           <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <section class="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">Action metrics</p>
+                  <p class="mt-1 text-sm text-slate-500">
+                    Aggregated from <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">action_executions</code>
+                    over the selected window.
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="text-xs font-medium uppercase tracking-[0.16em] text-slate-500" for="metrics-window">Window</label>
+                  <select
+                    id="metrics-window"
+                    class="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
+                    bind:value={actionMetricsWindow}
+                  >
+                    <option value="1h">1h</option>
+                    <option value="24h">24h</option>
+                    <option value="7d">7d</option>
+                    <option value="30d">30d</option>
+                  </select>
+                  <button
+                    class="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-60"
+                    onclick={() => void loadActionMetrics()}
+                    disabled={actionMetricsLoading || !selectedActionId}
+                  >
+                    {actionMetricsLoading ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              {#if actionMetricsError}
+                <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionMetricsError}</div>
+              {/if}
+
               <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <div class="rounded-2xl border border-slate-200 p-4">
                   <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Executions</p>
-                  <p class="mt-2 text-2xl font-semibold text-slate-950">{actionMetrics.executions}</p>
+                  <p class="mt-2 text-2xl font-semibold text-slate-950">{actionMetricsTotals.total || actionMetrics.executions}</p>
                 </div>
                 <div class="rounded-2xl border border-slate-200 p-4">
                   <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Failures</p>
-                  <p class="mt-2 text-2xl font-semibold text-rose-700">{actionMetrics.failed}</p>
+                  <p class="mt-2 text-2xl font-semibold text-rose-700">{actionMetricsTotals.failure || actionMetrics.failed}</p>
                 </div>
                 <div class="rounded-2xl border border-slate-200 p-4">
-                  <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Denied</p>
+                  <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Denied (audit)</p>
                   <p class="mt-2 text-2xl font-semibold text-amber-700">{actionMetrics.denied}</p>
                 </div>
                 <div class="rounded-2xl border border-slate-200 p-4">
-                  <p class="text-xs uppercase tracking-[0.18em] text-slate-400">What-if branches</p>
-                  <p class="mt-2 text-2xl font-semibold text-slate-950">{whatIfBranches.length}</p>
+                  <p class="text-xs uppercase tracking-[0.18em] text-slate-400">P95 duration</p>
+                  <p class="mt-2 text-2xl font-semibold text-slate-950">
+                    {#if actionMetricsData?.p95_duration_ms != null}
+                      {Math.round(actionMetricsData.p95_duration_ms)}<span class="ml-1 text-xs font-medium text-slate-500">ms</span>
+                    {:else}
+                      —
+                    {/if}
+                  </p>
+                </div>
+              </div>
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div class="rounded-3xl border border-slate-200 p-4">
+                  <p class="text-sm font-semibold text-slate-900">Success ratio</p>
+                  <p class="mt-1 text-xs text-slate-500">{actionMetricsTotals.success} success / {actionMetricsTotals.total} total</p>
+                  <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-rose-100">
+                    <div
+                      class="h-full rounded-full bg-emerald-500 transition-all"
+                      style="width: {Math.round(actionMetricsTotals.successRatio * 100)}%"
+                    ></div>
+                  </div>
+                  <p class="mt-2 text-right text-xs font-medium text-slate-600">
+                    {Math.round(actionMetricsTotals.successRatio * 100)}%
+                  </p>
+                </div>
+                <div class="rounded-3xl border border-slate-200 p-4">
+                  <p class="text-sm font-semibold text-slate-900">P95 latency</p>
+                  <p class="mt-1 text-xs text-slate-500">95th percentile across the window.</p>
+                  {#if actionMetricsData?.p95_duration_ms != null}
+                    <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        class="h-full rounded-full bg-sky-500 transition-all"
+                        style="width: {Math.min(100, (actionMetricsData.p95_duration_ms / 2000) * 100)}%"
+                      ></div>
+                    </div>
+                    <p class="mt-2 text-right text-xs font-medium text-slate-600">
+                      {Math.round(actionMetricsData.p95_duration_ms)} ms
+                    </p>
+                  {:else}
+                    <p class="mt-3 text-xs text-slate-400">No timed executions in this window.</p>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 p-4">
+                <p class="text-sm font-semibold text-slate-900">Failure categories</p>
+                <p class="mt-1 text-xs text-slate-500">From <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">action_failures_total</code>.</p>
+                <div class="mt-3">
+                  {#if actionMetricsFailureCategories.length === 0}
+                    <p class="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                      No failures in this window.
+                    </p>
+                  {:else}
+                    <table class="w-full text-sm">
+                      <thead>
+                        <tr class="text-left text-xs uppercase tracking-[0.16em] text-slate-400">
+                          <th class="px-2 py-2">Category</th>
+                          <th class="px-2 py-2 text-right">Count</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each actionMetricsFailureCategories as row}
+                          <tr class="border-t border-slate-100">
+                            <td class="px-2 py-2 font-mono text-xs text-slate-700">{row.category}</td>
+                            <td class="px-2 py-2 text-right font-semibold text-slate-900">{row.count}</td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  {/if}
                 </div>
               </div>
 

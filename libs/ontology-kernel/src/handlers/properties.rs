@@ -165,6 +165,45 @@ async fn validate_inline_edit_config(
         ));
     }
 
+    // TASK L — Per `Inline edits.md`, action types referenced as inline
+    // edits must NOT enable side-effect webhooks or side-effect
+    // notifications, and must edit a single object of a single type
+    // (already enforced via `update_object` + `object_type_id` check).
+    enforce_inline_edit_action_envelope(&action.config)?;
+
+    Ok(())
+}
+
+/// TASK L — Reject envelope features incompatible with inline edits:
+/// `webhook_side_effects` and `notification_side_effects`. Writeback
+/// webhooks remain allowed (they are synchronous and per-edit, matching
+/// the documented Foundry behaviour).
+fn enforce_inline_edit_action_envelope(config: &Value) -> Result<(), String> {
+    let Some(object) = config.as_object() else {
+        return Ok(());
+    };
+    if let Some(notifications) = object.get("notification_side_effects") {
+        let is_empty = notifications
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(false);
+        if !is_empty && !notifications.is_null() {
+            return Err(
+                "inline edit action types must not enable side-effect notifications".to_string(),
+            );
+        }
+    }
+    if let Some(webhooks) = object.get("webhook_side_effects") {
+        let is_empty = webhooks
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(false);
+        if !is_empty && !webhooks.is_null() {
+            return Err(
+                "inline edit action types must not enable side-effect webhooks".to_string(),
+            );
+        }
+    }
     Ok(())
 }
 

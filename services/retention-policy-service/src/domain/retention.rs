@@ -18,7 +18,7 @@ pub fn updated_rules_payload(rules: &[String]) -> Result<serde_json::Value, Stri
 
 pub async fn load_policies(db: &sqlx::PgPool) -> Result<Vec<RetentionPolicy>, String> {
     let rows = sqlx::query_as::<_, RetentionPolicyRow>(
-        "SELECT id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, created_at, updated_at
+        "SELECT id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, is_system, selector, criteria, grace_period_minutes, last_applied_at, next_run_at, created_at, updated_at
          FROM retention_policies
          ORDER BY updated_at DESC",
     )
@@ -33,7 +33,7 @@ pub async fn load_policies(db: &sqlx::PgPool) -> Result<Vec<RetentionPolicy>, St
 
 pub async fn load_policy(db: &sqlx::PgPool, id: Uuid) -> Result<Option<RetentionPolicy>, String> {
     let row = sqlx::query_as::<_, RetentionPolicyRow>(
-        "SELECT id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, created_at, updated_at
+        "SELECT id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, is_system, selector, criteria, grace_period_minutes, last_applied_at, next_run_at, created_at, updated_at
          FROM retention_policies WHERE id = $1",
     )
     .bind(id)
@@ -121,5 +121,144 @@ pub fn apply_update(current: &mut RetentionPolicy, update: UpdateRetentionPolicy
     }
     if let Some(active) = update.active {
         current.active = active;
+    }
+    if let Some(selector) = update.selector {
+        current.selector = selector;
+    }
+    if let Some(criteria) = update.criteria {
+        current.criteria = criteria;
+    }
+    if let Some(grace) = update.grace_period_minutes {
+        current.grace_period_minutes = grace;
+    }
+}
+
+/// Filter loaded policies according to a `?dataset_rid=&project_id=…`
+/// query (T4.1 contract). Selectors are OR-combined per policy:
+/// `all_datasets` always matches; otherwise any explicit selector
+/// equality counts as a match.
+pub fn filter_policies(
+    policies: Vec<RetentionPolicy>,
+    query: &crate::handlers::retention::ListPoliciesQuery,
+) -> Vec<RetentionPolicy> {
+    policies
+        .into_iter()
+        .filter(|policy| matches_query(policy, query))
+        .collect()
+}
+
+fn matches_query(
+    policy: &RetentionPolicy,
+    query: &crate::handlers::retention::ListPoliciesQuery,
+) -> bool {
+    if let Some(active) = query.active {
+        if policy.active != active {
+            return false;
+        }
+    }
+    if matches!(query.system_only, Some(true)) && !policy.is_system {
+        return false;
+    }
+    let any_selector = query.dataset_rid.is_some()
+        || query.project_id.is_some()
+        || query.marking_id.is_some();
+    if !any_selector {
+        return true;
+    }
+    if policy.selector.all_datasets {
+        return true;
+    }
+    if let Some(rid) = query.dataset_rid.as_deref() {
+        if policy.selector.dataset_rid.as_deref() == Some(rid) {
+            return true;
+        }
+    }
+    if let Some(pid) = query.project_id {
+        if policy.selector.project_id == Some(pid) {
+            return true;
+        }
+    }
+    if let Some(mid) = query.marking_id {
+        if policy.selector.marking_id == Some(mid) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handlers::retention::ListPoliciesQuery;
+    use crate::models::retention::{RetentionCriteria, RetentionSelector};
+    use chrono::Utc;
+
+    fn policy(id: Uuid, system: bool, selector: RetentionSelector) -> RetentionPolicy {
+        RetentionPolicy {
+            id,
+            name: "p".into(),
+            scope: "".into(),
+            target_kind: "transaction".into(),
+            retention_days: 0,
+            legal_hold: false,
+            purge_mode: "hard-delete-after-ttl".into(),
+            rules: vec![],
+            updated_by: "system".into(),
+            active: true,
+            is_system: system,
+            selector,
+            criteria: RetentionCriteria::default(),
+            grace_period_minutes: 60,
+            last_applied_at: None,
+            next_run_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn empty_query_returns_all_policies() {
+        let p = vec![policy(Uuid::now_v7(), false, RetentionSelector::default())];
+        let out = filter_policies(p.clone(), &ListPoliciesQuery::default());
+        assert_eq!(out.len(), p.len());
+    }
+
+    #[test]
+    fn all_datasets_selector_matches_any_dataset_query() {
+        let mut sel = RetentionSelector::default();
+        sel.all_datasets = true;
+        let p = vec![policy(Uuid::now_v7(), true, sel)];
+        let q = ListPoliciesQuery { dataset_rid: Some("ri.x".into()), ..Default::default() };
+        assert_eq!(filter_policies(p, &q).len(), 1);
+    }
+
+    #[test]
+    fn explicit_dataset_rid_filters_policies() {
+        let id_match = Uuid::now_v7();
+        let id_other = Uuid::now_v7();
+        let mut sel_match = RetentionSelector::default();
+        sel_match.dataset_rid = Some("ri.match".into());
+        let mut sel_other = RetentionSelector::default();
+        sel_other.dataset_rid = Some("ri.other".into());
+        let policies = vec![
+            policy(id_match, false, sel_match),
+            policy(id_other, false, sel_other),
+        ];
+        let q = ListPoliciesQuery { dataset_rid: Some("ri.match".into()), ..Default::default() };
+        let out = filter_policies(policies, &q);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, id_match);
+    }
+
+    #[test]
+    fn system_only_filters_user_policies_out() {
+        let policies = vec![
+            policy(Uuid::now_v7(), true, RetentionSelector::default()),
+            policy(Uuid::now_v7(), false, RetentionSelector::default()),
+        ];
+        let q = ListPoliciesQuery { system_only: Some(true), ..Default::default() };
+        let out = filter_policies(policies, &q);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].is_system);
     }
 }

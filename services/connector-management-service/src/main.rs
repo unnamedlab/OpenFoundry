@@ -245,7 +245,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let mut v1 = Router::new()
                     .nest("/data-connection", data_connection)
-                    .merge(connections_alias);
+                    .merge(connections_alias)
+                    .route(
+                        "/webhooks/{id}/invoke",
+                        post(handlers::webhooks::invoke_webhook),
+                    );
                 // Dev-only auth shim: enabled when OPENFOUNDRY_DEV_AUTH=1.
                 // Mounts /api/v1/auth/* and /api/v1/users/me so the SvelteKit
                 // app can complete the login flow against this binary while

@@ -1986,10 +1986,13 @@ mod tests {
             storage: Arc::new(
                 LocalStorage::new(&storage_root_str).expect("local storage should initialize"),
             ),
+            data_dir: storage_root_str.clone(),
             storage_backend: "s3".to_string(),
             storage_bucket: "datasets".to_string(),
             s3_endpoint: Some("http://minio.local".to_string()),
             s3_region: Some("us-east-1".to_string()),
+            s3_access_key: None,
+            s3_secret_key: None,
             local_storage_root: Some(storage_root_str),
             distributed_pipeline_workers: 1,
             distributed_compute_poll_interval_ms: 5_000,

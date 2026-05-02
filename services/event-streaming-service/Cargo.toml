@@ -14,6 +14,14 @@ kafka-rdkafka = ["dep:rdkafka", "dep:event-bus-data"]
 # Integration tests that require Docker (testcontainers + a real Kafka
 # broker). Implies `kafka-rdkafka`.
 kafka-it = ["kafka-rdkafka", "event-bus-data/it"]
+# Persistent operator state via RocksDB. The Cargo build of
+# `librocksdb-sys` is multi-minute (vendored C++ tree) so it is gated
+# behind this feature. Production images opt in.
+rocksdb-state = ["dep:rocksdb"]
+# Flink reset pipeline via kube-rs (`kubectl patch flinkdeployment ...`).
+# Off by default so the service binary does not pull k8s client crates
+# unless deployed alongside the Flink operator.
+flink-runtime = ["dep:kube", "dep:k8s-openapi"]
 
 [package.edition]
 workspace = true
@@ -31,6 +39,9 @@ workspace = true
 workspace = true
 
 [dependencies.async-trait]
+workspace = true
+
+[dependencies.audit-trail]
 workspace = true
 
 [dependencies.auth-middleware]
@@ -134,6 +145,27 @@ optional = true
 version = "0.36"
 default-features = false
 features = ["cmake-build", "ssl", "sasl", "tokio"]
+optional = true
+
+# Optional state backend. Pulled in only when `rocksdb-state` is on.
+[dependencies.rocksdb]
+version = "0.22"
+default-features = false
+features = ["lz4"]
+optional = true
+
+# Optional Flink runtime integration. `kube` 0.95 + `k8s-openapi` 0.23
+# expose the typed `kubectl patch` we use to ship savepoint URIs into
+# the FlinkDeployment CRD.
+[dependencies.kube]
+version = "0.95"
+default-features = false
+features = ["client", "runtime", "derive", "rustls-tls"]
+optional = true
+
+[dependencies.k8s-openapi]
+version = "0.23"
+features = ["latest"]
 optional = true
 
 [dev-dependencies.tempfile]

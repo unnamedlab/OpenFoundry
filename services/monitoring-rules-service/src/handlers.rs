@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::models::{
-    CreatePrimaryRequest, CreateSecondaryRequest, PrimaryItem, SecondaryItem,
+    ActionRuleKind, CreateActionRuleRequest, CreatePrimaryRequest, CreateSecondaryRequest,
+    PrimaryItem, SecondaryItem,
 };
 
 pub async fn list_items(State(state): State<AppState>) -> impl IntoResponse {
@@ -92,4 +93,46 @@ pub async fn create_secondary(
         Ok(row) => (StatusCode::CREATED, Json(row)).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }
+}
+
+/// `POST /rules` — TASK F. Accepts a typed [`CreateActionRuleRequest`] and
+/// persists it as a JSONB row in `monitoring_rules`. The full rule engine
+/// will be wired in a follow-up task; this handler nails down the contract
+/// so `ontology-actions-service` and the UI agree on the rule shape.
+pub async fn create_action_rule(
+    State(state): State<AppState>,
+    Json(body): Json<CreateActionRuleRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = body.validate() {
+        return (StatusCode::BAD_REQUEST, error).into_response();
+    }
+    let payload = serialize_rule(&body);
+    let id = Uuid::now_v7();
+    match sqlx::query_as::<_, PrimaryItem>(
+        "INSERT INTO monitoring_rules (id, payload) VALUES ($1, $2) RETURNING *",
+    )
+    .bind(id)
+    .bind(&payload)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(row) => (StatusCode::CREATED, Json(row)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
+}
+
+fn serialize_rule(req: &CreateActionRuleRequest) -> serde_json::Value {
+    let kind = match req.kind {
+        ActionRuleKind::ActionDurationP95 => "action_duration_p95",
+        ActionRuleKind::ActionFailuresInWindow => "action_failures_in_window",
+    };
+    serde_json::json!({
+        "kind": kind,
+        "action_id": req.action_id,
+        "window": req.window,
+        "threshold_ms": req.threshold_ms,
+        "threshold_count": req.threshold_count,
+        "failure_type": req.failure_type,
+        "severity": req.severity,
+    })
 }

@@ -67,6 +67,9 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.prometheus]
+workspace = true
+
 # Optional, gated behind the `it` feature.
 [dependencies.testcontainers]
 workspace = true

@@ -113,6 +113,10 @@ path = "libs/testing"
 version = "1"
 features = ["full"]
 
+[workspace.dependencies.moka]
+version = "0.12"
+features = ["future"]
+
 [workspace.dependencies.tonic]
 version = "0.12"
 features = ["tls"]

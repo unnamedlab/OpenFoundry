@@ -63,8 +63,53 @@ workspace = true
 [dependencies.thiserror]
 workspace = true
 
-[dev-dependencies.tempfile]
-version = "3"
+[dependencies.tower-http]
+workspace = true
+
+[dependencies.prometheus]
+workspace = true
+
+[dependencies.once_cell]
+version = "1"
+
+# T7 — integration / smoke tests (testcontainers-driven; gated behind
+# `#[ignore]` so default `cargo test` stays Docker-free).
+[dev-dependencies]
+testcontainers = { workspace = true }
+wiremock = { workspace = true }
+tempfile = "3"
+
+[dev-dependencies.testing]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.tower]
+workspace = true
+
+[dev-dependencies.http-body-util]
+version = "0.1"
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.sqlx]
+workspace = true
+features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
+
+[dev-dependencies.uuid]
+workspace = true
+
+[dev-dependencies.chrono]
+workspace = true
+
+[dev-dependencies.reqwest]
+workspace = true
+
+[dev-dependencies.auth-middleware]
+workspace = true
 
 [[bin]]
 path = "src/main.rs"

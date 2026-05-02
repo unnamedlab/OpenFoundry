@@ -1,5 +1,7 @@
 pub mod streams;
 pub mod topologies;
+pub mod checkpoints;
+pub mod flink;
 
 use axum::{Json, http::StatusCode};
 use serde::Serialize;

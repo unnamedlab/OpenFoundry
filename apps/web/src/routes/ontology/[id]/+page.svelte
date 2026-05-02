@@ -185,6 +185,44 @@
       },
       notes: 'Webhook actions only return the external response payload; they do not mutate ontology objects directly.',
     },
+    // TASK I — Stub templates for the 5 interface-typed variants. Edit-time
+    // validation only requires the auto-generated parameter to exist; runtime
+    // resolution from interface_id to concrete object_type is pending.
+    create_interface: {
+      inputSchema: [
+        { name: '__object_type', display_name: 'Concrete object type', property_type: 'string', required: true },
+      ],
+      config: { interface_id: '00000000-0000-0000-0000-000000000000', property_mappings: [] },
+      notes: 'Interface-typed: action logs not yet supported.',
+    },
+    modify_interface: {
+      inputSchema: [
+        { name: '__interface_ref', display_name: 'Interface object reference', property_type: 'string', required: true },
+      ],
+      config: { interface_id: '00000000-0000-0000-0000-000000000000', property_mappings: [] },
+      notes: 'Interface-typed: action logs not yet supported.',
+    },
+    delete_interface: {
+      inputSchema: [
+        { name: '__interface_ref', display_name: 'Interface object reference', property_type: 'string', required: true },
+      ],
+      config: { interface_id: '00000000-0000-0000-0000-000000000000' },
+      notes: 'Interface-typed: action logs not yet supported.',
+    },
+    create_interface_link: {
+      inputSchema: [
+        { name: '__interface_ref', display_name: 'Interface object reference', property_type: 'string', required: true },
+      ],
+      config: { interface_link_type_id: '00000000-0000-0000-0000-000000000000' },
+      notes: 'Interface-typed: action logs not yet supported.',
+    },
+    delete_interface_link: {
+      inputSchema: [
+        { name: '__interface_ref', display_name: 'Interface object reference', property_type: 'string', required: true },
+      ],
+      config: { interface_link_type_id: '00000000-0000-0000-0000-000000000000' },
+      notes: 'Interface-typed: action logs not yet supported.',
+    },
   };
 
   const propertyTypeOptions = [

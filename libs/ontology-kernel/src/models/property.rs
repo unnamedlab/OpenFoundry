@@ -61,3 +61,21 @@ pub struct ExecuteInlineEditRequest {
     pub value: serde_json::Value,
     pub justification: Option<String>,
 }
+
+/// TASK L — Bulk inline-edit endpoint payload. Each entry is validated and
+/// submitted independently; entries targeting the same `object_id` are
+/// rejected up front because Foundry forbids editing the same object twice
+/// in a single inline-edit batch (see `Inline edits.md` "Invalid inline
+/// Actions").
+#[derive(Debug, Deserialize)]
+pub struct ExecuteInlineEditBatchRequest {
+    pub edits: Vec<ExecuteInlineEditBatchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecuteInlineEditBatchItem {
+    pub property_id: uuid::Uuid,
+    pub object_id: uuid::Uuid,
+    pub value: serde_json::Value,
+    pub justification: Option<String>,
+}

@@ -470,9 +470,17 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 50121
+      REST_PORT: 50121
+      GRPC_PORT: 50221
+      ADMIN_PORT: 50222
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_event_streaming_service
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      ROUTES_FILE: /etc/openfoundry/topic-routes.yaml
+      CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service:50088
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
+      ICEBERG_CATALOG_URL: http://iceberg-rest:8181
+      ICEBERG_NAMESPACE: streaming_service
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       ARCHIVE_DIR: /var/lib/openfoundry/event-streaming-archive
     depends_on:
       postgres:
@@ -481,8 +489,11 @@ services:
         condition: service_started
     volumes:
       - event_streaming_archive_data:/var/lib/openfoundry/event-streaming-archive
+      - ../services/event-streaming-service/config/topic-routes.yaml:/etc/openfoundry/topic-routes.yaml:ro
     ports:
       - "${OPENFOUNDRY_EVENT_STREAMING_HOST_PORT:-50121}:50121"
+      - "${OPENFOUNDRY_EVENT_STREAMING_GRPC_HOST_PORT:-50221}:50221"
+      - "${OPENFOUNDRY_EVENT_STREAMING_ADMIN_HOST_PORT:-50222}:50222"
 
   cdc-metadata-service:
     <<: *app-common

@@ -38,6 +38,9 @@ workspace = true
 [dependencies.tokio]
 workspace = true
 
+[dependencies.tower]
+workspace = true
+
 [dependencies.tracing]
 workspace = true
 

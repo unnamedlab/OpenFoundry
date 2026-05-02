@@ -50,9 +50,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         notification_service_url: app_config.notification_service_url.clone(),
         search_embedding_provider: app_config.search_embedding_provider.clone(),
         node_runtime_command: app_config.node_runtime_command.clone(),
+        connector_management_service_url: app_config
+            .connector_management_service_url
+            .clone(),
     };
 
     let registry = Arc::new(prometheus::Registry::new());
+    ontology_kernel::metrics::register_action_metrics(&registry);
 
     let app = Router::new()
         .merge(build_router(state))

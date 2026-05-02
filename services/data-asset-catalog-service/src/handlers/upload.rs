@@ -71,11 +71,23 @@ pub async fn upload_data(
 
     let data = file_data.freeze();
     let size = data.len() as i64;
-    let (row_count, schema_fields) = match infer_upload_metadata(&dataset.format, &data).await {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response();
+
+    // T6.2 — Foundry-style upload policy: only Parquet / Avro infer
+    // a schema on upload. Text formats (CSV/JSON/unknown) land as
+    // unstructured datasets so the user can apply a schema later via
+    // the "Apply schema" tab (T6.3).
+    let (row_count, schema_fields) = if crate::domain::file_format::should_infer_schema_on_upload(
+        &dataset.format,
+    ) {
+        match infer_upload_metadata(&dataset.format, &data).await {
+            Ok(metadata) => (metadata.0, Some(metadata.1)),
+            Err(error) => {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response();
+            }
         }
+    } else {
+        // Unstructured: row_count is unknown until a schema is applied.
+        (0_i64, None)
     };
 
     let mut tx = match state.db.begin().await {
@@ -179,21 +191,24 @@ pub async fn upload_data(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    if let Err(error) = sqlx::query(
-        r#"INSERT INTO dataset_schemas (id, dataset_id, fields)
-           VALUES ($1, $2, $3::jsonb)
-           ON CONFLICT (dataset_id)
-           DO UPDATE SET fields = EXCLUDED.fields, created_at = NOW()"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(dataset_id)
-    .bind(&schema_fields)
-    .execute(&mut *tx)
-    .await
-    {
-        let _ = state.storage.delete(&version_path).await;
-        tracing::error!("upsert dataset schema failed: {error}");
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    // T6.2 — only persist a schema when inference actually ran.
+    if let Some(fields_json) = schema_fields.as_ref() {
+        if let Err(error) = sqlx::query(
+            r#"INSERT INTO dataset_schemas (id, dataset_id, fields)
+               VALUES ($1, $2, $3::jsonb)
+               ON CONFLICT (dataset_id)
+               DO UPDATE SET fields = EXCLUDED.fields, created_at = NOW()"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(dataset_id)
+        .bind(fields_json)
+        .execute(&mut *tx)
+        .await
+        {
+            let _ = state.storage.delete(&version_path).await;
+            tracing::error!("upsert dataset schema failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     }
 
     let transaction = match transactions::record_committed_transaction(
