@@ -10,7 +10,7 @@ import (
 	"github.com/open-foundry/open-foundry/workers-go/approvals/internal/contract"
 )
 
-// ApprovalRequestWorkflow is the canonical S2.5 substrate. State
+// ApprovalRequestWorkflow is the canonical S2.5 workflow. State
 // (request, approver_set, decision) lives here as durable workflow
 // state — Cassandra/Postgres are no longer authoritative for
 // approvals once S2.5.d drops the legacy tables.

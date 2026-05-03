@@ -7,9 +7,9 @@ en producción. La capa `libs/storage-abstraction` no cambia: solo se le
 apunta a un endpoint distinto. En desarrollo se utiliza **RustFS**, no
 MinIO.
 
-Manifestos: `infra/k8s/rook/`
+Manifestos: `infra/k8s/platform/manifests/rook/`
 Módulo Terraform: `infra/terraform/modules/ceph/`
-Helm values prod: `infra/k8s/helm/open-foundry/values-prod.yaml`
+Helm values prod: `infra/k8s/helm/profiles/values-prod.yaml`
 
 ## 1. Arquitectura desplegada
 
@@ -60,15 +60,15 @@ helm upgrade --install --create-namespace -n rook-ceph rook-ceph \
   rook-release/rook-ceph --version v1.15.5 \
   --set crds.enabled=true --set enableDiscoveryDaemon=true
 
-kubectl apply -f infra/k8s/rook/cluster.yaml
+kubectl apply -f infra/k8s/platform/manifests/rook/cluster.yaml
 kubectl -n rook-ceph wait --for=jsonpath='{.status.phase}'=Ready \
   cephcluster/openfoundry --timeout=30m
 
-kubectl apply -f infra/k8s/rook/objectstore.yaml
+kubectl apply -f infra/k8s/platform/manifests/rook/objectstore.yaml
 kubectl -n rook-ceph wait --for=jsonpath='{.status.phase}'=Ready \
   cephobjectstore/openfoundry --timeout=15m
 
-kubectl apply -f infra/k8s/rook/bucket.yaml
+kubectl apply -f infra/k8s/platform/manifests/rook/bucket.yaml
 ```
 
 ### 2.3 Verificación de salud
@@ -97,7 +97,7 @@ Workflow E2E (ejemplo con `openfoundry-datasets`):
 
 ```bash
 # 1. Crear el OBC (idempotente)
-kubectl apply -f infra/k8s/rook/bucket.yaml
+kubectl apply -f infra/k8s/platform/manifests/rook/bucket.yaml
 
 # 2. Esperar a que se aprovisione el bucket
 kubectl -n openfoundry wait --for=jsonpath='{.status.phase}'=Bound \

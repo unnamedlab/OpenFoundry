@@ -10,9 +10,10 @@
 use async_trait::async_trait;
 use mockall::mock;
 use storage_abstraction::repositories::{
-    ActionLogEntry, ActionLogStore, Link, LinkStore, LinkTypeId, MarkingId, Object, ObjectId,
-    ObjectStore, OwnerId, Page, PagedResult, PutOutcome, ReadConsistency, RepoResult, TenantId,
-    TypeId,
+    ActionLogEntry, ActionLogStore, DefinitionId, DefinitionKind, DefinitionQuery,
+    DefinitionRecord, DefinitionStore, Link, LinkStore, LinkTypeId, MarkingId, Object, ObjectId,
+    ObjectStore, OwnerId, Page, PagedResult, PutOutcome, ReadConsistency, ReadModelId,
+    ReadModelKind, ReadModelQuery, ReadModelRecord, ReadModelStore, RepoResult, TenantId, TypeId,
 };
 
 mock! {
@@ -117,9 +118,83 @@ mock! {
             page: Page,
             consistency: ReadConsistency,
         ) -> RepoResult<PagedResult<ActionLogEntry>>;
+
+        async fn list_for_action(
+            &self,
+            tenant: &TenantId,
+            action_id: &str,
+            page: Page,
+            consistency: ReadConsistency,
+        ) -> RepoResult<PagedResult<ActionLogEntry>>;
+    }
+}
+
+mock! {
+    pub DefinitionStoreImpl {}
+
+    #[async_trait]
+    impl DefinitionStore for DefinitionStoreImpl {
+        async fn get(
+            &self,
+            kind: &DefinitionKind,
+            id: &DefinitionId,
+            consistency: ReadConsistency,
+        ) -> RepoResult<Option<DefinitionRecord>>;
+
+        async fn list(
+            &self,
+            query: DefinitionQuery,
+            consistency: ReadConsistency,
+        ) -> RepoResult<PagedResult<DefinitionRecord>>;
+
+        async fn put(
+            &self,
+            record: DefinitionRecord,
+            expected_version: Option<u64>,
+        ) -> RepoResult<PutOutcome>;
+
+        async fn delete(&self, kind: &DefinitionKind, id: &DefinitionId) -> RepoResult<bool>;
+
+        async fn count(
+            &self,
+            query: DefinitionQuery,
+            consistency: ReadConsistency,
+        ) -> RepoResult<u64>;
+    }
+}
+
+mock! {
+    pub ReadModelStoreImpl {}
+
+    #[async_trait]
+    impl ReadModelStore for ReadModelStoreImpl {
+        async fn get(
+            &self,
+            kind: &ReadModelKind,
+            tenant: &TenantId,
+            id: &ReadModelId,
+            consistency: ReadConsistency,
+        ) -> RepoResult<Option<ReadModelRecord>>;
+
+        async fn list(
+            &self,
+            query: ReadModelQuery,
+            consistency: ReadConsistency,
+        ) -> RepoResult<PagedResult<ReadModelRecord>>;
+
+        async fn put(&self, record: ReadModelRecord) -> RepoResult<PutOutcome>;
+
+        async fn delete(
+            &self,
+            kind: &ReadModelKind,
+            tenant: &TenantId,
+            id: &ReadModelId,
+        ) -> RepoResult<bool>;
     }
 }
 
 pub type MockObjectStore = MockObjectStoreImpl;
 pub type MockLinkStore = MockLinkStoreImpl;
 pub type MockActionLogStore = MockActionLogStoreImpl;
+pub type MockDefinitionStore = MockDefinitionStoreImpl;
+pub type MockReadModelStore = MockReadModelStoreImpl;

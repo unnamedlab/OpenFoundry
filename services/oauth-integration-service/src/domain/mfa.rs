@@ -67,7 +67,7 @@ pub fn issue_challenge(
     config: &JwtConfig,
     user: &User,
     auth_method: &str,
-) -> Result<String, auth_middleware::JwtError> {
+) -> Result<String, auth_middleware::jwt::JwtError> {
     let claims = Claims {
         sub: user.id,
         iat: Utc::now().timestamp(),
@@ -94,12 +94,12 @@ pub fn issue_challenge(
 pub fn validate_challenge(
     config: &JwtConfig,
     token: &str,
-) -> Result<Claims, auth_middleware::JwtError> {
+) -> Result<Claims, auth_middleware::jwt::JwtError> {
     let claims = jwt::decode_token(config, token)?;
     if claims.token_use.as_deref() == Some("mfa_challenge") {
         Ok(claims)
     } else {
-        Err(auth_middleware::JwtError::Invalid(
+        Err(auth_middleware::jwt::JwtError::Invalid(
             "invalid challenge token".to_string(),
         ))
     }

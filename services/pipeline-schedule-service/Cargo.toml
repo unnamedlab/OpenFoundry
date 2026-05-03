@@ -18,6 +18,21 @@ workspace = true
 cron = "0.12"
 wasmtime = "24"
 
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.chrono-tz]
+workspace = true
+
+[dependencies.scheduling-cron]
+workspace = true
+
+[dependencies.scheduling-linter]
+workspace = true
+
+[dependencies.event-bus-data]
+workspace = true
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -31,6 +46,9 @@ workspace = true
 workspace = true
 
 [dependencies.bytes]
+workspace = true
+
+[dependencies.cassandra-kernel]
 workspace = true
 
 [dependencies.chrono]
@@ -76,6 +94,7 @@ workspace = true
 
 [dependencies.temporal-client]
 workspace = true
+features = ["grpc"]
 
 [dependencies.thiserror]
 workspace = true
@@ -98,6 +117,13 @@ workspace = true
 [dev-dependencies.tokio]
 workspace = true
 features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.testing]
+workspace = true
+
+[features]
+it-temporal = ["testing/it-temporal"]
+it-postgres = []
 
 [[bin]]
 path = "src/main.rs"

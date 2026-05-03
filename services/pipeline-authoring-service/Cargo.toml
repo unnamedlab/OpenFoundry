@@ -18,6 +18,12 @@ workspace = true
 cron = "0.12"
 wasmtime = "24"
 
+# JobSpec content-hash idempotency mirrors the dataset-versioning-service
+# schema-content-hash convention (MD5 over JSON).
+md-5 = "0.10"
+prometheus = { workspace = true }
+once_cell = "1"
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -31,6 +37,9 @@ workspace = true
 workspace = true
 
 [dependencies.bytes]
+workspace = true
+
+[dependencies.cassandra-kernel]
 workspace = true
 
 [dependencies.chrono]
@@ -96,3 +105,38 @@ workspace = true
 path = "src/main.rs"
 name = "pipeline-authoring-service"
 required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "pipeline_authoring_service"
+required-features = []
+crate-type = ["lib"]
+
+[features]
+default = ["pg"]
+# `pg` toggles the SQLx-backed CRUD branches in `domain::parameterized`.
+# Disabled in pure-logic test builds so the lib can compile without
+# touching tokio / sqlx — the bin always enables it.
+pg = []
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true
+
+# P2 — JobSpec publish-idempotency integration test boots Postgres via
+# `testing::containers::boot_postgres`. Gated behind `#[ignore]`.
+[dev-dependencies.testing]
+workspace = true
+
+[dev-dependencies.testcontainers]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.sqlx]
+workspace = true
+features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]

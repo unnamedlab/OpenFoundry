@@ -13,10 +13,9 @@
     Flight SQL P2P, port `50123`)
   - `libs/query-engine/` (DataFusion + `FlightSqlTableProvider`)
   - `libs/auth-middleware/` (JWT decoding + per-tenant quota policy)
-  - `infra/k8s/clickhouse/`, `infra/k8s/lakekeeper/` — backend
-    deployments addressed via per-statement routing
-  - Deletions: `infra/k8s/trino/`, `infra/runbooks/trino.md`,
-    `infra/k8s/clickhouse/trino-catalog.yaml`
+  - `infra/k8s/platform/manifests/lakekeeper/` — lakehouse catalog deployment
+    addressed via per-statement routing
+  - Deletions: `infra/k8s/platform/manifests/trino/`, `infra/runbooks/trino.md`
 
 ## Context
 
@@ -27,16 +26,15 @@ travels over Apache Arrow Flight SQL P2P) but kept Trino as the
 Six months in, that residual Trino footprint is still expensive:
 
 1. **A second SQL dialect** to support across docs, tests and BI
-   dashboards (Trino SQL alongside DataFusion / ClickHouse / Vespa /
-   Postgres dialects).
+   dashboards (Trino SQL alongside DataFusion / Vespa / Postgres dialects).
 2. **A second auth / quota / audit surface.** Tenant policies that we
    already implement in `libs/auth-middleware` (`TenantContext`,
    `TenantQuotaPolicy`) had to be re-encoded inside Trino's
    `access-control` plugin chain. Drift between the two surfaces is a
    recurring source of incidents.
 3. **A second deployment to operate** (Trino coordinator + workers,
-   secret rotation against ClickHouse, Iceberg catalog properties,
-   Helm values, PDBs) — roughly 10 % of `infra/k8s/` purely for an
+   secret rotation, Iceberg catalog properties, Helm values, PDBs) — roughly
+   10 % of `infra/k8s/` purely for an
    external-facing read path.
 4. **The `sql-bi-gateway-service` was a stub** (`fn main() {}`) that
    only existed to delegate to Trino. It already had partial
@@ -70,7 +68,7 @@ service we already own.
    | Catalog prefix             | Backend (per ADR-0009 table)                                                          |
    | -------------------------- | ------------------------------------------------------------------------------------- |
    | `iceberg.*` / no prefix    | local DataFusion `SessionContext`, optionally delegated to `sql-warehousing-service`  |
-   | `clickhouse.*`             | ClickHouse via `CLICKHOUSE_FLIGHT_SQL_URL`                                            |
+   | `trino.*`                  | Trino via `TRINO_FLIGHT_SQL_URL`                                                      |
    | `vespa.*`                  | Vespa via `VESPA_FLIGHT_SQL_URL`                                                      |
    | `postgres.*` / `postgresql.*` | Postgres via `POSTGRES_FLIGHT_SQL_URL`                                             |
 
@@ -94,7 +92,7 @@ service we already own.
    `20260419100003_initial_queries.sql`).
 
 5. **Catalog tree advertised to BI clients.** A single catalog
-   `openfoundry` with one schema per backend (`iceberg`, `clickhouse`,
+   `openfoundry` with one schema per backend (`iceberg`, `trino`,
    `vespa`, `postgres`) is returned via `GetCatalogs`/`GetSchemas`/
    `GetTables` so Tableau / Superset render a sensible navigator panel
    even before any backend metadata is wired in.
@@ -102,14 +100,10 @@ service we already own.
 6. **Trino is deleted entirely.** The following are removed in this
    ADR's accompanying change-set:
 
-   - `infra/k8s/trino/` (coordinator, PDB, catalog ConfigMaps, values)
-   - `infra/k8s/clickhouse/trino-catalog.yaml`
+   - `infra/k8s/platform/manifests/trino/` (coordinator, PDB, catalog ConfigMaps, values)
    - `infra/runbooks/trino.md`
-   - All Trino references in `infra/k8s/clickhouse/README.md`,
-     `infra/runbooks/clickhouse.md`,
-     `infra/k8s/clickhouse/clickhouse.yaml`,
-     `infra/k8s/flink/maintenance/rewrite-data-files.yaml`,
-     `infra/observability/prometheus-rules/lakekeeper.yaml`,
+   - All Trino references in `infra/k8s/platform/manifests/flink/maintenance/rewrite-data-files.yaml`,
+     `infra/k8s/platform/observability/prometheus-rules/lakekeeper.yaml`,
      `docs/architecture/runtime-topology.md`,
      `docs/architecture/services-and-ports.md`,
      `docs/architecture/adr/ADR-0012-data-plane-slos.md`,
@@ -140,9 +134,8 @@ service we already own.
   a single Rust binary co-located with its CNPG cluster.
 - **Single SQL dialect for new work.** Internal services already
   speak DataFusion SQL (per ADR-0009); BI now also reaches the same
-  dialect on the local side, with the routed dialects (ClickHouse,
-  Vespa, Postgres) only relevant when explicitly using those catalog
-  prefixes.
+  dialect on the local side, with routed engines (Trino, Vespa,
+  Postgres) only relevant when explicitly using those catalog prefixes.
 - **Observable, auditable end-to-end.** The Flight SQL surface emits
   one structured audit event per statement, including a deterministic
   SQL fingerprint that is safe to log.
@@ -160,7 +153,7 @@ service we already own.
   cross-backend joins, cost-based planning) stays inside DataFusion,
   not the gateway.
 - **Cross-backend joins are limited to the Iceberg/local DataFusion
-  side**: a `JOIN` between, say, `clickhouse.events_dist` and
+  side**: a `JOIN` between, say, `trino.of_lineage.runs` and
   `vespa.documents` is **not** supported. Callers that need such joins
   must materialise into Iceberg via `sql-warehousing-service` first.
   The router selects a single backend per statement (the catalog of
@@ -177,7 +170,7 @@ service we already own.
 2. Re-point Tableau / Superset workbooks to the Arrow Flight SQL JDBC
    driver and the new URL; verify the catalog navigator and the
    top-N production dashboards.
-3. Delete the Trino Helm release and the `infra/k8s/trino/` manifests
+3. Delete the Trino Helm release and the `infra/k8s/platform/manifests/trino/` manifests
    once the cut-over has soaked for one error-budget window
    (cf. ADR-0012).
 4. Remove Trino references from runbooks and docs (done in this PR).

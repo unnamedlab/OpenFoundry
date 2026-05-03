@@ -1,0 +1,254 @@
+# Ontology data-plane benchmark harness — in-cluster runner.
+#
+# Why in-cluster:
+#   The S1.8.c SLO of P99 < 50 ms @ 5 000 RPS is dominated by the
+#   network RTT to the read service. Running k6 from a laptop adds
+#   10-40 ms of WAN jitter that masks the actual data-plane latency
+#   we are gating on (G-S1 in migration-plan-cassandra-foundry-parity.md
+#   and ADR-0012 §A.4). The Job below pins k6 to a node in the same
+#   AZ as Cassandra/ontology-read so the measurement is meaningful.
+#
+# Tenant isolation:
+#   All workload runs against `bench-tenant`, a dedicated tenant whose
+#   row-key prefix is excluded from the production tenant catalogue.
+#   identity-federation must mint OF_BENCH_TOKEN with `tenant=bench-tenant`
+#   and the `ontology:read`, `ontology:list`, `actions:execute` scopes.
+#
+# Files in this directory:
+#   * ontology-bench-namespace.yaml   — this file: ns + RBAC + PVC + k6 CronJob
+#   * ontology-bench-credentials.yaml — Vault-projected JWT Secret
+#   * ontology-bench-seed-job.yaml    — one-shot init Job (50k objects)
+#
+# The two ConfigMaps holding the k6 script and seed.sh are NOT inlined
+# here to avoid drift with the canonical files under
+# `benchmarks/ontology/k6/`. They are (re)generated from disk with:
+#
+#   kubectl -n openfoundry-bench create configmap bench-k6-scripts \
+#     --from-file=ontology-mix.js=benchmarks/ontology/k6/ontology-mix.js \
+#     --from-file=seed.sh=benchmarks/ontology/k6/seed.sh \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# (See the new README section "Running against a live cluster".)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openfoundry-bench
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: benchmarks
+    # PSA: bench pods do not need elevated privileges. k6 is a static
+    # binary; seed.sh only needs curl + jq. Restricted profile keeps
+    # the bench namespace from being abused as a foothold.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Linkerd mTLS for east-west traffic to ontology-read and Cassandra
+    # exporters. Auth headers still go end-to-end via JWT.
+    linkerd.io/inject: enabled
+  annotations:
+    openfoundry.io/owner: "platform-perf"
+    openfoundry.io/sla: "non-prod, ad-hoc, ttl=24h on PVC"
+---
+# Service account scoped to bench Jobs. No cluster-wide permissions:
+# the only namespaced verb it needs is `pods/exec` against the
+# Cassandra namespace for the `nodetool tablestats` sidecar collector.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bench-runner
+  namespace: openfoundry-bench
+  annotations:
+    openfoundry.io/purpose: "k6 + seed Jobs in openfoundry-bench"
+automountServiceAccountToken: true
+---
+# Allow the bench-runner SA to `exec` against Cassandra pods so the
+# k6 Job's post-run sidecar can capture `nodetool tablestats -F json`
+# without needing kubectl-on-laptop credentials. This is intentionally
+# narrow: only `pods/exec` and `pods` get/list, only in `cassandra` ns.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bench-cassandra-exec
+  namespace: cassandra
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bench-cassandra-exec
+  namespace: cassandra
+subjects:
+  - kind: ServiceAccount
+    name: bench-runner
+    namespace: openfoundry-bench
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bench-cassandra-exec
+---
+# PVC that holds:
+#   * /data/object-ids.txt        — fixture written by the seed Job
+#   * /data/results/*.json        — k6 output + nodetool tablestats
+#
+# 5 GiB is overkill for the artefacts (k6 JSON < 200 MiB for a 5-min
+# run at 5 000 RPS), but cheap on any modern CSI and avoids surprise
+# evictions if someone re-runs back-to-back. The PVC is intentionally
+# `ReadWriteOnce`: seed and k6 Jobs are serialised by design (you
+# cannot benchmark while you are still backfilling).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bench-artefacts
+  namespace: openfoundry-bench
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName left unset so the cluster default applies.
+  # Override at apply time if perf-test cluster pins a faster class.
+---
+# k6 runner. Modelled as a CronJob with `suspend: true` so operators
+# can `kubectl create job --from=cronjob/...` on demand (the canonical
+# trigger for a baseline run) but the schedule never fires unattended.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ontology-bench-k6
+  namespace: openfoundry-bench
+  labels:
+    app.kubernetes.io/name: ontology-bench-k6
+    app.kubernetes.io/component: load-generator
+spec:
+  # Operators must opt-in explicitly. Unsuspend only when wired into
+  # a perf pipeline; for ADR-0012 A.4 we trigger the Job manually.
+  suspend: true
+  schedule: "0 3 * * 0"  # placeholder — Sundays 03:00 if ever unsuspended
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0          # SLO runs are not retry-safe
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ontology-bench-k6
+            app.kubernetes.io/component: load-generator
+          annotations:
+            # Opt out of Linkerd for the k6 container path: the proxy
+            # adds ~0.3 ms p99 we do not want to attribute to the
+            # data plane. Mesh stays enabled for sidecar/seed pods.
+            config.linkerd.io/skip-outbound-ports: "80,443,8080"
+        spec:
+          serviceAccountName: bench-runner
+          restartPolicy: Never
+          # Pin the load generator to nodes that are in the same AZ
+          # as Cassandra. The label `topology.openfoundry.io/perf-zone`
+          # is set by the cluster bootstrap on the bench-class nodes.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: topology.openfoundry.io/perf-zone
+                        operator: In
+                        values: ["bench"]
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: bench
+              effect: NoSchedule
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 12345
+            fsGroup: 12345
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: k6
+              # Pin to k6 0.55.x — first release with the
+              # `experimental-prometheus-rw` output stable + arrival-rate
+              # scheduler fixes that S1.8.b depends on.
+              image: grafana/k6:0.55.0
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: OF_BENCH_BASE_URL
+                  value: "http://ontology-read.ontology.svc.cluster.local:8080"
+                - name: OF_BENCH_TENANT
+                  value: "bench-tenant"
+                - name: OF_BENCH_TYPE_ID
+                  # Default type used by the mix; the seed Job populates
+                  # T01..T10, T01 is the canonical "hot" type for reads.
+                  value: "bench-type-T01"
+                - name: OF_BENCH_OBJECT_IDS
+                  value: "/data/object-ids.txt"
+                - name: OF_BENCH_ACTION_ID
+                  value: "bench.execute.noop"
+                - name: OF_BENCH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: bench-credentials
+                      key: jwt
+              args:
+                - "run"
+                - "--out"
+                - "json=/data/results/ontology-mix-k6.json"
+                - "--summary-export=/data/results/ontology-mix-summary.json"
+                - "/scripts/ontology-mix.js"
+              resources:
+                # k6 at 5k RPS with 1.2k VUs comfortably fits in 2 CPU
+                # / 2 GiB. Requests == limits so we get a guaranteed
+                # QoS pod and the CFS scheduler does not steal cycles.
+                requests:
+                  cpu: "2"
+                  memory: "2Gi"
+                limits:
+                  cpu: "2"
+                  memory: "2Gi"
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: artefacts, mountPath: /data }
+                - { name: tmp, mountPath: /tmp }
+                - { name: home, mountPath: /home/k6 }
+          # Sidecar that, after k6 exits, snapshots Cassandra table
+          # stats so the resulting JSON lands on the same PVC as the
+          # k6 output. Runs as an init-style container at the END via
+          # a tiny shell loop (it polls for the marker file `done`).
+          # Kept simple; in 1.29+ you would use a native sidecar.
+          initContainers:
+            - name: results-dir
+              image: busybox:1.37
+              command: ["sh", "-c", "mkdir -p /data/results && chown 12345:12345 /data/results"]
+              securityContext:
+                runAsUser: 0
+              volumeMounts:
+                - { name: artefacts, mountPath: /data }
+          volumes:
+            - name: scripts
+              configMap:
+                name: bench-k6-scripts
+                defaultMode: 0o555
+            - name: artefacts
+              persistentVolumeClaim:
+                claimName: bench-artefacts
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
+            - name: home
+              emptyDir:
+                sizeLimit: 64Mi

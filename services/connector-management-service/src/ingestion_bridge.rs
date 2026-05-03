@@ -13,7 +13,7 @@ use serde_json::Value;
 
 pub use ingestion_control_plane::ingestion_control_plane_client::IngestionControlPlaneClient;
 pub use ingestion_control_plane::{
-    CreateIngestJobRequest, IcebergSink, IngestJob, IngestJobSpec, PostgresSource,
+    CreateIngestJobRequest, IngestJob, IngestJobSpec, ListIngestJobsRequest, PostgresSource,
 };
 
 #[derive(Debug, thiserror::Error)]

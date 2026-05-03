@@ -51,12 +51,7 @@ fn build_search_body_includes_yql_ranking_and_tensor() {
 #[test]
 fn build_search_body_with_filter_appends_and_clause() {
     let b = backend();
-    let body = b.build_search_body(
-        "",
-        &[0.1_f32, 0.2],
-        &Filter::eq("tenant_id", "acme"),
-        3,
-    );
+    let body = b.build_search_body("", &[0.1_f32, 0.2], &Filter::eq("tenant_id", "acme"), 3);
     let yql = body["yql"].as_str().unwrap();
     assert!(
         yql.contains("and (tenant_id contains \"acme\")"),

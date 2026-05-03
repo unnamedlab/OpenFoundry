@@ -85,12 +85,10 @@ service in the stack.
 Follow [cassandra-app-failover.md](cassandra-app-failover.md):
 
 ```sh
-helm --kube-context region-b upgrade open-foundry \
-    infra/k8s/helm/open-foundry \
-    -f infra/k8s/helm/open-foundry/values.yaml \
-    -f infra/k8s/helm/open-foundry/values-prod.yaml \
-    --set globals.cassandra.localDc=dc-b1 \
-    --reuse-values
+cd infra/k8s/helm && \
+    HELM_KUBECONTEXT=region-b \
+    helmfile -e prod apply \
+    --state-values-set global.cassandra.localDc=dc-b1
 ```
 
 This rolling-restarts every Deployment with `CASSANDRA_LOCAL_DC=dc-b1`.
@@ -102,11 +100,11 @@ Region-B services discover their topic prefix from the
 to `dc-a.`:
 
 ```sh
-helm --kube-context region-b upgrade open-foundry \
-    infra/k8s/helm/open-foundry \
-    --set globals.kafka.topicPrefix=dc-a. \
-    --set globals.kafka.bootstrap=openfoundry-b-kafka-bootstrap.kafka.svc:9093 \
-    --reuse-values
+cd infra/k8s/helm && \
+    HELM_KUBECONTEXT=region-b \
+    helmfile -e prod apply \
+    --state-values-set global.kafka.topicPrefix=dc-a. \
+    --state-values-set global.kafka.bootstrap=openfoundry-b-kafka-bootstrap.kafka.svc:9093
 ```
 
 `MirrorCheckpointConnector` has been writing translated consumer
@@ -117,13 +115,13 @@ without re-processing.
 
 Lakekeeper region-B is permanently RO during steady state (S7.1.b).
 Promotion to RW is documented in
-[`../k8s/lakekeeper/region-b/README.md`](../k8s/lakekeeper/region-b/README.md):
+[`../k8s/platform/manifests/lakekeeper/region-b/README.md`](../k8s/platform/manifests/lakekeeper/region-b/README.md):
 
 ```sh
 helm --kube-context region-b upgrade lakekeeper \
     quay.io/lakekeeper/charts/lakekeeper \
-    -f infra/k8s/lakekeeper/values.yaml \
-    -f infra/k8s/lakekeeper/region-b/values-region-b.yaml \
+    -f infra/k8s/platform/manifests/lakekeeper/values.yaml \
+    -f infra/k8s/platform/manifests/lakekeeper/region-b/values-region-b.yaml \
     --set authz.backend=allow_all \
     --set externalDatabase.host_write=pg-lakekeeper-replica-rw \
     --reuse-values
@@ -196,15 +194,17 @@ Watch the Grafana dashboard `dr-overview` (region B):
 Open a single PR `dr/failover-<UTC-timestamp>` that:
 
 1. Sets `replica.enabled: false` for the promoted CNPG clusters in
-   [`cnpg-replicas-region-b.yaml`](../k8s/cnpg/region-b/cnpg-replicas-region-b.yaml).
-2. Updates [`values-prod.yaml`](../k8s/helm/open-foundry/values-prod.yaml):
-   `globals.cassandra.localDc=dc-b1`,
-   `globals.kafka.topicPrefix=dc-a.`,
-   `globals.kafka.bootstrap=openfoundry-b-kafka-bootstrap...`,
-   DATABASE_URL/DATABASE_READ_URL pointing at `*-replica-rw/-ro`.
-3. Updates the active region label in
-   `infra/observability/grafana/dashboards/dr-overview.json`.
-4. Embeds the incident timestamp and post-mortem link in the PR
+   [`cnpg-replicas-region-b.yaml`](../k8s/platform/manifests/cnpg/region-b/cnpg-replicas-region-b.yaml).
+2. Updates [`values-prod.yaml`](../k8s/helm/profiles/values-prod.yaml):
+   `global.cassandra.localDc=dc-b1`,
+   `global.kafka.topicPrefix=dc-a.`,
+   `global.kafka.bootstrap=openfoundry-b-kafka-bootstrap...`.
+3. Rotates the affected `<bc>-db-dsn` Secrets / External Secrets inputs
+   so `DATABASE_URL` and `DATABASE_READ_URL` resolve to
+   `*-replica-rw/-ro` per [`DATABASE_URL.md`](../k8s/helm/DATABASE_URL.md).
+4. Updates the active region label in the DR dashboard under
+   `infra/k8s/platform/observability/grafana-dashboards/`.
+5. Embeds the incident timestamp and post-mortem link in the PR
    description.
 
 Merge with the on-call IC's approval; do not rely on standard CODEOWNERS

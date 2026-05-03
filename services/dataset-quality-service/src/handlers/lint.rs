@@ -678,6 +678,9 @@ mod tests {
             tags: vec!["finance".to_string(), "pii".to_string()],
             current_version: 18,
             active_branch: "main".to_string(),
+            metadata: json!({}),
+            health_status: "unknown".to_string(),
+            current_view_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

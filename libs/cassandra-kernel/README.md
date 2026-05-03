@@ -147,4 +147,4 @@ forward migration that reverses the change.
 * ADR-0021 — Temporal on Cassandra (Go workers, Rust client).
 * `docs/architecture/data-model-cassandra.md` — full keyspace and
   table reference.
-* `infra/k8s/cassandra/` — operator, cluster CRs, dashboards, runbook.
+* `infra/k8s/platform/manifests/cassandra/` — operator, cluster CRs, dashboards, runbook.

@@ -27,7 +27,7 @@
 //!
 //! We pick (2). Each iteration *peeks* the slot — which leaves the LSN
 //! horizon untouched — publishes every change to the sink, persists the
-//! new LSN to `ingestion_checkpoints`, and only then asks Postgres to
+//! new LSN to a local checkpoint manifest, and only then asks Postgres to
 //! advance the slot. A crash anywhere before the advance simply means the
 //! same batch is replayed on the next start; subscribers can dedupe by
 //! `cdc.lsn`.
@@ -36,16 +36,19 @@
 //!
 //! On startup the worker:
 //!
-//! * reads `ingestion_checkpoints.last_lsn` for its `subscription_id`;
+//! * reads the checkpoint manifest for its `subscription_id`;
 //! * if the slot exists and its `confirmed_flush_lsn` is *behind* our
 //!   checkpoint, calls `pg_replication_slot_advance` to fast-forward the
 //!   slot — this avoids re-emitting changes we have already published;
 //! * if the slot does *not* exist, creates it with the `test_decoding`
 //!   plugin (built into Postgres, no extension required).
 //!
-//! The slot itself acts as the durable WAL retainer; `ingestion_checkpoints`
-//! mirrors what we have published so we can detect divergence.
+//! The slot itself acts as the durable WAL retainer; the checkpoint manifest
+//! mirrors what we have published so we can detect divergence without routing
+//! hot-path state back through Postgres.
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -57,7 +60,7 @@ use uuid::Uuid;
 /// Static configuration for one CDC subscription.
 #[derive(Debug, Clone)]
 pub struct PostgresCdcConfig {
-    /// Stable id used as the primary key in `ingestion_checkpoints`.
+    /// Stable id used as the checkpoint manifest key.
     pub subscription_id: Uuid,
     /// libpq connection string for the upstream database.
     pub connection_string: String,
@@ -95,8 +98,8 @@ impl PostgresCdcConfig {
     }
 }
 
-/// One row of `ingestion_checkpoints`.
-#[derive(Debug, Clone, sqlx::FromRow)]
+/// Filesystem-backed checkpoint manifest for one subscription.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IngestionCheckpoint {
     pub subscription_id: Uuid,
     pub slot_name: String,
@@ -196,6 +199,10 @@ impl EventPublisher for InMemoryPublisher {
 pub enum CdcError {
     #[error("metadata database error: {0}")]
     Db(#[from] sqlx::Error),
+    #[error("checkpoint I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("checkpoint serialization error: {0}")]
+    CheckpointSerde(#[from] serde_json::Error),
     #[error("invalid LSN '{0}'")]
     InvalidLsn(String),
     #[error("publisher error: {0}")]
@@ -204,71 +211,83 @@ pub enum CdcError {
     MalformedPayload(String),
 }
 
-/// Read the most recent checkpoint or insert a fresh row.
+/// Read the most recent checkpoint manifest or initialise a fresh one.
 pub async fn load_or_init_checkpoint(
-    pool: &PgPool,
+    _pool: &PgPool,
     config: &PostgresCdcConfig,
 ) -> Result<IngestionCheckpoint, CdcError> {
-    let existing: Option<IngestionCheckpoint> = sqlx::query_as(
-        r#"SELECT subscription_id, slot_name, publication_name, last_lsn,
-                  last_event_at, records_observed, records_applied,
-                  last_tx_id, updated_at
-           FROM ingestion_checkpoints WHERE subscription_id = $1"#,
-    )
-    .bind(config.subscription_id)
-    .fetch_optional(pool)
-    .await?;
-    if let Some(row) = existing {
-        return Ok(row);
+    let path = checkpoint_path(config.subscription_id);
+    if path.exists() {
+        return read_checkpoint(&path);
     }
-    let inserted = sqlx::query_as(
-        r#"INSERT INTO ingestion_checkpoints
-              (subscription_id, slot_name, publication_name)
-           VALUES ($1, $2, $3)
-           RETURNING subscription_id, slot_name, publication_name, last_lsn,
-                     last_event_at, records_observed, records_applied,
-                     last_tx_id, updated_at"#,
-    )
-    .bind(config.subscription_id)
-    .bind(&config.slot_name)
-    .bind(&config.publication_name)
-    .fetch_one(pool)
-    .await?;
-    Ok(inserted)
+    let checkpoint = IngestionCheckpoint {
+        subscription_id: config.subscription_id,
+        slot_name: config.slot_name.clone(),
+        publication_name: config.publication_name.clone(),
+        last_lsn: None,
+        last_event_at: None,
+        records_observed: 0,
+        records_applied: 0,
+        last_tx_id: None,
+        updated_at: Utc::now(),
+    };
+    write_checkpoint(&path, &checkpoint)?;
+    Ok(checkpoint)
 }
 
 /// Persist a new LSN/tx_id pair and bump the running counters.
 pub async fn record_advance(
-    pool: &PgPool,
-    subscription_id: Uuid,
+    _pool: &PgPool,
+    config: &PostgresCdcConfig,
     new_lsn: &str,
     tx_id: Option<i64>,
     rows_in_batch: i64,
     event_at: DateTime<Utc>,
 ) -> Result<(), CdcError> {
-    sqlx::query(
-        r#"UPDATE ingestion_checkpoints
-              SET last_lsn = $2,
-                  last_tx_id = COALESCE($3, last_tx_id),
-                  last_event_at = $4,
-                  records_observed = records_observed + $5,
-                  records_applied  = records_applied  + $5,
-                  updated_at = NOW()
-            WHERE subscription_id = $1"#,
-    )
-    .bind(subscription_id)
-    .bind(new_lsn)
-    .bind(tx_id)
-    .bind(event_at)
-    .bind(rows_in_batch)
-    .execute(pool)
-    .await?;
+    let path = checkpoint_path(config.subscription_id);
+    let mut checkpoint = if path.exists() {
+        read_checkpoint(&path)?
+    } else {
+        load_or_init_checkpoint(_pool, config).await?
+    };
+    checkpoint.last_lsn = Some(new_lsn.to_string());
+    checkpoint.last_tx_id = tx_id.or(checkpoint.last_tx_id);
+    checkpoint.last_event_at = Some(event_at);
+    checkpoint.records_observed += rows_in_batch;
+    checkpoint.records_applied += rows_in_batch;
+    checkpoint.updated_at = Utc::now();
+    write_checkpoint(&path, &checkpoint)?;
+    Ok(())
+}
+
+fn checkpoint_path(subscription_id: Uuid) -> PathBuf {
+    let mut root = std::env::var_os("OPENFOUNDRY_INGESTION_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("openfoundry-ingestion-runtime"));
+    root.push("cdc-checkpoints");
+    root.push(format!("{subscription_id}.json"));
+    root
+}
+
+fn read_checkpoint(path: &Path) -> Result<IngestionCheckpoint, CdcError> {
+    let bytes = fs::read(path)?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn write_checkpoint(path: &Path, checkpoint: &IngestionCheckpoint) -> Result<(), CdcError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let bytes = serde_json::to_vec_pretty(checkpoint)?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, bytes)?;
+    fs::rename(tmp, path)?;
     Ok(())
 }
 
 /// Connect to the upstream database with a small dedicated pool. Kept
-/// separate from the metadata pool so an upstream outage does not back up
-/// metadata writes.
+/// separate from the legacy metadata pool parameter so an upstream outage
+/// does not back up control-plane traffic.
 pub async fn connect_upstream(connection_string: &str) -> Result<PgPool, CdcError> {
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
@@ -284,12 +303,11 @@ pub async fn ensure_slot_and_publication(
     config: &PostgresCdcConfig,
 ) -> Result<(), CdcError> {
     if !config.tables.is_empty() {
-        let exists: Option<i64> = sqlx::query_scalar(
-            "SELECT 1::bigint FROM pg_publication WHERE pubname = $1",
-        )
-        .bind(&config.publication_name)
-        .fetch_optional(upstream)
-        .await?;
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1::bigint FROM pg_publication WHERE pubname = $1")
+                .bind(&config.publication_name)
+                .fetch_optional(upstream)
+                .await?;
         if exists.is_none() {
             // Identifier values cannot be parameterised; we quote them so a
             // hostile slot/publication name still cannot inject SQL.
@@ -302,12 +320,11 @@ pub async fn ensure_slot_and_publication(
         }
     }
 
-    let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT 1::bigint FROM pg_replication_slots WHERE slot_name = $1",
-    )
-    .bind(&config.slot_name)
-    .fetch_optional(upstream)
-    .await?;
+    let exists: Option<i64> =
+        sqlx::query_scalar("SELECT 1::bigint FROM pg_replication_slots WHERE slot_name = $1")
+            .bind(&config.slot_name)
+            .fetch_optional(upstream)
+            .await?;
     if exists.is_none() {
         sqlx::query("SELECT pg_create_logical_replication_slot($1, 'test_decoding')")
             .bind(&config.slot_name)
@@ -343,7 +360,7 @@ pub async fn poll_once<P: EventPublisher>(
     publisher: &P,
 ) -> Result<usize, CdcError> {
     // PEEK rather than GET: leaves the slot horizon untouched until we
-    // have actually persisted the checkpoint. The `test_decoding` plugin
+    // have actually persisted the checkpoint manifest. The `test_decoding` plugin
     // is built into Postgres and emits one text line per change.
     let rows = sqlx::query(
         r#"SELECT lsn::text AS lsn, xid::text AS xid, data
@@ -382,8 +399,7 @@ pub async fn poll_once<P: EventPublisher>(
         // `test_decoding` does not honour publications (unlike `pgoutput`)
         // — every change in the database hits the slot. Filter to the
         // tables this subscription was configured for so we never leak
-        // unrelated mutations (most importantly, our own writes against
-        // `ingestion_checkpoints`).
+        // unrelated mutations.
         if !config.tables.is_empty() && !table_matches(&config.tables, &parsed) {
             continue;
         }
@@ -417,7 +433,7 @@ pub async fn poll_once<P: EventPublisher>(
     if let Some(lsn) = last_seen_lsn {
         record_advance(
             metadata_pool,
-            config.subscription_id,
+            config,
             &lsn,
             last_xid,
             produced as i64,
@@ -617,9 +633,8 @@ mod tests {
         .expect("update parses");
         assert_eq!(update.op, CdcOp::Update);
 
-        let delete =
-            parse_test_decoding_line("table public.orders: DELETE: id[bigint]:1")
-                .expect("delete parses");
+        let delete = parse_test_decoding_line("table public.orders: DELETE: id[bigint]:1")
+            .expect("delete parses");
         assert_eq!(delete.op, CdcOp::Delete);
 
         assert!(parse_test_decoding_line("BEGIN 707").is_none());

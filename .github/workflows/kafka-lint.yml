@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - "infra/k8s/strimzi/**"
+      - "infra/k8s/platform/manifests/strimzi/**"
       - "tools/kafka-lint/**"
       - ".github/workflows/kafka-lint.yml"
   pull_request:
     branches: [main]
     paths:
-      - "infra/k8s/strimzi/**"
+      - "infra/k8s/platform/manifests/strimzi/**"
       - "tools/kafka-lint/**"
       - ".github/workflows/kafka-lint.yml"
 

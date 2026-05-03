@@ -23,8 +23,8 @@ fan-out under `gateway` with that target shape.
                                    +----------------------+        routing)
                                               :
                                               : (per-statement routing into the
-                                              :  COMPUTE plane: Iceberg, ClickHouse,
-                                              :  Vespa, Postgres — see ADR-0014)
+                                              :  COMPUTE plane: Iceberg, Trino,
+                                              :  Vespa, Postgres — see ADR-0014/0029)
                                               :
 Browser / API Client                          :
         |                                     :
@@ -59,7 +59,6 @@ Browser / API Client                          :
         |     │ Lakehouse:       Apache Iceberg + Lakekeeper REST Catalog            │
         |     │                   (single REST catalog — ADR-0008)                   │
         |     │ Streaming log:   Apache Kafka (Strimzi, rack-aware)                  │
-        |     │ Time-series:     ClickHouse cluster (shards=2, replicas=3)           │
         |     │ Search/hybrid:   Vespa (production) + Vespa Lite (DX, ADR-0007)      │
         |     │ Embedded vec:    pgvector co-located with relational state           │
         |     │ Maintenance:     Flink jobs for Iceberg rewrite / expire / orphans   │
@@ -71,7 +70,7 @@ Browser / API Client                          :
         +---> │ sql-bi-gateway-service  (Flight SQL gateway, :50133 — ADR-0014)       │
         |     │   ├── sql-warehousing-service (DataFusion / Iceberg, Flight SQL P2P, │
         |     │   │     :50123) — official internal compute pool (ADR-0009)          │
-        |     │   ├── ClickHouse  (time-series queries)                              │
+        |     │   ├── Trino       (Iceberg analytics, ADR-0029)                      │
         |     │   ├── Vespa       (search / hybrid retrieval, ADR-0007)              │
         |     │   └── Postgres    (OLTP reference catalogue — CNPG)                  │
         |     │ ml-service · ai-service · ontology-functions-service ·               │
@@ -100,9 +99,11 @@ Browser / API Client                          :
 > a real Apache Arrow Flight SQL server (not a proxy) backed by
 > DataFusion that classifies each statement and routes it to the
 > appropriate compute-plane backend (Iceberg via `sql-warehousing-service`,
-> ClickHouse, Vespa, Postgres). The retired Trino edge BI deployment is
-> superseded — see
-> [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md).
+> Trino for Iceberg analytics, Vespa, Postgres). The retired Trino edge BI
+> deployment is superseded, and Trino's current role is the Iceberg analytics
+> backend behind the same Flight SQL edge — see
+> [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md) and
+> [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md).
 > Internal services still reach data through Flight SQL P2P via
 > `sql-warehousing-service` per
 > [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md).
@@ -260,13 +261,13 @@ through a central federated coordinator. See
 - `services/sql-bi-gateway-service` (port `50133`) is the **edge SQL
   router** that fans out external SQL to the right backend:
   - `sql-warehousing-service` for Iceberg / lakehouse SQL,
-  - ClickHouse for time-series,
+  - Trino for Iceberg analytics,
   - Vespa for search / hybrid retrieval (cf.
     [ADR-0007](./adr/ADR-0007-search-engine-choice.md)),
   - `sql-bi-gateway-service` for **external BI** (Tableau, Superset,
     heterogeneous Arrow Flight SQL JDBC/ODBC clients) — see
     [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md).
-- The previous Trino edge BI deployment under `infra/k8s/trino/` has
+- The previous Trino edge BI deployment under `infra/k8s/platform/manifests/trino/` has
   been removed; new services must not depend on Trino for service-to-service
   SQL or for BI access.
 

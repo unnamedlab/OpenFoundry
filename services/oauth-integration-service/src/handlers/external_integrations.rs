@@ -50,7 +50,10 @@ pub async fn create_external_integration(
         return response;
     }
     if body.slug.trim().is_empty() || body.display_name.trim().is_empty() {
-        return json_error(StatusCode::BAD_REQUEST, "slug and display_name are required");
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "slug and display_name are required",
+        );
     }
 
     match sqlx::query_as::<_, ExternalIntegration>(

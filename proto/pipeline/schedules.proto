@@ -1,0 +1,205 @@
+syntax = "proto3";
+
+// Foundry-parity Schedules contract.
+//
+// Mirrors the trigger model documented at
+// docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/
+// Workflows/Building pipelines/Scheduling/Trigger types reference.md:
+//
+//   * Time triggers — cron expression + IANA time zone, with DST
+//     forward-skip / backward-double semantics. Two flavours: 5-field
+//     unix and 6-field Quartz (seconds-prefixed).
+//   * Event triggers — four event types satisfied once observed and
+//     held until the schedule runs.
+//   * Compound triggers — arbitrary nesting of AND / OR over the
+//     other two trigger kinds.
+//
+// Targets follow the Foundry Schedules surface:
+// pipeline build, dataset build, sync run, health-check.
+
+package open_foundry.pipeline;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// ---- Trigger ---------------------------------------------------------------
+
+message Trigger {
+  oneof kind {
+    TimeTrigger time = 1;
+    EventTrigger event = 2;
+    CompoundTrigger compound = 3;
+  }
+}
+
+// 5-field unix cron, or 6-field Quartz (seconds-prefixed).
+//
+// `cron` is the literal expression.
+// `time_zone` is an IANA name, e.g. "America/New_York"; defaults to UTC.
+// `flavor` disambiguates the parser dialect.
+message TimeTrigger {
+  string cron = 1;
+  string time_zone = 2;
+  CronFlavor flavor = 3;
+}
+
+enum CronFlavor {
+  CRON_FLAVOR_UNSPECIFIED = 0;
+  UNIX_5 = 1;
+  QUARTZ_6 = 2;
+}
+
+// Event trigger — satisfied once the named event has occurred against
+// `target_rid`, and remains satisfied until the parent trigger fires.
+message EventTrigger {
+  EventType type = 1;
+  string target_rid = 2;
+  repeated string branch_filter = 3;
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  // Logic to compute a dataset has been updated.
+  NEW_LOGIC = 1;
+  // A transaction has been committed against the target dataset.
+  DATA_UPDATED = 2;
+  // A job on the target dataset / pipeline has finished
+  // (regardless of whether a transaction was committed).
+  JOB_SUCCEEDED = 3;
+  // A different schedule completed a run successfully.
+  SCHEDULE_RAN_SUCCESSFULLY = 4;
+}
+
+// Compound trigger — arbitrary AND/OR nesting over a list of children.
+message CompoundTrigger {
+  enum Op {
+    OP_UNSPECIFIED = 0;
+    AND = 1;
+    OR = 2;
+  }
+  Op op = 1;
+  repeated Trigger components = 2;
+}
+
+// ---- Schedule + Targets ----------------------------------------------------
+
+message Schedule {
+  string rid = 1;
+  string project_rid = 2;
+  string name = 3;
+  string description = 4;
+  Trigger trigger = 5;
+  ScheduleTarget target = 6;
+  bool paused = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  google.protobuf.Timestamp last_run_at = 10;
+  int32 version = 11;
+}
+
+message ScheduleTarget {
+  oneof kind {
+    PipelineBuildTarget pipeline_build = 1;
+    DatasetBuildTarget dataset_build = 2;
+    SyncRunTarget sync_run = 3;
+    HealthCheckTarget health_check = 4;
+  }
+}
+
+message PipelineBuildTarget {
+  string pipeline_rid = 1;
+  string build_branch = 2;
+  repeated string job_spec_fallback = 3;
+  bool force_build = 4;
+  // DEPENDENT_ONLY | ALL_NON_DEPENDENT
+  string abort_policy = 5;
+}
+
+message DatasetBuildTarget {
+  string dataset_rid = 1;
+  string build_branch = 2;
+  bool force_build = 3;
+}
+
+message SyncRunTarget {
+  string sync_rid = 1;
+  string source_rid = 2;
+}
+
+message HealthCheckTarget {
+  string check_rid = 1;
+}
+
+// ---- gRPC service ----------------------------------------------------------
+
+service ScheduleService {
+  rpc CreateSchedule(CreateScheduleRequest) returns (Schedule);
+  rpc GetSchedule(GetScheduleRequest) returns (Schedule);
+  rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
+  rpc UpdateSchedule(UpdateScheduleRequest) returns (Schedule);
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+  rpc RunScheduleNow(RunScheduleNowRequest) returns (RunScheduleNowResponse);
+  rpc PreviewNextFires(PreviewNextFiresRequest) returns (PreviewNextFiresResponse);
+}
+
+message CreateScheduleRequest {
+  string project_rid = 1;
+  string name = 2;
+  string description = 3;
+  Trigger trigger = 4;
+  ScheduleTarget target = 5;
+  bool paused = 6;
+}
+
+message GetScheduleRequest {
+  string rid = 1;
+}
+
+message ListSchedulesRequest {
+  string project_rid = 1;
+  bool include_paused = 2;
+  string owner = 3;
+  string query = 4;
+  open_foundry.common.PageRequest pagination = 5;
+}
+
+message ListSchedulesResponse {
+  repeated Schedule schedules = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message UpdateScheduleRequest {
+  string rid = 1;
+  // Partial update; only set fields are applied.
+  optional string name = 2;
+  optional string description = 3;
+  optional Trigger trigger = 4;
+  optional ScheduleTarget target = 5;
+  optional bool paused = 6;
+  string edited_by = 7;
+  string change_comment = 8;
+}
+
+message DeleteScheduleRequest {
+  string rid = 1;
+}
+
+message DeleteScheduleResponse {}
+
+message RunScheduleNowRequest {
+  string rid = 1;
+  string requested_by = 2;
+}
+
+message RunScheduleNowResponse {
+  string run_id = 1;
+}
+
+message PreviewNextFiresRequest {
+  string rid = 1;
+  int32 count = 2;
+}
+
+message PreviewNextFiresResponse {
+  repeated google.protobuf.Timestamp fires = 1;
+}

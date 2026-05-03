@@ -1,52 +1,118 @@
-# Helm release migration — umbrella `open-foundry` → 5 releases
+# Helm release layout — split releases only
 
 > Companion to [ADR-0031](../../docs/architecture/adr/ADR-0031-helm-chart-split-five-releases.md).
-> Tracks the rollout of the five new top-level Helm releases that
-> replace the monolithic [`open-foundry`](open-foundry) umbrella.
+> The umbrella `open-foundry` chart was removed on **2026-05-02** after
+> the split releases reached operational parity.
 
-## Releases (S8.2)
+## Releases
 
 | Release | Path | Status |
 | --- | --- | --- |
-| `of-shared` (library chart) | [`of-shared/`](of-shared/) | scaffolded |
-| `of-platform` | [`of-platform/`](of-platform/) | scaffolded |
-| `of-data-engine` | [`of-data-engine/`](of-data-engine/) | scaffolded |
-| `of-ontology` | [`of-ontology/`](of-ontology/) | scaffolded |
-| `of-ml-aip` | [`of-ml-aip/`](of-ml-aip/) | scaffolded |
-| `of-apps-ops` | [`of-apps-ops/`](of-apps-ops/) | scaffolded |
-| `open-foundry` (legacy) | [`open-foundry/`](open-foundry/) | DEPRECATED — removal date **2026-08-01** |
+| `of-shared` (library chart) | [`of-shared/`](of-shared/) | active |
+| `of-platform` | [`of-platform/`](of-platform/) | active |
+| `of-data-engine` | [`of-data-engine/`](of-data-engine/) | active |
+| `of-ontology` | [`of-ontology/`](of-ontology/) | active |
+| `of-ml-aip` | [`of-ml-aip/`](of-ml-aip/) | active |
+| `of-apps-ops` | [`of-apps-ops/`](of-apps-ops/) | active |
+
+## Shared profiles
+
+Cross-release environment posture now lives under
+[`profiles/`](profiles/):
+
+- `values-dev.yaml`
+- `values-staging.yaml`
+- `values-prod.yaml`
+- `values-airgap.yaml`
+- `values-multicloud.yaml`
+- `values-sovereign-eu.yaml`
+- `values-apollo.yaml`
+
+Each release also owns its service-specific tuning in
+`<release>/values-{dev,staging,prod}.yaml`.
 
 ## Install order
 
-`of-platform` first (it owns the shared Gateway, ConfigMaps and
-Secrets consumed by everything else), then the rest in any order:
+The platform layer in [`../platform/`](../platform/) must be installed
+before these app releases. Inside the app layer, `of-platform` must be
+installed first because it owns the shared Ingress, the
+`openfoundry-platform-profile` ConfigMap, and the Apollo CronJob. The
+remaining four releases declare `needs:` on it in
+[`helmfile.yaml.gotmpl`](helmfile.yaml.gotmpl), so the orchestrator
+enforces the app order automatically.
+
+The supported entrypoint is **helmfile**:
 
 ```sh
-helm upgrade --install of-platform   infra/k8s/helm/of-platform   -f infra/k8s/helm/of-platform/values-prod.yaml
-helm upgrade --install of-data-engine infra/k8s/helm/of-data-engine -f infra/k8s/helm/of-data-engine/values-prod.yaml
-helm upgrade --install of-ontology   infra/k8s/helm/of-ontology   -f infra/k8s/helm/of-ontology/values-prod.yaml
-helm upgrade --install of-ml-aip     infra/k8s/helm/of-ml-aip     -f infra/k8s/helm/of-ml-aip/values-prod.yaml
-helm upgrade --install of-apps-ops   infra/k8s/helm/of-apps-ops   -f infra/k8s/helm/of-apps-ops/values-prod.yaml
+cd infra/k8s/platform && helmfile -e prod apply
+cd infra/k8s/helm && helmfile -e prod apply
 ```
 
-## Migration steps from the umbrella
+Layered postures (combine a base profile with a posture overlay) are
+pre-declared as helmfile environments:
 
-1. **Stage 1 (staging only)** — Install `of-platform` *alongside* the
-   umbrella. Verify both render identical Deployments for the
-   platform services using
-   `diff <(helm template of-platform infra/k8s/helm/of-platform) \
-        <(helm template open-foundry infra/k8s/helm/open-foundry | grep -A1000 'name: edge-gateway-service')`.
-2. **Stage 2** — Set `services.<platform-svc>.enabled: false` in the
-   umbrella values for staging; the umbrella stops managing those
-   Deployments. `of-platform` takes over.
-3. **Stage 3** — Repeat for the other four releases.
-4. **Stage 4 (prod)** — Apply the same sequence per environment.
-5. **Stage 5** — Delete `infra/k8s/helm/open-foundry/` after every
-   environment is on the split charts and the deprecation date is
-   reached.
+```sh
+cd infra/k8s/helm && helmfile -e airgap       apply  # prod + airgap overlay
+cd infra/k8s/helm && helmfile -e sovereign-eu apply  # prod + EU residency
+cd infra/k8s/helm && helmfile -e multicloud   apply
+cd infra/k8s/helm && helmfile -e apollo       apply
+```
 
-## Deprecation policy
+Equivalent manual commands (kept as escape hatch — not required day-to-day):
 
-The legacy umbrella stays installable until 2026-08-01. Any new
-service must be added to the appropriate split release **only** —
-the umbrella is feature-frozen.
+```sh
+helm upgrade --install of-platform \
+  infra/k8s/helm/of-platform \
+  -f infra/k8s/helm/of-platform/values.yaml \
+  -f infra/k8s/helm/profiles/values-prod.yaml \
+  -f infra/k8s/helm/of-platform/values-prod.yaml
+
+helm upgrade --install of-data-engine \
+  infra/k8s/helm/of-data-engine \
+  -f infra/k8s/helm/of-data-engine/values.yaml \
+  -f infra/k8s/helm/profiles/values-prod.yaml \
+  -f infra/k8s/helm/of-data-engine/values-prod.yaml
+
+helm upgrade --install of-ontology \
+  infra/k8s/helm/of-ontology \
+  -f infra/k8s/helm/of-ontology/values.yaml \
+  -f infra/k8s/helm/profiles/values-prod.yaml \
+  -f infra/k8s/helm/of-ontology/values-prod.yaml
+
+helm upgrade --install of-ml-aip \
+  infra/k8s/helm/of-ml-aip \
+  -f infra/k8s/helm/of-ml-aip/values.yaml \
+  -f infra/k8s/helm/profiles/values-prod.yaml \
+  -f infra/k8s/helm/of-ml-aip/values-prod.yaml
+
+helm upgrade --install of-apps-ops \
+  infra/k8s/helm/of-apps-ops \
+  -f infra/k8s/helm/of-apps-ops/values.yaml \
+  -f infra/k8s/helm/profiles/values-prod.yaml \
+  -f infra/k8s/helm/of-apps-ops/values-prod.yaml
+```
+
+## Validation
+
+Local bundle validation:
+
+```sh
+just helm-check
+```
+
+Direct render:
+
+```sh
+cd infra/k8s/helm && helmfile -e prod template > /tmp/openfoundry-prod.yaml
+```
+
+## Notes
+
+- The bash bundle scripts under `bin/` (`upgrade-split-releases.sh`,
+  `template-split-releases.sh`) were removed on **2026-05-03** in favour
+  of the declarative [`helmfile.yaml.gotmpl`](helmfile.yaml.gotmpl).
+- The shared Postgres Secret contract moved to
+  [`DATABASE_URL.md`](DATABASE_URL.md).
+- Vespa is deployed from the platform Helmfile in
+  [`../platform/`](../platform/). The chart source now lives under
+  [`../platform/charts/vespa/`](../platform/charts/vespa/).

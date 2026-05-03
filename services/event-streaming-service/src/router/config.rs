@@ -52,9 +52,7 @@ pub enum ConfigError {
     },
     #[error("failed to parse routing table: {0}")]
     Parse(#[from] serde_yaml::Error),
-    #[error(
-        "route #{index} references backend `{backend}` which is not declared in `backends`"
-    )]
+    #[error("route #{index} references backend `{backend}` which is not declared in `backends`")]
     UnknownBackend { index: usize, backend: String },
     #[error("`default_backend` references backend `{0}` which is not declared in `backends`")]
     UnknownDefaultBackend(String),
@@ -69,7 +67,10 @@ pub enum ConfigError {
     #[error("at least one route or a `default_backend` must be configured")]
     Empty,
     #[error("`backends.{backend}` is missing required field `{field}`")]
-    MissingBackendField { backend: String, field: &'static str },
+    MissingBackendField {
+        backend: String,
+        field: &'static str,
+    },
 }
 
 /// Top-level shape of `topic-routes.yaml`.
@@ -152,20 +153,23 @@ impl RouterConfig {
                     pattern: route.pattern.clone(),
                 });
             }
-            self.resolve_backend(&route.backend).ok_or_else(|| {
-                ConfigError::UnknownBackend {
+            self.resolve_backend(&route.backend)
+                .ok_or_else(|| ConfigError::UnknownBackend {
                     index,
                     backend: route.backend.clone(),
-                }
-            })?;
+                })?;
         }
 
         // Validate concrete per-backend fields when the backend is referenced.
         if self.is_backend_referenced("nats") {
-            let nats = self.backends.nats.as_ref().ok_or(ConfigError::MissingBackendField {
-                backend: "nats".into(),
-                field: "url",
-            })?;
+            let nats = self
+                .backends
+                .nats
+                .as_ref()
+                .ok_or(ConfigError::MissingBackendField {
+                    backend: "nats".into(),
+                    field: "url",
+                })?;
             if nats.url.is_empty() {
                 return Err(ConfigError::MissingBackendField {
                     backend: "nats".into(),
@@ -174,10 +178,14 @@ impl RouterConfig {
             }
         }
         if self.is_backend_referenced("kafka") {
-            let kafka = self.backends.kafka.as_ref().ok_or(ConfigError::MissingBackendField {
-                backend: "kafka".into(),
-                field: "brokers",
-            })?;
+            let kafka = self
+                .backends
+                .kafka
+                .as_ref()
+                .ok_or(ConfigError::MissingBackendField {
+                    backend: "kafka".into(),
+                    field: "brokers",
+                })?;
             if kafka.brokers.is_empty() {
                 return Err(ConfigError::MissingBackendField {
                     backend: "kafka".into(),
@@ -257,14 +265,20 @@ mod tests {
     fn rejects_unknown_backend_in_route() {
         let yaml = "backends:\n  nats:\n    url: nats://x:4222\nroutes:\n  - pattern: \"a.*\"\n    backend: kafka\n";
         let err = RouterConfig::from_yaml(yaml).unwrap_err();
-        assert!(matches!(err, ConfigError::UnknownBackend { index: 0, .. }), "{err:?}");
+        assert!(
+            matches!(err, ConfigError::UnknownBackend { index: 0, .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
     fn rejects_unknown_default_backend() {
         let yaml = "default_backend: kafka\nbackends:\n  nats:\n    url: nats://x:4222\nroutes:\n  - pattern: \"a.*\"\n    backend: nats\n";
         let err = RouterConfig::from_yaml(yaml).unwrap_err();
-        assert!(matches!(err, ConfigError::UnknownDefaultBackend(_)), "{err:?}");
+        assert!(
+            matches!(err, ConfigError::UnknownDefaultBackend(_)),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -273,7 +287,10 @@ mod tests {
             "  - pattern: \"ctrl.*\"\n    backend: nats\n  - pattern: \"ctrl.*\"\n    backend: kafka\n",
         );
         let err = RouterConfig::from_yaml(&yaml).unwrap_err();
-        assert!(matches!(err, ConfigError::DuplicatePattern { .. }), "{err:?}");
+        assert!(
+            matches!(err, ConfigError::DuplicatePattern { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -285,7 +302,8 @@ mod tests {
 
     #[test]
     fn accepts_default_only() {
-        let yaml = "default_backend: nats\nbackends:\n  nats:\n    url: nats://x:4222\nroutes: []\n";
+        let yaml =
+            "default_backend: nats\nbackends:\n  nats:\n    url: nats://x:4222\nroutes: []\n";
         let cfg = RouterConfig::from_yaml(yaml).expect("valid");
         let table = cfg.compile().unwrap();
         assert!(table.is_empty());
@@ -296,6 +314,9 @@ mod tests {
     fn rejects_missing_kafka_brokers() {
         let yaml = "backends:\n  kafka:\n    brokers: []\nroutes:\n  - pattern: \"a.*\"\n    backend: kafka\n";
         let err = RouterConfig::from_yaml(yaml).unwrap_err();
-        assert!(matches!(err, ConfigError::MissingBackendField { .. }), "{err:?}");
+        assert!(
+            matches!(err, ConfigError::MissingBackendField { .. }),
+            "{err:?}"
+        );
     }
 }

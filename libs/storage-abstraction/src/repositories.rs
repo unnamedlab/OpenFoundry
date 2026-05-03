@@ -36,7 +36,7 @@
 //! Vespa `continuation`, OpenSearch `search_after`).
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -63,6 +63,16 @@ impl From<&str> for ObjectId {
 pub struct TypeId(pub String);
 
 impl From<&str> for TypeId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+/// Stable identifier for a saved object set definition.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ObjectSetId(pub String);
+
+impl From<&str> for ObjectSetId {
     fn from(s: &str) -> Self {
         Self(s.to_string())
     }
@@ -130,6 +140,14 @@ pub struct Object {
     pub version: u64,
     /// JSON payload. Validation against [`Schema`] is the caller's job.
     pub payload: serde_json::Value,
+    /// Owning organization / workspace UUID when the runtime uses that
+    /// partitioning model. Optional so older adapters can omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
+    /// Original creation timestamp in milliseconds. Optional because some
+    /// backends only project the latest update time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_ms: Option<i64>,
     /// Server timestamp of the last write, in milliseconds.
     pub updated_at_ms: i64,
     /// Principal that owns the object. Optional for backwards
@@ -195,6 +213,10 @@ pub struct Session {
 pub struct ActionLogEntry {
     /// Tenant scope.
     pub tenant: TenantId,
+    /// Deterministic event id used for idempotent append/retry. Backends may
+    /// derive one from the logical entry when callers leave it empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
     /// Action identifier (TimeUUID).
     pub action_id: String,
     /// Action kind, e.g. `create_aircraft`, `merge_records`.
@@ -207,6 +229,204 @@ pub struct ActionLogEntry {
     pub payload: serde_json::Value,
     /// Server timestamp (ms).
     pub recorded_at_ms: i64,
+}
+
+/// One materialized row for a saved object set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectSetMaterializedRow {
+    /// Stable row identifier inside the materialization. Usually the base
+    /// object id when present, otherwise a deterministic row ordinal.
+    pub row_id: String,
+    /// Zero-based row ordinal in the materialized result.
+    pub ordinal: u32,
+    /// Projected row payload.
+    pub payload: serde_json::Value,
+}
+
+/// Metadata describing the latest object set materialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectSetMaterializationMetadata {
+    /// Tenant scope.
+    pub tenant: TenantId,
+    /// Object set definition id.
+    pub set_id: ObjectSetId,
+    /// Base ontology type for the materialized set.
+    pub base_type_id: TypeId,
+    /// Store-specific materialization id. The default search-backed store uses
+    /// the generation timestamp in milliseconds.
+    pub materialization_id: String,
+    /// Generation timestamp in milliseconds.
+    pub generated_at_ms: i64,
+    /// Number of base objects that matched before joins/projections.
+    pub total_base_matches: u64,
+    /// Total rows produced by evaluation before any API limit was applied.
+    pub total_rows: u64,
+    /// Number of rows persisted in the read model.
+    pub stored_row_count: u64,
+    /// Traversal neighbors touched while evaluating the set.
+    pub traversal_neighbor_count: u64,
+}
+
+/// Full replacement payload for an object set materialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectSetMaterialization {
+    /// Tenant scope.
+    pub tenant: TenantId,
+    /// Object set definition id.
+    pub set_id: ObjectSetId,
+    /// Base ontology type for the materialized set.
+    pub base_type_id: TypeId,
+    /// Generation timestamp in milliseconds.
+    pub generated_at_ms: i64,
+    /// Number of base objects that matched before joins/projections.
+    pub total_base_matches: u64,
+    /// Total rows produced by evaluation before any API limit was applied.
+    pub total_rows: u64,
+    /// Traversal neighbors touched while evaluating the set.
+    pub traversal_neighbor_count: u64,
+    /// Rows persisted in the read model.
+    pub rows: Vec<ObjectSetMaterializedRow>,
+}
+
+/// Logical bucket for declarative ontology definitions.
+///
+/// These records are low-cardinality control-plane data. Production keeps
+/// them in PostgreSQL (`pg-schemas`) for transactional editing and schema
+/// governance, but handlers should depend on [`DefinitionStore`] rather than
+/// embedding `sqlx` calls.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DefinitionKind(pub String);
+
+impl From<&str> for DefinitionKind {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+/// Stable identifier for a declarative definition row.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DefinitionId(pub String);
+
+impl From<&str> for DefinitionId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+/// One declarative definition record.
+///
+/// `payload` is intentionally JSON so `storage-abstraction` stays independent
+/// from ontology-kernel's HTTP model structs. Callers can deserialize it into
+/// `ObjectType`, `Property`, `ActionType`, etc. at the edge of the handler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefinitionRecord {
+    /// Logical record kind, e.g. `object_type`, `property`, `action_type`.
+    pub kind: DefinitionKind,
+    /// Stable record id.
+    pub id: DefinitionId,
+    /// Optional tenant scope. Most schema definitions are global within a
+    /// deployment today; the field is present for project-scoped definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<TenantId>,
+    /// Optional owner/principal id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+    /// Optional parent definition id (`object_type_id`, `interface_id`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<DefinitionId>,
+    /// Monotonic logical version when the backend tracks one. Backends without
+    /// a version column may use `updated_at_ms` as a coarse version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u64>,
+    /// Definition payload as JSON.
+    pub payload: serde_json::Value,
+    /// Creation timestamp in milliseconds when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_ms: Option<i64>,
+    /// Update timestamp in milliseconds when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at_ms: Option<i64>,
+}
+
+/// Query over declarative definitions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefinitionQuery {
+    /// Logical kind to list.
+    pub kind: DefinitionKind,
+    /// Optional tenant scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<TenantId>,
+    /// Optional owner filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+    /// Optional parent filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<DefinitionId>,
+    /// Optional backend-specific equality filters over known fields.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub filters: HashMap<String, String>,
+    /// Optional lexical search over name/display fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+    /// Page request.
+    pub page: Page,
+}
+
+/// Logical bucket for generic read-model records.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ReadModelKind(pub String);
+
+impl From<&str> for ReadModelKind {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+/// Stable identifier for a read-model row.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ReadModelId(pub String);
+
+impl From<&str> for ReadModelId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+/// One generic read-model record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadModelRecord {
+    /// Logical read-model kind, e.g. `function_run`, `project_working_state`.
+    pub kind: ReadModelKind,
+    /// Tenant scope.
+    pub tenant: TenantId,
+    /// Stable record id.
+    pub id: ReadModelId,
+    /// Optional parent id for query-owned models.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<ReadModelId>,
+    /// JSON payload.
+    pub payload: serde_json::Value,
+    /// Backend version / sequence.
+    pub version: u64,
+    /// Update timestamp in milliseconds.
+    pub updated_at_ms: i64,
+}
+
+/// Query over generic read-model records.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadModelQuery {
+    /// Logical kind to list.
+    pub kind: ReadModelKind,
+    /// Tenant scope.
+    pub tenant: TenantId,
+    /// Optional parent filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<ReadModelId>,
+    /// Optional equality filters over known payload fields.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub filters: HashMap<String, String>,
+    /// Page request.
+    pub page: Page,
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +680,8 @@ pub trait SessionStore: Send + Sync {
 #[async_trait]
 pub trait ActionLogStore: Send + Sync {
     /// Append one entry. The append is atomic and idempotent on
-    /// `(tenant, action_id)`.
+    /// `(tenant, event_id)`; implementations may derive a deterministic
+    /// `event_id` when the field is empty.
     async fn append(&self, entry: ActionLogEntry) -> RepoResult<()>;
 
     /// Page through actions for a tenant in time-DESC order.
@@ -479,6 +700,118 @@ pub trait ActionLogStore: Send + Sync {
         page: Page,
         consistency: ReadConsistency,
     ) -> RepoResult<PagedResult<ActionLogEntry>>;
+
+    /// Page through actions for a specific action id.
+    async fn list_for_action(
+        &self,
+        tenant: &TenantId,
+        action_id: &str,
+        page: Page,
+        consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<ActionLogEntry>>;
+}
+
+/// Repository for declarative ontology definitions retained in PostgreSQL.
+#[async_trait]
+pub trait DefinitionStore: Send + Sync {
+    /// Load one definition.
+    async fn get(
+        &self,
+        kind: &DefinitionKind,
+        id: &DefinitionId,
+        consistency: ReadConsistency,
+    ) -> RepoResult<Option<DefinitionRecord>>;
+
+    /// List definitions by kind and lightweight filters.
+    async fn list(
+        &self,
+        query: DefinitionQuery,
+        consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<DefinitionRecord>>;
+
+    /// Insert or update one definition. `expected_version = None` means
+    /// insert/upsert depending on the backend's natural contract.
+    async fn put(
+        &self,
+        record: DefinitionRecord,
+        expected_version: Option<u64>,
+    ) -> RepoResult<PutOutcome>;
+
+    /// Delete one definition. Returns `Ok(false)` when absent.
+    async fn delete(&self, kind: &DefinitionKind, id: &DefinitionId) -> RepoResult<bool>;
+
+    /// Count definitions for admin/inventory surfaces.
+    async fn count(&self, query: DefinitionQuery, consistency: ReadConsistency) -> RepoResult<u64> {
+        Ok(self.list(query, consistency).await?.items.len() as u64)
+    }
+}
+
+/// Generic read-model repository for warm runtime projections that do not
+/// deserve bespoke traits yet.
+#[async_trait]
+pub trait ReadModelStore: Send + Sync {
+    /// Load one read-model row.
+    async fn get(
+        &self,
+        kind: &ReadModelKind,
+        tenant: &TenantId,
+        id: &ReadModelId,
+        consistency: ReadConsistency,
+    ) -> RepoResult<Option<ReadModelRecord>>;
+
+    /// List read-model rows by kind/tenant and lightweight filters.
+    async fn list(
+        &self,
+        query: ReadModelQuery,
+        consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<ReadModelRecord>>;
+
+    /// Upsert one row. Implementations discard stale writes whose version is
+    /// older than the currently stored version.
+    async fn put(&self, record: ReadModelRecord) -> RepoResult<PutOutcome>;
+
+    /// Delete one row.
+    async fn delete(
+        &self,
+        kind: &ReadModelKind,
+        tenant: &TenantId,
+        id: &ReadModelId,
+    ) -> RepoResult<bool>;
+}
+
+/// Read model for saved object set materializations.
+///
+/// Definitions remain in PostgreSQL (`pg-schemas`), but evaluated runtime
+/// rows and materialization metadata belong in the search/read-model plane.
+#[async_trait]
+pub trait ObjectSetMaterializationStore: Send + Sync {
+    /// Atomically replace the latest materialization as observed by readers.
+    /// Implementations should publish row documents first and make metadata
+    /// visible last.
+    async fn replace(
+        &self,
+        materialization: ObjectSetMaterialization,
+    ) -> RepoResult<ObjectSetMaterializationMetadata>;
+
+    /// Load latest materialization metadata for one object set.
+    async fn get_metadata(
+        &self,
+        tenant: &TenantId,
+        set_id: &ObjectSetId,
+        consistency: ReadConsistency,
+    ) -> RepoResult<Option<ObjectSetMaterializationMetadata>>;
+
+    /// Page through rows from the latest materialization.
+    async fn list_rows(
+        &self,
+        tenant: &TenantId,
+        set_id: &ObjectSetId,
+        page: Page,
+        consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<ObjectSetMaterializedRow>>;
+
+    /// Delete materialized rows and metadata for one object set.
+    async fn delete(&self, tenant: &TenantId, set_id: &ObjectSetId) -> RepoResult<bool>;
 }
 
 // ---------------------------------------------------------------------------
@@ -608,6 +941,316 @@ pub trait SearchBackend: Send + Sync {
             }
         }
         Ok(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Object set materialization via SearchBackend
+// ---------------------------------------------------------------------------
+
+const OBJECT_SET_META_TYPE: &str = "__object_set_materialization_meta";
+const OBJECT_SET_ROW_TYPE: &str = "__object_set_materialization_row";
+
+/// [`ObjectSetMaterializationStore`] backed by any [`SearchBackend`].
+///
+/// Rows are indexed as deterministic documents keyed by object-set id and row
+/// ordinal; metadata is a single deterministic document per set. The metadata
+/// document is written last so readers never observe a latest materialization
+/// before its rows have been published.
+pub struct SearchBackedObjectSetMaterializationStore {
+    search: Arc<dyn SearchBackend>,
+}
+
+impl SearchBackedObjectSetMaterializationStore {
+    /// Build a materialization store over an existing search backend.
+    pub fn new(search: Arc<dyn SearchBackend>) -> Self {
+        Self { search }
+    }
+
+    fn metadata_doc_id(set_id: &ObjectSetId) -> ObjectId {
+        ObjectId(format!("object-set:{}:metadata", set_id.0))
+    }
+
+    fn row_doc_id(set_id: &ObjectSetId, ordinal: u64) -> ObjectId {
+        ObjectId(format!("object-set:{}:row:{ordinal}", set_id.0))
+    }
+
+    fn version_from_ms(ms: i64) -> u64 {
+        u64::try_from(ms).unwrap_or(0).max(1)
+    }
+
+    fn materialization_id(ms: i64) -> String {
+        ms.to_string()
+    }
+
+    fn metadata_from_materialization(
+        materialization: &ObjectSetMaterialization,
+    ) -> ObjectSetMaterializationMetadata {
+        ObjectSetMaterializationMetadata {
+            tenant: materialization.tenant.clone(),
+            set_id: materialization.set_id.clone(),
+            base_type_id: materialization.base_type_id.clone(),
+            materialization_id: Self::materialization_id(materialization.generated_at_ms),
+            generated_at_ms: materialization.generated_at_ms,
+            total_base_matches: materialization.total_base_matches,
+            total_rows: materialization.total_rows,
+            stored_row_count: materialization.rows.len() as u64,
+            traversal_neighbor_count: materialization.traversal_neighbor_count,
+        }
+    }
+
+    fn metadata_doc(metadata: &ObjectSetMaterializationMetadata) -> IndexDoc {
+        IndexDoc {
+            tenant: metadata.tenant.clone(),
+            id: Self::metadata_doc_id(&metadata.set_id),
+            type_id: TypeId(OBJECT_SET_META_TYPE.to_string()),
+            payload: serde_json::json!({
+                "kind": "object_set_materialization_metadata",
+                "object_set_id": metadata.set_id.0,
+                "base_type_id": metadata.base_type_id.0,
+                "materialization_id": metadata.materialization_id,
+                "generated_at_ms": metadata.generated_at_ms,
+                "total_base_matches": metadata.total_base_matches,
+                "total_rows": metadata.total_rows,
+                "stored_row_count": metadata.stored_row_count,
+                "traversal_neighbor_count": metadata.traversal_neighbor_count,
+            }),
+            version: Self::version_from_ms(metadata.generated_at_ms),
+            embedding: None,
+        }
+    }
+
+    fn row_doc(
+        materialization: &ObjectSetMaterialization,
+        row: &ObjectSetMaterializedRow,
+    ) -> IndexDoc {
+        IndexDoc {
+            tenant: materialization.tenant.clone(),
+            id: Self::row_doc_id(&materialization.set_id, row.ordinal as u64),
+            type_id: TypeId(OBJECT_SET_ROW_TYPE.to_string()),
+            payload: serde_json::json!({
+                "kind": "object_set_materialization_row",
+                "object_set_id": materialization.set_id.0,
+                "base_type_id": materialization.base_type_id.0,
+                "materialization_id": Self::materialization_id(materialization.generated_at_ms),
+                "generated_at_ms": materialization.generated_at_ms,
+                "row_id": row.row_id,
+                "ordinal": row.ordinal,
+                "row": row.payload,
+            }),
+            version: Self::version_from_ms(materialization.generated_at_ms),
+            embedding: None,
+        }
+    }
+
+    fn u64_field(payload: &serde_json::Value, field: &str) -> RepoResult<u64> {
+        payload
+            .get(field)
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| RepoError::Backend(format!("missing {field} in object set metadata")))
+    }
+
+    fn i64_field(payload: &serde_json::Value, field: &str) -> RepoResult<i64> {
+        payload
+            .get(field)
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| RepoError::Backend(format!("missing {field} in object set metadata")))
+    }
+
+    fn string_field(payload: &serde_json::Value, field: &str) -> RepoResult<String> {
+        payload
+            .get(field)
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| RepoError::Backend(format!("missing {field} in object set metadata")))
+    }
+
+    fn metadata_from_payload(
+        tenant: &TenantId,
+        payload: &serde_json::Value,
+    ) -> RepoResult<ObjectSetMaterializationMetadata> {
+        Ok(ObjectSetMaterializationMetadata {
+            tenant: tenant.clone(),
+            set_id: ObjectSetId(Self::string_field(payload, "object_set_id")?),
+            base_type_id: TypeId(Self::string_field(payload, "base_type_id")?),
+            materialization_id: Self::string_field(payload, "materialization_id")?,
+            generated_at_ms: Self::i64_field(payload, "generated_at_ms")?,
+            total_base_matches: Self::u64_field(payload, "total_base_matches")?,
+            total_rows: Self::u64_field(payload, "total_rows")?,
+            stored_row_count: Self::u64_field(payload, "stored_row_count")?,
+            traversal_neighbor_count: Self::u64_field(payload, "traversal_neighbor_count")?,
+        })
+    }
+
+    fn row_from_payload(payload: &serde_json::Value) -> RepoResult<ObjectSetMaterializedRow> {
+        let ordinal = Self::u64_field(payload, "ordinal")?;
+        let ordinal = u32::try_from(ordinal).map_err(|_| {
+            RepoError::Backend("object set materialized row ordinal overflows u32".to_string())
+        })?;
+        Ok(ObjectSetMaterializedRow {
+            row_id: Self::string_field(payload, "row_id")?,
+            ordinal,
+            payload: payload
+                .get("row")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        })
+    }
+}
+
+#[async_trait]
+impl ObjectSetMaterializationStore for SearchBackedObjectSetMaterializationStore {
+    async fn replace(
+        &self,
+        materialization: ObjectSetMaterialization,
+    ) -> RepoResult<ObjectSetMaterializationMetadata> {
+        let previous = self
+            .get_metadata(
+                &materialization.tenant,
+                &materialization.set_id,
+                ReadConsistency::Eventual,
+            )
+            .await?;
+        let metadata = Self::metadata_from_materialization(&materialization);
+
+        let rows = materialization
+            .rows
+            .iter()
+            .map(|row| Self::row_doc(&materialization, row))
+            .collect();
+        let outcome = self.search.bulk_index(rows).await?;
+        if !outcome.failed.is_empty() {
+            let failed = outcome
+                .failed
+                .into_iter()
+                .map(|(id, error)| format!("{}: {error}", id.0))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(RepoError::Backend(format!(
+                "failed to index object set materialization rows: {failed}"
+            )));
+        }
+
+        self.search
+            .index(Self::metadata_doc(&metadata))
+            .await
+            .map_err(|error| RepoError::Backend(error.to_string()))?;
+
+        if let Some(previous) = previous {
+            for ordinal in metadata.stored_row_count..previous.stored_row_count {
+                let _ = self
+                    .search
+                    .delete(
+                        &materialization.tenant,
+                        &Self::row_doc_id(&metadata.set_id, ordinal),
+                    )
+                    .await;
+            }
+        }
+
+        Ok(metadata)
+    }
+
+    async fn get_metadata(
+        &self,
+        tenant: &TenantId,
+        set_id: &ObjectSetId,
+        consistency: ReadConsistency,
+    ) -> RepoResult<Option<ObjectSetMaterializationMetadata>> {
+        let mut filters = HashMap::new();
+        filters.insert("object_set_id".to_string(), set_id.0.clone());
+        let result = self
+            .search
+            .search(
+                SearchQuery {
+                    tenant: tenant.clone(),
+                    type_id: Some(TypeId(OBJECT_SET_META_TYPE.to_string())),
+                    q: None,
+                    filters,
+                    page: Page {
+                        size: 1,
+                        token: None,
+                    },
+                },
+                consistency,
+            )
+            .await?;
+
+        result
+            .items
+            .into_iter()
+            .next()
+            .and_then(|hit| hit.snippet)
+            .map(|payload| Self::metadata_from_payload(tenant, &payload))
+            .transpose()
+    }
+
+    async fn list_rows(
+        &self,
+        tenant: &TenantId,
+        set_id: &ObjectSetId,
+        page: Page,
+        consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<ObjectSetMaterializedRow>> {
+        let Some(metadata) = self.get_metadata(tenant, set_id, consistency).await? else {
+            return Ok(PagedResult {
+                items: Vec::new(),
+                next_token: None,
+            });
+        };
+
+        let mut filters = HashMap::new();
+        filters.insert("object_set_id".to_string(), set_id.0.clone());
+        filters.insert(
+            "materialization_id".to_string(),
+            metadata.materialization_id.clone(),
+        );
+        let result = self
+            .search
+            .search(
+                SearchQuery {
+                    tenant: tenant.clone(),
+                    type_id: Some(TypeId(OBJECT_SET_ROW_TYPE.to_string())),
+                    q: None,
+                    filters,
+                    page,
+                },
+                consistency,
+            )
+            .await?;
+
+        let mut items = result
+            .items
+            .into_iter()
+            .filter_map(|hit| hit.snippet)
+            .map(|payload| Self::row_from_payload(&payload))
+            .collect::<RepoResult<Vec<_>>>()?;
+        items.sort_by_key(|row| row.ordinal);
+        Ok(PagedResult {
+            items,
+            next_token: result.next_token,
+        })
+    }
+
+    async fn delete(&self, tenant: &TenantId, set_id: &ObjectSetId) -> RepoResult<bool> {
+        let previous = self
+            .get_metadata(tenant, set_id, ReadConsistency::Eventual)
+            .await?;
+        let mut deleted = self
+            .search
+            .delete(tenant, &Self::metadata_doc_id(set_id))
+            .await?;
+
+        if let Some(previous) = previous {
+            for ordinal in 0..previous.stored_row_count {
+                deleted |= self
+                    .search
+                    .delete(tenant, &Self::row_doc_id(set_id, ordinal))
+                    .await?;
+            }
+        }
+
+        Ok(deleted)
     }
 }
 
@@ -941,10 +1584,18 @@ pub mod noop {
     impl ActionLogStore for InMemoryActionLogStore {
         async fn append(&self, entry: ActionLogEntry) -> RepoResult<()> {
             let mut rows = self.rows.lock().unwrap();
-            if !rows
-                .iter()
-                .any(|e| e.tenant == entry.tenant && e.action_id == entry.action_id)
-            {
+            let event_id = entry
+                .event_id
+                .clone()
+                .unwrap_or_else(|| entry.action_id.clone());
+            if !rows.iter().any(|e| {
+                e.tenant == entry.tenant
+                    && e.event_id
+                        .as_ref()
+                        .map(String::as_str)
+                        .unwrap_or(e.action_id.as_str())
+                        == event_id
+            }) {
                 rows.push(entry);
             }
             Ok(())
@@ -989,6 +1640,297 @@ pub mod noop {
                 items,
                 next_token: None,
             })
+        }
+
+        async fn list_for_action(
+            &self,
+            tenant: &TenantId,
+            action_id: &str,
+            page: Page,
+            _consistency: ReadConsistency,
+        ) -> RepoResult<PagedResult<ActionLogEntry>> {
+            let rows = self.rows.lock().unwrap();
+            let mut items: Vec<ActionLogEntry> = rows
+                .iter()
+                .filter(|e| &e.tenant == tenant && e.action_id == action_id)
+                .cloned()
+                .collect();
+            items.sort_by(|a, b| b.recorded_at_ms.cmp(&a.recorded_at_ms));
+            items.truncate(page.size.max(1) as usize);
+            Ok(PagedResult {
+                items,
+                next_token: None,
+            })
+        }
+    }
+
+    /// In-memory [`DefinitionStore`].
+    #[derive(Default)]
+    pub struct InMemoryDefinitionStore {
+        rows: Mutex<HashMap<(DefinitionKind, DefinitionId), DefinitionRecord>>,
+    }
+
+    impl InMemoryDefinitionStore {
+        fn matches_query(record: &DefinitionRecord, query: &DefinitionQuery) -> bool {
+            if record.kind != query.kind {
+                return false;
+            }
+            if query
+                .tenant
+                .as_ref()
+                .is_some_and(|tenant| record.tenant.as_ref() != Some(tenant))
+            {
+                return false;
+            }
+            if query
+                .owner_id
+                .as_ref()
+                .is_some_and(|owner_id| record.owner_id.as_ref() != Some(owner_id))
+            {
+                return false;
+            }
+            if query
+                .parent_id
+                .as_ref()
+                .is_some_and(|parent_id| record.parent_id.as_ref() != Some(parent_id))
+            {
+                return false;
+            }
+            if query.filters.iter().any(|(field, expected)| {
+                record
+                    .payload
+                    .get(field)
+                    .and_then(serde_json::Value::as_str)
+                    != Some(expected.as_str())
+            }) {
+                return false;
+            }
+            if let Some(search) = query.search.as_deref() {
+                let needle = search.trim().to_lowercase();
+                if !needle.is_empty()
+                    && !record.payload.to_string().to_lowercase().contains(&needle)
+                {
+                    return false;
+                }
+            }
+            true
+        }
+    }
+
+    #[async_trait]
+    impl DefinitionStore for InMemoryDefinitionStore {
+        async fn get(
+            &self,
+            kind: &DefinitionKind,
+            id: &DefinitionId,
+            _consistency: ReadConsistency,
+        ) -> RepoResult<Option<DefinitionRecord>> {
+            Ok(self
+                .rows
+                .lock()
+                .unwrap()
+                .get(&(kind.clone(), id.clone()))
+                .cloned())
+        }
+
+        async fn list(
+            &self,
+            query: DefinitionQuery,
+            _consistency: ReadConsistency,
+        ) -> RepoResult<PagedResult<DefinitionRecord>> {
+            let offset = match query.page.token.as_deref() {
+                Some(token) => token.parse::<usize>().map_err(|_| {
+                    RepoError::InvalidArgument("definition page token is invalid".to_string())
+                })?,
+                None => 0,
+            };
+            let limit = query.page.size.max(1) as usize;
+            let rows = self.rows.lock().unwrap();
+            let mut items = rows
+                .values()
+                .filter(|record| Self::matches_query(record, &query))
+                .cloned()
+                .collect::<Vec<_>>();
+            items.sort_by(|left, right| {
+                right
+                    .updated_at_ms
+                    .cmp(&left.updated_at_ms)
+                    .then_with(|| left.id.0.cmp(&right.id.0))
+            });
+            let total = items.len();
+            let items = items
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .collect::<Vec<_>>();
+            Ok(PagedResult {
+                items,
+                next_token: (offset + limit < total).then(|| (offset + limit).to_string()),
+            })
+        }
+
+        async fn put(
+            &self,
+            mut record: DefinitionRecord,
+            expected_version: Option<u64>,
+        ) -> RepoResult<PutOutcome> {
+            let mut rows = self.rows.lock().unwrap();
+            let key = (record.kind.clone(), record.id.clone());
+            let previous = rows.get(&key).cloned();
+            match previous {
+                None => {
+                    if let Some(expected) = expected_version {
+                        if expected != 0 {
+                            return Ok(PutOutcome::VersionConflict {
+                                expected_version: expected,
+                                actual_version: 0,
+                            });
+                        }
+                    }
+                    record.version = Some(record.version.unwrap_or(1).max(1));
+                    rows.insert(key, record);
+                    Ok(PutOutcome::Inserted)
+                }
+                Some(existing) => {
+                    let actual_version = existing.version.unwrap_or(0);
+                    if let Some(expected) = expected_version {
+                        if expected != actual_version {
+                            return Ok(PutOutcome::VersionConflict {
+                                expected_version: expected,
+                                actual_version,
+                            });
+                        }
+                    }
+                    let new_version = record.version.unwrap_or(actual_version + 1);
+                    record.version = Some(new_version.max(actual_version + 1));
+                    rows.insert(key, record);
+                    Ok(PutOutcome::Updated {
+                        previous_version: actual_version,
+                        new_version: new_version.max(actual_version + 1),
+                    })
+                }
+            }
+        }
+
+        async fn delete(&self, kind: &DefinitionKind, id: &DefinitionId) -> RepoResult<bool> {
+            Ok(self
+                .rows
+                .lock()
+                .unwrap()
+                .remove(&(kind.clone(), id.clone()))
+                .is_some())
+        }
+    }
+
+    /// In-memory [`ReadModelStore`].
+    #[derive(Default)]
+    pub struct InMemoryReadModelStore {
+        rows: Mutex<HashMap<(ReadModelKind, TenantId, ReadModelId), ReadModelRecord>>,
+    }
+
+    impl InMemoryReadModelStore {
+        fn matches_query(record: &ReadModelRecord, query: &ReadModelQuery) -> bool {
+            if record.kind != query.kind || record.tenant != query.tenant {
+                return false;
+            }
+            if query
+                .parent_id
+                .as_ref()
+                .is_some_and(|parent_id| record.parent_id.as_ref() != Some(parent_id))
+            {
+                return false;
+            }
+            !query.filters.iter().any(|(field, expected)| {
+                record
+                    .payload
+                    .get(field)
+                    .and_then(serde_json::Value::as_str)
+                    != Some(expected.as_str())
+            })
+        }
+    }
+
+    #[async_trait]
+    impl ReadModelStore for InMemoryReadModelStore {
+        async fn get(
+            &self,
+            kind: &ReadModelKind,
+            tenant: &TenantId,
+            id: &ReadModelId,
+            _consistency: ReadConsistency,
+        ) -> RepoResult<Option<ReadModelRecord>> {
+            Ok(self
+                .rows
+                .lock()
+                .unwrap()
+                .get(&(kind.clone(), tenant.clone(), id.clone()))
+                .cloned())
+        }
+
+        async fn list(
+            &self,
+            query: ReadModelQuery,
+            _consistency: ReadConsistency,
+        ) -> RepoResult<PagedResult<ReadModelRecord>> {
+            let rows = self.rows.lock().unwrap();
+            let mut items = rows
+                .values()
+                .filter(|record| Self::matches_query(record, &query))
+                .cloned()
+                .collect::<Vec<_>>();
+            items.sort_by(|left, right| {
+                right
+                    .updated_at_ms
+                    .cmp(&left.updated_at_ms)
+                    .then_with(|| left.id.0.cmp(&right.id.0))
+            });
+            items.truncate(query.page.size.max(1) as usize);
+            Ok(PagedResult {
+                items,
+                next_token: None,
+            })
+        }
+
+        async fn put(&self, record: ReadModelRecord) -> RepoResult<PutOutcome> {
+            let mut rows = self.rows.lock().unwrap();
+            let key = (
+                record.kind.clone(),
+                record.tenant.clone(),
+                record.id.clone(),
+            );
+            match rows.get(&key).cloned() {
+                None => {
+                    rows.insert(key, record);
+                    Ok(PutOutcome::Inserted)
+                }
+                Some(existing) if existing.version > record.version => {
+                    Ok(PutOutcome::VersionConflict {
+                        expected_version: record.version,
+                        actual_version: existing.version,
+                    })
+                }
+                Some(existing) => {
+                    rows.insert(key, record.clone());
+                    Ok(PutOutcome::Updated {
+                        previous_version: existing.version,
+                        new_version: record.version,
+                    })
+                }
+            }
+        }
+
+        async fn delete(
+            &self,
+            kind: &ReadModelKind,
+            tenant: &TenantId,
+            id: &ReadModelId,
+        ) -> RepoResult<bool> {
+            Ok(self
+                .rows
+                .lock()
+                .unwrap()
+                .remove(&(kind.clone(), tenant.clone(), id.clone()))
+                .is_some())
         }
     }
 
@@ -1128,6 +2070,8 @@ mod tests {
             type_id: TypeId(type_id.into()),
             version,
             payload: serde_json::json!({"hello": "world"}),
+            organization_id: None,
+            created_at_ms: Some(0),
             updated_at_ms: 0,
             owner: None,
             markings: Vec::new(),
@@ -1160,6 +2104,60 @@ mod tests {
                 actual_version: 2
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn action_log_store_dedupes_and_reads_by_action_and_object() {
+        let s = InMemoryActionLogStore::default();
+        let tenant = TenantId("tenant-a".into());
+        let object = ObjectId("object-a".into());
+        let entry = ActionLogEntry {
+            tenant: tenant.clone(),
+            event_id: Some("event-1".into()),
+            action_id: "action-a".into(),
+            kind: "action_attempt".into(),
+            subject: "user-a".into(),
+            object: Some(object.clone()),
+            payload: serde_json::json!({ "attempt": 1 }),
+            recorded_at_ms: 10,
+        };
+        s.append(entry.clone()).await.unwrap();
+        s.append(ActionLogEntry {
+            payload: serde_json::json!({ "attempt": 99 }),
+            recorded_at_ms: 20,
+            ..entry
+        })
+        .await
+        .unwrap();
+
+        let by_action = s
+            .list_for_action(
+                &tenant,
+                "action-a",
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .unwrap();
+        assert_eq!(by_action.items.len(), 1);
+        assert_eq!(by_action.items[0].payload["attempt"], 1);
+
+        let by_object = s
+            .list_for_object(
+                &tenant,
+                &object,
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Eventual,
+            )
+            .await
+            .unwrap();
+        assert_eq!(by_object.items.len(), 1);
     }
 
     #[tokio::test]
@@ -1209,6 +2207,92 @@ mod tests {
             .unwrap();
         assert_eq!(hits.items.len(), 1);
         assert_eq!(hits.items[0].snippet, Some(serde_json::json!({"v": 2})));
+    }
+
+    #[tokio::test]
+    async fn object_set_materialization_store_replaces_and_deletes_rows() {
+        let search: Arc<dyn SearchBackend> = Arc::new(InMemorySearchBackend::default());
+        let store = SearchBackedObjectSetMaterializationStore::new(search);
+        let tenant = TenantId("tenant-a".into());
+        let set_id = ObjectSetId("set-1".into());
+        let base_type_id = TypeId("aircraft".into());
+
+        let first = ObjectSetMaterialization {
+            tenant: tenant.clone(),
+            set_id: set_id.clone(),
+            base_type_id: base_type_id.clone(),
+            generated_at_ms: 100,
+            total_base_matches: 2,
+            total_rows: 2,
+            traversal_neighbor_count: 0,
+            rows: vec![
+                ObjectSetMaterializedRow {
+                    row_id: "a".into(),
+                    ordinal: 0,
+                    payload: serde_json::json!({"id": "a"}),
+                },
+                ObjectSetMaterializedRow {
+                    row_id: "b".into(),
+                    ordinal: 1,
+                    payload: serde_json::json!({"id": "b"}),
+                },
+            ],
+        };
+        let metadata = store.replace(first).await.unwrap();
+        assert_eq!(metadata.stored_row_count, 2);
+
+        let rows = store
+            .list_rows(
+                &tenant,
+                &set_id,
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Eventual,
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.items.len(), 2);
+
+        let second = ObjectSetMaterialization {
+            tenant: tenant.clone(),
+            set_id: set_id.clone(),
+            base_type_id,
+            generated_at_ms: 200,
+            total_base_matches: 1,
+            total_rows: 1,
+            traversal_neighbor_count: 0,
+            rows: vec![ObjectSetMaterializedRow {
+                row_id: "c".into(),
+                ordinal: 0,
+                payload: serde_json::json!({"id": "c"}),
+            }],
+        };
+        let metadata = store.replace(second).await.unwrap();
+        assert_eq!(metadata.stored_row_count, 1);
+
+        let rows = store
+            .list_rows(
+                &tenant,
+                &set_id,
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Eventual,
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.items.len(), 1);
+        assert_eq!(rows.items[0].row_id, "c");
+
+        assert!(store.delete(&tenant, &set_id).await.unwrap());
+        let metadata = store
+            .get_metadata(&tenant, &set_id, ReadConsistency::Eventual)
+            .await
+            .unwrap();
+        assert!(metadata.is_none());
     }
 
     #[tokio::test]
@@ -1269,5 +2353,99 @@ mod tests {
             .await
             .unwrap();
         assert!(other.items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn definition_store_filters_and_versions_records() {
+        let s = InMemoryDefinitionStore::default();
+        let kind = DefinitionKind("action_type".into());
+        let id = DefinitionId("act-1".into());
+        let record = DefinitionRecord {
+            kind: kind.clone(),
+            id: id.clone(),
+            tenant: None,
+            owner_id: Some("owner-a".into()),
+            parent_id: Some(DefinitionId("type-a".into())),
+            version: None,
+            payload: serde_json::json!({"name": "Approve Case"}),
+            created_at_ms: Some(100),
+            updated_at_ms: Some(100),
+        };
+
+        assert_eq!(
+            s.put(record.clone(), None).await.unwrap(),
+            PutOutcome::Inserted
+        );
+        let loaded = s
+            .get(&kind, &id, ReadConsistency::Eventual)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.version, Some(1));
+
+        let result = s
+            .list(
+                DefinitionQuery {
+                    kind,
+                    tenant: None,
+                    owner_id: Some("owner-a".into()),
+                    parent_id: Some(DefinitionId("type-a".into())),
+                    filters: HashMap::new(),
+                    search: Some("approve".into()),
+                    page: Page {
+                        size: 10,
+                        token: None,
+                    },
+                },
+                ReadConsistency::Eventual,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn read_model_store_discards_stale_versions() {
+        let s = InMemoryReadModelStore::default();
+        let kind = ReadModelKind("function_run".into());
+        let tenant = TenantId("tenant-a".into());
+        let id = ReadModelId("run-1".into());
+        let make_record = |version| ReadModelRecord {
+            kind: kind.clone(),
+            tenant: tenant.clone(),
+            id: id.clone(),
+            parent_id: Some(ReadModelId("package-1".into())),
+            payload: serde_json::json!({"status": "success"}),
+            version,
+            updated_at_ms: version as i64,
+        };
+
+        assert_eq!(s.put(make_record(2)).await.unwrap(), PutOutcome::Inserted);
+        assert!(matches!(
+            s.put(make_record(1)).await.unwrap(),
+            PutOutcome::VersionConflict {
+                expected_version: 1,
+                actual_version: 2
+            }
+        ));
+
+        let result = s
+            .list(
+                ReadModelQuery {
+                    kind,
+                    tenant,
+                    parent_id: Some(ReadModelId("package-1".into())),
+                    filters: HashMap::new(),
+                    page: Page {
+                        size: 10,
+                        token: None,
+                    },
+                },
+                ReadConsistency::Eventual,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].version, 2);
     }
 }

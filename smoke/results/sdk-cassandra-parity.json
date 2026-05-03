@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-05-03T10:57:13Z",
+  "endpoint": "",
+  "tenant": "",
+  "object": "",
+  "type": "",
+  "action": "",
+  "command": "OPENFOUNDRY_BASE_URL=$OPENFOUNDRY_BASE_URL OPENFOUNDRY_TOKEN=*** OPENFOUNDRY_TENANT=$OPENFOUNDRY_TENANT OPENFOUNDRY_OBJECT_ID=$OPENFOUNDRY_OBJECT_ID OPENFOUNDRY_TYPE_ID=$OPENFOUNDRY_TYPE_ID OPENFOUNDRY_ACTION_ID=$OPENFOUNDRY_ACTION_ID smoke/scripts/sdk_cassandra_parity.sh",
+  "status": "fail",
+  "pass": false,
+  "checks": [
+    {
+      "client": "harness",
+      "name": "preflight",
+      "pass": false,
+      "reason": "missing required environment variables",
+      "missing": [
+        "OPENFOUNDRY_BASE_URL",
+        "OPENFOUNDRY_TOKEN",
+        "OPENFOUNDRY_TENANT",
+        "OPENFOUNDRY_OBJECT_ID",
+        "OPENFOUNDRY_TYPE_ID",
+        "OPENFOUNDRY_ACTION_ID"
+      ]
+    }
+  ],
+  "clients": {}
+}

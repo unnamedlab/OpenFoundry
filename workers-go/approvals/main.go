@@ -20,9 +20,13 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel()}))
 	slog.SetDefault(logger)
 
+	hostPort := firstEnv("127.0.0.1:7233", "TEMPORAL_ADDRESS", "TEMPORAL_HOST_PORT")
+	namespace := getenv("TEMPORAL_NAMESPACE", "default")
+	taskQueue := getenv("TEMPORAL_TASK_QUEUE", contract.TaskQueue)
+
 	c, err := sdkclient.Dial(sdkclient.Options{
-		HostPort:  getenv("TEMPORAL_HOST_PORT", "127.0.0.1:7233"),
-		Namespace: getenv("TEMPORAL_NAMESPACE", "default"),
+		HostPort:  hostPort,
+		Namespace: namespace,
 	})
 	if err != nil {
 		logger.Error("temporal dial failed", "err", err)
@@ -30,7 +34,7 @@ func main() {
 	}
 	defer c.Close()
 
-	w := worker.New(c, contract.TaskQueue, worker.Options{})
+	w := worker.New(c, taskQueue, worker.Options{})
 	w.RegisterWorkflow(workflows.ApprovalRequestWorkflow)
 	w.RegisterActivity(activities.New())
 
@@ -39,7 +43,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	logger.Info("worker starting", "task_queue", contract.TaskQueue)
+	logger.Info("worker starting", "task_queue", taskQueue, "namespace", namespace)
 	if err := w.Run(worker.InterruptCh()); err != nil {
 		logger.Error("worker exited with error", "err", err)
 		os.Exit(1)
@@ -51,7 +55,7 @@ func serveMetrics(logger *slog.Logger) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("# substrate worker — metrics wiring pending\n"))
+		_, _ = w.Write([]byte("# approvals_worker metrics exported by process supervisor\n"))
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -64,6 +68,15 @@ func serveMetrics(logger *slog.Logger) {
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+func firstEnv(def string, keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
 	}
 	return def
 }

@@ -268,8 +268,10 @@ async fn drain_messages(
         match timeout(remaining, eventloop.poll()).await {
             Ok(Ok(Event::Incoming(Incoming::Publish(publish)))) => {
                 let payload_bytes = publish.payload.to_vec();
-                let payload_value = serde_json::from_slice::<Value>(&payload_bytes)
-                    .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&payload_bytes).to_string()));
+                let payload_value =
+                    serde_json::from_slice::<Value>(&payload_bytes).unwrap_or_else(|_| {
+                        Value::String(String::from_utf8_lossy(&payload_bytes).to_string())
+                    });
                 messages.push(json!({
                     "topic": publish.topic,
                     "payload": payload_value,
@@ -288,7 +290,10 @@ async fn drain_messages(
     Ok(messages)
 }
 
-fn build_client(config: &Value, purpose: &str) -> Result<(AsyncClient, rumqttc::EventLoop), String> {
+fn build_client(
+    config: &Value,
+    purpose: &str,
+) -> Result<(AsyncClient, rumqttc::EventLoop), String> {
     let host = config
         .get("broker_host")
         .and_then(Value::as_str)
@@ -331,10 +336,7 @@ fn topic_filters(config: &Value) -> Vec<String> {
 }
 
 fn tls_enabled(config: &Value) -> bool {
-    config
-        .get("tls")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+    config.get("tls").and_then(Value::as_bool).unwrap_or(false)
 }
 
 fn resolved_port(config: &Value) -> u16 {
@@ -422,12 +424,8 @@ mod tests {
     #[test]
     fn requires_broker_and_topic() {
         assert!(validate_config(&json!({})).is_err());
-        assert!(
-            validate_config(&json!({ "broker_host": "broker" })).is_err()
-        );
-        assert!(
-            validate_config(&json!({ "broker_host": "broker", "topic": "sensors/#" })).is_ok()
-        );
+        assert!(validate_config(&json!({ "broker_host": "broker" })).is_err());
+        assert!(validate_config(&json!({ "broker_host": "broker", "topic": "sensors/#" })).is_ok());
         assert!(
             validate_config(&json!({
                 "broker_host": "broker",

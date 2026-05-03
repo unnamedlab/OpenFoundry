@@ -4,6 +4,7 @@ pub mod branch;
 #[allow(dead_code)]
 #[path = "../../../data-asset-catalog-service/src/models/dataset.rs"]
 pub mod dataset;
+pub mod health;
 pub mod lint;
 pub mod quality;
 #[allow(dead_code)]

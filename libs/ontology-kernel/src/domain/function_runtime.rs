@@ -4,7 +4,7 @@ use auth_middleware::{
     claims::Claims,
     jwt::{build_access_claims, encode_token},
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use pyo3::{prelude::*, types::PyDict};
 use semver::Version;
 use serde::Deserialize;
@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     domain::access::ensure_object_access,
+    domain::read_models::{list_accessible_objects_by_type, load_object_instance_from_read_model},
     handlers::objects::ObjectInstance,
     models::{
         action_type::ActionType,
@@ -22,6 +23,7 @@ use crate::{
             FunctionCapabilities, FunctionPackage, FunctionPackageRow, FunctionPackageSummary,
             parse_function_package_version,
         },
+        link_type::LinkType,
     },
 };
 
@@ -87,22 +89,6 @@ struct VersionedFunctionPackageReferenceConfig {
     function_package_version: String,
     #[serde(default)]
     function_package_auto_upgrade: bool,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct LinkedObjectRow {
-    link_id: Uuid,
-    link_type_id: Uuid,
-    link_name: String,
-    neighbor_id: Uuid,
-    neighbor_object_type_id: Uuid,
-    neighbor_properties: Value,
-    neighbor_created_by: Uuid,
-    neighbor_created_at: DateTime<Utc>,
-    neighbor_updated_at: DateTime<Utc>,
-    neighbor_organization_id: Option<Uuid>,
-    neighbor_marking: String,
-    direction: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1292,22 +1278,7 @@ pub async fn load_accessible_object_set(
     claims: &Claims,
     object_type_id: Uuid,
 ) -> Result<Vec<Value>, String> {
-    let objects = sqlx::query_as::<_, ObjectInstance>(
-        r#"SELECT id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at
-           FROM object_instances
-           WHERE object_type_id = $1
-           ORDER BY created_at ASC"#,
-    )
-    .bind(object_type_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| error.to_string())?;
-
-    Ok(objects
-        .into_iter()
-        .filter(|object| ensure_object_access(claims, object).is_ok())
-        .map(object_to_json)
-        .collect())
+    list_accessible_objects_by_type(state, claims, object_type_id, 5_000).await
 }
 
 pub async fn load_linked_objects(
@@ -1315,54 +1286,88 @@ pub async fn load_linked_objects(
     claims: &Claims,
     object_id: Uuid,
 ) -> Result<Vec<Value>, String> {
-    let rows = sqlx::query_as::<_, LinkedObjectRow>(
-        r#"SELECT li.id AS link_id,
-                  li.link_type_id,
-                  lt.name AS link_name,
-                  CASE WHEN li.source_object_id = $1 THEN target.id ELSE source.id END AS neighbor_id,
-                  CASE WHEN li.source_object_id = $1 THEN target.object_type_id ELSE source.object_type_id END AS neighbor_object_type_id,
-                  CASE WHEN li.source_object_id = $1 THEN target.properties ELSE source.properties END AS neighbor_properties,
-                  CASE WHEN li.source_object_id = $1 THEN target.created_by ELSE source.created_by END AS neighbor_created_by,
-                  CASE WHEN li.source_object_id = $1 THEN target.created_at ELSE source.created_at END AS neighbor_created_at,
-                  CASE WHEN li.source_object_id = $1 THEN target.updated_at ELSE source.updated_at END AS neighbor_updated_at,
-                  CASE WHEN li.source_object_id = $1 THEN target.organization_id ELSE source.organization_id END AS neighbor_organization_id,
-                  CASE WHEN li.source_object_id = $1 THEN target.marking ELSE source.marking END AS neighbor_marking,
-                  CASE WHEN li.source_object_id = $1 THEN 'outbound' ELSE 'inbound' END AS direction
-           FROM link_instances li
-           INNER JOIN link_types lt ON lt.id = li.link_type_id
-           INNER JOIN object_instances source ON source.id = li.source_object_id
-           INNER JOIN object_instances target ON target.id = li.target_object_id
-           WHERE li.source_object_id = $1 OR li.target_object_id = $1
-           ORDER BY li.created_at ASC"#,
-    )
-    .bind(object_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let tenant = crate::domain::read_models::tenant_from_claims(claims);
+    let object_key = storage_abstraction::repositories::ObjectId(object_id.to_string());
+    let link_types =
+        sqlx::query_as::<_, LinkType>("SELECT * FROM link_types ORDER BY created_at ASC")
+            .fetch_all(&state.db)
+            .await
+            .map_err(|error| format!("failed to load link type metadata: {error}"))?;
 
     let mut linked = Vec::new();
-    for row in rows {
-        let neighbor = ObjectInstance {
-            id: row.neighbor_id,
-            object_type_id: row.neighbor_object_type_id,
-            properties: row.neighbor_properties.clone(),
-            created_by: row.neighbor_created_by,
-            organization_id: row.neighbor_organization_id,
-            marking: row.neighbor_marking.clone(),
-            created_at: row.neighbor_created_at,
-            updated_at: row.neighbor_updated_at,
-        };
-        if ensure_object_access(claims, &neighbor).is_err() {
-            continue;
+    for link_type in link_types {
+        let outgoing = state
+            .stores
+            .links
+            .list_outgoing(
+                &tenant,
+                &storage_abstraction::repositories::LinkTypeId(link_type.id.to_string()),
+                &object_key,
+                storage_abstraction::repositories::Page {
+                    size: 256,
+                    token: None,
+                },
+                storage_abstraction::repositories::ReadConsistency::Eventual,
+            )
+            .await
+            .map_err(|error| format!("failed to load outgoing links: {error}"))?;
+        for link in outgoing.items {
+            let neighbor_id = match Uuid::parse_str(&link.to.0) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let Some(neighbor) =
+                load_object_instance_from_read_model(state, claims, neighbor_id, None).await?
+            else {
+                continue;
+            };
+            if ensure_object_access(claims, &neighbor).is_err() {
+                continue;
+            }
+            linked.push(json!({
+                "direction": "outbound",
+                "link_id": format!("{}:{}:{}", link_type.id, object_id, neighbor_id),
+                "link_type_id": link_type.id,
+                "link_name": link_type.name,
+                "object": object_to_json(neighbor),
+            }));
         }
-
-        linked.push(json!({
-            "direction": row.direction,
-            "link_id": row.link_id,
-            "link_type_id": row.link_type_id,
-            "link_name": row.link_name,
-            "object": object_to_json(neighbor),
-        }));
+        let incoming = state
+            .stores
+            .links
+            .list_incoming(
+                &tenant,
+                &storage_abstraction::repositories::LinkTypeId(link_type.id.to_string()),
+                &object_key,
+                storage_abstraction::repositories::Page {
+                    size: 256,
+                    token: None,
+                },
+                storage_abstraction::repositories::ReadConsistency::Eventual,
+            )
+            .await
+            .map_err(|error| format!("failed to load incoming links: {error}"))?;
+        for link in incoming.items {
+            let neighbor_id = match Uuid::parse_str(&link.from.0) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let Some(neighbor) =
+                load_object_instance_from_read_model(state, claims, neighbor_id, None).await?
+            else {
+                continue;
+            };
+            if ensure_object_access(claims, &neighbor).is_err() {
+                continue;
+            }
+            linked.push(json!({
+                "direction": "inbound",
+                "link_id": format!("{}:{}:{}", link_type.id, neighbor_id, object_id),
+                "link_type_id": link_type.id,
+                "link_name": link_type.name,
+                "object": object_to_json(neighbor),
+            }));
+        }
     }
 
     Ok(linked)

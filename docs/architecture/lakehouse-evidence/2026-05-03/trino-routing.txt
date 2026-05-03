@@ -1,0 +1,298 @@
+S5 sql-bi-gateway-service -> Trino routing - 2026-05-03
+Status: BLOCKED - NO REAL sql-bi-gateway-service / Trino RUNTIME AVAILABLE
+
+Requested validation:
+  Execute analytical SELECTs through sql-bi-gateway-service against Trino-backed
+  lakehouse tables:
+    - of_audit.events
+    - of_lineage.{runs,events,datasets_io}
+    - of_ai.{prompts,responses,evaluations,traces}
+    - of_metrics_long.service_metrics_daily
+
+Required proof:
+  - Gateway endpoint used.
+  - SQL submitted through the gateway using the `trino.*` catalog prefix.
+  - Router chooses Backend::Trino.
+  - Remote endpoint is the configured Trino Flight SQL endpoint.
+  - Queries return rows from Lakehouse tables.
+  - Gateway/Trino logs show routing and execution.
+
+## Runtime Attempt
+
+Deployment/service/pod discovery command:
+
+  kubectl get deploy,svc,pods -A
+
+Exit code:
+
+  0
+
+Output summary:
+
+  The cluster has no `sql-bi-gateway-service`, no Trino service/pod and no
+  Lakekeeper service/pod. Only these OpenFoundry deployments are present, all
+  unavailable:
+
+  openfoundry deployment.apps/authorization-policy-service   READY 0/1
+  openfoundry deployment.apps/edge-gateway-service           READY 0/1
+  openfoundry deployment.apps/identity-federation-service    READY 0/1
+  openfoundry deployment.apps/tenancy-organizations-service  READY 0/1
+
+Namespace discovery command:
+
+  kubectl get ns trino lakekeeper observability openfoundry
+
+Exit code:
+
+  1
+
+Output:
+
+  NAME          STATUS   AGE
+  openfoundry   Active   3h59m
+  Error from server (NotFound): namespaces "trino" not found
+  Error from server (NotFound): namespaces "lakekeeper" not found
+  Error from server (NotFound): namespaces "observability" not found
+
+Gateway logs command:
+
+  kubectl -n openfoundry logs deploy/sql-bi-gateway-service --since=30m --all-containers=true
+
+Exit code:
+
+  1
+
+Output:
+
+  Unable to connect to the server: dial tcp 192.168.105.3:6443: connect: operation not permitted
+
+Explanation:
+
+  A full resource listing immediately before this command showed no
+  `sql-bi-gateway-service` deployment in the `openfoundry` namespace, so there
+  are no gateway logs to collect in this environment.
+
+Trino discovery command:
+
+  kubectl -n trino get deploy,svc,pods
+
+Exit code:
+
+  1
+
+Output:
+
+  Unable to connect to the server: dial tcp 192.168.105.3:6443: connect: operation not permitted
+
+Explanation:
+
+  Namespace discovery showed `trino` is absent, so this cannot hide a running
+  Trino deployment.
+
+## Endpoint Configuration Check
+
+Repo search command:
+
+  rg -n "TRINO_FLIGHT_SQL_URL|trino_flight_sql_url|trino-flight-sql-proxy|sql-bi-gateway-service" infra/k8s/helm services/sql-bi-gateway-service docs/architecture
+
+Relevant output:
+
+  services/sql-bi-gateway-service/src/config.rs:55:    pub trino_flight_sql_url: Option<String>,
+  services/sql-bi-gateway-service/src/routing.rs:147:                self.trino_flight_sql_url
+  services/sql-bi-gateway-service/src/routing.rs:262:            Some("http://trino-flight-sql-proxy.trino:50133"),
+  docs/architecture/adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md:56:| `trino.*` | `Backend::Trino` | `trino-flight-sql-proxy.trino:50133`
+  docs/architecture/adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md:85:- `sql-bi-gateway-service` gains an additional optional env var
+  docs/architecture/adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md:86:  `TRINO_FLIGHT_SQL_URL`.
+
+Helm values checked:
+
+  infra/k8s/helm/of-data-engine/values.yaml
+  infra/k8s/helm/of-data-engine/values-prod.yaml
+  infra/k8s/helm/of-data-engine/values-dev.yaml
+
+Finding:
+
+  The current split Helm values configure `DISTRIBUTED_QUERY_WORKERS` and
+  `RUST_LOG` for sql-bi-gateway-service, but do not set `TRINO_FLIGHT_SQL_URL`.
+  Even with the service deployed, `trino.*` statements would return
+  `RoutingError::BackendUnavailable(Backend::Trino)` until that endpoint is
+  configured.
+
+Expected endpoint:
+
+  TRINO_FLIGHT_SQL_URL=http://trino-flight-sql-proxy.trino:50133
+
+## Formal Router Validation
+
+Initial test attempt:
+
+  cargo test -p sql-bi-gateway-service routing::tests::trino_routes_to_configured_endpoint routing::tests::missing_trino_endpoint_is_an_explicit_error routing::tests::backend_all_includes_trino -- --nocapture
+
+Exit code:
+
+  1
+
+Output:
+
+  error: unexpected argument 'routing::tests::missing_trino_endpoint_is_an_explicit_error' found
+
+Follow-up test command:
+
+  cargo test -p sql-bi-gateway-service trino -- --nocapture
+
+Exit code:
+
+  0
+
+Output summary:
+
+  running 3 tests
+  test routing::tests::backend_all_includes_trino ... ok
+  test routing::tests::missing_trino_endpoint_is_an_explicit_error ... ok
+  test routing::tests::trino_routes_to_configured_endpoint ... ok
+
+Important compile fix applied before rerun:
+
+  `services/sql-bi-gateway-service/tests/flight_sql_round_trip.rs` had two
+  `AppConfig` initializers missing `trino_flight_sql_url`. Added
+  `trino_flight_sql_url: None` so the package tests compile with the new config
+  field.
+
+Formal result:
+
+  PASS for pure router behavior only:
+    - `Backend::all()` includes `Backend::Trino`.
+    - `trino.*` routes to `Backend::Trino` when `TRINO_FLIGHT_SQL_URL` is set.
+    - missing Trino endpoint returns an explicit `BackendUnavailable(Trino)`.
+
+This is not runtime S5 evidence because no gateway, Trino endpoint or lakehouse
+data was queried.
+
+## SQL That Must Be Executed Through sql-bi-gateway-service
+
+All SQL must be submitted through the Flight SQL gateway endpoint, not directly
+to Trino. The `trino.*` catalog prefix is required for `Backend::Trino`.
+
+Gateway endpoint to record:
+
+  PASTE REAL sql-bi-gateway-service Flight SQL ENDPOINT HERE
+
+Configured Trino endpoint to record from gateway env:
+
+  kubectl -n <gateway-namespace> exec deploy/sql-bi-gateway-service -- printenv TRINO_FLIGHT_SQL_URL
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### Audit Query
+
+SQL:
+
+  SELECT event_id, at, correlation_id, kind
+  FROM trino.of_audit.events
+  ORDER BY at DESC
+  LIMIT 10;
+
+Expected:
+
+  Returns real audit rows previously validated from `audit.events.v1`.
+
+Result:
+
+  BLOCKED - not executed; no gateway/Trino/runtime lakehouse available.
+
+### Lineage Query
+
+SQL:
+
+  SELECT e.event_id,
+         e.run_id,
+         e.event_time,
+         e.event_type,
+         r.job_namespace,
+         r.job_name
+  FROM trino.of_lineage.events e
+  JOIN trino.of_lineage.runs r ON e.run_id = r.run_id
+  ORDER BY e.event_time DESC
+  LIMIT 10;
+
+Expected:
+
+  Returns real lineage rows previously validated from `lineage.events.v1`.
+
+Result:
+
+  BLOCKED - not executed; no gateway/Trino/runtime lakehouse available.
+
+### AI Query
+
+SQL:
+
+  SELECT event_id, at, kind, run_id, trace_id, producer, schema_version
+  FROM trino.of_ai.responses
+  ORDER BY at DESC
+  LIMIT 10;
+
+Expected:
+
+  Returns real AI rows previously validated from `ai.events.v1`. If the run
+  produced prompts/evaluations/traces instead of responses, execute the same
+  projection against the corresponding `trino.of_ai.<table>`.
+
+Result:
+
+  BLOCKED - not executed; no gateway/Trino/runtime lakehouse available.
+
+### Metrics Long Query
+
+SQL:
+
+  SELECT service, day, p95, p99, n_samples
+  FROM trino.of_metrics_long.v_service_latency_daily
+  WHERE day >= current_date - INTERVAL '14' DAY
+  ORDER BY day DESC, p95 DESC
+  LIMIT 20;
+
+Expected:
+
+  Returns rows materialized by `metrics-aggregation-service-daily`, not live
+  Prometheus/Mimir query results.
+
+Result:
+
+  BLOCKED - not executed; no gateway/Trino/runtime lakehouse available.
+
+## Commands To Close In A Real S5 Environment
+
+1. Verify deployments and endpoint:
+
+  kubectl get deploy,svc,pods -A | grep -E 'sql-bi-gateway-service|trino-flight-sql-proxy|trino|lakekeeper'
+  kubectl -n <gateway-namespace> exec deploy/sql-bi-gateway-service -- printenv TRINO_FLIGHT_SQL_URL
+
+2. Execute the SQL above through a Flight SQL client pointed at
+   sql-bi-gateway-service. Record the exact client command, endpoint, auth
+   principal and result rows.
+
+3. Capture gateway logs:
+
+  kubectl -n <gateway-namespace> logs deploy/sql-bi-gateway-service --since=30m --all-containers=true | grep -E 'Backend::Trino|backend=trino|trino|of_audit|of_lineage|of_ai|of_metrics_long'
+
+4. Capture Trino proxy/coordinator logs:
+
+  kubectl -n trino logs deploy/trino-flight-sql-proxy --since=30m --all-containers=true
+  kubectl -n trino logs statefulset/trino-coordinator --since=30m --all-containers=true
+
+5. Final PASS criteria:
+
+  - SQL was submitted to sql-bi-gateway-service, not directly to Trino.
+  - Router selected `Backend::Trino`.
+  - Gateway delegated to the configured Trino Flight SQL endpoint.
+  - Every required query returned rows.
+  - Logs correlate the submitted SQL/request id with Trino routing.
+
+Final conclusion:
+
+  BLOCKED. Router unit behavior is green, but runtime S5-OPS query-path
+  evidence is absent.
+

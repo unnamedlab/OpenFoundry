@@ -67,8 +67,8 @@ static LAST_RUNS: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashMap<uuid::Uuid, ConnectionTickRecord>>,
 > = std::sync::OnceLock::new();
 
-fn last_runs() -> &'static std::sync::Mutex<std::collections::HashMap<uuid::Uuid, ConnectionTickRecord>>
-{
+fn last_runs()
+-> &'static std::sync::Mutex<std::collections::HashMap<uuid::Uuid, ConnectionTickRecord>> {
     LAST_RUNS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 

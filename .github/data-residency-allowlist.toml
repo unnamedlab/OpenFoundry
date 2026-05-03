@@ -1,0 +1,539 @@
+# Data residency registry for every live `*/migrations` directory.
+# This is the source of truth for:
+#   1. migration-dir -> schema -> residency placement
+#   2. owned tables per bounded context
+#   3. explicit `sqlx::query*` exception files + tables allowed to grow
+#      without tripping the CI hot-path gate
+version = 1
+
+[registry]
+expected_migration_dirs = 58
+residency_targets = ["pg-schemas", "pg-policy", "pg-lakekeeper", "pg-runtime-config", "cassandra", "legacy-archive"]
+forbidden_hot_tables = ["object_instances", "link_instances", "streaming_events", "dataset_transactions", "lineage_nodes", "refresh_tokens", "scoped_sessions"]
+
+[sqlx_hot_path]
+shared_allowed_files = [
+  "libs/authz-cedar/src/pg.rs",
+
+]
+
+[[entries]]
+component = "libs/outbox"
+service = "outbox"
+migration_dir = "libs/outbox/migrations"
+schema = "outbox"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["libs/outbox/src/lib.rs"], tables = ["events"] }
+tables = ["events"]
+
+[[entries]]
+component = "services/agent-runtime-service"
+service = "agent-runtime-service"
+migration_dir = "services/agent-runtime-service/migrations"
+schema = "agent_runtime"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/agent-runtime-service/src/handlers.rs"], tables = ["agent_definitions", "agent_run_steps", "agent_runs"] }
+tables = ["ai_providers", "ai_prompt_templates", "ai_knowledge_bases", "ai_knowledge_documents", "ai_tools", "ai_agents", "ai_conversations", "ai_semantic_cache", "ai_llm_usage_events", "agent_definitions", "agent_runs", "agent_run_steps"]
+
+[[entries]]
+component = "services/ai-application-generation-service"
+service = "ai-application-generation-service"
+migration_dir = "services/ai-application-generation-service/migrations"
+schema = "ai_application_generation"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/ai-application-generation-service/src/handlers.rs"], tables = ["app_generation_events", "app_generation_seeds", "app_generation_sessions"] }
+tables = ["app_generation_seeds", "app_generation_sessions", "app_generation_events"]
+
+[[entries]]
+component = "services/analytical-logic-service"
+service = "analytical-logic-service"
+migration_dir = "services/analytical-logic-service/migrations"
+schema = "analytical_logic"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/analytical-logic-service/src/handlers.rs"], tables = ["analytical_expression_versions", "analytical_expressions"] }
+tables = ["analytical_expressions", "analytical_expression_versions"]
+
+[[entries]]
+component = "services/app-builder-service"
+service = "app-builder-service"
+migration_dir = "services/app-builder-service/migrations"
+schema = "app_builder"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/app-builder-service/src/handlers/apps.rs", "services/app-builder-service/src/handlers/mod.rs", "services/app-builder-service/src/handlers/publish.rs"], tables = ["app_templates", "app_versions", "apps"] }
+tables = ["apps", "app_versions", "app_templates"]
+
+[[entries]]
+component = "services/application-composition-service"
+service = "application-composition-service"
+migration_dir = "services/application-composition-service/migrations"
+schema = "application_composition"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/application-composition-service/src/handlers/composition.rs"], tables = ["composition_bindings", "composition_views"] }
+tables = ["composition_views", "composition_bindings"]
+
+[[entries]]
+component = "services/audit-compliance-service"
+service = "audit-compliance-service"
+migration_dir = "services/audit-compliance-service/migrations"
+schema = "audit_compliance"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/audit-compliance-service/src/handlers/events.rs", "services/audit-compliance-service/src/handlers/mod.rs", "services/audit-compliance-service/src/handlers/policies.rs", "services/audit-compliance-service/src/handlers/reports.rs"], tables = ["audit_events", "audit_policies", "compliance_reports"] }
+tables = ["audit_events", "audit_policies", "compliance_reports"]
+
+[[entries]]
+component = "services/automation-operations-service"
+service = "automation-operations-service"
+migration_dir = "services/automation-operations-service/migrations"
+schema = "automation_operations"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/automation-operations-service/src/handlers.rs"], tables = ["automation_queue_runs", "automation_queues"] }
+tables = ["automation_queues", "automation_queue_runs"]
+
+[[entries]]
+component = "services/cdc-metadata-service"
+service = "cdc-metadata-service"
+migration_dir = "services/cdc-metadata-service/migrations"
+schema = "cdc_metadata"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/cdc-metadata-service/src/schema_registry.rs"], tables = ["schema_compatibility_audit", "schema_references", "schema_subjects", "schema_versions"] }
+tables = ["cdc_streams", "cdc_incremental_checkpoints", "cdc_resolution_state", "schema_subjects", "schema_versions", "schema_references", "schema_compatibility_audit"]
+
+[[entries]]
+component = "services/checkpoints-purpose-service"
+service = "checkpoints-purpose-service"
+migration_dir = "services/checkpoints-purpose-service/migrations"
+schema = "checkpoints_purpose"
+residency = "pg-policy"
+tables = ["checkpoint_policies", "sensitive_interaction_configs", "purpose_templates", "purpose_records"]
+
+[[entries]]
+component = "services/cipher-service"
+service = "cipher-service"
+migration_dir = "services/cipher-service/migrations"
+schema = "cipher"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/cipher-service/src/handlers/cipher.rs"], tables = ["cipher_channels", "cipher_licenses", "cipher_permissions"] }
+tables = ["cipher_permissions", "cipher_channels", "cipher_licenses"]
+
+[[entries]]
+component = "services/code-repository-review-service"
+service = "code-repository-review-service"
+migration_dir = "services/code-repository-review-service/migrations"
+schema = "code_repository_review"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/code-repository-review-service/src/handlers.rs"], tables = ["ci_runs", "commits", "merge_requests", "repositories", "review_comments"] }
+tables = ["repositories", "commits", "merge_requests", "review_comments", "ci_runs"]
+
+[[entries]]
+component = "services/code-security-scanning-service"
+service = "code-security-scanning-service"
+migration_dir = "services/code-security-scanning-service/migrations"
+schema = "code_security_scanning"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/code-security-scanning-service/src/handlers.rs"], tables = ["code_security_findings", "code_security_scans"] }
+tables = ["code_security_scans", "code_security_findings"]
+
+[[entries]]
+component = "services/compute-modules-control-plane-service"
+service = "compute-modules-control-plane-service"
+migration_dir = "services/compute-modules-control-plane-service/migrations"
+schema = "compute_modules_control_plane"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/compute-modules-control-plane-service/src/handlers.rs"], tables = ["compute_module_deployments", "compute_modules"] }
+tables = ["compute_modules", "compute_module_deployments"]
+
+[[entries]]
+component = "services/compute-modules-runtime-service"
+service = "compute-modules-runtime-service"
+migration_dir = "services/compute-modules-runtime-service/migrations"
+schema = "compute_modules_runtime"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/compute-modules-runtime-service/src/handlers.rs"], tables = ["compute_module_metrics", "compute_module_runs"] }
+tables = ["compute_module_runs", "compute_module_metrics"]
+
+[[entries]]
+component = "services/connector-management-service"
+service = "connector-management-service"
+migration_dir = "services/connector-management-service/migrations"
+schema = "connector_management"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/connector-management-service/src/domain/agent_registry.rs", "services/connector-management-service/src/domain/auto_registration.rs", "services/connector-management-service/src/domain/dataset_versioning.rs", "services/connector-management-service/src/domain/sync_engine.rs", "services/connector-management-service/src/domain/update_detection.rs", "services/connector-management-service/src/handlers/catalog.rs", "services/connector-management-service/src/handlers/connections.rs", "services/connector-management-service/src/handlers/data_connection.rs", "services/connector-management-service/src/handlers/hyperauto.rs", "services/connector-management-service/src/handlers/iceberg_catalog.rs", "services/connector-management-service/src/handlers/registrations.rs"], tables = ["connection_registrations", "connections", "connector_agents", "source_policy_bindings", "sync_jobs", "sync_runs"] }
+tables = ["connections", "sync_jobs", "connector_agents", "connection_registrations", "source_credentials", "source_policy_bindings", "batch_sync_defs", "sync_runs"]
+
+[[entries]]
+component = "services/custom-endpoints-service"
+service = "custom-endpoints-service"
+migration_dir = "services/custom-endpoints-service/migrations"
+schema = "custom_endpoints"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/custom-endpoints-service/src/handlers.rs"], tables = ["custom_endpoint_sets", "custom_endpoints"] }
+tables = ["custom_endpoint_sets", "custom_endpoints"]
+
+[[entries]]
+component = "services/data-asset-catalog-service"
+service = "data-asset-catalog-service"
+migration_dir = "services/data-asset-catalog-service/migrations"
+schema = "data_asset_catalog"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/data-asset-catalog-service/src/domain/catalog.rs", "services/data-asset-catalog-service/src/domain/markings.rs", "services/data-asset-catalog-service/src/domain/runtime.rs", "services/data-asset-catalog-service/src/handlers/crud.rs", "services/data-asset-catalog-service/src/handlers/export.rs", "services/data-asset-catalog-service/src/handlers/internal.rs", "services/data-asset-catalog-service/src/handlers/preview.rs", "services/data-asset-catalog-service/src/handlers/views.rs"], tables = ["dataset_branches", "dataset_markings", "dataset_schemas", "dataset_versions", "dataset_views", "datasets"] }
+legacy_archive_tables = ["dataset_transactions"]
+tables = ["datasets", "dataset_schemas", "dataset_versions", "dataset_profiles", "dataset_quality_rules", "dataset_quality_history", "dataset_quality_alerts", "dataset_branches", "dataset_views", "dataset_transactions", "dataset_markings"]
+
+[[entries]]
+component = "services/dataset-versioning-service"
+service = "dataset-versioning-service"
+migration_dir = "services/dataset-versioning-service/migrations"
+schema = "dataset_versioning"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/dataset-versioning-service/src/handlers/branches.rs", "services/dataset-versioning-service/src/handlers/lifecycle.rs", "services/dataset-versioning-service/src/handlers/versions.rs"], tables = ["dataset_branches", "dataset_versions", "datasets"] }
+legacy_archive_tables = ["dataset_transactions"]
+tables = ["datasets", "dataset_branches", "dataset_versions", "dataset_transactions", "dataset_views", "dataset_view_files", "dataset_transaction_files", "dataset_branch_fallbacks"]
+
+[[entries]]
+component = "services/developer-console-service"
+service = "developer-console-service"
+migration_dir = "services/developer-console-service/migrations"
+schema = "developer_console"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/developer-console-service/src/handlers.rs"], tables = ["developer_applications", "developer_releases"] }
+tables = ["developer_applications", "developer_releases"]
+
+[[entries]]
+component = "services/document-intelligence-service"
+service = "document-intelligence-service"
+migration_dir = "services/document-intelligence-service/migrations"
+schema = "document_intelligence"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/document-intelligence-service/src/handlers.rs"], tables = ["document_intelligence_extractions", "document_intelligence_jobs", "document_intelligence_status_events"] }
+tables = ["document_intelligence_jobs", "document_intelligence_status_events", "document_intelligence_extractions"]
+
+[[entries]]
+component = "services/document-reporting-service"
+service = "document-reporting-service"
+migration_dir = "services/document-reporting-service/migrations"
+schema = "document_reporting"
+residency = "pg-schemas"
+tables = ["notepad_documents", "notepad_presence"]
+
+[[entries]]
+component = "services/event-streaming-service"
+service = "event-streaming-service"
+migration_dir = "services/event-streaming-service/migrations"
+schema = "event_streaming"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/event-streaming-service/src/domain/archiver.rs", "services/event-streaming-service/src/domain/checkpoints.rs", "services/event-streaming-service/src/domain/engine/processor.rs", "services/event-streaming-service/src/handlers/branches.rs", "services/event-streaming-service/src/handlers/checkpoints.rs", "services/event-streaming-service/src/handlers/flink.rs", "services/event-streaming-service/src/handlers/schemas.rs", "services/event-streaming-service/src/handlers/streams.rs", "services/event-streaming-service/src/handlers/topologies.rs", "services/event-streaming-service/src/runtime/flink/deployer.rs", "services/event-streaming-service/src/runtime/flink/metrics_poller.rs"], tables = ["streaming_dead_letters", "streaming_lineage_edges", "streaming_stream_branches", "streaming_stream_schema_history", "streaming_streams", "streaming_topologies", "streaming_topology_runs", "streaming_windows"] }
+legacy_archive_tables = ["streaming_events"]
+tables = ["streaming_streams", "streaming_windows", "streaming_topologies", "streaming_topology_runs", "streaming_events", "streaming_checkpoints", "streaming_lineage_edges", "streaming_dead_letters", "streaming_cold_archives", "streaming_topology_checkpoints", "streaming_stream_branches", "streaming_stream_schema_history"]
+
+[[entries]]
+component = "services/execution-observability-service"
+service = "execution-observability-service"
+migration_dir = "services/execution-observability-service/migrations"
+schema = "execution_observability"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/execution-observability-service/src/handlers.rs"], tables = ["execution_logs", "execution_runs"] }
+tables = ["execution_runs", "execution_logs"]
+
+[[entries]]
+component = "services/federation-product-exchange-service"
+service = "federation-product-exchange-service"
+migration_dir = "services/federation-product-exchange-service/migrations"
+schema = "federation_product_exchange"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/federation-product-exchange-service/src/handlers/contracts.rs", "services/federation-product-exchange-service/src/handlers/mod.rs", "services/federation-product-exchange-service/src/handlers/peers.rs", "services/federation-product-exchange-service/src/handlers/shares.rs", "services/federation-product-exchange-service/src/handlers/spaces.rs"], tables = ["nexus_access_grants", "nexus_contracts", "nexus_peers", "nexus_shares", "nexus_spaces", "nexus_sync_statuses"] }
+tables = ["nexus_peers", "nexus_contracts", "nexus_shares", "nexus_access_grants", "nexus_sync_statuses", "nexus_spaces"]
+
+[[entries]]
+component = "services/identity-federation-service"
+service = "identity-federation-service"
+migration_dir = "services/identity-federation-service/migrations"
+schema = "identity_federation"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/identity-federation-service/src/domain/abac.rs", "services/identity-federation-service/src/domain/api_keys.rs", "services/identity-federation-service/src/domain/rbac.rs", "services/identity-federation-service/src/handlers/api_key_mgmt.rs", "services/identity-federation-service/src/handlers/common.rs", "services/identity-federation-service/src/handlers/control_panel.rs", "services/identity-federation-service/src/handlers/group_mgmt.rs", "services/identity-federation-service/src/handlers/login.rs", "services/identity-federation-service/src/handlers/permission_mgmt.rs", "services/identity-federation-service/src/handlers/policy_mgmt.rs", "services/identity-federation-service/src/handlers/register.rs", "services/identity-federation-service/src/handlers/restricted_views.rs", "services/identity-federation-service/src/handlers/role_mgmt.rs", "services/identity-federation-service/src/handlers/sessions.rs", "services/identity-federation-service/src/handlers/token.rs", "services/identity-federation-service/src/handlers/user_mgmt.rs"], tables = ["abac_policies", "api_keys", "control_panel_settings", "group_members", "group_roles", "groups", "permissions", "restricted_views", "role_permissions", "roles", "sso_providers", "user_mfa_totp", "user_roles", "users"] }
+legacy_archive_tables = ["refresh_tokens", "scoped_sessions"]
+tables = ["users", "roles", "user_roles", "permissions", "role_permissions", "refresh_tokens", "groups", "group_members", "group_roles", "abac_policies", "user_mfa_totp", "api_keys", "sso_providers", "external_identities", "control_panel_settings", "scoped_sessions", "restricted_views"]
+
+[[entries]]
+component = "services/ingestion-replication-service"
+service = "ingestion-replication-service"
+migration_dir = "services/ingestion-replication-service/migrations"
+schema = "ingestion_replication"
+residency = "pg-schemas"
+tables = ["ingest_jobs", "ingestion_checkpoints"]
+
+[[entries]]
+component = "services/lineage-deletion-service"
+service = "lineage-deletion-service"
+migration_dir = "services/lineage-deletion-service/migrations"
+schema = "lineage_deletion"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/lineage-deletion-service/src/domain/deletion.rs", "services/lineage-deletion-service/src/handlers/deletion.rs"], tables = ["lineage_deletion_requests"] }
+tables = ["lineage_deletion_requests"]
+
+[[entries]]
+component = "services/lineage-service"
+service = "lineage-service"
+migration_dir = "services/lineage-service/migrations"
+schema = "lineage"
+residency = "pg-schemas"
+legacy_archive_tables = ["lineage_nodes"]
+tables = ["lineage_nodes", "lineage_relations"]
+
+[[entries]]
+component = "services/managed-workspace-service"
+service = "managed-workspace-service"
+migration_dir = "services/managed-workspace-service/migrations"
+schema = "managed_workspace"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/managed-workspace-service/src/handlers.rs"], tables = ["managed_workspace_aliases", "managed_workspaces"] }
+tables = ["managed_workspaces", "managed_workspace_aliases"]
+
+[[entries]]
+component = "services/marketplace-service"
+service = "marketplace-service"
+migration_dir = "services/marketplace-service/migrations"
+schema = "marketplace"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/marketplace-service/src/handlers/devops.rs", "services/marketplace-service/src/handlers/install.rs", "services/marketplace-service/src/handlers/mod.rs", "services/marketplace-service/src/handlers/publish.rs", "services/marketplace-service/src/handlers/reviews.rs"], tables = ["marketplace_enrollment_branches", "marketplace_fleet_promotion_gates", "marketplace_installs", "marketplace_listings", "marketplace_package_versions", "marketplace_product_fleets", "marketplace_reviews"] }
+tables = ["marketplace_listings", "marketplace_package_versions", "marketplace_reviews", "marketplace_installs", "marketplace_product_fleets", "marketplace_enrollment_branches", "marketplace_fleet_promotion_gates"]
+
+[[entries]]
+component = "services/mcp-orchestration-service"
+service = "mcp-orchestration-service"
+migration_dir = "services/mcp-orchestration-service/migrations"
+schema = "mcp_orchestration"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/mcp-orchestration-service/src/handlers.rs"], tables = ["mcp_servers", "mcp_tools"] }
+tables = ["mcp_servers", "mcp_tools"]
+
+[[entries]]
+component = "services/model-adapter-service"
+service = "model-adapter-service"
+migration_dir = "services/model-adapter-service/migrations"
+schema = "model_adapter"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/model-adapter-service/src/handlers.rs"], tables = ["inference_contracts", "model_adapters"] }
+tables = ["model_adapters", "inference_contracts"]
+
+[[entries]]
+component = "services/model-catalog-service"
+service = "model-catalog-service"
+migration_dir = "services/model-catalog-service/migrations"
+schema = "model_catalog"
+residency = "pg-schemas"
+tables = ["ml_experiments", "ml_runs", "ml_models", "ml_model_versions", "ml_features", "ml_training_jobs", "ml_deployments", "ml_batch_predictions"]
+
+[[entries]]
+component = "services/model-lifecycle-service"
+service = "model-lifecycle-service"
+migration_dir = "services/model-lifecycle-service/migrations"
+schema = "model_lifecycle"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/model-lifecycle-service/src/handlers.rs"], tables = ["model_lifecycle_events", "model_submissions", "modeling_objectives"] }
+tables = ["modeling_objectives", "model_submissions", "model_lifecycle_events"]
+
+[[entries]]
+component = "services/monitoring-rules-service"
+service = "monitoring-rules-service"
+migration_dir = "services/monitoring-rules-service/migrations"
+schema = "monitoring_rules"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/monitoring-rules-service/src/handlers.rs"], tables = ["monitoring_rules", "monitoring_subscribers"] }
+tables = ["monitoring_rules", "monitoring_subscribers"]
+
+[[entries]]
+component = "services/network-boundary-service"
+service = "network-boundary-service"
+migration_dir = "services/network-boundary-service/migrations"
+schema = "network_boundary"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/network-boundary-service/src/domain/boundary.rs"], tables = ["network_boundary_policies", "network_private_links", "network_proxy_definitions"] }
+tables = ["network_boundary_policies", "network_private_links", "network_proxy_definitions"]
+
+[[entries]]
+component = "services/nexus-service"
+service = "nexus-service"
+migration_dir = "services/nexus-service/migrations"
+schema = "nexus"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/nexus-service/src/handlers/contracts.rs", "services/nexus-service/src/handlers/mod.rs", "services/nexus-service/src/handlers/peers.rs", "services/nexus-service/src/handlers/shares.rs", "services/nexus-service/src/handlers/spaces.rs"], tables = ["nexus_access_grants", "nexus_contracts", "nexus_peers", "nexus_shares", "nexus_spaces", "nexus_sync_statuses"] }
+tables = ["nexus_peers", "nexus_contracts", "nexus_shares", "nexus_access_grants", "nexus_sync_statuses", "nexus_spaces"]
+
+[[entries]]
+component = "services/notebook-runtime-service"
+service = "notebook-runtime-service"
+migration_dir = "services/notebook-runtime-service/migrations"
+schema = "notebook_runtime"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/notebook-runtime-service/src/handlers/crud.rs", "services/notebook-runtime-service/src/handlers/execute.rs", "services/notebook-runtime-service/src/handlers/sessions.rs"], tables = ["cells", "notebooks", "sessions"] }
+tables = ["notebooks", "cells", "sessions"]
+
+[[entries]]
+component = "services/notification-alerting-service"
+service = "notification-alerting-service"
+migration_dir = "services/notification-alerting-service/migrations"
+schema = "notification_alerting"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/notification-alerting-service/src/handlers/history.rs", "services/notification-alerting-service/src/handlers/send.rs"], tables = ["notification_deliveries", "notification_preferences", "notifications"] }
+tables = ["notifications", "notification_deliveries", "notification_preferences"]
+
+[[entries]]
+component = "services/oauth-integration-service"
+service = "oauth-integration-service"
+migration_dir = "services/oauth-integration-service/migrations"
+schema = "oauth_integration"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/oauth-integration-service/src/handlers/applications.rs", "services/oauth-integration-service/src/handlers/external_integrations.rs", "services/oauth-integration-service/src/handlers/oauth_clients.rs"], tables = ["oauth_application_credentials", "oauth_external_integrations", "oauth_inbound_clients", "oauth_registered_applications"] }
+tables = ["oauth_registered_applications", "oauth_application_credentials", "oauth_inbound_clients", "oauth_external_integrations"]
+
+[[entries]]
+component = "services/pipeline-authoring-service"
+service = "pipeline-authoring-service"
+migration_dir = "services/pipeline-authoring-service/migrations"
+schema = "pipeline_authoring"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/pipeline-authoring-service/src/domain/executor.rs", "services/pipeline-authoring-service/src/handlers/crud.rs", "services/pipeline-authoring-service/src/handlers/execute.rs", "services/pipeline-authoring-service/src/handlers/runs.rs"], tables = ["pipeline_runs", "pipelines"] }
+legacy_archive_tables = ["lineage_nodes"]
+tables = ["pipelines", "pipeline_runs", "lineage_edges", "column_lineage_edges", "lineage_nodes", "lineage_relations"]
+
+[[entries]]
+component = "services/report-service"
+service = "report-service"
+migration_dir = "services/report-service/migrations"
+schema = "report"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/report-service/src/handlers/crud.rs", "services/report-service/src/handlers/generate.rs", "services/report-service/src/handlers/mod.rs"], tables = ["report_definitions", "report_executions"] }
+tables = ["report_definitions", "report_executions"]
+
+[[entries]]
+component = "services/retention-policy-service"
+service = "retention-policy-service"
+migration_dir = "services/retention-policy-service/migrations"
+schema = "retention_policy"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/retention-policy-service/src/domain/retention.rs", "services/retention-policy-service/src/handlers/retention.rs"], tables = ["retention_jobs", "retention_policies"] }
+tables = ["retention_policies", "retention_jobs"]
+
+[[entries]]
+component = "services/scenario-simulation-service"
+service = "scenario-simulation-service"
+migration_dir = "services/scenario-simulation-service/migrations"
+schema = "scenario_simulation"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/scenario-simulation-service/src/handlers.rs"], tables = ["scenario_runs", "scenario_simulations"] }
+tables = ["scenario_simulations", "scenario_runs"]
+
+[[entries]]
+component = "services/sdk-generation-service"
+service = "sdk-generation-service"
+migration_dir = "services/sdk-generation-service/migrations"
+schema = "sdk_generation"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/sdk-generation-service/src/handlers.rs"], tables = ["sdk_generation_jobs", "sdk_generation_publications"] }
+tables = ["sdk_generation_jobs", "sdk_generation_publications"]
+
+[[entries]]
+component = "services/sds-service"
+service = "sds-service"
+migration_dir = "services/sds-service/migrations"
+schema = "sds"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/sds-service/src/domain/sds.rs", "services/sds-service/src/handlers/sds.rs"], tables = ["sds_issues", "sds_scan_jobs"] }
+tables = ["sds_scan_jobs", "sds_issues", "sds_remediation_rules"]
+
+[[entries]]
+component = "services/security-governance-service"
+service = "security-governance-service"
+migration_dir = "services/security-governance-service/migrations"
+schema = "security_governance"
+residency = "pg-policy"
+tables = ["governance_template_applications", "project_constraints", "structural_security_rules"]
+
+[[entries]]
+component = "services/solution-design-service"
+service = "solution-design-service"
+migration_dir = "services/solution-design-service/migrations"
+schema = "solution_design"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/solution-design-service/src/handlers.rs"], tables = ["solution_diagrams", "solution_references"] }
+tables = ["solution_diagrams", "solution_references"]
+
+[[entries]]
+component = "services/spreadsheet-computation-service"
+service = "spreadsheet-computation-service"
+migration_dir = "services/spreadsheet-computation-service/migrations"
+schema = "spreadsheet_computation"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/spreadsheet-computation-service/src/handlers.rs"], tables = ["spreadsheet_recalcs", "spreadsheet_sheets"] }
+tables = ["spreadsheet_sheets", "spreadsheet_recalcs"]
+
+[[entries]]
+component = "services/sql-bi-gateway-service"
+service = "sql-bi-gateway-service"
+migration_dir = "services/sql-bi-gateway-service/migrations"
+schema = "sql_bi_gateway"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/sql-bi-gateway-service/src/http.rs"], tables = ["saved_queries"] }
+tables = ["saved_queries"]
+
+[[entries]]
+component = "services/sql-warehousing-service"
+service = "sql-warehousing-service"
+migration_dir = "services/sql-warehousing-service/migrations"
+schema = "sql_warehousing"
+residency = "pg-runtime-config"
+tables = ["warehouse_jobs", "warehouse_transformations", "warehouse_storage_artifacts"]
+
+[[entries]]
+component = "services/tabular-analysis-service"
+service = "tabular-analysis-service"
+migration_dir = "services/tabular-analysis-service/migrations"
+schema = "tabular_analysis"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/tabular-analysis-service/src/handlers.rs"], tables = ["tabular_analysis_jobs", "tabular_analysis_results"] }
+tables = ["tabular_analysis_jobs", "tabular_analysis_results"]
+
+[[entries]]
+component = "services/telemetry-governance-service"
+service = "telemetry-governance-service"
+migration_dir = "services/telemetry-governance-service/migrations"
+schema = "telemetry_governance"
+residency = "pg-policy"
+allow_new_sqlx = { files = ["services/telemetry-governance-service/src/handlers/health_checks.rs", "services/telemetry-governance-service/src/handlers/telemetry.rs"], tables = ["health_check_results", "health_checks", "telemetry_exports", "telemetry_policies"] }
+tables = ["health_checks", "health_check_results", "telemetry_exports", "telemetry_policies"]
+
+[[entries]]
+component = "services/tenancy-organizations-service"
+service = "tenancy-organizations-service"
+migration_dir = "services/tenancy-organizations-service/migrations"
+schema = "tenancy_organizations"
+residency = "pg-schemas"
+allow_new_sqlx = { files = ["services/tenancy-organizations-service/src/handlers/enrollments.rs", "services/tenancy-organizations-service/src/handlers/organizations.rs", "services/tenancy-organizations-service/src/handlers/recents.rs"], tables = ["resource_access_log", "tenancy_enrollments", "tenancy_organizations"] }
+tables = ["tenancy_organizations", "tenancy_enrollments", "user_favorites", "resource_access_log", "resource_shares"]
+
+[[entries]]
+component = "services/time-series-data-service"
+service = "time-series-data-service"
+migration_dir = "services/time-series-data-service/migrations"
+schema = "time_series_data"
+residency = "pg-runtime-config"
+tables = ["time_series", "time_series_points", "time_series_storage_partitions"]
+
+[[entries]]
+component = "services/workflow-automation-service"
+service = "workflow-automation-service"
+migration_dir = "services/workflow-automation-service/migrations"
+schema = "workflow_automation"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/workflow-automation-service/src/handlers/approvals.rs", "services/workflow-automation-service/src/handlers/crud.rs", "services/workflow-automation-service/src/handlers/runs.rs"], tables = ["workflow_runs", "workflows"] }
+tables = ["workflows", "workflow_runs", "workflow_approvals"]
+
+[[entries]]
+component = "services/workflow-trace-service"
+service = "workflow-trace-service"
+migration_dir = "services/workflow-trace-service/migrations"
+schema = "workflow_trace"
+residency = "pg-runtime-config"
+allow_new_sqlx = { files = ["services/workflow-trace-service/src/handlers.rs"], tables = ["workflow_trace_events", "workflow_trace_runs"] }
+tables = ["workflow_trace_runs", "workflow_trace_events"]
+

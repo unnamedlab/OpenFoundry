@@ -41,19 +41,19 @@ variable "operator_values_override" {
 }
 
 variable "apply_cluster" {
-  description = "Apply infra/k8s/rook/cluster.yaml (the CephCluster CR)."
+  description = "Apply infra/k8s/platform/manifests/rook/cluster.yaml (the CephCluster CR)."
   type        = bool
   default     = true
 }
 
 variable "apply_object_store" {
-  description = "Apply infra/k8s/rook/objectstore.yaml (CephObjectStore + StorageClass)."
+  description = "Apply infra/k8s/platform/manifests/rook/objectstore.yaml (CephObjectStore + StorageClass)."
   type        = bool
   default     = true
 }
 
 variable "apply_buckets" {
-  description = "Apply infra/k8s/rook/bucket.yaml (ObjectBucketClaims for openfoundry-{datasets,models,iceberg})."
+  description = "Apply infra/k8s/platform/manifests/rook/bucket.yaml (ObjectBucketClaims for openfoundry-{datasets,models,iceberg})."
   type        = bool
   default     = true
 }

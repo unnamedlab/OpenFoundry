@@ -193,12 +193,12 @@ postgresql:
   connector.
 
 These settings are encoded in the consolidated
-`infra/k8s/cnpg/clusters/pg-policy.yaml` (see
+`infra/k8s/platform/manifests/cnpg/clusters/pg-policy.yaml` (see
 [ADR-0024](./ADR-0024-postgres-consolidation.md)).
 
 ## Debezium configuration
 
-Strimzi `KafkaConnect` cluster under `infra/k8s/debezium/`:
+Strimzi `KafkaConnect` cluster under `infra/k8s/platform/manifests/debezium/`:
 
 - 2 Connect workers (`replicas: 2`) for HA.
 - Image: `quay.io/debezium/connect:2.7-final` plus the Apicurio
@@ -311,18 +311,18 @@ Consumers are required to:
   `ontology.object.changed.v1`).
 - Schemas registered in Apicurio under the same name as the topic.
 - Provisioned via Strimzi `KafkaTopic` CRs under
-  `infra/k8s/strimzi/topics/`.
+  `infra/k8s/platform/manifests/strimzi/topics/`.
 
 ## Operational consequences
 
-- New stateful release `infra/k8s/debezium/` (Strimzi
+- New stateful release `infra/k8s/platform/manifests/debezium/` (Strimzi
   `KafkaConnect` + `KafkaConnector` CRs).
 - New `libs/outbox` workspace crate with a tested `enqueue` helper.
 - New schema `outbox` in `pg-policy` (see
   [ADR-0024](./ADR-0024-postgres-consolidation.md)).
 - New CI checks:
   - Postgres logical decoding settings present in
-    `infra/k8s/cnpg/clusters/pg-policy.yaml`.
+    `infra/k8s/platform/manifests/cnpg/clusters/pg-policy.yaml`.
   - No direct `INSERT INTO outbox.events` outside `libs/outbox`.
   - Every Kafka topic produced by Debezium has an Apicurio schema.
 - New runbook `infra/runbooks/debezium.md` covering: replication

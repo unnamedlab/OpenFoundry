@@ -59,6 +59,9 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dev-dependencies.wiremock]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "edge-gateway-service"

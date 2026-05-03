@@ -69,15 +69,14 @@ pub async fn commit_events(
     let payload = Bytes::from(payload_text.into_bytes());
     let snapshot_id = format!("snap-{}", uuid::Uuid::now_v7().simple());
 
-    let snapshot = DatasetSnapshot::new(table.clone(), snapshot_id.clone(), payload).with_metadata(
-        json!({
+    let snapshot =
+        DatasetSnapshot::new(table.clone(), snapshot_id.clone(), payload).with_metadata(json!({
             "stream_id": stream.id,
             "stream_name": stream.name,
             "events": events.len(),
             "consistency_guarantee": stream.consistency_guarantee,
             "default_marking": stream.default_marking,
-        }),
-    );
+        }));
 
     let outcome = writer.append(snapshot).await?;
 
@@ -108,9 +107,9 @@ pub async fn commit_events(
 }
 
 fn parse_table(endpoint: &str) -> Result<String, SinkError> {
-    let stripped = endpoint
-        .strip_prefix("dataset://")
-        .ok_or_else(|| SinkError::InvalidBinding(format!("expected dataset://… got '{endpoint}'")))?;
+    let stripped = endpoint.strip_prefix("dataset://").ok_or_else(|| {
+        SinkError::InvalidBinding(format!("expected dataset://… got '{endpoint}'"))
+    })?;
     if stripped.is_empty() {
         return Err(SinkError::InvalidBinding(
             "dataset endpoint must include a table name".to_string(),

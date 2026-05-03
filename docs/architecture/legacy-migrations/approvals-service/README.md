@@ -13,9 +13,9 @@ domain that was authoritative before Stream **S2.5** (see
 - The Postgres table `workflow_approvals` (defined in
   `services/workflow-automation-service/migrations/20260421140000_workflows.sql`,
   rows 36–53) is **deprecated** and must not be written to from new
-  code paths. The substrate keeps the table in place for read-side
-  projections during the cutover; a DROP migration ships in a
-  follow-up PR once every persisted approval has migrated.
+  code paths. As of G-S2-PG (2026-05-03), live Rust handlers no
+  longer read or write it; `drop_workflow_approvals.sql.disabled`
+  remains staged for the database cutover window.
 
 ## Cutover gate
 

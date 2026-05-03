@@ -21,8 +21,6 @@ smoke/
     ├── lib/common.sh
     ├── kill-one-mon.sh                 # Rook-Ceph mon
     ├── kill-one-kafka-broker.sh        # Strimzi Kafka
-    ├── kill-one-clickhouse-replica.sh  # ClickHouse replica
-    ├── kill-one-keeper.sh              # ClickHouse Keeper
     ├── kill-one-nats-node.sh           # NATS
     ├── kill-pg-primary.sh              # CNPG failover
     └── run.sh                          # Orquestador
@@ -52,8 +50,8 @@ cargo run -p of-cli -- smoke run \
 ## Suite de chaos
 
 La suite valida las propiedades no-SPOF del data plane: por cada capa
-(Ceph mon, Kafka, ClickHouse réplica, ClickHouse Keeper, NATS, Postgres
-primary) mata 1 pod, espera a que el cluster vuelva a verde, y luego
+(Ceph mon, Kafka, NATS, Postgres primary) mata 1 pod, espera a que el
+cluster vuelva a verde, y luego
 ejecuta los scenarios `p2..p6`. Falla si **cualquier** scenario falla
 bajo **cualquier** chaos.
 
@@ -76,10 +74,9 @@ kind create cluster --name openfoundry-chaos
 
 # 2. Instala los operadores y CRs del DP que se vayan a probar.
 #    Mínimo:
-#      - Strimzi  + Kafka  (infra/k8s/strimzi/)
-#      - Rook     + Ceph   (infra/k8s/rook/)
-#      - Altinity + ClickHouse + Keeper (infra/k8s/clickhouse/)
-#      - CloudNativePG + Cluster (infra/k8s/cnpg/)
+#      - Strimzi  + Kafka  (infra/k8s/platform/manifests/strimzi/)
+#      - Rook     + Ceph   (infra/k8s/platform/manifests/rook/)
+#      - CloudNativePG + Cluster (infra/k8s/platform/manifests/cnpg/)
 #      - NATS Helm chart en ns `nats`
 #    Ver READMEs en cada subcarpeta de infra/k8s/.
 
@@ -114,10 +111,6 @@ k3d cluster create openfoundry-chaos --agents 3
 | `KAFKA_NAMESPACE`         | `kafka`                | NS del Kafka Strimzi.                                          |
 | `KAFKA_CLUSTER`           | `openfoundry`          | Nombre del CR `Kafka`.                                         |
 | `KAFKA_POOL`              | `kafka`                | Nombre del `KafkaNodePool`.                                    |
-| `CLICKHOUSE_NAMESPACE`    | `clickhouse`           | NS de la CHI.                                                  |
-| `CLICKHOUSE_CHI`          | `openfoundry`          | Nombre de la CHI.                                              |
-| `KEEPER_NAMESPACE`        | `clickhouse`           | NS del CHK.                                                    |
-| `KEEPER_CHK`              | `openfoundry`          | Nombre del CHK.                                                |
 | `NATS_NAMESPACE`          | `nats`                 | NS del cluster NATS.                                           |
 | `NATS_SELECTOR`           | `app.kubernetes.io/name=nats` | Selector de pods NATS.                                  |
 | `PG_NAMESPACE`            | `default`              | NS del CNPG `Cluster`.                                         |

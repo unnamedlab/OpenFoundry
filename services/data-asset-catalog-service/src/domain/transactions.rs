@@ -1,35 +1,37 @@
-use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::models::transaction::DatasetTransaction;
+use crate::{AppState, models::transaction::DatasetTransaction};
 
-pub struct TransactionRecord {
-    pub view_id: Option<Uuid>,
-    pub operation: String,
-    pub branch_name: Option<String>,
-    pub summary: String,
-    pub metadata: serde_json::Value,
+use super::runtime::DatasetSourceError;
+
+const DATASET_TRANSACTIONS_PROJECTION_SQL: &str = r#"
+    SELECT * FROM dataset_transactions
+    WHERE dataset_id = $1
+    ORDER BY created_at DESC
+"#;
+
+pub async fn list_dataset_transactions(
+    state: &AppState,
+    dataset_id: Uuid,
+) -> Result<Vec<DatasetTransaction>, DatasetSourceError> {
+    sqlx::query_as::<_, DatasetTransaction>(DATASET_TRANSACTIONS_PROJECTION_SQL)
+        .bind(dataset_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|error| DatasetSourceError::Database(error.to_string()))
 }
 
-pub async fn record_committed_transaction(
-    tx: &mut Transaction<'_, Postgres>,
-    dataset_id: Uuid,
-    record: TransactionRecord,
-) -> Result<DatasetTransaction, sqlx::Error> {
-    sqlx::query_as::<_, DatasetTransaction>(
-        r#"INSERT INTO dataset_transactions (
-               id, dataset_id, view_id, operation, branch_name, status, summary, metadata, committed_at
-           )
-           VALUES ($1, $2, $3, $4, $5, 'committed', $6, $7::jsonb, NOW())
-           RETURNING *"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(dataset_id)
-    .bind(record.view_id)
-    .bind(record.operation)
-    .bind(record.branch_name)
-    .bind(record.summary)
-    .bind(record.metadata)
-    .fetch_one(&mut **tx)
-    .await
+#[cfg(test)]
+mod tests {
+    use super::DATASET_TRANSACTIONS_PROJECTION_SQL;
+
+    #[test]
+    fn transaction_projection_query_is_read_only() {
+        let upper = DATASET_TRANSACTIONS_PROJECTION_SQL.to_ascii_uppercase();
+
+        assert!(upper.contains("SELECT * FROM DATASET_TRANSACTIONS"));
+        assert!(!upper.contains(" INSERT "));
+        assert!(!upper.contains(" UPDATE "));
+        assert!(!upper.contains(" DELETE "));
+    }
 }

@@ -18,33 +18,35 @@
 //!   - REST CRUD over schedule **definitions** (Postgres remains the
 //!     declarative source of truth, as called out in S2.4.b).
 //!   - Backfill / preview helpers that compute windows for the UI.
-//!   - The `_scheduler/run-due` admin endpoints, kept temporarily as
-//!     break-glass while the cutover from the legacy ticker to
-//!     Temporal Schedules is completed PR-by-PR.
 //!
 //! What does **not** stay here:
 //!   - `tokio::spawn`-based ticker (deleted, was 25 LOC in `main`).
 //!   - In-process pipeline executor (delegated to the worker
 //!     in `workers-go/pipeline/`, which registers the `PipelineRun`
 //!     workflow type and is what every Temporal Schedule fires).
+//!   - The legacy break-glass admin endpoints that polled
+//!     `next_run_at` from Postgres (removed once every persisted
+//!     schedule had been migrated to Temporal Schedules; cron
+//!     dispatch now belongs entirely to Temporal).
 
 mod config;
 mod domain;
 mod handlers;
 mod models;
+#[path = "../../lineage-service/src/query_router.rs"]
+mod query_router;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
-    Router,
-    middleware,
+    Router, middleware,
     routing::{get, post},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use storage_abstraction::StorageBackend;
-use temporal_client::{Namespace, PipelineScheduleClient, WorkflowClient};
+use temporal_client::PipelineScheduleClient;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::AppConfig;
@@ -60,6 +62,7 @@ use crate::config::AppConfig;
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    pub lineage_runtime: domain::lineage::SharedLineageRuntimeStore,
     pub jwt_config: JwtConfig,
     pub http_client: reqwest::Client,
     pub storage: Arc<dyn StorageBackend>,
@@ -83,9 +86,11 @@ pub struct AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("pipeline_schedule_service=info,tower_http=info")
-        }))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::new("pipeline_schedule_service=info,tower_http=info")
+            }),
+        )
         .init();
 
     let app_config = AppConfig::from_env()?;
@@ -97,20 +102,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_config = JwtConfig::new(&app_config.jwt_secret).with_env_defaults();
     let http_client = reqwest::Client::new();
     let storage = build_storage(&app_config)?;
+    let lineage_runtime =
+        domain::lineage::LineageRuntimeStore::build(domain::lineage::LineageRuntimeStoreConfig {
+            cassandra_contact_points: app_config
+                .cassandra_contact_points
+                .split(',')
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .collect(),
+            cassandra_local_dc: app_config.cassandra_local_dc.clone(),
+        })
+        .await?;
 
-    // Substrate-grade Temporal wiring. The `LoggingWorkflowClient`
-    // emits a `tracing::info!` per call and yields deterministic
-    // run_ids — handy for `/api/v1/data-integration/schedules/*`
-    // smoke tests until the gRPC backend lands. The namespace is the
-    // one provisioned by `infra/k8s/temporal/` (S2.1.b).
-    let temporal_namespace =
-        std::env::var("TEMPORAL_NAMESPACE").unwrap_or_else(|_| "default".to_string());
-    let workflow_client: Arc<dyn WorkflowClient> = Arc::new(temporal_client::LoggingWorkflowClient);
-    let pipeline_schedule_client =
-        PipelineScheduleClient::new(workflow_client, Namespace::new(temporal_namespace));
+    // Temporal wiring. When `TEMPORAL_HOST_PORT` is present this is a
+    // gRPC client; otherwise the local dry-run client keeps smoke
+    // tests deterministic. The namespace is the one provisioned by
+    // `infra/k8s/platform/manifests/temporal/` (S2.1.b).
+    let (workflow_client, temporal_namespace) =
+        temporal_client::runtime_workflow_client("pipeline-schedule-service").await?;
+    let pipeline_schedule_client = PipelineScheduleClient::new(workflow_client, temporal_namespace);
 
     let state = AppState {
         db,
+        lineage_runtime,
         jwt_config: jwt_config.clone(),
         http_client,
         storage,
@@ -133,14 +147,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // S2.4.a — the in-process tick loop has been removed. Temporal
     // Schedules (created via `pipeline_schedule_client.create`) own
-    // exactly-once dispatch from now on. The legacy
-    // `_scheduler/run-due` REST endpoints below remain as
-    // break-glass for ops; they are scheduled for removal once
-    // every persisted schedule has been migrated.
+    // exactly-once dispatch from now on. The legacy break-glass
+    // REST endpoints that polled `next_run_at` from Postgres have
+    // also been removed now that the migration is complete.
 
     // Schedule + workflow surface. Auth is enforced by the layered middleware
     // (matches the `_user: AuthUser` extractors in every handler).
     let scheduler = Router::new()
+        // ---- new Foundry-parity surface (P1 of the trigger redesign) ----
+        .route(
+            "/v1/schedules",
+            post(handlers::schedules_v2::create_schedule)
+                .get(handlers::schedules_v2::list_schedules),
+        )
+        .route(
+            "/v1/schedules/{rid}",
+            get(handlers::schedules_v2::get_schedule)
+                .patch(handlers::schedules_v2::patch_schedule)
+                .delete(handlers::schedules_v2::delete_schedule),
+        )
+        .route(
+            "/v1/schedules/{rid}:run-now",
+            post(handlers::schedules_v2::run_now),
+        )
+        .route(
+            "/v1/schedules/{rid}:pause",
+            post(handlers::schedules_v2::pause_schedule),
+        )
+        .route(
+            "/v1/schedules/{rid}:resume",
+            post(handlers::schedules_v2::resume_schedule),
+        )
+        .route(
+            "/v1/schedules/{rid}:exempt-from-auto-pause",
+            post(handlers::schedules_v2::set_exempt_from_auto_pause),
+        )
+        .route(
+            "/v1/schedules/{rid}:convert-to-project-scope",
+            post(handlers::schedules_v2::convert_to_project_scope),
+        )
+        .route(
+            "/v1/schedules/{rid}/runs",
+            get(handlers::schedules_v2::list_runs),
+        )
+        .route(
+            "/v1/schedules/{rid}/versions",
+            get(handlers::schedules_v2::list_versions),
+        )
+        .route(
+            "/v1/schedules/{rid}/versions/diff",
+            get(handlers::schedules_v2::version_diff),
+        )
+        .route(
+            "/v1/schedules/{rid}/versions/{n}",
+            get(handlers::schedules_v2::get_version),
+        )
+        .route(
+            "/v1/schedules/{rid}/preview-next-fires",
+            get(handlers::schedules_v2::preview_next_fires),
+        )
+        // ---- legacy preview / backfill (kept alongside) -----------------
         .route("/schedules/due", get(handlers::schedule::list_due_runs))
         .route("/schedules/preview", post(handlers::schedule::preview_windows))
         .route("/schedules/backfill", post(handlers::schedule::backfill_runs))
@@ -153,18 +219,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             axum::routing::delete(handlers::temporal_schedule::delete_schedule),
         )
         .route(
-            "/workflows/_scheduler/run-due",
-            post(handlers::workflow::run_due_cron_workflows),
-        )
-        .route(
             "/workflows/events/{event_name}",
             post(handlers::workflow::trigger_event),
         )
-        // Manual dispatch trigger for ops / debugging (mirrors
-        // pipeline-build-service /pipelines/_scheduler/run-due).
+        // Sweep linter (P3) — see `Linter/Sweep schedules.md`.
         .route(
-            "/pipelines/_scheduler/run-due",
-            post(handlers::execute::run_due_scheduled_pipelines),
+            "/v1/scheduling-linter/sweep",
+            post(handlers::linter::sweep),
+        )
+        .route(
+            "/v1/scheduling-linter/sweep:apply",
+            post(handlers::linter::apply),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config.clone(),
@@ -203,6 +268,8 @@ fn build_storage(cfg: &AppConfig) -> Result<Arc<dyn StorageBackend>, Box<dyn std
             .clone()
             .unwrap_or_else(|| cfg.data_dir.clone());
         std::fs::create_dir_all(&root).ok();
-        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(&root)?))
+        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(
+            &root,
+        )?))
     }
 }

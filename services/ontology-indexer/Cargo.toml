@@ -60,6 +60,14 @@ optional = true
 workspace = true
 optional = true
 
+[dev-dependencies.event-bus-data]
+workspace = true
+features = ["it"]
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread", "time"]
+
 [features]
 default = []
 # Production-side wiring: rdkafka subscriber + Prometheus metrics. Vespa is

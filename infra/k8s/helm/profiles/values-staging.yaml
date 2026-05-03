@@ -1,0 +1,23 @@
+global:
+  existingSecret: open-foundry-staging-env
+  deploymentFabric:
+    environment: staging
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: staging.openfoundry.example.com
+      paths:
+        - path: /
+  tls: []
+
+objectStore:
+  backend: rustfs
+  endpoint: http://rustfs:9000
+  region: us-east-1
+  forcePathStyle: true
+  buckets:
+    datasets: openfoundry-datasets
+    models: openfoundry-models
+    iceberg: openfoundry-iceberg

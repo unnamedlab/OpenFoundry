@@ -35,7 +35,10 @@ pub enum CredentialCryptoError {
 }
 
 /// Derive a 32-byte data-encryption key from process configuration.
-pub fn derive_key(env_key_b64: Option<&str>, jwt_secret: &str) -> Result<[u8; 32], CredentialCryptoError> {
+pub fn derive_key(
+    env_key_b64: Option<&str>,
+    jwt_secret: &str,
+) -> Result<[u8; 32], CredentialCryptoError> {
     if let Some(b64) = env_key_b64.map(str::trim).filter(|s| !s.is_empty()) {
         let raw = base64::engine::general_purpose::STANDARD
             .decode(b64)

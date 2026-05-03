@@ -18,11 +18,11 @@
 //! which we silently treat as a no-op).
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{
-    sanitize_doc_type, BulkOutcome, IndexDoc, ObjectId, Page, PagedResult, ReadConsistency,
-    RepoError, RepoResult, SearchBackend, SearchHit, SearchQuery, TenantId, TypeId, VectorQuery,
+    BulkOutcome, IndexDoc, ObjectId, Page, PagedResult, ReadConsistency, RepoError, RepoResult,
+    SearchBackend, SearchHit, SearchQuery, TenantId, TypeId, VectorQuery, sanitize_doc_type,
 };
 
 /// Vespa client. Construct with the cluster's HTTP endpoint
@@ -109,7 +109,13 @@ fn yql_escape(s: &str) -> String {
 
 fn sanitize_field(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -217,7 +223,10 @@ impl SearchBackend for VespaSearchBackend {
             type_id: None,
             q: None,
             filters: [("id".to_string(), id.0.clone())].into_iter().collect(),
-            page: Page { size: 1, token: None },
+            page: Page {
+                size: 1,
+                token: None,
+            },
         };
         let hits = self.search(q, ReadConsistency::Eventual).await?;
         let Some(hit) = hits.items.into_iter().next() else {
@@ -246,7 +255,10 @@ impl SearchBackend for VespaSearchBackend {
         _consistency: ReadConsistency,
     ) -> RepoResult<Vec<SearchHit>> {
         let mut where_clauses: Vec<String> = vec![
-            format!("{{targetHits:{k}}}nearestNeighbor(embedding, q)", k = query.k.max(1)),
+            format!(
+                "{{targetHits:{k}}}nearestNeighbor(embedding, q)",
+                k = query.k.max(1)
+            ),
             format!("tenant contains \"{}\"", yql_escape(&query.tenant.0)),
         ];
         if let Some(t) = &query.type_id {

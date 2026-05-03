@@ -41,9 +41,9 @@
 | `connector-management-service` | `connector-management-service` | keep | absorbs `virtual-table-service`, OAuth-data side of `oauth-integration-service` |
 | `conversation-state-service` | `agent-runtime-service` | merge → `agent-runtime-service` | |
 | `custom-endpoints-service` | `application-composition-service` | merge → `application-composition-service` | |
-| `data-asset-catalog-service` | `dataset-versioning-service` | merge → `dataset-versioning-service` | |
+| `data-asset-catalog-service` | `dataset-versioning-service` | merge → `dataset-versioning-service` | metadata/discovery only during transition; no runtime writes to `dataset_versions`, `dataset_branches`, `dataset_transactions` |
 | `dataset-quality-service` | `dataset-versioning-service` | merge → `dataset-versioning-service` | |
-| `dataset-versioning-service` | `dataset-versioning-service` | keep | |
+| `dataset-versioning-service` | `dataset-versioning-service` | keep | sole runtime owner of `dataset_versions`, `dataset_branches`, `dataset_transactions`; Iceberg owns snapshots/data state |
 | `developer-console-service` | `application-composition-service` | merge → `application-composition-service` | |
 | `document-intelligence-service` | `retrieval-context-service` | merge → `retrieval-context-service` | shares parser pipeline |
 | `document-reporting-service` | `notebook-runtime-service` | merge → `notebook-runtime-service` | |
@@ -123,9 +123,9 @@
 | keep | 30 |
 | merge → X (pending) | 60 |
 | delete (S8.1.a / S8.1.b explicit) | 3 |
-| sink (out of count) | 4 |
+| sink (out of count) | 3 |
 | **Total current** | **97** |
-| **Target** | **30 + 4 sinks** |
+| **Target** | **30 + 3 sinks** |
 
 ## Execution sequence
 

@@ -28,7 +28,7 @@ use std::{marker::PhantomData, str::FromStr, sync::Arc};
 use auth_middleware::Claims;
 use axum::{
     extract::FromRequestParts,
-    http::{request::Parts, StatusCode},
+    http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
 use cedar_policy::{
@@ -72,10 +72,7 @@ where
 {
     type Rejection = Response;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &S,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let claims = parts
             .extensions
             .get::<Claims>()
@@ -178,7 +175,10 @@ pub fn principal_entity_from_claims(claims: &Claims) -> Entity {
         .collect();
 
     let attrs = [
-        ("tenant".to_string(), RestrictedExpression::new_string(tenant)),
+        (
+            "tenant".to_string(),
+            RestrictedExpression::new_string(tenant),
+        ),
         (
             "clearances".to_string(),
             RestrictedExpression::new_set(clearances),
@@ -197,8 +197,7 @@ pub fn principal_entity_from_claims(claims: &Claims) -> Entity {
 /// Panics on malformed input — both arguments are statically known in
 /// every call site we have today.
 pub fn uid(type_name: &str, id: &str) -> EntityUid {
-    let type_name =
-        EntityTypeName::from_str(type_name).expect("static entity type name is valid");
+    let type_name = EntityTypeName::from_str(type_name).expect("static entity type name is valid");
     let id = EntityId::from_str(id).expect("entity id from string is infallible");
     EntityUid::from_type_name_and_id(type_name, id)
 }

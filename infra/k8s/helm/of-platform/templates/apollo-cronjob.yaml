@@ -1,0 +1,103 @@
+{{- if .Values.apollo.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-apollo" .Values.release | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "of-shared.labels" (dict "root" . "name" "apollo" "release" .Values.release) | nindent 4 }}
+spec:
+  schedule: {{ (.Values.apollo.schedule | default "*/15 * * * *") | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "of-shared.labels" (dict "root" . "name" "apollo" "release" .Values.release) | nindent 12 }}
+        spec:
+          serviceAccountName: edge-gateway-service
+          {{- with (.Values.global.imagePullSecrets | default (list)) }}
+          imagePullSecrets:
+            {{- range . }}
+            - name: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          restartPolicy: OnFailure
+          securityContext:
+            {{- toYaml (.Values.global.podSecurityContext | default dict) | nindent 12 }}
+          containers:
+            - name: apollo
+              image: {{ printf "%s/%s:%s" (coalesce .Values.global.imageRegistry "" ) (.Values.apollo.image.repository | default "curlimages/curl") (.Values.apollo.image.tag | default "8.8.0") | trimPrefix "/" }}
+              imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+              command:
+                - /bin/sh
+                - -ec
+              args:
+                - |
+                  set -eu
+                  call_api() {
+                    if [ -n "${APOLLO_TOKEN:-}" ]; then
+                      curl -fsS -H "Authorization: Bearer ${APOLLO_TOKEN}" "$1"
+                    else
+                      curl -fsS "$1"
+                    fi
+                  }
+                  post_api() {
+                    if [ -n "${APOLLO_TOKEN:-}" ]; then
+                      curl -fsS -X POST -H "Authorization: Bearer ${APOLLO_TOKEN}" "$1"
+                    else
+                      curl -fsS -X POST "$1"
+                    fi
+                  }
+                  readiness="$(call_api "${GATEWAY_URL}${READINESS_PATH}")"
+                  echo "Apollo readiness payload:"
+                  echo "${readiness}"
+                  echo "Apollo fleet inventory snapshot:"
+                  call_api "${GATEWAY_URL}${FLEETS_PATH}" || true
+                  if echo "${readiness}" | grep -q '"readiness":"ready"'; then
+                    echo "Upgrade readiness is green."
+                    if [ "${ACTION_MODE}" != "observe" ]; then
+                      for fleet_id in ${RECONCILE_FLEET_IDS}; do
+                        [ -n "${fleet_id}" ] || continue
+                        echo "Reconciling fleet ${fleet_id}"
+                        post_api "${GATEWAY_URL}/api/v1/marketplace/devops/fleets/${fleet_id}/sync"
+                      done
+                      if [ -n "${PROMOTE_WEBHOOK_PATH}" ]; then
+                        echo "Calling promote webhook ${PROMOTE_WEBHOOK_PATH}"
+                        post_api "${GATEWAY_URL}${PROMOTE_WEBHOOK_PATH}"
+                      fi
+                    fi
+                  else
+                    echo "Upgrade readiness is not green; Apollo will not promote."
+                  fi
+              env:
+                - name: GATEWAY_URL
+                  value: {{ include "of-shared.apolloGatewayUrl" . | quote }}
+                - name: READINESS_PATH
+                  value: {{ (.Values.apollo.readinessPath | default "/api/v1/control-panel/upgrade-readiness") | quote }}
+                - name: FLEETS_PATH
+                  value: {{ (.Values.apollo.fleetsPath | default "/api/v1/marketplace/devops/fleets") | quote }}
+                - name: ACTION_MODE
+                  value: {{ (.Values.apollo.actionMode | default "observe") | quote }}
+                - name: RECONCILE_FLEET_IDS
+                  value: {{ join " " (.Values.apollo.reconcileFleetIds | default (list)) | quote }}
+                - name: PROMOTE_WEBHOOK_PATH
+                  value: {{ (.Values.apollo.promoteWebhookPath | default "") | quote }}
+                {{- range $key, $value := (.Values.apollo.env | default dict) }}
+                - name: {{ $key }}
+                  value: {{ $value | quote }}
+                {{- end }}
+                {{- if .Values.apollo.tokenSecretName }}
+                - name: APOLLO_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.apollo.tokenSecretName }}
+                      key: {{ .Values.apollo.tokenSecretKey | default "token" }}
+                {{- end }}
+              securityContext:
+                {{- toYaml (.Values.global.containerSecurityContext | default dict) | nindent 16 }}
+              resources:
+                {{- toYaml (.Values.apollo.resources | default dict) | nindent 16 }}
+{{- end }}

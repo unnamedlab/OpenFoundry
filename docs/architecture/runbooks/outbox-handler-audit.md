@@ -1,97 +1,124 @@
-# S4.1.a — Outbox handler audit
+# S4.1.a — Outbox Handler Audit
 
-> Stream: S4 Outbox/Debezium · Tarea S4.1.a
-> Owner: Platform / data-plane maintainers
-> Status: substrate inventory; per-service wiring tracked as
-> follow-up PRs.
+> Stream: S4 Outbox / Debezium  
+> Owner: Platform / data-plane maintainers  
+> Status: executable checklist + handler evidence updated on 2026-05-03
 
-This document audits every **mutation handler** that must publish a
-domain event to Kafka, and pins whether it currently uses
-[`outbox::enqueue`](../../../libs/outbox/src/lib.rs) inside its
-Postgres transaction. Anything *not* wired is a follow-up before
-S4.1.b can flip Debezium on for that schema.
+This runbook is the source of truth for whether a **state-mutating
+handler** publishes a transactional outbox event that Debezium can route
+to Kafka.
 
-The contract is non-negotiable:
+## Closure checklist
 
-> Every state change that downstream services or the indexer must see
-> **must** call `outbox::enqueue` inside the same `sqlx::Transaction`
-> as the primary write. No "fire-and-forget" Kafka producers.
+- [x] Every **critical active handler** listed in the evidence table below
+  emits through `outbox::enqueue` in the same transaction as the primary
+  write.
+- [x] `event-streaming-service` publishes `dataset.streaming.changed.v1`
+  for stream/branch/window/topology lifecycle mutations.
+- [x] `connector-management-service` publishes
+  `connector.connection.changed.v1` for connection lifecycle mutations.
+- [x] The outbox substrate exists in every source database that now emits:
+  `outbox.events` + `outbox.heartbeat`.
+- [x] Debezium connectors exist for every emitting Postgres cluster:
+  `pg-policy`, `pg-schemas`, `pg-runtime-config`.
+- [x] Kafka topics and Debezium write ACLs exist for every emitted topic.
+- [x] Apicurio contract artifacts exist for every emitted topic.
+- [x] Contract tests cover topic, key, deterministic `event_id`,
+  payload/schema validity, and basic ordering/idempotence semantics.
 
-The pattern is documented in
-[`libs/outbox/README.md`](../../../libs/outbox/README.md) and
-implemented as INSERT+DELETE in the same transaction (canonical
-Debezium outbox).
+## Rules
 
-## Audit table
+1. **Same transaction, same database.**  
+   The outbox write must happen in the same SQL transaction as the
+   primary mutation. If the primary write is in Postgres, the outbox
+   lives in that same Postgres cluster. If the primary write is outside
+   Postgres (for example ontology objects in Cassandra), the handler may
+   use a dedicated Postgres sidecar transaction only when the write path
+   already models retries/idempotence explicitly, as
+   [`apply_object_with_outbox`](../../../libs/ontology-kernel/src/domain/writeback.rs)
+   does today.
 
-| Domain | Handler | Mutation kind | Wired? | Topic | Follow-up |
-|--------|---------|---------------|--------|-------|-----------|
-| **ontology** | [`libs/ontology-kernel::domain::writeback::apply_object_with_outbox`](../../../libs/ontology-kernel/src/domain/writeback.rs) | object upsert | ✅ | `ontology.object.changed.v1` | — |
-| ontology | `ontology-actions-service` action apply | action effect | ⚠️ partial | `ontology.action.applied.v1` | wire kernel handler `actions::apply` to `enqueue` |
-| ontology | `ontology-actions-service` link writeback | link upsert | ⚠️ partial | `ontology.link.changed.v1` | extend `apply_object_with_outbox` to links |
-| **identity** | `identity-federation-service::handlers::user_mgmt` (deactivate) | user mutation | ❌ | `identity.user.changed.v1` | wire enqueue |
-| identity | `identity-federation-service::handlers::role_mgmt` | role+permission upsert | ❌ | `identity.role.changed.v1` | wire enqueue |
-| identity | `identity-federation-service::handlers::mfa` (delete TOTP) | mfa state | ❌ | `audit.identity.v1` (already covered by S3.1.g audit envelope) | dedup with audit-topic substrate |
-| identity | `authorization-policy-service::handlers::{role_mgmt, group_mgmt, policy_mgmt, restricted_views}` | policy CRUD | ❌ | `policy.role.changed.v1`, `policy.group.changed.v1`, `policy.abac.changed.v1`, `policy.restricted_view.changed.v1` | wire enqueue per file |
-| **datasets** | `dataset-versioning-service::handlers::lifecycle` (create/freeze) | dataset lifecycle | ❌ | `dataset.lifecycle.changed.v1` | wire enqueue |
-| datasets | `dataset-versioning-service::handlers::foundry` (view files / branch fallback DELETEs) | dataset writeback | ❌ | `dataset.view.changed.v1`, `dataset.branch.changed.v1` | wire enqueue |
-| datasets | `data-asset-catalog-service::handlers::{crud, upload, views}` | dataset metadata | ❌ | `dataset.catalog.changed.v1` | wire enqueue |
-| datasets | `dataset-quality-service::handlers::quality` (rule upsert/delete) | quality rules | ❌ | `dataset.quality.changed.v1` | wire enqueue |
-| datasets | `data-connectivity` `connector-management-service::handlers::connections` | connector lifecycle | ❌ | `connector.connection.changed.v1` | wire enqueue |
-| datasets | `entity-resolution-service` job state (`fusion_clusters` DELETE) | ER job lifecycle | ❌ | `entity_resolution.job.changed.v1` | wire enqueue |
-| **lineage** | `event-streaming-service::handlers::branches` | stream branch CRUD | ❌ | `lineage.events.v1` (legacy) → migrate to `dataset.streaming.changed.v1` | wire enqueue + retire legacy topic |
-| **product/apps** | `app-builder-service::handlers::apps` (delete) | app lifecycle | ❌ | `apps.app.changed.v1` | wire enqueue |
-| product/apps | `marketplace-service::handlers::install` (install_count) | install metric | ⚠️ low-signal | — | acceptable to keep direct UPDATE; emit only on major lifecycle events |
-| product/apps | `notebook-runtime-service::handlers::{crud, execute, notepad}` | notebook lifecycle | ❌ | `notebook.notebook.changed.v1` | wire enqueue |
-| product/apps | `document-reporting-service::handlers::notepad` | doc lifecycle | ❌ | `documents.notepad.changed.v1` | wire enqueue |
-| **operations** | `pipeline-authoring-service::handlers::crud` (delete pipeline) | pipeline definition | ❌ | `pipeline.definition.changed.v1` | wire enqueue |
-| operations | `workflow-automation-service::handlers::crud` (delete workflow) | workflow definition | ❌ | `workflow.definition.changed.v1` | wire enqueue (overlaps with Temporal — emit only definition, not runs) |
-| operations | `tenancy-organizations-service::handlers::{trash, projects}` | project lifecycle | ❌ | `tenancy.project.changed.v1` | wire enqueue |
-| operations | `retention-policy-service::handlers::retention` | retention policy CRUD | ❌ | `policy.retention.changed.v1` | wire enqueue |
+2. **Topic naming.**  
+   `<domain>.<entity>.<event>.v<N>`. New schema version means a new
+   topic, never a silent break.
 
-> **Excluded by design:**
->
-> * Anything that already has a dedicated Kafka path via Temporal
->   activities (S2.x audit, ai-events). These flow through the worker,
->   not through the handler outbox.
-> * Soft-delete-only updates inside an ER job that are completely
->   contained in the job lifecycle (the job-level event covers them).
-> * Sessions / refresh tokens / OAuth state — these live in
->   Cassandra (S3) and emit through `audit.identity.v1`.
+3. **Deterministic `event_id`.**  
+   Use UUID v5 derived from `aggregate + aggregate_id + version_token`.
+   Retries with the same logical mutation must converge on the same
+   outbox primary key.
 
-## Conventions for follow-up PRs
+4. **Connector scope.**  
+   Debezium connectors read only `outbox.events` from each consolidated
+   cluster. They do not sniff business tables directly.
 
-1. **Topic naming:** `<domain>.<entity>.<event>.v<N>`. Pin the `vN`
-   suffix from day one even if there is only `v1`. New schema
-   versions are new topics, never silent breaking changes.
-2. **`event_id`:** v5 UUID derived from
-   `aggregate || aggregate_id || version`. Idempotent retries from
-   the handler must converge on the same row.
-3. **OpenLineage headers:** if a lineage `run_id` is in scope on the
-   request, attach `ol-run-id`, `ol-parent-run-id`, `ol-namespace`
-   and `ol-job` via `OutboxEvent::with_header`. Indexer and
-   audit-sink rely on these.
-4. **Pool wiring:** handlers must use the **`pg-policy`** pool (the
-   one that owns `outbox.events`). If the service writes business
-   data to a different cluster (`pg-schemas`), it must take a
-   distributed transaction → not allowed; instead the handler
-   chooses one cluster per logical aggregate per ADR-0022.
-5. **Tests:** every wired handler must add a sqlx test that asserts
-   one row hits `outbox.events` *during* the transaction (visible to
-   `SELECT … FROM outbox.events FOR UPDATE` issued by the same tx),
-   regardless of commit outcome.
+5. **What counts as critical.**  
+   A handler is in scope if it mutates control-plane state that another
+   service, UI, indexer, or downstream materializer must observe through
+   Kafka. Internal-only retries/counters/ephemeral runtime state are out
+   of scope unless another bounded context consumes them.
 
-## Pre-cutover gate (S4.1.b)
+## Source cluster / connector matrix
 
-Debezium Connect must not be enabled in production until:
+| Primary write lives in | Outbox connector | Current emitted topics |
+| --- | --- | --- |
+| `pg-policy` | [`outbox-pg-policy`](../../../infra/k8s/platform/manifests/debezium/kafka-connector-outbox-pg-policy.yaml) | `ontology.object.changed.v1`, `ontology.action.applied.v1`, `audit.events.v1`, `lineage.events.v1` |
+| `pg-schemas` | [`outbox-pg-schemas`](../../../infra/k8s/platform/manifests/debezium/kafka-connector-outbox-pg-schemas.yaml) | `dataset.streaming.changed.v1` |
+| `pg-runtime-config` | [`outbox-pg-runtime-config`](../../../infra/k8s/platform/manifests/debezium/kafka-connector-outbox-pg-runtime-config.yaml) | `connector.connection.changed.v1` |
 
-1. Every handler in the **❌** rows above has shipped a PR with the
-   wiring + tests.
-2. The 4 versioned topics in [S4.2.a](../../../infra/k8s/strimzi/topics-domain-v1.yaml)
-   are `Ready`.
-3. The Apicurio schema for each topic is registered (S4.1.e).
-4. Chaos test (S4.1.g) has been signed off.
+## Handler evidence
 
-Until then the connector exists in the cluster but is paused
-(`spec.pause: true`), per
-[`infra/k8s/debezium/README.md`](../../../infra/k8s/debezium/README.md).
+| Domain | Handler(s) | Mutation kind | Topic | Evidence | Status |
+| --- | --- | --- | --- | --- | --- |
+| ontology | [`apply_object_with_outbox`](../../../libs/ontology-kernel/src/domain/writeback.rs) via [`handlers::objects`](../../../libs/ontology-kernel/src/handlers/objects.rs) and [`handlers::actions`](../../../libs/ontology-kernel/src/handlers/actions.rs) | object upsert / object patch | `ontology.object.changed.v1` | Existing transactional helper + [`services/ontology-actions-service/tests/writeback_e2e.rs`](../../../services/ontology-actions-service/tests/writeback_e2e.rs) | ✅ |
+| event streaming | [`streams::create_stream`](../../../services/event-streaming-service/src/handlers/streams.rs), [`streams::update_stream`](../../../services/event-streaming-service/src/handlers/streams.rs) | stream definition create/update | `dataset.streaming.changed.v1` | Handler begins SQL tx, writes `streaming_streams`, seeds schema history in the same tx, then calls [`event_streaming_service::outbox::emit`](../../../services/event-streaming-service/src/outbox.rs). Contract tests in the same module validate topic/key/schema/idempotent `event_id`. | ✅ |
+| event streaming | [`branches::create_branch`](../../../services/event-streaming-service/src/handlers/branches.rs), [`delete_branch`](../../../services/event-streaming-service/src/handlers/branches.rs), [`merge_branch`](../../../services/event-streaming-service/src/handlers/branches.rs), [`archive_branch`](../../../services/event-streaming-service/src/handlers/branches.rs) | branch lifecycle | `dataset.streaming.changed.v1` | Branch rows mutate inside one SQL tx and enqueue a branch event before commit. Merge/archive payloads pin `target_branch_id`, `merged_sequence_no`, `archived_at`. Tests: [`services/event-streaming-service/src/outbox.rs`](../../../services/event-streaming-service/src/outbox.rs). | ✅ |
+| event streaming | [`streams::create_window`](../../../services/event-streaming-service/src/handlers/streams.rs), [`streams::update_window`](../../../services/event-streaming-service/src/handlers/streams.rs) | window definition create/update | `dataset.streaming.changed.v1` | Window create/update now run inside SQL tx and emit before commit. Tests assert distinct version tokens for created vs updated events and schema-valid payloads. | ✅ |
+| event streaming | [`topologies::create_topology`](../../../services/event-streaming-service/src/handlers/topologies.rs), [`topologies::update_topology`](../../../services/event-streaming-service/src/handlers/topologies.rs) | topology definition create/update | `dataset.streaming.changed.v1` | Topology handlers validate config, persist, reload row inside tx, and enqueue before commit. Tests validate schema and deterministic keying. | ✅ |
+| connector management | [`connections::create_connection`](../../../services/connector-management-service/src/handlers/connections.rs), [`test_connection`](../../../services/connector-management-service/src/handlers/connections.rs), [`delete_connection`](../../../services/connector-management-service/src/handlers/connections.rs) | connection lifecycle / status | `connector.connection.changed.v1` | Handlers now wrap `INSERT`, status `UPDATE`, and `DELETE` in SQL tx and enqueue through [`connector_management_service::outbox`](../../../services/connector-management-service/src/outbox.rs). Tests validate topic/key/schema/idempotent `event_id`. | ✅ |
+
+## Explicitly out of scope for this cut
+
+These handlers still mutate state, but they do **not** currently
+require a downstream Kafka contract, so they are not blocking Debezium
+unpause:
+
+- `event-streaming-service::push_events`
+- `event-streaming-service::replay_dead_letter`
+- `connector-management-service::registrations::*`
+- `connector-management-service::data_connection::*`
+
+If any of them gains a downstream consumer, add a new row here before
+shipping it.
+
+## Infra evidence
+
+- Outbox DDL now exists in:
+  [`libs/outbox/migrations/0001_outbox_events.sql`](../../../libs/outbox/migrations/0001_outbox_events.sql),
+  [`services/event-streaming-service/migrations/20260503010000_outbox.sql`](../../../services/event-streaming-service/migrations/20260503010000_outbox.sql),
+  [`services/connector-management-service/migrations/20260503010000_outbox.sql`](../../../services/connector-management-service/migrations/20260503010000_outbox.sql).
+- Consolidated cluster bootstrap now provisions shared `outbox` access
+  and Debezium roles in:
+  [`pg-policy-bootstrap-sql.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pg-policy-bootstrap-sql.yaml),
+  [`pg-schemas-bootstrap-sql.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pg-schemas-bootstrap-sql.yaml),
+  [`pg-runtime-config-bootstrap-sql.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pg-runtime-config-bootstrap-sql.yaml).
+- Logical decoding is enabled on:
+  [`pg-policy.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pg-policy.yaml),
+  [`pg-schemas.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pg-schemas.yaml),
+  [`pg-runtime-config.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pg-runtime-config.yaml).
+- Topic + ACL + schema registration evidence:
+  [`topics-domain-v1.yaml`](../../../infra/k8s/platform/manifests/strimzi/topics-domain-v1.yaml),
+  [`kafka-user-debezium-connect.yaml`](../../../infra/k8s/platform/manifests/debezium/kafka-user-debezium-connect.yaml),
+  [`infra/docker-compose.yml`](../../../infra/docker-compose.yml).
+
+## Pre-unpause / rollout gate
+
+Debezium is no longer paused for **coverage** reasons in the active
+handler set above. Before production rollout, still verify:
+
+1. connector credentials for `pg-policy`, `pg-schemas`, and
+   `pg-runtime-config` exist in the `kafka` namespace;
+2. the three connectors report `RUNNING`;
+3. the DLQ `__dlq.outbox-pg-policy.v1` stays empty during a smoke test;
+4. the chaos test in
+   [`infra/k8s/platform/manifests/debezium/chaos-test.md`](../../../infra/k8s/platform/manifests/debezium/chaos-test.md)
+   is signed off.

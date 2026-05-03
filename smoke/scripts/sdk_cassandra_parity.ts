@@ -1,22 +1,48 @@
-// S1.9.b — TypeScript SDK parity check post-Cassandra migration.
+// S1.9.b - TypeScript SDK parity check post-Cassandra migration.
 //
-// Ejerce los tres paths cubiertos por el bench S1.8:
-//   1. Read by id  (GET /api/v1/ontology/objects/{tenant}/{id})
-//   2. Read by type (GET …/{tenant}/by-type/{type_id})
-//   3. Action execute (POST /api/v1/ontology/actions/{id}/execute)
-//
-// El SDK no cambia con la migración: mismo proto, mismas rutas. Si
-// alguna llamada falla con un shape inesperado, S1.9.b reporta
-// regresión de contrato.
+// This smoke keeps the public runtime contract stable while the ontology hot
+// path moves to Cassandra. The generated SDK does not expose convenience
+// wrappers for the migrated runtime endpoints yet, so the script uses the
+// client's public request() escape hatch instead of changing SDK contracts.
 
-import { OpenFoundryClient } from '../../sdks/typescript/openfoundry-sdk/src/index';
+import { OpenFoundryClient } from '../../sdks/typescript/openfoundry-sdk/src/index.ts';
+
+type Check = {
+  name: string;
+  endpoint: string;
+  pass: boolean;
+  details?: Record<string, unknown>;
+  error?: string;
+};
 
 function envOrThrow(name: string): string {
-  const v = process.env[name];
-  if (!v) {
+  const value = process.env[name];
+  if (!value) {
     throw new Error(`${name} no definida`);
   }
-  return v;
+  return value;
+}
+
+function objectIdOf(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  const id = record.id ?? record.object_id;
+  return typeof id === 'string' ? id : undefined;
+}
+
+function listItemsOf(payload: unknown): unknown[] | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  const items = record.items ?? record.objects;
+  return Array.isArray(items) ? items : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function main() {
@@ -28,41 +54,114 @@ async function main() {
   const actionId = envOrThrow('OPENFOUNDRY_ACTION_ID');
 
   const client = new OpenFoundryClient({ baseUrl, token });
+  const checks: Check[] = [];
 
-  // 1. read by id (strong por defecto).
-  const byId = await client.ontology.getObject(tenant, objectId);
-  if (!byId || typeof byId !== 'object' || !('object_id' in byId)) {
-    throw new Error(`unexpected by-id payload shape: ${JSON.stringify(byId).slice(0, 200)}`);
+  async function runCheck(
+    name: string,
+    endpoint: string,
+    fn: () => Promise<Record<string, unknown>>,
+  ) {
+    try {
+      const details = await fn();
+      checks.push({ name, endpoint, pass: true, details });
+    } catch (error) {
+      checks.push({ name, endpoint, pass: false, error: errorMessage(error) });
+    }
   }
 
-  // 2. read by id eventual (cache path).
-  const byIdEventual = await client.ontology.getObject(tenant, objectId, {
-    consistency: 'eventual',
-  });
-  if (!byIdEventual || typeof byIdEventual !== 'object') {
-    throw new Error('unexpected eventual by-id payload');
-  }
+  await runCheck(
+    'read_by_id_strong',
+    'GET /api/v1/ontology/objects/{tenant}/{object_id}',
+    async () => {
+      const payload = await client.request<unknown>(
+        'GET',
+        '/api/v1/ontology/objects/{tenant}/{object_id}',
+        { tenant, object_id: objectId },
+        undefined,
+        undefined,
+        { headers: { 'X-Consistency': 'strong' } },
+      );
+      const returnedId = objectIdOf(payload);
+      if (returnedId !== objectId) {
+        throw new Error(`unexpected by-id payload shape/id: ${JSON.stringify(payload).slice(0, 200)}`);
+      }
+      return { returned_id: returnedId };
+    },
+  );
 
-  // 3. list by type.
-  const page = await client.ontology.listObjectsByType(tenant, typeId, { limit: 25 });
-  if (!Array.isArray(page.objects)) {
-    throw new Error(`list_by_type payload missing objects[]: ${JSON.stringify(page).slice(0, 200)}`);
-  }
+  await runCheck(
+    'read_by_id_eventual',
+    'GET /api/v1/ontology/objects/{tenant}/{object_id}',
+    async () => {
+      const payload = await client.request<unknown>(
+        'GET',
+        '/api/v1/ontology/objects/{tenant}/{object_id}',
+        { tenant, object_id: objectId },
+        undefined,
+        undefined,
+        { headers: { 'X-Consistency': 'eventual' } },
+      );
+      const returnedId = objectIdOf(payload);
+      if (!returnedId) {
+        throw new Error(`unexpected eventual by-id payload: ${JSON.stringify(payload).slice(0, 200)}`);
+      }
+      return { returned_id: returnedId };
+    },
+  );
 
-  // 4. action execute (idempotente; el helper apply_object_with_outbox absorbe replay).
-  const result = await client.ontology.executeAction(actionId, {
-    tenant_id: tenant,
-    target_object_id: objectId,
-    payload: { source: 'sdk-parity-ts' },
-  });
-  if (!result || typeof result !== 'object') {
-    throw new Error('unexpected execute payload');
-  }
+  await runCheck(
+    'list_by_type',
+    'GET /api/v1/ontology/objects/{tenant}/by-type/{type_id}',
+    async () => {
+      const payload = await client.request<unknown>(
+        'GET',
+        '/api/v1/ontology/objects/{tenant}/by-type/{type_id}',
+        { tenant, type_id: typeId },
+        { size: 25 },
+        undefined,
+      );
+      const items = listItemsOf(payload);
+      if (!items) {
+        throw new Error(`list_by_type payload missing items[]/objects[]: ${JSON.stringify(payload).slice(0, 200)}`);
+      }
+      return { returned_items: items.length };
+    },
+  );
 
-  console.log(JSON.stringify({ ok: true, byIdId: byId.object_id, listed: page.objects.length }));
+  await runCheck(
+    'action_execute',
+    'POST /api/v1/ontology/actions/{id}/execute',
+    async () => {
+      const payload = await client.request<unknown>(
+        'POST',
+        '/api/v1/ontology/actions/{id}/execute',
+        { id: actionId },
+        undefined,
+        {
+          target_object_id: objectId,
+          parameters: { source: 'sdk-parity-ts' },
+        },
+      );
+      if (!payload || typeof payload !== 'object') {
+        throw new Error(`unexpected execute payload: ${JSON.stringify(payload).slice(0, 200)}`);
+      }
+      return { response_shape: 'object' };
+    },
+  );
+
+  const pass = checks.every((check) => check.pass);
+  console.log(JSON.stringify({ client: 'typescript', pass, checks }));
+  if (!pass) {
+    process.exit(1);
+  }
 }
 
-main().catch((err) => {
-  console.error(JSON.stringify({ ok: false, error: String(err && err.message || err) }));
+main().catch((error) => {
+  console.log(JSON.stringify({
+    client: 'typescript',
+    pass: false,
+    checks: [],
+    error: errorMessage(error),
+  }));
   process.exit(1);
 });

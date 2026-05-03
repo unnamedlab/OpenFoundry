@@ -26,11 +26,11 @@ open and bypass the JWT layer.
 | `POST`   | `/actions`                                                                            | Create an action type (TASK G/H/J/K config envelope).                  |
 | `GET`    | `/actions/{id}`                                                                       | Fetch a single action type.                                            |
 | `PUT`    | `/actions/{id}`                                                                       | Update an action type.                                                 |
-| `DELETE` | `/actions/{id}`                                                                       | Soft delete (cascades into `action_executions`).                       |
+| `DELETE` | `/actions/{id}`                                                                       | Soft delete for the declarative action type.                           |
 | `POST`   | `/actions/{id}/validate`                                                              | Plan + validate without persisting (dry-run).                          |
 | `POST`   | `/actions/{id}/execute`                                                               | Execute against a single target.                                       |
 | `POST`   | `/actions/{id}/execute-batch`                                                         | Execute against ≤ 20 / ≤ 10 000 targets (TASK M caps).                 |
-| `GET`    | `/actions/{id}/metrics?window=30d`                                                    | Aggregated `success/failure/p95` from the `action_executions` ledger.  |
+| `GET`    | `/actions/{id}/metrics?window=30d`                                                    | Aggregated `success/failure/p95` from the Cassandra action log.        |
 | `GET`    | `/actions/{id}/what-if`                                                               | List what-if branches for an action.                                   |
 | `POST`   | `/actions/{id}/what-if`                                                               | Create a what-if branch.                                               |
 | `DELETE` | `/actions/{id}/what-if/{branch_id}`                                                   | Delete a what-if branch.                                               |
@@ -113,7 +113,7 @@ in-cluster service map declared in `services/edge-gateway-service/src/config.rs`
 | ------------------------------------- | ----------------------------- | ---------------------------------------------------------------- |
 | `HOST`                                | `0.0.0.0`                     | Bind address.                                                    |
 | `PORT`                                | `50106`                       | TCP port.                                                        |
-| `DATABASE_URL`                        | _(required)_                  | Postgres DSN; runs the migrations under `migrations/`.           |
+| `DATABASE_URL`                        | _(required)_                  | Postgres DSN for `outbox.events` plus residual legacy handler queries; the service no longer runs local migrations. |
 | `JWT_SECRET`                          | _(required)_                  | Shared with `enterprise-auth-service`.                           |
 | `AUDIT_SERVICE_URL`                   | `http://localhost:50115`      | `audit-compliance-service` — every execution emits an event.     |
 | `DATASET_SERVICE_URL`                 | `http://localhost:50079`      | Used when an action reads from datasets (TASK H).                |

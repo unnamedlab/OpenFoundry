@@ -5,10 +5,28 @@
 -->
 <script lang="ts">
   import type { PipelineNode } from '$lib/api/pipelines';
+  import MediaTransformEditor from './MediaTransformEditor.svelte';
   import TransformEditor from './TransformEditor.svelte';
 
   type Transform = 'sql' | 'python' | 'llm' | 'wasm' | 'passthrough';
   const TRANSFORMS: Transform[] = ['passthrough', 'sql', 'python', 'llm', 'wasm'];
+
+  // Media node `transform_type` values seeded by NodePalette. The
+  // inspector swaps the body editor for `MediaTransformEditor` and
+  // hides the transform-switch dropdown for these (changing the
+  // discriminator from a media kind to e.g. SQL would silently drop
+  // the per-kind config and break validation).
+  const MEDIA_TRANSFORM_TYPES = new Set([
+    'media_set_input',
+    'media_set_output',
+    'media_transform',
+    'convert_media_set_to_table_rows',
+    'get_media_references'
+  ]);
+
+  function isMedia(transform_type: string) {
+    return MEDIA_TRANSFORM_TYPES.has(transform_type);
+  }
 
   type Props = {
     node: PipelineNode | null;
@@ -111,18 +129,28 @@
       />
     </label>
 
-    <label>
-      <span>Transform</span>
-      <select
-        value={node.transform_type}
-        disabled={readonly}
-        onchange={(e) => setTransform((e.currentTarget as HTMLSelectElement).value as Transform)}
-      >
-        {#each TRANSFORMS as t (t)}
-          <option value={t}>{t}</option>
-        {/each}
-      </select>
-    </label>
+    {#if isMedia(node.transform_type)}
+      <label>
+        <span>Transform</span>
+        <input type="text" value={node.transform_type} readonly />
+        <p class="hint">
+          Media node — switch transform via the palette to keep config in sync.
+        </p>
+      </label>
+    {:else}
+      <label>
+        <span>Transform</span>
+        <select
+          value={node.transform_type}
+          disabled={readonly}
+          onchange={(e) => setTransform((e.currentTarget as HTMLSelectElement).value as Transform)}
+        >
+          {#each TRANSFORMS as t (t)}
+            <option value={t}>{t}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
 
     <fieldset>
       <legend>Depends on</legend>
@@ -166,15 +194,19 @@
       />
     </label>
 
-    <section class="body">
-      <h4>Body</h4>
-      <TransformEditor
-        transformType={node.transform_type as Transform}
-        value={bodyValue(node)}
-        readonly={readonly}
-        onChange={setBody}
-      />
-    </section>
+    {#if isMedia(node.transform_type)}
+      <MediaTransformEditor node={node} readonly={readonly} onChange={onChange} />
+    {:else}
+      <section class="body">
+        <h4>Body</h4>
+        <TransformEditor
+          transformType={node.transform_type as Transform}
+          value={bodyValue(node)}
+          readonly={readonly}
+          onChange={setBody}
+        />
+      </section>
+    {/if}
   </aside>
 {/if}
 

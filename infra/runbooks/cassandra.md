@@ -6,7 +6,7 @@ OpenFoundry usa **Apache Cassandra 5.0** (Apache-2.0) gestionado por
 queda explícitamente desactivado: los servicios Rust hablan CQL
 directamente con el crate `scylla`.
 
-Manifestos: `infra/k8s/cassandra/`
+Manifestos: `infra/k8s/platform/manifests/cassandra/`
 Runbooks relacionados:
 - `infra/runbooks/ceph.md` — los PVs de los nodos viven en
   `ceph-rbd-fast` (NVMe, replicación 3x con failure domain `zone`).
@@ -35,7 +35,7 @@ ADRs relacionadas:
 | TLS                     | Internode + cliente, certificados emitidos por cert-manager                   |
 
 Keyspaces aplicativas (creadas por
-[`keyspaces-job.yaml`](../k8s/cassandra/keyspaces-job.yaml)):
+[`keyspaces-job.yaml`](../k8s/platform/manifests/cassandra/keyspaces-job.yaml)):
 `ontology_objects`, `ontology_indexes`, `actions_log`, `auth_runtime`,
 `notifications_inbox`, `agent_state`. Las dos de Temporal
 (`temporal_persistence`, `temporal_visibility`) las gestiona el chart
@@ -73,7 +73,7 @@ kubectl -n cassandra port-forward svc/of-cass-prod-reaper-service 8080:8080
 
 # Última repair exitosa por keyspace (Prometheus).
 # Alerta: CassandraRepairOverdue (> 10 días) en
-# infra/k8s/cassandra/servicemonitor.yaml.
+# infra/k8s/platform/manifests/cassandra/servicemonitor.yaml.
 ```
 
 Forzar una repair manual de una keyspace concreta (ej. tras un

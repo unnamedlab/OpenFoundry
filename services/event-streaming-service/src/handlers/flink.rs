@@ -1,16 +1,20 @@
 //! REST handlers for the Flink runtime (Bloque D).
 
 use axum::{Json, extract::Path};
+#[cfg(not(feature = "flink-runtime"))]
+use axum::http::StatusCode;
 use serde_json::Value;
 use uuid::Uuid;
 
+#[cfg(not(feature = "flink-runtime"))]
+use crate::handlers::ErrorResponse;
+#[cfg(not(feature = "flink-runtime"))]
+use crate::runtime::flink::sql::{RenderedFlinkSql, render_flink_sql};
 use crate::{
     AppState,
     handlers::{ServiceResult, bad_request, db_error, not_found},
     models::topology::{TopologyDefinition, TopologyRow},
 };
-#[cfg(not(feature = "flink-runtime"))]
-use crate::runtime::flink::sql::{render_flink_sql, RenderedFlinkSql};
 
 async fn load_topology_row(db: &sqlx::PgPool, id: Uuid) -> Result<TopologyRow, sqlx::Error> {
     sqlx::query_as::<_, TopologyRow>(
@@ -31,7 +35,7 @@ async fn load_streams(
     db: &sqlx::PgPool,
 ) -> Result<Vec<crate::models::stream::StreamDefinition>, sqlx::Error> {
     let rows = sqlx::query_as::<_, crate::models::stream::StreamRow>(
-        "SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, schema_avro, schema_fingerprint, schema_compatibility_mode, default_marking, created_at, updated_at
+        "SELECT id, name, description, status, schema, source_binding, retention_hours, partitions, consistency_guarantee, stream_profile, schema_avro, schema_fingerprint, schema_compatibility_mode, default_marking, stream_type, compression, ingest_consistency, pipeline_consistency, checkpoint_interval_ms, created_at, updated_at
            FROM streaming_streams",
     )
     .fetch_all(db)
@@ -100,6 +104,25 @@ async fn deploy_inner(
     topology: TopologyDefinition,
     streams: Vec<crate::models::stream::StreamDefinition>,
 ) -> ServiceResult<DeployFlinkResponse> {
+    // If the operator asked for EXACTLY_ONCE on this topology or on
+    // any source stream, we cannot honour it without the Flink runtime
+    // feature compiled in (transactional sinks need the kube-managed
+    // FlinkDeployment). Surface that as a clear 401 with a
+    // human-readable message so the UI can render an actionable error
+    // instead of silently degrading to AT_LEAST_ONCE.
+    if crate::runtime::flink::effective_exactly_once(&topology, &streams) {
+        let message = format!(
+            "EXACTLY_ONCE requested for topology {} but the binary was built without --features flink-runtime",
+            topology.id
+        );
+        tracing::error!(topology_id = %topology.id, "{message}");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: format!("STREAM_EXACTLY_ONCE_REQUIRES_FLINK_RUNTIME: {message}"),
+            }),
+        ));
+    }
     let RenderedFlinkSql { script, warnings } = render_flink_sql(&topology, &streams);
     Ok(Json(DeployFlinkResponse {
         topology_id: topology.id,
@@ -107,8 +130,7 @@ async fn deploy_inner(
         namespace: topology.flink_namespace.clone(),
         sql_warnings: warnings,
         sql: script,
-        message: "rendered SQL only; build with --features flink-runtime to apply"
-            .to_string(),
+        message: "rendered SQL only; build with --features flink-runtime to apply".to_string(),
     }))
 }
 
@@ -126,10 +148,7 @@ pub async fn get_job_graph(
 }
 
 #[cfg(feature = "flink-runtime")]
-async fn job_graph_inner(
-    state: &AppState,
-    topology: &TopologyDefinition,
-) -> ServiceResult<Value> {
+async fn job_graph_inner(state: &AppState, topology: &TopologyDefinition) -> ServiceResult<Value> {
     use crate::handlers::internal_error;
     use crate::runtime::flink::job_graph;
     let deployment = topology
@@ -152,10 +171,7 @@ async fn job_graph_inner(
 }
 
 #[cfg(not(feature = "flink-runtime"))]
-async fn job_graph_inner(
-    _state: &AppState,
-    topology: &TopologyDefinition,
-) -> ServiceResult<Value> {
+async fn job_graph_inner(_state: &AppState, topology: &TopologyDefinition) -> ServiceResult<Value> {
     // Without the feature we still surface the topology-side DAG so the
     // UI can show *something*. We map nodes/edges into the same shape as
     // job_graph::normalise.

@@ -219,7 +219,7 @@ siguiente forma:
   dependencia de búsqueda por defecto para **DX local**, expuesta como
   un único contenedor single-node en `infra/docker-compose.yml`. Es el
   mismo motor que el de producción descrito en `infra/runbooks/vespa.md`
-  e `infra/k8s/helm/open-foundry/charts/vespa/`, lo que elimina la
+  e `infra/k8s/platform/charts/vespa/`, lo que elimina la
   divergencia DX↔producción que motivaba mantener Meilisearch.
 - **Meilisearch** se traslada a `infra/docker-compose.dev.yml` bajo el
   perfil opcional `--profile demo`. Solo se levanta cuando se quiere

@@ -16,6 +16,9 @@ pub struct Dataset {
     pub tags: Vec<String>,
     pub current_version: i32,
     pub active_branch: String,
+    pub metadata: serde_json::Value,
+    pub health_status: String,
+    pub current_view_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -26,6 +29,8 @@ pub struct CreateDatasetRequest {
     pub description: Option<String>,
     pub format: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    pub health_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +39,9 @@ pub struct UpdateDatasetRequest {
     pub description: Option<String>,
     pub owner_id: Option<Uuid>,
     pub tags: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
+    pub health_status: Option<String>,
+    pub current_view_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]

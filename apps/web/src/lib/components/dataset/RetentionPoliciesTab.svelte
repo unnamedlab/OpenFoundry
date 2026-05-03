@@ -1,276 +1,420 @@
 <!--
-  T4.4 — RetentionPoliciesTab
+  P4 — RetentionPoliciesTab.
 
-  Reproduces the layout of Datasets_assets/img_001.png:
+  Foundry's "View retention policies for a dataset [Beta]" surface
+  (Datasets.md § "Retention"). Five sections, top to bottom:
 
-    * A header row with the title and a "Only show policies relevant
-      to this branch" toggle (controls a boolean `relevantOnly` flag
-      that the parent forwards to the policy lookup).
-    * A scrollable list of policies, each rendered as a row with a
-      globe icon (because every policy applies platform-wide unless
-      overridden), the policy name, a small "System policy" /
-      "Project policy" badge, and a click handler that opens the
-      detail modal.
-    * The modal surfaces policy metadata + "Last applied at" and
-      "Next run".
+    1. Beta banner.
+    2. Inherited policies (Org → Space → Project), grouped tables.
+    3. Explicit policies on this dataset (manage role: inline CRUD).
+    4. Effective policy (winner-take, with the "why" line).
+    5. Preview deletions (slider, hits the retention-preview endpoint).
 
-  This is a *controlled* component: the parent owns the `policies`
-  array and refetches when `relevantOnly` flips. We deliberately do
-  not fetch from inside the tab so the dataset page can centralise
-  loading and error handling.
+  Self-fetches via the new `getApplicablePolicies` /
+  `getRetentionPreview` helpers in `$lib/api/datasets`.
 -->
+<script lang="ts" module>
+  import type { RetentionPolicy } from '$lib/api/datasets';
+  export type Mode = 'view' | 'manage';
+  export type { RetentionPolicy };
+</script>
+
 <script lang="ts">
-  type RetentionSelector = {
-    dataset_rid?: string;
-    project_id?: string;
-    marking_id?: string;
-    all_datasets?: boolean;
-  };
-
-  type RetentionCriteria = {
-    transaction_age_seconds?: number;
-    transaction_state?: string;
-    view_age_seconds?: number;
-    last_accessed_seconds?: number;
-  };
-
-  export type RetentionPolicy = {
-    id: string;
-    name: string;
-    is_system: boolean;
-    target_kind: string;
-    purge_mode: string;
-    grace_period_minutes: number;
-    selector: RetentionSelector;
-    criteria: RetentionCriteria;
-    last_applied_at?: string | null;
-    next_run_at?: string | null;
-    rules: string[];
-  };
+  import {
+    createRetentionPolicy,
+    deleteRetentionPolicy,
+    getApplicablePolicies,
+    getRetentionPreview,
+    type ApplicablePoliciesResponse,
+    type RetentionPreviewResponse,
+  } from '$lib/api/datasets';
 
   type Props = {
-    policies: RetentionPolicy[];
-    /** Controlled — parent flips this and refetches. */
-    relevantOnly: boolean;
-    onToggleRelevantOnly: (next: boolean) => void;
-    /** True while the parent is refetching the policy list. */
-    loading?: boolean;
+    datasetRid: string;
+    /** Pass dataset metadata so the resolver can match
+     *  inherited policies. The page already has these. */
+    projectId?: string;
+    spaceId?: string;
+    orgId?: string;
+    /** True when the current user has manage permission. Drives
+     *  CRUD visibility on the Explicit section. */
+    canManage?: boolean;
   };
 
-  const { policies, relevantOnly, onToggleRelevantOnly, loading = false }: Props = $props();
+  const {
+    datasetRid,
+    projectId,
+    spaceId,
+    orgId,
+    canManage = false,
+  }: Props = $props();
 
-  let openPolicyId = $state<string | null>(null);
-  const openPolicy = $derived(
-    openPolicyId ? policies.find((p) => p.id === openPolicyId) ?? null : null,
-  );
+  let applicable = $state<ApplicablePoliciesResponse | null>(null);
+  let preview = $state<RetentionPreviewResponse | null>(null);
+  let asOfDays = $state(0);
+  let loadingApplicable = $state(false);
+  let loadingPreview = $state(false);
+  let error = $state<string | null>(null);
+  let saving = $state(false);
 
-  function badgeFor(policy: RetentionPolicy): { label: string; classes: string } {
-    if (policy.is_system) {
-      return {
-        label: 'System policy',
-        classes:
-          'bg-indigo-100 text-indigo-800 ring-indigo-300 dark:bg-indigo-900/40 dark:text-indigo-200 dark:ring-indigo-700',
-      };
+  let lastApplicableKey = $state('');
+  let lastPreviewKey = $state('');
+
+  $effect(() => {
+    const key = JSON.stringify({ datasetRid, projectId, spaceId, orgId });
+    if (!datasetRid || key === lastApplicableKey) return;
+    lastApplicableKey = key;
+    void loadApplicable();
+  });
+
+  $effect(() => {
+    const key = JSON.stringify({ datasetRid, asOfDays });
+    if (!datasetRid || key === lastPreviewKey) return;
+    lastPreviewKey = key;
+    void loadPreview();
+  });
+
+  async function loadApplicable() {
+    loadingApplicable = true;
+    error = null;
+    try {
+      applicable = await getApplicablePolicies(datasetRid, {
+        project_id: projectId,
+        space_id: spaceId,
+        org_id: orgId,
+      });
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Applicable-policies failed.';
+    } finally {
+      loadingApplicable = false;
     }
-    if (policy.selector.project_id) {
-      return {
-        label: 'Project policy',
-        classes:
-          'bg-emerald-100 text-emerald-800 ring-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-700',
-      };
-    }
-    return {
-      label: 'Custom policy',
-      classes:
-        'bg-slate-100 text-slate-700 ring-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600',
-    };
   }
 
-  function fmtDate(iso?: string | null): string {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleString();
+  async function loadPreview() {
+    loadingPreview = true;
+    try {
+      preview = await getRetentionPreview(datasetRid, asOfDays, {
+        project_id: projectId,
+        space_id: spaceId,
+        org_id: orgId,
+      });
+    } catch (cause) {
+      // Preview failures are non-fatal — the rest of the tab still works.
+      preview = null;
+      console.warn('retention-preview failed', cause);
+    } finally {
+      loadingPreview = false;
+    }
   }
 
-  function describeCriteria(c: RetentionCriteria): string[] {
+  // Inline create form (manage role only).
+  let newName = $state('');
+  let newDays = $state<number>(30);
+
+  async function createExplicitPolicy() {
+    if (!newName.trim()) return;
+    saving = true;
+    try {
+      await createRetentionPolicy({
+        name: newName.trim(),
+        target_kind: 'transaction',
+        retention_days: newDays,
+        purge_mode: 'hard-delete-after-ttl',
+        selector: { dataset_rid: datasetRid },
+        updated_by: 'web-ui',
+      });
+      newName = '';
+      newDays = 30;
+      lastApplicableKey = '';
+      await loadApplicable();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not create policy.';
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function removeExplicit(id: string) {
+    if (!confirm('Delete this retention policy?')) return;
+    try {
+      await deleteRetentionPolicy(id);
+      lastApplicableKey = '';
+      await loadApplicable();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not delete policy.';
+    }
+  }
+
+  function fmtBytes(value: number): string {
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  function describePolicy(policy: RetentionPolicy): string {
     const parts: string[] = [];
-    if (c.transaction_state) parts.push(`transaction_state = ${c.transaction_state}`);
-    if (c.transaction_age_seconds !== undefined)
-      parts.push(`transaction_age ≥ ${c.transaction_age_seconds}s`);
-    if (c.view_age_seconds !== undefined) parts.push(`view_age ≥ ${c.view_age_seconds}s`);
-    if (c.last_accessed_seconds !== undefined)
-      parts.push(`last_accessed ≥ ${c.last_accessed_seconds}s`);
-    return parts.length ? parts : ['No structured criteria'];
+    parts.push(`${policy.target_kind}, ${policy.retention_days}d`);
+    if (policy.legal_hold) parts.push('legal hold');
+    if (policy.criteria.transaction_state)
+      parts.push(`state=${policy.criteria.transaction_state}`);
+    parts.push(`grace ${policy.grace_period_minutes}m`);
+    return parts.join(' · ');
+  }
+
+  function inheritedTotal(a: ApplicablePoliciesResponse | null): number {
+    if (!a) return 0;
+    return a.inherited.org.length + a.inherited.space.length + a.inherited.project.length;
+  }
+
+  function effectiveExplanation(a: ApplicablePoliciesResponse | null): string {
+    if (!a || !a.effective) return '';
+    if (a.conflicts.length === 0) {
+      return `Sole applicable policy.`;
+    }
+    const reasons = new Set(a.conflicts.map((c) => c.reason));
+    if (reasons.has('winner_has_legal_hold')) {
+      return `Wins because legal_hold = true overrides every other policy.`;
+    }
+    if (reasons.has('winner_has_lower_retention_days')) {
+      return `Wins as the most restrictive policy: lowest retention_days (${a.effective.retention_days}d).`;
+    }
+    return `Wins by specificity (explicit > project > space > org).`;
   }
 </script>
 
-<section class="space-y-4">
-  <header class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900 md:flex-row md:items-center md:justify-between">
-    <div>
-      <div class="text-xs uppercase tracking-[0.22em] text-gray-400">Retention policies</div>
-      <h2 class="mt-1 text-lg font-semibold">Retention</h2>
-      <p class="mt-1 text-sm text-gray-500">
-        Policies that govern how transactions, views and files are pruned from this dataset.
-      </p>
-    </div>
+<section class="space-y-4" data-component="retention-policies-tab">
+  <!-- 1) Beta banner -->
+  <div class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100" data-testid="retention-beta-banner">
+    <span class="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900 dark:text-amber-100">Beta</span>
+    <span title="Per Foundry docs, this view is in Beta phase">
+      Per Foundry docs, this view is in Beta phase.
+    </span>
+  </div>
 
-    <label class="inline-flex cursor-pointer items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-        checked={relevantOnly}
-        onchange={(event) => onToggleRelevantOnly((event.target as HTMLInputElement).checked)}
-      />
-      <span>Only show policies relevant to this branch</span>
-    </label>
-  </header>
-
-  {#if loading}
-    <div class="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900">
-      Loading retention policies…
+  {#if error}
+    <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-100" role="alert" data-testid="retention-error">
+      {error}
     </div>
-  {:else if policies.length === 0}
-    <div class="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900">
-      No retention policies apply to this dataset yet.
-    </div>
-  {:else}
-    <ul class="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:divide-gray-800 dark:border-gray-700 dark:bg-gray-900">
-      {#each policies as policy (policy.id)}
-        {@const badge = badgeFor(policy)}
-        <li>
-          <button
-            type="button"
-            class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-slate-50 focus:bg-slate-50 dark:hover:bg-gray-800 dark:focus:bg-gray-800"
-            onclick={() => (openPolicyId = policy.id)}
-          >
-            <span class="flex items-center gap-3">
-              <!-- Globe glyph: every policy targets the platform unless scoped down. -->
-              <svg
-                class="h-5 w-5 text-slate-500 dark:text-slate-300"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.6"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="9" />
-                <path d="M3 12h18M12 3a13.6 13.6 0 0 1 0 18M12 3a13.6 13.6 0 0 0 0 18" />
-              </svg>
-              <span class="flex flex-col">
-                <span class="font-medium">{policy.name}</span>
-                <span class="text-xs text-gray-500">
-                  {policy.target_kind} · {policy.purge_mode}
-                </span>
-              </span>
-            </span>
-            <span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ring-1 ${badge.classes}`}>
-              {badge.label}
-            </span>
-          </button>
-        </li>
-      {/each}
-    </ul>
   {/if}
-</section>
 
-{#if openPolicy}
-  {@const detail = openPolicy}
-  <div
-    class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="retention-policy-title"
-    onclick={() => (openPolicyId = null)}
-    onkeydown={(event) => {
-      if (event.key === 'Escape') openPolicyId = null;
-    }}
-    tabindex="-1"
-  >
-    <div
-      class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900"
-      role="document"
-      onclick={(event) => event.stopPropagation()}
-      onkeydown={(event) => event.stopPropagation()}
-      tabindex="-1"
-    >
-      <header class="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xs uppercase tracking-[0.22em] text-gray-400">
-            {badgeFor(detail).label}
-          </div>
-          <h3 id="retention-policy-title" class="mt-1 text-lg font-semibold">
-            {detail.name}
-          </h3>
+  <!-- 4) Effective policy summary up top: it's what users want first. -->
+  <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950" data-testid="retention-effective">
+    <div class="text-xs uppercase tracking-[0.18em] text-slate-400">Effective policy</div>
+    {#if loadingApplicable}
+      <div class="mt-2 text-sm text-slate-500">Resolving applicable policies…</div>
+    {:else if applicable?.effective}
+      <div class="mt-2 flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-base font-semibold" data-testid="effective-policy-name">{applicable.effective.name}</span>
+          {#if applicable.effective.is_system}
+            <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200">System</span>
+          {/if}
+          {#if applicable.effective.legal_hold}
+            <span class="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Legal hold</span>
+          {/if}
         </div>
-        <button
-          type="button"
-          class="rounded-md p-1 text-gray-500 hover:bg-slate-100 dark:hover:bg-gray-800"
-          aria-label="Close"
-          onclick={() => (openPolicyId = null)}
-        >
-          ✕
-        </button>
-      </header>
+        <div class="text-xs text-slate-500">{describePolicy(applicable.effective)}</div>
+        <div class="text-xs italic text-slate-500">{effectiveExplanation(applicable)}</div>
+      </div>
+    {:else}
+      <div class="mt-2 text-sm text-slate-500" data-testid="retention-empty">
+        No retention policies apply to this dataset yet.
+      </div>
+    {/if}
+  </section>
 
-      <dl class="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-gray-400">Target kind</dt>
-          <dd class="mt-0.5">{detail.target_kind}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-gray-400">Purge mode</dt>
-          <dd class="mt-0.5">{detail.purge_mode}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-gray-400">Grace period</dt>
-          <dd class="mt-0.5">{detail.grace_period_minutes} min</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-gray-400">Last applied at</dt>
-          <dd class="mt-0.5">{fmtDate(detail.last_applied_at)}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-gray-400">Next run</dt>
-          <dd class="mt-0.5">{fmtDate(detail.next_run_at)}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-gray-400">Selector</dt>
-          <dd class="mt-0.5">
-            {#if detail.selector.all_datasets}
-              All datasets
-            {:else if detail.selector.dataset_rid}
-              Dataset {detail.selector.dataset_rid}
-            {:else if detail.selector.project_id}
-              Project {detail.selector.project_id}
-            {:else if detail.selector.marking_id}
-              Marking {detail.selector.marking_id}
-            {:else}
-              —
+  <!-- 2) Inherited policies, one section per level. -->
+  <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950" data-testid="retention-inherited">
+    <div class="flex items-center justify-between">
+      <div>
+        <div class="text-xs uppercase tracking-[0.18em] text-slate-400">Inherited policies</div>
+        <p class="mt-1 text-sm text-slate-500">
+          Policies that apply via the org / space / project hierarchy.
+          {inheritedTotal(applicable)} inherited policy{inheritedTotal(applicable) === 1 ? '' : 's'}.
+        </p>
+      </div>
+    </div>
+
+    {#if applicable && inheritedTotal(applicable) > 0}
+      <div class="mt-3 space-y-3">
+        {@render InheritedGroup('Org', applicable.inherited.org, 'org')}
+        {@render InheritedGroup('Space', applicable.inherited.space, 'space')}
+        {@render InheritedGroup('Project', applicable.inherited.project, 'project')}
+      </div>
+    {:else if !loadingApplicable}
+      <div class="mt-3 text-sm text-slate-500">No inherited policies.</div>
+    {/if}
+  </section>
+
+  <!-- 3) Explicit policies on this dataset. -->
+  <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950" data-testid="retention-explicit">
+    <div class="flex items-center justify-between">
+      <div>
+        <div class="text-xs uppercase tracking-[0.18em] text-slate-400">Explicit policies on this dataset</div>
+        <p class="mt-1 text-sm text-slate-500">
+          {applicable?.explicit.length ?? 0} explicit polic{(applicable?.explicit.length ?? 0) === 1 ? 'y' : 'ies'}.
+        </p>
+      </div>
+    </div>
+
+    {#if applicable?.explicit && applicable.explicit.length > 0}
+      <ul class="mt-3 divide-y divide-slate-100 dark:divide-gray-800">
+        {#each applicable.explicit as policy (policy.id)}
+          <li class="flex flex-col gap-1 py-2 text-sm md:flex-row md:items-center md:justify-between" data-testid="explicit-row">
+            <div class="flex flex-col">
+              <span class="font-medium">{policy.name}</span>
+              <span class="text-xs text-slate-500">{describePolicy(policy)}</span>
+            </div>
+            {#if canManage}
+              <button
+                type="button"
+                class="self-start rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-200 dark:hover:bg-rose-950/40"
+                onclick={() => void removeExplicit(policy.id)}
+              >
+                Remove
+              </button>
             {/if}
-          </dd>
-        </div>
-      </dl>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <div class="mt-3 text-sm text-slate-500">No explicit policies on this dataset.</div>
+    {/if}
 
-      <div class="mt-4">
-        <div class="text-xs uppercase tracking-wide text-gray-400">Criteria</div>
-        <ul class="mt-1 space-y-1 text-sm">
-          {#each describeCriteria(detail.criteria) as line (line)}
-            <li class="rounded bg-slate-50 px-2 py-1 dark:bg-gray-800">{line}</li>
-          {/each}
-        </ul>
+    {#if canManage}
+      <form
+        class="mt-4 flex flex-wrap items-end gap-2 rounded-md bg-slate-50 p-3 text-sm dark:bg-gray-900"
+        onsubmit={(event) => {
+          event.preventDefault();
+          void createExplicitPolicy();
+        }}
+        data-testid="explicit-create-form"
+      >
+        <label class="flex flex-col">
+          <span class="text-xs uppercase tracking-wide text-slate-400">Name</span>
+          <input
+            class="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-900"
+            placeholder="e.g. operational-30d"
+            bind:value={newName}
+          />
+        </label>
+        <label class="flex flex-col">
+          <span class="text-xs uppercase tracking-wide text-slate-400">Retention days</span>
+          <input
+            type="number"
+            min="0"
+            class="mt-1 w-28 rounded-md border border-slate-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-900"
+            bind:value={newDays}
+          />
+        </label>
+        <button
+          type="submit"
+          class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          disabled={saving || !newName.trim()}
+        >
+          {saving ? 'Saving…' : 'Add policy'}
+        </button>
+      </form>
+    {/if}
+  </section>
+
+  <!-- 5) Preview deletions. -->
+  <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950" data-testid="retention-preview">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <div class="text-xs uppercase tracking-[0.18em] text-slate-400">Preview deletions</div>
+        <p class="mt-1 text-sm text-slate-500">
+          Simulate which transactions and files would be purged
+          {#if asOfDays === 0}today{:else}{asOfDays} day{asOfDays === 1 ? '' : 's'} from now{/if}.
+        </p>
+      </div>
+      <label class="flex w-full max-w-sm items-center gap-2 text-sm">
+        <span class="text-xs uppercase tracking-wide text-slate-400">As of</span>
+        <input
+          type="range"
+          min="0"
+          max="365"
+          step="1"
+          bind:value={asOfDays}
+          class="flex-1"
+          data-testid="retention-preview-slider"
+        />
+        <span class="w-16 text-right font-mono text-xs">{asOfDays}d</span>
+      </label>
+    </div>
+
+    {#if loadingPreview}
+      <div class="mt-3 text-sm text-slate-500">Computing preview…</div>
+    {:else if preview}
+      <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div class="rounded-md bg-slate-50 px-3 py-2 dark:bg-gray-900">
+          <div class="text-xs uppercase tracking-wide text-slate-400">Transactions</div>
+          <div class="mt-1 text-lg font-semibold" data-testid="preview-tx-count">
+            {preview.summary.transactions_would_delete} / {preview.summary.transactions_total}
+          </div>
+        </div>
+        <div class="rounded-md bg-slate-50 px-3 py-2 dark:bg-gray-900">
+          <div class="text-xs uppercase tracking-wide text-slate-400">Files</div>
+          <div class="mt-1 text-lg font-semibold">{preview.summary.files_total}</div>
+        </div>
+        <div class="rounded-md bg-slate-50 px-3 py-2 dark:bg-gray-900">
+          <div class="text-xs uppercase tracking-wide text-slate-400">Total size</div>
+          <div class="mt-1 text-lg font-semibold">{fmtBytes(preview.summary.bytes_total)}</div>
+        </div>
       </div>
 
-      {#if detail.rules.length}
-        <div class="mt-4">
-          <div class="text-xs uppercase tracking-wide text-gray-400">Rules</div>
-          <ul class="mt-1 flex flex-wrap gap-1">
-            {#each detail.rules as rule (rule)}
-              <li class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-gray-800 dark:text-gray-200">
-                {rule}
-              </li>
-            {/each}
-          </ul>
+      {#if preview.warnings.length > 0}
+        <div class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          {preview.warnings.join('; ')}
         </div>
       {/if}
+
+      {#if preview.transactions.some((t) => t.would_delete)}
+        <div class="mt-3 max-h-72 overflow-y-auto rounded-md border border-slate-200 dark:border-gray-800">
+          <table class="min-w-full text-xs">
+            <thead class="text-left uppercase tracking-wide text-slate-500">
+              <tr>
+                <th class="px-2 py-1">Transaction</th>
+                <th class="px-2 py-1">Status</th>
+                <th class="px-2 py-1">Policy</th>
+                <th class="px-2 py-1">Reason</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 font-mono dark:divide-gray-800">
+              {#each preview.transactions.filter((t) => t.would_delete) as txn (txn.id)}
+                <tr data-testid="preview-row">
+                  <td class="px-2 py-1" title={txn.id}>{txn.id.slice(0, 8)}</td>
+                  <td class="px-2 py-1">{txn.status}</td>
+                  <td class="px-2 py-1">{txn.policy_name ?? '—'}</td>
+                  <td class="px-2 py-1 text-slate-500">{txn.reason ?? '—'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    {/if}
+  </section>
+</section>
+
+{#snippet InheritedGroup(label: string, items: RetentionPolicy[], slug: string)}
+  {#if items.length > 0}
+    <div data-testid={`inherited-${slug}`}>
+      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <ul class="mt-1 divide-y divide-slate-100 dark:divide-gray-800">
+        {#each items as policy (policy.id)}
+          <li class="flex flex-col gap-1 py-1 text-sm md:flex-row md:items-center md:justify-between">
+            <span class="flex items-center gap-2">
+              <span>{policy.name}</span>
+              <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-700 dark:bg-gray-800 dark:text-gray-200" title={`Inherited from ${label}`}>
+                inherited from {label.toLowerCase()}
+              </span>
+            </span>
+            <span class="text-xs text-slate-500">{describePolicy(policy)}</span>
+          </li>
+        {/each}
+      </ul>
     </div>
-  </div>
-{/if}
+  {/if}
+{/snippet}

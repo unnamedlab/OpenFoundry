@@ -76,6 +76,13 @@ the headline groupings are:
 | `lineage-service` | `workflow-trace-service` |
 | `pipeline-build-service` | `pipeline-authoring-service`, `pipeline-schedule-service`, `compute-modules-control-plane-service`, `compute-modules-runtime-service` |
 
+Within this merge boundary, `dataset-versioning-service` is the only
+runtime owner of `dataset_versions`, `dataset_branches` and
+`dataset_transactions`. `data-asset-catalog-service` may retain
+read-side / declarative metadata temporarily, but snapshots and dataset
+data state are owned by Iceberg and must not be dual-written into
+Postgres runtime tables.
+
 ### Ontology plane (4 services + 1 sink)
 
 | Target service | Absorbs |
@@ -134,15 +141,16 @@ the headline groupings are:
 | `sdk-generation-service` | (unchanged) |
 | `entity-resolution-service` | (unchanged; specialised algorithms) |
 
-### Sinks & relays (3 binaries — kept independent)
+### Sinks (3 binaries — kept independent)
 
-`outbox-relay`, `audit-sink`, `ai-sink`, `ontology-indexer` — these
-are not service crates with their own ownership boundary, they are
-**Kafka consumers** with one job each. They are kept as separate
-binaries so they can be scaled, paused and restarted without touching
-the owning service.
+`audit-sink`, `ai-sink`, `ontology-indexer` — these are not service
+crates with their own ownership boundary, they are **Kafka consumers**
+with one job each. They are kept as separate binaries so they can be
+scaled, paused and restarted without touching the owning service.
+There is no `outbox-relay`: the transactional outbox is relayed by
+Debezium Kafka Connect per ADR-0022.
 
-### Result: 30 service binaries + 4 sinks = 34 deployables, 30 ownership boundaries.
+### Result: 30 service binaries + 3 sinks = 33 deployables, 30 ownership boundaries.
 
 The "≤ 30" target in the migration plan refers to ownership
 boundaries; sinks are infrastructure adapters and are excluded from

@@ -1,9 +1,20 @@
+pub mod aveva_pi;
 pub mod dataset_sink;
+pub mod external;
 pub mod http_source;
 pub mod kafka_sink;
 pub mod kafka_source;
+pub mod kinesis;
 pub mod nats_source;
+pub mod pubsub;
+pub mod source_trait;
+pub mod sqs;
 pub mod websocket_sink;
+
+pub use source_trait::{
+    ConnectorCheckpoint, ConnectorError, ConnectorHealth, ConnectorStatus, PullOptions,
+    SourceRecord, StreamingSourceConnector, StreamingSyncConfig,
+};
 
 use crate::models::{
     sink::{ConnectorCatalogEntry, LiveTailEvent},
@@ -25,6 +36,11 @@ pub fn catalog_entries(
             "kafka" => kafka_source::catalog_entry(stream),
             "nats" => nats_source::catalog_entry(stream),
             "http" => http_source::catalog_entry(stream),
+            "kinesis" => kinesis::catalog_entry(stream),
+            "sqs" => sqs::catalog_entry(stream),
+            "pubsub" => pubsub::catalog_entry(stream),
+            "aveva_pi" => aveva_pi::catalog_entry(stream),
+            "external" | "magritte" => external::catalog_entry(stream),
             _ => fallback_catalog_entry(&stream.source_binding, "source"),
         };
         entries.push(entry);

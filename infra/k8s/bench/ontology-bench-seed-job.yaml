@@ -1,0 +1,209 @@
+# One-shot Job that prepares `bench-tenant` for the k6 baseline:
+#
+#   Phase 1 — POPULATE:
+#     For each of T01..T10 type_ids (10 in total) execute the
+#     `bench.execute.upsert` action 5 000 times so the keyspace
+#     contains 50 000 objects laid out the same way as the
+#     cassandra-kernel integration test (type_{i % 10}, payload
+#     `{"i": N, "label": "row-N"}`, marking `PUBLIC`). 50 000 mirrors
+#     the working-set size of the IT and is the size at which
+#     ontology_indexes starts producing realistic SSTable counts.
+#
+#   Phase 2 — HARVEST:
+#     Call `benchmarks/ontology/k6/seed.sh` once per type_id with
+#     `OF_BENCH_SEED_COUNT=5000`. Each invocation appends the
+#     paged-out object_ids to /data/object-ids.txt on the shared
+#     PVC; that file is the input of the k6 mix harness.
+#
+# Idempotence: phase 1 uses deterministic external_ids
+# (`bench-T0X-NNNNN`) so re-running the Job is a no-op (the upsert
+# action returns 200 with no row-version bump). Re-running the Job
+# is therefore the supported way to top-up after a partial truncate.
+#
+# This Job MUST complete before the k6 CronJob is unsuspended /
+# triggered. It is not chained automatically because we want the
+# operator to inspect the populate counters in
+# /data/results/seed-summary.json before paying for a full bench run.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ontology-bench-seed
+  namespace: openfoundry-bench
+  labels:
+    app.kubernetes.io/name: ontology-bench-seed
+    app.kubernetes.io/component: fixture-loader
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ontology-bench-seed
+        app.kubernetes.io/component: fixture-loader
+    spec:
+      serviceAccountName: bench-runner
+      restartPolicy: OnFailure
+      # Same node class as k6 so we can amortise image pulls and so
+      # any local DNS caches are warm by the time the bench runs.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: topology.openfoundry.io/perf-zone
+                    operator: In
+                    values: ["bench"]
+      tolerations:
+        - { key: dedicated, operator: Equal, value: bench, effect: NoSchedule }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        fsGroup: 12345
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-dirs
+          image: busybox:1.37
+          command: ["sh", "-c", "mkdir -p /data/results && : > /data/object-ids.txt && chown -R 12345:12345 /data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - { name: artefacts, mountPath: /data }
+      containers:
+        - name: seed
+          # alpine + curl + jq + bash is enough for both phases. We
+          # pin to a digest-aware tag in the chart values; here we
+          # use the released tag for readability.
+          image: alpine/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: OF_BENCH_BASE_URL
+              value: "http://ontology-read.ontology.svc.cluster.local:8080"
+            - name: OF_BENCH_TENANT
+              value: "bench-tenant"
+            # Action that inserts/upserts an Object with the IT shape.
+            # Owned by the `bench` action package; see
+            # services/ontology/actions/bench.toml.
+            - name: OF_BENCH_SEED_ACTION_ID
+              value: "bench.execute.upsert"
+            - name: OF_BENCH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bench-credentials
+                  key: jwt
+            # 5 000 per type * 10 types == 50 000 objects total.
+            - name: OBJECTS_PER_TYPE
+              value: "5000"
+            - name: TYPE_COUNT
+              value: "10"
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              apk add --no-cache jq bash >/dev/null
+              # Install the canonical seed.sh shipped with the repo
+              # as a read-only ConfigMap mount.
+              install -m 0555 /scripts/seed.sh /tmp/seed.sh
+
+              SUMMARY=/data/results/seed-summary.json
+              echo '{"phases": []}' > "$SUMMARY"
+
+              # ---- Phase 1: populate -----------------------------------------
+              echo "phase=populate target=$((OBJECTS_PER_TYPE * TYPE_COUNT))"
+              populate_start=$(date +%s)
+              insert_total=0
+              for t in $(seq -w 1 "${TYPE_COUNT}"); do
+                type_id="bench-type-T${t}"
+                echo "  populating ${type_id} (${OBJECTS_PER_TYPE} objects)"
+                for i in $(seq 1 "${OBJECTS_PER_TYPE}"); do
+                  ext_id="bench-T${t}-$(printf '%05d' "$i")"
+                  # Body shape mirrors libs/cassandra-kernel IT:
+                  #   payload = {"i": N, "label": "row-N"}, marking PUBLIC.
+                  body=$(jq -nc --arg eid "$ext_id" --arg tid "$type_id" \
+                                --argjson i "$i" \
+                    '{external_id:$eid, type_id:$tid,
+                      payload:{i:$i, label:("row-"+($i|tostring))},
+                      markings:["PUBLIC"]}')
+                  # Best-effort: a 409 (already exists) is success on a
+                  # repeat run. Any other non-2xx counts as a failure.
+                  http_code=$(curl -sS -o /tmp/last.json -w '%{http_code}' \
+                    -H "Authorization: Bearer ${OF_BENCH_TOKEN}" \
+                    -H 'Content-Type: application/json' \
+                    -X POST \
+                    "${OF_BENCH_BASE_URL}/api/v1/ontology/actions/${OF_BENCH_SEED_ACTION_ID}/execute?tenant=${OF_BENCH_TENANT}" \
+                    -d "$body" || echo "000")
+                  case "$http_code" in
+                    2??|409) insert_total=$((insert_total + 1)) ;;
+                    *) echo "    insert failed: ext_id=$ext_id http=$http_code body=$(cat /tmp/last.json)"; exit 1 ;;
+                  esac
+                done
+              done
+              populate_elapsed=$(( $(date +%s) - populate_start ))
+              echo "phase=populate done inserted=${insert_total} elapsed_s=${populate_elapsed}"
+
+              # ---- Phase 2: harvest ids via seed.sh --------------------------
+              echo "phase=harvest"
+              harvest_start=$(date +%s)
+              : > /data/object-ids.txt
+              for t in $(seq -w 1 "${TYPE_COUNT}"); do
+                type_id="bench-type-T${t}"
+                echo "  harvesting ${type_id}"
+                # Hand seed.sh per-type and let it append to a tmp
+                # file, then concatenate into the canonical fixture.
+                tmp_out="/tmp/ids-${t}.txt"
+                OF_BENCH_TYPE_ID="${type_id}" \
+                OF_BENCH_SEED_COUNT="${OBJECTS_PER_TYPE}" \
+                OF_BENCH_BASE_URL="${OF_BENCH_BASE_URL}" \
+                OF_BENCH_TENANT="${OF_BENCH_TENANT}" \
+                OF_BENCH_TOKEN="${OF_BENCH_TOKEN}" \
+                  bash /tmp/seed.sh "${tmp_out}"
+                cat "${tmp_out}" >> /data/object-ids.txt
+              done
+              harvest_elapsed=$(( $(date +%s) - harvest_start ))
+              total_ids=$(wc -l < /data/object-ids.txt)
+              echo "phase=harvest done ids=${total_ids} elapsed_s=${harvest_elapsed}"
+
+              # ---- Summary ---------------------------------------------------
+              jq -n --argjson inserted "${insert_total}" \
+                    --argjson ids "${total_ids}" \
+                    --argjson populate_s "${populate_elapsed}" \
+                    --argjson harvest_s "${harvest_elapsed}" \
+                    --arg tenant "${OF_BENCH_TENANT}" \
+                    --argjson types "${TYPE_COUNT}" \
+                    --argjson per_type "${OBJECTS_PER_TYPE}" \
+                '{tenant:$tenant, types:$types, objects_per_type:$per_type,
+                  inserted:$inserted, harvested_ids:$ids,
+                  populate_seconds:$populate_s, harvest_seconds:$harvest_s}' \
+                > "$SUMMARY"
+
+              if [ "${total_ids}" -lt $((OBJECTS_PER_TYPE * TYPE_COUNT * 9 / 10)) ]; then
+                echo "harvest came up short: ${total_ids} < 90% of target" >&2
+                exit 2
+              fi
+
+              echo "seed complete; summary at ${SUMMARY}"
+          resources:
+            requests: { cpu: "500m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "512Mi" }
+          volumeMounts:
+            - { name: scripts,   mountPath: /scripts, readOnly: true }
+            - { name: artefacts, mountPath: /data }
+            - { name: tmp,       mountPath: /tmp }
+      volumes:
+        - name: scripts
+          configMap:
+            name: bench-k6-scripts
+            defaultMode: 0o555
+        - name: artefacts
+          persistentVolumeClaim:
+            claimName: bench-artefacts
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

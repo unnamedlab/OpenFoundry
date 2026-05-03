@@ -33,8 +33,8 @@ use std::time::Instant;
 
 use bytes::Bytes;
 use futures::TryStreamExt;
-use object_store::{ObjectStore, path::Path as OsPath};
 use object_store::gcp::GoogleCloudStorageBuilder;
+use object_store::{ObjectStore, path::Path as OsPath};
 use serde_json::{Value, json};
 
 use super::{ConnectionTestResult, SyncPayload, add_source_signature, open_table_catalog};
@@ -312,12 +312,12 @@ mod tests {
         assert!(validate_config(&json!({})).is_err());
         assert!(validate_config(&json!({"bucket":"b"})).is_err());
         assert!(validate_config(&json!({"bucket":"b","access_token":"t"})).is_ok());
+        assert!(validate_config(&json!({"bucket":"b","application_default":true})).is_ok());
         assert!(
-            validate_config(&json!({"bucket":"b","application_default":true})).is_ok()
-        );
-        assert!(
-            validate_config(&json!({"bucket":"b","service_account_json":{"type":"service_account"}}))
-                .is_ok()
+            validate_config(
+                &json!({"bucket":"b","service_account_json":{"type":"service_account"}})
+            )
+            .is_ok()
         );
     }
 
@@ -333,7 +333,10 @@ mod tests {
 
     #[test]
     fn file_name_falls_back_when_selector_is_a_prefix() {
-        assert_eq!(file_name_from_selector("a/b/c.parquet", "parquet"), "c.parquet");
+        assert_eq!(
+            file_name_from_selector("a/b/c.parquet", "parquet"),
+            "c.parquet"
+        );
         assert_eq!(file_name_from_selector("", "csv"), "gcs_object.csv");
     }
 

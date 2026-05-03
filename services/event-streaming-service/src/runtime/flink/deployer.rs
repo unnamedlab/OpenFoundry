@@ -7,21 +7,21 @@
 //!      image, with `args` pointing at the ConfigMap.
 //!   3. A `FlinkSessionJob` is intentionally skipped — `mode: native`
 //!      runs the job inside the same FlinkDeployment, which is the
-//!      shape used by `infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml`
+//!      shape used by `infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml`
 //!      in production. The `FlinkSessionJob` path is left as a TODO.
 //!
 //! Both resources are upserted via SSA (`Patch::Apply`) so the
 //! deployer is idempotent.
 
-use kube::api::{Api, ApiResource, DynamicObject, Patch, PatchParams, PostParams};
 use kube::Client;
-use serde_json::{json, Value};
+use kube::api::{Api, ApiResource, DynamicObject, Patch, PatchParams, PostParams};
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::models::stream::StreamDefinition;
 use crate::models::topology::TopologyDefinition;
-use crate::runtime::flink::sql::{render_flink_sql, RenderedFlinkSql};
+use crate::runtime::flink::sql::{RenderedFlinkSql, render_flink_sql};
 use crate::runtime::flink::{FlinkJobCoords, FlinkRuntimeConfig};
 
 const FIELD_MANAGER: &str = "event-streaming-service";
@@ -70,7 +70,7 @@ pub async fn deploy_topology(
         .map_err(|e| DeployerError::Kube(e.to_string()))?;
 
     apply_sql_configmap(&client, &namespace, &deployment_name, &sql.script).await?;
-    apply_flink_deployment(&client, cfg, &namespace, &deployment_name, topology).await?;
+    apply_flink_deployment(&client, cfg, &namespace, &deployment_name, topology, streams).await?;
 
     sqlx::query(
         "UPDATE streaming_topologies
@@ -111,8 +111,14 @@ async fn apply_sql_configmap(
             namespace: Some(namespace.to_string()),
             labels: Some(
                 [
-                    ("app.kubernetes.io/managed-by".to_string(), FIELD_MANAGER.to_string()),
-                    ("openfoundry.io/component".to_string(), "flink-sql".to_string()),
+                    (
+                        "app.kubernetes.io/managed-by".to_string(),
+                        FIELD_MANAGER.to_string(),
+                    ),
+                    (
+                        "openfoundry.io/component".to_string(),
+                        "flink-sql".to_string(),
+                    ),
                 ]
                 .into_iter()
                 .collect(),
@@ -142,6 +148,7 @@ async fn apply_flink_deployment(
     namespace: &str,
     deployment: &str,
     topology: &TopologyDefinition,
+    streams: &[StreamDefinition],
 ) -> Result<(), DeployerError> {
     let resource = ApiResource {
         group: "flink.apache.org".into(),
@@ -152,7 +159,7 @@ async fn apply_flink_deployment(
     };
     let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &resource);
 
-    let body = render_flink_deployment_manifest(cfg, namespace, deployment, topology);
+    let body = render_flink_deployment_manifest(cfg, namespace, deployment, topology, streams);
     // We round-trip through DynamicObject so kube's typed Patch::Apply
     // gets the right TypeMeta wired up.
     let dyn_obj: DynamicObject = serde_json::from_value(body)
@@ -188,13 +195,16 @@ pub fn render_flink_deployment_manifest(
     namespace: &str,
     deployment: &str,
     topology: &TopologyDefinition,
+    streams: &[StreamDefinition],
 ) -> Value {
     let checkpoint_dir = format!("{}/checkpoints/{}", cfg.state_bucket_uri, deployment);
     let savepoint_dir = format!("{}/savepoints/{}", cfg.state_bucket_uri, deployment);
     let ha_dir = format!("{}/ha/{}", cfg.state_bucket_uri, deployment);
-    let checkpointing_mode = match topology.consistency_guarantee.as_str() {
-        "exactly-once" => "EXACTLY_ONCE",
-        _ => "AT_LEAST_ONCE",
+    let exactly_once = super::effective_exactly_once(topology, streams);
+    let checkpointing_mode = if exactly_once {
+        "EXACTLY_ONCE"
+    } else {
+        "AT_LEAST_ONCE"
     };
 
     json!({
@@ -299,8 +309,7 @@ pub async fn delete_topology(
             tracing::warn!("delete FlinkDeployment failed (ignored): {e}");
             DeployerError::Kube(e.to_string())
         });
-    let cm: Api<k8s_openapi::api::core::v1::ConfigMap> =
-        Api::namespaced(client, &coords.namespace);
+    let cm: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client, &coords.namespace);
     let _ = cm
         .delete(
             &format!("{}-sql", coords.deployment_name),
@@ -329,7 +338,7 @@ mod tests {
         };
         let topology = sample_topology();
         let manifest =
-            render_flink_deployment_manifest(&cfg, "flink", "topo-demo", &topology);
+            render_flink_deployment_manifest(&cfg, "flink", "topo-demo", &topology, &[]);
         assert_eq!(manifest["kind"], Value::String("FlinkDeployment".into()));
         assert_eq!(
             manifest["metadata"]["labels"]["openfoundry.io/topology-id"],

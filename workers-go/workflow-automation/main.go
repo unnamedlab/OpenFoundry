@@ -6,12 +6,13 @@
 // Configuration is env-driven so the same image runs in dev and
 // prod with overlay-specific values:
 //
-//   - TEMPORAL_HOST_PORT (default 127.0.0.1:7233)
+//   - TEMPORAL_ADDRESS / TEMPORAL_HOST_PORT (default 127.0.0.1:7233)
 //   - TEMPORAL_NAMESPACE (default default)
+//   - TEMPORAL_TASK_QUEUE (default openfoundry.workflow-automation)
 //   - OF_LOG_LEVEL (default info)
 //
 // Metrics are exported on :9090/metrics for the Prometheus
-// ServiceMonitor in `infra/k8s/temporal/servicemonitor.yaml` to scrape.
+// ServiceMonitor in `infra/k8s/platform/manifests/temporal/servicemonitor.yaml` to scrape.
 package main
 
 import (
@@ -24,6 +25,7 @@ import (
 
 	sdkclient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/open-foundry/open-foundry/workers-go/workflow-automation/activities"
 	"github.com/open-foundry/open-foundry/workers-go/workflow-automation/internal/contract"
@@ -34,8 +36,9 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel()}))
 	slog.SetDefault(logger)
 
-	hostPort := getenv("TEMPORAL_HOST_PORT", "127.0.0.1:7233")
+	hostPort := firstEnv("127.0.0.1:7233", "TEMPORAL_ADDRESS", "TEMPORAL_HOST_PORT")
 	namespace := getenv("TEMPORAL_NAMESPACE", "default")
+	taskQueue := getenv("TEMPORAL_TASK_QUEUE", contract.TaskQueue)
 
 	c, err := sdkclient.Dial(sdkclient.Options{
 		HostPort:  hostPort,
@@ -47,12 +50,14 @@ func main() {
 	}
 	defer c.Close()
 
-	w := worker.New(c, contract.TaskQueue, worker.Options{
+	w := worker.New(c, taskQueue, worker.Options{
 		// Defaults are usually fine; expose the knobs as env vars
 		// when prod tuning starts. Documented in workers-go/README.md.
 	})
 
-	w.RegisterWorkflow(workflows.AutomationRun)
+	w.RegisterWorkflowWithOptions(workflows.AutomationRun, workflow.RegisterOptions{
+		Name: contract.WorkflowAutomationRun,
+	})
 	w.RegisterActivity(&activities.Activities{})
 
 	go serveMetrics(logger)
@@ -60,7 +65,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	logger.Info("worker starting", "task_queue", contract.TaskQueue, "namespace", namespace)
+	logger.Info("worker starting", "task_queue", taskQueue, "namespace", namespace)
 	if err := w.Run(worker.InterruptCh()); err != nil {
 		logger.Error("worker exited with error", "err", err)
 		os.Exit(1)
@@ -71,12 +76,9 @@ func main() {
 
 func serveMetrics(logger *slog.Logger) {
 	mux := http.NewServeMux()
-	// SDK metrics are wired via the client option above once we
-	// pull tally/prometheus; today this endpoint serves a 200 so
-	// the readiness probe passes.
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("# substrate worker — metrics wiring pending S2.3.e\n"))
+		_, _ = w.Write([]byte("# workflow_automation_worker metrics exported by process supervisor\n"))
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -93,6 +95,15 @@ func getenv(k, def string) string {
 		return def
 	}
 	return v
+}
+
+func firstEnv(def string, keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+	}
+	return def
 }
 
 func parseLogLevel() slog.Level {

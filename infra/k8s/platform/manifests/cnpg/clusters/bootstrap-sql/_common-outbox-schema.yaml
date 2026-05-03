@@ -1,0 +1,45 @@
+---
+# Shared bootstrap fragment — `outbox` schema + tables.
+#
+# Referenced from every CNPG cluster's
+# `bootstrap.initdb.postInitApplicationSQLRefs` BEFORE the
+# cluster-specific bootstrap, so that subsequent fragments can grant
+# privileges on `outbox.events` / `outbox.heartbeat` to per-service
+# roles without re-declaring the DDL.
+#
+# Single source of truth for the `outbox.*` schema. Keep byte-equivalent
+# with the sqlx migration in `libs/outbox/migrations/0001_outbox_events.sql`
+# and with `infra/local/postgres-init/02-pg-policy-outbox.sh` (Compose).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cnpg-common-outbox-schema
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/component: bootstrap-sql
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/shared: "true"
+data:
+  bootstrap.sql: |
+    -- ============================================================
+    -- outbox schema (shared across all CNPG clusters)
+    -- ============================================================
+    CREATE SCHEMA IF NOT EXISTS outbox AUTHORIZATION app;
+
+    CREATE TABLE IF NOT EXISTS outbox.events (
+        event_id     uuid PRIMARY KEY,
+        aggregate    text NOT NULL,
+        aggregate_id text NOT NULL,
+        payload      jsonb NOT NULL,
+        headers      jsonb NOT NULL DEFAULT '{}'::jsonb,
+        topic        text NOT NULL,
+        created_at   timestamptz NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS outbox.heartbeat (
+        id           text PRIMARY KEY,
+        last_seen_at timestamptz NOT NULL DEFAULT now()
+    );
+
+    ALTER TABLE outbox.events REPLICA IDENTITY FULL;

@@ -30,7 +30,7 @@ pub async fn list_shared_property_types(
     let search = params.search.unwrap_or_default();
     let search_pattern = format!("%{search}%");
 
-    let total = sqlx::query_scalar::<_, i64>(
+    let total = crate::domain::pg_repository::scalar::<i64>(
         r#"SELECT COUNT(*)
            FROM shared_property_types
            WHERE name ILIKE $1 OR display_name ILIKE $1 OR property_type ILIKE $1"#,
@@ -40,7 +40,7 @@ pub async fn list_shared_property_types(
     .await
     .unwrap_or(0);
 
-    let data = sqlx::query_as::<_, SharedPropertyType>(
+    let data = crate::domain::pg_repository::typed::<SharedPropertyType>(
         r#"SELECT id, name, display_name, description, property_type, required, unique_constraint,
                   time_dependent, default_value, validation_rules, owner_id, created_at, updated_at
            FROM shared_property_types
@@ -89,7 +89,7 @@ pub async fn create_shared_property_type(
     let display_name = body.display_name.unwrap_or_else(|| name.clone());
     let description = body.description.unwrap_or_default();
 
-    match sqlx::query_as::<_, SharedPropertyType>(
+    match crate::domain::pg_repository::typed::<SharedPropertyType>(
         r#"INSERT INTO shared_property_types (
                id, name, display_name, description, property_type, required,
                unique_constraint, time_dependent, default_value, validation_rules, owner_id
@@ -127,7 +127,7 @@ pub async fn get_shared_property_type(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query_as::<_, SharedPropertyType>(
+    match crate::domain::pg_repository::typed::<SharedPropertyType>(
         r#"SELECT id, name, display_name, description, property_type, required, unique_constraint,
                   time_dependent, default_value, validation_rules, owner_id, created_at, updated_at
            FROM shared_property_types
@@ -152,7 +152,7 @@ pub async fn update_shared_property_type(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateSharedPropertyTypeRequest>,
 ) -> impl IntoResponse {
-    let existing = match sqlx::query_as::<_, SharedPropertyType>(
+    let existing = match crate::domain::pg_repository::typed::<SharedPropertyType>(
         r#"SELECT id, name, display_name, description, property_type, required, unique_constraint,
                   time_dependent, default_value, validation_rules, owner_id, created_at, updated_at
            FROM shared_property_types
@@ -177,7 +177,7 @@ pub async fn update_shared_property_type(
         }
     }
 
-    match sqlx::query_as::<_, SharedPropertyType>(
+    match crate::domain::pg_repository::typed::<SharedPropertyType>(
         r#"UPDATE shared_property_types
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -216,7 +216,7 @@ pub async fn delete_shared_property_type(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM shared_property_types WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM shared_property_types WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await
@@ -235,7 +235,7 @@ pub async fn attach_shared_property_type_to_type(
     State(state): State<AppState>,
     Path((type_id, shared_property_type_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    match sqlx::query_as::<_, ObjectTypeSharedPropertyBinding>(
+    match crate::domain::pg_repository::typed::<ObjectTypeSharedPropertyBinding>(
         r#"INSERT INTO object_type_shared_property_types (object_type_id, shared_property_type_id)
            VALUES ($1, $2)
            ON CONFLICT (object_type_id, shared_property_type_id) DO NOTHING
@@ -265,7 +265,7 @@ pub async fn list_type_shared_property_types(
     State(state): State<AppState>,
     Path(type_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query_as::<_, SharedPropertyType>(
+    match crate::domain::pg_repository::typed::<SharedPropertyType>(
         r#"SELECT spt.id, spt.name, spt.display_name, spt.description, spt.property_type,
                   spt.required, spt.unique_constraint, spt.time_dependent, spt.default_value,
                   spt.validation_rules, spt.owner_id, spt.created_at, spt.updated_at
@@ -292,7 +292,7 @@ pub async fn detach_shared_property_type_from_type(
     State(state): State<AppState>,
     Path((type_id, shared_property_type_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    match sqlx::query(
+    match crate::domain::pg_repository::raw(
         r#"DELETE FROM object_type_shared_property_types
            WHERE object_type_id = $1 AND shared_property_type_id = $2"#,
     )

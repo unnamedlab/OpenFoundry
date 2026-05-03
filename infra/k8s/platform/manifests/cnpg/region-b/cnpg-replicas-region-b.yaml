@@ -1,0 +1,309 @@
+---
+# S7.4.a — CNPG replica clusters in region B (cross-region streaming).
+#
+# Mirrors the four consolidated production clusters from
+# `infra/k8s/platform/manifests/cnpg/clusters/`:
+#
+#   * pg-schemas         (catalog/registry/definition/metadata schemas)
+#   * pg-policy          (authz policies, mandatory controls)
+#   * pg-runtime-config  (per-service runtime configuration)
+#   * pg-lakekeeper      (Iceberg REST catalog backing store)
+#
+# Each replica is a CNPG `Cluster` with `replica.enabled: true` that
+# attaches to the primary's WAL stream via the standard physical
+# replication protocol (`primary_conninfo` is rendered by the operator
+# from the `externalClusters` block).
+#
+# Why streaming and not WAL shipping from S3:
+#   * Lower lag (sub-second under healthy WAN vs. minutes for archive
+#     replay).
+#   * `barmanObjectStore` archives are still configured locally on the
+#     replicas as a tertiary backup (`destinationPath` differs to avoid
+#     overwriting region A's WAL archive).
+#   * `recovery` bootstrap uses the source cluster's most recent base
+#     backup from S3, then switches to streaming once caught up.
+#
+# Failover semantics:
+#   * Replicas remain in `replica` mode (read-only) under healthy
+#     conditions. They reject writes by virtue of being standbys —
+#     belt-and-braces independent of any application gating.
+#   * Promotion is documented in `infra/runbooks/postgres-promotion.md`
+#     (S7.4.b). It is intentionally manual: there is no automatic
+#     leader election across regions to avoid split-brain on a network
+#     partition.
+#
+# Network requirements (assumed pre-provisioned, out of scope here):
+#   * region B can resolve and reach
+#     `pg-<name>-rw.openfoundry-region-a.svc.openfoundry.example.com:5432`
+#     over TLS (typically through a Submariner / Cilium ClusterMesh /
+#     dedicated tunnel).
+#   * The Secret `pg-<name>-replica-superuser` (in namespace
+#     `openfoundry` of region B) carries the `streaming_replica` role
+#     credentials issued by the region-A primary, plus a `ca.crt`
+#     trusted by the standby for server verification.
+#
+# Backup paths in region B use the suffix `/region-b/<cluster>/` so
+# they cannot collide with region A's WAL archive on the same Ceph S3
+# endpoint should both regions ever share a bucket.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-schemas-replica
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-schemas-replica
+    app.kubernetes.io/component: postgres
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: schemas-replica
+    openfoundry.io/dr-role: standby
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+
+  replica:
+    enabled: true
+    source: pg-schemas-primary
+
+  postgresql:
+    parameters:
+      hot_standby: "on"
+      wal_level: "replica"
+      max_wal_size: "4GB"
+      shared_buffers: "1GB"
+      work_mem: "32MB"
+      effective_cache_size: "4GB"
+      max_connections: "400"
+
+  bootstrap:
+    pg_basebackup:
+      source: pg-schemas-primary
+
+  externalClusters:
+    - name: pg-schemas-primary
+      connectionParameters:
+        host: pg-schemas-rw.openfoundry-region-a.svc.openfoundry.example.com
+        user: streaming_replica
+        dbname: app
+        port: "5432"
+        sslmode: verify-full
+      sslCert:
+        name: pg-schemas-replica-superuser
+        key: tls.crt
+      sslKey:
+        name: pg-schemas-replica-superuser
+        key: tls.key
+      sslRootCert:
+        name: pg-schemas-replica-superuser
+        key: ca.crt
+      password:
+        name: pg-schemas-replica-superuser
+        key: password
+
+  storage:
+    size: 100Gi
+    storageClass: ceph-rbd
+
+  resources:
+    requests: { cpu: "1", memory: 4Gi }
+    limits:   { cpu: "4", memory: 16Gi }
+
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+
+  monitoring:
+    enablePodMonitor: true
+
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/region-b/pg-schemas"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:     { name: pg-schemas-backup, key: ACCESS_KEY_ID }
+        secretAccessKey: { name: pg-schemas-backup, key: ACCESS_SECRET_KEY }
+      wal:
+        compression: gzip
+        maxParallel: 4
+      data:
+        compression: gzip
+        jobs: 2
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-policy-replica
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-policy-replica
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: policy-replica
+    openfoundry.io/dr-role: standby
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  replica:
+    enabled: true
+    source: pg-policy-primary
+  postgresql:
+    parameters:
+      hot_standby: "on"
+      wal_level: "replica"
+      shared_buffers: "512MB"
+      max_connections: "300"
+  bootstrap:
+    pg_basebackup:
+      source: pg-policy-primary
+  externalClusters:
+    - name: pg-policy-primary
+      connectionParameters:
+        host: pg-policy-rw.openfoundry-region-a.svc.openfoundry.example.com
+        user: streaming_replica
+        dbname: app
+        port: "5432"
+        sslmode: verify-full
+      sslCert:     { name: pg-policy-replica-superuser, key: tls.crt }
+      sslKey:      { name: pg-policy-replica-superuser, key: tls.key }
+      sslRootCert: { name: pg-policy-replica-superuser, key: ca.crt }
+      password:    { name: pg-policy-replica-superuser, key: password }
+  storage: { size: 50Gi, storageClass: ceph-rbd }
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits:   { cpu: "2",  memory: 8Gi }
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+  monitoring:
+    enablePodMonitor: true
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/region-b/pg-policy"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:     { name: pg-policy-backup, key: ACCESS_KEY_ID }
+        secretAccessKey: { name: pg-policy-backup, key: ACCESS_SECRET_KEY }
+      wal:  { compression: gzip, maxParallel: 4 }
+      data: { compression: gzip, jobs: 2 }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-runtime-config-replica
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-runtime-config-replica
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: runtime-config-replica
+    openfoundry.io/dr-role: standby
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  replica:
+    enabled: true
+    source: pg-runtime-config-primary
+  postgresql:
+    parameters:
+      hot_standby: "on"
+      wal_level: "replica"
+      shared_buffers: "512MB"
+      max_connections: "300"
+  bootstrap:
+    pg_basebackup:
+      source: pg-runtime-config-primary
+  externalClusters:
+    - name: pg-runtime-config-primary
+      connectionParameters:
+        host: pg-runtime-config-rw.openfoundry-region-a.svc.openfoundry.example.com
+        user: streaming_replica
+        dbname: app
+        port: "5432"
+        sslmode: verify-full
+      sslCert:     { name: pg-runtime-config-replica-superuser, key: tls.crt }
+      sslKey:      { name: pg-runtime-config-replica-superuser, key: tls.key }
+      sslRootCert: { name: pg-runtime-config-replica-superuser, key: ca.crt }
+      password:    { name: pg-runtime-config-replica-superuser, key: password }
+  storage: { size: 50Gi, storageClass: ceph-rbd }
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits:   { cpu: "2",  memory: 8Gi }
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+  monitoring:
+    enablePodMonitor: true
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/region-b/pg-runtime-config"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:     { name: pg-runtime-config-backup, key: ACCESS_KEY_ID }
+        secretAccessKey: { name: pg-runtime-config-backup, key: ACCESS_SECRET_KEY }
+      wal:  { compression: gzip, maxParallel: 4 }
+      data: { compression: gzip, jobs: 2 }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-lakekeeper-replica
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-lakekeeper-replica
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: lakekeeper-catalog-replica
+    openfoundry.io/dr-role: standby
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  replica:
+    enabled: true
+    source: pg-lakekeeper-primary
+  postgresql:
+    parameters:
+      hot_standby: "on"
+      wal_level: "replica"
+      shared_buffers: "512MB"
+      max_connections: "200"
+  bootstrap:
+    pg_basebackup:
+      source: pg-lakekeeper-primary
+  externalClusters:
+    - name: pg-lakekeeper-primary
+      connectionParameters:
+        host: pg-lakekeeper-rw.openfoundry-region-a.svc.openfoundry.example.com
+        user: streaming_replica
+        dbname: lakekeeper
+        port: "5432"
+        sslmode: verify-full
+      sslCert:     { name: pg-lakekeeper-replica-superuser, key: tls.crt }
+      sslKey:      { name: pg-lakekeeper-replica-superuser, key: tls.key }
+      sslRootCert: { name: pg-lakekeeper-replica-superuser, key: ca.crt }
+      password:    { name: pg-lakekeeper-replica-superuser, key: password }
+  storage: { size: 50Gi, storageClass: ceph-rbd }
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits:   { cpu: "2",  memory: 4Gi }
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+  monitoring:
+    enablePodMonitor: true
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/region-b/pg-lakekeeper"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:     { name: pg-lakekeeper-backup, key: ACCESS_KEY_ID }
+        secretAccessKey: { name: pg-lakekeeper-backup, key: ACCESS_SECRET_KEY }
+      wal:  { compression: gzip, maxParallel: 4 }
+      data: { compression: gzip, jobs: 2 }

@@ -1,0 +1,163 @@
+syntax = "proto3";
+package open_foundry.media_set;
+
+import "common/types.proto";
+import "google/protobuf/timestamp.proto";
+import "media_set/media_set.proto";
+
+// MediaSetService manages media sets, transactional write batches and the
+// item lifecycle (upload/download via presigned URLs, virtual registration).
+service MediaSetService {
+  // ----- Media sets -----
+  rpc CreateMediaSet(CreateMediaSetRequest) returns (MediaSet);
+  rpc GetMediaSet(GetMediaSetRequest) returns (MediaSet);
+  rpc ListMediaSets(ListMediaSetsRequest) returns (ListMediaSetsResponse);
+  rpc DeleteMediaSet(DeleteMediaSetRequest) returns (DeleteMediaSetResponse);
+
+  // ----- Transactions (only meaningful for TRANSACTIONAL policy) -----
+  rpc OpenTransaction(OpenTransactionRequest) returns (Transaction);
+  rpc CommitTransaction(CommitTransactionRequest) returns (Transaction);
+  rpc AbortTransaction(AbortTransactionRequest) returns (Transaction);
+
+  // ----- Media items -----
+  rpc ListMediaItems(ListMediaItemsRequest) returns (ListMediaItemsResponse);
+  rpc GetMediaItem(GetMediaItemRequest) returns (MediaItem);
+  rpc DeleteMediaItem(DeleteMediaItemRequest) returns (DeleteMediaItemResponse);
+
+  // ----- Upload / download (S3-compatible presigned URLs) -----
+  rpc GeneratePresignedUploadUrl(GeneratePresignedUploadUrlRequest)
+      returns (PresignedUrlResponse);
+  rpc GeneratePresignedDownloadUrl(GeneratePresignedDownloadUrlRequest)
+      returns (PresignedUrlResponse);
+
+  // ----- Virtual media sets -----
+  rpc RegisterVirtualMediaItem(RegisterVirtualMediaItemRequest)
+      returns (MediaItem);
+}
+
+// ---------------------------------------------------------------------------
+// Media set CRUD
+// ---------------------------------------------------------------------------
+
+message CreateMediaSetRequest {
+  string name = 1;
+  string project_rid = 2;
+  MediaSetSchema schema = 3;
+  // Optional MIME-type allow list. Empty = inferred from `schema`.
+  repeated string allowed_mime_types = 4;
+  TransactionPolicy transaction_policy = 5;
+  // 0 = retain forever.
+  int64 retention_seconds = 6;
+  // Virtual media set: data stays in `source_rid`, never copied.
+  bool virtual = 7;
+  optional string source_rid = 8;
+  repeated string markings = 9;
+}
+
+message GetMediaSetRequest {
+  string rid = 1;
+}
+
+message ListMediaSetsRequest {
+  string project_rid = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListMediaSetsResponse {
+  repeated MediaSet media_sets = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message DeleteMediaSetRequest {
+  string rid = 1;
+}
+
+message DeleteMediaSetResponse {}
+
+// ---------------------------------------------------------------------------
+// Transactions
+// ---------------------------------------------------------------------------
+
+message OpenTransactionRequest {
+  string media_set_rid = 1;
+  string branch = 2;
+}
+
+message CommitTransactionRequest {
+  string transaction_rid = 1;
+}
+
+message AbortTransactionRequest {
+  string transaction_rid = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Media items
+// ---------------------------------------------------------------------------
+
+message ListMediaItemsRequest {
+  string media_set_rid = 1;
+  string branch = 2;
+  // Optional path prefix filter.
+  string path_prefix = 3;
+  open_foundry.common.PageRequest pagination = 4;
+}
+
+message ListMediaItemsResponse {
+  repeated MediaItem items = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message GetMediaItemRequest {
+  string rid = 1;
+}
+
+message DeleteMediaItemRequest {
+  string rid = 1;
+}
+
+message DeleteMediaItemResponse {}
+
+// ---------------------------------------------------------------------------
+// Presigned URLs
+// ---------------------------------------------------------------------------
+
+message GeneratePresignedUploadUrlRequest {
+  string media_set_rid = 1;
+  string branch = 2;
+  // Logical path (filename) inside the media set.
+  string path = 3;
+  string mime_type = 4;
+  // Required for transactional policy; empty otherwise.
+  string transaction_rid = 5;
+  // Lifetime of the presigned URL.
+  int64 expires_in_seconds = 6;
+}
+
+message GeneratePresignedDownloadUrlRequest {
+  string media_item_rid = 1;
+  int64 expires_in_seconds = 2;
+}
+
+message PresignedUrlResponse {
+  string url = 1;
+  // Required HTTP headers to include with the request (e.g. `Content-Type`).
+  map<string, string> headers = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Virtual media sets
+// ---------------------------------------------------------------------------
+
+message RegisterVirtualMediaItemRequest {
+  string media_set_rid = 1;
+  string branch = 2;
+  // Path inside the external source (e.g. `s3://bucket/key.png`).
+  string physical_path = 3;
+  // Logical path inside the media set (used for listings and dedup).
+  string item_path = 4;
+  string mime_type = 5;
+  int64 size_bytes = 6;
+  string sha256 = 7;
+}

@@ -1,0 +1,1647 @@
+S5 audit-sink E2E - Trino/Iceberg counts - 2026-05-03
+Status: BLOCKED - NO REAL audit.events.v1 -> of_audit.events ENVIRONMENT AVAILABLE
+
+Target path:
+  Kafka topic: audit.events.v1
+  Consumer group: audit-sink
+  Iceberg table: iceberg.of_audit.events
+  Required partition: day(at)
+
+This artifact does not close S5. It records that the current cluster cannot run
+the audit-sink end-to-end check and gives the exact commands/queries required
+to close it in a deployed S5 environment.
+
+## Attempted Environment Validation
+
+Deployment discovery command:
+
+  kubectl get deploy -A
+
+Output:
+
+  NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+  cert-manager         cert-manager                       1/1     1            1           3h56m
+  cert-manager         cert-manager-cainjector            1/1     1            1           3h56m
+  cert-manager         cert-manager-webhook               1/1     1            1           3h56m
+  cnpg-system          cnpg-cloudnative-pg                1/1     1            1           3h53m
+  k8ssandra-operator   k8ssandra-operator                 1/1     1            1           3h55m
+  k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           3h55m
+  kube-system          coredns                            1/1     1            1           2d12h
+  kube-system          local-path-provisioner             1/1     1            1           2d12h
+  kube-system          metrics-server                     1/1     1            1           2d12h
+  kube-system          traefik                            1/1     1            1           2d12h
+  openfoundry          authorization-policy-service       0/1     1            0           3h45m
+  openfoundry          edge-gateway-service               0/1     1            0           3h45m
+  openfoundry          identity-federation-service        0/1     1            0           3h45m
+  openfoundry          tenancy-organizations-service      0/1     1            0           3h45m
+
+Kafka CR discovery command:
+
+  kubectl get kafkas -A
+
+Output:
+
+  error: the server doesn't have a resource type "kafkas"
+
+Kafka topic CR discovery command:
+
+  kubectl get kafkatopics -A
+
+Output:
+
+  error: the server doesn't have a resource type "kafkatopics"
+
+Trino namespace command:
+
+  kubectl get ns trino
+
+Output:
+
+  Error from server (NotFound): namespaces "trino" not found
+
+Lakekeeper namespace command:
+
+  kubectl get ns lakekeeper
+
+Output:
+
+  Error from server (NotFound): namespaces "lakekeeper" not found
+
+Prometheus rules command:
+
+  kubectl get prometheusrule -A
+
+Output:
+
+  error: the server doesn't have a resource type "prometheusrule"
+
+ServiceMonitor command:
+
+  kubectl get servicemonitor -A
+
+Output:
+
+  error: the server doesn't have a resource type "servicemonitor"
+
+Conclusion:
+
+  BLOCKED. The current cluster has no Strimzi Kafka, no audit-sink deployment,
+  no Trino namespace, no Lakekeeper namespace and no Prometheus Operator CRDs.
+  Real audit.events.v1 traffic cannot be produced, consumed, appended to
+  Iceberg or measured here. Do not mark PASS from compile-only checks.
+
+## Expected Schema And Partition
+
+Source of expected schema in repo:
+
+  services/audit-sink/src/iceberg_schema.rs
+
+Expected Iceberg columns:
+
+  event_id        uuid              required, field id 1
+  at              timestamptz       required, field id 2
+  correlation_id  string            optional, field id 3
+  kind            string            required, field id 4
+  payload         string            required, field id 5
+
+Expected partition:
+
+  day(at)
+
+Expected WORM table properties:
+
+  write.format.default = parquet
+  write.parquet.compression-codec = zstd
+  write.metadata.delete-after-commit.enabled = false
+  write.metadata.previous-versions-max = 999999
+  history.expire.max-snapshot-age-ms = 9223372036854775807
+  history.expire.min-snapshots-to-keep = 2147483647
+
+## Commands To Close In A Real S5 Environment
+
+Run all commands below against the deployed S5 cluster. Paste real results under
+each block. PASS requires before/after row growth caused by real runtime traffic,
+matching schema, partition day(at), no DLQ growth/errors and healthy sink
+metrics.
+
+### 1. Verify audit-sink, Kafka, Trino And Lakekeeper Are Live
+
+Command:
+
+  kubectl get deploy -A -o custom-columns='NAMESPACE:.metadata.namespace,DEPLOYMENT:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[*].image' | grep -E 'audit-sink|identity-federation-service|edge-gateway-service|debezium|trino|lakekeeper'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl get kafkatopics -A | grep -E 'audit.events.v1|__dlq.outbox-pg-policy.v1'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 2. Verify The Iceberg Schema And Partition
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_audit.events"
+
+Expected result:
+
+  event_id uuid
+  at timestamp(6) with time zone
+  correlation_id varchar
+  kind varchar
+  payload varchar
+
+Actual output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SHOW CREATE TABLE of_audit.events"
+
+Expected result:
+
+  The table definition must show partitioning by day(at). If Trino renders the
+  property as partitioning = ARRAY['day(at)'], that satisfies this check.
+
+Actual output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT * FROM \"of_audit\".\"events$partitions\" ORDER BY record_count DESC LIMIT 20"
+
+Expected result:
+
+  At least one partition for the run date after traffic, with record_count > 0.
+
+Actual output:
+
+  PASTE REAL OUTPUT HERE
+
+### 3. Capture Counts Before Runtime Traffic
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS before_count, max(at) AS before_max_at FROM of_audit.events"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic audit.events.v1 --time -1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group audit-sink
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 4. Generate Real Runtime Audit Traffic
+
+Use a runtime request that emits audit.events.v1 through the same service path
+used by the platform. Do not use kafka-console-producer, fixture-only binaries
+or direct Iceberg writes.
+
+Command used:
+
+  PASTE REAL RUNTIME COMMAND HERE
+
+Required metadata to record:
+
+  tenant:
+  authenticated principal:
+  correlation/request id:
+  endpoint or workflow:
+  expected audit kind:
+  response id:
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 5. Capture Kafka Append And Consumer Lag After Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic audit.events.v1 --time -1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group audit-sink
+
+Required:
+
+  Lag must return below the audit-sink SLO. The README pins sink lag SLO to
+  P99 < 90s. Missing group, static offsets or persistent lag is FAIL.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 6. Capture Iceberg Counts After Traffic
+
+Wait for audit-sink to flush. The planned batch policy is 100000 records or 60s,
+whichever happens first.
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS after_count, max(at) AS after_max_at FROM of_audit.events"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT event_id, at, correlation_id, kind FROM of_audit.events ORDER BY at DESC LIMIT 10"
+
+Required:
+
+  At least one row must match the runtime request metadata from step 4.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT event_id, count(*) AS duplicates FROM of_audit.events GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+
+Required:
+
+  No duplicate event_id rows for the generated audit event.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 7. Verify No Errors Or DLQ Growth
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic __dlq.outbox-pg-policy.v1 --time -1
+
+Required:
+
+  Compare before/after. The DLQ must not grow during the audit event run.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl logs -A --since=30m --all-containers=true | grep -E 'audit-sink|audit.events.v1|of_audit.events|DLQ|dlq|error|failed|Iceberg|commit'
+
+Required:
+
+  No audit-sink append failures, decode failures, commit failures or DLQ writes
+  tied to the run.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 8. Verify audit-sink Metrics
+
+Expected metric names from services/audit-sink/src/runtime.rs:
+
+  audit_sink_lag_seconds
+  audit_sink_records_total
+  audit_sink_batch_size_records
+  audit_sink_commits_total
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'audit_sink_records_total'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'audit_sink_commits_total'
+
+Required:
+
+  outcome="ok" must increase after the run; outcome="fail" must not increase.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'audit_sink_lag_seconds'
+
+Required:
+
+  Lag returns below the SLO after append.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'audit_sink_batch_size_records'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 9. Final Audit-Sink E2E Conclusion
+
+Conclusion:
+
+  BLOCKED. Replace with PASS only after:
+    - audit.events.v1 log-end offsets increase from runtime traffic,
+    - audit-sink consumer group advances and lag recovers,
+    - of_audit.events count increases after the sink flushes,
+    - the appended row matches request metadata,
+    - schema matches the expected columns,
+    - SHOW CREATE TABLE proves day(at),
+    - DLQ does not grow,
+    - audit_sink_commits_total{outcome="ok"} increases and fail/error metrics do not.
+
+---
+
+S5 lineage-service E2E - Trino/Iceberg counts - 2026-05-03
+Status: BLOCKED - NO REAL lineage.events.v1 -> of_lineage.* ENVIRONMENT AVAILABLE
+
+Target path:
+  Kafka topic: lineage.events.v1
+  Consumer group: lineage-service
+  Iceberg tables:
+    - iceberg.of_lineage.runs
+    - iceberg.of_lineage.events
+    - iceberg.of_lineage.datasets_io
+  Required partitions:
+    - runs: day(started_at)
+    - events: day(event_time)
+    - datasets_io: day(event_time)
+
+Writer implementation status:
+
+  PRESENT IN CODE. `services/lineage-service/src/runtime.rs` implements the
+  Kafka -> Iceberg writer:
+    - subscribes to `lineage.events.v1`,
+    - decodes OpenLineage-shaped events,
+    - materializes rows for runs/events/datasets_io,
+    - calls `IcebergTable::append_record_batches(...)`,
+    - commits Kafka offsets only after Iceberg append succeeds.
+
+Operational validation status:
+
+  BLOCKED. The current cluster has no kafka/trino/lakekeeper/observability
+  namespaces, no Strimzi KafkaTopic CRD, no lineage-service deployment and no
+  Prometheus Operator CRDs. Real lineage traffic cannot be produced, consumed,
+  appended to Iceberg or measured here.
+
+Metrics instrumentation status:
+
+  BLOCKING GAP FOR FULL E2E SIGN-OFF. The code exposes runtime tracing for
+  committed lineage batches, but `rg` found no lineage-specific Prometheus
+  metrics such as `lineage_service_lag_seconds`, `lineage_service_records_total`
+  or `lineage_service_commits_total` in `services/lineage-service/src`.
+  Kafka consumer-group lag can still be measured via Kafka, but sink-owned
+  metrics/commit counters need instrumentation before the "metrics/lag" portion
+  can be fully closed from service metrics.
+
+## Attempted Environment Validation For lineage-service
+
+Deployment discovery command:
+
+  kubectl get deploy -A
+
+Output:
+
+  NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+  cert-manager         cert-manager                       1/1     1            1           4h3m
+  cert-manager         cert-manager-cainjector            1/1     1            1           4h3m
+  cert-manager         cert-manager-webhook               1/1     1            1           4h3m
+  cnpg-system          cnpg-cloudnative-pg                1/1     1            1           4h
+  k8ssandra-operator   k8ssandra-operator                 1/1     1            1           4h1m
+  k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           4h1m
+  kube-system          coredns                            1/1     1            1           2d13h
+  kube-system          local-path-provisioner             1/1     1            1           2d13h
+  kube-system          metrics-server                     1/1     1            1           2d13h
+  kube-system          traefik                            1/1     1            1           2d13h
+  openfoundry          authorization-policy-service       0/1     1            0           3h52m
+  openfoundry          edge-gateway-service               0/1     1            0           3h52m
+  openfoundry          identity-federation-service        0/1     1            0           3h52m
+  openfoundry          tenancy-organizations-service      0/1     1            0           3h52m
+
+Namespace discovery command:
+
+  kubectl get ns kafka trino lakekeeper observability
+
+Output:
+
+  Error from server (NotFound): namespaces "kafka" not found
+  Error from server (NotFound): namespaces "trino" not found
+  Error from server (NotFound): namespaces "lakekeeper" not found
+  Error from server (NotFound): namespaces "observability" not found
+
+KafkaTopic discovery command:
+
+  kubectl get kafkatopics -A
+
+Output:
+
+  error: the server doesn't have a resource type "kafkatopics"
+
+Lineage pod discovery command:
+
+  kubectl get pods -A | grep -E 'lineage|trino|lakekeeper|kafka|prometheus'
+
+Output:
+
+  Unable to connect to the server: dial tcp 192.168.105.3:6443: connect: operation not permitted
+
+Explanation:
+
+  A later namespace/topic check confirmed the required namespaces and CRDs are
+  absent, so this connectivity error does not hide a running S5 lineage stack.
+
+Code writer check command:
+
+  rg -n "append_record_batches|IcebergTable|lineage.events.v1|of_lineage|CONSUMER_GROUP|DataSubscriber" services/lineage-service/src services/lineage-service/Cargo.toml
+
+Relevant output:
+
+  services/lineage-service/src/main.rs:4://! 1. Kafka `lineage.events.v1` -> Iceberg `of.lineage.*`
+  services/lineage-service/src/main.rs:57:                lineage_service::kafka_to_iceberg::CONSUMER_GROUP,
+  services/lineage-service/src/kafka_to_iceberg.rs:6:pub const SOURCE_TOPIC: &str = "lineage.events.v1";
+  services/lineage-service/src/kafka_to_iceberg.rs:8:pub const CONSUMER_GROUP: &str = "lineage-service";
+  services/lineage-service/src/kafka_to_iceberg.rs:13:    pub const NAMESPACE: &str = "of_lineage";
+  services/lineage-service/src/runtime.rs:16:use storage_abstraction::iceberg::{IcebergError, IcebergTable};
+  services/lineage-service/src/runtime.rs:228:    S: DataSubscriber,
+  services/lineage-service/src/runtime.rs:317:        .append_record_batches(vec![runs_to_record_batch(&runs)?])
+  services/lineage-service/src/runtime.rs:321:        .append_record_batches(vec![events_to_record_batch(&events)?])
+  services/lineage-service/src/runtime.rs:326:            .append_record_batches(vec![datasets_to_record_batch(&datasets_io)?])
+
+Metrics check command:
+
+  rg -n "metrics|lineage_.*lag|commits|records|lag_seconds|prometheus|counter|histogram" services/lineage-service/src infra/k8s/platform/manifests/observability infra/k8s/helm/of-data-engine
+
+Relevant output:
+
+  No lineage-service sink metrics were found in `services/lineage-service/src`.
+  The only related hits are KEDA/Prometheus config for sql-bi-gateway and
+  ontology-indexer rules. This blocks service-metric sign-off for lineage.
+
+## Expected Schema And Partition For of_lineage.*
+
+Source of expected schema in repo:
+
+  services/lineage-service/src/iceberg_schema.rs
+
+Expected `of_lineage.runs` columns:
+
+  run_id         uuid / fixed binary id, required
+  job_namespace  string, required
+  job_name       string, required
+  started_at     timestamptz, required, partition source
+  completed_at   timestamptz, optional
+  state          string, required
+  facets         string/json, required
+
+Expected `of_lineage.events` columns:
+
+  event_id    uuid / fixed binary id, required
+  run_id      uuid / fixed binary id, required
+  event_time  timestamptz, required, partition source
+  event_type  string, required
+  producer    string, required
+  schema_url  string, optional
+  payload     string/json, required
+
+Expected `of_lineage.datasets_io` columns:
+
+  run_id             uuid / fixed binary id, required
+  event_time         timestamptz, required, partition source
+  side               string, required, input|output
+  dataset_namespace  string, required
+  dataset_name       string, required
+  facets             string/json, required
+
+Expected retention:
+
+  history.expire.max-snapshot-age-ms = 7776000000
+  history.expire.min-snapshots-to-keep = 10
+
+## Commands To Close lineage-service In A Real S5 Environment
+
+Run every command below against the deployed S5 cluster. Paste real output under
+each block. PASS requires real runtime OpenLineage traffic, before/after row
+growth in all applicable tables, matching schema/partition, no DLQ/errors and
+lag/metrics evidence.
+
+### 1. Verify lineage-service, Kafka, Trino And Lakekeeper Are Live
+
+Command:
+
+  kubectl get deploy -A -o custom-columns='NAMESPACE:.metadata.namespace,DEPLOYMENT:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[*].image' | grep -E 'lineage-service|pipeline-authoring-service|pipeline-build-service|pipeline-schedule-service|debezium|trino|lakekeeper'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl get kafkatopics -A | grep -E 'lineage.events.v1|__dlq.outbox-pg-policy.v1'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 2. Verify Iceberg Schemas And Partitions
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_lineage.runs"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_lineage.events"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_lineage.datasets_io"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SHOW CREATE TABLE of_lineage.runs; SHOW CREATE TABLE of_lineage.events; SHOW CREATE TABLE of_lineage.datasets_io"
+
+Required:
+
+  `runs` must be partitioned by day(started_at). `events` and `datasets_io`
+  must be partitioned by day(event_time).
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'runs' AS table_name, * FROM \"of_lineage\".\"runs$partitions\" LIMIT 20; SELECT 'events' AS table_name, * FROM \"of_lineage\".\"events$partitions\" LIMIT 20; SELECT 'datasets_io' AS table_name, * FROM \"of_lineage\".\"datasets_io$partitions\" LIMIT 20"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 3. Capture Counts Before Runtime Traffic
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS runs_before, max(started_at) AS runs_max_started_at FROM of_lineage.runs; SELECT count(*) AS events_before, max(event_time) AS events_max_event_time FROM of_lineage.events; SELECT count(*) AS datasets_io_before, max(event_time) AS datasets_io_max_event_time FROM of_lineage.datasets_io"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic lineage.events.v1 --time -1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group lineage-service
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 4. Generate Real Runtime Lineage Traffic
+
+Use a platform runtime path that emits OpenLineage events through
+lineage-service or the pipeline runtime. Do not use kafka-console-producer,
+fixture-only binaries or direct Iceberg writes.
+
+Command used:
+
+  PASTE REAL RUNTIME COMMAND HERE
+
+Required metadata to record:
+
+  tenant:
+  authenticated principal:
+  request/correlation id:
+  OpenLineage run_id:
+  job namespace:
+  job name:
+  input dataset(s):
+  output dataset(s):
+  expected event type(s):
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 5. Capture Kafka Append And Consumer Lag After Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic lineage.events.v1 --time -1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group lineage-service
+
+Required:
+
+  Consumer offsets must advance and lag must recover. Missing group, static
+  offsets or persistent lag is FAIL.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 6. Capture Iceberg Counts After Traffic
+
+Wait for lineage-service to flush. The code default batch policy is 25000
+records or 30s, whichever happens first.
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS runs_after, max(started_at) AS runs_max_started_at FROM of_lineage.runs; SELECT count(*) AS events_after, max(event_time) AS events_max_event_time FROM of_lineage.events; SELECT count(*) AS datasets_io_after, max(event_time) AS datasets_io_max_event_time FROM of_lineage.datasets_io"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT event_id, run_id, event_time, event_type, producer FROM of_lineage.events ORDER BY event_time DESC LIMIT 10; SELECT run_id, job_namespace, job_name, started_at, completed_at, state FROM of_lineage.runs ORDER BY started_at DESC LIMIT 10; SELECT run_id, event_time, side, dataset_namespace, dataset_name FROM of_lineage.datasets_io ORDER BY event_time DESC LIMIT 20"
+
+Required:
+
+  Returned rows must match the run_id/job/dataset metadata from step 4.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT event_id, count(*) AS duplicates FROM of_lineage.events GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+
+Required:
+
+  No duplicate lineage event_id rows for the generated runtime event.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 7. Verify No Errors Or DLQ Growth
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic __dlq.outbox-pg-policy.v1 --time -1
+
+Required:
+
+  Compare before/after. The DLQ must not grow during the lineage event run.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl logs -A --since=30m --all-containers=true | grep -E 'lineage-service|lineage.events.v1|of_lineage|DLQ|dlq|error|failed|Iceberg|commit|OpenLineage'
+
+Required:
+
+  No lineage-service append failures, decode failures, commit failures or DLQ
+  writes tied to the run.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 8. Verify Lag And Metrics
+
+Kafka lag command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group lineage-service
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Service metrics blocker:
+
+  Instrument lineage-service with sink metrics before claiming service-metric
+  PASS. Suggested minimum metrics:
+    - lineage_service_lag_seconds
+    - lineage_service_records_total
+    - lineage_service_batch_size_records
+    - lineage_service_commits_total{outcome="ok|fail"}
+    - lineage_service_decode_errors_total
+
+Prometheus query command after instrumentation:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'lineage_service_records_total'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command after instrumentation:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'lineage_service_commits_total'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 9. Final lineage-service E2E Conclusion
+
+Conclusion:
+
+  BLOCKED. Replace with PASS only after:
+    - real runtime OpenLineage traffic is generated,
+    - lineage.events.v1 log-end offsets increase,
+    - lineage-service consumer offsets advance and lag recovers,
+    - of_lineage.runs/events/datasets_io counts increase as applicable,
+    - returned rows match runtime run_id/job/dataset metadata,
+    - schemas and partitions match expected table layout,
+    - DLQ does not grow and logs show no append/decode/commit errors,
+    - lineage-service sink metrics are instrumented and show successful records/commits.
+
+---
+
+S5 ai-sink E2E - Trino/Iceberg counts - 2026-05-03
+Status: BLOCKED - NO REAL ai.events.v1 -> of_ai.* ENVIRONMENT AVAILABLE
+
+Target path:
+  Kafka topic: ai.events.v1
+  Consumer group: ai-sink
+  Runtime producers:
+    - agent-runtime-service
+    - prompt-workflow-service
+  Iceberg tables:
+    - iceberg.of_ai.prompts
+    - iceberg.of_ai.responses
+    - iceberg.of_ai.evaluations
+    - iceberg.of_ai.traces
+  Required partition for all four tables:
+    - day(at)
+
+Writer implementation status:
+
+  PRESENT IN CODE. `services/ai-sink/src/runtime.rs` implements the Kafka ->
+  Iceberg writer:
+    - subscribes to `ai.events.v1`,
+    - decodes `AiEventEnvelope`,
+    - routes by `kind` to prompts/responses/evaluations/traces,
+    - calls `IcebergTable::append_record_batches(...)`,
+    - commits Kafka offsets only after Iceberg append succeeds.
+
+Producer contract status:
+
+  PRESENT AS CONTRACT. `agent-runtime-service` and `prompt-workflow-service`
+  both pin `TOPIC = "ai.events.v1"` and the same envelope shape. This does not
+  prove runtime traffic; the E2E run must generate events through one of those
+  services.
+
+Operational validation status:
+
+  BLOCKED. The current cluster has no kafka/trino/lakekeeper/observability
+  namespaces, no Strimzi KafkaTopic CRD, no ai-sink deployment and no AI runtime
+  producer deployments. Real AI runtime traffic cannot be produced, consumed,
+  appended to Iceberg or queried here.
+
+Metrics instrumentation status:
+
+  PARTIAL / BLOCKING FOR FULL METRIC SIGN-OFF. The runtime pins metric names:
+    - ai_sink_lag_seconds
+    - ai_sink_records_total
+    - ai_sink_batch_size
+    - ai_sink_commits_total
+
+  However, this validation only found metric-name constants and tracing in
+  `services/ai-sink/src/runtime.rs`; it did not find concrete Prometheus counter
+  or histogram registration/increment calls. Kafka consumer-group lag can still
+  be measured externally, but service metric sign-off requires confirming these
+  metrics are emitted in the deployed binary.
+
+## Attempted Environment Validation For ai-sink
+
+Deployment discovery command:
+
+  kubectl get deploy -A
+
+Output:
+
+  NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+  cert-manager         cert-manager                       1/1     1            1           4h5m
+  cert-manager         cert-manager-cainjector            1/1     1            1           4h5m
+  cert-manager         cert-manager-webhook               1/1     1            1           4h5m
+  cnpg-system          cnpg-cloudnative-pg                1/1     1            1           4h3m
+  k8ssandra-operator   k8ssandra-operator                 1/1     1            1           4h4m
+  k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           4h4m
+  kube-system          coredns                            1/1     1            1           2d13h
+  kube-system          local-path-provisioner             1/1     1            1           2d13h
+  kube-system          metrics-server                     1/1     1            1           2d13h
+  kube-system          traefik                            1/1     1            1           2d13h
+  openfoundry          authorization-policy-service       0/1     1            0           3h54m
+  openfoundry          edge-gateway-service               0/1     1            0           3h54m
+  openfoundry          identity-federation-service        0/1     1            0           3h54m
+  openfoundry          tenancy-organizations-service      0/1     1            0           3h54m
+
+Namespace discovery command:
+
+  kubectl get ns kafka trino lakekeeper observability
+
+Output:
+
+  Error from server (NotFound): namespaces "kafka" not found
+  Error from server (NotFound): namespaces "trino" not found
+  Error from server (NotFound): namespaces "lakekeeper" not found
+  Error from server (NotFound): namespaces "observability" not found
+
+KafkaTopic discovery command:
+
+  kubectl get kafkatopics -A
+
+Output:
+
+  error: the server doesn't have a resource type "kafkatopics"
+
+Code writer and producer contract check command:
+
+  rg -n "append_record_batches|IcebergTable|ai.events.v1|of_ai|CONSUMER_GROUP|DataSubscriber|DataPublisher|metrics|ai_sink_|lag|commits|records|decode|DLQ|todo!|TODO|not_implemented|NotWired" services/ai-sink/src services/ai-sink/Cargo.toml services/ai-sink/README.md services/agent-runtime-service/src services/prompt-workflow-service/src
+
+Relevant output:
+
+  services/ai-sink/src/main.rs:4://! `ai.events.v1` and routes each event to the appropriate
+  services/ai-sink/src/main.rs:5://! `of_ai.{prompts,responses,evaluations,traces}` table.
+  services/ai-sink/src/main.rs:19:        event_bus_data::KafkaSubscriber::new(&config.data_bus, ai_sink::CONSUMER_GROUP)?;
+  services/ai-sink/src/lib.rs:31:pub const SOURCE_TOPIC: &str = "ai.events.v1";
+  services/ai-sink/src/lib.rs:33:pub const CONSUMER_GROUP: &str = "ai-sink";
+  services/ai-sink/src/lib.rs:39:    pub const NAMESPACE: &str = "of_ai";
+  services/ai-sink/src/runtime.rs:15:use storage_abstraction::iceberg::{IcebergError, IcebergTable};
+  services/ai-sink/src/runtime.rs:25:pub mod metrics {
+  services/ai-sink/src/runtime.rs:28:    pub const SINK_LAG_SECONDS: &str = "ai_sink_lag_seconds";
+  services/ai-sink/src/runtime.rs:31:    pub const SINK_RECORDS_TOTAL: &str = "ai_sink_records_total";
+  services/ai-sink/src/runtime.rs:34:    pub const SINK_BATCH_SIZE: &str = "ai_sink_batch_size";
+  services/ai-sink/src/runtime.rs:37:    pub const SINK_COMMITS_TOTAL: &str = "ai_sink_commits_total";
+  services/ai-sink/src/runtime.rs:177:/// Subscribe and run the consumer loop. Records are decoded, routed
+  services/ai-sink/src/runtime.rs:186:    S: DataSubscriber,
+  services/ai-sink/src/runtime.rs:283:            .append_record_batches(vec![record_batch])
+  services/agent-runtime-service/src/ai_events.rs:19:pub const TOPIC: &str = "ai.events.v1";
+  services/prompt-workflow-service/src/ai_events.rs:11:pub const TOPIC: &str = "ai.events.v1";
+
+## Expected Schema And Partition For of_ai.*
+
+Source of expected schema in repo:
+
+  services/ai-sink/src/lib.rs
+
+Expected common columns for all four tables:
+
+  event_id        uuid / fixed binary id, required, field id 1
+  at              timestamptz, required, field id 2, partition source
+  kind            string, required, field id 3
+  run_id          uuid / fixed binary id, optional, field id 4
+  trace_id        string, optional, field id 5
+  producer        string, required, field id 6
+  schema_version  uint32, required, field id 7
+  payload         string/json, required, field id 8
+
+Expected partition for every table:
+
+  day(at)
+
+Expected sort:
+
+  at ASC
+
+Expected retention:
+
+  history.expire.max-snapshot-age-ms = 31536000000
+  history.expire.min-snapshots-to-keep = 30
+
+Routing contract:
+
+  kind=prompt      -> of_ai.prompts
+  kind=response    -> of_ai.responses
+  kind=evaluation  -> of_ai.evaluations
+  kind=trace       -> of_ai.traces
+
+## Commands To Close ai-sink In A Real S5 Environment
+
+Run every command below against the deployed S5 cluster. Paste real output under
+each block. PASS requires real AI runtime traffic, before/after row growth in
+the routed target table(s), matching schema/partition, no DLQ/errors and
+lag/metrics evidence.
+
+### 1. Verify AI Runtime Producers, ai-sink, Kafka, Trino And Lakekeeper Are Live
+
+Command:
+
+  kubectl get deploy -A -o custom-columns='NAMESPACE:.metadata.namespace,DEPLOYMENT:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[*].image' | grep -E 'ai-sink|agent-runtime-service|prompt-workflow-service|trino|lakekeeper|kafka'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl get kafkatopics -A | grep -E 'ai.events.v1|__dlq.outbox-pg-policy.v1'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 2. Verify Iceberg Schemas And Partitions
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_ai.prompts"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_ai.responses"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_ai.evaluations"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_ai.traces"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SHOW CREATE TABLE of_ai.prompts; SHOW CREATE TABLE of_ai.responses; SHOW CREATE TABLE of_ai.evaluations; SHOW CREATE TABLE of_ai.traces"
+
+Required:
+
+  Every table must be partitioned by day(at).
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'prompts' AS table_name, * FROM \"of_ai\".\"prompts$partitions\" LIMIT 20; SELECT 'responses' AS table_name, * FROM \"of_ai\".\"responses$partitions\" LIMIT 20; SELECT 'evaluations' AS table_name, * FROM \"of_ai\".\"evaluations$partitions\" LIMIT 20; SELECT 'traces' AS table_name, * FROM \"of_ai\".\"traces$partitions\" LIMIT 20"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 3. Capture Counts Before Runtime Traffic
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS prompts_before, max(at) AS prompts_max_at FROM of_ai.prompts; SELECT count(*) AS responses_before, max(at) AS responses_max_at FROM of_ai.responses; SELECT count(*) AS evaluations_before, max(at) AS evaluations_max_at FROM of_ai.evaluations; SELECT count(*) AS traces_before, max(at) AS traces_max_at FROM of_ai.traces"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic ai.events.v1 --time -1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ai-sink
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 4. Generate Real AI Runtime Traffic
+
+Use `agent-runtime-service` or `prompt-workflow-service` through its runtime API
+or workflow. Do not use kafka-console-producer, fixture-only binaries or direct
+Iceberg writes.
+
+Command used:
+
+  PASTE REAL RUNTIME COMMAND HERE
+
+Required metadata to record:
+
+  tenant:
+  authenticated principal:
+  request/correlation id:
+  producer service:
+  event_id(s):
+  run_id:
+  trace_id:
+  kind(s):
+  expected table(s):
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 5. Capture Kafka Append And Consumer Lag After Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic ai.events.v1 --time -1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ai-sink
+
+Required:
+
+  Consumer offsets must advance and lag must recover. Missing group, static
+  offsets or persistent lag is FAIL.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 6. Capture Iceberg Counts After Traffic
+
+Wait for ai-sink to flush. The default batch policy is 100000 records or 60s,
+whichever happens first.
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS prompts_after, max(at) AS prompts_max_at FROM of_ai.prompts; SELECT count(*) AS responses_after, max(at) AS responses_max_at FROM of_ai.responses; SELECT count(*) AS evaluations_after, max(at) AS evaluations_max_at FROM of_ai.evaluations; SELECT count(*) AS traces_after, max(at) AS traces_max_at FROM of_ai.traces"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT event_id, at, kind, run_id, trace_id, producer, schema_version FROM of_ai.prompts ORDER BY at DESC LIMIT 10; SELECT event_id, at, kind, run_id, trace_id, producer, schema_version FROM of_ai.responses ORDER BY at DESC LIMIT 10; SELECT event_id, at, kind, run_id, trace_id, producer, schema_version FROM of_ai.evaluations ORDER BY at DESC LIMIT 10; SELECT event_id, at, kind, run_id, trace_id, producer, schema_version FROM of_ai.traces ORDER BY at DESC LIMIT 10"
+
+Required:
+
+  Returned rows must match event_id/run_id/trace_id/kind metadata from step 4
+  and must land in the table dictated by `kind`.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'prompts' AS table_name, event_id, count(*) AS duplicates FROM of_ai.prompts GROUP BY event_id HAVING count(*) > 1 LIMIT 20; SELECT 'responses' AS table_name, event_id, count(*) AS duplicates FROM of_ai.responses GROUP BY event_id HAVING count(*) > 1 LIMIT 20; SELECT 'evaluations' AS table_name, event_id, count(*) AS duplicates FROM of_ai.evaluations GROUP BY event_id HAVING count(*) > 1 LIMIT 20; SELECT 'traces' AS table_name, event_id, count(*) AS duplicates FROM of_ai.traces GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+
+Required:
+
+  No duplicate event_id rows for generated AI events.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 7. Verify No Errors Or DLQ Growth
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic __dlq.outbox-pg-policy.v1 --time -1
+
+Required:
+
+  Compare before/after. The DLQ must not grow during the AI event run.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl logs -A --since=30m --all-containers=true | grep -E 'ai-sink|ai.events.v1|of_ai|agent-runtime-service|prompt-workflow-service|DLQ|dlq|error|failed|Iceberg|commit'
+
+Required:
+
+  No ai-sink append failures, decode failures, commit failures or DLQ writes
+  tied to the run.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 8. Verify Lag And Metrics
+
+Kafka lag command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ai-sink
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'ai_sink_records_total'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'ai_sink_commits_total'
+
+Required:
+
+  outcome="ok" or equivalent success label must increase after the run; failures
+  must not increase. If metrics are absent, this remains BLOCKED until the
+  deployed binary emits them.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'ai_sink_lag_seconds'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Prometheus query command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'ai_sink_batch_size'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 9. Final ai-sink E2E Conclusion
+
+Conclusion:
+
+  BLOCKED. Replace with PASS only after:
+    - real AI runtime traffic is generated through agent-runtime-service or prompt-workflow-service,
+    - ai.events.v1 log-end offsets increase,
+    - ai-sink consumer offsets advance and lag recovers,
+    - of_ai target table counts increase according to event kind,
+    - returned rows match event_id/run_id/trace_id/kind metadata,
+    - schemas and day(at) partitioning match expected table layout,
+    - DLQ does not grow and logs show no append/decode/commit errors,
+    - ai_sink_* metrics are emitted and show successful records/commits.
+
+---
+
+S5 of_metrics_long E2E - Trino/Iceberg counts - 2026-05-03
+Status: BLOCKED - NO REAL MIMIR -> SPARK -> of_metrics_long PIPELINE AVAILABLE
+
+Target path:
+  Source: Prometheus remote_write -> Mimir object storage
+  Raw bucket: s3://openfoundry-metrics-long/blocks/
+  Spark job: metrics-aggregation-service-daily
+  Main class: org.openfoundry.spark.metrics.ServiceMetricsDailyJob
+  Referenced artifact: s3a://openfoundry-spark-jars/metrics-aggregation-0.1.0.jar
+  Iceberg table: iceberg.of_metrics_long.service_metrics_daily
+  Views:
+    - iceberg.of_metrics_long.v_service_latency_daily
+    - iceberg.of_metrics_long.v_service_error_rate_daily
+  Required partition:
+    - day(at)
+
+Runtime pipeline status:
+
+  BLOCKING GAP. The repo contains the SparkApplication manifest and Trino DDL,
+  but this checkout does not contain the Spark job implementation or packaged
+  artifact. `find` found only:
+    - infra/k8s/platform/manifests/spark-jobs/metrics-aggregation-service-daily.yaml
+    - infra/k8s/platform/manifests/trino/views/of_metrics_long.sql
+
+  The migration plan also states the runtime binary/JAR and date cron-wrapper
+  are deferred. Therefore this cannot be closed as a runtime materialization
+  proof from repo substrate alone.
+
+Operational validation status:
+
+  BLOCKED. The current cluster has no observability, openfoundry-spark, trino or
+  lakekeeper namespaces, no SparkApplication CRD and no deployed Mimir/Spark/Trino
+  pipeline. No real materialization or analytical query can be executed here.
+
+## Attempted Environment Validation For of_metrics_long
+
+Deployment discovery command:
+
+  kubectl get deploy -A
+
+Output:
+
+  NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+  cert-manager         cert-manager                       1/1     1            1           4h8m
+  cert-manager         cert-manager-cainjector            1/1     1            1           4h8m
+  cert-manager         cert-manager-webhook               1/1     1            1           4h8m
+  cnpg-system          cnpg-cloudnative-pg                1/1     1            1           4h5m
+  k8ssandra-operator   k8ssandra-operator                 1/1     1            1           4h6m
+  k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           4h6m
+  kube-system          coredns                            1/1     1            1           2d13h
+  kube-system          local-path-provisioner             1/1     1            1           2d13h
+  kube-system          metrics-server                     1/1     1            1           2d13h
+  kube-system          traefik                            1/1     1            1           2d13h
+  openfoundry          authorization-policy-service       0/1     1            0           3h57m
+  openfoundry          edge-gateway-service               0/1     1            0           3h57m
+  openfoundry          identity-federation-service        0/1     1            0           3h57m
+  openfoundry          tenancy-organizations-service      0/1     1            0           3h57m
+
+Namespace discovery command:
+
+  kubectl get ns kafka trino lakekeeper observability openfoundry-spark
+
+Output:
+
+  Error from server (NotFound): namespaces "kafka" not found
+  Error from server (NotFound): namespaces "trino" not found
+  Error from server (NotFound): namespaces "lakekeeper" not found
+  Error from server (NotFound): namespaces "observability" not found
+  Error from server (NotFound): namespaces "openfoundry-spark" not found
+
+SparkApplication discovery command:
+
+  kubectl get sparkapplications -A
+
+Output:
+
+  error: the server doesn't have a resource type "sparkapplications"
+
+Repo runtime artifact discovery command:
+
+  find . -path './target' -prune -o -iname '*metrics*aggregation*' -print
+
+Output:
+
+  ./infra/k8s/platform/manifests/spark-jobs/metrics-aggregation-service-daily.yaml
+
+Repo table/view discovery command:
+
+  find . -path './target' -prune -o -iname '*metrics*aggregation*' -o -iname '*metrics*long*' -o -iname '*service_metrics_daily*' -print
+
+Output:
+
+  ./infra/k8s/platform/manifests/spark-jobs/metrics-aggregation-service-daily.yaml
+  ./infra/k8s/platform/manifests/trino/views/of_metrics_long.sql
+
+## Expected Pipeline Contract
+
+Source manifest:
+
+  infra/k8s/platform/manifests/spark-jobs/metrics-aggregation-service-daily.yaml
+
+Manifest facts:
+
+  type: Scala
+  mode: cluster
+  image: apache/spark:3.5.3
+  mainClass: org.openfoundry.spark.metrics.ServiceMetricsDailyJob
+  mainApplicationFile: s3a://openfoundry-spark-jars/metrics-aggregation-0.1.0.jar
+  --mimir-bucket=openfoundry-metrics-long
+  --mimir-prefix=blocks/
+  --target-namespace=of_metrics_long
+  --target-table=service_metrics_daily
+  --catalog=lakekeeper
+  --catalog-uri=http://lakekeeper.lakekeeper.svc:8181
+  --day=$(date -u -d 'yesterday' +%F)
+
+Source DDL:
+
+  infra/k8s/platform/manifests/trino/views/of_metrics_long.sql
+
+Expected `of_metrics_long.service_metrics_daily` columns:
+
+  service       varchar, required
+  metric_name   varchar, required
+  day           date, required
+  p50           double
+  p95           double
+  p99           double
+  avg           double
+  sum           double
+  n_samples     bigint
+  at            timestamp(6) with time zone, required, partition source
+
+Expected partition:
+
+  day(at)
+
+Expected sort:
+
+  service, metric_name
+
+Expected views:
+
+  iceberg.of_metrics_long.v_service_latency_daily
+  iceberg.of_metrics_long.v_service_error_rate_daily
+
+## Commands To Close of_metrics_long In A Real S5 Environment
+
+Run every command below against the deployed S5 cluster. Paste real output under
+each block. PASS requires real Mimir blocks, a successful Spark materialization
+run, Iceberg row growth, partition evidence and analytical Trino results.
+
+### 1. Verify Mimir, Spark, Trino And Lakekeeper Are Live
+
+Command:
+
+  kubectl get deploy,statefulset,svc -A | grep -E 'mimir|prometheus|spark|trino|lakekeeper'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n openfoundry-spark get sparkapplications,scheduledsparkapplications
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 2. Verify Mimir Has Long-Term Blocks
+
+Use the deployed object-store tooling or Rook/Ceph credentials for the
+`openfoundry-metrics-long` bucket.
+
+Command:
+
+  kubectl -n observability exec deploy/mimir -- sh -lc 'find /data -maxdepth 4 -type d | grep blocks | head -50'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Alternative S3 command:
+
+  aws --endpoint-url "$CEPH_RGW_ENDPOINT" s3 ls s3://openfoundry-metrics-long/blocks/ --recursive --summarize
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  There must be real Mimir TSDB blocks for the day being materialized.
+
+### 3. Verify Table Schema, Partition And Views
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DESCRIBE of_metrics_long.service_metrics_daily"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SHOW CREATE TABLE of_metrics_long.service_metrics_daily"
+
+Required:
+
+  Table definition must show partitioning by day(at), Parquet format and sort by
+  service/metric_name when rendered by Trino.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SHOW CREATE VIEW of_metrics_long.v_service_latency_daily; SHOW CREATE VIEW of_metrics_long.v_service_error_rate_daily"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 4. Capture Counts Before Materialization
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS before_count, max(day) AS before_max_day, max(at) AS before_max_at FROM of_metrics_long.service_metrics_daily"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT day, count(*) AS rows, count(DISTINCT service) AS services, count(DISTINCT metric_name) AS metrics FROM of_metrics_long.service_metrics_daily GROUP BY day ORDER BY day DESC LIMIT 14"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 5. Run Or Observe The Spark Materialization Job
+
+Command to inspect existing application:
+
+  kubectl -n openfoundry-spark get sparkapplication metrics-aggregation-service-daily -o yaml
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command to apply manifest if this is the intended run path:
+
+  kubectl apply -f infra/k8s/platform/manifests/spark-jobs/metrics-aggregation-service-daily.yaml
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command to wait for completion:
+
+  kubectl -n openfoundry-spark wait --for=jsonpath='{.status.applicationState.state}'=COMPLETED sparkapplication/metrics-aggregation-service-daily --timeout=60m
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command to capture driver logs:
+
+  kubectl -n openfoundry-spark logs -l spark-role=driver,openfoundry.io/component=metrics-long --all-containers=true --tail=-1
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Logs must show the job read Mimir blocks and wrote/merged
+  of_metrics_long.service_metrics_daily for the target day. A manifest-only
+  apply without a successful job is not evidence.
+
+### 6. Capture Counts And Partitions After Materialization
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT count(*) AS after_count, max(day) AS after_max_day, max(at) AS after_max_at FROM of_metrics_long.service_metrics_daily"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT day, count(*) AS rows, count(DISTINCT service) AS services, count(DISTINCT metric_name) AS metrics FROM of_metrics_long.service_metrics_daily GROUP BY day ORDER BY day DESC LIMIT 14"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT * FROM \"of_metrics_long\".\"service_metrics_daily$partitions\" ORDER BY record_count DESC LIMIT 20"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Row count must increase or the target day partition must be idempotently
+  rewritten with non-zero records. Partition metadata must show rows for the
+  materialized day.
+
+### 7. Run Analytical Queries Through Trino
+
+Latency view query:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT service, day, p95, p99, n_samples FROM of_metrics_long.v_service_latency_daily WHERE day >= current_date - INTERVAL '14' DAY ORDER BY day DESC, p95 DESC LIMIT 20"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Error-rate view query:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT service, day, error_count, n_samples FROM of_metrics_long.v_service_error_rate_daily WHERE day >= current_date - INTERVAL '14' DAY ORDER BY day DESC, error_count DESC LIMIT 20"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Base table query:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT service, metric_name, day, p50, p95, p99, avg, sum, n_samples FROM of_metrics_long.service_metrics_daily WHERE day >= current_date - INTERVAL '14' DAY ORDER BY day DESC, service, metric_name LIMIT 50"
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Analytical queries must return rows from the materialized Iceberg table/views,
+  not live Prometheus/Mimir queries.
+
+### 8. Verify Alerts / Pipeline Health
+
+Command:
+
+  kubectl get prometheusrule -A | grep metrics-long
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'spark_application_completion_time_seconds{application_name="metrics-aggregation-service-daily",status="completed"}'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Command:
+
+  kubectl -n observability exec deploy/prometheus -- promtool query instant http://localhost:9090 'prometheus_remote_storage_highest_timestamp_in_seconds - ignoring(remote_name, url) group_right prometheus_remote_storage_queue_highest_sent_timestamp_seconds'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Remote-write lag must be healthy and the daily Spark job must have completed
+  within the expected 25h window.
+
+### 9. Final of_metrics_long Conclusion
+
+Conclusion:
+
+  BLOCKED. Replace with PASS only after:
+    - runtime Spark job artifact exists and is deployed,
+    - Mimir has real TSDB blocks for the materialized day,
+    - metrics-aggregation-service-daily completes successfully,
+    - service_metrics_daily row counts/partitions show materialization,
+    - Trino analytical queries return rows from of_metrics_long,
+    - pipeline alerts/metrics show healthy remote-write and successful job completion.

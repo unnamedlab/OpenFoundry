@@ -30,7 +30,7 @@ pub async fn create_object_type(
     let display_name = body.display_name.unwrap_or_else(|| body.name.clone());
     let description = body.description.unwrap_or_default();
 
-    let result = sqlx::query_as::<_, ObjectType>(
+    let result = crate::domain::pg_repository::typed::<ObjectType>(
         r#"INSERT INTO object_types (id, name, display_name, description, primary_key_property, icon, color, owner_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *"#,
@@ -66,7 +66,7 @@ pub async fn list_object_types(
     let search = params.search.unwrap_or_default();
     let search_pattern = format!("%{search}%");
 
-    let types = sqlx::query_as::<_, ObjectType>(
+    let types = crate::domain::pg_repository::typed::<ObjectType>(
         r#"SELECT * FROM object_types
            WHERE name ILIKE $1 OR display_name ILIKE $1
            ORDER BY created_at DESC"#,
@@ -131,10 +131,12 @@ pub async fn get_object_type(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
+    match crate::domain::pg_repository::typed::<ObjectType>(
+        "SELECT * FROM object_types WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
     {
         Ok(Some(ot)) => {
             let project_id =
@@ -163,19 +165,19 @@ pub async fn update_object_type(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateObjectTypeRequest>,
 ) -> impl IntoResponse {
-    let Some(existing) =
-        (match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-        {
-            Ok(existing) => existing,
-            Err(error) => {
-                tracing::error!("update object type lookup: {error}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        })
-    else {
+    let Some(existing) = (match crate::domain::pg_repository::typed::<ObjectType>(
+        "SELECT * FROM object_types WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(existing) => existing,
+        Err(error) => {
+            tracing::error!("update object type lookup: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }) else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
@@ -193,7 +195,7 @@ pub async fn update_object_type(
         return forbidden(error);
     }
 
-    let result = sqlx::query_as::<_, ObjectType>(
+    let result = crate::domain::pg_repository::typed::<ObjectType>(
         r#"UPDATE object_types SET
            display_name = COALESCE($2, display_name),
            description = COALESCE($3, description),
@@ -225,19 +227,19 @@ pub async fn delete_object_type(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let Some(existing) =
-        (match sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-        {
-            Ok(existing) => existing,
-            Err(error) => {
-                tracing::error!("delete object type lookup: {error}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        })
-    else {
+    let Some(existing) = (match crate::domain::pg_repository::typed::<ObjectType>(
+        "SELECT * FROM object_types WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(existing) => existing,
+        Err(error) => {
+            tracing::error!("delete object type lookup: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let project_id =
@@ -254,7 +256,7 @@ pub async fn delete_object_type(
         return forbidden(error);
     }
 
-    match sqlx::query("DELETE FROM object_types WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM object_types WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await

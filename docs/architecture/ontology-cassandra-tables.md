@@ -319,6 +319,12 @@ collapsed into one log discriminated by `kind`.
 - `INSERT` per event (append-only, no LWT).
 - `SELECT … WHERE tenant=? AND day_bucket=? ORDER BY applied_at DESC LIMIT n`
   for the activity feed.
+- `SELECT … WHERE tenant=? AND action_id=? AND day_bucket=? ORDER BY applied_at DESC LIMIT n`
+  via `actions_by_action` for action-scoped history.
+- `SELECT … WHERE tenant=? AND target_object_id=? ORDER BY applied_at DESC LIMIT n`
+  via `actions_by_object` for object-scoped history.
+- `INSERT … IF NOT EXISTS WHERE tenant=? AND event_id=?`
+  via `actions_by_event` for deterministic append/retry idempotency.
 - `SELECT … WHERE tenant=? AND day_bucket=? AND applied_at < ?`
   for back-paging. Cross-day paging issues N partition queries
   client-side — capped at 7 partitions per page request.
@@ -327,6 +333,8 @@ collapsed into one log discriminated by `kind`.
 
 - 1 partition per `(tenant, day_bucket)`. Window aligned with TWCS
   bucket = 1 day → SSTables drop wholesale on TTL expiry.
+- 1 partition per `(tenant, action_id, day_bucket)` for action reads;
+  cross-day paging uses the same bounded scan as the tenant feed.
 - TTL 90 d (7 776 000 s).
 
 **DDL**
@@ -345,6 +353,7 @@ CREATE TABLE IF NOT EXISTS actions_log.actions_log (
     status         text,
     failure_type   text,
     duration_ms    int,
+    event_id       text,
     PRIMARY KEY ((tenant, day_bucket), applied_at, action_id)
 )
 WITH CLUSTERING ORDER BY (applied_at DESC, action_id ASC)
@@ -358,14 +367,52 @@ WITH CLUSTERING ORDER BY (applied_at DESC, action_id ASC)
  AND comment = 'S1.1.b — append-only log for actions, revisions, funnel runs, rule runs. TTL 90 d.';
 ```
 
+```cql
+CREATE TABLE IF NOT EXISTS actions_log.actions_by_action (
+    tenant         text,
+    action_id      timeuuid,
+    day_bucket     date,
+    applied_at     timestamp,
+    event_id       text,
+    kind           text,
+    actor_id       uuid,
+    subject        text,
+    target_object_id timeuuid,
+    payload        text,
+    PRIMARY KEY ((tenant, action_id, day_bucket), applied_at, event_id)
+)
+WITH CLUSTERING ORDER BY (applied_at DESC, event_id ASC)
+ AND compaction = {
+   'class': 'TimeWindowCompactionStrategy',
+   'compaction_window_unit': 'DAYS',
+   'compaction_window_size': 1
+ }
+ AND default_time_to_live = 7776000;
+
+CREATE TABLE IF NOT EXISTS actions_log.actions_by_event (
+    tenant         text,
+    event_id       text,
+    action_id      timeuuid,
+    kind           text,
+    actor_id       uuid,
+    subject        text,
+    target_object_id timeuuid,
+    payload        text,
+    applied_at     timestamp,
+    day_bucket     date,
+    PRIMARY KEY ((tenant, event_id))
+)
+WITH default_time_to_live = 7776000;
+```
+
 **Notes**
 
 - `kind` discriminates the 5 source streams. Downstream Iceberg ETL
   pivots on this column to write per-event-type tables in
   `of.audit.*` (matches the audit lake under stream S5).
-- No LWT, no read-before-write — the log is monotonic append. Failure
-  semantics: write retry on timeout is idempotent because
-  `action_id timeuuid` is generated client-side.
+- Idempotency is anchored on `actions_by_event` with `(tenant,event_id)`
+  and `IF NOT EXISTS`; read-model fanout remains append-only in
+  `actions_log`, `actions_by_action` and `actions_by_object`.
 - `applied_at` is part of the CK (not PK) so it sorts within the day;
   bucketing by date keeps partition size ~ daily volume, predictable
   per tenant.

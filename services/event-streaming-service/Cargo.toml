@@ -53,6 +53,9 @@ workspace = true
 [dependencies.bytes]
 workspace = true
 
+[dependencies.cassandra-kernel]
+workspace = true
+
 [dependencies.chrono]
 workspace = true
 
@@ -63,6 +66,9 @@ workspace = true
 workspace = true
 
 [dependencies.event-bus-control]
+workspace = true
+
+[dependencies.outbox]
 workspace = true
 
 [dependencies.futures]
@@ -117,6 +123,12 @@ workspace = true
 
 [dependencies.uuid]
 workspace = true
+
+# Bloque P5 — needed by the kinesis/pubsub connectors to round-trip
+# Kinesis `Data` and Pub/Sub `data` fields, which the AWS / Google
+# REST APIs expose as base64-encoded blobs.
+[dependencies.base64]
+version = "0.22"
 
 [build-dependencies.tonic-build]
 workspace = true

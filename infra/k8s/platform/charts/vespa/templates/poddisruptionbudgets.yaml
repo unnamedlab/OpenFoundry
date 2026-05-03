@@ -1,0 +1,43 @@
+{{- if .Values.enabled -}}
+{{- if .Values.configserver.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vespa.configserver.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-configserver
+spec:
+  minAvailable: {{ .Values.configserver.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+{{ include "vespa.configserver.selectorLabels" . | indent 6 }}
+{{- end }}
+{{- if .Values.content.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vespa.content.fullname" . }}
+  labels:
+{{ include "vespa.labels" . | indent 4 }}
+    app.kubernetes.io/component: vespa-content
+spec:
+  {{- /*
+    Prefer maxUnavailable when set (T8 HA default for content nodes:
+    `maxUnavailable: 1` is coherent with redundancy=2 / 3 replicas).
+    Treat nil and empty-string as "unset" — every other value (incl. 0
+    or percentage strings like "25%") wins over minAvailable.
+  */ -}}
+  {{- $mu := .Values.content.podDisruptionBudget.maxUnavailable -}}
+  {{- $muStr := toString $mu -}}
+  {{- if and (hasKey .Values.content.podDisruptionBudget "maxUnavailable") (ne $muStr "<nil>") (ne $muStr "") }}
+  maxUnavailable: {{ $mu }}
+  {{- else }}
+  minAvailable: {{ .Values.content.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+{{ include "vespa.content.selectorLabels" . | indent 6 }}
+{{- end }}
+{{- end }}

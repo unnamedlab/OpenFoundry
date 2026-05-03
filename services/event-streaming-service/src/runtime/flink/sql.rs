@@ -23,6 +23,7 @@
 
 use std::fmt::Write as _;
 
+use super::effective_exactly_once;
 use crate::models::stream::{ConnectorBinding, StreamDefinition};
 use crate::models::topology::TopologyDefinition;
 
@@ -53,12 +54,14 @@ pub fn render_flink_sql(
     )
     .ok();
     writeln!(script, "-- topology: {} ({})", topology.name, topology.id).ok();
+    let exactly_once = effective_exactly_once(topology, streams);
     writeln!(
         script,
         "SET 'execution.checkpointing.mode' = '{}';",
-        match topology.consistency_guarantee.as_str() {
-            "exactly-once" => "EXACTLY_ONCE",
-            _ => "AT_LEAST_ONCE",
+        if exactly_once {
+            "EXACTLY_ONCE"
+        } else {
+            "AT_LEAST_ONCE"
         }
     )
     .ok();
@@ -68,6 +71,17 @@ pub fn render_flink_sql(
         topology.checkpoint_interval_ms
     )
     .ok();
+    if exactly_once {
+        // Transactional Kafka sink + two-phase commit. Disabled when
+        // AT_LEAST_ONCE so the cheaper write path stays the default.
+        writeln!(
+            script,
+            "SET 'sink.transactional-id-prefix' = 'openfoundry-{}';",
+            topology.id.simple()
+        )
+        .ok();
+        writeln!(script, "SET 'sink.delivery-guarantee' = 'exactly-once';").ok();
+    }
     writeln!(script).ok();
 
     // -- Source tables --------------------------------------------------
@@ -137,8 +151,7 @@ pub fn render_flink_sql(
 
     if topology.cep_definition.is_some() {
         warnings.push(
-            "CEP pattern translation is not implemented yet; emitted as a TODO comment"
-                .to_string(),
+            "CEP pattern translation is not implemented yet; emitted as a TODO comment".to_string(),
         );
         writeln!(
             script,
@@ -302,7 +315,12 @@ fn sanitize(name: &str) -> String {
             out.push('_');
         }
     }
-    if out.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    if out
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         out.insert(0, '_');
     }
     out
@@ -358,6 +376,12 @@ mod tests {
             schema_fingerprint: None,
             schema_compatibility_mode: "BACKWARD".to_string(),
             default_marking: None,
+            stream_type: crate::models::stream::StreamType::default(),
+            compression: false,
+            ingest_consistency: crate::models::stream::StreamConsistency::AtLeastOnce,
+            pipeline_consistency: crate::models::stream::StreamConsistency::AtLeastOnce,
+            checkpoint_interval_ms: 2_000,
+            kind: crate::models::stream_view::StreamKind::Ingest,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

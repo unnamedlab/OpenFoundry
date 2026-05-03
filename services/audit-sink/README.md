@@ -6,7 +6,7 @@
 
 Stateless Kafka consumer → Iceberg batch writer. Owns the long-term
 durability of audit events: the topic itself keeps 10 years (see
-[`infra/k8s/strimzi/topics-domain-v1.yaml`](../../infra/k8s/strimzi/topics-domain-v1.yaml)),
+[`infra/k8s/platform/manifests/strimzi/topics-domain-v1.yaml`](../../infra/k8s/platform/manifests/strimzi/topics-domain-v1.yaml)),
 but Iceberg becomes the system of record once the sink is live.
 
 ## Batch policy

@@ -1,0 +1,158 @@
+---
+# =============================================================================
+# CronJob: schedule the daily Iceberg `rewrite_data_files` compaction
+#
+# The Flink Kubernetes Operator (Apache-2.0) reconciles
+# `kind: FlinkDeployment` resources but it does NOT schedule them. To run a
+# batch FlinkDeployment on a fixed cadence we use a vanilla `CronJob` that
+# `kubectl apply -f`s the manifest in this directory and waits for the job
+# to finish. When the FlinkDeployment is `JobManagerDeploymentStatus=READY`
+# and `JobStatus=FINISHED` the CronJob deletes it so the next tick can
+# create a fresh instance with a new HA storage prefix.
+#
+# Schedule (UTC): 02:30 every day. Aligned with the snapshot expiration
+# policy (§4 of `infra/k8s/platform/manifests/flink/README.md`) so that compaction runs first
+# and the expiration job, scheduled at 03:30, can prune the snapshots that
+# the rewrite produced.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: iceberg-maintenance-scheduler
+  namespace: flink
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: iceberg-maintenance-scheduler
+  namespace: flink
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+rules:
+  - apiGroups: ["flink.apache.org"]
+    resources: ["flinkdeployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: iceberg-maintenance-scheduler
+  namespace: flink
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: iceberg-maintenance-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: iceberg-maintenance-scheduler
+    namespace: flink
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iceberg-rewrite-data-files-manifest
+  namespace: flink
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+data:
+  # Mounted into the CronJob pod and applied with `kubectl apply -f`. Keep in
+  # sync with `infra/k8s/platform/manifests/flink/maintenance/rewrite-data-files.yaml` (the file
+  # under git is the source of truth — the ConfigMap is rendered from it by
+  # the cluster bootstrap pipeline; see infra/k8s/platform/manifests/flink/README.md §3).
+  rewrite-data-files.yaml: |
+    # See infra/k8s/platform/manifests/flink/maintenance/rewrite-data-files.yaml for the
+    # canonical, fully-commented manifest.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: iceberg-rewrite-data-files
+  namespace: flink
+  labels:
+    app.kubernetes.io/name: iceberg-rewrite-data-files
+    app.kubernetes.io/part-of: openfoundry
+    app.kubernetes.io/component: iceberg-maintenance
+spec:
+  schedule: "30 2 * * *"        # 02:30 UTC daily
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 1800
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 21600   # 6 h hard cap
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: iceberg-rewrite-data-files
+            app.kubernetes.io/part-of: openfoundry
+            app.kubernetes.io/component: iceberg-maintenance
+        spec:
+          serviceAccountName: iceberg-maintenance-scheduler
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+          containers:
+            - name: kubectl
+              # bitnami/kubectl is Apache-2.0 packaging of upstream
+              # kubernetes/kubectl (Apache-2.0). Pinned to a specific tag
+              # so the CronJob is reproducible.
+              image: docker.io/bitnami/kubectl:1.30.3
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "-eu", "-o", "pipefail", "-c"]
+              args:
+                - |
+                  echo "[rewrite-data-files] (re)creating FlinkDeployment..."
+                  # Idempotent: delete any previous instance, then apply.
+                  kubectl -n flink delete flinkdeployment \
+                    iceberg-rewrite-data-files --ignore-not-found \
+                    --wait=true --timeout=10m
+                  kubectl -n flink apply -f /manifests/rewrite-data-files.yaml
+                  echo "[rewrite-data-files] waiting for job to FINISH..."
+                  # Poll JobStatus.state until FINISHED or FAILED.
+                  for _ in $(seq 1 360); do
+                    state=$(kubectl -n flink get flinkdeployment \
+                      iceberg-rewrite-data-files \
+                      -o jsonpath='{.status.jobStatus.state}' 2>/dev/null \
+                      || true)
+                    echo "  state=${state:-<none>}"
+                    case "${state}" in
+                      FINISHED) exit 0 ;;
+                      FAILED|CANCELED) exit 1 ;;
+                    esac
+                    sleep 60
+                  done
+                  echo "[rewrite-data-files] timed out waiting for FINISHED" >&2
+                  exit 1
+              volumeMounts:
+                - name: manifests
+                  mountPath: /manifests
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: manifests
+              configMap:
+                name: iceberg-rewrite-data-files-manifest

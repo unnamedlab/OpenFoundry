@@ -328,7 +328,7 @@ fn arrow_field(name: &'static str, data_type: DataType, nullable: bool, field_id
 }
 
 /// Prometheus metric names — pinned so dashboards and alert rules
-/// (`infra/k8s/observability/prometheus-rules-audit-sink.yaml`)
+/// (`infra/k8s/platform/manifests/observability/prometheus-rules-audit-sink.yaml`)
 /// reference them as constants.
 pub mod metrics {
     /// Histogram (seconds): gap between `event.at` and the moment

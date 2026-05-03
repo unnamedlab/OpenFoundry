@@ -1,0 +1,22 @@
+services:
+  sql-bi-gateway-service:
+    env:
+      DISTRIBUTED_QUERY_WORKERS: "4"
+      RUST_LOG: info
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+      keda:
+        enabled: true
+        pollingInterval: 15
+        cooldownPeriod: 90
+        triggers:
+          - type: prometheus
+            metadata:
+              serverAddress: http://prometheus-operated.monitoring.svc.cluster.local:9090
+              metricName: query_inflight_requests
+              query: sum(openfoundry_query_inflight_requests)
+              threshold: "40"

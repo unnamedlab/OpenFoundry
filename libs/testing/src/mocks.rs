@@ -35,4 +35,3 @@ pub async fn install_json(server: &MockServer, http_method: &str, route: &str, b
         .mount(server)
         .await;
 }
-

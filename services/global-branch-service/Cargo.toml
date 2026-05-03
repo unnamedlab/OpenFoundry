@@ -59,7 +59,60 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.outbox]
+workspace = true
+
+[dependencies.event-bus-data]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "global-branch-service"
 required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "global_branch_service"
+required-features = []
+crate-type = ["lib"]
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+
+[dev-dependencies.testing]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.sqlx]
+workspace = true
+features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true
+
+[dev-dependencies.chrono]
+workspace = true
+
+[dev-dependencies.tower]
+workspace = true
+
+[dev-dependencies.http-body-util]
+version = "0.1"
+
+[dev-dependencies.auth-middleware]
+workspace = true

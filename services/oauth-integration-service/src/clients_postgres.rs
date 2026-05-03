@@ -40,7 +40,10 @@ mod tests {
         assert_eq!(PG_CLUSTER, "pg-schemas");
         assert_eq!(SCHEMA, "auth_schema");
         assert_eq!(TABLE_OAUTH_CLIENTS, "oauth_clients");
-        assert_eq!(TABLE_OAUTH_EXTERNAL_INTEGRATIONS, "oauth_external_integrations");
+        assert_eq!(
+            TABLE_OAUTH_EXTERNAL_INTEGRATIONS,
+            "oauth_external_integrations"
+        );
         assert_eq!(
             TABLE_OAUTH_APPLICATION_CREDENTIALS,
             "oauth_application_credentials"

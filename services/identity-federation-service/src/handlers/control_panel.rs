@@ -1087,7 +1087,7 @@ mod tests {
             &sample_settings(),
             &["enterprise-saml".to_string()],
             2,
-            34,
+            Some(34),
         );
 
         assert_eq!(response.readiness, "attention");

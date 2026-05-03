@@ -103,11 +103,7 @@ pub fn import_action_type_artifact(
             "function_package_id",
             &remap.function_package_ids,
         );
-        rewrite_uuid_field_in_value(
-            object.get_mut("config"),
-            "webhook_id",
-            &remap.webhooks,
-        );
+        rewrite_uuid_field_in_value(object.get_mut("config"), "webhook_id", &remap.webhooks);
     }
 
     Ok(ImportedActionType {
@@ -199,10 +195,16 @@ mod tests {
 
         let imported = import_action_type_artifact(&artifact, &remap).unwrap();
         assert_eq!(
-            imported.action_type.get("object_type_id").and_then(|v| v.as_str()),
+            imported
+                .action_type
+                .get("object_type_id")
+                .and_then(|v| v.as_str()),
             Some(dest_object_type.to_string()).as_deref()
         );
-        assert_eq!(imported.remapped_dependencies.object_type_ids, vec![dest_object_type]);
+        assert_eq!(
+            imported.remapped_dependencies.object_type_ids,
+            vec![dest_object_type]
+        );
     }
 
     #[test]

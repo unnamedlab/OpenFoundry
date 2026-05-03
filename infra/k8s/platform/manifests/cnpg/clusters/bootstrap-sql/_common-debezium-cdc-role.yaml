@@ -1,0 +1,40 @@
+---
+# Shared bootstrap fragment — `debezium_cdc` role + outbox grants.
+#
+# Provisions the REPLICATION-capable role that the Debezium PostgreSQL
+# connector uses to consume logical slots, and grants it read access to
+# the shared `outbox.*` tables created by `_common-outbox-schema.yaml`.
+#
+# Idempotent (`IF NOT EXISTS` on the role) so it is safe to apply on
+# clusters where another bootstrap fragment may have already created the
+# role. Per-cluster grants on bounded-context schemas (e.g. pg-policy
+# granting Debezium SELECT on every audit schema) live in the
+# cluster-specific bootstrap ConfigMap.
+#
+# The placeholder password MUST be rotated via External Secrets before
+# the cluster accepts production traffic.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cnpg-common-debezium-cdc-role
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/component: bootstrap-sql
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/shared: "true"
+data:
+  bootstrap.sql: |
+    -- ============================================================
+    -- debezium_cdc role + grants on outbox (shared across clusters)
+    -- ============================================================
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'debezium_cdc') THEN
+        CREATE ROLE debezium_cdc LOGIN REPLICATION PASSWORD 'PLACEHOLDER_ROTATE_VIA_EXTERNAL_SECRETS';
+      END IF;
+    END$$;
+
+    GRANT USAGE ON SCHEMA outbox TO debezium_cdc;
+    GRANT SELECT ON TABLE outbox.events TO debezium_cdc;
+    GRANT SELECT, INSERT, UPDATE ON TABLE outbox.heartbeat TO debezium_cdc;

@@ -1,6 +1,12 @@
 pub mod branches;
+pub mod compare;
+pub mod conformance;
+pub mod files;
 pub mod foundry;
 pub mod health;
 pub mod lifecycle;
+pub mod preview;
+pub mod retention;
+pub mod schema;
 pub mod transactions;
 pub mod versions;

@@ -13,6 +13,10 @@
 		allowed_lateness_seconds: number;
 		aggregation_keys_text: string;
 		measure_fields_text: string;
+		// Bloque P6 — stateful streaming transforms / keys.
+		keyed?: boolean;
+		key_columns_text?: string;
+		state_ttl_seconds?: number;
 	}
 
 	interface Props {
@@ -122,6 +126,48 @@
 				<label class="rounded-2xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 dark:border-violet-900 dark:bg-violet-950/20">
 					<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700 dark:text-violet-300">Measure Fields</div>
 					<textarea class="mt-2 h-32 w-full bg-transparent text-sm text-slate-900 outline-none dark:text-slate-100" oninput={(event) => updateDraft('measure_fields_text', (event.currentTarget as HTMLTextAreaElement).value)}>{localDraft.measure_fields_text}</textarea>
+				</label>
+			</div>
+
+			<!-- Bloque P6 — stateful transforms / streaming keys. -->
+			<div class="grid gap-4 md:grid-cols-3" data-testid="window-stateful-controls">
+				<label class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+					<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Keyed</div>
+					<input
+						type="checkbox"
+						class="mt-2"
+						checked={localDraft.keyed ?? false}
+						oninput={(event) => updateDraft('keyed', (event.currentTarget as HTMLInputElement).checked)}
+						data-testid="window-keyed"
+					/>
+					<small class="block text-xs text-slate-500">When checked, the runtime runs <code>key_by(key_columns)</code> before windowing.</small>
+				</label>
+				<label class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900 md:col-span-2">
+					<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Key columns (comma separated)</div>
+					<input
+						type="text"
+						class="mt-2 w-full bg-transparent text-sm outline-none"
+						value={localDraft.key_columns_text ?? ''}
+						oninput={(event) => updateDraft('key_columns_text', (event.currentTarget as HTMLInputElement).value)}
+						placeholder="customer_id, country"
+						data-testid="window-key-columns"
+					/>
+				</label>
+				<label class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900 md:col-span-3">
+					<div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">State TTL (seconds)</div>
+					<input
+						type="range"
+						min="0"
+						max="86400"
+						step="60"
+						class="mt-2 w-full"
+						value={String(localDraft.state_ttl_seconds ?? 0)}
+						oninput={(event) =>
+							updateDraft('state_ttl_seconds', Number((event.currentTarget as HTMLInputElement).value) || 0)
+						}
+						data-testid="window-state-ttl"
+					/>
+					<small class="text-xs text-slate-500">{(localDraft.state_ttl_seconds ?? 0)}s — 0 disables TTL.</small>
 				</label>
 			</div>
 		</div>

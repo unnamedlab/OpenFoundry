@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Vespa application package — hosts.xml
+
+  Maps the host aliases used in `services.xml` to concrete hostnames.
+
+  In Kubernetes, the hostnames are the per-Pod stable DNS records served by
+  the headless Services that back each StatefulSet, of the form:
+
+      <pod-name>.<headless-service>.<namespace>.svc.cluster.local
+
+  The values below assume:
+
+      * Namespace:     openfoundry
+      * Fullname:      of-ontology-vespa      (platform Helm release)
+
+  …which yields headless services and pod hostnames such as:
+
+      of-ontology-vespa-configserver-0.of-ontology-vespa-configserver.openfoundry.svc.cluster.local
+
+  The platform Helm chart re-renders this file at install time into the
+  application-package ConfigMap with the actual release/namespace, so this
+  static copy is the *reference* pinned in the repo.  When deploying the
+  package outside Helm (e.g. from a developer workstation against a
+  pre-existing cluster) override the hostnames here to match your install.
+
+  See `infra/runbooks/vespa.md` § "K8s ↔ Vespa hostname mapping".
+-->
+<hosts>
+  <host name="of-ontology-vespa-configserver-0.of-ontology-vespa-configserver.openfoundry.svc.cluster.local">
+    <alias>vespa-configserver-0</alias>
+  </host>
+  <host name="of-ontology-vespa-configserver-1.of-ontology-vespa-configserver.openfoundry.svc.cluster.local">
+    <alias>vespa-configserver-1</alias>
+  </host>
+  <host name="of-ontology-vespa-configserver-2.of-ontology-vespa-configserver.openfoundry.svc.cluster.local">
+    <alias>vespa-configserver-2</alias>
+  </host>
+
+  <host name="of-ontology-vespa-container-0.of-ontology-vespa-container.openfoundry.svc.cluster.local">
+    <alias>vespa-container-0</alias>
+  </host>
+  <host name="of-ontology-vespa-container-1.of-ontology-vespa-container.openfoundry.svc.cluster.local">
+    <alias>vespa-container-1</alias>
+  </host>
+
+  <host name="of-ontology-vespa-content-0.of-ontology-vespa-content.openfoundry.svc.cluster.local">
+    <alias>vespa-content-0</alias>
+  </host>
+  <host name="of-ontology-vespa-content-1.of-ontology-vespa-content.openfoundry.svc.cluster.local">
+    <alias>vespa-content-1</alias>
+  </host>
+  <host name="of-ontology-vespa-content-2.of-ontology-vespa-content.openfoundry.svc.cluster.local">
+    <alias>vespa-content-2</alias>
+  </host>
+</hosts>

@@ -4,7 +4,7 @@
 #
 # Justificación de selectores:
 #   - Namespace `kafka` y cluster `openfoundry` → ver
-#     `infra/k8s/strimzi/kafka-cluster.yaml` (KafkaNodePool `kafka` con
+#     `infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml` (KafkaNodePool `kafka` con
 #     replicas=3 y rol controller+broker).
 #   - Strimzi etiqueta los pods con `strimzi.io/cluster=openfoundry` y
 #     `strimzi.io/pool-name=kafka` (mismas labels que el spec del

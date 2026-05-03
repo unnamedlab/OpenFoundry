@@ -50,9 +50,7 @@ pub fn validate_config(config: &Value) -> Result<(), String> {
         .unwrap_or("")
         .is_empty()
     {
-        return Err(format!(
-            "{CONNECTOR_NAME} connector requires 'stream_name'"
-        ));
+        return Err(format!("{CONNECTOR_NAME} connector requires 'stream_name'"));
     }
     Ok(())
 }
@@ -272,7 +270,9 @@ pub async fn query_virtual_table(
     // The arrow stream is opaque here, so we synthesise a small mirror set by
     // re-running the GetRecords loop bounded to the preview limit.
     let limit = request.limit.unwrap_or(50).clamp(1, 500);
-    let rows = preview_rows(config, &request.selector, limit).await.unwrap_or_default();
+    let rows = preview_rows(config, &request.selector, limit)
+        .await
+        .unwrap_or_default();
     Ok(virtual_table_response(
         &request.selector,
         rows,
@@ -280,11 +280,7 @@ pub async fn query_virtual_table(
     ))
 }
 
-async fn preview_rows(
-    config: &Value,
-    selector: &str,
-    limit: usize,
-) -> Result<Vec<Value>, String> {
+async fn preview_rows(config: &Value, selector: &str, limit: usize) -> Result<Vec<Value>, String> {
     let client = build_client(config).await?;
     let stream = require_stream(config)?;
     let (selector_stream, shard_filter) = parse_selector(selector, stream);
@@ -413,7 +409,10 @@ async fn get_initial_iterator(
     if matches!(iterator_type, ShardIteratorType::AtSequenceNumber)
         || matches!(iterator_type, ShardIteratorType::AfterSequenceNumber)
     {
-        if let Some(seq) = config.get("starting_sequence_number").and_then(Value::as_str) {
+        if let Some(seq) = config
+            .get("starting_sequence_number")
+            .and_then(Value::as_str)
+        {
             request = request.starting_sequence_number(seq);
         }
     }

@@ -13,20 +13,37 @@ These files provide the backing services needed for day-to-day development and s
 
 ## Kubernetes Via Helm
 
-The chart lives at `infra/k8s/helm/open-foundry`.
+Kubernetes delivery now uses five release-aligned charts under
+`infra/k8s/helm/`:
 
-Available values files show several deployment postures:
+- `of-platform`
+- `of-data-engine`
+- `of-ontology`
+- `of-ml-aip`
+- `of-apps-ops`
 
-- `values.yaml` for the shared base
-- `values-dev.yaml` for development
-- `values-staging.yaml` for staging
-- `values-prod.yaml` for production
-- `values-multicloud.yaml` for multi-cloud topology
-- `values-airgap.yaml` for air-gapped environments
-- `values-sovereign-eu.yaml` for EU residency constraints
-- `values-apollo.yaml` for Apollo-oriented rollout automation
+Cross-release environment posture lives under
+`infra/k8s/helm/profiles/`:
 
-The Helm CI workflow lints and renders several overlays so template validity is part of normal review.
+- `values-dev.yaml`
+- `values-staging.yaml`
+- `values-prod.yaml`
+- `values-multicloud.yaml`
+- `values-airgap.yaml`
+- `values-sovereign-eu.yaml`
+- `values-apollo.yaml`
+
+Each release keeps its own service-specific `values-{dev,staging,prod}.yaml`.
+
+The supported operator entrypoints are:
+
+```bash
+cd infra/k8s/helm && helmfile -e prod apply
+cd infra/k8s/helm && helmfile -e prod template > /tmp/openfoundry-prod.yaml
+```
+
+The Helm CI workflows lint every release and render the full bundle for
+dev/staging/prod so template validity remains part of normal review.
 
 ## Terraform Assets
 

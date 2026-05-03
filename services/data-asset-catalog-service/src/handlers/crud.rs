@@ -8,6 +8,9 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::config::build_dataset_storage_path;
+use crate::domain::validation::{
+    validate_dataset_format, validate_dataset_name, validate_health_status,
+};
 use crate::models::dataset::{
     CreateDatasetRequest, Dataset, ListDatasetsQuery, UpdateDatasetRequest,
 };
@@ -25,14 +28,42 @@ pub async fn create_dataset(
     if let Err(resp) = require_dataset_write(&claims, "new") {
         return resp.into_response();
     }
+    if let Err(error) = validate_dataset_name(&body.name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response();
+    }
     let id = Uuid::now_v7();
-    let format = body.format.unwrap_or_else(|| "parquet".to_string());
+    let format = body
+        .format
+        .unwrap_or_else(|| "parquet".to_string())
+        .to_ascii_lowercase();
+    if let Err(error) = validate_dataset_format(&format) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response();
+    }
+    let health_status = body.health_status.unwrap_or_else(|| "unknown".to_string());
+    if let Err(error) = validate_health_status(&health_status) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response();
+    }
     let storage_path = build_dataset_storage_path(&state.lakehouse_prefixes.bronze, id);
     let tags = body.tags.unwrap_or_default();
+    let metadata = body.metadata.unwrap_or_else(|| serde_json::json!({}));
 
+    // Declarative metadata only: runtime version rows are owned and
+    // materialized by `dataset-versioning-service`, not by this insert.
     let result = sqlx::query_as::<_, Dataset>(
-          r#"INSERT INTO datasets (id, name, description, format, storage_path, owner_id, tags, active_branch)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, 'main')
+          r#"INSERT INTO datasets (id, name, description, format, storage_path, owner_id, tags, active_branch, metadata, health_status)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, 'main', $8, $9)
            RETURNING *"#,
     )
     .bind(id)
@@ -42,24 +73,13 @@ pub async fn create_dataset(
     .bind(&storage_path)
     .bind(claims.sub)
     .bind(&tags)
+    .bind(&metadata)
+    .bind(&health_status)
     .fetch_one(&state.db)
     .await;
 
     match result {
         Ok(ds) => {
-            let _ = sqlx::query(
-                r#"INSERT INTO dataset_branches (
-                       id, dataset_id, name, version, base_version, description, is_default
-                   )
-                   VALUES ($1, $2, 'main', $3, $3, 'Default branch', TRUE)
-                   ON CONFLICT (dataset_id, name) DO NOTHING"#,
-            )
-            .bind(Uuid::now_v7())
-            .bind(ds.id)
-            .bind(ds.current_version)
-            .execute(&state.db)
-            .await;
-
             emit_audit(
                 &claims.sub,
                 "dataset.create",
@@ -69,6 +89,8 @@ pub async fn create_dataset(
                     "name": ds.name,
                     "format": ds.format,
                     "tags": ds.tags,
+                    "runtime_owner": "dataset-versioning-service",
+                    "versioning_mode": "declarative-only",
                 }),
             );
             (StatusCode::CREATED, Json(ds)).into_response()
@@ -170,12 +192,33 @@ pub async fn update_dataset(
     if let Err(resp) = require_dataset_write(&claims, &dataset_id.to_string()) {
         return resp.into_response();
     }
+    if let Some(name) = body.name.as_deref() {
+        if let Err(error) = validate_dataset_name(name) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
+        }
+    }
+    if let Some(status) = body.health_status.as_deref() {
+        if let Err(error) = validate_health_status(status) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
+        }
+    }
     let result = sqlx::query_as::<_, Dataset>(
         r#"UPDATE datasets
            SET name = COALESCE($2, name),
                description = COALESCE($3, description),
                tags = COALESCE($4, tags),
                owner_id = COALESCE($5, owner_id),
+               metadata = COALESCE($6, metadata),
+               health_status = COALESCE($7, health_status),
+               current_view_id = COALESCE($8, current_view_id),
                updated_at = NOW()
            WHERE id = $1
            RETURNING *"#,
@@ -185,6 +228,9 @@ pub async fn update_dataset(
     .bind(&body.description)
     .bind(&body.tags)
     .bind(body.owner_id)
+    .bind(&body.metadata)
+    .bind(&body.health_status)
+    .bind(body.current_view_id)
     .fetch_optional(&state.db)
     .await;
 
@@ -193,10 +239,27 @@ pub async fn update_dataset(
             // Record which fields were actually targeted; the audit
             // sink uses this to drive change-history queries.
             let mut changed: Vec<&'static str> = Vec::new();
-            if body.name.is_some() { changed.push("name"); }
-            if body.description.is_some() { changed.push("description"); }
-            if body.tags.is_some() { changed.push("tags"); }
-            if body.owner_id.is_some() { changed.push("owner_id"); }
+            if body.name.is_some() {
+                changed.push("name");
+            }
+            if body.description.is_some() {
+                changed.push("description");
+            }
+            if body.tags.is_some() {
+                changed.push("tags");
+            }
+            if body.owner_id.is_some() {
+                changed.push("owner_id");
+            }
+            if body.metadata.is_some() {
+                changed.push("metadata");
+            }
+            if body.health_status.is_some() {
+                changed.push("health_status");
+            }
+            if body.current_view_id.is_some() {
+                changed.push("current_view_id");
+            }
             emit_audit(
                 &claims.sub,
                 "dataset.update",

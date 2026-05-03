@@ -17,25 +17,28 @@
 //! [`crate::AppState::dataset_service_url`]. Failures only surface in the
 //! response message — the local row is always written first.
 
-use axum::{Extension, Json, extract::{Path, State}};
 use auth_middleware::claims::Claims;
+use axum::{
+    Extension, Json,
+    extract::{Path, State},
+};
 use chrono::Utc;
-use sqlx::types::Json as SqlJson;
+use sqlx::{Postgres, Transaction, types::Json as SqlJson};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     handlers::{
-        ServiceResult, bad_request, db_error, forbidden, not_found,
-        streams::emit_audit_event,
+        ServiceResult, bad_request, db_error, forbidden, not_found, streams::emit_audit_event,
     },
     models::{
         ListResponse,
         branch::{
-            ArchiveBranchRequest, CreateBranchRequest, MergeBranchRequest,
-            MergeBranchResponse, StreamBranch, StreamBranchRow,
+            ArchiveBranchRequest, CreateBranchRequest, MergeBranchRequest, MergeBranchResponse,
+            StreamBranch, StreamBranchRow,
         },
     },
+    outbox as streaming_outbox,
 };
 
 const PERM_BRANCH_WRITE: &str = "streaming:write";
@@ -46,12 +49,11 @@ fn can_write(claims: &Claims) -> bool {
 }
 
 async fn ensure_stream_exists(db: &sqlx::PgPool, stream_id: Uuid) -> Result<(), sqlx::Error> {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM streaming_streams WHERE id = $1)",
-    )
-    .bind(stream_id)
-    .fetch_one(db)
-    .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM streaming_streams WHERE id = $1)")
+            .bind(stream_id)
+            .fetch_one(db)
+            .await?;
     if exists {
         Ok(())
     } else {
@@ -73,6 +75,23 @@ async fn load_branch_by_name(
     .bind(stream_id)
     .bind(name)
     .fetch_one(db)
+    .await
+}
+
+async fn load_branch_by_name_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    stream_id: Uuid,
+    name: &str,
+) -> Result<StreamBranchRow, sqlx::Error> {
+    sqlx::query_as::<_, StreamBranchRow>(
+        "SELECT id, stream_id, name, parent_branch_id, status, head_sequence_no,
+                dataset_branch_id, description, created_by, created_at, archived_at
+           FROM streaming_stream_branches
+          WHERE stream_id = $1 AND name = $2",
+    )
+    .bind(stream_id)
+    .bind(name)
+    .fetch_one(&mut **tx)
     .await
 }
 
@@ -140,6 +159,7 @@ pub async fn create_branch(
     }
 
     let id = Uuid::now_v7();
+    let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query(
         "INSERT INTO streaming_stream_branches (
              id, stream_id, name, parent_branch_id, status, head_sequence_no,
@@ -153,14 +173,21 @@ pub async fn create_branch(
     .bind(payload.dataset_branch_id.as_deref())
     .bind(payload.description.unwrap_or_default())
     .bind(&claims.email)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|cause| db_error(&cause))?;
 
-    let row = load_branch_by_name(&state.db, stream_id, name)
+    let row = load_branch_by_name_tx(&mut tx, stream_id, name)
         .await
         .map_err(|cause| db_error(&cause))?;
     let branch: StreamBranch = row.into();
+    streaming_outbox::emit(&mut tx, &streaming_outbox::branch_created(&branch))
+        .await
+        .map_err(|cause| {
+            tracing::error!(branch_id = %branch.id, error = %cause, "failed to enqueue outbox event");
+            crate::handlers::internal_error("failed to enqueue outbox event")
+        })?;
+    tx.commit().await.map_err(|cause| db_error(&cause))?;
     emit_audit_event(
         &claims,
         "streaming.branch.created",
@@ -204,19 +231,34 @@ pub async fn delete_branch(
             "branch has uncommitted history; archive or merge it first",
         ));
     }
+    let deleted_at = Utc::now();
+    let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query("DELETE FROM streaming_stream_branches WHERE id = $1")
         .bind(row.id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(|cause| db_error(&cause))?;
+    let branch: StreamBranch = row.into();
+    streaming_outbox::emit(
+        &mut tx,
+        &streaming_outbox::branch_deleted(&branch, deleted_at, branch.head_sequence_no),
+    )
+    .await
+    .map_err(|cause| {
+        tracing::error!(branch_id = %branch.id, error = %cause, "failed to enqueue outbox event");
+        crate::handlers::internal_error("failed to enqueue outbox event")
+    })?;
+    tx.commit().await.map_err(|cause| db_error(&cause))?;
     emit_audit_event(
         &claims,
         "streaming.branch.deleted",
         "streaming_stream_branch",
-        row.id,
+        branch.id,
         serde_json::json!({ "stream_id": stream_id, "name": name }),
     );
-    Ok(Json(serde_json::json!({ "deleted": true, "id": row.id })))
+    Ok(Json(
+        serde_json::json!({ "deleted": true, "id": branch.id }),
+    ))
 }
 
 pub async fn merge_branch(
@@ -247,6 +289,8 @@ pub async fn merge_branch(
     };
     let merged_seq = source.head_sequence_no.max(target.head_sequence_no);
 
+    let merged_at = Utc::now();
+    let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query(
         "UPDATE streaming_stream_branches
             SET head_sequence_no = $2
@@ -254,7 +298,7 @@ pub async fn merge_branch(
     )
     .bind(target.id)
     .bind(merged_seq)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|cause| db_error(&cause))?;
 
@@ -264,15 +308,26 @@ pub async fn merge_branch(
           WHERE id = $1",
     )
     .bind(source.id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|cause| db_error(&cause))?;
+    let source_branch: StreamBranch = source.into();
+    streaming_outbox::emit(
+        &mut tx,
+        &streaming_outbox::branch_merged(&source_branch, target.id, merged_seq, merged_at),
+    )
+    .await
+    .map_err(|cause| {
+        tracing::error!(branch_id = %source_branch.id, error = %cause, "failed to enqueue outbox event");
+        crate::handlers::internal_error("failed to enqueue outbox event")
+    })?;
+    tx.commit().await.map_err(|cause| db_error(&cause))?;
 
     emit_audit_event(
         &claims,
         "streaming.branch.merged",
         "streaming_stream_branch",
-        source.id,
+        source_branch.id,
         serde_json::json!({
             "stream_id": stream_id,
             "source": name,
@@ -282,7 +337,7 @@ pub async fn merge_branch(
     );
 
     Ok(Json(MergeBranchResponse {
-        source_branch_id: source.id,
+        source_branch_id: source_branch.id,
         target_branch_id: target.id,
         merged_sequence_no: merged_seq,
         message: format!("merged '{}' into '{}'", name, target_name),
@@ -304,6 +359,7 @@ pub async fn archive_branch(
         Err(cause) => return Err(db_error(&cause)),
     };
 
+    let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query(
         "UPDATE streaming_stream_branches
             SET status = 'archived',
@@ -311,26 +367,37 @@ pub async fn archive_branch(
           WHERE id = $1",
     )
     .bind(row.id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|cause| db_error(&cause))?;
+    let updated = load_branch_by_name_tx(&mut tx, stream_id, &name)
+        .await
+        .map_err(|cause| db_error(&cause))?;
+    let updated_branch: StreamBranch = updated.into();
+    streaming_outbox::emit(&mut tx, &streaming_outbox::branch_archived(&updated_branch))
+        .await
+        .map_err(|cause| {
+            tracing::error!(branch_id = %updated_branch.id, error = %cause, "failed to enqueue outbox event");
+            crate::handlers::internal_error("failed to enqueue outbox event")
+        })?;
+    tx.commit().await.map_err(|cause| db_error(&cause))?;
 
     // Best-effort cold-tier commit. We POST the branch metadata to
     // dataset-versioning-service so it can snapshot the cold copy. We
     // never fail the request on HTTP errors \u2014 the local row is already
     // archived; the operator can retry via the dataset-versioning UI.
     if payload.commit_cold {
-        if let Some(dataset_branch) = row.dataset_branch_id.as_deref() {
+        if let Some(dataset_branch) = updated_branch.dataset_branch_id.as_deref() {
             let url = format!(
                 "{}/api/v1/datasets/{}/branches/{}:commit",
                 state.dataset_service_url.trim_end_matches('/'),
-                row.stream_id,
+                updated_branch.stream_id,
                 dataset_branch,
             );
             let body = serde_json::json!({
                 "stream_id": stream_id,
                 "branch_name": name,
-                "head_sequence_no": row.head_sequence_no,
+                "head_sequence_no": updated_branch.head_sequence_no,
                 "marking": null,
                 "archived_at": Utc::now().to_rfc3339(),
             });
@@ -338,25 +405,25 @@ pub async fn archive_branch(
             let _ = SqlJson(()); // keep import live in case of future tweaks.
             match state.http_client.post(&url).json(&body).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    tracing::info!(branch = %row.id, "cold tier commit accepted");
+                    tracing::info!(branch = %updated_branch.id, "cold tier commit accepted");
                     // Bloque F1: cold archive counter (rows archived).
                     state
                         .metrics
-                        .record_stream_rows_archived(&name, row.head_sequence_no as u64);
+                        .record_stream_rows_archived(&name, updated_branch.head_sequence_no as u64);
                 }
                 Ok(resp) => {
                     tracing::warn!(
-                        branch = %row.id,
+                        branch = %updated_branch.id,
                         status = %resp.status(),
                         "cold tier commit rejected"
                     );
                 }
                 Err(err) => {
-                    tracing::warn!(branch = %row.id, error = %err, "cold tier commit failed");
+                    tracing::warn!(branch = %updated_branch.id, error = %err, "cold tier commit failed");
                 }
             }
         } else {
-            tracing::info!(branch = %row.id, "no dataset_branch_id; skipping cold commit");
+            tracing::info!(branch = %updated_branch.id, "no dataset_branch_id; skipping cold commit");
         }
     }
 
@@ -371,9 +438,5 @@ pub async fn archive_branch(
             "commit_cold": payload.commit_cold,
         }),
     );
-
-    let updated = load_branch_by_name(&state.db, stream_id, &name)
-        .await
-        .map_err(|cause| db_error(&cause))?;
-    Ok(Json(updated.into()))
+    Ok(Json(updated_branch))
 }

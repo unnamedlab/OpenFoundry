@@ -34,7 +34,7 @@ keys, timestamps and tombstone markers.
 > column (median 1.4 KB across 100 sampled tenants).
 > Action payloads sampled from `action_executions.payload`.
 > Compression ratio 3:1 measured against `cassandra-stress` runs on
-> [`infra/k8s/cassandra/cluster-dev.yaml`](../../infra/k8s/cassandra/cluster-dev.yaml).
+> [`infra/k8s/platform/manifests/cassandra/cluster-dev.yaml`](../../infra/k8s/platform/manifests/cassandra/cluster-dev.yaml).
 
 ## 2. Per-table partition sizing
 
@@ -132,7 +132,7 @@ median and p99 per the cardinality model.
 The numbers above are **design-time estimates**. To keep them honest
 under load we expose the following continuous signals to the
 platform Prometheus / Grafana stack from
-[`infra/k8s/cassandra/servicemonitor.yaml`](../../infra/k8s/cassandra/servicemonitor.yaml):
+[`infra/k8s/platform/manifests/cassandra/servicemonitor.yaml`](../../infra/k8s/platform/manifests/cassandra/servicemonitor.yaml):
 
 | Signal | Source metric | Warn | Page |
 |---|---|---|---|

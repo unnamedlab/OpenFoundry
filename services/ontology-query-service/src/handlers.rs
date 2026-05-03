@@ -101,3 +101,118 @@ fn repo_error_to_response(err: RepoError) -> Response {
     };
     (status, err.to_string()).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use serde_json::Value;
+    use storage_abstraction::repositories::{
+        Object, ObjectId, ObjectStore, PutOutcome, TenantId, TypeId, noop::InMemoryObjectStore,
+    };
+    use tower::util::ServiceExt;
+
+    use crate::{QueryState, build_router};
+
+    fn seed_object(
+        store: &InMemoryObjectStore,
+        tenant: &str,
+        id: &str,
+        type_id: &str,
+        updated_at_ms: i64,
+    ) {
+        let outcome = futures::executor::block_on(store.put(
+            Object {
+                tenant: TenantId(tenant.to_string()),
+                id: ObjectId(id.to_string()),
+                type_id: TypeId(type_id.to_string()),
+                version: 0,
+                payload: serde_json::json!({ "id": id, "status": "ok" }),
+                organization_id: None,
+                created_at_ms: Some(updated_at_ms),
+                updated_at_ms,
+                owner: None,
+                markings: Vec::new(),
+            },
+            None,
+        ))
+        .expect("seed object");
+        assert!(matches!(outcome, PutOutcome::Inserted));
+    }
+
+    fn router_with_store(store: Arc<dyn ObjectStore>) -> Router {
+        build_router(QueryState { objects: store })
+    }
+
+    #[tokio::test]
+    async fn get_object_returns_seeded_payload() {
+        let store = Arc::new(InMemoryObjectStore::default());
+        seed_object(
+            store.as_ref(),
+            "tenant-a",
+            "obj-1",
+            "aircraft",
+            1_717_171_717_000,
+        );
+        let app = router_with_store(store);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/ontology/objects/tenant-a/obj-1")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let json: Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(json["id"], "obj-1");
+        assert_eq!(json["type_id"], "aircraft");
+    }
+
+    #[tokio::test]
+    async fn list_objects_by_type_filters_and_orders_rows() {
+        let store = Arc::new(InMemoryObjectStore::default());
+        seed_object(store.as_ref(), "tenant-a", "obj-1", "aircraft", 100);
+        seed_object(store.as_ref(), "tenant-a", "obj-2", "aircraft", 200);
+        seed_object(store.as_ref(), "tenant-a", "obj-3", "customer", 300);
+        let app = router_with_store(store);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/ontology/objects/tenant-a/by-type/aircraft?size=10")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let json: Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(json["items"].as_array().map(Vec::len), Some(2));
+        assert_eq!(json["items"][0]["id"], "obj-2");
+        assert_eq!(json["items"][1]["id"], "obj-1");
+        assert!(json["next_token"].is_null());
+    }
+}

@@ -83,13 +83,37 @@ Palantir Foundry es una plataforma de operaciones de datos de nivel empresarial 
 
 | # | Característica | Descripción | ✅ Cumplido |
 |---|---|---|---|
-| 1.6.1 | Dataset con transacciones | Historial de transacciones (snapshot, append, delete) sobre cada dataset[27] | [ ] |
-| 1.6.2 | Branching de datasets | Branches por entorno (dev/prod) con el mismo patrón que Git[27] | [ ] |
-| 1.6.3 | Dataset Views | Vistas de datasets sin duplicar datos[27] | [ ] |
-| 1.6.4 | Dataset Preview | Visualización de contenido e historial/metadatos de un dataset[4] | [ ] |
-| 1.6.5 | Data Health checks | Definición y monitoreo de health checks sobre la calidad de datasets[4] | [ ] |
-| 1.6.6 | Filesystem navegable | Sistema de ficheros jerárquico (proyectos, carpetas, archivos)[27] | [ ] |
-| 1.6.7 | Linter / anti-patterns detector | Análisis del enrollment para detectar anti-patrones y optimizar recursos[4] | [ ] |
+| 1.6.1 | Dataset con transacciones | Historial de transacciones (snapshot, append, delete) sobre cada dataset[27] | [x] |
+| 1.6.2 | Branching de datasets | Branches por entorno (dev/prod) con el mismo patrón que Git[27] | [x] |
+| 1.6.3 | Dataset Views | Vistas de datasets sin duplicar datos[27] | [x] |
+| 1.6.4 | Dataset Preview | Visualización de contenido e historial/metadatos de un dataset[4] | [x] |
+| 1.6.5 | Data Health checks | Definición y monitoreo de health checks sobre la calidad de datasets[4] | [x] |
+| 1.6.6 | Filesystem navegable | Sistema de ficheros jerárquico (proyectos, carpetas, archivos)[27] | [x] |
+| 1.6.7 | Linter / anti-patterns detector | Análisis del enrollment para detectar anti-patrones y optimizar recursos[4] | [x] |
+
+> **D1.1.1 Datasets parity (5/5) ✅** — full Foundry datasets surface, see
+> [ADR-0034](docs/architecture/adr/ADR-0034-datasets-foundry-parity.md). Closes
+> P1 schema-per-view, P2 file-format readers + preview, P3 backing
+> filesystem + Files tab, P4 retention preview + applicable policies,
+> P5 Compare + Open in…, and P6 dataset-quality-service binary,
+> QualityDashboard, Application-reference conformance (cursor
+> pagination + ETag/304 + 207 batch + unified error envelope) and
+> the full E2E journey.
+
+> **D1.1.5 Builds parity (5/5) ✅** — full Foundry builds lifecycle, see
+> [ADR-0035](docs/architecture/adr/ADR-0035-builds-foundry-parity.md). Closes
+> P1 BuildState/JobState lifecycle + resolver (cycle detection + build
+> locks + queueing on input contention), P2 parallel JoinSet executor
+> with multi-output atomicity + abort_policy cascade + staleness /
+> force_build, P3 five logic kinds (Sync, Transform, HealthCheck,
+> Analytical, Export) + InputSpec view filters, P4 dual `LogSink`
+> (Postgres + broadcast) with SSE/WS streams + the doc-compliant
+> 10-second initial heartbeat delay + LiveLogViewer, and P5 dedicated
+> `/builds` application (list + detail with Job graph, Live logs,
+> Inputs, Outputs and Audit tabs), outbox `foundry.build.events.v1`,
+> Prometheus metrics (`build_state_total`, `build_duration_seconds`,
+> `build_jobs_total{state,kind}`, `build_logs_emitted_total`,
+> `live_log_subscribers`, `build_queue_depth`) and the full E2E suite.
 
 ### 1.7 HyperAuto (SDDI)
 

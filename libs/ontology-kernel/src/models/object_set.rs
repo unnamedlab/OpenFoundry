@@ -108,6 +108,8 @@ pub struct ObjectSetEvaluationResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct ListObjectSetsResponse {
     pub data: Vec<ObjectSetDefinition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_token: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]

@@ -156,8 +156,9 @@ impl FlightSqlService for FlightSqlServiceImpl {
         ticket: TicketStatementQuery,
         _request: Request<Ticket>,
     ) -> Result<Response<<Self as FlightService>::DoGetStream>, Status> {
-        let sql = std::str::from_utf8(&ticket.statement_handle)
-            .map_err(|err| Status::invalid_argument(format!("statement_handle is not utf-8: {err}")))?;
+        let sql = std::str::from_utf8(&ticket.statement_handle).map_err(|err| {
+            Status::invalid_argument(format!("statement_handle is not utf-8: {err}"))
+        })?;
         self.execute_to_stream(sql).await
     }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Kafka cluster contract lint.
 
-Validates ``infra/k8s/strimzi/kafka-cluster.yaml`` against the durability and
+Validates ``infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml`` against the durability and
 availability invariants the data plane depends on. Fails (exit code 1) on any
 drift. The intent is to make accidental regressions in PR review impossible:
 once the manifest meets the contract, nobody can flip it back without the CI
@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - exercised only when PyYAML missing
     sys.exit(2)
 
 
-DEFAULT_MANIFEST = Path("infra/k8s/strimzi/kafka-cluster.yaml")
+DEFAULT_MANIFEST = Path("infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml")
 
 # Broker config keys that MUST be present with these exact values.
 REQUIRED_BROKER_CONFIG: dict[str, Any] = {

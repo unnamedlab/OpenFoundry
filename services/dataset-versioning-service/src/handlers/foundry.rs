@@ -28,21 +28,33 @@
 //! ya que Axum 0.8 no soporta capturas con sufijo literal en un mismo
 //! segmento.
 
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
+    response::Response,
 };
 use chrono::{DateTime, Utc};
+use core_models::TransactionType;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::Row;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::handlers::conformance::{
+    BatchItemResult, ErrorEnvelope, Page, PageQuery, batch_response, json_with_etag,
+};
+use crate::storage::{
+    RuntimeStore,
+    runtime::{
+        NewFoundryBranch, RuntimeBranch as BranchOut, RuntimeFallbackEntry as FallbackEntry,
+        RuntimeTransaction as TransactionOut, RuntimeViewFile as ViewFileOut,
+    },
+    transactional::TransactionalDatasetWriter,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos de petición / respuesta
@@ -51,18 +63,80 @@ use crate::AppState;
 #[derive(Debug, Deserialize)]
 pub struct CreateBranchBody {
     pub name: String,
-    /// Padre por nombre. Mutuamente excluyente con `from_transaction`.
-    /// Si ambos están ausentes, se crea una rama raíz.
+    /// Padre por nombre. Compat legacy. Mutuamente excluyente con
+    /// `from_transaction`. `source` (P1) toma precedencia.
     #[serde(default)]
     pub parent_branch: Option<String>,
     /// Padre derivado de una transacción concreta (Foundry
-    /// `create_child_branch(from_transaction = …)`): la nueva rama
-    /// hereda el `parent_branch_id` de esa txn y arranca con
-    /// `head_transaction_id` apuntando a ella.
+    /// `create_child_branch(from_transaction = …)`). Compat legacy.
     #[serde(default)]
     pub from_transaction: Option<Uuid>,
     #[serde(default)]
     pub description: Option<String>,
+    /// P1 — discriminated branch source. When present, takes
+    /// precedence over `parent_branch`/`from_transaction`.
+    #[serde(default)]
+    pub source: Option<BranchSource>,
+    /// Optional initial fallback chain. When omitted the handler
+    /// picks a sensible default per source kind:
+    ///   * `from_branch`            → `[parent_name]`
+    ///   * `from_transaction_rid`   → `[<branch of that transaction>]`
+    ///   * `as_root`                → `[]`
+    #[serde(default)]
+    pub fallback_chain: Option<Vec<String>>,
+    /// Free-form metadata (persona, ticket, …).
+    #[serde(default)]
+    pub labels: Option<serde_json::Map<String, Value>>,
+}
+
+/// Discriminated branch-source. Exactly one of the three keys must be
+/// truthy; the handler 400s otherwise.
+#[derive(Debug, Default, Deserialize)]
+pub struct BranchSource {
+    /// Create a child off another branch. HEAD copies the parent's
+    /// committed HEAD even when the parent has an OPEN transaction.
+    #[serde(default)]
+    pub from_branch: Option<String>,
+    /// Create a child off a specific COMMITTED transaction. Accepts
+    /// either a UUID or a `ri.foundry.main.transaction.<uuid>` RID.
+    #[serde(default)]
+    pub from_transaction_rid: Option<String>,
+    /// Mint a root branch. Only valid when the dataset has no other
+    /// active branches yet.
+    #[serde(default)]
+    pub as_root: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BranchSourceKind {
+    Root,
+    ChildFromBranch,
+    ChildFromTransaction,
+}
+
+impl BranchSourceKind {
+    fn metric_label(self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::ChildFromBranch => "child_from_branch",
+            Self::ChildFromTransaction => "child_from_transaction",
+        }
+    }
+
+    fn audit_label(self) -> &'static str {
+        self.metric_label()
+    }
+}
+
+/// Parse `ri.foundry.main.transaction.<uuid>` or a bare UUID.
+fn parse_transaction_rid(input: &str) -> Option<Uuid> {
+    const PREFIX: &str = "ri.foundry.main.transaction.";
+    let trimmed = input.trim();
+    if let Some(rest) = trimmed.strip_prefix(PREFIX) {
+        Uuid::parse_str(rest).ok()
+    } else {
+        Uuid::parse_str(trimmed).ok()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,40 +171,35 @@ pub struct ViewAtQuery {
     /// ISO-8601 timestamp. Si falta, equivale a `views/current`.
     #[serde(default)]
     pub ts: Option<String>,
+    /// Optional committed transaction id. When present it takes
+    /// precedence over `ts` and returns the view at that commit.
+    #[serde(default)]
+    pub transaction_id: Option<Uuid>,
     #[serde(default = "default_branch_master")]
     pub branch: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RollbackBody {
+    pub transaction_id: Uuid,
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompareQuery {
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    #[serde(default)]
+    pub target_branch: Option<String>,
+    #[serde(default)]
+    pub base_transaction: Option<Uuid>,
+    #[serde(default)]
+    pub target_transaction: Option<Uuid>,
+}
+
 fn default_branch_master() -> String {
     "master".to_string()
-}
-
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct BranchOut {
-    pub id: Uuid,
-    pub dataset_id: Uuid,
-    pub name: String,
-    pub parent_branch_id: Option<Uuid>,
-    pub head_transaction_id: Option<Uuid>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct TransactionOut {
-    pub id: Uuid,
-    pub dataset_id: Uuid,
-    pub branch_id: Uuid,
-    pub branch_name: String,
-    pub tx_type: String,
-    pub status: String,
-    pub summary: String,
-    pub metadata: Value,
-    pub providence: Value,
-    pub started_by: Option<Uuid>,
-    pub started_at: DateTime<Utc>,
-    pub committed_at: Option<DateTime<Utc>>,
-    pub aborted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,23 +208,43 @@ pub struct ViewOut {
     pub dataset_id: Uuid,
     pub branch_id: Uuid,
     pub head_transaction_id: Uuid,
+    pub requested_branch: String,
+    pub resolved_branch: String,
+    pub fallback_chain: Vec<String>,
     pub computed_at: DateTime<Utc>,
     pub file_count: i32,
     pub size_bytes: i64,
     pub files: Vec<ViewFileOut>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct ViewFileOut {
+#[derive(Debug, Serialize)]
+pub struct FileDiff {
+    pub added: Vec<ViewFileOut>,
+    pub removed: Vec<ViewFileOut>,
+    pub modified: Vec<FileChange>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FileChange {
     pub logical_path: String,
-    pub physical_path: String,
-    pub size_bytes: i64,
-    pub introduced_by: Option<Uuid>,
+    pub before: ViewFileOut,
+    pub after: ViewFileOut,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompareOut {
+    pub base: ViewOut,
+    pub target: ViewOut,
+    pub files: FileDiff,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+fn runtime(state: &AppState) -> RuntimeStore {
+    RuntimeStore::new(state.db.clone())
+}
 
 /// Resuelve un identificador público (RID textual o UUID) al `id UUID` interno.
 async fn resolve_dataset_id(
@@ -165,13 +254,13 @@ async fn resolve_dataset_id(
     if let Ok(uuid) = Uuid::parse_str(rid) {
         return Ok(uuid);
     }
-    let row = sqlx::query("SELECT id FROM datasets WHERE rid = $1")
+    let row = sqlx::query_scalar::<_, Uuid>("SELECT id FROM datasets WHERE rid = $1")
         .bind(rid)
         .fetch_optional(&state.db)
         .await
         .map_err(internal)?;
     match row {
-        Some(row) => Ok(row.get::<Uuid, _>("id")),
+        Some(id) => Ok(id),
         None => Err((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "dataset not found", "rid": rid })),
@@ -184,23 +273,16 @@ async fn load_branch(
     dataset_id: Uuid,
     branch: &str,
 ) -> Result<BranchOut, (StatusCode, Json<Value>)> {
-    sqlx::query_as::<_, BranchOut>(
-        r#"SELECT id, dataset_id, name, parent_branch_id, head_transaction_id,
-                  created_at, updated_at
-             FROM dataset_branches
-            WHERE dataset_id = $1 AND name = $2 AND deleted_at IS NULL"#,
-    )
-    .bind(dataset_id)
-    .bind(branch)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "branch not found", "branch": branch })),
-        )
-    })
+    runtime(state)
+        .load_active_branch(dataset_id, branch)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "branch not found", "branch": branch })),
+            )
+        })
 }
 
 fn internal<E: std::fmt::Display>(error: E) -> (StatusCode, Json<Value>) {
@@ -245,6 +327,15 @@ impl TxType {
             Self::Delete => "DELETE",
         }
     }
+
+    fn as_model(&self) -> TransactionType {
+        match self {
+            Self::Snapshot => TransactionType::Snapshot,
+            Self::Append => TransactionType::Append,
+            Self::Update => TransactionType::Update,
+            Self::Delete => TransactionType::Delete,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,20 +346,28 @@ pub async fn list_branches(
     State(state): State<AppState>,
     _user: AuthUser,
     Path(rid): Path<String>,
-) -> Result<Json<Vec<BranchOut>>, (StatusCode, Json<Value>)> {
+    Query(page): Query<PageQuery>,
+) -> Result<Json<Page<BranchOut>>, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    let rows = sqlx::query_as::<_, BranchOut>(
-        r#"SELECT id, dataset_id, name, parent_branch_id, head_transaction_id,
-                  created_at, updated_at
-             FROM dataset_branches
-            WHERE dataset_id = $1 AND deleted_at IS NULL
-            ORDER BY (parent_branch_id IS NULL) DESC, name ASC"#,
-    )
-    .bind(dataset_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(internal)?;
-    Ok(Json(rows))
+    let rows = runtime(&state)
+        .list_active_branches(dataset_id)
+        .await
+        .map_err(internal)?;
+    Ok(Json(slice_into_page(rows, &page)))
+}
+
+/// In-memory pagination over a vector — fine for the dataset-surface
+/// row counts we expect today (≤ a few hundred). Centralised so each
+/// list handler stays readable.
+fn slice_into_page<T>(rows: Vec<T>, page: &PageQuery) -> Page<T> {
+    let total = rows.len() as i64;
+    let offset = page.offset();
+    let limit = page.effective_limit();
+    let start = offset.clamp(0, total) as usize;
+    let end = (offset + limit).clamp(0, total) as usize;
+    let has_more = (offset + limit) < total;
+    let slice = rows.into_iter().skip(start).take(end - start).collect();
+    Page::from_slice(slice, offset, limit, has_more)
 }
 
 pub async fn create_branch(
@@ -278,130 +377,420 @@ pub async fn create_branch(
     Json(body): Json<CreateBranchBody>,
 ) -> Result<(StatusCode, Json<BranchOut>), (StatusCode, Json<Value>)> {
     crate::security::require_dataset_write(&user.0, &rid, "branch.create")?;
-    let name = body.name.trim();
+    let name = body.name.trim().to_string();
     if name.is_empty() {
         return Err(bad_request("branch name is required"));
     }
-    if body.parent_branch.is_some() && body.from_transaction.is_some() {
-        return Err(bad_request(
-            "`parent_branch` and `from_transaction` are mutually exclusive",
-        ));
-    }
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    // Resuelve también el RID textual canónico para persistirlo en la rama.
-    let dataset_rid = sqlx::query("SELECT rid FROM datasets WHERE id = $1")
-        .bind(dataset_id)
-        .fetch_one(&state.db)
+    let dataset_rid = runtime(&state)
+        .load_dataset_rid(dataset_id)
         .await
-        .map_err(internal)?
-        .get::<String, _>("rid");
+        .map_err(internal)?;
 
-    // Resolución del padre y del puntero HEAD inicial.
+    // ── Source resolution ────────────────────────────────────────────
     //
-    //  * Sin parent_branch ni from_transaction → rama raíz, HEAD=NULL.
-    //  * Con parent_branch → padre = esa rama; HEAD copia el HEAD del padre.
-    //  * Con from_transaction → padre = la rama de la txn; HEAD = la txn.
-    let (parent_branch_id, initial_head): (Option<Uuid>, Option<Uuid>) =
-        if let Some(txn_id) = body.from_transaction {
-            let row = sqlx::query(
-                r#"SELECT branch_id, dataset_id FROM dataset_transactions
-                    WHERE id = $1"#,
-            )
-            .bind(txn_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(internal)?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(json!({ "error": "from_transaction not found", "txn": txn_id })),
-                )
-            })?;
-            let txn_dataset_id: Uuid = row.get("dataset_id");
-            if txn_dataset_id != dataset_id {
-                return Err(bad_request(
-                    "from_transaction belongs to a different dataset",
-                ));
-            }
-            (Some(row.get::<Uuid, _>("branch_id")), Some(txn_id))
-        } else if let Some(p) = body
-            .parent_branch
-            .as_deref()
-            .map(str::trim)
-            .filter(|p| !p.is_empty())
-        {
-            let parent = load_branch(&state, dataset_id, p).await?;
-            (Some(parent.id), parent.head_transaction_id)
-        } else {
-            (None, None)
-        };
+    // Order of precedence:
+    //   1. `source.{from_branch|from_transaction_rid|as_root}` (P1).
+    //   2. Legacy `from_transaction` (UUID).
+    //   3. Legacy `parent_branch` (string).
+    //   4. Neither set → root branch (only when the dataset has no
+    //      active branches; matches the Foundry "create root" call).
+    let (kind, parent_branch_id, initial_head, created_from_txn, default_fallback) =
+        resolve_branch_source(&state, dataset_id, &body).await?;
 
-    let row = sqlx::query_as::<_, BranchOut>(
-        r#"INSERT INTO dataset_branches (
-               id, dataset_id, dataset_rid, name,
-               parent_branch_id, head_transaction_id,
-               version, base_version, description, is_default, created_by
-           )
-           VALUES ($1, $2, $3, $4, $5, $6,
-                   COALESCE((SELECT version FROM dataset_branches WHERE id = $5), 1),
-                   1, $7, FALSE, $8)
-           RETURNING id, dataset_id, name, parent_branch_id,
-                     head_transaction_id, created_at, updated_at"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(dataset_id)
-    .bind(&dataset_rid)
-    .bind(name)
-    .bind(parent_branch_id)
-    .bind(initial_head)
-    .bind(body.description.unwrap_or_default())
-    .bind(user.0.sub)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::Database(db) if db.is_unique_violation() => (
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "a branch with that name already exists for this dataset",
-                "name": name,
-            })),
-        ),
-        other => internal(other),
-    })?;
+    let fallback_chain: Vec<String> = match body.fallback_chain.clone() {
+        Some(chain) => chain
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        None => default_fallback,
+    };
+
+    let labels_value = match body.labels.clone() {
+        Some(map) => Value::Object(map),
+        None => Value::Object(serde_json::Map::new()),
+    };
+
+    let row = runtime(&state)
+        .create_foundry_branch(NewFoundryBranch {
+            id: Uuid::now_v7(),
+            dataset_id,
+            dataset_rid: &dataset_rid,
+            name: &name,
+            parent_branch_id,
+            head_transaction_id: initial_head,
+            created_from_transaction_id: created_from_txn,
+            description: body.description.as_deref().unwrap_or_default(),
+            created_by: user.0.sub,
+            fallback_chain: fallback_chain.clone(),
+            labels: labels_value.clone(),
+        })
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "a branch with that name already exists for this dataset",
+                    "name": name,
+                })),
+            ),
+            other => internal(other),
+        })?;
+
+    crate::metrics::DATASET_BRANCHES_CREATED_TOTAL
+        .with_label_values(&[kind.metric_label()])
+        .inc();
+    let _ = crate::metrics::refresh_branch_gauges(&state.db).await;
+
+    // P4 — markings inheritance + outbox event. The snapshot copy
+    // happens once, AT child creation time, so the parent owner can
+    // never retroactively raise the child's clearance floor (Foundry
+    // doc § "Branch security" / "Best practices and technical
+    // details").
+    let snapshot_markings = match parent_branch_id {
+        Some(parent_id) => {
+            sqlx::query_scalar::<_, Uuid>(
+                r#"INSERT INTO branch_markings_snapshot (branch_id, marking_id, source, set_by)
+                   SELECT $1, marking_id, 'PARENT', $2
+                     FROM branch_markings_snapshot
+                    WHERE branch_id = $3
+                   ON CONFLICT (branch_id, marking_id) DO NOTHING
+                   RETURNING marking_id"#,
+            )
+            .bind(row.id)
+            .bind(user.0.sub)
+            .bind(parent_id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default()
+        }
+        None => Vec::new(),
+    };
+
+    {
+        use crate::domain::branch_events::{BranchEnvelope, EVT_CREATED, emit};
+        let mut tx = state.db.begin().await.map_err(internal)?;
+        let envelope = BranchEnvelope::new(EVT_CREATED, &row.rid, &dataset_rid, &user.0.sub.to_string())
+            .with_parent_rid(parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")))
+            .with_head(initial_head.map(|id| format!("ri.foundry.main.transaction.{id}")))
+            .with_fallback(fallback_chain.clone())
+            .with_markings(snapshot_markings.clone())
+            .with_extras(json!({
+                "source_kind": kind.audit_label(),
+                "created_from_transaction_rid": created_from_txn
+                    .map(|id| format!("ri.foundry.main.transaction.{id}")),
+            }));
+        emit(&mut tx, &envelope)
+            .await
+            .map_err(|e| internal(e.to_string()))?;
+        tx.commit().await.map_err(internal)?;
+    }
 
     tracing::info!(
         rid, branch = %row.name,
         parent = ?parent_branch_id,
         head = ?initial_head,
+        kind = kind.metric_label(),
+        inherited_markings = snapshot_markings.len(),
         "branch created"
     );
     crate::security::emit_audit(
         &user.0.sub,
-        "branch.create",
+        "branch.created",
         &rid,
         json!({
+            "branch_rid": row.rid,
             "branch": row.name,
-            "parent_branch_id": parent_branch_id,
-            "initial_head": initial_head,
+            "source_kind": kind.audit_label(),
+            "parent_rid": parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")),
+            "created_from_transaction_rid": created_from_txn
+                .map(|id| format!("ri.foundry.main.transaction.{id}")),
+            "labels": labels_value,
+            "fallback_chain": fallback_chain,
         }),
     );
     Ok((StatusCode::CREATED, Json(row)))
 }
 
+#[allow(clippy::type_complexity)]
+async fn resolve_branch_source(
+    state: &AppState,
+    dataset_id: Uuid,
+    body: &CreateBranchBody,
+) -> Result<
+    (
+        BranchSourceKind,
+        Option<Uuid>, // parent_branch_id
+        Option<Uuid>, // initial_head_transaction_id
+        Option<Uuid>, // created_from_transaction_id
+        Vec<String>, // default fallback chain
+    ),
+    (StatusCode, Json<Value>),
+> {
+    if body.parent_branch.is_some() && body.from_transaction.is_some() {
+        return Err(bad_request(
+            "`parent_branch` and `from_transaction` are mutually exclusive",
+        ));
+    }
+
+    if let Some(source) = &body.source {
+        let provided = [
+            source
+                .from_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_some(),
+            source
+                .from_transaction_rid
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_some(),
+            source.as_root.unwrap_or(false),
+        ];
+        let count = provided.iter().filter(|p| **p).count();
+        if count != 1 {
+            return Err(bad_request(
+                "exactly one of `source.from_branch`, `source.from_transaction_rid`, `source.as_root` must be set",
+            ));
+        }
+
+        if let Some(parent) = source
+            .from_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let parent_branch = load_branch(state, dataset_id, parent).await?;
+            return Ok((
+                BranchSourceKind::ChildFromBranch,
+                Some(parent_branch.id),
+                parent_branch.head_transaction_id,
+                None,
+                vec![parent_branch.name.clone()],
+            ));
+        }
+
+        if let Some(rid_or_uuid) = source
+            .from_transaction_rid
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let txn_id = parse_transaction_rid(rid_or_uuid).ok_or_else(|| {
+                bad_request("from_transaction_rid is not a valid transaction RID")
+            })?;
+            return resolve_from_transaction(state, dataset_id, txn_id).await;
+        }
+
+        // as_root: only when no other branches exist on this dataset.
+        if dataset_has_active_branches(state, dataset_id).await? {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "as_root requires the dataset to have no active branches yet",
+                })),
+            ));
+        }
+        return Ok((BranchSourceKind::Root, None, None, None, Vec::new()));
+    }
+
+    // Legacy fall-throughs.
+    if let Some(txn_id) = body.from_transaction {
+        return resolve_from_transaction(state, dataset_id, txn_id).await;
+    }
+    if let Some(parent) = body
+        .parent_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let parent_branch = load_branch(state, dataset_id, parent).await?;
+        return Ok((
+            BranchSourceKind::ChildFromBranch,
+            Some(parent_branch.id),
+            parent_branch.head_transaction_id,
+            None,
+            vec![parent_branch.name.clone()],
+        ));
+    }
+
+    // No source provided → implicit root branch (only if first one).
+    if dataset_has_active_branches(state, dataset_id).await? {
+        return Err(bad_request(
+            "creating a root branch requires the dataset to have no active branches; \
+             pass `source.from_branch` or `parent_branch` to create a child",
+        ));
+    }
+    Ok((BranchSourceKind::Root, None, None, None, Vec::new()))
+}
+
+async fn dataset_has_active_branches(
+    state: &AppState,
+    dataset_id: Uuid,
+) -> Result<bool, (StatusCode, Json<Value>)> {
+    sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS(SELECT 1 FROM dataset_branches
+                          WHERE dataset_id = $1 AND deleted_at IS NULL)"#,
+    )
+    .bind(dataset_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(internal)
+}
+
+#[allow(clippy::type_complexity)]
+async fn resolve_from_transaction(
+    state: &AppState,
+    dataset_id: Uuid,
+    txn_id: Uuid,
+) -> Result<
+    (
+        BranchSourceKind,
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<Uuid>,
+        Vec<String>,
+    ),
+    (StatusCode, Json<Value>),
+> {
+    let scope = runtime(state)
+        .load_transaction_scope(txn_id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "from_transaction not found", "txn": txn_id })),
+            )
+        })?;
+    if scope.dataset_id != dataset_id {
+        return Err(bad_request(
+            "from_transaction belongs to a different dataset",
+        ));
+    }
+    let status = runtime(state)
+        .load_transaction_status(txn_id)
+        .await
+        .map_err(internal)?
+        .unwrap_or_default();
+    if status != "COMMITTED" {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "error": "from_transaction must be COMMITTED",
+                "transaction_id": txn_id,
+                "status": status,
+            })),
+        ));
+    }
+    let parent_name = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM dataset_branches WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(scope.branch_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .unwrap_or_default();
+    let default_fallback = if parent_name.is_empty() {
+        Vec::new()
+    } else {
+        vec![parent_name]
+    };
+
+    Ok((
+        BranchSourceKind::ChildFromTransaction,
+        Some(scope.branch_id),
+        Some(txn_id),
+        Some(txn_id),
+        default_fallback,
+    ))
+}
+
 pub async fn get_branch(
     State(state): State<AppState>,
     _user: AuthUser,
+    headers: HeaderMap,
     Path((rid, branch)): Path<(String, String)>,
-) -> Result<Json<BranchOut>, (StatusCode, Json<Value>)> {
+) -> Result<Response, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    Ok(Json(load_branch(&state, dataset_id, &branch).await?))
+    let row = load_branch(&state, dataset_id, &branch).await?;
+    let value = serde_json::to_value(&row).map_err(|e| internal(e.to_string()))?;
+    Ok(json_with_etag(&headers, value))
+}
+
+/// `GET /v1/datasets/{rid}/branches/{branch}/preview-delete`
+///
+/// P3 — read-only preview of what `DELETE /branches/{branch}` *would*
+/// do. Powers the UI confirmation dialog so the user sees:
+///   * which children are about to be re-parented,
+///   * which transactions are preserved (always: deletion only moves
+///     the branch pointer; transactions are kept for audit), and
+///   * the head transaction RID at delete time.
+pub async fn preview_delete_branch(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path((rid, branch)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let dataset_id = resolve_dataset_id(&state, &rid).await?;
+    let target = load_branch(&state, dataset_id, &branch).await?;
+
+    let children = runtime(&state)
+        .list_direct_children(target.id)
+        .await
+        .map_err(internal)?;
+
+    let new_parent_name = match target.parent_branch_id {
+        Some(parent_id) => sqlx::query_scalar::<_, String>(
+            "SELECT name FROM dataset_branches WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(parent_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?,
+        None => None,
+    };
+    let new_parent_rid = target
+        .parent_branch_id
+        .map(|id| format!("ri.foundry.main.branch.{id}"));
+
+    let children_to_reparent: Vec<Value> = children
+        .iter()
+        .map(|(child_id, child_name)| {
+            json!({
+                "branch": child_name,
+                "branch_rid": format!("ri.foundry.main.branch.{child_id}"),
+                "new_parent": new_parent_name,
+                "new_parent_rid": new_parent_rid,
+            })
+        })
+        .collect();
+
+    let head_transaction = target.head_transaction_id.map(|id| {
+        json!({
+            "id": id,
+            "rid": format!("ri.foundry.main.transaction.{id}"),
+        })
+    });
+
+    Ok(Json(json!({
+        "branch": target.name,
+        "branch_rid": target.rid,
+        "current_parent": new_parent_name,
+        "current_parent_rid": new_parent_rid,
+        "children_to_reparent": children_to_reparent,
+        "transactions_preserved": true,
+        "head_transaction": head_transaction,
+    })))
 }
 
 pub async fn delete_branch(
     State(state): State<AppState>,
     user: AuthUser,
     Path((rid, branch)): Path<(String, String)>,
-) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     crate::security::require_dataset_write(&user.0, &rid, "branch.delete")?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let target = load_branch(&state, dataset_id, &branch).await?;
@@ -411,37 +800,108 @@ pub async fn delete_branch(
     // they become roots). Soft-delete (`deleted_at`) keeps the row for
     // audit while freeing the (dataset_id, name) slot via the partial
     // unique index `uq_dataset_branches_dataset_id_name_active`.
-    let mut tx = state.db.begin().await.map_err(internal)?;
-    sqlx::query(
-        r#"UPDATE dataset_branches
-              SET parent_branch_id = $2
-            WHERE parent_branch_id = $1 AND deleted_at IS NULL"#,
-    )
-    .bind(target.id)
-    .bind(target.parent_branch_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(internal)?;
+    let children = runtime(&state)
+        .list_direct_children(target.id)
+        .await
+        .map_err(internal)?;
 
-    sqlx::query(
-        r#"UPDATE dataset_branches
-              SET deleted_at = NOW(), updated_at = NOW()
-            WHERE id = $1 AND deleted_at IS NULL"#,
-    )
-    .bind(target.id)
-    .execute(&mut *tx)
-    .await
-    .map_err(internal)?;
+    let new_parent_rid = target
+        .parent_branch_id
+        .map(|id| format!("ri.foundry.main.branch.{id}"));
+    let new_parent_name = match target.parent_branch_id {
+        Some(parent_id) => sqlx::query_scalar::<_, String>(
+            "SELECT name FROM dataset_branches WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(parent_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?,
+        None => None,
+    };
 
-    tx.commit().await.map_err(internal)?;
-    tracing::info!(rid, branch = %target.name, "branch soft-deleted (children re-parented)");
+    runtime(&state)
+        .soft_delete_branch(target.id, target.parent_branch_id)
+        .await
+        .map_err(internal)?;
+    let _ = crate::metrics::refresh_branch_gauges(&state.db).await;
+
+    let reparented: Vec<Value> = children
+        .iter()
+        .map(|(child_id, child_name)| {
+            json!({
+                "child_branch": child_name,
+                "child_branch_rid": format!("ri.foundry.main.branch.{child_id}"),
+                "new_parent": new_parent_name,
+                "new_parent_rid": new_parent_rid,
+            })
+        })
+        .collect();
+
+    {
+        use crate::domain::branch_events::{BranchEnvelope, EVT_DELETED, emit};
+        let dataset_rid = runtime(&state)
+            .load_dataset_rid(dataset_id)
+            .await
+            .map_err(internal)?;
+        let mut tx = state.db.begin().await.map_err(internal)?;
+        let envelope = BranchEnvelope::new(EVT_DELETED, &target.rid, &dataset_rid, &user.0.sub.to_string())
+            .with_parent_rid(target.parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")))
+            .with_extras(json!({ "reparented_children": reparented }));
+        emit(&mut tx, &envelope)
+            .await
+            .map_err(|e| internal(e.to_string()))?;
+        tx.commit().await.map_err(internal)?;
+    }
+
+    tracing::info!(
+        rid,
+        branch = %target.name,
+        children = children.len(),
+        "branch soft-deleted (children re-parented)"
+    );
     crate::security::emit_audit(
         &user.0.sub,
-        "branch.delete",
+        "branch.deleted",
         &rid,
-        json!({ "branch": target.name, "branch_id": target.id }),
+        json!({
+            "branch_rid": target.rid,
+            "branch": target.name,
+            "branch_id": target.id,
+            "reparented_children": reparented,
+        }),
     );
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(json!({
+        "branch": target.name,
+        "branch_rid": target.rid,
+        "reparented": reparented,
+    })))
+}
+
+/// `GET /v1/datasets/{rid}/branches/{branch}/ancestry` — returns the
+/// ancestry chain from the requested branch up to its root, in
+/// child→root order.
+pub async fn branch_ancestry(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path((rid, branch)): Path<(String, String)>,
+) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
+    let dataset_id = resolve_dataset_id(&state, &rid).await?;
+    let target = load_branch(&state, dataset_id, &branch).await?;
+    let chain = runtime(&state)
+        .list_branch_ancestry(target.id)
+        .await
+        .map_err(internal)?;
+    let payload: Vec<Value> = chain
+        .into_iter()
+        .map(|b| {
+            json!({
+                "rid": b.rid,
+                "name": b.name,
+                "is_root": b.parent_branch_id.is_none(),
+            })
+        })
+        .collect();
+    Ok(Json(payload))
 }
 
 /// Despachador para `POST /branches/{branch}:reparent` (única acción soportada
@@ -484,19 +944,31 @@ pub async fn branch_action(
         return Err(bad_request("a branch cannot be its own parent"));
     }
 
-    let row = sqlx::query_as::<_, BranchOut>(
-        r#"UPDATE dataset_branches
-              SET parent_branch_id = $2,
-                  updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, dataset_id, name, parent_branch_id,
-                      head_transaction_id, created_at, updated_at"#,
-    )
-    .bind(target.id)
-    .bind(new_parent_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(internal)?;
+    let from_parent_id = target.parent_branch_id;
+    let row = runtime(&state)
+        .reparent_branch(target.id, new_parent_id)
+        .await
+        .map_err(internal)?;
+
+    {
+        use crate::domain::branch_events::{BranchEnvelope, EVT_REPARENTED, emit};
+        let dataset_rid = runtime(&state)
+            .load_dataset_rid(dataset_id)
+            .await
+            .map_err(internal)?;
+        let mut tx = state.db.begin().await.map_err(internal)?;
+        let envelope = BranchEnvelope::new(EVT_REPARENTED, &row.rid, &dataset_rid, &user.0.sub.to_string())
+            .with_parent_rid(new_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")))
+            .with_head(row.head_transaction_id.map(|id| format!("ri.foundry.main.transaction.{id}")))
+            .with_extras(json!({
+                "from_parent_rid": from_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")),
+                "to_parent_rid": new_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")),
+            }));
+        emit(&mut tx, &envelope)
+            .await
+            .map_err(|e| internal(e.to_string()))?;
+        tx.commit().await.map_err(internal)?;
+    }
 
     tracing::info!(rid, branch = %row.name, new_parent = ?new_parent_id, "branch reparented");
     crate::security::emit_audit(
@@ -509,6 +981,92 @@ pub async fn branch_action(
         }),
     );
     Ok(Json(row))
+}
+
+pub async fn rollback_branch(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((rid, branch)): Path<(String, String)>,
+    Json(body): Json<RollbackBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    crate::security::require_dataset_write(&user.0, &rid, "branch.rollback")?;
+    let dataset_id = resolve_dataset_id(&state, &rid).await?;
+    let target = load_branch(&state, dataset_id, &branch).await?;
+    let rollback_txn = runtime(&state)
+        .fetch_transaction_by_branch_id(dataset_id, target.id, body.transaction_id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "rollback transaction not found" })),
+            )
+        })?;
+    if rollback_txn.status != "COMMITTED" {
+        return Err(bad_request("rollback target must be COMMITTED"));
+    }
+    let at = rollback_txn.committed_at.or(Some(rollback_txn.started_at));
+    let historical = compute_view_at(&state, dataset_id, &branch, at).await?;
+
+    let writer = TransactionalDatasetWriter::new(state.db.clone());
+    let opened = writer
+        .open_transaction(
+            dataset_id,
+            target.id,
+            &target.name,
+            TransactionType::Snapshot,
+            body.summary.as_deref().unwrap_or("rollback"),
+            &json!({
+                "rollback_from_transaction": body.transaction_id,
+                "rollback_from_view": historical.id,
+            }),
+            Some(user.0.sub),
+        )
+        .await
+        .map_err(map_commit_error)?;
+
+    for file in &historical.files {
+        writer
+            .stage_file(
+                &opened,
+                crate::storage::transactional::StagedFile {
+                    logical_path: file.logical_path.clone(),
+                    physical_path: file.physical_path.clone(),
+                    size_bytes: file.size_bytes,
+                    op: crate::storage::transactional::StageOp::Add,
+                },
+            )
+            .await
+            .map_err(map_commit_error)?;
+    }
+    writer.commit(&opened).await.map_err(map_commit_error)?;
+    let row = runtime(&state)
+        .fetch_transaction_by_branch_id(dataset_id, target.id, opened.id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "rollback transaction not found after commit" })),
+            )
+        })?;
+    let current = compute_view_at(&state, dataset_id, &branch, None).await?;
+
+    crate::security::emit_audit(
+        &user.0.sub,
+        "branch.rollback",
+        &rid,
+        json!({
+            "branch": branch,
+            "rollback_from_transaction": body.transaction_id,
+            "transaction_id": row.id,
+        }),
+    );
+
+    Ok(Json(json!({
+        "transaction": row,
+        "view": current,
+    })))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -528,43 +1086,54 @@ pub async fn start_transaction(
     let target = load_branch(&state, dataset_id, &branch).await?;
     let summary = body.summary.unwrap_or_default();
 
-    // El UNIQUE parcial garantiza una OPEN por rama; aquí devolvemos 409
-    // si ya existe.
-    let row = sqlx::query_as::<_, TransactionOut>(
-        r#"INSERT INTO dataset_transactions (
-               id, dataset_id, branch_id, branch_name, tx_type, status,
-               operation, summary, providence, started_by
-           )
-           VALUES ($1, $2, $3, $4, $5, 'OPEN', $6, $7, $8::jsonb, $9)
-           RETURNING id, dataset_id, branch_id, branch_name, tx_type, status,
-                     summary, metadata, providence, started_by,
-                     started_at, committed_at, aborted_at"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(dataset_id)
-    .bind(target.id)
-    .bind(&target.name)
-    .bind(tx_type.as_str())
-    .bind(tx_type.as_str().to_ascii_lowercase())
-    .bind(&summary)
-    .bind(body.providence)
-    .bind(user.0.sub)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::Database(db)
-            if db.constraint() == Some("uq_dataset_transactions_one_open_per_branch") =>
-        {
-            (
+    let writer = TransactionalDatasetWriter::new(state.db.clone());
+    let opened_result = writer
+        .open_transaction(
+            dataset_id,
+            target.id,
+            &target.name,
+            tx_type.as_model(),
+            &summary,
+            &body.providence,
+            Some(user.0.sub),
+        )
+        .await;
+    let opened = match opened_result {
+        Ok(o) => o,
+        Err(crate::domain::transactions::CommitError::ConcurrentOpenTransaction { branch }) => {
+            // P1 — surface the open transaction RID so the UI can
+            // route the user straight to it instead of asking them to
+            // refetch the branch state.
+            let open_txn_id = runtime(&state)
+                .open_transaction_for_branch(target.id)
+                .await
+                .map_err(internal)?;
+            let open_txn_rid =
+                open_txn_id.map(|id| format!("ri.foundry.main.transaction.{id}"));
+            return Err((
                 StatusCode::CONFLICT,
                 Json(json!({
-                    "error": "branch already has an OPEN transaction",
-                    "branch": target.name,
+                    "error": "BRANCH_HAS_OPEN_TRANSACTION",
+                    "message": "branch already has an OPEN transaction",
+                    "branch": branch,
+                    "open_transaction_id": open_txn_id,
+                    "open_transaction_rid": open_txn_rid,
                 })),
-            )
+            ));
         }
-        other => internal(other),
-    })?;
+        Err(other) => return Err(internal(other)),
+    };
+
+    let row = runtime(&state)
+        .fetch_transaction_by_branch_id(dataset_id, target.id, opened.id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "transaction not found after open", "txn": opened.id })),
+            )
+        })?;
 
     // T8.1 — bump the per-(dataset, branch) OPEN gauge. The matching
     // dec lives in `transaction_action` for the commit/abort paths.
@@ -572,6 +1141,7 @@ pub async fn start_transaction(
     crate::metrics::DATASET_TX_TOTAL
         .with_label_values(&["open"])
         .inc();
+    let _ = crate::metrics::refresh_branch_gauges(&state.db).await;
 
     crate::security::emit_audit(
         &user.0.sub,
@@ -587,35 +1157,92 @@ pub async fn start_transaction(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
+/// `POST /v1/datasets/{rid}/transactions:batchGet`
+///
+/// P6 — Foundry "Application reference" 207 Multi-Status batch read.
+/// Body shape:
+///
+/// ```json
+/// { "ids": ["<txn_uuid_1>", "<txn_uuid_2>", "..."] }
+/// ```
+///
+/// Returns one [`BatchItemResult`] per input id; per-item status
+/// mirrors the per-resource GET (200 / 404, plus 400 for malformed
+/// uuids) so callers can fan-out without N round-trips.
+#[derive(Deserialize)]
+pub struct BatchGetTransactionsBody {
+    pub ids: Vec<String>,
+}
+
+pub async fn batch_get_transactions(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path(rid): Path<String>,
+    Json(body): Json<BatchGetTransactionsBody>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let dataset_id = resolve_dataset_id(&state, &rid).await?;
+    let mut items: Vec<BatchItemResult<TransactionOut>> = Vec::with_capacity(body.ids.len());
+    for raw_id in body.ids {
+        match Uuid::parse_str(&raw_id) {
+            Ok(txn_id) => {
+                let row = runtime(&state)
+                    .fetch_transaction(dataset_id, txn_id)
+                    .await
+                    .map_err(internal)?;
+                match row {
+                    Some(tx) => items.push(BatchItemResult {
+                        status: 200,
+                        id: raw_id,
+                        data: Some(tx),
+                        error: None,
+                    }),
+                    None => items.push(BatchItemResult {
+                        status: 404,
+                        id: raw_id,
+                        data: None,
+                        error: Some(ErrorEnvelope::new(
+                            "TRANSACTION_NOT_FOUND",
+                            "transaction not found",
+                        )),
+                    }),
+                }
+            }
+            Err(_) => items.push(BatchItemResult {
+                status: 400,
+                id: raw_id,
+                data: None,
+                error: Some(ErrorEnvelope::new(
+                    "TRANSACTION_BAD_ID",
+                    "transaction id is not a valid UUID",
+                )),
+            }),
+        }
+    }
+    Ok(batch_response(items))
+}
+
 pub async fn get_transaction(
     State(state): State<AppState>,
     _user: AuthUser,
+    headers: HeaderMap,
     Path((rid, branch, txn)): Path<(String, String, String)>,
-) -> Result<Json<TransactionOut>, (StatusCode, Json<Value>)> {
+) -> Result<Response, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let txn_id =
         Uuid::parse_str(&txn).map_err(|_| bad_request("transaction id is not a valid UUID"))?;
 
-    sqlx::query_as::<_, TransactionOut>(
-        r#"SELECT id, dataset_id, branch_id, branch_name, tx_type, status,
-                  summary, metadata, providence, started_by,
-                  started_at, committed_at, aborted_at
-             FROM dataset_transactions
-            WHERE dataset_id = $1 AND branch_name = $2 AND id = $3"#,
-    )
-    .bind(dataset_id)
-    .bind(&branch)
-    .bind(txn_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?
-    .map(Json)
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "transaction not found" })),
-        )
-    })
+    let row = runtime(&state)
+        .fetch_transaction_by_branch_name(dataset_id, &branch, txn_id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "transaction not found" })),
+            )
+        })?;
+    let value = serde_json::to_value(&row).map_err(|e| internal(e.to_string()))?;
+    Ok(json_with_etag(&headers, value))
 }
 
 /// Despachador para `POST /transactions/{txn}:commit` y `:abort`.
@@ -652,6 +1279,17 @@ pub async fn transaction_action(
     let txn_id =
         Uuid::parse_str(txn_str).map_err(|_| bad_request("transaction id is not a valid UUID"))?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
+    let before = runtime(&state)
+        .fetch_transaction_by_branch_name(dataset_id, &branch, txn_id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "transaction not found", "txn": txn_id })),
+            )
+        })?;
+    let was_open = before.status == "OPEN";
 
     let result = match action {
         "commit" => txn_domain::commit_transaction(&state.db, txn_id).await,
@@ -664,30 +1302,23 @@ pub async fn transaction_action(
     }
 
     // Re-fetch the canonical row (and verify branch/dataset scoping).
-    let row = sqlx::query_as::<_, TransactionOut>(
-        r#"SELECT id, dataset_id, branch_id, branch_name, tx_type, status,
-                  summary, metadata, providence, started_by,
-                  started_at, committed_at, aborted_at
-             FROM dataset_transactions
-            WHERE id = $1 AND dataset_id = $2 AND branch_name = $3"#,
-    )
-    .bind(txn_id)
-    .bind(dataset_id)
-    .bind(&branch)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "transaction not found after action", "txn": txn_id })),
-        )
-    })?;
+    let row = runtime(&state)
+        .fetch_transaction_by_branch_name(dataset_id, &branch, txn_id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "transaction not found after action", "txn": txn_id })),
+            )
+        })?;
 
     // T8.1 — terminal-state transitions: dec the OPEN gauge and bump
     // the appropriate counter. Done after the re-fetch so we can label
     // the committed counter by the actual `tx_type` recorded in DB.
-    crate::metrics::open_gauge(&rid, &branch).dec();
+    if was_open {
+        crate::metrics::open_gauge(&rid, &branch).dec();
+    }
     match action {
         "commit" => {
             crate::metrics::DATASET_TRANSACTIONS_COMMITTED_TOTAL
@@ -705,6 +1336,7 @@ pub async fn transaction_action(
         }
         _ => unreachable!("action filtered above"),
     }
+    let _ = crate::metrics::refresh_branch_gauges(&state.db).await;
 
     crate::security::emit_audit(
         &user.0.sub,
@@ -726,6 +1358,13 @@ fn map_commit_error(err: crate::domain::transactions::CommitError) -> (StatusCod
         CommitError::NotFound => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "transaction not found" })),
+        ),
+        CommitError::ConcurrentOpenTransaction { branch } => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "branch already has an OPEN transaction",
+                "branch": branch,
+            })),
         ),
         CommitError::NotOpen { current } => (
             StatusCode::CONFLICT,
@@ -771,7 +1410,8 @@ pub async fn list_transactions(
     _user: AuthUser,
     Path(rid): Path<String>,
     Query(params): Query<ListTxQuery>,
-) -> Result<Json<Vec<TransactionOut>>, (StatusCode, Json<Value>)> {
+    Query(page): Query<PageQuery>,
+) -> Result<Json<Page<TransactionOut>>, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let before = match params.before.as_deref() {
         Some(s) => Some(
@@ -782,24 +1422,11 @@ pub async fn list_transactions(
         None => None,
     };
 
-    let rows = sqlx::query_as::<_, TransactionOut>(
-        r#"SELECT id, dataset_id, branch_id, branch_name, tx_type, status,
-                  summary, metadata, providence, started_by,
-                  started_at, committed_at, aborted_at
-             FROM dataset_transactions
-            WHERE dataset_id = $1
-              AND ($2::text IS NULL OR branch_name = $2)
-              AND ($3::timestamptz IS NULL OR started_at < $3)
-            ORDER BY started_at DESC
-            LIMIT 200"#,
-    )
-    .bind(dataset_id)
-    .bind(params.branch.as_deref())
-    .bind(before)
-    .fetch_all(&state.db)
-    .await
-    .map_err(internal)?;
-    Ok(Json(rows))
+    let rows = runtime(&state)
+        .list_transactions(dataset_id, params.branch.as_deref(), before)
+        .await
+        .map_err(internal)?;
+    Ok(Json(slice_into_page(rows, &page)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -827,17 +1454,54 @@ pub async fn get_view_at(
     Query(params): Query<ViewAtQuery>,
 ) -> Result<Json<ViewOut>, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    let at = match params.ts.as_deref() {
-        Some(s) => Some(
-            DateTime::parse_from_rfc3339(s)
-                .map_err(|_| bad_request("'ts' must be RFC3339"))?
-                .with_timezone(&Utc),
-        ),
-        None => None,
+    let at = if let Some(txn_id) = params.transaction_id {
+        Some(committed_transaction_time(&state, dataset_id, &params.branch, txn_id).await?)
+    } else {
+        match params.ts.as_deref() {
+            Some(s) => Some(
+                DateTime::parse_from_rfc3339(s)
+                    .map_err(|_| bad_request("'ts' must be RFC3339"))?
+                    .with_timezone(&Utc),
+            ),
+            None => None,
+        }
     };
     compute_view_at(&state, dataset_id, &params.branch, at)
         .await
         .map(Json)
+}
+
+pub async fn compare_views(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path(rid): Path<String>,
+    Query(params): Query<CompareQuery>,
+) -> Result<Json<CompareOut>, (StatusCode, Json<Value>)> {
+    let dataset_id = resolve_dataset_id(&state, &rid).await?;
+    let base_branch = params.base_branch.unwrap_or_else(default_branch_master);
+    let target_branch = params.target_branch.unwrap_or_else(|| base_branch.clone());
+    let base_at = match params.base_transaction {
+        Some(txn_id) => {
+            Some(committed_transaction_time(&state, dataset_id, &base_branch, txn_id).await?)
+        }
+        None => None,
+    };
+    let target_at = match params.target_transaction {
+        Some(txn_id) => {
+            Some(committed_transaction_time(&state, dataset_id, &target_branch, txn_id).await?)
+        }
+        None => None,
+    };
+
+    let base = compute_view_at(&state, dataset_id, &base_branch, base_at).await?;
+    let target = compute_view_at(&state, dataset_id, &target_branch, target_at).await?;
+    let files = diff_views(&base.files, &target.files);
+
+    Ok(Json(CompareOut {
+        base,
+        target,
+        files,
+    }))
 }
 
 pub async fn list_view_files(
@@ -849,16 +1513,10 @@ pub async fn list_view_files(
     let view_uuid =
         Uuid::parse_str(&view_id).map_err(|_| bad_request("view_id is not a valid UUID"))?;
 
-    let rows = sqlx::query_as::<_, ViewFileOut>(
-        r#"SELECT logical_path, physical_path, size_bytes, introduced_by
-             FROM dataset_view_files
-            WHERE view_id = $1
-            ORDER BY logical_path ASC"#,
-    )
-    .bind(view_uuid)
-    .fetch_all(&state.db)
-    .await
-    .map_err(internal)?;
+    let rows = runtime(&state)
+        .list_view_files(view_uuid)
+        .await
+        .map_err(internal)?;
     Ok(Json(rows))
 }
 
@@ -875,146 +1533,96 @@ async fn compute_view_at(
     // The timer drops at the end of the function and records into
     // `dataset_view_compute_duration_seconds`.
     let _view_timer = crate::metrics::DATASET_VIEW_COMPUTE_DURATION_SECONDS.start_timer();
-    let target = load_branch(state, dataset_id, branch).await?;
-
-    let txns: Vec<(Uuid, String, DateTime<Utc>)> = sqlx::query(
-        r#"SELECT id, tx_type, COALESCE(committed_at, started_at) AS ts
-             FROM dataset_transactions
-            WHERE branch_id = $1
-              AND status = 'COMMITTED'
-              AND ($2::timestamptz IS NULL OR COALESCE(committed_at, started_at) <= $2)
-            ORDER BY COALESCE(committed_at, started_at) ASC, started_at ASC"#,
-    )
-    .bind(target.id)
-    .bind(at)
-    .fetch_all(&state.db)
-    .await
-    .map_err(internal)?
-    .into_iter()
-    .map(|row| (row.get("id"), row.get("tx_type"), row.get("ts")))
-    .collect();
+    let runtime = runtime(state);
+    let requested = load_branch(state, dataset_id, branch).await?;
+    let (target, fallback_chain, txns) =
+        resolve_branch_view(state, dataset_id, requested, at).await?;
 
     // Localizar último SNAPSHOT (≤ at) y arrancar desde allí.
     let start_idx = txns
         .iter()
-        .rposition(|(_, t, _)| t == "SNAPSHOT")
+        .rposition(|record| record.tx_type == "SNAPSHOT")
         .unwrap_or(0);
 
     use std::collections::BTreeMap;
     let mut files: BTreeMap<String, ViewFileOut> = BTreeMap::new();
 
-    for (txn_id, tx_type, _ts) in txns.iter().skip(start_idx) {
-        let rows = sqlx::query(
-            r#"SELECT logical_path, physical_path, size_bytes, op
-                 FROM dataset_transaction_files
-                WHERE transaction_id = $1"#,
-        )
-        .bind(txn_id)
-        .fetch_all(&state.db)
-        .await
-        .map_err(internal)?;
+    for txn in txns.iter().skip(start_idx) {
+        let rows = runtime
+            .list_transaction_files(txn.id)
+            .await
+            .map_err(internal)?;
 
-        match tx_type.as_str() {
+        match txn.tx_type.as_str() {
             "SNAPSHOT" => {
                 files.clear();
                 for r in rows {
-                    let lp: String = r.get("logical_path");
+                    let lp = r.logical_path;
                     files.insert(
                         lp.clone(),
                         ViewFileOut {
                             logical_path: lp,
-                            physical_path: r.get("physical_path"),
-                            size_bytes: r.get::<i64, _>("size_bytes"),
-                            introduced_by: Some(*txn_id),
+                            physical_path: r.physical_path,
+                            size_bytes: r.size_bytes,
+                            introduced_by: Some(txn.id),
                         },
                     );
                 }
             }
             "APPEND" => {
                 for r in rows {
-                    let lp: String = r.get("logical_path");
+                    let lp = r.logical_path;
                     files.entry(lp.clone()).or_insert(ViewFileOut {
                         logical_path: lp,
-                        physical_path: r.get("physical_path"),
-                        size_bytes: r.get::<i64, _>("size_bytes"),
-                        introduced_by: Some(*txn_id),
+                        physical_path: r.physical_path,
+                        size_bytes: r.size_bytes,
+                        introduced_by: Some(txn.id),
                     });
                 }
             }
             "UPDATE" => {
                 for r in rows {
-                    let lp: String = r.get("logical_path");
-                    files.insert(
-                        lp.clone(),
-                        ViewFileOut {
-                            logical_path: lp,
-                            physical_path: r.get("physical_path"),
-                            size_bytes: r.get::<i64, _>("size_bytes"),
-                            introduced_by: Some(*txn_id),
-                        },
-                    );
+                    if r.op == "REMOVE" {
+                        files.remove(&r.logical_path);
+                    } else {
+                        let lp = r.logical_path;
+                        files.insert(
+                            lp.clone(),
+                            ViewFileOut {
+                                logical_path: lp,
+                                physical_path: r.physical_path,
+                                size_bytes: r.size_bytes,
+                                introduced_by: Some(txn.id),
+                            },
+                        );
+                    }
                 }
             }
             "DELETE" => {
                 for r in rows {
-                    let lp: String = r.get("logical_path");
-                    files.remove(&lp);
+                    files.remove(&r.logical_path);
                 }
             }
             _ => {}
         }
     }
 
-    let head_txn_id = txns.last().map(|(id, _, _)| *id).unwrap_or(Uuid::nil());
+    let head_txn_id = txns.last().map(|txn| txn.id).unwrap_or(Uuid::nil());
     let file_count = files.len() as i32;
     let size_bytes: i64 = files.values().map(|f| f.size_bytes).sum();
 
     // Persistir la vista para futuras consultas O(1) (idempotente por
     // (dataset, branch, head_transaction)).
     let view_id = if head_txn_id != Uuid::nil() {
-        let new_id = Uuid::now_v7();
-        let row = sqlx::query(
-            r#"INSERT INTO dataset_views (
-                   id, dataset_id, branch_id, head_transaction_id,
-                   computed_at, file_count, size_bytes
-               )
-               VALUES ($1, $2, $3, $4, NOW(), $5, $6)
-               ON CONFLICT (dataset_id, branch_id, head_transaction_id) DO UPDATE
-                  SET computed_at = NOW()
-               RETURNING id"#,
-        )
-        .bind(new_id)
-        .bind(dataset_id)
-        .bind(target.id)
-        .bind(head_txn_id)
-        .bind(file_count)
-        .bind(size_bytes)
-        .fetch_one(&state.db)
-        .await
-        .map_err(internal)?;
-        let persisted: Uuid = row.get("id");
-
-        // Refrescar archivos de la vista.
-        sqlx::query("DELETE FROM dataset_view_files WHERE view_id = $1")
-            .bind(persisted)
-            .execute(&state.db)
+        let persisted = runtime
+            .upsert_view(dataset_id, target.id, head_txn_id, file_count, size_bytes)
             .await
             .map_err(internal)?;
-        for f in files.values() {
-            sqlx::query(
-                r#"INSERT INTO dataset_view_files
-                       (view_id, logical_path, physical_path, size_bytes, introduced_by)
-                   VALUES ($1, $2, $3, $4, $5)"#,
-            )
-            .bind(persisted)
-            .bind(&f.logical_path)
-            .bind(&f.physical_path)
-            .bind(f.size_bytes)
-            .bind(f.introduced_by)
-            .execute(&state.db)
+        let materialized_files: Vec<ViewFileOut> = files.values().cloned().collect();
+        runtime
+            .replace_view_files(persisted, &materialized_files)
             .await
             .map_err(internal)?;
-        }
         persisted
     } else {
         Uuid::nil()
@@ -1025,11 +1633,121 @@ async fn compute_view_at(
         dataset_id,
         branch_id: target.id,
         head_transaction_id: head_txn_id,
+        requested_branch: branch.to_string(),
+        resolved_branch: target.name,
+        fallback_chain,
         computed_at: Utc::now(),
         file_count,
         size_bytes,
         files: files.into_values().collect(),
     })
+}
+
+async fn committed_transaction_time(
+    state: &AppState,
+    dataset_id: Uuid,
+    branch: &str,
+    txn_id: Uuid,
+) -> Result<DateTime<Utc>, (StatusCode, Json<Value>)> {
+    let row = runtime(state)
+        .fetch_transaction_by_branch_name(dataset_id, branch, txn_id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "transaction not found", "txn": txn_id })),
+            )
+        })?;
+    if row.status != "COMMITTED" {
+        return Err(bad_request("view-at-time transaction must be COMMITTED"));
+    }
+    Ok(row.committed_at.unwrap_or(row.started_at))
+}
+
+async fn resolve_branch_view(
+    state: &AppState,
+    dataset_id: Uuid,
+    requested: BranchOut,
+    at: Option<DateTime<Utc>>,
+) -> Result<
+    (
+        BranchOut,
+        Vec<String>,
+        Vec<crate::storage::runtime::ViewTransactionRecord>,
+    ),
+    (StatusCode, Json<Value>),
+> {
+    let runtime = runtime(state);
+    let mut current = requested;
+    let mut chain = Vec::new();
+    let mut seen = HashSet::new();
+
+    loop {
+        if !seen.insert(current.name.clone()) {
+            return Err(bad_request("fallback chain contains a cycle"));
+        }
+        let txns = runtime
+            .list_committed_branch_transactions(current.id, at)
+            .await
+            .map_err(internal)?;
+        if !txns.is_empty() {
+            return Ok((current, chain, txns));
+        }
+
+        let fallbacks = runtime.list_fallbacks(current.id).await.map_err(internal)?;
+        let Some(next) = fallbacks.first() else {
+            return Ok((current, chain, txns));
+        };
+        chain.push(next.fallback_branch_name.clone());
+        current = load_branch(state, dataset_id, &next.fallback_branch_name).await?;
+    }
+}
+
+fn diff_views(base: &[ViewFileOut], target: &[ViewFileOut]) -> FileDiff {
+    use std::collections::BTreeMap;
+
+    let base_by_path: BTreeMap<String, ViewFileOut> = base
+        .iter()
+        .map(|file| (file.logical_path.clone(), file.clone()))
+        .collect();
+    let target_by_path: BTreeMap<String, ViewFileOut> = target
+        .iter()
+        .map(|file| (file.logical_path.clone(), file.clone()))
+        .collect();
+
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
+
+    for (path, target_file) in &target_by_path {
+        match base_by_path.get(path) {
+            Some(base_file)
+                if base_file.physical_path != target_file.physical_path
+                    || base_file.size_bytes != target_file.size_bytes =>
+            {
+                modified.push(FileChange {
+                    logical_path: path.clone(),
+                    before: base_file.clone(),
+                    after: target_file.clone(),
+                });
+            }
+            Some(_) => {}
+            None => added.push(target_file.clone()),
+        }
+    }
+
+    for (path, base_file) in &base_by_path {
+        if !target_by_path.contains_key(path) {
+            removed.push(base_file.clone());
+        }
+    }
+
+    FileDiff {
+        added,
+        removed,
+        modified,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1040,16 +1758,11 @@ async fn compute_view_at(
 // El orden lo da `position` ascendente (0 gana primero).
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct FallbackEntry {
-    pub position: i32,
-    pub fallback_branch_name: String,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct PutFallbacksBody {
     /// Lista ordenada de nombres de rama. Reemplaza la cadena actual de forma
     /// at\u00f3mica (DELETE + INSERT en una transacci\u00f3n).
+    #[serde(default, alias = "fallbacks")]
     pub chain: Vec<String>,
 }
 
@@ -1060,16 +1773,10 @@ pub async fn list_fallbacks(
 ) -> Result<Json<Vec<FallbackEntry>>, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let target = load_branch(&state, dataset_id, &branch).await?;
-    let rows = sqlx::query_as::<_, FallbackEntry>(
-        r#"SELECT position, fallback_branch_name
-             FROM dataset_branch_fallbacks
-            WHERE branch_id = $1
-            ORDER BY position ASC"#,
-    )
-    .bind(target.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(internal)?;
+    let rows = runtime(&state)
+        .list_fallbacks(target.id)
+        .await
+        .map_err(internal)?;
     Ok(Json(rows))
 }
 
@@ -1082,9 +1789,11 @@ pub async fn put_fallbacks(
     crate::security::require_dataset_write(&user.0, &rid, "branch.fallbacks.update")?;
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
     let target = load_branch(&state, dataset_id, &branch).await?;
+    let mut normalized = Vec::with_capacity(body.chain.len());
+    let mut direct_seen = HashSet::new();
     // Sanity: ningún nombre vacío y sin auto-referencias triviales.
     for name in &body.chain {
-        let trimmed = name.trim();
+        let trimmed = name.trim().to_string();
         if trimmed.is_empty() {
             return Err(bad_request("fallback chain entries must be non-empty"));
         }
@@ -1093,47 +1802,66 @@ pub async fn put_fallbacks(
                 "fallback chain cannot reference the branch itself",
             ));
         }
+        if !direct_seen.insert(trimmed.clone()) {
+            return Err(bad_request(
+                "fallback chain cannot contain duplicate branches",
+            ));
+        }
+        normalized.push(trimmed);
+    }
+    if fallback_cycle_would_form(&state, dataset_id, &target.name, &normalized).await? {
+        return Err(bad_request("fallback chain contains a cycle"));
     }
 
-    let mut tx = state.db.begin().await.map_err(internal)?;
-    sqlx::query("DELETE FROM dataset_branch_fallbacks WHERE branch_id = $1")
-        .bind(target.id)
-        .execute(&mut *tx)
+    runtime(&state)
+        .replace_fallbacks(target.id, &normalized)
         .await
         .map_err(internal)?;
-    for (i, name) in body.chain.iter().enumerate() {
-        sqlx::query(
-            r#"INSERT INTO dataset_branch_fallbacks
-                   (branch_id, position, fallback_branch_name)
-               VALUES ($1, $2, $3)"#,
-        )
-        .bind(target.id)
-        .bind(i as i32)
-        .bind(name.trim())
-        .execute(&mut *tx)
-        .await
-        .map_err(internal)?;
-    }
-    tx.commit().await.map_err(internal)?;
 
-    let rows = sqlx::query_as::<_, FallbackEntry>(
-        r#"SELECT position, fallback_branch_name
-             FROM dataset_branch_fallbacks
-            WHERE branch_id = $1
-            ORDER BY position ASC"#,
-    )
-    .bind(target.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(internal)?;
+    let rows = runtime(&state)
+        .list_fallbacks(target.id)
+        .await
+        .map_err(internal)?;
     crate::security::emit_audit(
         &user.0.sub,
         "branch.fallbacks.update",
         &rid,
         json!({
             "branch": target.name,
-            "chain": body.chain,
+            "chain": normalized,
         }),
     );
     Ok(Json(rows))
+}
+
+async fn fallback_cycle_would_form(
+    state: &AppState,
+    dataset_id: Uuid,
+    target_branch: &str,
+    new_chain: &[String],
+) -> Result<bool, (StatusCode, Json<Value>)> {
+    let runtime = runtime(state);
+    let mut stack: Vec<String> = new_chain.to_vec();
+    let mut seen = HashSet::new();
+
+    while let Some(branch_name) = stack.pop() {
+        if branch_name == target_branch {
+            return Ok(true);
+        }
+        if !seen.insert(branch_name.clone()) {
+            continue;
+        }
+        let Some(branch) = runtime
+            .load_active_branch(dataset_id, &branch_name)
+            .await
+            .map_err(internal)?
+        else {
+            continue;
+        };
+        for fallback in runtime.list_fallbacks(branch.id).await.map_err(internal)? {
+            stack.push(fallback.fallback_branch_name);
+        }
+    }
+
+    Ok(false)
 }

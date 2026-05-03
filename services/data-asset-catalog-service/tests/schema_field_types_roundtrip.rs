@@ -36,8 +36,13 @@ fn all_field_types() -> Vec<FieldType> {
         FieldType::Binary,
         FieldType::Date,
         FieldType::Timestamp,
-        FieldType::Decimal { precision: 10, scale: 2 },
-        FieldType::Array { array_sub_type: leaf(FieldType::Long) },
+        FieldType::Decimal {
+            precision: 10,
+            scale: 2,
+        },
+        FieldType::Array {
+            array_sub_type: leaf(FieldType::Long),
+        },
         FieldType::Map {
             map_key_type: leaf(FieldType::String),
             map_value_type: leaf(FieldType::Double),
@@ -109,5 +114,10 @@ async fn schema_validate_endpoint_rejects_invalid_decimal() {
     // Confirm the error body is structured (schema_errors non-empty).
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let v: Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(v["schema_errors"].as_array().map(|a| !a.is_empty()).unwrap_or(false));
+    assert!(
+        v["schema_errors"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+    );
 }

@@ -2,7 +2,7 @@
 //! storage for `identity-federation-service`.
 //!
 //! Three tables in keyspace `auth_runtime` (bootstrapped by
-//! [`infra/k8s/cassandra/keyspaces-job.yaml`](../../../../infra/k8s/cassandra/keyspaces-job.yaml)):
+//! [`infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml`](../../../../infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml)):
 //!
 //! * [`USER_SESSION_DDL`] — `auth_runtime.user_session
 //!   ((user_id, hour_bucket), session_id)`, TTL 1800 s (sliding via
@@ -14,6 +14,11 @@
 //!   roughly equal size.
 //! * [`OAUTH_STATE_DDL`] — `auth_runtime.oauth_state
 //!   ((day_bucket), state)`, TTL 600 s.
+//! * [`SCOPED_SESSION_BY_USER_DDL`] / [`SCOPED_SESSION_BY_ID_DDL`] —
+//!   Cassandra mirrors for self-service scoped-session listing and
+//!   revocation.
+//! * [`REFRESH_TOKEN_BY_ID_DDL`] — lookup table that preserves the
+//!   token-id API shape without reviving the legacy Postgres table.
 //!
 //! All three tables use the
 //! `cassandra_kernel::Migration` ledger so the schema lands
@@ -21,7 +26,9 @@
 //!
 //! The adapter [`SessionsAdapter`] is the typed surface handlers use
 //! once the bin is wired up. `Arc<scylla::Session>` is injected at
-//! construction time.
+//! construction time. Legacy Postgres `refresh_tokens` and
+//! `scoped_sessions` DDL is archived under
+//! `docs/architecture/legacy-migrations/identity-federation-service/`.
 
 use std::sync::Arc;
 
@@ -31,7 +38,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 /// Cassandra keyspace name. Matches the post-install Job
-/// (`infra/k8s/cassandra/keyspaces-job.yaml`).
+/// (`infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml`).
 pub const KEYSPACE: &str = "auth_runtime";
 
 /// Sliding TTL for `user_session` rows (30 min).
@@ -629,6 +636,12 @@ impl SessionsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, path::PathBuf};
+
+    fn repo_file(relative: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
+        fs::read_to_string(path).expect("fixture file should be readable")
+    }
 
     #[test]
     fn token_hash_prefix_is_two_bytes_hex() {
@@ -653,8 +666,35 @@ mod tests {
 
     #[test]
     fn migrations_have_pinned_versions() {
-        assert_eq!(MIGRATIONS.len(), 1);
+        assert_eq!(MIGRATIONS.len(), 2);
         assert_eq!(MIGRATIONS[0].version, 1);
+        assert_eq!(MIGRATIONS[1].version, 2);
         assert_eq!(MIGRATIONS[0].statements.len(), 3);
+        assert_eq!(MIGRATIONS[1].statements.len(), 3);
+    }
+
+    #[test]
+    fn active_postgres_migrations_do_not_create_runtime_session_tables() {
+        let active_initial_auth_sql = repo_file("migrations/20260419000001_initial_auth.sql");
+        let active_migrations_readme = repo_file("migrations/README.md");
+
+        assert!(!active_initial_auth_sql.contains("CREATE TABLE IF NOT EXISTS refresh_tokens"));
+        assert!(!active_initial_auth_sql.contains("CREATE TABLE IF NOT EXISTS scoped_sessions"));
+        assert!(
+            active_migrations_readme.contains("Runtime auth state no longer belongs in Postgres")
+        );
+    }
+
+    #[test]
+    fn archived_postgres_runtime_ddl_is_preserved_for_cutover_audit() {
+        let legacy_refresh_tokens_sql = repo_file(
+            "../../docs/architecture/legacy-migrations/identity-federation-service/20260419000001_refresh_tokens.sql",
+        );
+        let legacy_scoped_sessions_sql = repo_file(
+            "../../docs/architecture/legacy-migrations/identity-federation-service/20260425193000_scoped_sessions_security.sql",
+        );
+
+        assert!(legacy_refresh_tokens_sql.contains("CREATE TABLE IF NOT EXISTS refresh_tokens"));
+        assert!(legacy_scoped_sessions_sql.contains("CREATE TABLE IF NOT EXISTS scoped_sessions"));
     }
 }

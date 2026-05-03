@@ -26,12 +26,12 @@ use crate::{
     AppState,
     domain::{
         access::{clearance_rank, ensure_object_access, marking_rank, validate_marking},
-        composition,
+        action_repository, composition,
         function_metrics::{FunctionPackageRunContext, record_function_package_run},
         function_runtime::{
             ResolvedInlineFunction, execute_inline_function, resolve_inline_function_config,
         },
-        schema::{load_effective_properties, validate_object_properties},
+        schema::validate_object_properties,
         type_system::{validate_property_type, validate_property_value},
         writeback,
     },
@@ -221,16 +221,6 @@ fn tenant_from_claims(claims: &Claims) -> TenantId {
     )
 }
 
-fn stable_link_instance_id(
-    link_type_id: Uuid,
-    source_object_id: Uuid,
-    target_object_id: Uuid,
-) -> Uuid {
-    let material =
-        format!("openfoundry/ontology-link/{link_type_id}/{source_object_id}/{target_object_id}");
-    Uuid::new_v5(&Uuid::NAMESPACE_OID, material.as_bytes())
-}
-
 async fn persist_link_instance(
     state: &AppState,
     claims: &Claims,
@@ -256,7 +246,11 @@ async fn persist_link_instance(
     .map_err(|e| format!("{error_context}: {e}"))?;
 
     Ok(LinkInstance {
-        id: stable_link_instance_id(link_type.id, source_object_id, target_object_id),
+        id: composition::stable_link_id(
+            &LinkTypeId(link_type.id.to_string()),
+            &ObjectId(source_object_id.to_string()),
+            &ObjectId(target_object_id.to_string()),
+        ),
         link_type_id: link_type.id,
         source_object_id,
         target_object_id,
@@ -264,6 +258,29 @@ async fn persist_link_instance(
         created_by: actor_id,
         created_at,
     })
+}
+
+async fn delete_object_via_store(
+    state: &AppState,
+    claims: &Claims,
+    object_id: Uuid,
+    error_context: &str,
+) -> Result<(), String> {
+    let deleted = state
+        .stores
+        .objects
+        .delete(
+            &tenant_from_claims(claims),
+            &ObjectId(object_id.to_string()),
+        )
+        .await
+        .map_err(|error| format!("{error_context}: {error}"))?;
+
+    if !deleted {
+        return Err("target object no longer exists".to_string());
+    }
+
+    Ok(())
 }
 
 fn split_action_config(
@@ -1023,44 +1040,30 @@ fn all_forbidden(errors: &[String]) -> bool {
 async fn load_action_row(
     state: &AppState,
     action_id: Uuid,
-) -> Result<Option<ActionTypeRow>, sqlx::Error> {
-    sqlx::query_as::<_, ActionTypeRow>(
-        r#"SELECT id, name, display_name, description, object_type_id, operation_kind, input_schema,
-		          form_schema, config, confirmation_required, permission_key, authorization_policy, owner_id,
-		          created_at, updated_at
-		   FROM action_types WHERE id = $1"#,
-    )
-    .bind(action_id)
-    .fetch_optional(&state.db)
-    .await
+) -> Result<Option<ActionTypeRow>, String> {
+    action_repository::get_action_row(state.stores.definitions.as_ref(), action_id)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn load_property_row(
     state: &AppState,
     object_type_id: Uuid,
     property_id: Uuid,
-) -> Result<Option<Property>, sqlx::Error> {
-    sqlx::query_as::<_, Property>(
-        r#"SELECT id, object_type_id, name, display_name, description, property_type, required,
-                  unique_constraint, time_dependent, default_value, validation_rules,
-                  inline_edit_config, created_at, updated_at
-           FROM properties
-           WHERE id = $1 AND object_type_id = $2"#,
+) -> Result<Option<Property>, String> {
+    action_repository::load_property_for_object_type(
+        state.stores.definitions.as_ref(),
+        object_type_id,
+        property_id,
     )
-    .bind(property_id)
-    .bind(object_type_id)
-    .fetch_optional(&state.db)
     .await
+    .map_err(|error| error.to_string())
 }
 
-async fn ensure_object_type_exists(
-    state: &AppState,
-    object_type_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM object_types WHERE id = $1)")
-        .bind(object_type_id)
-        .fetch_one(&state.db)
+async fn ensure_object_type_exists(state: &AppState, object_type_id: Uuid) -> Result<bool, String> {
+    action_repository::object_type_exists(state.stores.definitions.as_ref(), object_type_id)
         .await
+        .map_err(|error| error.to_string())
 }
 
 fn parse_operation_kind(raw: &str) -> Result<ActionOperationKind, String> {
@@ -1550,9 +1553,12 @@ async fn apply_object_patch(
     let patch = patch_value
         .as_object()
         .ok_or_else(|| "object_patch must be a JSON object".to_string())?;
-    let definitions = load_effective_properties(&state.db, target.object_type_id)
-        .await
-        .map_err(|e| format!("failed to load property definitions: {e}"))?;
+    let definitions = action_repository::load_effective_properties(
+        state.stores.definitions.as_ref(),
+        target.object_type_id,
+    )
+    .await
+    .map_err(|e| format!("failed to load property definitions: {e}"))?;
     let property_types = definitions
         .iter()
         .map(|property| (property.name.as_str(), property.property_type.as_str()))
@@ -1601,6 +1607,8 @@ async fn apply_object_patch(
         type_id: TypeId(target.object_type_id.to_string()),
         version: next_version,
         payload: updated_properties.clone(),
+        organization_id: target.organization_id.map(|id| id.to_string()),
+        created_at_ms: Some(target.created_at.timestamp_millis()),
         updated_at_ms: updated_at.timestamp_millis(),
         owner,
         markings,
@@ -1647,18 +1655,24 @@ async fn create_link_from_instruction(
     target: &ObjectInstance,
     instruction: &FunctionLinkInstruction,
 ) -> Result<LinkInstance, String> {
-    let counterpart = load_object_instance(&state.db, instruction.target_object_id)
-        .await
-        .map_err(|e| format!("failed to load linked object: {e}"))?
-        .ok_or_else(|| "linked object was not found".to_string())?;
+    let counterpart = load_object_instance(
+        state,
+        claims,
+        instruction.target_object_id,
+        ReadConsistency::Strong,
+    )
+    .await
+    .map_err(|e| format!("failed to load linked object: {e}"))?
+    .ok_or_else(|| "linked object was not found".to_string())?;
     ensure_object_access(claims, &counterpart)?;
 
-    let link_type = sqlx::query_as::<_, LinkType>("SELECT * FROM link_types WHERE id = $1")
-        .bind(instruction.link_type_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| format!("failed to load link type: {e}"))?
-        .ok_or_else(|| "configured link type was not found".to_string())?;
+    let link_type = action_repository::load_link_type(
+        state.stores.definitions.as_ref(),
+        instruction.link_type_id,
+    )
+    .await
+    .map_err(|e| format!("failed to load link type: {e}"))?
+    .ok_or_else(|| "configured link type was not found".to_string())?;
 
     let expected_target_type = if instruction.source_role == "source" {
         link_type.source_type_id
@@ -1770,9 +1784,12 @@ async fn validate_action_definition(
         .iter()
         .map(|field| field.name.as_str())
         .collect::<HashSet<_>>();
-    let effective_properties = load_effective_properties(&state.db, object_type_id)
-        .await
-        .map_err(|e| format!("failed to load property definitions: {e}"))?;
+    let effective_properties = action_repository::load_effective_properties(
+        state.stores.definitions.as_ref(),
+        object_type_id,
+    )
+    .await
+    .map_err(|e| format!("failed to load property definitions: {e}"))?;
     let property_types = effective_properties
         .iter()
         .map(|property| (property.name.as_str(), property.property_type.as_str()))
@@ -1883,12 +1900,13 @@ async fn validate_action_definition(
             if cfg.source_role != "source" && cfg.source_role != "target" {
                 return Err("create_link source_role must be 'source' or 'target'".to_string());
             }
-            let link_type = sqlx::query_as::<_, LinkType>("SELECT * FROM link_types WHERE id = $1")
-                .bind(cfg.link_type_id)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| format!("failed to validate link type: {e}"))?
-                .ok_or_else(|| "referenced link type does not exist".to_string())?;
+            let link_type = action_repository::load_link_type(
+                state.stores.definitions.as_ref(),
+                cfg.link_type_id,
+            )
+            .await
+            .map_err(|e| format!("failed to validate link type: {e}"))?
+            .ok_or_else(|| "referenced link type does not exist".to_string())?;
             let expected_type = if cfg.source_role == "source" {
                 link_type.source_type_id
             } else {
@@ -1966,7 +1984,7 @@ async fn load_and_authorize_target(
     target_object_id: Uuid,
     object_type_id: Uuid,
 ) -> Result<ObjectInstance, Vec<String>> {
-    let target = load_object_instance(&state.db, target_object_id)
+    let target = load_object_instance(state, claims, target_object_id, ReadConsistency::Strong)
         .await
         .map_err(|e| vec![format!("failed to load target object: {e}")])?
         .ok_or_else(|| vec!["target object was not found".to_string()])?;
@@ -2015,12 +2033,15 @@ async fn plan_action(
 
             let cfg: UpdateObjectActionConfig = serde_json::from_value(operation_config)
                 .map_err(|e| vec![format!("invalid action config: {e}")])?;
-            let property_types = load_effective_properties(&state.db, action.object_type_id)
-                .await
-                .map_err(|e| vec![format!("failed to load property definitions: {e}")])?
-                .into_iter()
-                .map(|property| (property.name, property.property_type))
-                .collect::<HashMap<_, _>>();
+            let property_types = action_repository::load_effective_properties(
+                state.stores.definitions.as_ref(),
+                action.object_type_id,
+            )
+            .await
+            .map_err(|e| vec![format!("failed to load property definitions: {e}")])?
+            .into_iter()
+            .map(|property| (property.name, property.property_type))
+            .collect::<HashMap<_, _>>();
 
             let mut patch = Map::new();
             for mapping in cfg.property_mappings {
@@ -2084,17 +2105,19 @@ async fn plan_action(
                 .map_err(|e| vec![format!("invalid action config: {e}")])?;
             let counterpart_id =
                 resolve_uuid_parameter(&parameters, &cfg.target_input_name).map_err(|e| vec![e])?;
-            let counterpart = load_object_instance(&state.db, counterpart_id)
-                .await
-                .map_err(|e| vec![format!("failed to load linked object: {e}")])?
-                .ok_or_else(|| vec!["linked object was not found".to_string()])?;
+            let counterpart =
+                load_object_instance(state, claims, counterpart_id, ReadConsistency::Strong)
+                    .await
+                    .map_err(|e| vec![format!("failed to load linked object: {e}")])?
+                    .ok_or_else(|| vec!["linked object was not found".to_string()])?;
             ensure_object_access(claims, &counterpart).map_err(|e| vec![e])?;
-            let link_type = sqlx::query_as::<_, LinkType>("SELECT * FROM link_types WHERE id = $1")
-                .bind(cfg.link_type_id)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| vec![format!("failed to load link type: {e}")])?
-                .ok_or_else(|| vec!["configured link type was not found".to_string()])?;
+            let link_type = action_repository::load_link_type(
+                state.stores.definitions.as_ref(),
+                cfg.link_type_id,
+            )
+            .await
+            .map_err(|e| vec![format!("failed to load link type: {e}")])?
+            .ok_or_else(|| vec!["configured link type was not found".to_string()])?;
 
             let (source_object_id, target_link_object_id, expected_counterpart_type) =
                 if cfg.source_role == "source" {
@@ -2346,9 +2369,12 @@ async fn simulate_target_after_preview(
         }
     }
 
-    let definitions = load_effective_properties(&state.db, target.object_type_id)
-        .await
-        .map_err(|error| format!("failed to load property definitions: {error}"))?;
+    let definitions = action_repository::load_effective_properties(
+        state.stores.definitions.as_ref(),
+        target.object_type_id,
+    )
+    .await
+    .map_err(|error| format!("failed to load property definitions: {error}"))?;
     let normalized = validate_object_properties(&definitions, &Value::Object(merged))
         .map_err(|error| format!("invalid simulated action branch: {error}"))?;
 
@@ -2634,15 +2660,13 @@ async fn execute_plan(
             })
         }
         ActionPlan::DeleteObject { target } => {
-            let result = sqlx::query("DELETE FROM object_instances WHERE id = $1")
-                .bind(target.id)
-                .execute(&state.db)
-                .await
-                .map_err(|e| format!("failed to execute delete_object action: {e}"))?;
-
-            if result.rows_affected() == 0 {
-                return Err("target object no longer exists".to_string());
-            }
+            delete_object_via_store(
+                state,
+                claims,
+                target.id,
+                "failed to execute delete_object action via ObjectStore",
+            )
+            .await?;
 
             Ok(ExecutedAction {
                 target_object_id: Some(target.id),
@@ -2721,16 +2745,13 @@ async fn execute_plan(
                 };
 
                 let deleted = if delete_object {
-                    let result = sqlx::query("DELETE FROM object_instances WHERE id = $1")
-                        .bind(target_object.id)
-                        .execute(&state.db)
-                        .await
-                        .map_err(|e| {
-                            format!("failed to delete object from function response: {e}")
-                        })?;
-                    if result.rows_affected() == 0 {
-                        return Err("target object no longer exists".to_string());
-                    }
+                    delete_object_via_store(
+                        state,
+                        claims,
+                        target_object.id,
+                        "failed to delete object from function response via ObjectStore",
+                    )
+                    .await?;
                     true
                 } else {
                     false
@@ -2808,16 +2829,13 @@ async fn execute_plan(
                         };
 
                         let deleted = if delete_object {
-                            let result = sqlx::query("DELETE FROM object_instances WHERE id = $1")
-                                .bind(target_object.id)
-                                .execute(&state.db)
-                                .await
-                                .map_err(|e| {
-                                    format!("failed to delete object from function response: {e}")
-                                })?;
-                            if result.rows_affected() == 0 {
-                                return Err("target object no longer exists".to_string());
-                            }
+                            delete_object_via_store(
+                                state,
+                                claims,
+                                target_object.id,
+                                "failed to delete object from function response via ObjectStore",
+                            )
+                            .await?;
                             true
                         } else {
                             false
@@ -2883,6 +2901,14 @@ fn log_notification_failure(action_id: Uuid, error: &str) {
     tracing::warn!(%action_id, %error, "failed to emit ontology action notification");
 }
 
+fn deterministic_action_event_id(parts: &[String]) -> String {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_OID,
+        format!("ontology/action/{}", parts.join("/")).as_bytes(),
+    )
+    .to_string()
+}
+
 pub(crate) async fn preview_action_for_simulation(
     state: &AppState,
     claims: &Claims,
@@ -2943,37 +2969,29 @@ pub async fn create_action_type(
         return invalid_action(error);
     }
 
-    let result = sqlx::query_as::<_, ActionTypeRow>(
-        r#"INSERT INTO action_types (
-		       id, name, display_name, description, object_type_id, operation_kind,
-		       input_schema, form_schema, config, confirmation_required, permission_key, authorization_policy, owner_id
-		   )
-		   VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12::jsonb, $13)
-		   RETURNING id, name, display_name, description, object_type_id, operation_kind,
-		             input_schema, form_schema, config, confirmation_required, permission_key, authorization_policy, owner_id,
-		             created_at, updated_at"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(&body.name)
-    .bind(display_name)
-    .bind(description)
-    .bind(body.object_type_id)
-    .bind(&body.operation_kind)
-    .bind(serde_json::to_value(&input_schema).unwrap_or_else(|_| Value::Array(vec![])))
-    .bind(serde_json::to_value(&form_schema).unwrap_or_else(|_| json!({})))
-    .bind(config)
-    .bind(body.confirmation_required.unwrap_or(false))
-    .bind(body.permission_key)
-    .bind(serde_json::to_value(&authorization_policy).unwrap_or_else(|_| json!({})))
-    .bind(claims.sub)
-    .fetch_one(&state.db)
-    .await;
+    let now = Utc::now();
+    let action_type = ActionType {
+        id: Uuid::now_v7(),
+        name: body.name,
+        display_name,
+        description,
+        object_type_id: body.object_type_id,
+        operation_kind: body.operation_kind,
+        input_schema,
+        form_schema,
+        config,
+        confirmation_required: body.confirmation_required.unwrap_or(false),
+        permission_key: body.permission_key,
+        authorization_policy,
+        owner_id: claims.sub,
+        created_at: now,
+        updated_at: now,
+    };
 
-    match result {
-        Ok(row) => match ActionType::try_from(row) {
-            Ok(action_type) => (StatusCode::CREATED, Json(json!(action_type))).into_response(),
-            Err(e) => db_error(format!("failed to serialize action type: {e}")),
-        },
+    match action_repository::put_action(state.stores.definitions.as_ref(), action_type.clone())
+        .await
+    {
+        Ok(_) => (StatusCode::CREATED, Json(json!(action_type))).into_response(),
         Err(e) => db_error(format!("create action type failed: {e}")),
     }
 }
@@ -2986,35 +3004,28 @@ pub async fn list_action_types(
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).clamp(1, 100);
     let offset = (page - 1) * per_page;
-    let search_pattern = format!("%{}%", params.search.unwrap_or_default());
-
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*) FROM action_types
-		   WHERE ($1::uuid IS NULL OR object_type_id = $1)
-		     AND (name ILIKE $2 OR display_name ILIKE $2)"#,
+    let search = params.search.clone();
+    let total = action_repository::count_action_rows(
+        state.stores.definitions.as_ref(),
+        params.object_type_id,
+        search.clone(),
     )
-    .bind(params.object_type_id)
-    .bind(&search_pattern)
-    .fetch_one(&state.db)
     .await
-    .unwrap_or(0);
+    .unwrap_or(0) as i64;
 
-    let rows = sqlx::query_as::<_, ActionTypeRow>(
-        r#"SELECT id, name, display_name, description, object_type_id, operation_kind,
-		          input_schema, form_schema, config, confirmation_required, permission_key, authorization_policy, owner_id,
-		          created_at, updated_at
-		   FROM action_types
-		   WHERE ($1::uuid IS NULL OR object_type_id = $1)
-		     AND (name ILIKE $2 OR display_name ILIKE $2)
-		   ORDER BY created_at DESC
-		   LIMIT $3 OFFSET $4"#,
+    let rows = action_repository::list_action_rows(
+        state.stores.definitions.as_ref(),
+        action_repository::ActionTypeListQuery {
+            object_type_id: params.object_type_id,
+            search,
+            page: Page {
+                size: per_page as u32,
+                token: Some(offset.to_string()),
+            },
+        },
     )
-    .bind(params.object_type_id)
-    .bind(&search_pattern)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.db)
     .await
+    .map(|page| page.items)
     .unwrap_or_default();
 
     let mut data = Vec::new();
@@ -3070,18 +3081,19 @@ pub async fn list_applicable_actions(
     Path(type_id): Path<Uuid>,
     Query(query): Query<ListApplicableActionsQuery>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query_as::<_, ActionTypeRow>(
-        r#"SELECT id, name, display_name, description, object_type_id, operation_kind,
-                  input_schema, form_schema, config, confirmation_required,
-                  permission_key, authorization_policy, owner_id,
-                  created_at, updated_at
-           FROM action_types
-           WHERE object_type_id = $1
-           ORDER BY display_name NULLS LAST, name"#,
+    let rows = action_repository::list_action_rows(
+        state.stores.definitions.as_ref(),
+        action_repository::ActionTypeListQuery {
+            object_type_id: Some(type_id),
+            search: None,
+            page: Page {
+                size: 500,
+                token: None,
+            },
+        },
     )
-    .bind(type_id)
-    .fetch_all(&state.db)
     .await
+    .map(|page| page.items)
     .unwrap_or_default();
 
     let selection_kind = query.selection_kind.as_deref().map(str::to_lowercase);
@@ -3176,42 +3188,28 @@ pub async fn update_action_type(
         return invalid_action(error);
     }
     let permission_key = body.permission_key.or(existing.permission_key);
-    let result = sqlx::query_as::<_, ActionTypeRow>(
-        r#"UPDATE action_types SET
-		       display_name = COALESCE($2, display_name),
-		       description = COALESCE($3, description),
-		       operation_kind = $4,
-		       input_schema = $5::jsonb,
-		       form_schema = $6::jsonb,
-		       config = $7::jsonb,
-		       confirmation_required = COALESCE($8, confirmation_required),
-		       permission_key = $9,
-		       authorization_policy = $10::jsonb,
-		       updated_at = NOW()
-		   WHERE id = $1
-		   RETURNING id, name, display_name, description, object_type_id, operation_kind,
-		             input_schema, form_schema, config, confirmation_required, permission_key, authorization_policy, owner_id,
-		             created_at, updated_at"#,
-    )
-    .bind(id)
-    .bind(body.display_name)
-    .bind(body.description)
-    .bind(operation_kind)
-    .bind(serde_json::to_value(&input_schema).unwrap_or_else(|_| Value::Array(vec![])))
-    .bind(serde_json::to_value(&form_schema).unwrap_or_else(|_| json!({})))
-    .bind(config)
-    .bind(body.confirmation_required)
-    .bind(permission_key)
-    .bind(serde_json::to_value(&authorization_policy).unwrap_or_else(|_| json!({})))
-    .fetch_optional(&state.db)
-    .await;
+    let updated = ActionType {
+        id: existing.id,
+        name: existing.name,
+        display_name: body.display_name.unwrap_or(existing.display_name),
+        description: body.description.unwrap_or(existing.description),
+        object_type_id: existing.object_type_id,
+        operation_kind,
+        input_schema,
+        form_schema,
+        config,
+        confirmation_required: body
+            .confirmation_required
+            .unwrap_or(existing.confirmation_required),
+        permission_key,
+        authorization_policy,
+        owner_id: existing.owner_id,
+        created_at: existing.created_at,
+        updated_at: Utc::now(),
+    };
 
-    match result {
-        Ok(Some(row)) => match ActionType::try_from(row) {
-            Ok(action_type) => Json(json!(action_type)).into_response(),
-            Err(e) => db_error(format!("failed to decode action type: {e}")),
-        },
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+    match action_repository::put_action(state.stores.definitions.as_ref(), updated.clone()).await {
+        Ok(_) => Json(json!(updated)).into_response(),
         Err(e) => db_error(format!("failed to update action type: {e}")),
     }
 }
@@ -3221,13 +3219,9 @@ pub async fn delete_action_type(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM action_types WHERE id = $1")
-        .bind(id)
-        .execute(&state.db)
-        .await
-    {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
-        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+    match action_repository::delete_action(state.stores.definitions.as_ref(), id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => db_error(format!("failed to delete action type: {e}")),
     }
 }
@@ -3514,8 +3508,10 @@ async fn execute_loaded_action(
             // propagate.
             run_webhook_side_effects(
                 state,
+                claims,
                 claims.sub,
                 action_id_for_metric,
+                executed.target_object_id,
                 &webhook_side_effect_cfgs,
                 &body.parameters,
             )
@@ -3684,7 +3680,17 @@ async fn persist_action_attempt_row(
         .actions
         .append(ActionLogEntry {
             tenant: tenant_from_claims(claims),
-            action_id: Uuid::now_v7().to_string(),
+            event_id: Some(deterministic_action_event_id(&[
+                "attempt".to_string(),
+                action_id.to_string(),
+                target_object_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                claims.sub.to_string(),
+                status.to_string(),
+                serde_json::to_string(parameters).unwrap_or_default(),
+            ])),
+            action_id: action_id.to_string(),
             kind: "action_attempt".to_string(),
             subject: claims.sub.to_string(),
             object: target_object_id.map(|id| ObjectId(id.to_string())),
@@ -4158,18 +4164,14 @@ async fn ensure_inline_edit_requirements_for_action(
     operation_kind: &str,
     config: &Value,
 ) -> Result<(), String> {
-    let referencing = sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT id FROM properties
-           WHERE inline_edit_config IS NOT NULL
-             AND (inline_edit_config ->> 'action_type_id')::uuid = $1
-           LIMIT 1"#,
+    let referencing = action_repository::action_has_inline_edit_references(
+        state.stores.definitions.as_ref(),
+        action_id,
     )
-    .bind(action_id)
-    .fetch_optional(&state.db)
     .await
     .map_err(|error| format!("failed to scan inline edit references: {error}"))?;
 
-    if referencing.is_none() {
+    if !referencing {
         return Ok(());
     }
 
@@ -4571,27 +4573,28 @@ pub async fn create_action_what_if_branch(
         )
     });
 
-    match sqlx::query_as::<_, ActionWhatIfBranch>(
-        r#"INSERT INTO action_what_if_branches (
-               id, action_id, target_object_id, name, description, parameters, preview,
-               before_object, after_object, deleted, owner_id
-           )
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11)
-           RETURNING id, action_id, target_object_id, name, description, parameters, preview,
-                     before_object, after_object, deleted, owner_id, created_at, updated_at"#,
+    let now = Utc::now();
+    let branch = ActionWhatIfBranch {
+        id: Uuid::now_v7(),
+        action_id: action.id,
+        target_object_id: body.target_object_id,
+        name: branch_name,
+        description: body.description.unwrap_or_default(),
+        parameters: body.parameters,
+        preview,
+        before_object,
+        after_object,
+        deleted,
+        owner_id: claims.sub,
+        created_at: now,
+        updated_at: now,
+    };
+
+    match action_repository::create_what_if_branch(
+        state.stores.read_models.as_ref(),
+        tenant_from_claims(&claims),
+        branch,
     )
-    .bind(Uuid::now_v7())
-    .bind(action.id)
-    .bind(body.target_object_id)
-    .bind(branch_name)
-    .bind(body.description.unwrap_or_default())
-    .bind(body.parameters)
-    .bind(preview)
-    .bind(before_object)
-    .bind(after_object)
-    .bind(deleted)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
     .await
     {
         Ok(branch) => (StatusCode::CREATED, Json(json!(branch))).into_response(),
@@ -4674,39 +4677,40 @@ pub async fn list_action_what_if_branches(
     let offset = (page - 1) * per_page;
     let show_all = claims.has_role("admin");
 
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*)
-           FROM action_what_if_branches
-           WHERE action_id = $1
-             AND ($2::uuid IS NULL OR target_object_id = $2)
-             AND ($3 OR owner_id = $4)"#,
+    let tenant = tenant_from_claims(&claims);
+    let total = action_repository::count_what_if_branches(
+        state.stores.read_models.as_ref(),
+        action_repository::WhatIfListQuery {
+            tenant: tenant.clone(),
+            action_id: id,
+            target_object_id: params.target_object_id,
+            owner_id: claims.sub,
+            show_all,
+            page: Page {
+                size: 10_000,
+                token: None,
+            },
+        },
     )
-    .bind(id)
-    .bind(params.target_object_id)
-    .bind(show_all)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
     .await
-    .unwrap_or(0);
+    .unwrap_or(0) as i64;
 
-    let data = sqlx::query_as::<_, ActionWhatIfBranch>(
-        r#"SELECT id, action_id, target_object_id, name, description, parameters, preview,
-                  before_object, after_object, deleted, owner_id, created_at, updated_at
-           FROM action_what_if_branches
-           WHERE action_id = $1
-             AND ($2::uuid IS NULL OR target_object_id = $2)
-             AND ($3 OR owner_id = $4)
-           ORDER BY created_at DESC
-           LIMIT $5 OFFSET $6"#,
+    let data = action_repository::list_what_if_branches(
+        state.stores.read_models.as_ref(),
+        action_repository::WhatIfListQuery {
+            tenant,
+            action_id: id,
+            target_object_id: params.target_object_id,
+            owner_id: claims.sub,
+            show_all,
+            page: Page {
+                size: per_page as u32,
+                token: Some(offset.to_string()),
+            },
+        },
     )
-    .bind(id)
-    .bind(params.target_object_id)
-    .bind(show_all)
-    .bind(claims.sub)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.db)
     .await
+    .map(|page| page.items)
     .unwrap_or_default();
 
     Json(ListActionWhatIfBranchesResponse {
@@ -4723,22 +4727,18 @@ pub async fn delete_action_what_if_branch(
     State(state): State<AppState>,
     Path((id, branch_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        r#"DELETE FROM action_what_if_branches
-           WHERE id = $1
-             AND action_id = $2
-             AND ($3 OR owner_id = $4)"#,
+    match action_repository::delete_what_if_branch(
+        state.stores.read_models.as_ref(),
+        &tenant_from_claims(&claims),
+        id,
+        branch_id,
+        claims.sub,
+        claims.has_role("admin"),
     )
-    .bind(branch_id)
-    .bind(id)
-    .bind(claims.has_role("admin"))
-    .bind(claims.sub)
-    .execute(&state.db)
-    .await;
-
-    match result {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
-        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+    .await
+    {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => db_error(format!("failed to delete what-if branch: {error}")),
     }
 }
@@ -4825,30 +4825,51 @@ async fn run_webhook_writeback(
 /// failure here only logs because side effects are non-blocking by design.
 async fn persist_webhook_side_effect_row(
     state: &AppState,
+    claims: &Claims,
     action_id: Uuid,
+    target_object_id: Option<Uuid>,
     webhook_id: Uuid,
     actor: Uuid,
     status: &str,
     response: Option<&Value>,
     error: Option<&str>,
 ) {
-    if let Err(insert_error) = sqlx::query(
-        r#"INSERT INTO action_execution_side_effects (
-               id, action_id, webhook_id, actor_id, status,
-               response, error_message, invoked_at
-           ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(action_id)
-    .bind(webhook_id)
-    .bind(actor)
-    .bind(status)
-    .bind(response.cloned().unwrap_or(Value::Null))
-    .bind(error)
-    .execute(&state.db)
-    .await
+    let payload = json!({
+        "action_type_id": action_id,
+        "side_effect_type": "webhook",
+        "webhook_id": webhook_id,
+        "actor_id": actor,
+        "status": status,
+        "response": response.cloned().unwrap_or(Value::Null),
+        "error_message": error,
+        "organization_id": claims.org_id,
+    });
+
+    if let Err(insert_error) = state
+        .stores
+        .actions
+        .append(ActionLogEntry {
+            tenant: tenant_from_claims(claims),
+            event_id: Some(deterministic_action_event_id(&[
+                "side_effect".to_string(),
+                action_id.to_string(),
+                target_object_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                webhook_id.to_string(),
+                actor.to_string(),
+                status.to_string(),
+            ])),
+            action_id: action_id.to_string(),
+            kind: "side_effect".to_string(),
+            subject: actor.to_string(),
+            object: target_object_id.map(|id| ObjectId(id.to_string())),
+            payload,
+            recorded_at_ms: Utc::now().timestamp_millis(),
+        })
+        .await
     {
-        tracing::warn!(action = %action_id, webhook = %webhook_id, error = %insert_error, "failed to persist side-effect ledger row");
+        tracing::warn!(action = %action_id, webhook = %webhook_id, error = %insert_error, "failed to append side-effect ledger row to action log");
     }
 }
 
@@ -4857,8 +4878,10 @@ async fn persist_webhook_side_effect_row(
 /// propagated; this matches Foundry's "fire-and-forget" semantics.
 async fn run_webhook_side_effects(
     state: &AppState,
+    claims: &Claims,
     actor: Uuid,
     action_id: Uuid,
+    target_object_id: Option<Uuid>,
     configs: &[WebhookCallConfig],
     parameters: &Value,
 ) {
@@ -4870,7 +4893,9 @@ async fn run_webhook_side_effects(
             Ok(response) => {
                 persist_webhook_side_effect_row(
                     state,
+                    claims,
                     action_id,
+                    target_object_id,
                     config.webhook_id,
                     actor,
                     "success",
@@ -4883,7 +4908,9 @@ async fn run_webhook_side_effects(
                 tracing::warn!(action = %action_id, webhook = %config.webhook_id, error = %error, "webhook side-effect failed");
                 persist_webhook_side_effect_row(
                     state,
+                    claims,
                     action_id,
+                    target_object_id,
                     config.webhook_id,
                     actor,
                     "failure",
@@ -5045,7 +5072,11 @@ async fn execute_batched_function_invocation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body;
     use chrono::Utc;
+    use storage_abstraction::repositories::{
+        DefinitionId, DefinitionKind, DefinitionRecord, DefinitionStore, ObjectStore, RepoResult,
+    };
 
     fn sample_input_schema() -> Vec<ActionInputField> {
         vec![
@@ -5094,6 +5125,340 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
+    }
+
+    fn test_claims(user_id: Uuid, org_id: Uuid) -> Claims {
+        let now = Utc::now().timestamp();
+        Claims {
+            sub: user_id,
+            iat: now,
+            exp: now + 3600,
+            iss: None,
+            aud: None,
+            jti: Uuid::now_v7(),
+            email: "actions-test@openfoundry.dev".to_string(),
+            name: "Actions Test".to_string(),
+            roles: vec!["admin".to_string()],
+            permissions: vec!["*:*".to_string()],
+            org_id: Some(org_id),
+            attributes: json!({
+                "classification_clearance": "public"
+            }),
+            auth_methods: vec!["password".to_string()],
+            token_use: Some("access".to_string()),
+            api_key_id: None,
+            session_kind: None,
+            session_scope: None,
+        }
+    }
+
+    fn test_state() -> AppState {
+        AppState {
+            db: crate::test_support::lazy_pg_pool(),
+            stores: crate::stores::Stores::in_memory(),
+            http_client: reqwest::Client::new(),
+            jwt_config: auth_middleware::jwt::JwtConfig::new("actions-test-secret"),
+            audit_service_url: String::new(),
+            dataset_service_url: String::new(),
+            ontology_service_url: String::new(),
+            pipeline_service_url: String::new(),
+            ai_service_url: String::new(),
+            notification_service_url: String::new(),
+            search_embedding_provider: "deterministic".to_string(),
+            node_runtime_command: "node".to_string(),
+            connector_management_service_url: String::new(),
+        }
+    }
+
+    async fn response_json(response: Response) -> Value {
+        let bytes = body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("body bytes");
+        if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).expect("json body")
+        }
+    }
+
+    async fn seed_object_type(
+        store: &dyn DefinitionStore,
+        object_type_id: Uuid,
+        owner_id: Uuid,
+    ) -> RepoResult<()> {
+        let now = Utc::now();
+        store
+            .put(
+                DefinitionRecord {
+                    kind: DefinitionKind(action_repository::OBJECT_TYPE_KIND.to_string()),
+                    id: DefinitionId(object_type_id.to_string()),
+                    tenant: None,
+                    owner_id: Some(owner_id.to_string()),
+                    parent_id: None,
+                    version: Some(1),
+                    payload: json!({
+                        "id": object_type_id,
+                        "name": "ticket",
+                        "display_name": "Ticket",
+                        "description": "Ticket",
+                        "primary_key_property": "title",
+                        "owner_id": owner_id,
+                        "created_at": now,
+                        "updated_at": now,
+                    }),
+                    created_at_ms: Some(now.timestamp_millis()),
+                    updated_at_ms: Some(now.timestamp_millis()),
+                },
+                None,
+            )
+            .await
+            .map(|_| ())
+    }
+
+    async fn seed_delete_action(
+        store: &dyn DefinitionStore,
+        action_id: Uuid,
+        object_type_id: Uuid,
+        owner_id: Uuid,
+    ) -> RepoResult<ActionType> {
+        let now = Utc::now();
+        let action = ActionType {
+            id: action_id,
+            name: "delete_ticket".to_string(),
+            display_name: "Delete ticket".to_string(),
+            description: "Delete a ticket".to_string(),
+            object_type_id,
+            operation_kind: "delete_object".to_string(),
+            input_schema: Vec::new(),
+            form_schema: ActionFormSchema::default(),
+            config: Value::Null,
+            confirmation_required: false,
+            permission_key: None,
+            authorization_policy: ActionAuthorizationPolicy::default(),
+            owner_id,
+            created_at: now,
+            updated_at: now,
+        };
+        action_repository::put_action(store, action.clone())
+            .await
+            .map(|_| action)
+    }
+
+    async fn seed_object(
+        state: &AppState,
+        claims: &Claims,
+        object_id: Uuid,
+        object_type_id: Uuid,
+    ) -> RepoResult<()> {
+        let now_ms = Utc::now().timestamp_millis();
+        state
+            .stores
+            .objects
+            .put(
+                Object {
+                    tenant: tenant_from_claims(claims),
+                    id: ObjectId(object_id.to_string()),
+                    type_id: TypeId(object_type_id.to_string()),
+                    version: 1,
+                    payload: json!({ "title": "T-1", "status": "open" }),
+                    organization_id: claims.org_id.map(|id| id.to_string()),
+                    created_at_ms: Some(now_ms),
+                    updated_at_ms: now_ms,
+                    owner: Some(OwnerId(claims.sub.to_string())),
+                    markings: vec![MarkingId("public".to_string())],
+                },
+                None,
+            )
+            .await
+            .map(|_| ())
+    }
+
+    #[tokio::test]
+    async fn execute_action_uses_stores_and_records_action_log() {
+        let state = test_state();
+        let user_id = Uuid::now_v7();
+        let org_id = Uuid::now_v7();
+        let claims = test_claims(user_id, org_id);
+        let object_type_id = Uuid::now_v7();
+        let object_id = Uuid::now_v7();
+        let action_id = Uuid::now_v7();
+
+        seed_object_type(state.stores.definitions.as_ref(), object_type_id, user_id)
+            .await
+            .expect("object type");
+        seed_delete_action(
+            state.stores.definitions.as_ref(),
+            action_id,
+            object_type_id,
+            user_id,
+        )
+        .await
+        .expect("action");
+        seed_object(&state, &claims, object_id, object_type_id)
+            .await
+            .expect("object");
+
+        let response = execute_action(
+            AuthUser(claims.clone()),
+            State(state.clone()),
+            Path(action_id),
+            Json(ExecuteActionRequest {
+                target_object_id: Some(object_id),
+                parameters: json!({}),
+                justification: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        assert_eq!(payload["deleted"], json!(true));
+        assert_eq!(payload["target_object_id"], json!(object_id.to_string()));
+
+        let deleted = state
+            .stores
+            .objects
+            .get(
+                &tenant_from_claims(&claims),
+                &ObjectId(object_id.to_string()),
+                ReadConsistency::Strong,
+            )
+            .await
+            .expect("load object");
+        assert!(deleted.is_none());
+
+        let log = state
+            .stores
+            .actions
+            .list_for_action(
+                &tenant_from_claims(&claims),
+                &action_id.to_string(),
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .expect("action log");
+        assert_eq!(log.items.len(), 1);
+        assert_eq!(log.items[0].kind, "action_attempt");
+        assert_eq!(log.items[0].payload["status"], json!("success"));
+        assert!(log.items[0].event_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn action_log_append_is_idempotent_for_retry() {
+        let state = test_state();
+        let claims = test_claims(Uuid::now_v7(), Uuid::now_v7());
+        let action_id = Uuid::now_v7();
+        let object_id = Uuid::now_v7();
+        let parameters = json!({ "status": "closed" });
+
+        persist_action_attempt_row(
+            &state,
+            &claims,
+            action_id,
+            Some(object_id),
+            &parameters,
+            "success",
+            None,
+            42,
+        )
+        .await
+        .expect("first append");
+        persist_action_attempt_row(
+            &state,
+            &claims,
+            action_id,
+            Some(object_id),
+            &parameters,
+            "success",
+            None,
+            42,
+        )
+        .await
+        .expect("retry append");
+
+        let page = state
+            .stores
+            .actions
+            .list_for_action(
+                &tenant_from_claims(&claims),
+                &action_id.to_string(),
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .expect("action log");
+        assert_eq!(page.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn side_effect_event_log_is_idempotent() {
+        let state = test_state();
+        let claims = test_claims(Uuid::now_v7(), Uuid::now_v7());
+        let action_id = Uuid::now_v7();
+        let webhook_id = Uuid::now_v7();
+
+        persist_webhook_side_effect_row(
+            &state,
+            &claims,
+            action_id,
+            None,
+            webhook_id,
+            claims.sub,
+            "failure",
+            None,
+            Some("network"),
+        )
+        .await;
+        persist_webhook_side_effect_row(
+            &state,
+            &claims,
+            action_id,
+            None,
+            webhook_id,
+            claims.sub,
+            "failure",
+            None,
+            Some("network"),
+        )
+        .await;
+
+        let page = state
+            .stores
+            .actions
+            .list_for_action(
+                &tenant_from_claims(&claims),
+                &action_id.to_string(),
+                Page {
+                    size: 10,
+                    token: None,
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .expect("action log");
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].kind, "side_effect");
+    }
+
+    #[test]
+    fn writeback_outbox_event_ids_are_deterministic() {
+        let first =
+            writeback::derive_event_id("tenant-a", "object", "object-1", 7);
+        let retry =
+            writeback::derive_event_id("tenant-a", "object", "object-1", 7);
+        let next_version =
+            writeback::derive_event_id("tenant-a", "object", "object-1", 8);
+
+        assert_eq!(first, retry);
+        assert_ne!(first, next_version);
     }
 
     #[test]

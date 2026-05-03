@@ -95,7 +95,7 @@ for batch in &batches {
 
 When running inside the OpenFoundry Kubernetes cluster, point the client at
 the Lakekeeper Service deployed by
-[`infra/k8s/lakekeeper/`](../../infra/k8s/lakekeeper/README.md). The
+[`infra/k8s/platform/manifests/lakekeeper/`](../../infra/k8s/platform/manifests/lakekeeper/README.md). The
 in-cluster DNS name is fixed by the chart's `fullnameOverride: lakekeeper`
 and matches the `icebergRestCatalog.url` value in
 [`infra/k8s/helm/open-foundry/values.yaml`](../../infra/k8s/helm/open-foundry/values.yaml):
@@ -116,7 +116,7 @@ println!("scanned {} batches", batches.len());
 ```
 
 The bucket backing the warehouse is `openfoundry-iceberg` on the Ceph RGW
-gateway provisioned by [`infra/k8s/rook/`](../../infra/k8s/rook/README.md);
+gateway provisioned by [`infra/k8s/platform/manifests/rook/`](../../infra/k8s/platform/manifests/rook/README.md);
 Lakekeeper mints pre-signed S3 URLs against it, so this crate does not need
 any extra S3 configuration when talking to a Lakekeeper-managed table.
 

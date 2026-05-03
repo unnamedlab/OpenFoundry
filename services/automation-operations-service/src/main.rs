@@ -1,11 +1,10 @@
 //! `automation-operations-service` binary.
 //!
-//! HTTP boot for the legacy CRUD surface (queues + queue runs). New
-//! writes are expected to route through
+//! HTTP boot for the Temporal-backed automation-ops facade. New
+//! writes route through
 //! [`automation_operations_service::domain::temporal_adapter`]
-//! (Stream S2.7 of the Cassandra/Foundry parity plan); this binary
-//! keeps the read-side projection and ops break-glass endpoints
-//! online during the cutover.
+//! (Stream S2.7 of the Cassandra/Foundry parity plan); list/get/run
+//! endpoints expose only non-authoritative operational projections.
 
 use std::net::SocketAddr;
 
@@ -13,13 +12,10 @@ use auth_middleware::jwt::JwtConfig;
 use automation_operations_service::{
     AppState,
     config::AppConfig,
+    domain::temporal_adapter::AutomationOpsAdapter,
     handlers::{create_item, create_secondary, get_item, list_items, list_secondary},
 };
-use axum::{
-    Router,
-    routing::get,
-};
-use sqlx::postgres::PgPoolOptions;
+use axum::{Router, routing::get};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -31,14 +27,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = AppConfig::from_env()?;
-    let db = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&config.database_url)
-        .await?;
-    sqlx::migrate!("./migrations").run(&db).await?;
+    if config.database_url.is_some() {
+        tracing::warn!(
+            "DATABASE_URL is ignored by automation-operations-service runtime; Temporal is authoritative"
+        );
+    }
 
     let jwt_config = JwtConfig::new(&config.jwt_secret).with_env_defaults();
-    let state = AppState { db };
+    let state = AppState {
+        adapter: AutomationOpsAdapter::from_env("automation-operations-service").await?,
+    };
 
     let protected = Router::new()
         .route("/automations", get(list_items).post(create_item))

@@ -1,14 +1,7 @@
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::{
-    AppState,
-    domain::schedule,
-    models::{
-        schedule::{BackfillRunResult, DueRunRecord, ScheduleTargetKind, ScheduleWindow},
-        workflow::WorkflowDefinition,
-    },
-};
+use crate::{AppState, models::workflow::WorkflowDefinition};
 use event_bus_control::{
     Publisher, connect, subscriber,
     topics::{streams, subjects},
@@ -36,40 +29,6 @@ pub fn workflow_schedule_expression(workflow: &WorkflowDefinition) -> Option<Str
         .get("cron")
         .and_then(Value::as_str)
         .map(str::to_string)
-}
-
-pub async fn list_due_workflow_runs(
-    state: &AppState,
-    limit: usize,
-) -> Result<Vec<DueRunRecord>, String> {
-    let workflows = sqlx::query_as::<_, WorkflowDefinition>(
-        r#"SELECT * FROM workflows
-           WHERE status = 'active'
-             AND trigger_type = 'cron'
-             AND next_run_at IS NOT NULL
-             AND next_run_at <= NOW()
-           ORDER BY next_run_at ASC
-           LIMIT $1"#,
-    )
-    .bind(limit as i64)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| error.to_string())?;
-
-    Ok(workflows
-        .into_iter()
-        .filter_map(|workflow| {
-            let schedule_expression = workflow_schedule_expression(&workflow)?;
-            Some(DueRunRecord {
-                target_kind: ScheduleTargetKind::Workflow,
-                target_id: workflow.id,
-                name: workflow.name,
-                due_at: workflow.next_run_at?,
-                schedule_expression,
-                trigger_type: workflow.trigger_type,
-            })
-        })
-        .collect())
 }
 
 pub async fn trigger_internal_workflow_run(
@@ -101,39 +60,6 @@ pub async fn trigger_internal_workflow_run(
         .map_err(|error| format!("failed to publish workflow.run.requested: {error}"))?;
 
     Ok(request)
-}
-
-pub async fn run_due_cron_workflows(state: &AppState) -> Result<usize, String> {
-    let workflows = sqlx::query_as::<_, WorkflowDefinition>(
-        r#"SELECT * FROM workflows
-           WHERE status = 'active'
-             AND trigger_type = 'cron'
-             AND next_run_at IS NOT NULL
-             AND next_run_at <= NOW()
-           ORDER BY next_run_at ASC"#,
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| error.to_string())?;
-
-    let mut triggered = 0usize;
-    for workflow in workflows {
-        let context = json!({
-            "trigger": {
-                "type": "cron",
-                "scheduled_at": chrono::Utc::now(),
-            }
-        });
-
-        match trigger_internal_workflow_run(state, workflow.id, "cron", None, context).await {
-            Ok(_) => triggered += 1,
-            Err(error) => {
-                tracing::warn!(workflow_id = %workflow.id, "cron workflow trigger failed: {error}");
-            }
-        }
-    }
-
-    Ok(triggered)
 }
 
 pub async fn trigger_event_workflows(
@@ -178,48 +104,3 @@ pub async fn trigger_event_workflows(
     Ok(runs)
 }
 
-pub async fn backfill_workflow_runs(
-    state: &AppState,
-    workflow: &WorkflowDefinition,
-    windows: &[ScheduleWindow],
-    started_by: Option<Uuid>,
-    context: Option<Value>,
-) -> Result<Vec<BackfillRunResult>, String> {
-    let mut results = Vec::new();
-
-    for window in windows {
-        let payload = schedule::merge_json(
-            context.clone(),
-            json!({
-                "trigger": {
-                    "type": "backfill",
-                    "scheduled_for": window.scheduled_for,
-                    "window": {
-                        "start": window.window_start,
-                        "end": window.window_end,
-                    }
-                }
-            }),
-        );
-        trigger_internal_workflow_run(
-            state,
-            workflow.id,
-            "backfill",
-            started_by,
-            payload,
-        )
-        .await?;
-
-        results.push(BackfillRunResult {
-            target_kind: ScheduleTargetKind::Workflow,
-            target_id: workflow.id,
-            scheduled_for: window.scheduled_for,
-            window_start: window.window_start,
-            window_end: window.window_end,
-            run_id: None,
-            status: "requested".to_string(),
-        });
-    }
-
-    Ok(results)
-}

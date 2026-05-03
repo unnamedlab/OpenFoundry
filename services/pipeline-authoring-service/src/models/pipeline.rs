@@ -31,6 +31,44 @@ impl Pipeline {
     pub fn parsed_retry_policy(&self) -> PipelineRetryPolicy {
         serde_json::from_value(self.retry_policy.clone()).unwrap_or_default()
     }
+
+    /// Pipeline Builder "Build settings" surfaced by the UI.
+    ///
+    /// Stored under `dag.build_settings` so we don't need a fresh
+    /// migration. Defaults to `AT_LEAST_ONCE` to match Foundry's
+    /// documented streaming-pipeline default.
+    pub fn build_settings(&self) -> PipelineBuildSettings {
+        self.dag
+            .get("build_settings")
+            .cloned()
+            .map(serde_json::from_value)
+            .and_then(Result::ok)
+            .unwrap_or_default()
+    }
+}
+
+/// Build-time settings configured from the Pipeline Builder. Currently
+/// only carries the streaming consistency knob (Foundry docs §"Streaming
+/// consistency guarantees"). When the pipeline produces a streaming
+/// dataset, the effective consistency is the strongest of:
+///   * this `streaming_consistency` setting (operator opt-in), and
+///   * the `pipeline_consistency` set on the destination stream.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PipelineBuildSettings {
+    /// One of `AT_LEAST_ONCE`, `EXACTLY_ONCE`. Matches the proto enum
+    /// `openfoundry.streaming.streams.v1.StreamConsistency`.
+    pub streaming_consistency: Option<String>,
+}
+
+impl PipelineBuildSettings {
+    /// Resolve the streaming consistency value, falling back to the
+    /// Foundry default of `AT_LEAST_ONCE` when unset.
+    pub fn effective_streaming_consistency(&self) -> &str {
+        self.streaming_consistency
+            .as_deref()
+            .unwrap_or("AT_LEAST_ONCE")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -96,9 +134,31 @@ pub struct CreatePipelineRequest {
     pub name: String,
     pub description: Option<String>,
     pub status: Option<String>,
+    #[serde(default)]
     pub nodes: Vec<PipelineNode>,
     pub schedule_config: Option<PipelineScheduleConfig>,
     pub retry_policy: Option<PipelineRetryPolicy>,
+    /// P5 — Foundry "Open in Pipeline Builder" entry point. When set
+    /// and `nodes` is empty, the handler synthesises a single
+    /// passthrough node carrying the dataset RID as a config hint so
+    /// the user lands on a pipeline already wired to read from it.
+    #[serde(default)]
+    pub seed_dataset_rid: Option<String>,
+    /// P5 — explicit input list, mirroring Foundry's "Add a dataset
+    /// input" payload. Each entry seeds a passthrough node when
+    /// `nodes` is left empty.
+    #[serde(default)]
+    pub inputs: Vec<PipelineInputSeed>,
+}
+
+/// Lightweight seed for the `inputs` array on `CreatePipelineRequest`.
+/// Mirrors Pipeline Builder's "Add dataset input" panel — only the
+/// RID is required for the synthesised passthrough node.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PipelineInputSeed {
+    pub dataset_rid: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

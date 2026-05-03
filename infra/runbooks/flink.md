@@ -8,9 +8,9 @@ clúster. El operador es responsable de reconciliar `FlinkDeployment` /
 `FlinkSessionJob` en `mode: native`, gestionar HA, savepoints periódicos y
 upgrades sin pérdida de estado.
 
-Manifestos: `infra/k8s/flink/`
-Helm values: `infra/k8s/flink/values.yaml`
-Ejemplo: `infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml`
+Manifestos: `infra/k8s/platform/manifests/flink/`
+Helm values: `infra/k8s/platform/manifests/flink/values.yaml`
+Ejemplo: `infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml`
 Backend de estado: bucket `openfoundry-iceberg` en Ceph RGW (ver
 [`infra/runbooks/ceph.md`](./ceph.md))
 
@@ -64,7 +64,7 @@ Backend de estado: bucket `openfoundry-iceberg` en Ceph RGW (ver
 3. Namespace `flink`:
 
    ```bash
-   kubectl apply -f infra/k8s/flink/namespace.yaml
+   kubectl apply -f infra/k8s/platform/manifests/flink/namespace.yaml
    ```
 
 ## 3. Credenciales S3 (Ceph) para los pods Flink
@@ -101,13 +101,13 @@ helm template flink-kubernetes-operator \
   flink-operator-repo/flink-kubernetes-operator \
   --version 1.10.0 \
   -n flink \
-  -f infra/k8s/flink/values.yaml > /tmp/flink-operator.rendered.yaml
+  -f infra/k8s/platform/manifests/flink/values.yaml > /tmp/flink-operator.rendered.yaml
 
 # 3. Instalación / upgrade
 helm upgrade --install --create-namespace -n flink flink-kubernetes-operator \
   flink-operator-repo/flink-kubernetes-operator \
   --version 1.10.0 \
-  -f infra/k8s/flink/values.yaml
+  -f infra/k8s/platform/manifests/flink/values.yaml
 
 # 4. Esperar a que el operador y el webhook estén Ready
 kubectl -n flink rollout status deploy/flink-kubernetes-operator --timeout=5m
@@ -118,11 +118,11 @@ kubectl -n flink get pods -l app.kubernetes.io/name=flink-kubernetes-operator
 
 ```bash
 # Validación previa (sin tocar el clúster)
-kubectl apply --dry-run=client -f infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml
-kubectl apply --dry-run=server  -f infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml
+kubectl apply --dry-run=client -f infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml
+kubectl apply --dry-run=server  -f infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml
 
 # Aplicar
-kubectl apply -f infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml
+kubectl apply -f infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml
 
 # Observar el ciclo de vida
 kubectl -n flink get flinkdeployment cdc-iceberg -w
@@ -216,7 +216,7 @@ desde el mirror externo (ver `infra/runbooks/ceph.md` §5.4) y luego seguir
 # Reinstalar (idempotente)
 helm upgrade --install -n flink flink-kubernetes-operator \
   flink-operator-repo/flink-kubernetes-operator \
-  --version 1.10.0 -f infra/k8s/flink/values.yaml
+  --version 1.10.0 -f infra/k8s/platform/manifests/flink/values.yaml
 ```
 
 Los `FlinkDeployment` existentes son reconciliados al primer ciclo (60 s).
@@ -230,7 +230,7 @@ Los `FlinkDeployment` existentes son reconciliados al primer ciclo (60 s).
    helm repo update
    helm upgrade --install -n flink flink-kubernetes-operator \
      flink-operator-repo/flink-kubernetes-operator \
-     --version <NEW> -f infra/k8s/flink/values.yaml --dry-run
+     --version <NEW> -f infra/k8s/platform/manifests/flink/values.yaml --dry-run
    ```
 
 3. Aplicar nuevas CRDs (Helm no las actualiza automáticamente):
@@ -264,15 +264,15 @@ kubectl delete ns flink
 
 ## 10. Validación de los manifestos (CI)
 
-Ambos comandos forman parte del check de PR (`infra/k8s/flink/` modificado):
+Ambos comandos forman parte del check de PR (`infra/k8s/platform/manifests/flink/` modificado):
 
 ```bash
 # Render del chart con nuestros values
 helm template flink-kubernetes-operator \
   flink-operator-repo/flink-kubernetes-operator \
-  --version 1.10.0 -n flink -f infra/k8s/flink/values.yaml > /dev/null
+  --version 1.10.0 -n flink -f infra/k8s/platform/manifests/flink/values.yaml > /dev/null
 
 # Validación de los manifestos estáticos
-kubectl apply --dry-run=client -f infra/k8s/flink/namespace.yaml
-kubectl apply --dry-run=client -f infra/k8s/flink/flinkdeployment-cdc-iceberg.yaml
+kubectl apply --dry-run=client -f infra/k8s/platform/manifests/flink/namespace.yaml
+kubectl apply --dry-run=client -f infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml
 ```

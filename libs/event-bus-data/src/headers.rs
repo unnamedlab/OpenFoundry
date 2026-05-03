@@ -157,8 +157,8 @@ mod tests {
         .with_schema_url("https://schemas.openfoundry.dev/orders/v1");
 
         let kafka = original.to_kafka_headers();
-        let parsed = OpenLineageHeaders::from_kafka_headers(&kafka)
-            .expect("headers should parse back");
+        let parsed =
+            OpenLineageHeaders::from_kafka_headers(&kafka).expect("headers should parse back");
 
         assert_eq!(parsed.namespace, original.namespace);
         assert_eq!(parsed.job_name, original.job_name);

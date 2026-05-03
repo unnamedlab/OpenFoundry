@@ -1,0 +1,96 @@
+---
+# S4.1.b / S4.2.b — KafkaUser used by the Debezium Connect cluster
+# defined in `kafka-connect.yaml`.
+#
+# ACL scope:
+#   * READ/WRITE/DESCRIBE on the connector's internal Connect topics
+#     (configs/offsets/status) — exclusive to this Connect cluster.
+#   * WRITE on every `<domain>.*.v1` topic the EventRouter emits to.
+#     The exact topic names live in
+#     `infra/k8s/platform/manifests/strimzi/topics-domain-v1.yaml`; the ACL is given on
+#     a literal-name basis to keep blast radius bounded.
+#   * WRITE on the dead-letter queue topic.
+#
+# We deliberately do NOT grant cluster-wide CREATE — Strimzi's Topic
+# Operator owns topic creation via `KafkaTopic` CRs. Auto-create is
+# disabled at the broker level.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: debezium-connect-user
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/service: debezium-connect
+    openfoundry.io/kafka-role: producer
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      # Connect internal topics — exclusive ownership.
+      - resource:
+          type: topic
+          name: __debezium-connect-
+          patternType: prefix
+        operations:
+          - Read
+          - Write
+          - Create
+          - Describe
+          - DescribeConfigs
+        host: "*"
+      # Connect's group for cluster coordination.
+      - resource:
+          type: group
+          name: debezium-connect
+          patternType: literal
+        operations:
+          - Read
+        host: "*"
+      # Outbox-routed domain topics. Literal grants per topic so the
+      # blast radius is bounded if the user is compromised.
+      - resource:
+          type: topic
+          name: ontology.object.changed.v1
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: ontology.action.applied.v1
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: dataset.streaming.changed.v1
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: connector.connection.changed.v1
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: audit.events.v1
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: lineage.events.v1
+          patternType: literal
+        operations: [Write, Describe]
+      # DLQ.
+      - resource:
+          type: topic
+          name: __dlq.outbox-pg-policy.v1
+          patternType: literal
+        operations: [Write, Create, Describe]
+      # TransactionalId for idempotent producer (Connect uses one per
+      # task; literal grant scoped to this cluster's prefix).
+      - resource:
+          type: transactionalId
+          name: debezium-
+          patternType: prefix
+        operations: [Write, Describe]

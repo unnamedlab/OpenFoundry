@@ -1,1 +1,1 @@
-pub mod runtime;
+pub mod temporal_adapter;

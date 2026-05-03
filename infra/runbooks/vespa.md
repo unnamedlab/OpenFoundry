@@ -9,10 +9,11 @@ OpenFoundry usa **Vespa.ai** (Apache-2.0) como motor de búsqueda híbrida
 
 | Recurso                        | Ruta / nombre                                              |
 |--------------------------------|------------------------------------------------------------|
-| Application package canónico   | `infra/k8s/vespa/app/`                                     |
-| Helm subchart                  | `infra/k8s/helm/open-foundry/charts/vespa/`                |
-| Mirror del package en el chart | `infra/k8s/helm/open-foundry/charts/vespa/files/`          |
-| Toggle parent chart            | `vespa.enabled` en `values.yaml` / `values-prod.yaml`      |
+| Application package canónico   | `infra/k8s/platform/packages/vespa-app/`                                     |
+| Helm release                   | `infra/k8s/platform/helmfile.yaml.gotmpl` (`vespa`)        |
+| Chart source                   | `infra/k8s/platform/charts/vespa/`                         |
+| Mirror del package en el chart | `infra/k8s/platform/charts/vespa/files/`                   |
+| Toggle app chart               | `vespa.enabled=false` en `of-ontology/values-*.yaml`       |
 | Storage backend                | Ceph RBD (Tarea 2.1) — `storageClassName: ceph-rbd`        |
 
 ## 1. Arquitectura desplegada
@@ -26,17 +27,17 @@ OpenFoundry usa **Vespa.ai** (Apache-2.0) como motor de búsqueda híbrida
 | PDB configserver           | `minAvailable=2`                                                  |
 | PDB content                | `minAvailable=2`                                                  |
 | Persistencia               | PVC `var` por pod en `ceph-rbd` (config 5Gi / content 50Gi)      |
-| Endpoint query/feed        | `http://<release>-vespa.<ns>.svc.cluster.local:8080`             |
-| Endpoint deploy            | `http://<release>-vespa-configserver-lb.<ns>:19071`              |
+| Endpoint query/feed        | `http://of-ontology-vespa.<ns>.svc.cluster.local:8080`           |
+| Endpoint deploy            | `http://of-ontology-vespa-configserver-lb.<ns>:19071`            |
 | Métricas Prometheus        | port `19092`, `/prometheus/v1/values?consumer=prometheus`        |
 
 ### K8s ↔ Vespa hostname mapping
 
 Cada pod del StatefulSet recibe un DNS estable
-`<pod>.<headless-svc>.<ns>.svc.cluster.local`. El subchart genera
+`<pod>.<headless-svc>.<ns>.svc.cluster.local`. El chart genera
 automáticamente `hosts.xml` con esos nombres (basado en `release`,
 `namespace` y los counts de `values.yaml`). Si despliegas el package
-manualmente, edita `infra/k8s/vespa/app/hosts.xml` para reflejar tu
+manualmente, edita `infra/k8s/platform/packages/vespa-app/hosts.xml` para reflejar tu
 release/namespace antes de hacer zip.
 
 ## 2. Despliegue
@@ -45,15 +46,11 @@ release/namespace antes de hacer zip.
 
 ```bash
 # Producción: Ceph RBD ya provisionado por Tarea 2.1
-helm upgrade --install open-foundry infra/k8s/helm/open-foundry \
-  -n openfoundry --create-namespace \
-  -f infra/k8s/helm/open-foundry/values-prod.yaml \
-  --set vespa.enabled=true \
-  --set vespa.configserver.storage.storageClassName=ceph-rbd \
-  --set vespa.content.storage.storageClassName=ceph-rbd
+cd infra/k8s/platform
+helmfile -e prod apply
 ```
 
-El subchart crea, en orden:
+El release `vespa` crea, en orden:
 
 1. ServiceAccount + headless Services (configserver, content, container).
 2. ConfigMap `*-vespa-app` con el package (services.xml, hosts.xml,
@@ -67,22 +64,22 @@ El subchart crea, en orden:
    `backoffLimit=30` para tolerar el bring-up inicial.
 
 > El nombre del Job embebe el SHA-256 del package; cambiar cualquier
-> archivo bajo `charts/vespa/files/` produce un Job nuevo en el siguiente
-> `helm upgrade`.
+> archivo bajo `platform/charts/vespa/files/` produce un Job nuevo en el siguiente
+> `helmfile apply`.
 
 ### 2.2 Validación de manifiestos
 
 ```bash
-helm lint     infra/k8s/helm/open-foundry/charts/vespa
-helm template t infra/k8s/helm/open-foundry --set vespa.enabled=true \
+helm lint infra/k8s/platform/charts/vespa
+( cd infra/k8s/platform && helmfile -e prod template --args "--api-versions monitoring.coreos.com/v1/PodMonitor" ) \
   | kubectl apply --dry-run=server -f -
 ```
 
 ### 2.3 Despliegue manual del package (sin Helm)
 
 ```bash
-( cd infra/k8s/vespa/app && zip -r /tmp/vespa-app.zip . )
-kubectl -n openfoundry port-forward svc/open-foundry-vespa-configserver-lb 19071:19071 &
+( cd infra/k8s/platform/packages/vespa-app && zip -r /tmp/vespa-app.zip . )
+kubectl -n openfoundry port-forward svc/of-ontology-vespa-configserver-lb 19071:19071 &
 curl -fsS --header "Content-Type: application/zip" \
   --data-binary @/tmp/vespa-app.zip \
   http://localhost:19071/application/v2/tenant/default/prepareandactivate \
@@ -91,13 +88,13 @@ curl -fsS --header "Content-Type: application/zip" \
 
 ## 3. Rolling upgrade del application package
 
-1. Edita los archivos en `infra/k8s/vespa/app/` **y** copia los cambios
-   al mirror `infra/k8s/helm/open-foundry/charts/vespa/files/`
+1. Edita los archivos en `infra/k8s/platform/packages/vespa-app/` **y** copia los cambios
+   al mirror `infra/k8s/platform/charts/vespa/files/`
    (regla: el mirror es el que termina en el ConfigMap; ambos deben
    coincidir bit-a-bit).
 2. Commit y revisa el `helm template` para confirmar que el SHA del Job
-   cambia: `helm template t infra/k8s/helm/open-foundry --set vespa.enabled=true | grep -E 'name: .*vespa-deploy'`.
-3. `helm upgrade …`. El nuevo Job correrá `prepareandactivate` y los
+   cambia: `( cd infra/k8s/platform && helmfile -e prod template --args "--api-versions monitoring.coreos.com/v1/PodMonitor" ) | grep -E 'name: .*vespa-deploy'`.
+3. `helmfile -e prod apply`. El nuevo Job correrá `prepareandactivate` y los
    nodos relevantes harán *reload-on-the-fly*:
    - Schemas con cambios compatibles (añadir campos, nuevos rank-profiles)
      **no requieren reinicio** y se aplican online.
@@ -116,10 +113,11 @@ curl -fsS --header "Content-Type: application/zip" \
 Aumentar `vespa.content.replicas` de 3 → 5 (por ejemplo) requiere
 **dos pasos** porque la topología la define el package, no Helm:
 
-1. Edita `infra/k8s/vespa/app/services.xml` y `hosts.xml` para añadir
+1. Edita `infra/k8s/platform/packages/vespa-app/services.xml` y `hosts.xml` para añadir
    los nuevos nodos (`vespa-content-3`, `vespa-content-4`) y replica el
    cambio en el mirror del chart.
-2. `helm upgrade … --set vespa.content.replicas=5`
+2. Actualiza `infra/k8s/platform/values/vespa-prod.yaml` con
+   `content.replicas=5` y ejecuta `helmfile -e prod apply`.
    - El StatefulSet escala primero.
    - El Job de deploy publica el package actualizado.
    - El cluster-controller de Vespa redistribuye los buckets a los nuevos
@@ -167,8 +165,8 @@ kubectl -n openfoundry exec <content-0> -- \
 kubectl -n openfoundry exec <content-0> -- vespa-get-cluster-state
 
 # 3. Borra el pod y su PVC; el StatefulSet lo recrea
-kubectl -n openfoundry delete pvc var-<release>-vespa-content-2
-kubectl -n openfoundry delete pod <release>-vespa-content-2
+kubectl -n openfoundry delete pvc var-of-ontology-vespa-content-2
+kubectl -n openfoundry delete pod of-ontology-vespa-content-2
 
 # 4. Vuelve a marcarlo como "up"
 kubectl -n openfoundry exec <content-0> -- \
@@ -203,7 +201,7 @@ vespa:
       interval: 30s
 ```
 
-El subchart renderiza un único `ServiceMonitor` que cubre los tres
+El chart renderiza un único `ServiceMonitor` que cubre los tres
 roles (configserver, content, container) usando un `matchExpressions`
 sobre el label `app.kubernetes.io/component`.
 

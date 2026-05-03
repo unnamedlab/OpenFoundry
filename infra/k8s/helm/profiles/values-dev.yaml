@@ -1,0 +1,47 @@
+global:
+  existingSecret: open-foundry-dev-env
+  replicaOverride: 1
+  resourcesOverride:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+  migrations:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  networkPolicy:
+    enabled: false
+  deploymentFabric:
+    environment: development
+
+ingress:
+  enabled: false
+
+objectStore:
+  backend: rustfs
+  endpoint: http://rustfs:9000
+  region: us-east-1
+  forcePathStyle: true
+  accessKeySecretKey: OBJECT_STORE_ACCESS_KEY
+  secretKeySecretKey: OBJECT_STORE_SECRET_KEY
+  buckets:
+    datasets: openfoundry-datasets
+    models: openfoundry-models
+    iceberg: openfoundry-iceberg
+
+icebergRestCatalog:
+  url: http://lakekeeper.lakekeeper.svc:8181
+
+trino:
+  enabled: false
+
+spark-operator:
+  enabled: false
+
+mimir:
+  enabled: false

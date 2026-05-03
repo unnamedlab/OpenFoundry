@@ -45,7 +45,7 @@ Anything else fails loudly (`panic!`) at startup.
 | Replicas | 3 (stateless, one per zone) |
 | Kafka consumer group | `ontology-indexer` |
 | Lag SLO | P99 < 5 s (`ontology_indexer_lag_seconds`) |
-| Alert | [`prometheus-rules-indexer.yaml`](../../infra/k8s/observability/prometheus-rules-indexer.yaml) |
+| Alert | [`prometheus-rules-indexer.yaml`](../../infra/k8s/platform/manifests/observability/prometheus-rules-indexer.yaml) |
 
 ## Runtime
 

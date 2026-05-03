@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::{Map, Value, json};
+use storage_abstraction::repositories::ReadConsistency;
 use uuid::Uuid;
 
 use auth_middleware::layer::AuthUser;
@@ -68,7 +69,7 @@ pub async fn list_rules(
     let search = query.search.unwrap_or_default();
 
     let rows = if let Some(object_type_id) = query.object_type_id {
-        sqlx::query_as::<_, OntologyRuleRow>(
+        crate::domain::pg_repository::typed::<OntologyRuleRow>(
             r#"SELECT id, name, display_name, description, object_type_id, evaluation_mode,
                       trigger_spec, effect_spec, owner_id, created_at, updated_at
                FROM ontology_rules
@@ -81,7 +82,7 @@ pub async fn list_rules(
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query_as::<_, OntologyRuleRow>(
+        crate::domain::pg_repository::typed::<OntologyRuleRow>(
             r#"SELECT id, name, display_name, description, object_type_id, evaluation_mode,
                       trigger_spec, effect_spec, owner_id, created_at, updated_at
                FROM ontology_rules
@@ -145,7 +146,7 @@ pub async fn create_rule(
         return invalid(error);
     }
 
-    let row = match sqlx::query_as::<_, OntologyRuleRow>(
+    let row = match crate::domain::pg_repository::typed::<OntologyRuleRow>(
         r#"INSERT INTO ontology_rules (
                id, name, display_name, description, object_type_id, evaluation_mode,
                trigger_spec, effect_spec, owner_id
@@ -208,7 +209,7 @@ pub async fn update_rule(
         return invalid(error);
     }
 
-    let row = match sqlx::query_as::<_, OntologyRuleRow>(
+    let row = match crate::domain::pg_repository::typed::<OntologyRuleRow>(
         r#"UPDATE ontology_rules
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -241,7 +242,7 @@ pub async fn update_rule(
 }
 
 pub async fn delete_rule(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM ontology_rules WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM ontology_rules WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await
@@ -265,7 +266,14 @@ pub async fn simulate_rule(
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    let object = match load_object_instance(&state.db, body.object_id).await {
+    let object = match load_object_instance(
+        &state,
+        &claims,
+        body.object_id,
+        ReadConsistency::Strong,
+    )
+    .await
+    {
         Ok(Some(object)) => object,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => return db_error(format!("failed to load object: {error}")),
@@ -286,13 +294,13 @@ pub async fn simulate_rule(
 
     if let Err(error) = record_rule_run(
         &state,
+        &claims,
         rule.id,
         object.id,
         match_result.matched,
         true,
         &match_result.trigger_payload,
         Some(&match_result.effect_preview),
-        claims.sub,
     )
     .await
     {
@@ -315,7 +323,14 @@ pub async fn apply_rule(
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    let object = match load_object_instance(&state.db, body.object_id).await {
+    let object = match load_object_instance(
+        &state,
+        &claims,
+        body.object_id,
+        ReadConsistency::Strong,
+    )
+    .await
+    {
         Ok(Some(object)) => object,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => return db_error(format!("failed to load object: {error}")),
@@ -335,7 +350,7 @@ pub async fn apply_rule(
     let match_result = evaluate_rule_against_object(&rule, &object, properties_patch.as_ref());
 
     let updated_object = if match_result.matched {
-        match apply_rule_effect(&state, &object, &match_result.effect_preview).await {
+        match apply_rule_effect(&state, &claims, &object, &match_result.effect_preview).await {
             Ok(updated) => updated,
             Err(error) => return db_error(error),
         }
@@ -345,13 +360,13 @@ pub async fn apply_rule(
 
     let recorded_run = match record_rule_run(
         &state,
+        &claims,
         rule.id,
         object.id,
         match_result.matched,
         false,
         &match_result.trigger_payload,
         Some(&match_result.effect_preview),
-        claims.sub,
     )
     .await
     {
@@ -386,10 +401,11 @@ pub async fn apply_rule(
 }
 
 pub async fn get_machinery_insights(
+    AuthUser(claims): AuthUser,
     State(state): State<AppState>,
     Query(query): Query<ListRulesQuery>,
 ) -> impl IntoResponse {
-    match machinery_insights(&state, query.object_type_id).await {
+    match machinery_insights(&state, &claims, query.object_type_id).await {
         Ok(data) => Json(MachineryInsightsResponse {
             object_type_id: query.object_type_id,
             data,
@@ -423,10 +439,21 @@ pub async fn update_machinery_queue_item(
 }
 
 pub async fn list_object_rule_runs(
+    AuthUser(claims): AuthUser,
     State(state): State<AppState>,
     Path(object_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match load_recent_rule_runs(&state, object_id, 20).await {
+    let object =
+        match load_object_instance(&state, &claims, object_id, ReadConsistency::Strong).await {
+            Ok(Some(object)) => object,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(error) => return db_error(format!("failed to load object: {error}")),
+        };
+    if let Err(error) = ensure_object_access(&claims, &object) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
+    }
+
+    match load_recent_rule_runs(&state, &claims, object_id, 20).await {
         Ok(runs) => Json(json!({ "data": runs })).into_response(),
         Err(error) => db_error(error),
     }

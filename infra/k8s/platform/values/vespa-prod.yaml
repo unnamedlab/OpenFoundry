@@ -1,0 +1,12 @@
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+configserver:
+  storage:
+    storageClassName: ceph-rbd
+
+content:
+  storage:
+    storageClassName: ceph-rbd

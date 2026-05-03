@@ -6,9 +6,9 @@
 
 use std::time::Duration;
 
+use rdkafka::ClientConfig;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
-use rdkafka::ClientConfig;
 use testcontainers::core::{ContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
@@ -48,7 +48,10 @@ impl EphemeralKafka {
     /// Build a [`DataBusConfig`] pointed at this broker using a PLAINTEXT
     /// dev principal.
     pub fn config_for(&self, service: &str) -> DataBusConfig {
-        DataBusConfig::new(&self.bootstrap_servers, ServicePrincipal::insecure_dev(service))
+        DataBusConfig::new(
+            &self.bootstrap_servers,
+            ServicePrincipal::insecure_dev(service),
+        )
     }
 
     /// Provision a topic via the AdminClient. Required because broker-level

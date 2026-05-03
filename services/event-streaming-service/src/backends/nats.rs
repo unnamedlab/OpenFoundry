@@ -25,10 +25,12 @@ pub struct NatsBackend {
 impl NatsBackend {
     /// Connect to the NATS server at `url`.
     pub async fn connect(url: &str) -> Result<Self, BackendError> {
-        let client = async_nats::connect(url).await.map_err(|e| BackendError::Unavailable {
-            backend: BackendId::Nats,
-            message: format!("could not connect to NATS at {url}: {e}"),
-        })?;
+        let client = async_nats::connect(url)
+            .await
+            .map_err(|e| BackendError::Unavailable {
+                backend: BackendId::Nats,
+                message: format!("could not connect to NATS at {url}: {e}"),
+            })?;
         Ok(Self { client })
     }
 

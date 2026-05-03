@@ -22,6 +22,7 @@ HTTP request thread.
 | File                         | Original path                                                | Replacement                                                    |
 |------------------------------|--------------------------------------------------------------|----------------------------------------------------------------|
 | `executor.rs.legacy`         | `services/workflow-automation-service/src/domain/executor.rs` | Workflows in `workers-go/workflow-automation/workflows/` (S2.3.b). |
+| `drop_workflow_runs.sql.disabled` | `workflow_runs` table from the legacy workflow migration | Temporal workflow history + `WorkflowAutomationClient::start_run`. |
 
 ## Migration map (handler-by-handler, deferred per ADR-0024 cadence)
 
@@ -38,6 +39,15 @@ HTTP request thread.
   `ApprovalsClient::decide`.
 * Branch / parallel / compensation / human-in-the-loop helpers →
   child workflows + selectors inside the Go workflow definition.
+
+## Runtime table cutover
+
+As of G-S2-PG (2026-05-03), live Rust handlers no longer insert,
+update, or select `workflow_runs`. `POST /workflows/{id}/runs` starts
+`AutomationRun` in Temporal and returns an API-compatible accepted-run
+projection containing the Temporal workflow/run IDs. The disabled DROP
+is staged here and must only be enabled after all historical
+`workflow_runs` rows have been exported or deliberately discarded.
 
 ## Do NOT resurrect
 

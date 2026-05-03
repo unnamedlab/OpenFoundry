@@ -25,14 +25,14 @@
     {
       "name": "ontology-read-by-type-strong",
       "method": "GET",
-      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/by-type/${OF_BENCH_TYPE_ID}?limit=50",
+      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/by-type/${OF_BENCH_TYPE_ID}?size=50",
       "expected_status": 200,
       "tags": ["ontology", "read", "by-type", "strong"]
     },
     {
       "name": "ontology-read-by-type-eventual",
       "method": "GET",
-      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/by-type/${OF_BENCH_TYPE_ID}?limit=50",
+      "path": "/api/v1/ontology/objects/${OF_BENCH_TENANT}/by-type/${OF_BENCH_TYPE_ID}?size=50",
       "headers": { "X-Consistency": "eventual" },
       "expected_status": 200,
       "tags": ["ontology", "read", "by-type", "eventual"]

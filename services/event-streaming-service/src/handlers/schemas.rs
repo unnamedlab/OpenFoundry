@@ -10,12 +10,13 @@
 //! `streams::update_stream`; this module only exposes the read /
 //! validation surface.
 
-use axum::{Json, extract::{Path, State}};
-use event_bus_control::schema_registry::{
-    self, CompatibilityMode, SchemaType,
+use axum::{
+    Json,
+    extract::{Path, State},
 };
-use std::str::FromStr;
+use event_bus_control::schema_registry::{self, CompatibilityMode, SchemaType};
 use sqlx::types::Json as SqlJson;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::{
@@ -108,9 +109,7 @@ pub async fn validate_schema(
             }
         }
     } else {
-        warnings.push(
-            "no current Avro schema persisted; compatibility check skipped".to_string(),
-        );
+        warnings.push("no current Avro schema persisted; compatibility check skipped".to_string());
     }
 
     let valid = errors.is_empty();
@@ -127,13 +126,12 @@ pub async fn list_schema_history(
     State(state): State<AppState>,
     Path(stream_id): Path<Uuid>,
 ) -> ServiceResult<ListResponse<StreamSchemaVersion>> {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM streaming_streams WHERE id = $1)",
-    )
-    .bind(stream_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|cause| db_error(&cause))?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM streaming_streams WHERE id = $1)")
+            .bind(stream_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|cause| db_error(&cause))?;
     if !exists {
         return Err(not_found("stream not found"));
     }

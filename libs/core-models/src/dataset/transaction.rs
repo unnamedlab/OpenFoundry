@@ -356,9 +356,11 @@ mod tests {
     #[test]
     fn dataset_rid_rejects_bad_input() {
         assert!("ri.foundry.main.folder.123".parse::<DatasetRid>().is_err());
-        assert!("ri.foundry.main.dataset.not-a-uuid"
-            .parse::<DatasetRid>()
-            .is_err());
+        assert!(
+            "ri.foundry.main.dataset.not-a-uuid"
+                .parse::<DatasetRid>()
+                .is_err()
+        );
     }
 
     #[test]
@@ -375,7 +377,10 @@ mod tests {
         assert_eq!(json, "\"snapshot\"");
         let parsed: TransactionType = serde_json::from_str("\"append\"").unwrap();
         assert_eq!(parsed, TransactionType::Append);
-        assert_eq!("delete".parse::<TransactionType>().unwrap(), TransactionType::Delete);
+        assert_eq!(
+            "delete".parse::<TransactionType>().unwrap(),
+            TransactionType::Delete
+        );
     }
 
     #[test]

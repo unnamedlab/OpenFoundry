@@ -3,11 +3,11 @@
 # Mata un mon de Rook-Ceph y espera a que el cluster vuelva a HEALTH_OK.
 #
 # Justificación de selectores:
-#   - Namespace `rook-ceph` → ver `infra/k8s/rook/cluster.yaml` (CephCluster
+#   - Namespace `rook-ceph` → ver `infra/k8s/platform/manifests/rook/cluster.yaml` (CephCluster
 #     `openfoundry` reside en `namespace: rook-ceph`).
 #   - El operador Rook etiqueta los pods de monitor con
 #     `app=rook-ceph-mon` (convención upstream estable).
-#   - `mon.count=5` (ver cabecera de `infra/k8s/rook/cluster.yaml`) tolera
+#   - `mon.count=5` (ver cabecera de `infra/k8s/platform/manifests/rook/cluster.yaml`) tolera
 #     dos fallos simultáneos manteniendo quorum=3, así que matar uno
 #     debe converger a HEALTH_OK sin pérdida de datos.
 

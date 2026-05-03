@@ -27,6 +27,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post, put},
 };
+use cassandra_kernel::{ClusterConfig, SessionBuilder};
 use sqlx::postgres::PgPoolOptions;
 use storage_abstraction::{StorageBackend, local::LocalStorage};
 use tracing_subscriber::EnvFilter;
@@ -34,25 +35,25 @@ use tracing_subscriber::EnvFilter;
 use auth_middleware::{jwt::JwtConfig, layer::auth_layer};
 use event_streaming_service::AppState;
 use event_streaming_service::app_config::AppConfig;
-use event_streaming_service::backends::{BackendRegistry, KafkaUnavailableBackend, NatsBackend};
 #[cfg(feature = "kafka-rdkafka")]
 use event_streaming_service::backends::RdKafkaBackend;
+use event_streaming_service::backends::{BackendRegistry, KafkaUnavailableBackend, NatsBackend};
 use event_streaming_service::domain::archiver::ArchiverSupervisor;
 use event_streaming_service::domain::checkpoints::CheckpointSupervisor;
 use event_streaming_service::domain::engine::state_store::{
     InMemoryStateBackend, SharedStateBackend,
 };
-use event_streaming_service::domain::hot_buffer::{HotBuffer, NatsHotBuffer, NoopHotBuffer};
 #[cfg(feature = "kafka-rdkafka")]
 use event_streaming_service::domain::hot_buffer::KafkaHotBuffer;
+use event_streaming_service::domain::hot_buffer::{HotBuffer, NatsHotBuffer, NoopHotBuffer};
+use event_streaming_service::domain::runtime_store::{
+    CassandraRuntimeStore, HybridRuntimeStore, SharedRuntimeStore,
+};
 use event_streaming_service::grpc::EventRouterService;
 use event_streaming_service::handlers::{
-    branches as branch_handlers,
-    checkpoints as checkpoint_handlers,
-    flink as flink_handlers,
-    schemas as schema_handlers,
-    streams,
-    topologies,
+    branches as branch_handlers, checkpoints as checkpoint_handlers, flink as flink_handlers,
+    profiles as profile_handlers, push_proxy as push_proxy_handlers, schemas as schema_handlers,
+    stream_views as stream_view_handlers, streams, topologies,
 };
 use event_streaming_service::metrics::Metrics;
 use event_streaming_service::router::{BackendId, RouteTable, RouterConfig};
@@ -104,15 +105,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hot_buffer = build_hot_buffer(&cfg).await;
     tracing::info!(backend = hot_buffer.id(), "hot buffer ready");
 
+    // ---- Runtime store (hot events + offsets/checkpoints + cold archive index) -
+    let runtime_store = build_runtime_store(&cfg).await?;
+    tracing::info!("runtime store ready");
+
     // ---- Cold-tier archiver ----------------------------------------------------
     let archiver_http = reqwest::Client::builder()
         .user_agent("event-streaming-service/0.0.1 (archiver)")
         .build()?;
     let archiver = ArchiverSupervisor::spawn(
-        db.clone(),
+        Arc::clone(&runtime_store),
         Arc::clone(&dataset_writer),
         archiver_http,
         cfg.dataset_service_url.clone(),
+        db.clone(),
     )
     .await?;
     tracing::info!("cold-tier archiver supervisor spawned");
@@ -124,26 +130,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- Checkpoint supervisor (per-topology periodic snapshots) --------------
     let checkpoints = CheckpointSupervisor::spawn(
         db.clone(),
+        Arc::clone(&runtime_store),
         Arc::clone(&state_backend),
     )
     .await?;
     tracing::info!("checkpoint supervisor spawned");
 
     // ---- Flink runtime config + metrics poller (Bloque D) -------------------
-    let flink_config = Arc::new(
-        event_streaming_service::runtime::flink::FlinkRuntimeConfig::from_env(),
-    );
+    let flink_config =
+        Arc::new(event_streaming_service::runtime::flink::FlinkRuntimeConfig::from_env());
     tracing::info!(
         namespace = %flink_config.default_namespace,
         flink_version = %flink_config.flink_version,
         "flink runtime config loaded"
     );
     #[cfg(feature = "flink-runtime")]
-    let flink_poller = event_streaming_service::runtime::flink::metrics_poller::MetricsPollerSupervisor::spawn(
-        db.clone(),
-        Arc::clone(&flink_config),
-    )
-    .await?;
+    let flink_poller =
+        event_streaming_service::runtime::flink::metrics_poller::MetricsPollerSupervisor::spawn(
+            db.clone(),
+            Arc::clone(&flink_config),
+        )
+        .await?;
     #[cfg(feature = "flink-runtime")]
     tracing::info!("flink metrics poller spawned");
 
@@ -159,11 +166,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metrics: Arc::clone(&metrics),
         dataset_writer,
         hot_buffer,
+        runtime_store,
         state_backend: Arc::clone(&state_backend),
         connector_management_service_url: cfg.connector_management_service_url.clone(),
         dataset_service_url: cfg.dataset_service_url.clone(),
         archive_dir: cfg.archive_dir.clone(),
         flink_config: Arc::clone(&flink_config),
+        public_base_url: std::env::var("STREAMING_PUBLIC_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string()),
     };
 
     // ---- REST control plane ----------------------------------------------------
@@ -175,7 +185,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ---- gRPC routing facade ---------------------------------------------------
     let grpc_addr: SocketAddr = format!("{}:{}", cfg.host, cfg.grpc_port).parse()?;
-    let svc = EventRouterService::new(Arc::clone(&table), Arc::clone(&backends), Arc::clone(&metrics));
+    let svc = EventRouterService::new(
+        Arc::clone(&table),
+        Arc::clone(&backends),
+        Arc::clone(&metrics),
+    );
     let grpc_server = tonic::transport::Server::builder()
         .add_service(svc.into_server())
         .serve(grpc_addr);
@@ -231,8 +245,38 @@ fn build_rest_router(state: AppState, jwt_config: JwtConfig) -> Router {
             get(streams::list_streams).post(streams::create_stream),
         )
         .route("/streams/{id}", put(streams::update_stream))
+        .route(
+            "/streams/{id}/config",
+            get(streams::get_stream_config).put(streams::update_stream_config),
+        )
+        // Foundry-parity Reset Stream + view history.
+        .route(
+            "/streams/{id}/reset",
+            post(stream_view_handlers::reset_stream),
+        )
+        .route(
+            "/streams/{id}/views",
+            get(stream_view_handlers::list_stream_views),
+        )
+        .route(
+            "/streams/{id}/current-view",
+            get(stream_view_handlers::get_current_view),
+        )
         .route("/streams/{id}/push", post(streams::push_events))
         .route("/streams/{id}/read", get(streams::read_stream))
+        // Bloque P5 — hybrid hot/cold preview with per-record source label.
+        .route("/streams/{id}/preview", get(streams::preview_stream))
+        // Bloque P4 — monitor-evaluation rollup.
+        .route("/streams/{id}/metrics", get(streams::get_stream_metrics))
+        // Bloque P6 — streaming compute usage rollup.
+        .route(
+            "/streams/{id}/usage",
+            get(event_streaming_service::handlers::usage::get_stream_usage),
+        )
+        .route(
+            "/topologies/{id}/usage",
+            get(event_streaming_service::handlers::usage::get_topology_usage),
+        )
         .route("/streams/{id}/dead-letters", get(streams::list_dead_letters))
         .route(
             "/dead-letters/{dl_id}/replay",
@@ -295,11 +339,58 @@ fn build_rest_router(state: AppState, jwt_config: JwtConfig) -> Router {
             "/streams/{id}/schema/history",
             get(schema_handlers::list_schema_history),
         )
-        .with_state(state)
+        // streaming profiles (P3)
+        .route(
+            "/streaming-profiles",
+            get(profile_handlers::list_profiles).post(profile_handlers::create_profile),
+        )
+        .route(
+            "/streaming-profiles/{id}",
+            axum::routing::patch(profile_handlers::patch_profile),
+        )
+        .route(
+            "/streaming-profiles/{id}/project-refs",
+            get(profile_handlers::list_project_refs),
+        )
+        .route(
+            "/projects/{project_rid}/streaming-profile-refs/{profile_id}",
+            post(profile_handlers::import_profile_to_project)
+                .delete(profile_handlers::remove_profile_from_project),
+        )
+        .route(
+            "/pipelines/{pipeline_rid}/streaming-profiles",
+            get(profile_handlers::list_pipeline_profiles)
+                .post(profile_handlers::attach_profile_to_pipeline),
+        )
+        .route(
+            "/pipelines/{pipeline_rid}/streaming-profiles/{profile_id}",
+            axum::routing::delete(profile_handlers::detach_profile_from_pipeline),
+        )
+        .route(
+            "/pipelines/{pipeline_rid}/effective-flink-config",
+            get(profile_handlers::get_effective_flink_config),
+        )
+        .with_state(state.clone())
         .layer(middleware::from_fn_with_state(jwt_config, auth_layer))
         .layer(audit_trail::middleware::audit_layer());
 
-    Router::new().nest("/api/v1/streaming", api)
+    // Push proxy lives outside the JWT-protected /api/v1 namespace —
+    // push consumers authenticate with a bearer token issued via the
+    // OAuth2 third-party-application flow (validated by the platform's
+    // gateway, not by this service).
+    let push = Router::new()
+        .route(
+            "/streams-push/{view_rid}/records",
+            post(push_proxy_handlers::push_records),
+        )
+        .route(
+            "/streams-push/{stream_rid}/url",
+            get(push_proxy_handlers::current_push_url),
+        )
+        .with_state(state)
+        .layer(audit_trail::middleware::audit_layer());
+
+    Router::new().nest("/api/v1/streaming", api).merge(push)
 }
 
 /// Load the routing table from `topic-routes.yaml` and connect the
@@ -393,6 +484,35 @@ async fn build_hot_buffer(cfg: &AppConfig) -> Arc<dyn HotBuffer> {
             Arc::new(NoopHotBuffer)
         }
     }
+}
+
+async fn build_runtime_store(
+    cfg: &AppConfig,
+) -> Result<SharedRuntimeStore, Box<dyn std::error::Error>> {
+    let cassandra = if let Some(contact_points) = cfg.cassandra_contact_points.as_ref() {
+        let cluster = ClusterConfig {
+            contact_points: contact_points
+                .split(',')
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect(),
+            local_datacenter: cfg.cassandra_local_datacenter.clone(),
+            username: cfg.cassandra_username.clone(),
+            password: cfg.cassandra_password.clone(),
+            keyspace: None,
+            ..ClusterConfig::dev_local()
+        };
+        let session = Arc::new(SessionBuilder::new(cluster).build().await?);
+        let runtime = CassandraRuntimeStore::new(session);
+        runtime.migrate().await?;
+        tracing::info!("runtime store Cassandra metadata enabled");
+        Some(runtime)
+    } else {
+        tracing::info!("runtime store Cassandra metadata disabled; using memory-only durability");
+        None
+    };
+
+    Ok(Arc::new(HybridRuntimeStore::new(cassandra)))
 }
 
 /// Build a real Kafka backend when the `kafka-rdkafka` Cargo feature is

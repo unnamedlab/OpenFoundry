@@ -15,14 +15,16 @@ materialises the corresponding workloads as Kubernetes Custom Resources:
 
 A simple reconcile loop re-applies the resources for any persisted job whose
 status is not terminal, so the desired state is restored automatically if a
-human or another controller deletes the CRDs.
+human or another controller deletes the CRDs. The target architecture keeps
+only low-frequency desired state in Postgres; high-frequency runtime state
+belongs in a non-PG runtime store.
 
 ## Architecture
 
 ```
                                     ┌──────────────────────────┐
                                     │   Postgres (this svc)    │
-                                    │  • ingest_jobs table     │
+                                    │ • desired-state specs    │
                                     └──────────────▲───────────┘
                                                    │
             gRPC                                   │
@@ -75,10 +77,17 @@ under `local:///opt/flink/usrlib/iceberg-sink.jar` (Apache-2.0).
 
 ## Persistence
 
-Each accepted spec is upserted into the `ingest_jobs` table (migration
+Each accepted spec is upserted into the `ingest_jobs` table
+(migration
 [`migrations/20260429120000_ingest_jobs.sql`](migrations/20260429120000_ingest_jobs.sql))
-following the same `id (UUID v7) + JSONB spec + status` pattern used by the
-other services in the workspace (see for instance `cdc-metadata-service`).
+as low-frequency control-plane intent: `id` (UUID v7), JSONB spec and the
+names of materialised Kubernetes resources. The compiled service schema
+intentionally excludes the legacy `connections`/`sync_jobs` tables: source
+definitions belong to `connector-management-service`, and runtime execution
+state does not belong to Postgres. `ingestion_checkpoints` was retired by
+[`migrations/20260503121000_drop_ingestion_hot_path_runtime.sql`](migrations/20260503121000_drop_ingestion_hot_path_runtime.sql);
+CDC checkpoints live under `OPENFOUNDRY_INGESTION_RUNTIME_DIR`, and job status
+is hydrated from the non-PG runtime state store (`runtime_state.rs`).
 
 Status transitions are: `pending → materialized` on success, `pending → failed`
 or `materialized → failed` when a reconcile/apply fails. The reconcile loop

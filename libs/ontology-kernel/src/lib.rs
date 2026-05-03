@@ -24,6 +24,9 @@ use sqlx::PgPool;
 /// declared below.
 #[derive(Clone)]
 pub struct AppState {
+    /// PostgreSQL pool retained for control-plane schema lookups, outbox, and
+    /// residual warm handlers that have not migrated off direct PG access yet.
+    /// The object/link/action hot path routes through [`Self::stores`].
     pub db: PgPool,
     /// Storage trait bag — see [`stores::Stores`]. Handlers migrated as
     /// part of S1.4–S1.7 of the Cassandra-Foundry parity plan route their
@@ -45,4 +48,13 @@ pub struct AppState {
     /// logs a warning and skips the call.
     #[doc(hidden)]
     pub connector_management_service_url: String,
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    pub fn lazy_pg_pool() -> sqlx::PgPool {
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://openfoundry:openfoundry@127.0.0.1:1/openfoundry")
+            .expect("lazy test pool")
+    }
 }

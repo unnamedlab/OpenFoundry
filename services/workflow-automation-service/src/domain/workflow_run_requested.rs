@@ -8,8 +8,7 @@ use event_bus_control::{
 use futures::StreamExt;
 
 use crate::{
-    AppState,
-    handlers::execute::execute_internal_triggered_run,
+    AppState, handlers::execute::execute_internal_triggered_run,
     models::execution::InternalTriggeredRunRequest,
 };
 

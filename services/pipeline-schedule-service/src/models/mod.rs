@@ -6,8 +6,8 @@ pub mod pipeline;
 pub mod run;
 pub mod schedule;
 #[allow(dead_code)]
-#[path = "../../../workflow-automation-service/src/models/execution.rs"]
-pub mod workflow_execution;
-#[allow(dead_code)]
 #[path = "../../../workflow-automation-service/src/models/workflow.rs"]
 pub mod workflow;
+#[allow(dead_code)]
+#[path = "../../../workflow-automation-service/src/models/execution.rs"]
+pub mod workflow_execution;

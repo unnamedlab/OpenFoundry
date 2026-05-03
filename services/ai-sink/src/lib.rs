@@ -17,8 +17,8 @@
 //! 5. Batch policy aligned with `audit-sink::BatchPolicy::PLAN_DEFAULT`
 //!    (100k records or 60 s, whichever first).
 //!
-//! The Iceberg writer + Kafka consumer loop arrive in a follow-up PR;
-//! this module pins naming so a typo is a compile error.
+//! The runtime consumes Kafka, batches by target table and appends
+//! Arrow `RecordBatch`es to Iceberg.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -108,6 +108,7 @@ pub const fn route(env: &AiEventEnvelope) -> &'static str {
 
 /// Batch policy — same shape as `audit_sink::BatchPolicy`; the sink
 /// flushes whichever side trips first.
+#[derive(Debug, Clone, Copy)]
 pub struct BatchPolicy {
     pub max_records: usize,
     pub max_wait: Duration,
@@ -141,6 +142,19 @@ pub mod iceberg_schema {
         pub const PRODUCER: &str = "producer";
         pub const SCHEMA_VERSION: &str = "schema_version";
         pub const PAYLOAD: &str = "payload";
+    }
+
+    /// Stable Iceberg/Parquet field ids. They must never be reused or
+    /// renumbered once data exists.
+    pub mod field_ids {
+        pub const EVENT_ID: i32 = 1;
+        pub const AT: i32 = 2;
+        pub const KIND: i32 = 3;
+        pub const RUN_ID: i32 = 4;
+        pub const TRACE_ID: i32 = 5;
+        pub const PRODUCER: i32 = 6;
+        pub const SCHEMA_VERSION: i32 = 7;
+        pub const PAYLOAD: i32 = 8;
     }
 
     pub const PARTITION_TRANSFORM: &str = "day";
@@ -223,5 +237,11 @@ mod tests {
             ),
             iceberg_target::PARTITION_TRANSFORM
         );
+    }
+
+    #[test]
+    fn schema_field_ids_are_stable() {
+        assert_eq!(iceberg_schema::field_ids::EVENT_ID, 1);
+        assert_eq!(iceberg_schema::field_ids::PAYLOAD, 8);
     }
 }

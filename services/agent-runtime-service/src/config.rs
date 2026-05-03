@@ -8,8 +8,9 @@ pub struct AppConfig {
     pub port: u16,
     pub database_url: String,
     pub jwt_secret: String,
-    #[serde(default = "default_tool_registry_service_url")]
-    pub tool_registry_service_url: String,
+    // S8.1.b ADR-0030 — `tool_registry_service_url` removed:
+    // tool registry is now served in-process via `handlers::tools` /
+    // `models::tools` (absorbed from the retired `tool-registry-service`).
     #[serde(default = "default_conversation_state_service_url")]
     pub conversation_state_service_url: String,
     #[serde(default = "default_llm_catalog_service_url")]
@@ -22,7 +23,6 @@ pub struct AppConfig {
 
 fn default_host() -> String { "0.0.0.0".to_string() }
 fn default_port() -> u16 { 50127 }
-fn default_tool_registry_service_url() -> String { "http://localhost:50100".to_string() }
 fn default_conversation_state_service_url() -> String { "http://localhost:50099".to_string() }
 fn default_llm_catalog_service_url() -> String { "http://localhost:50095".to_string() }
 fn default_prompt_workflow_service_url() -> String { "http://localhost:50096".to_string() }

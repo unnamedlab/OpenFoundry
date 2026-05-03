@@ -53,7 +53,10 @@ pub async fn create_application(
         return response;
     }
     if body.slug.trim().is_empty() || body.display_name.trim().is_empty() {
-        return json_error(StatusCode::BAD_REQUEST, "slug and display_name are required");
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "slug and display_name are required",
+        );
     }
 
     match sqlx::query_as::<_, RegisteredApplication>(
@@ -180,7 +183,10 @@ pub async fn create_application_credential(
     let credential_id = Uuid::now_v7();
     let client_id = format!("ofapp_{}", &credential_id.simple().to_string()[..16]);
     let client_secret = security::random_token(48);
-    let secret_hint = format!("...{}", &client_secret[client_secret.len().saturating_sub(6)..]);
+    let secret_hint = format!(
+        "...{}",
+        &client_secret[client_secret.len().saturating_sub(6)..]
+    );
 
     match sqlx::query(
         r#"INSERT INTO oauth_application_credentials

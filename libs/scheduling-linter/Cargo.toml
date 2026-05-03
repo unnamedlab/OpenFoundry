@@ -1,0 +1,36 @@
+[package]
+name = "scheduling-linter"
+description = "Foundry-parity 'Sweep schedules' linter — rule library + sweep planner"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.scheduling-cron]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[dependencies.chrono-tz]
+workspace = true

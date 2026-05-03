@@ -1,0 +1,221 @@
+S5 WORM negative test - 2026-05-03
+Status: BLOCKED - NO SPARK/TRINO WORM RUNTIME ENVIRONMENT AVAILABLE
+
+Purpose:
+  Prove that prohibited maintenance operations against of_audit / of.audit fail
+  closed by policy, RBAC or guardrail:
+    - expire_snapshots
+    - rewrite / optimize
+    - delete
+    - overwrite
+    - Spark maintenance job targeting of_audit
+
+This artifact does not close S5. The current cluster cannot execute the real
+WORM negative test because Spark Operator / Trino / Iceberg are not deployed.
+
+## Static Repository Allowlist Check
+
+Command:
+
+  grep -R '^[[:space:]]*-[[:space:]]*"--allowlist=.*of_audit' -n infra/k8s/platform/manifests/spark-jobs infra/k8s/platform/manifests/spark-operator infra/k8s/platform/manifests/observability
+
+Exit code:
+
+  1
+
+Output:
+
+  <no output>
+
+Explanation:
+
+  This static check found no Spark maintenance allowlist entry that includes
+  of_audit as a target namespace. This is a repo-only guardrail check, not an
+  executed WORM negative test.
+
+Command:
+
+  rg -n -- 'allowlist|of_audit' infra/k8s/platform/manifests/spark-jobs infra/k8s/platform/manifests/spark-operator infra/k8s/platform/manifests/observability
+
+Exit code:
+
+  0
+
+Output:
+
+  infra/k8s/platform/manifests/spark-jobs/iceberg-expire-snapshots.yaml:4:# CRITICAL: this job MUST never be allowed to touch `of_audit.*` —
+  infra/k8s/platform/manifests/spark-jobs/iceberg-expire-snapshots.yaml:5:# the audit namespace is WORM (S5.1.c). The `--allowlist` argument
+  infra/k8s/platform/manifests/spark-jobs/iceberg-expire-snapshots.yaml:8:# immediately if anybody adds `of_audit` to it.
+  infra/k8s/platform/manifests/spark-jobs/iceberg-expire-snapshots.yaml:23:    # First arg is ALWAYS the allowlist — never `of_audit`.
+  infra/k8s/platform/manifests/spark-jobs/iceberg-expire-snapshots.yaml:24:    - "--allowlist=of_lineage,of_ai,of_metrics_long"
+  infra/k8s/platform/manifests/spark-operator/README.md:16:* **Forbidden:** ANY operation against `of_audit.*`. The audit
+  infra/k8s/platform/manifests/spark-operator/README.md:18:  enumerates an explicit allowlist and refuses anything else.
+  infra/k8s/platform/manifests/observability/spark-operator-rules.yaml:6:#    (`of_audit.*` is WORM — S5.1.c — must never be touched).
+  infra/k8s/platform/manifests/observability/spark-operator-rules.yaml:45:              spark_application_arguments_count{argument=~".*of_audit.*"}
+  infra/k8s/platform/manifests/observability/spark-operator-rules.yaml:53:            description: "of_audit.* is append-only WORM per S5.1.c — kill the job and audit how it was authored"
+  infra/k8s/platform/manifests/spark-jobs/README.md:8:The audit namespace `of_audit.*` is WORM (S5.1.c). The
+  infra/k8s/platform/manifests/spark-jobs/README.md:9:`iceberg-expire-snapshots.yaml` job carries an explicit allowlist of
+  infra/k8s/platform/manifests/spark-jobs/README.md:16:Any operator who edits the allowlist to include `of_audit` violates the
+  infra/k8s/platform/manifests/spark-jobs/README.md:23:| `iceberg-rewrite-data-files.yaml` | Compact small files into 256MB targets across the allowlist namespaces. | weekly Sun 03:00 UTC |
+  infra/k8s/platform/manifests/spark-jobs/README.md:24:| `iceberg-expire-snapshots.yaml` | Drop snapshots older than per-namespace retention (90d/1y) — never against `of_audit`. | weekly Sun 04:00 UTC |
+  infra/k8s/platform/manifests/spark-jobs/README.md:31:1. Embed the allowlist as the FIRST CLI argument (so the alert
+  infra/k8s/platform/manifests/spark-jobs/iceberg-rewrite-data-files.yaml:4:# allowlist so the `SparkApplicationTargetsWormNamespace` alert can
+  infra/k8s/platform/manifests/spark-jobs/iceberg-rewrite-data-files.yaml:6:# `of_audit` in the allowlist.
+  infra/k8s/platform/manifests/spark-jobs/iceberg-rewrite-data-files.yaml:21:    - "--allowlist=of_lineage,of_ai,of_metrics_long"
+
+Explanation:
+
+  Versioned Spark maintenance jobs target only:
+    - of_lineage
+    - of_ai
+    - of_metrics_long
+
+  Mentions of of_audit are comments, docs or the Prometheus alert that detects
+  an invalid SparkApplication argument. No repo manifest mutates of_audit.
+
+## Cluster SparkApplication Check
+
+Command:
+
+  kubectl get ns openfoundry-spark
+
+Exit code:
+
+  1
+
+Output:
+
+  Error from server (NotFound): namespaces "openfoundry-spark" not found
+
+Command:
+
+  kubectl get sparkapplications -n openfoundry-spark -o yaml
+
+Exit code:
+
+  1
+
+Output:
+
+  error: the server doesn't have a resource type "sparkapplications"
+
+Explanation:
+
+  The cluster does not have the Spark Operator CRD or the openfoundry-spark
+  namespace. Therefore there are no live SparkApplication arguments to inspect,
+  and no live Spark policy/RBAC denial can be proven from this environment.
+
+## Negative Attempt: Spark Maintenance Job Targeting of_audit
+
+Command:
+
+  kubectl -n openfoundry-spark create job s5-worm-negative-expire --image=apache/spark:3.5.3 -- /opt/spark/bin/spark-submit --class org.openfoundry.spark.iceberg.ExpireSnapshotsJob s3a://openfoundry-spark-jars/iceberg-maintenance-0.1.0.jar --allowlist=of_audit --retain-days=of_audit:1 --catalog=lakekeeper --catalog-uri=http://lakekeeper.lakekeeper.svc:8181
+
+Exit code:
+
+  1
+
+Output:
+
+  error: failed to create job: namespaces "openfoundry-spark" not found
+
+Explanation:
+
+  The attempted Spark maintenance job did not run. It failed because the target
+  namespace is absent, not because a deployed WORM policy/RBAC/guardrail rejected
+  the of_audit target. This is BLOCKED evidence, not a passing WORM negative
+  test.
+
+## Negative Attempt: Trino expire_snapshots
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "ALTER TABLE of_audit.events EXECUTE expire_snapshots(retention_threshold => '1d')"
+
+Exit code:
+
+  1
+
+Output:
+
+  Error from server (NotFound): namespaces "trino" not found
+
+Explanation:
+
+  The prohibited expire_snapshots operation did not reach Trino/Iceberg. It
+  failed because Trino is not deployed, not because policy rejected the WORM
+  mutation.
+
+## Negative Attempt: Trino rewrite / optimize
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "ALTER TABLE of_audit.events EXECUTE optimize"
+
+Exit code:
+
+  1
+
+Output:
+
+  Error from server (NotFound): namespaces "trino" not found
+
+Explanation:
+
+  The prohibited rewrite/optimize operation did not reach Trino/Iceberg. It
+  failed because Trino is not deployed, not because policy rejected the WORM
+  mutation.
+
+## Negative Attempt: Trino delete
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "DELETE FROM of_audit.events WHERE at < current_timestamp"
+
+Exit code:
+
+  1
+
+Output:
+
+  Error from server (NotFound): namespaces "trino" not found
+
+Explanation:
+
+  The prohibited delete operation did not reach Trino/Iceberg. It failed because
+  Trino is not deployed, not because policy rejected the WORM mutation.
+
+## Negative Attempt: Trino overwrite
+
+Command:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "INSERT OVERWRITE of_audit.events SELECT * FROM of_audit.events WHERE false"
+
+Exit code:
+
+  1
+
+Output:
+
+  Error from server (NotFound): namespaces "trino" not found
+
+Explanation:
+
+  The prohibited overwrite operation did not reach Trino/Iceberg. It failed
+  because Trino is not deployed, not because policy rejected the WORM mutation.
+
+## Final Operator Conclusion
+
+Conclusion:
+
+  BLOCKED. Static repo guardrails show Spark allowlists do not include of_audit
+  as a mutating target, but the runtime WORM negative test was not executed
+  against deployed Spark/Trino/Iceberg. S5-OPS cannot close from this artifact.
+
+Required to close:
+
+  Re-run this file's prohibited operations in an S5 environment with Spark
+  Operator, Trino, Lakekeeper/Iceberg and the of_audit.events table deployed.
+  A valid PASS requires failures caused by policy, RBAC or guardrail, plus
+  evidence that no of_audit snapshots/files/rows were mutated.
+

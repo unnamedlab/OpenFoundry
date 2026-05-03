@@ -1,0 +1,114 @@
+# Migration Directory Classification
+
+This catalog is the cleanup baseline for the **58 migration roots**
+called out by the Cassandra/Foundry parity plan. It classifies every
+runtime SQL migration directory into one of the final buckets used by
+the platform:
+
+- `pg-schemas`
+- `pg-policy`
+- `pg-runtime-config`
+- `pg-lakekeeper`
+- `cassandra`
+- `legacy-archive`
+
+`pg-lakekeeper` is intentionally empty today: Lakekeeper owns its own
+catalog schema bootstrap and there is no service-local SQL migration
+chain for it.
+
+## `pg-schemas`
+
+- `services/ai-application-generation-service/migrations`
+- `services/analytical-logic-service/migrations`
+- `services/cdc-metadata-service/migrations`
+- `services/code-repository-review-service/migrations`
+- `services/data-asset-catalog-service/migrations`
+- `services/dataset-versioning-service/migrations`
+- `services/document-intelligence-service/migrations`
+- `services/document-reporting-service/migrations`
+- `services/federation-product-exchange-service/migrations`
+- `services/lineage-service/migrations`
+- `services/marketplace-service/migrations`
+- `services/mcp-orchestration-service/migrations`
+- `services/model-adapter-service/migrations`
+- `services/model-catalog-service/migrations`
+- `services/model-lifecycle-service/migrations`
+- `services/oauth-integration-service/migrations`
+- `services/ontology-definition-service/migrations-pg`
+- `services/scenario-simulation-service/migrations`
+- `services/sdk-generation-service/migrations`
+- `services/solution-design-service/migrations`
+
+## `pg-policy`
+
+- `libs/outbox/migrations`
+- `services/audit-compliance-service/migrations`
+- `services/checkpoints-purpose-service/migrations`
+- `services/cipher-service/migrations`
+- `services/code-security-scanning-service/migrations`
+- `services/identity-federation-service/migrations`
+  Note: `20260425193000_scoped_sessions_security.sql` moved to `legacy-archive`.
+- `services/lineage-deletion-service/migrations`
+- `services/network-boundary-service/migrations`
+- `services/retention-policy-service/migrations`
+- `services/sds-service/migrations`
+- `services/security-governance-service/migrations`
+- `services/telemetry-governance-service/migrations`
+- `services/tenancy-organizations-service/migrations`
+
+## `pg-runtime-config`
+
+- `services/agent-runtime-service/migrations`
+- `services/app-builder-service/migrations`
+- `services/application-composition-service/migrations`
+- `services/compute-modules-control-plane-service/migrations`
+- `services/compute-modules-runtime-service/migrations`
+- `services/connector-management-service/migrations`
+- `services/custom-endpoints-service/migrations`
+- `services/developer-console-service/migrations`
+- `services/event-streaming-service/migrations`
+  Note: hot runtime tables moved to `legacy-archive`; control-plane DDL remains active.
+- `services/execution-observability-service/migrations`
+- `services/ingestion-replication-service/migrations`
+- `services/managed-workspace-service/migrations`
+- `services/monitoring-rules-service/migrations`
+- `services/notebook-runtime-service/migrations`
+- `services/notification-alerting-service/migrations`
+- `services/pipeline-authoring-service/migrations`
+- `services/report-service/migrations`
+- `services/spreadsheet-computation-service/migrations`
+- `services/sql-bi-gateway-service/migrations`
+- `services/sql-warehousing-service/migrations`
+- `services/tabular-analysis-service/migrations`
+- `services/time-series-data-service/migrations`
+- `services/workflow-automation-service/migrations`
+- `services/workflow-trace-service/migrations`
+
+## `cassandra`
+
+- `services/identity-federation-service/src/sessions_cassandra.rs`
+  Owns `auth_runtime` session state; replaces the archived `scoped_sessions` SQL path.
+- `services/oauth-integration-service/src/pending_auth_cassandra.rs`
+  Owns short-lived OAuth pending-auth state; no active SQL migration dir is allowed for that hot path.
+- `services/event-streaming-service/src/domain/runtime_store.rs`
+  Owns the hot runtime ledger that replaced `streaming_events`, `streaming_checkpoints`,
+  `streaming_cold_archives` and `streaming_topology_checkpoints`.
+
+## `legacy-archive`
+
+- `docs/architecture/legacy-migrations/automation-operations-service/`
+- `services/automation-operations-service/migrations`
+  Pointer-only directory; active SQL was archived and Temporal is authoritative.
+- `docs/architecture/legacy-migrations/event-streaming-service/`
+- `docs/architecture/legacy-migrations/identity-federation-service/`
+- `docs/architecture/legacy-migrations/object-database-service/`
+- `docs/architecture/legacy-migrations/ontology-actions-service/`
+- `docs/architecture/legacy-migrations/ontology-definition-service/`
+- `docs/architecture/legacy-migrations/ontology-exploratory-analysis-service/`
+- `docs/architecture/legacy-migrations/ontology-query-service/`
+- `docs/architecture/legacy-migrations/ontology-security-service/`
+- `docs/architecture/legacy-migrations/ontology-timeseries-analytics-service/`
+- `docs/architecture/legacy-migrations/workflow-automation-service/`
+
+Any future cleanup PR should update this catalog at the same time it
+moves a migration root between buckets.

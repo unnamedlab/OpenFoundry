@@ -31,10 +31,20 @@
 // which is what the default `forbid` policy in the bootstrap migration
 // expresses.
 
-entity User = {
+entity Group = {
+  "id": String,
+};
+
+entity Role = {
+  "id": String,
+};
+
+entity User in [Group, Role] = {
   "tenant": String,
   "clearances": Set<Marking>,
   "roles": Set<String>,
+  "kind"?: String,
+  "mfa_age_secs"?: Long,
 };
 
 entity Marking = {
@@ -61,6 +71,41 @@ entity Object = {
 entity OntologyAction = {
   "type": String,
   "tenant": String,
+};
+
+// ── Media sets (H3) ───────────────────────────────────────────────
+//
+// Mirrors `services/media-sets-service` row types. Fields:
+//   * `tenant`             — caller tenant scope (matches User.tenant).
+//   * `project_rid`        — Foundry project RID the set lives in.
+//   * `transaction_policy` — `TRANSACTIONLESS` | `TRANSACTIONAL`.
+//   * `virtual`            — true when the set is virtual (bytes stay
+//                            in an external source).
+//   * `markings`           — direct markings on the set. The
+//                            application unions these into a child
+//                            item's effective markings before invoking
+//                            `media_item::*` so per-item policies see
+//                            the full security envelope.
+//
+// `MediaItem in [MediaSet]` makes `it in MediaSet::"…"` work in
+// future policies that want to filter by parent set without an
+// explicit attribute walk.
+
+entity MediaSet = {
+  "rid": String,
+  "tenant": String,
+  "project_rid": String,
+  "transaction_policy": String,
+  "virtual": Bool,
+  "markings": Set<Marking>,
+};
+
+entity MediaItem in [MediaSet] = {
+  "media_set_rid": String,
+  "tenant": String,
+  "mime_type": String,
+  "size_bytes": Long,
+  "markings": Set<Marking>,
 };
 
 action "read" appliesTo {
@@ -91,4 +136,138 @@ action "branch::merge" appliesTo {
 action "action::invoke" appliesTo {
   principal: [User],
   resource:  [OntologyAction],
+};
+
+// ── Media-set actions (H3) ────────────────────────────────────────
+
+action "media_set::view" appliesTo {
+  principal: [User],
+  resource:  [MediaSet],
+};
+
+action "media_set::manage" appliesTo {
+  principal: [User],
+  resource:  [MediaSet],
+};
+
+action "media_set::delete" appliesTo {
+  principal: [User],
+  resource:  [MediaSet],
+};
+
+action "media_item::read" appliesTo {
+  principal: [User],
+  resource:  [MediaItem],
+};
+
+action "media_item::write" appliesTo {
+  principal: [User],
+  resource:  [MediaItem],
+};
+
+action "media_item::delete" appliesTo {
+  principal: [User],
+  resource:  [MediaItem],
+};
+
+// ── Schedule + ServicePrincipal (P3 of pipeline-schedule-service) ─
+//
+// Introduces `Project`, `Schedule`, `PipelineBuildTarget` resources,
+// and a `ServicePrincipal` principal type used by project-scoped
+// schedules per the Foundry doc § "Project scope". Policies inspect:
+//   * `User.roles` to gate edit / pause-resume / convert flows;
+//   * `ServicePrincipal.project_scope_rids` (Set<String>) so the
+//     dispatch action can confirm the principal is bound to the
+//     pipeline's project.
+
+entity Project = {
+  "rid": String,
+  "tenant": String,
+};
+
+entity ServicePrincipal = {
+  "rid": String,
+  "tenant": String,
+  "project_scope_rids": Set<String>,
+  "clearances": Set<Marking>,
+};
+
+entity Schedule = {
+  "rid": String,
+  "tenant": String,
+  "project_rid": String,
+  "scope_kind": String,
+  "owner_id": String,
+};
+
+entity PipelineBuildTarget = {
+  "pipeline_rid": String,
+  "project_rid": String,
+  "tenant": String,
+  "markings": Set<Marking>,
+};
+
+action "schedule::edit" appliesTo {
+  principal: [User],
+  resource:  [Schedule],
+};
+
+action "schedule::pause_resume" appliesTo {
+  principal: [User],
+  resource:  [Schedule],
+};
+
+action "schedule::convert_to_project_scope" appliesTo {
+  principal: [User],
+  resource:  [Schedule],
+};
+
+action "build::run" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [PipelineBuildTarget],
+};
+
+// ── Identity-federation admin (S3.1.i) ────────────────────────────
+//
+// Resources owned by `identity-federation-service` admin endpoints.
+// `Group` and `Role` (declared above User) act as parent UIDs for
+// `principal in Group::"…"` / `Role::"…"` checks emitted by the
+// service's bundled `policies/identity_admin.cedar` set.
+
+entity JwksKey = {
+  "kid": String,
+  "status": String,
+};
+
+entity ScimUser = {
+  "id": String,
+};
+
+entity ScimGroup = {
+  "id": String,
+};
+
+action "rotate_jwks" appliesTo {
+  principal: [User],
+  resource:  [JwksKey],
+};
+
+action "retire_jwks" appliesTo {
+  principal: [User],
+  resource:  [JwksKey],
+};
+
+action "scim_provision_user" appliesTo {
+  principal: [User],
+  resource:  [ScimUser],
+};
+
+action "scim_deprovision_user" appliesTo {
+  principal: [User],
+  resource:  [ScimUser],
+};
+
+action "scim_provision_group" appliesTo {
+  principal: [User],
+  resource:  [ScimGroup],
 };

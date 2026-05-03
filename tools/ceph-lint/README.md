@@ -1,7 +1,7 @@
 # `tools/ceph-lint`
 
 Static contract lint for the Rook-Ceph manifests under
-`infra/k8s/rook/` (`cluster.yaml`, `objectstore.yaml`).
+`infra/k8s/platform/manifests/rook/` (`cluster.yaml`, `objectstore.yaml`).
 
 ## Why
 
@@ -30,7 +30,7 @@ This linter encodes the contract once so a regression cannot reach `main`:
   `room`}. `host` is rejected by default; documented legacy resources
   kept for backwards-compatibility live in an explicit allowlist
   (`LEGACY_HOST_FAILURE_DOMAIN_ALLOWLIST`) inside the script and are
-  cross-referenced in `infra/k8s/rook/README.md`.
+  cross-referenced in `infra/k8s/platform/manifests/rook/README.md`.
 
 The `CephFilesystem` data/metadata pools are checked too if any are added
 in the future, even though none is shipped today.
@@ -53,5 +53,5 @@ each violated invariant.
 
 ## CI
 
-Runs on every push and pull request that touches `infra/k8s/rook/**` or
+Runs on every push and pull request that touches `infra/k8s/platform/manifests/rook/**` or
 this tool — see `.github/workflows/ceph-lint.yml`.

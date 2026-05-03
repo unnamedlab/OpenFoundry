@@ -288,3 +288,7 @@ state moves to Cassandra
 - Wire the JWKS rotation Schedule.
 - Schedule the first annual pen-test.
 - Author `infra/runbooks/identity-federation.md`.
+- This ADR being `Accepted` does **not** by itself close Stream S3;
+  S3 closes only when the runtime integrations are live, the
+  failover/pen-test runbooks are signed off, and gate `G-S3` in the
+  migration plan is green.

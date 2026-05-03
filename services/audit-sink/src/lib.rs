@@ -18,7 +18,7 @@
 //!
 //! `audit.events.v1` retention is operationally infinite (10y in
 //! the topic, then trimmed once the sink is the system of record —
-//! see `infra/k8s/strimzi/topics-domain-v1.yaml`). The sink owns
+//! see `infra/k8s/platform/manifests/strimzi/topics-domain-v1.yaml`). The sink owns
 //! the conversion to columnar storage and the snapshot retention
 //! policy (per S5.1.c: `expire_snapshots` disabled forever).
 

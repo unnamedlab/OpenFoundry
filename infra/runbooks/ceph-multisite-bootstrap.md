@@ -19,11 +19,11 @@ zonegroup: openfoundry-zg              (master in region A)
 
 Manifests:
 
-* [`infra/k8s/rook/multisite-region-a.yaml`](../k8s/rook/multisite-region-a.yaml) — apply in region A.
-* [`infra/k8s/rook/multisite-region-b.yaml`](../k8s/rook/multisite-region-b.yaml) — apply in region B **after** step 3 below.
+* [`infra/k8s/platform/manifests/rook/multisite-region-a.yaml`](../k8s/platform/manifests/rook/multisite-region-a.yaml) — apply in region A.
+* [`infra/k8s/platform/manifests/rook/multisite-region-b.yaml`](../k8s/platform/manifests/rook/multisite-region-b.yaml) — apply in region B **after** step 3 below.
 
 Both reuse the existing `rgw-data` `CephObjectStore`
-([objectstore.yaml](../k8s/rook/objectstore.yaml)). The legacy
+([objectstore.yaml](../k8s/platform/manifests/rook/objectstore.yaml)). The legacy
 `openfoundry` store (datasets/models bucket) is **not** part of the
 multisite — only `rgw-data` (Iceberg parquet/manifests) is replicated.
 
@@ -32,7 +32,7 @@ multisite — only `rgw-data` (Iceberg parquet/manifests) is replicated.
 ### 1 · Region A — apply primary multisite
 
 ```sh
-kubectl --context region-a -n rook-ceph apply -f infra/k8s/rook/multisite-region-a.yaml
+kubectl --context region-a -n rook-ceph apply -f infra/k8s/platform/manifests/rook/multisite-region-a.yaml
 kubectl --context region-a -n rook-ceph rollout status deploy/rook-ceph-rgw-rgw-data
 ```
 
@@ -66,7 +66,7 @@ kubectl --context region-b -n rook-ceph create secret generic rgw-multisite-pull
 ### 4 · Region B — apply secondary multisite
 
 ```sh
-kubectl --context region-b -n rook-ceph apply -f infra/k8s/rook/multisite-region-b.yaml
+kubectl --context region-b -n rook-ceph apply -f infra/k8s/platform/manifests/rook/multisite-region-b.yaml
 kubectl --context region-b -n rook-ceph rollout status deploy/rook-ceph-rgw-rgw-data
 ```
 
@@ -88,7 +88,7 @@ Expected:
 ## SLO
 
 * RPO target ≤ 60 s for buckets in `rgw-data`. The smoke-test in
-  S7.1.c (`infra/k8s/lakekeeper/region-b/iceberg-replication-smoke.yaml`)
+  S7.1.c (`infra/k8s/platform/manifests/lakekeeper/region-b/iceberg-replication-smoke.yaml`)
   asserts a write in region A is readable in region B within 60 s.
 * RTO is irrelevant — region B is read-only by design; promotion
   requires the failover runbook (`dr-failover.md`, S7.5.a).
@@ -101,6 +101,6 @@ To remove region B without losing data:
 2. Delete the secondary zone:
    `radosgw-admin zone delete --rgw-zone=openfoundry-zone-b --rgw-zonegroup=openfoundry-zg`.
 3. Delete the secondary CephObjectStore.
-4. `kubectl delete -f infra/k8s/rook/multisite-region-b.yaml`.
+4. `kubectl delete -f infra/k8s/platform/manifests/rook/multisite-region-b.yaml`.
 
 The master zone in region A continues serving without interruption.

@@ -1,17 +1,13 @@
+use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use auth_middleware::layer::AuthUser;
 use serde_json::json;
 
-use crate::{
-    AppState,
-    domain::workflow,
-    models::workflow_execution::TriggerEventRequest,
-};
+use crate::{AppState, domain::workflow, models::workflow_execution::TriggerEventRequest};
 
 pub async fn trigger_event(
     AuthUser(claims): AuthUser,
@@ -29,16 +25,3 @@ pub async fn trigger_event(
     }
 }
 
-pub async fn run_due_cron_workflows(
-    _user: AuthUser,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    match workflow::run_due_cron_workflows(&state).await {
-        Ok(triggered_runs) => Json(json!({ "triggered_runs": triggered_runs })).into_response(),
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": error })),
-        )
-            .into_response(),
-    }
-}

@@ -1,9 +1,7 @@
 //! Kafka → Iceberg materialisation substrate for the lineage service.
 //!
-//! The plan calls for `lineage-service` to consume Kafka
-//! `lineage.events.v1` and materialise into the Iceberg
-//! `of.lineage.*` namespace (S5.2). This module pins the wire
-//! contract; the consumer + writer land in a follow-up PR.
+//! `lineage-service` consumes Kafka `lineage.events.v1` and
+//! materialises into Iceberg `of.lineage.*` (S5.2).
 
 pub const SOURCE_TOPIC: &str = "lineage.events.v1";
 

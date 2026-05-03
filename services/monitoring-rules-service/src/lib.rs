@@ -7,8 +7,11 @@
 //! (database connection, JWT layer, dispatcher) are wired up.
 
 pub mod config;
+pub mod evaluator;
 pub mod handlers;
 pub mod models;
+pub mod streaming_handlers;
+pub mod streaming_monitors;
 
 use sqlx::PgPool;
 

@@ -7,6 +7,7 @@ use axum::{
 use chrono::Utc;
 use serde_json::{Value, json};
 use std::time::Instant;
+use storage_abstraction::repositories::ReadConsistency;
 use uuid::Uuid;
 
 use auth_middleware::layer::AuthUser;
@@ -87,7 +88,7 @@ fn validate_package_source(
 }
 
 async fn load_package(state: &AppState, id: Uuid) -> Result<Option<FunctionPackage>, String> {
-    sqlx::query_as::<_, FunctionPackageRow>(
+    crate::domain::pg_repository::typed::<FunctionPackageRow>(
         r#"SELECT id, name, version, display_name, description, runtime, source, entrypoint,
                   capabilities, owner_id, created_at, updated_at
            FROM ontology_function_packages
@@ -374,7 +375,7 @@ pub async fn list_function_packages(
     let search = query.search.unwrap_or_default();
     let runtime = query.runtime.unwrap_or_default();
 
-    let rows = match sqlx::query_as::<_, FunctionPackageRow>(
+    let rows = match crate::domain::pg_repository::typed::<FunctionPackageRow>(
         r#"SELECT id, name, version, display_name, description, runtime, source, entrypoint,
                   capabilities, owner_id, created_at, updated_at
            FROM ontology_function_packages
@@ -458,7 +459,7 @@ pub async fn create_function_package(
         return invalid(error);
     }
 
-    let row = match sqlx::query_as::<_, FunctionPackageRow>(
+    let row = match crate::domain::pg_repository::typed::<FunctionPackageRow>(
         r#"INSERT INTO ontology_function_packages (
                id, name, version, display_name, description, runtime, source, entrypoint, capabilities, owner_id
            )
@@ -523,7 +524,7 @@ pub async fn list_function_package_runs(
     let status = query.status.unwrap_or_default();
     let invocation_kind = query.invocation_kind.unwrap_or_default();
 
-    let total = match sqlx::query_scalar::<_, i64>(
+    let total = match crate::domain::pg_repository::scalar::<i64>(
         r#"SELECT COUNT(*)
            FROM ontology_function_package_runs
            WHERE function_package_id = $1
@@ -541,7 +542,7 @@ pub async fn list_function_package_runs(
     };
 
     let offset = (page - 1) * per_page;
-    let data = match sqlx::query_as::<_, FunctionPackageRun>(
+    let data = match crate::domain::pg_repository::typed::<FunctionPackageRun>(
         r#"SELECT id, function_package_id, function_package_name, function_package_version, runtime,
                   status, invocation_kind, action_id, action_name, object_type_id,
                   target_object_id, actor_id, duration_ms, error_message, started_at, completed_at
@@ -584,7 +585,7 @@ pub async fn get_function_package_metrics(
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    let metrics = match sqlx::query_as::<_, FunctionPackageMetricsRow>(
+    let metrics = match crate::domain::pg_repository::typed::<FunctionPackageMetricsRow>(
         r#"SELECT
                COUNT(*)::bigint AS total_runs,
                COUNT(*) FILTER (WHERE status = 'success')::bigint AS successful_runs,
@@ -653,7 +654,7 @@ pub async fn update_function_package(
         return invalid(error);
     }
 
-    let row = match sqlx::query_as::<_, FunctionPackageRow>(
+    let row = match crate::domain::pg_repository::typed::<FunctionPackageRow>(
         r#"UPDATE ontology_function_packages
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -691,7 +692,7 @@ pub async fn delete_function_package(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM ontology_function_packages WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM ontology_function_packages WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await
@@ -738,17 +739,21 @@ pub async fn simulate_function_package(
     };
 
     let target = match body.target_object_id {
-        Some(target_object_id) => match load_object_instance(&state.db, target_object_id).await {
-            Ok(Some(object)) => {
-                if let Err(error) = ensure_object_access(&claims, &object) {
-                    return (StatusCode::FORBIDDEN, Json(json!({ "error": error })))
-                        .into_response();
+        Some(target_object_id) => {
+            match load_object_instance(&state, &claims, target_object_id, ReadConsistency::Strong)
+                .await
+            {
+                Ok(Some(object)) => {
+                    if let Err(error) = ensure_object_access(&claims, &object) {
+                        return (StatusCode::FORBIDDEN, Json(json!({ "error": error })))
+                            .into_response();
+                    }
+                    Some(object)
                 }
-                Some(object)
+                Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+                Err(error) => return db_error(format!("failed to load target object: {error}")),
             }
-            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-            Err(error) => return db_error(format!("failed to load target object: {error}")),
-        },
+        }
         None => None,
     };
 

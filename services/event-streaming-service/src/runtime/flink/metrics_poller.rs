@@ -42,10 +42,7 @@ pub struct MetricsPollerSupervisor {
 }
 
 impl MetricsPollerSupervisor {
-    pub async fn spawn(
-        db: PgPool,
-        cfg: Arc<FlinkRuntimeConfig>,
-    ) -> Result<Self, sqlx::Error> {
+    pub async fn spawn(db: PgPool, cfg: Arc<FlinkRuntimeConfig>) -> Result<Self, sqlx::Error> {
         let topologies: Vec<FlinkTopology> = sqlx::query_as(
             "SELECT id, flink_deployment_name, flink_namespace, flink_job_id
                FROM streaming_topologies
@@ -136,7 +133,9 @@ async fn poll_once(
     // The JobManager exposes one set of metrics per vertex. We collapse
     // them into a single per-job KPI vector by summing throughput and
     // taking max latency.
-    let url = format!("{url_base}/jobs/{job_id}/metrics?get=numRecordsInPerSecond,numRecordsOutPerSecond,backPressuredTimeMsPerSecond,numLateRecordsDropped");
+    let url = format!(
+        "{url_base}/jobs/{job_id}/metrics?get=numRecordsInPerSecond,numRecordsOutPerSecond,backPressuredTimeMsPerSecond,numLateRecordsDropped"
+    );
     let resp = client
         .get(&url)
         .send()
@@ -148,10 +147,7 @@ async fn poll_once(
     Ok(metrics)
 }
 
-async fn discover_job_id(
-    client: &reqwest::Client,
-    url_base: &str,
-) -> Result<String, PollerError> {
+async fn discover_job_id(client: &reqwest::Client, url_base: &str) -> Result<String, PollerError> {
     let url = format!("{url_base}/jobs");
     let body: serde_json::Value = client
         .get(&url)
@@ -201,10 +197,7 @@ pub fn extract_kpis(raw: &serde_json::Value) -> TopologyRunMetrics {
         .copied()
         .unwrap_or(0.0);
     let in_rate = numeric.get("numRecordsInPerSecond").copied().unwrap_or(0.0);
-    let dropped = numeric
-        .get("numLateRecordsDropped")
-        .copied()
-        .unwrap_or(0.0);
+    let dropped = numeric.get("numLateRecordsDropped").copied().unwrap_or(0.0);
     let backpressure = numeric
         .get("backPressuredTimeMsPerSecond")
         .copied()

@@ -17,11 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{
-    AppState,
-    domain::runtime,
-    models::schema::SchemaField as ActualField,
-};
+use crate::{AppState, domain::runtime, models::schema::SchemaField as ActualField};
 
 /// Body of `POST /v1/datasets/{rid}/schema:validate`.
 #[derive(Debug, Deserialize)]
@@ -183,10 +179,7 @@ pub async fn validate_schema(
     .into_response()
 }
 
-fn compare_schemas(
-    proposed: &[ProposedField],
-    actual: &[ActualField],
-) -> Vec<FileSchemaError> {
+fn compare_schemas(proposed: &[ProposedField], actual: &[ActualField]) -> Vec<FileSchemaError> {
     let mut errors = Vec::new();
 
     let mut actual_by_name = std::collections::HashMap::new();
@@ -199,7 +192,10 @@ fn compare_schemas(
             errors.push(FileSchemaError {
                 field: field.name.clone(),
                 kind: "missing_in_file".into(),
-                message: format!("field `{}` is declared in schema but absent in file", field.name),
+                message: format!(
+                    "field `{}` is declared in schema but absent in file",
+                    field.name
+                ),
             });
             continue;
         };
@@ -322,11 +318,17 @@ mod tests {
     fn matches_decimal_precision_and_scale() {
         assert!(arrow_matches_field_type(
             "Decimal128(10, 2)",
-            &FieldType::Decimal { precision: 10, scale: 2 }
+            &FieldType::Decimal {
+                precision: 10,
+                scale: 2
+            }
         ));
         assert!(!arrow_matches_field_type(
             "Decimal128(10, 3)",
-            &FieldType::Decimal { precision: 10, scale: 2 }
+            &FieldType::Decimal {
+                precision: 10,
+                scale: 2
+            }
         ));
     }
 
@@ -338,7 +340,7 @@ mod tests {
             pf("ghost", FieldType::Integer, true),
         ];
         let actual = vec![
-            af("id", "Int64", true), // nullability mismatch
+            af("id", "Int64", true),   // nullability mismatch
             af("name", "Int32", true), // type mismatch
             af("extra", "Utf8", true), // extra column
         ];

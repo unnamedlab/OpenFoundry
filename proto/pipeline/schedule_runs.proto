@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+// Foundry-parity Schedule Run history contract (P2 of the schedules
+// redesign). Mirrors the three outcomes documented at
+// `docs_original_palantir_foundry/.../Core concepts/Schedules.md`:
+//
+//   * SUCCEEDED — a build was successfully started (the build itself
+//     may still be running or have failed afterwards).
+//   * IGNORED   — the run was attempted but no build was created
+//     (typically "all outputs fresh" / staleness).
+//   * FAILED    — the schedule failed to run.
+
+package open_foundry.pipeline;
+
+import "google/protobuf/timestamp.proto";
+
+enum RunOutcome {
+  RUN_OUTCOME_UNSPECIFIED = 0;
+  SUCCEEDED = 1;
+  IGNORED = 2;
+  FAILED = 3;
+}
+
+message ScheduleRun {
+  string rid = 1;
+  string schedule_rid = 2;
+  RunOutcome outcome = 3;
+  // RID of the build the dispatch produced. Populated when
+  // `outcome == SUCCEEDED`; empty otherwise.
+  string build_rid = 4;
+  // Free-text reason. Required when `outcome == FAILED`. Surfaced for
+  // `IGNORED` to carry the staleness explanation (e.g.
+  // "all outputs fresh").
+  string failure_reason = 5;
+  google.protobuf.Timestamp triggered_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+  // Snapshot of the trigger's state at dispatch — which leaf fired,
+  // which event observation matched, which cron clause hit, etc.
+  // Format depends on trigger kind; values are JSON-encoded primitives.
+  map<string,string> trigger_snapshot = 8;
+  // Schedule version active at run time. Lets the UI pin the run to
+  // the trigger/target shape that was in effect, even after later edits.
+  int32 schedule_version = 9;
+}
+
+service ScheduleRunsService {
+  rpc ListRuns(ListScheduleRunsRequest) returns (ListScheduleRunsResponse);
+  rpc GetRun(GetScheduleRunRequest) returns (ScheduleRun);
+}
+
+message ListScheduleRunsRequest {
+  string schedule_rid = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  // Optional outcome filter. UNSPECIFIED means "any outcome".
+  RunOutcome outcome = 4;
+}
+
+message ListScheduleRunsResponse {
+  repeated ScheduleRun runs = 1;
+  int32 total = 2;
+}
+
+message GetScheduleRunRequest {
+  string rid = 1;
+}

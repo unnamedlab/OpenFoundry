@@ -52,7 +52,7 @@ in the WAL, downstream Kafka topic clean).
 
 | File | Purpose |
 | --- | --- |
-| `migrations/0001_outbox_events.sql` | sqlx-style migration applied by callers. Mirror of `infra/init-db/02-pg-policy-outbox.sh`. |
+| `migrations/0001_outbox_events.sql` | sqlx-style migration applied by callers. Mirror of `infra/local/postgres-init/02-pg-policy-outbox.sh`. |
 | `src/lib.rs` | `OutboxEvent`, `OutboxError`, `enqueue`. |
 | `tests/integration.rs` | Postgres testcontainer round-trip. Gated by `--features it-postgres`. |
 | `tests/e2e_debezium.sh` | Full handler→Debezium→Kafka E2E against the running compose stack. Validates `ol-*` headers and the EventRouter routing. |

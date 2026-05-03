@@ -155,11 +155,7 @@ impl ObjectStore for CachingObjectStore {
         Ok(fetched)
     }
 
-    async fn put(
-        &self,
-        obj: Object,
-        expected_version: Option<u64>,
-    ) -> RepoResult<PutOutcome> {
+    async fn put(&self, obj: Object, expected_version: Option<u64>) -> RepoResult<PutOutcome> {
         let tenant = obj.tenant.clone();
         let id = obj.id.clone();
         let outcome = self.inner.put(obj, expected_version).await?;
@@ -223,8 +219,8 @@ const _: Option<LinkTypeId> = None;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use storage_abstraction::repositories::noop::InMemoryObjectStore;
     use storage_abstraction::repositories::PutOutcome;
+    use storage_abstraction::repositories::noop::InMemoryObjectStore;
 
     fn obj(tenant: &str, id: &str, version: u64) -> Object {
         Object {
@@ -233,6 +229,8 @@ mod tests {
             type_id: TypeId("t".into()),
             version,
             payload: serde_json::json!({"v": version}),
+            organization_id: None,
+            created_at_ms: Some(0),
             updated_at_ms: 0,
             owner: None,
             markings: vec![],
@@ -242,10 +240,7 @@ mod tests {
     #[tokio::test]
     async fn eventual_reads_hit_cache_after_first_miss() {
         let inner = Arc::new(InMemoryObjectStore::default());
-        inner
-            .put(obj("acme", "o1", 1), None)
-            .await
-            .expect("seed");
+        inner.put(obj("acme", "o1", 1), None).await.expect("seed");
         let cache = CachingObjectStore::new(inner.clone());
 
         let t = TenantId("acme".into());
@@ -318,7 +313,10 @@ mod tests {
         let id = ObjectId("o1".into());
 
         let _ = cache.get(&t, &id, ReadConsistency::Eventual).await;
-        inner.put(obj("acme", "o1", 1), Some(1)).await.expect("bump");
+        inner
+            .put(obj("acme", "o1", 1), Some(1))
+            .await
+            .expect("bump");
         cache.invalidate(&t, &id).await;
 
         let after = cache

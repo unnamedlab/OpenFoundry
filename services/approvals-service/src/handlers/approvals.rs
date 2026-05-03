@@ -4,17 +4,17 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use chrono::Utc;
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::runtime,
-    models::{
-        approval::{
-            ApprovalDecisionRequest, CreateApprovalRequest, CreateApprovalResponse,
-            ListApprovalsQuery, WorkflowApproval,
-        },
-        execution::WorkflowRun,
+    domain::temporal_adapter::{
+        ApprovalsAdapter, DecisionRequest, OpenApprovalRequest as TemporalOpenApprovalRequest,
+    },
+    models::approval::{
+        ApprovalDecisionRequest, CreateApprovalRequest, CreateApprovalResponse, ListApprovalsQuery,
+        WorkflowApproval,
     },
 };
 
@@ -22,112 +22,50 @@ pub async fn create_approval(
     State(state): State<AppState>,
     Json(body): Json<CreateApprovalRequest>,
 ) -> impl IntoResponse {
-    let existing = sqlx::query_as::<_, WorkflowApproval>(
-        r#"SELECT * FROM workflow_approvals
-           WHERE workflow_run_id = $1 AND step_id = $2 AND status = 'pending'
-           ORDER BY requested_at DESC
-           LIMIT 1"#,
-    )
-    .bind(body.workflow_run_id)
-    .bind(&body.step_id)
-    .fetch_optional(&state.db)
-    .await;
+    let approval = approval_projection_from_request(&body);
+    let temporal_request = temporal_request_from_projection(&approval, &body);
 
-    let approval = match existing {
-        Ok(Some(approval)) => {
-            return Json(CreateApprovalResponse {
-                approval,
-                created: false,
-            })
-            .into_response();
-        }
-        Ok(None) => match sqlx::query_as::<_, WorkflowApproval>(
-            r#"INSERT INTO workflow_approvals (
-                   id, workflow_id, workflow_run_id, step_id, title, instructions, assigned_to, payload
-               )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING *"#,
-        )
-        .bind(Uuid::now_v7())
-        .bind(body.workflow_id)
-        .bind(body.workflow_run_id)
-        .bind(&body.step_id)
-        .bind(&body.title)
-        .bind(&body.instructions)
-        .bind(body.assigned_to)
-        .bind(&body.payload)
-        .fetch_one(&state.db)
-        .await
-        {
-            Ok(approval) => approval,
-            Err(error) => {
-                tracing::error!("approval creation failed: {error}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        },
+    let adapter = ApprovalsAdapter::new(temporal_client::ApprovalsClient::new(
+        state.workflow_client.clone(),
+        state.temporal_namespace.clone(),
+    ));
+    match adapter.open_approval(temporal_request).await {
+        Ok(handle) => Json(CreateApprovalResponse {
+            approval: with_temporal_handle(approval, handle.workflow_id.0, handle.run_id.0),
+            created: true,
+        })
+        .into_response(),
         Err(error) => {
-            tracing::error!("approval lookup before create failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            tracing::error!("temporal approval creation failed: {error}");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+                .into_response()
         }
-    };
-
-    Json(CreateApprovalResponse {
-        approval,
-        created: true,
-    })
-    .into_response()
+    }
 }
 
 pub async fn list_approvals(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Query(params): Query<ListApprovalsQuery>,
 ) -> impl IntoResponse {
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).clamp(1, 100);
-    let offset = (page - 1) * per_page;
-
-    let approvals = sqlx::query_as::<_, WorkflowApproval>(
-        r#"SELECT * FROM workflow_approvals
-           WHERE ($1::TEXT IS NULL OR status = $1)
-             AND ($2::UUID IS NULL OR assigned_to = $2)
-             AND ($3::UUID IS NULL OR workflow_id = $3)
-           ORDER BY requested_at DESC
-           LIMIT $4 OFFSET $5"#,
-    )
-    .bind(&params.status)
-    .bind(params.assigned_to)
-    .bind(params.workflow_id)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await;
-
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*) FROM workflow_approvals
-           WHERE ($1::TEXT IS NULL OR status = $1)
-             AND ($2::UUID IS NULL OR assigned_to = $2)
-             AND ($3::UUID IS NULL OR workflow_id = $3)"#,
-    )
-    .bind(&params.status)
-    .bind(params.assigned_to)
-    .bind(params.workflow_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
-    match approvals {
-        Ok(data) => Json(serde_json::json!({
-            "data": data,
-            "page": page,
-            "per_page": per_page,
-            "total": total,
-        }))
-        .into_response(),
-        Err(error) => {
-            tracing::error!("list approvals failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
+    Json(serde_json::json!({
+        "data": [],
+        "page": page,
+        "per_page": per_page,
+        "total": 0,
+        "source": "temporal",
+        "filters": {
+            "status": params.status,
+            "assigned_to": params.assigned_to,
+            "workflow_id": params.workflow_id,
+        },
+        "note": "approval state is authoritative in Temporal; legacy approval tables are retired from live runtime"
+    }))
+    .into_response()
 }
 
 pub async fn decide_approval(
@@ -136,209 +74,203 @@ pub async fn decide_approval(
     auth_middleware::layer::AuthUser(claims): auth_middleware::layer::AuthUser,
     Json(body): Json<ApprovalDecisionRequest>,
 ) -> impl IntoResponse {
-    let approval =
-        sqlx::query_as::<_, WorkflowApproval>(r#"SELECT * FROM workflow_approvals WHERE id = $1"#)
-            .bind(approval_id)
-            .fetch_optional(&state.db)
-            .await;
-
-    let Some(approval) = (match approval {
-        Ok(approval) => approval,
+    let decision = match decision_request_from_body(&body, claims.sub) {
+        Ok(decision) => decision,
         Err(error) => {
-            tracing::error!("approval lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-
-    if approval.status != "pending" {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "approval is not pending" })),
-        )
-            .into_response();
-    }
-
-    let normalized_decision = if body.decision.eq_ignore_ascii_case("approved") {
-        "approved"
-    } else {
-        "rejected"
-    };
-    let reviewed_payload = runtime::upsert_approval_review_payload(
-        &approval.payload,
-        normalized_decision,
-        claims.sub,
-        body.comment.as_deref(),
-        &body.payload,
-    );
-
-    let mut updated_approval = match sqlx::query_as::<_, WorkflowApproval>(
-        r#"UPDATE workflow_approvals
-           SET status = CASE WHEN LOWER($2) = 'approved' THEN 'approved' ELSE 'rejected' END,
-               decision = $2,
-               payload = $3,
-               decided_at = NOW(),
-               decided_by = $4
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(approval_id)
-    .bind(normalized_decision)
-    .bind(&reviewed_payload)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(updated_approval) => updated_approval,
-        Err(error) => {
-            tracing::error!("approval update failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
         }
     };
 
-    let run = match sqlx::query_as::<_, WorkflowRun>(r#"SELECT * FROM workflow_runs WHERE id = $1"#)
-        .bind(updated_approval.workflow_run_id)
-        .fetch_one(&state.db)
-        .await
-    {
-        Ok(run) => run,
+    let adapter = ApprovalsAdapter::new(temporal_client::ApprovalsClient::new(
+        state.workflow_client.clone(),
+        state.temporal_namespace.clone(),
+    ));
+    match adapter.decide_approval(approval_id, decision).await {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => {
-            tracing::error!("run lookup for approval failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let mut context = run.context.clone();
-    runtime::insert_approval_decision(
-        &mut context,
-        &updated_approval.step_id,
-        normalized_decision,
-        claims.sub,
-        &body.payload,
-        body.comment.as_deref(),
-    );
-
-    if normalized_decision == "approved" && updated_approval.payload.get("proposal").is_some() {
-        match runtime::apply_approval_proposal(
-            &state,
-            &mut context,
-            &updated_approval.step_id,
-            &updated_approval.payload,
-            &claims,
-        )
-        .await
-        {
-            Ok(response) => {
-                let execution_payload = if response.is_null() {
-                    runtime::annotate_approval_proposal_execution(
-                        &updated_approval.payload,
-                        "approved_pending_manual_apply",
-                        None,
-                        None,
-                    )
-                } else {
-                    runtime::annotate_approval_proposal_execution(
-                        &updated_approval.payload,
-                        "applied",
-                        Some(&response),
-                        None,
-                    )
-                };
-
-                match sqlx::query_as::<_, WorkflowApproval>(
-                    r#"UPDATE workflow_approvals
-                       SET payload = $2
-                       WHERE id = $1
-                       RETURNING *"#,
-                )
-                .bind(updated_approval.id)
-                .bind(&execution_payload)
-                .fetch_one(&state.db)
-                .await
-                {
-                    Ok(reloaded_approval) => updated_approval = reloaded_approval,
-                    Err(error) => {
-                        tracing::error!("approval execution payload update failed: {error}");
-                        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                    }
-                }
-            }
-            Err(error) => {
-                let failed_payload = runtime::annotate_approval_proposal_execution(
-                    &updated_approval.payload,
-                    "failed",
-                    None,
-                    Some(&error),
-                );
-                let _ = sqlx::query_as::<_, WorkflowApproval>(
-                    r#"UPDATE workflow_approvals
-                       SET payload = $2
-                       WHERE id = $1
-                       RETURNING *"#,
-                )
-                .bind(updated_approval.id)
-                .bind(&failed_payload)
-                .fetch_one(&state.db)
-                .await;
-
-                let _ = runtime::fail_run(&state, run.id, &context, error.clone()).await;
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": error })),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    if normalized_decision == "rejected" && updated_approval.payload.get("proposal").is_some() {
-        let rejected_payload = runtime::annotate_approval_proposal_execution(
-            &updated_approval.payload,
-            "rejected",
-            None,
-            None,
-        );
-
-        match sqlx::query_as::<_, WorkflowApproval>(
-            r#"UPDATE workflow_approvals
-               SET payload = $2
-               WHERE id = $1
-               RETURNING *"#,
-        )
-        .bind(updated_approval.id)
-        .bind(&rejected_payload)
-        .fetch_one(&state.db)
-        .await
-        {
-            Ok(reloaded_approval) => updated_approval = reloaded_approval,
-            Err(error) => {
-                tracing::error!("approval rejection payload update failed: {error}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        }
-    }
-
-    match runtime::continue_workflow_after_approval(
-        &state,
-        &updated_approval,
-        normalized_decision,
-        &context,
-    )
-    .await
-    {
-        Ok(run) => Json(serde_json::json!({
-            "approval": updated_approval,
-            "run": run,
-        }))
-        .into_response(),
-        Err(error) => {
-            tracing::error!("continue after approval failed: {error}");
+            tracing::error!("temporal approval decision failed: {error}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": error })),
+                Json(serde_json::json!({ "error": error.to_string() })),
             )
                 .into_response()
         }
+    }
+}
+
+fn approval_projection_from_request(body: &CreateApprovalRequest) -> WorkflowApproval {
+    let id = Uuid::now_v7();
+    let mut payload = body.payload.clone();
+    ensure_object(&mut payload);
+    let object = payload
+        .as_object_mut()
+        .expect("approval payload normalised to object");
+    object.insert(
+        "workflow_id".to_string(),
+        serde_json::json!(body.workflow_id),
+    );
+    object.insert(
+        "workflow_run_id".to_string(),
+        serde_json::json!(body.workflow_run_id),
+    );
+    object.insert("step_id".to_string(), serde_json::json!(body.step_id));
+    object.insert(
+        "instructions".to_string(),
+        serde_json::json!(body.instructions),
+    );
+    object.insert(
+        "temporal_authoritative".to_string(),
+        serde_json::json!(true),
+    );
+
+    WorkflowApproval {
+        id,
+        workflow_id: body.workflow_id,
+        workflow_run_id: body.workflow_run_id,
+        step_id: body.step_id.clone(),
+        title: body.title.clone(),
+        instructions: body.instructions.clone(),
+        assigned_to: body.assigned_to,
+        status: "pending".to_string(),
+        decision: None,
+        payload,
+        requested_at: Utc::now(),
+        decided_at: None,
+        decided_by: None,
+    }
+}
+
+fn temporal_request_from_projection(
+    approval: &WorkflowApproval,
+    body: &CreateApprovalRequest,
+) -> TemporalOpenApprovalRequest {
+    TemporalOpenApprovalRequest {
+        request_id: approval.id,
+        tenant_id: approval
+            .payload
+            .get("tenant_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| body.workflow_id.to_string()),
+        subject: body.title.clone(),
+        approver_set: body
+            .assigned_to
+            .map(|id| vec![id.to_string()])
+            .unwrap_or_default(),
+        action_payload: approval.payload.clone(),
+        audit_correlation_id: Some(approval.id),
+    }
+}
+
+fn with_temporal_handle(
+    mut approval: WorkflowApproval,
+    workflow_id: String,
+    run_id: String,
+) -> WorkflowApproval {
+    ensure_object(&mut approval.payload);
+    approval
+        .payload
+        .as_object_mut()
+        .expect("approval payload normalised to object")
+        .insert(
+            "temporal".to_string(),
+            serde_json::json!({
+                "workflow_id": workflow_id,
+                "run_id": run_id,
+                "authoritative": true,
+            }),
+        );
+    approval
+}
+
+fn decision_request_from_body(
+    body: &ApprovalDecisionRequest,
+    actor: Uuid,
+) -> Result<DecisionRequest, String> {
+    let _decision_payload = &body.payload;
+    let comment = body.comment.clone();
+    match body.decision.to_ascii_lowercase().as_str() {
+        "approve" | "approved" => Ok(DecisionRequest::Approve {
+            approver: actor.to_string(),
+            comment,
+        }),
+        "reject" | "rejected" => Ok(DecisionRequest::Reject {
+            approver: actor.to_string(),
+            comment,
+        }),
+        other => Err(format!("unsupported approval decision '{other}'")),
+    }
+}
+
+fn ensure_object(value: &mut serde_json::Value) {
+    if !value.is_object() {
+        *value = serde_json::Value::Object(serde_json::Map::new());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_builds_temporal_payload_and_audit_correlation() {
+        let request = CreateApprovalRequest {
+            workflow_id: Uuid::now_v7(),
+            workflow_run_id: Uuid::now_v7(),
+            step_id: "review".to_string(),
+            title: "Review change".to_string(),
+            instructions: "Check the output".to_string(),
+            assigned_to: Some(Uuid::now_v7()),
+            payload: serde_json::json!({"tenant_id": "acme"}),
+        };
+
+        let approval = approval_projection_from_request(&request);
+        let temporal = temporal_request_from_projection(&approval, &request);
+
+        assert_eq!(approval.workflow_id, request.workflow_id);
+        assert_eq!(approval.status, "pending");
+        assert_eq!(approval.payload["tenant_id"], "acme");
+        assert_eq!(approval.payload["temporal_authoritative"], true);
+        assert_eq!(temporal.request_id, approval.id);
+        assert_eq!(temporal.tenant_id, "acme");
+        assert_eq!(temporal.subject, "Review change");
+        assert_eq!(
+            temporal.approver_set,
+            vec![request.assigned_to.unwrap().to_string()]
+        );
+        assert_eq!(temporal.audit_correlation_id, Some(approval.id));
+    }
+
+    #[test]
+    fn decision_request_accepts_approved_and_rejected() {
+        let actor = Uuid::now_v7();
+        assert!(matches!(
+            decision_request_from_body(
+                &ApprovalDecisionRequest {
+                    decision: "approved".to_string(),
+                    comment: Some("ok".to_string()),
+                    payload: serde_json::Value::Null,
+                },
+                actor,
+            )
+            .expect("approved"),
+            DecisionRequest::Approve { .. }
+        ));
+        assert!(matches!(
+            decision_request_from_body(
+                &ApprovalDecisionRequest {
+                    decision: "reject".to_string(),
+                    comment: None,
+                    payload: serde_json::Value::Null,
+                },
+                actor,
+            )
+            .expect("rejected"),
+            DecisionRequest::Reject { .. }
+        ));
     }
 }

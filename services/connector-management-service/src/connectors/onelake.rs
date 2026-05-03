@@ -33,8 +33,8 @@ use std::time::Instant;
 
 use bytes::Bytes;
 use futures::TryStreamExt;
-use object_store::{ObjectStore, path::Path as OsPath};
 use object_store::azure::MicrosoftAzureBuilder;
+use object_store::{ObjectStore, path::Path as OsPath};
 use serde_json::{Value, json};
 
 use super::{ConnectionTestResult, SyncPayload, add_source_signature, open_table_catalog};
@@ -175,11 +175,16 @@ pub async fn discover_sources(config: &Value) -> Result<Vec<DiscoveredSource>, S
         }
     };
 
-    let workspace = config.get("workspace").and_then(Value::as_str).unwrap_or_default();
-    let lakehouse = config.get("lakehouse").and_then(Value::as_str).unwrap_or_default();
-    let abfss_root = format!(
-        "abfss://{workspace}@onelake.dfs.fabric.microsoft.com/{lakehouse}.Lakehouse"
-    );
+    let workspace = config
+        .get("workspace")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let lakehouse = config
+        .get("lakehouse")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let abfss_root =
+        format!("abfss://{workspace}@onelake.dfs.fabric.microsoft.com/{lakehouse}.Lakehouse");
     for prefix in listing.common_prefixes {
         let selector = prefix.to_string();
         sources.push(DiscoveredSource {
@@ -238,8 +243,14 @@ pub async fn fetch_dataset(config: &Value, selector: &str) -> Result<SyncPayload
         .into();
 
     let format = detect_format(selector);
-    let workspace = config.get("workspace").and_then(Value::as_str).unwrap_or_default();
-    let lakehouse = config.get("lakehouse").and_then(Value::as_str).unwrap_or_default();
+    let workspace = config
+        .get("workspace")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let lakehouse = config
+        .get("lakehouse")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let mut payload = SyncPayload {
         bytes: bytes.to_vec(),
         format: format.clone(),

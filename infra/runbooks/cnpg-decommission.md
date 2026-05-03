@@ -3,10 +3,16 @@
 > S6.5 of the Cassandra/Foundry parity migration plan.
 >
 > **State at time of writing**: the legacy 65 per-service `Cluster`
-> manifests under `infra/k8s/cnpg/clusters/<bc>-pg.yaml` were already
+> manifests under `infra/k8s/platform/manifests/cnpg/clusters/<bc>-pg.yaml` were already
 > deleted from Git in S6.1.a. The cluster CRs and their PVCs may still
 > exist in any pre-prod environment that was synced before that commit;
 > this runbook removes them.
+>
+> **Closure note**: this runbook is necessary for S6, but it is not by
+> itself sufficient to mark `Postgres residual` as closed. That
+> milestone stays open until the final gates in
+> `docs/architecture/migration-plan-cassandra-foundry-parity.md` §18
+> are green.
 
 ## Pre-flight
 

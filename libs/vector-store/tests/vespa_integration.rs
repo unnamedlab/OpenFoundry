@@ -26,8 +26,8 @@ use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{GenericImage, ImageExt};
 
-use vector_store::{Filter, VectorBackend};
 use vector_store::vespa::{VespaBackend, VespaConfig};
+use vector_store::{Filter, VectorBackend};
 
 /// Path to the application package shipped under `tests/fixtures`.
 fn fixture_app_path() -> PathBuf {
@@ -49,10 +49,7 @@ async fn hybrid_query_returns_topk_after_upsert() {
         .expect("start vespa container");
 
     let host = container.get_host().await.expect("host");
-    let http_port = container
-        .get_host_port_ipv4(8080)
-        .await
-        .expect("http port");
+    let http_port = container.get_host_port_ipv4(8080).await.expect("http port");
     let cfg_port = container
         .get_host_port_ipv4(19071)
         .await
@@ -67,8 +64,8 @@ async fn hybrid_query_returns_topk_after_upsert() {
     wait_until_ready(&format!("http://{host}:{http_port}")).await;
 
     // --- 3. Build the backend and exercise it ----------------------------
-    let backend = VespaBackend::new(VespaConfig::new(format!("http://{host}:{http_port}")))
-        .expect("backend");
+    let backend =
+        VespaBackend::new(VespaConfig::new(format!("http://{host}:{http_port}"))).expect("backend");
 
     let mut fields = BTreeMap::new();
     fields.insert("text".to_string(), json!("the quick brown fox"));
@@ -122,7 +119,11 @@ async fn deploy_app_package(
         .body(body)
         .send()
         .await?;
-    assert!(resp.status().is_success(), "deploy failed: {:?}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "deploy failed: {:?}",
+        resp.text().await?
+    );
     Ok(())
 }
 

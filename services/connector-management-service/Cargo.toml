@@ -64,6 +64,9 @@ workspace = true
 [dependencies.event-bus-control]
 workspace = true
 
+[dependencies.outbox]
+workspace = true
+
 [features]
 default = []
 # Enables the live Kafka I/O path (rdkafka via librdkafka) in
@@ -125,10 +128,22 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.globset]
+workspace = true
+
+[dependencies.cron]
+version = "0.12"
+
 [[bin]]
 path = "src/main.rs"
 name = "connector-management-service"
 required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "connector_management_service"
+required-features = []
+crate-type = ["lib"]
 
 # ---------------------------------------------------------------------------
 # Dev / integration test deps (Tarea 9 — observabilidad + e2e).

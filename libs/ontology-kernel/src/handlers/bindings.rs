@@ -4,7 +4,7 @@
 //!
 //! * CRUD over `object_type_bindings`.
 //! * `POST /:bid/materialize` which reads the source dataset preview and
-//!   projects rows into `object_instances` and `object_revisions`.
+//!   projects rows into the Cassandra-backed `ObjectStore` plus revision log.
 //!
 //! The materialise path mirrors the existing
 //! [`crate::handlers::funnel`] implementation but is declarative: the binding
@@ -27,23 +27,31 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use chrono::TimeZone;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use storage_abstraction::repositories::ReadConsistency;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     domain::{
+        binding_repository::{self, CreateBindingInput, UpdateBindingInput},
+        definition_queries,
         project_access::{
             OntologyResourceKind, ensure_resource_manage_access, load_resource_project_id,
         },
         schema::{load_effective_properties, validate_object_properties},
     },
+    handlers::objects::{
+        ObjectInstance, append_object_revision, apply_object_write, find_object_id_by_property,
+        value_as_store_text,
+    },
     models::object_type::ObjectType,
     models::object_type_binding::{
         CreateObjectTypeBindingRequest, ListObjectTypeBindingsResponse, MaterializeBindingRequest,
         MaterializeBindingResponse, ObjectTypeBinding, ObjectTypeBindingPropertyMapping,
-        ObjectTypeBindingRow, ObjectTypeBindingSyncMode, UpdateObjectTypeBindingRequest,
+        ObjectTypeBindingSyncMode, UpdateObjectTypeBindingRequest,
     },
 };
 
@@ -72,9 +80,7 @@ fn internal(message: impl Into<String>) -> Response {
 // --- common loaders --------------------------------------------------------
 
 async fn load_object_type(state: &AppState, id: Uuid) -> Result<Option<ObjectType>, String> {
-    sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
+    definition_queries::load_object_type(&state.db, id)
         .await
         .map_err(|error| format!("failed to load object type: {error}"))
 }
@@ -84,21 +90,9 @@ async fn load_binding(
     object_type_id: Uuid,
     binding_id: Uuid,
 ) -> Result<Option<ObjectTypeBinding>, String> {
-    let row = sqlx::query_as::<_, ObjectTypeBindingRow>(
-        r#"SELECT id, object_type_id, dataset_id, dataset_branch, dataset_version,
-                  primary_key_column, property_mapping, sync_mode, default_marking,
-                  preview_limit, owner_id, last_materialized_at, last_run_status,
-                  last_run_summary, created_at, updated_at
-           FROM object_type_bindings
-           WHERE id = $1 AND object_type_id = $2"#,
-    )
-    .bind(binding_id)
-    .bind(object_type_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|error| format!("failed to load binding: {error}"))?;
-
-    row.map(ObjectTypeBinding::try_from).transpose()
+    binding_repository::load_binding(&state.db, object_type_id, binding_id)
+        .await
+        .map_err(|error| format!("failed to load binding: {error}"))
 }
 
 async fn ensure_can_manage(
@@ -212,40 +206,29 @@ pub async fn create_object_type_binding(
     };
 
     let id = Uuid::now_v7();
-    let row = sqlx::query_as::<_, ObjectTypeBindingRow>(
-        r#"INSERT INTO object_type_bindings (
-               id, object_type_id, dataset_id, dataset_branch, dataset_version,
-               primary_key_column, property_mapping, sync_mode, default_marking,
-               preview_limit, owner_id
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-           RETURNING id, object_type_id, dataset_id, dataset_branch, dataset_version,
-                     primary_key_column, property_mapping, sync_mode, default_marking,
-                     preview_limit, owner_id, last_materialized_at, last_run_status,
-                     last_run_summary, created_at, updated_at"#,
+    let row = binding_repository::create_binding(
+        &state.db,
+        CreateBindingInput {
+            id,
+            object_type_id,
+            dataset_id: body.dataset_id,
+            dataset_branch: body.dataset_branch.as_deref(),
+            dataset_version: body.dataset_version,
+            primary_key_column: &body.primary_key_column,
+            property_mapping: &mapping_value,
+            sync_mode: body.sync_mode,
+            default_marking: &marking,
+            preview_limit,
+            owner_id: claims.sub,
+        },
     )
-    .bind(id)
-    .bind(object_type_id)
-    .bind(body.dataset_id)
-    .bind(body.dataset_branch.as_deref())
-    .bind(body.dataset_version)
-    .bind(&body.primary_key_column)
-    .bind(&mapping_value)
-    .bind(body.sync_mode.as_str())
-    .bind(&marking)
-    .bind(preview_limit)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
     .await;
 
     match row {
-        Ok(row) => match ObjectTypeBinding::try_from(row) {
-            Ok(binding) => (StatusCode::CREATED, Json(binding)).into_response(),
-            Err(error) => internal(error),
-        },
-        Err(sqlx::Error::Database(db_err)) if db_err.constraint().is_some() => invalid(format!(
+        Ok(binding) => (StatusCode::CREATED, Json(binding)).into_response(),
+        Err(error) if error.constraint().is_some() => invalid(format!(
             "binding violates constraint '{}'",
-            db_err.constraint().unwrap_or("unknown")
+            error.constraint().unwrap_or("unknown")
         )),
         Err(error) => internal(format!("failed to insert binding: {error}")),
     }
@@ -260,31 +243,10 @@ pub async fn list_object_type_bindings(
         return response;
     }
 
-    let rows = sqlx::query_as::<_, ObjectTypeBindingRow>(
-        r#"SELECT id, object_type_id, dataset_id, dataset_branch, dataset_version,
-                  primary_key_column, property_mapping, sync_mode, default_marking,
-                  preview_limit, owner_id, last_materialized_at, last_run_status,
-                  last_run_summary, created_at, updated_at
-           FROM object_type_bindings
-           WHERE object_type_id = $1
-           ORDER BY created_at DESC"#,
-    )
-    .bind(object_type_id)
-    .fetch_all(&state.db)
-    .await;
-
-    let rows = match rows {
-        Ok(rows) => rows,
+    let data = match binding_repository::list_bindings(&state.db, object_type_id).await {
+        Ok(data) => data,
         Err(error) => return internal(format!("failed to list bindings: {error}")),
     };
-
-    let mut data = Vec::with_capacity(rows.len());
-    for row in rows {
-        match ObjectTypeBinding::try_from(row) {
-            Ok(binding) => data.push(binding),
-            Err(error) => return internal(error),
-        }
-    }
     Json(ListObjectTypeBindingsResponse { data }).into_response()
 }
 
@@ -349,38 +311,23 @@ pub async fn update_object_type_binding(
         Err(error) => return internal(format!("failed to encode property_mapping: {error}")),
     };
 
-    let row = sqlx::query_as::<_, ObjectTypeBindingRow>(
-        r#"UPDATE object_type_bindings
-           SET dataset_branch = $2,
-               dataset_version = $3,
-               primary_key_column = $4,
-               property_mapping = $5,
-               sync_mode = $6,
-               default_marking = $7,
-               preview_limit = $8,
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, object_type_id, dataset_id, dataset_branch, dataset_version,
-                     primary_key_column, property_mapping, sync_mode, default_marking,
-                     preview_limit, owner_id, last_materialized_at, last_run_status,
-                     last_run_summary, created_at, updated_at"#,
+    let row = binding_repository::update_binding(
+        &state.db,
+        UpdateBindingInput {
+            binding_id,
+            dataset_branch: dataset_branch.as_deref(),
+            dataset_version,
+            primary_key_column: &primary_key_column,
+            property_mapping: &mapping_value,
+            sync_mode,
+            default_marking: &default_marking,
+            preview_limit,
+        },
     )
-    .bind(binding_id)
-    .bind(dataset_branch.as_deref())
-    .bind(dataset_version)
-    .bind(&primary_key_column)
-    .bind(&mapping_value)
-    .bind(sync_mode.as_str())
-    .bind(&default_marking)
-    .bind(preview_limit)
-    .fetch_one(&state.db)
     .await;
 
     match row {
-        Ok(row) => match ObjectTypeBinding::try_from(row) {
-            Ok(binding) => Json(binding).into_response(),
-            Err(error) => internal(error),
-        },
+        Ok(binding) => Json(binding).into_response(),
         Err(error) => internal(format!("failed to update binding: {error}")),
     }
 }
@@ -393,14 +340,9 @@ pub async fn delete_object_type_binding(
     if let Err(response) = ensure_can_manage_by_id(&state, &claims, object_type_id).await {
         return response;
     }
-    match sqlx::query("DELETE FROM object_type_bindings WHERE id = $1 AND object_type_id = $2")
-        .bind(binding_id)
-        .bind(object_type_id)
-        .execute(&state.db)
-        .await
-    {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
-        Ok(_) => not_found("binding not found"),
+    match binding_repository::delete_binding(&state.db, object_type_id, binding_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => not_found("binding not found"),
         Err(error) => internal(format!("failed to delete binding: {error}")),
     }
 }
@@ -502,81 +444,27 @@ fn extract_primary_key(row: &Value, primary_key_column: &str) -> Result<String, 
     let value = row
         .get(primary_key_column)
         .ok_or_else(|| format!("row is missing primary key column '{primary_key_column}'"))?;
-    match value {
-        Value::Null => Err(format!(
-            "primary key column '{primary_key_column}' cannot be null"
-        )),
-        Value::String(value) => Ok(value.clone()),
-        other => serde_json::to_string(other)
-            .map_err(|error| format!("failed to serialize primary key: {error}")),
-    }
+    value_as_store_text(value).map_err(|error| {
+        format!("failed to extract primary key column '{primary_key_column}': {error}")
+    })
 }
 
 async fn find_existing_object_id(
     state: &AppState,
+    claims: &Claims,
     object_type_id: Uuid,
     primary_key_property: &str,
     primary_key_value: &str,
 ) -> Result<Option<Uuid>, String> {
-    sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT id FROM object_instances
-           WHERE object_type_id = $1
-             AND properties ->> $2 = $3
-           ORDER BY updated_at DESC
-           LIMIT 1"#,
+    find_object_id_by_property(
+        state,
+        claims,
+        object_type_id,
+        primary_key_property,
+        primary_key_value,
+        ReadConsistency::Strong,
     )
-    .bind(object_type_id)
-    .bind(primary_key_property)
-    .bind(primary_key_value)
-    .fetch_optional(&state.db)
     .await
-    .map_err(|error| format!("failed to look up existing object: {error}"))
-}
-
-async fn next_revision_number(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    object_id: Uuid,
-) -> Result<i64, String> {
-    let max: Option<i64> = sqlx::query_scalar(
-        "SELECT MAX(revision_number) FROM object_revisions WHERE object_id = $1",
-    )
-    .bind(object_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|error| format!("failed to read revision counter: {error}"))?;
-    Ok(max.unwrap_or(0) + 1)
-}
-
-async fn write_object_revision(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    object_id: Uuid,
-    object_type_id: Uuid,
-    operation: &str,
-    properties: &Value,
-    marking: &str,
-    organization_id: Option<Uuid>,
-    changed_by: Uuid,
-) -> Result<(), String> {
-    let revision_number = next_revision_number(tx, object_id).await?;
-    sqlx::query(
-        r#"INSERT INTO object_revisions
-            (id, object_id, object_type_id, operation, properties, marking,
-             organization_id, changed_by, revision_number)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(object_id)
-    .bind(object_type_id)
-    .bind(operation)
-    .bind(properties)
-    .bind(marking)
-    .bind(organization_id)
-    .bind(changed_by)
-    .bind(revision_number)
-    .execute(&mut **tx)
-    .await
-    .map_err(|error| format!("failed to write object_revisions row: {error}"))?;
-    Ok(())
 }
 
 async fn upsert_instance(
@@ -586,61 +474,83 @@ async fn upsert_instance(
     object_id: Option<Uuid>,
     properties: &Value,
 ) -> Result<&'static str, String> {
-    let mut tx = state
-        .db
-        .begin()
-        .await
-        .map_err(|error| format!("failed to start transaction: {error}"))?;
-
-    let (object_id, operation) = if let Some(id) = object_id {
-        sqlx::query(
-            r#"UPDATE object_instances
-               SET properties = $2,
-                   marking = $3,
-                   updated_at = NOW()
-               WHERE id = $1"#,
+    let now = chrono::Utc::now();
+    let (object, expected_version, operation) = if let Some(id) = object_id {
+        let existing = state
+            .stores
+            .objects
+            .get(
+                &crate::handlers::objects::tenant_from_claims(claims),
+                &storage_abstraction::repositories::ObjectId(id.to_string()),
+                ReadConsistency::Strong,
+            )
+            .await
+            .map_err(|error| format!("failed to load existing object instance: {error}"))?
+            .ok_or_else(|| "existing object was not found in object store".to_string())?;
+        (
+            ObjectInstance {
+                id,
+                object_type_id: binding.object_type_id,
+                properties: properties.clone(),
+                created_by: existing
+                    .owner
+                    .as_ref()
+                    .and_then(|owner| Uuid::parse_str(&owner.0).ok())
+                    .unwrap_or(claims.sub),
+                organization_id: existing
+                    .organization_id
+                    .as_deref()
+                    .and_then(|raw| Uuid::parse_str(raw).ok())
+                    .or(claims.org_id),
+                marking: binding.default_marking.clone(),
+                created_at: chrono::Utc
+                    .timestamp_millis_opt(existing.created_at_ms.unwrap_or(existing.updated_at_ms))
+                    .single()
+                    .unwrap_or(now),
+                updated_at: now,
+            },
+            Some(existing.version),
+            "update",
         )
-        .bind(id)
-        .bind(properties)
-        .bind(&binding.default_marking)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| format!("failed to update object instance: {error}"))?;
-        (id, "update")
     } else {
         let new_id = Uuid::now_v7();
-        sqlx::query(
-            r#"INSERT INTO object_instances
-                (id, object_type_id, properties, created_by, organization_id, marking)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        (
+            ObjectInstance {
+                id: new_id,
+                object_type_id: binding.object_type_id,
+                properties: properties.clone(),
+                created_by: claims.sub,
+                organization_id: claims.org_id,
+                marking: binding.default_marking.clone(),
+                created_at: now,
+                updated_at: now,
+            },
+            None,
+            "insert",
         )
-        .bind(new_id)
-        .bind(binding.object_type_id)
-        .bind(properties)
-        .bind(claims.sub)
-        .bind(claims.org_id)
-        .bind(&binding.default_marking)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| format!("failed to insert object instance: {error}"))?;
-        (new_id, "insert")
     };
 
-    write_object_revision(
-        &mut tx,
-        object_id,
-        binding.object_type_id,
+    let outcome = apply_object_write(
+        state,
+        claims,
+        &object,
+        expected_version,
         operation,
-        properties,
-        &binding.default_marking,
-        claims.org_id,
-        claims.sub,
+        json!({
+            "source": "object_type_binding",
+            "binding_id": binding.id,
+        }),
     )
     .await?;
-
-    tx.commit()
-        .await
-        .map_err(|error| format!("failed to commit binding upsert: {error}"))?;
+    append_object_revision(
+        state,
+        claims,
+        &object,
+        operation,
+        outcome.committed_version as i64,
+        None,
+    )
+    .await?;
     Ok(operation)
 }
 
@@ -736,6 +646,7 @@ pub async fn materialize_object_type_binding(
             // Count what *would* happen but do not write.
             match find_existing_object_id(
                 &state,
+                &claims,
                 object_type_id,
                 &primary_key_property,
                 &primary_key_value,
@@ -754,6 +665,7 @@ pub async fn materialize_object_type_binding(
 
         let existing_id = match find_existing_object_id(
             &state,
+            &claims,
             object_type_id,
             &primary_key_property,
             &primary_key_value,
@@ -802,18 +714,9 @@ pub async fn materialize_object_type_binding(
     });
 
     if !body.dry_run {
-        let _ = sqlx::query(
-            r#"UPDATE object_type_bindings
-               SET last_materialized_at = NOW(),
-                   last_run_status = $2,
-                   last_run_summary = $3,
-                   updated_at = NOW()
-               WHERE id = $1"#,
+        let _ = binding_repository::record_materialization_result(
+            &state.db, binding_id, status, &summary,
         )
-        .bind(binding_id)
-        .bind(status)
-        .bind(&summary)
-        .execute(&state.db)
         .await;
     }
 

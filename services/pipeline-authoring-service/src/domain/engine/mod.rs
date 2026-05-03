@@ -285,6 +285,20 @@ pub(crate) async fn execute_node(
                 Err(error) => failed_result(node, Some(error)),
             }
         }
+        other if crate::domain::media_nodes::is_media_transform_type(other) => {
+            // P1.4: media-typed nodes share a thin stub. Real execution
+            // will land once `media-transform-runtime` ships and the
+            // stub starts POSTing against it. For now we surface the
+            // declared config back so downstream stages can still chain
+            // on a deterministic result envelope.
+            let stub_output = runtime::execute_media_node_stub(node);
+            success_result(
+                node,
+                None,
+                stub_output,
+                runtime::build_metadata(fingerprint, false, &inputs, node.output_dataset_id, None),
+            )
+        }
         other => failed_result(node, Some(format!("unsupported transform type: {other}"))),
     }
 }

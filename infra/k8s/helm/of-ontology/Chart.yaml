@@ -2,8 +2,7 @@ apiVersion: v2
 name: of-ontology
 description: |
   OpenFoundry ontology release. Owns ontology definition, actions,
-  query, the object database and the ontology indexer / outbox-relay
-  sinks.
+  query, the object database and the ontology indexer sink.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

@@ -1,0 +1,88 @@
+# Prometheus alerting rules for the dataset-quality-service.
+#
+# P6 — Foundry "Data Health" SLOs. Each rule corresponds to a card in
+# the QualityDashboard so alerts and the UI tell the same story:
+#
+#   * dataset_freshness_seconds  (Freshness card)
+#   * dataset_txn_failures_total (Txn failures 24h card)
+#   * dataset_row_count          (Row / Col counts card)
+#
+# Validation:
+#   `promtool check rules infra/k8s/platform/observability/prometheus-rules/dataset-quality.yaml`
+#
+# Source: services/dataset-quality-service/src/metrics.rs.
+groups:
+  - name: dataset-quality.freshness
+    rules:
+      # Per-dataset freshness SLO. Default SLA matches the
+      # QualityDashboard's `freshnessSlaSeconds = 24 * 3600` default,
+      # so the alert and the UI badge cross the amber/red threshold
+      # at the same point.
+      - alert: DatasetFreshnessSlaWarning
+        expr: dataset_freshness_seconds > 86400
+        for: 15m
+        labels:
+          severity: warning
+          component: dataset-quality
+        annotations:
+          summary: "Dataset {{ $labels.rid }} is stale (>24h since last commit)"
+          description: |
+            `dataset_freshness_seconds{rid="{{ $labels.rid }}"}` is
+            {{ $value | humanizeDuration }} which exceeds the 24h SLA.
+            Check the QualityDashboard / Health tab for the dataset.
+
+      - alert: DatasetFreshnessSlaCritical
+        # 2× SLA is the same threshold the UI uses to flip from amber
+        # (warning) to rose (critical) on the freshness card.
+        expr: dataset_freshness_seconds > 172800
+        for: 15m
+        labels:
+          severity: critical
+          component: dataset-quality
+        annotations:
+          summary: "Dataset {{ $labels.rid }} freshness > 2× SLA"
+          description: |
+            `dataset_freshness_seconds{rid="{{ $labels.rid }}"}` is
+            {{ $value | humanizeDuration }}. The dataset has been
+            stale for >48h.
+
+  - name: dataset-quality.transactions
+    rules:
+      # Aborted-vs-committed rate over the last 24h. Mirrors the
+      # `txn_failure_rate_24h` card.
+      - alert: DatasetTxnFailureRateHigh
+        expr: |
+          (sum by (rid) (increase(dataset_txn_failures_total[24h])))
+            > 5
+        for: 30m
+        labels:
+          severity: warning
+          component: dataset-quality
+        annotations:
+          summary: "Dataset {{ $labels.rid }} has >5 aborted txns in 24h"
+          description: |
+            `dataset_txn_failures_total` for rid `{{ $labels.rid }}`
+            exceeded 5 aborted/failed transactions in the last 24h.
+            Check the History tab + the per-tx_type breakdown on the
+            QualityDashboard.
+
+  - name: dataset-quality.rows
+    rules:
+      # Catastrophic row drop relative to 1h ago — typically signals
+      # an unintended SNAPSHOT or an upstream pipeline regression.
+      - alert: DatasetRowCountDropped
+        expr: |
+          (dataset_row_count - dataset_row_count offset 1h)
+            / clamp_min(dataset_row_count offset 1h, 1)
+            < -0.5
+        for: 10m
+        labels:
+          severity: critical
+          component: dataset-quality
+        annotations:
+          summary: "Dataset {{ $labels.rid }} lost >50% of its rows in 1h"
+          description: |
+            Row count for rid `{{ $labels.rid }}` dropped by more
+            than 50% in the last hour. Inspect the most recent
+            transaction (likely an unintended SNAPSHOT) and
+            consider a rollback.

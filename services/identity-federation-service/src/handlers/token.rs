@@ -1,11 +1,19 @@
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
 use serde::Deserialize;
 
 use crate::AppState;
 use crate::domain::jwt::{
     get_refresh_token, issue_tokens, refresh_token_matches, revoke_refresh_token,
 };
+use crate::handlers::common::{client_ip, rate_limited};
 use crate::handlers::login::TokenResponse;
+use crate::hardening::audit_topic::{IdentityAuditEvent, correlation_id_from_headers};
+use crate::hardening::rate_limit::{LimitConfig, RateLimitDecision, key as rate_limit_key};
 use crate::models::user::User;
 
 #[derive(Debug, Deserialize)]
@@ -15,8 +23,25 @@ pub struct RefreshRequest {
 
 pub async fn refresh(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<RefreshRequest>,
 ) -> impl IntoResponse {
+    let correlation_id = correlation_id_from_headers(&headers);
+    let ip = client_ip(&headers);
+    match state
+        .rate_limiter
+        .check(
+            &rate_limit_key("", &ip, "/auth/token/refresh"),
+            &LimitConfig::OAUTH_TOKEN,
+        )
+        .await
+    {
+        RateLimitDecision::Allow => {}
+        RateLimitDecision::Deny { retry_after_secs } => {
+            return rate_limited(retry_after_secs);
+        }
+    }
+
     // Decode the refresh token
     let claims = match auth_middleware::jwt::decode_token(&state.jwt_config, &body.refresh_token) {
         Ok(c) if c.token_use.as_deref() == Some("refresh") => c,
@@ -55,6 +80,21 @@ pub async fn refresh(
     };
 
     if !refresh_token_matches(&stored_token, &body.refresh_token) {
+        if let Err(error) = state
+            .audit
+            .record(
+                correlation_id,
+                Some(stored_token.user_id.to_string()),
+                IdentityAuditEvent::RefreshTokenReplay {
+                    user_id: stored_token.user_id.to_string(),
+                    family_id: claims.jti,
+                },
+            )
+            .await
+        {
+            tracing::error!(%error, "blocking audit failure during refresh replay");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({ "error": "refresh token revoked" })),
@@ -94,6 +134,7 @@ pub async fn refresh(
         &state.db,
         &state.sessions,
         &state.jwt_config,
+        state.jwks.as_ref(),
         &user,
         vec!["refresh".to_string()],
     )

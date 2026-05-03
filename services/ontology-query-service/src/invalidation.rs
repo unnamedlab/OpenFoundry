@@ -77,9 +77,7 @@ pub async fn spawn(
                     consecutive_errors = consecutive_errors.saturating_add(1);
                     warn!(?error, consecutive_errors, "invalidation message ignored");
                     if consecutive_errors >= 3 {
-                        warn!(
-                            "3 consecutive invalidation failures — flushing cache defensively"
-                        );
+                        warn!("3 consecutive invalidation failures — flushing cache defensively");
                         cache.invalidate_all();
                         consecutive_errors = 0;
                     }
@@ -97,8 +95,8 @@ async fn handle_message(
     headers: Option<&async_nats::HeaderMap>,
     cache: &CachingObjectStore,
 ) -> Result<(), String> {
-    let evt: WriteEvent = serde_json::from_slice(payload)
-        .map_err(|e| format!("invalid envelope JSON: {e}"))?;
+    let evt: WriteEvent =
+        serde_json::from_slice(payload).map_err(|e| format!("invalid envelope JSON: {e}"))?;
 
     let object_id = evt
         .object_id
@@ -107,11 +105,7 @@ async fn handle_message(
 
     let tenant = evt
         .tenant
-        .or_else(|| {
-            headers
-                .and_then(|h| h.get("tenant"))
-                .map(|v| v.to_string())
-        })
+        .or_else(|| headers.and_then(|h| h.get("tenant")).map(|v| v.to_string()))
         .ok_or_else(|| "envelope missing tenant header".to_string())?;
 
     debug!(%tenant, %object_id, "invalidating cache entry");

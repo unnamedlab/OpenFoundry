@@ -22,7 +22,7 @@
 OpenFoundry currently exposes **two overlapping SQL hubs** for analytical
 queries:
 
-- **Trino**, deployed internally under `infra/k8s/trino/*` (coordinator + worker
+- **Trino**, deployed internally under `infra/k8s/platform/manifests/trino/*` (coordinator + worker
   pods, Iceberg/PostgreSQL/Kafka catalogs). Trino is a federated query engine
   with its own SQL dialect and a coordinator that plans every query.
 - **DataFusion + Flight SQL**, provided by `libs/query-engine/` and operated by
@@ -38,7 +38,7 @@ queries has three concrete costs:
    crossing a boundary or have to translate predicates/types by hand.
 2. **A logical SPOF.** Every internal query that goes through Trino is planned
    on the Trino coordinator. Even with `coordinator.replicas: 2` and the
-   experimental coordinator HA configured in `infra/k8s/trino/values.yaml`,
+   experimental coordinator HA configured in `infra/k8s/platform/manifests/trino/values.yaml`,
    the coordinator is still a single chokepoint per query, with its own
    failure modes (planner OOMs, leader elections, catalog refresh storms)
    that block service-to-service traffic that does **not** need a federated
@@ -82,13 +82,12 @@ point. It routes incoming SQL based on the target backend:
 | Workload                              | Backend                                  |
 | ------------------------------------- | ---------------------------------------- |
 | Iceberg / lakehouse analytical SQL    | `sql-warehousing-service` (DataFusion)   |
-| Time-series queries                   | ClickHouse                               |
 | Search / hybrid retrieval             | Vespa (cf. [ADR-0007](./ADR-0007-search-engine-choice.md)) |
 | External BI over JDBC/ODBC            | Trino                                    |
 
 ### 4. Trino is kept, but only as edge BI
 
-Trino under `infra/k8s/trino/` is **retained**, with its existing chart and
+Trino under `infra/k8s/platform/manifests/trino/` is **retained**, with its existing chart and
 catalog ConfigMaps **unchanged by this ADR**, but its role is narrowed:
 
 - Trino is the **edge BI** surface for Tableau, Superset and other
@@ -138,7 +137,7 @@ catalog ConfigMaps **unchanged by this ADR**, but its role is narrowed:
   replacement. Until the entry is migrated, the existing path keeps working.
 - **External BI paths are out of scope** for migration: Tableau / Superset /
   JDBC/ODBC clients keep using Trino through its existing endpoint.
-- **Infrastructure under `infra/k8s/trino/`** (Helm values, catalog
+- **Infrastructure under `infra/k8s/platform/manifests/trino/`** (Helm values, catalog
   ConfigMaps, PDB) is **not changed** by this ADR. Only the `README.md`
   positioning is updated to reflect the new "edge BI" role.
 
@@ -156,7 +155,7 @@ Trino dependencies.
 - `libs/query-engine/` — DataFusion + `FlightSqlTableProvider`.
 - `services/sql-warehousing-service/` — DataFusion compute pool (port 50123).
 - `services/sql-bi-gateway-service/` — edge SQL router (port 50133).
-- `infra/k8s/trino/README.md` — Trino deployment, now scoped to edge BI.
+- `infra/k8s/platform/manifests/trino/README.md` — Trino deployment, now scoped to edge BI.
 - `docs/architecture/runtime-topology.md` — runtime topology, "Internal query
   fabric" section.
 - [ADR-0007](./ADR-0007-search-engine-choice.md) — precedent for collapsing

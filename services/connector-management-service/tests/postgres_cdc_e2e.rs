@@ -53,9 +53,7 @@ async fn postgres_logical_slot_emits_changes_for_connector() {
         .get_host_port_ipv4(PG_PORT)
         .await
         .expect("mapped postgres port");
-    let dsn = format!(
-        "postgres://{PG_USER}:{PG_PASSWORD}@127.0.0.1:{host_port}/{PG_DB}"
-    );
+    let dsn = format!("postgres://{PG_USER}:{PG_PASSWORD}@127.0.0.1:{host_port}/{PG_DB}");
 
     // Wait for the server to fully accept queries (image emits the ready
     // banner once during init too).

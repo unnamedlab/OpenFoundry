@@ -1,8 +1,11 @@
 pub mod browse;
+pub mod dataset_product;
 pub mod devops;
+pub mod health;
 pub mod install;
 pub mod publish;
 pub mod reviews;
+pub mod schedule_manifest;
 
 use axum::{Json, http::StatusCode};
 use serde::Serialize;

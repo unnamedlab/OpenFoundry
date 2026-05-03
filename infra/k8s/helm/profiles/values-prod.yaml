@@ -1,0 +1,53 @@
+global:
+  existingSecret: open-foundry-prod-env
+  deploymentFabric:
+    environment: production
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+  hosts:
+    - host: openfoundry.example.com
+      paths:
+        - path: /
+  tls:
+    - secretName: open-foundry-prod-tls
+      hosts:
+        - openfoundry.example.com
+
+objectStore:
+  backend: ceph
+  endpoint: http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80
+  region: us-east-1
+  forcePathStyle: true
+  accessKeySecretKey: OBJECT_STORE_ACCESS_KEY
+  secretKeySecretKey: OBJECT_STORE_SECRET_KEY
+  buckets:
+    datasets: openfoundry-datasets
+    models: openfoundry-models
+    iceberg: openfoundry-iceberg
+
+icebergRestCatalog:
+  url: http://lakekeeper.lakekeeper.svc:8181
+
+trino:
+  enabled: true
+  coordinator:
+    replicas: 2
+  worker:
+    autoscaling:
+      enabled: true
+      minReplicas: 4
+      maxReplicas: 16
+
+spark-operator:
+  enabled: true
+  webhook:
+    enable: true
+
+mimir:
+  enabled: true
+  monolithic:
+    replicas: 3

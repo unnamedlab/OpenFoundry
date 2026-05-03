@@ -22,6 +22,11 @@ pub struct EventQuery {
     pub source_service: Option<String>,
     pub subject_id: Option<String>,
     pub classification: Option<String>,
+    /// Resource RID filter — used by per-resource Activity panels
+    /// (e.g. `/media-sets/{rid}` Activity tab) to narrow the global
+    /// audit log to a single subject. Matches `event.resource_id`
+    /// exactly; case-sensitive because RIDs are.
+    pub resource_id: Option<String>,
 }
 
 pub async fn get_overview(
@@ -86,6 +91,13 @@ pub async fn list_events(
                 .classification
                 .as_ref()
                 .map(|value| event.classification.as_str() == value)
+                .unwrap_or(true)
+        })
+        .filter(|event| {
+            query
+                .resource_id
+                .as_ref()
+                .map(|value| event.resource_id.as_str() == value)
                 .unwrap_or(true)
         })
         .collect::<Vec<_>>();

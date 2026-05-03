@@ -116,9 +116,10 @@
 /infra/docker-compose.dev.yml                   @open-foundry/platform-runtime
 /infra/docker-compose.yml                       @open-foundry/platform-runtime
 /infra/k8s/                                     @open-foundry/platform-runtime
-/infra/nginx/                                   @open-foundry/platform-runtime
+/infra/k8s/platform/observability/             @open-foundry/observability-team @open-foundry/platform-runtime
+/infra/local/nginx/                             @open-foundry/platform-runtime
+/infra/local/postgres-init/                     @open-foundry/data-platform
 /infra/terraform/                               @open-foundry/platform-runtime @open-foundry/security-team
-/infra/init-db/                                 @open-foundry/data-platform
 /infra/runbooks/                                @open-foundry/observability-team @open-foundry/platform-runtime
 /infra/scripts/                                 @open-foundry/platform-runtime
 

@@ -278,7 +278,10 @@ fn iceberg_not_found(kind: &str, value: &str) -> axum::response::Response {
 /// is the only party that ever sees the underlying source credential — the
 /// client receives a short-lived, table-scoped snapshot keyed by
 /// `expires-at-ms`.
-async fn load_table_response(connection: &Connection, registration: &ConnectionRegistration) -> Value {
+async fn load_table_response(
+    connection: &Connection,
+    registration: &ConnectionRegistration,
+) -> Value {
     let upstream_metadata = registration
         .metadata
         .pointer("/discovery/upstream/metadata_location")
@@ -322,14 +325,12 @@ async fn load_table_response(connection: &Connection, registration: &ConnectionR
         config.insert(key, value);
     }
 
-    let metadata_location = upstream_metadata
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            format!(
-                "openfoundry://catalog/{}/{}/v0.metadata.json",
-                connection.id, registration.id
-            )
-        });
+    let metadata_location = upstream_metadata.map(str::to_string).unwrap_or_else(|| {
+        format!(
+            "openfoundry://catalog/{}/{}/v0.metadata.json",
+            connection.id, registration.id
+        )
+    });
 
     json!({
         "metadata-location": metadata_location,
@@ -446,7 +447,10 @@ fn qualify(config: &Value, selector: &str) -> String {
 /// come with their own metadata.json over the wire (we just forward the
 /// pointer). For Foundry-mediated sources we emit just enough fields so that
 /// PyIceberg/Trino can complete a `load_table()` call without crashing.
-fn synthetic_table_metadata(connection: &Connection, registration: &ConnectionRegistration) -> Value {
+fn synthetic_table_metadata(
+    connection: &Connection,
+    registration: &ConnectionRegistration,
+) -> Value {
     json!({
         "format-version": 2,
         "table-uuid": registration.id,

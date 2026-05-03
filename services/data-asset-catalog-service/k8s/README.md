@@ -10,7 +10,7 @@ dedicated CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/data-asset-catalog-pg.yaml`](../../../infra/k8s/cnpg/clusters/data-asset-catalog-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/data-asset-catalog-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/data-asset-catalog-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `data-asset-catalog-pg`                                            |
 | Namespace      | `openfoundry`                                                      |

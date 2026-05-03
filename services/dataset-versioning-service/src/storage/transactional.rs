@@ -27,8 +27,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use core_models::TransactionType;
+use serde_json::Value;
 
 use crate::domain::transactions::{self as txn_domain, CommitError};
+use crate::storage::runtime::{OpenTransactionInsert, RuntimeStore};
 
 /// Per-file op code persisted in `dataset_transaction_files.op`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,33 +107,42 @@ impl TransactionalDatasetWriter {
     /// Open a new transaction on `(dataset_id, branch_id)` of the given
     /// `kind`.
     ///
-    /// Errors with [`CommitError::Database`] wrapping a `unique_violation`
-    /// when the branch already has an OPEN transaction.
+    /// Errors with [`CommitError::ConcurrentOpenTransaction`] when the branch
+    /// already has an OPEN transaction.
     pub async fn open_transaction(
         &self,
         dataset_id: Uuid,
         branch_id: Uuid,
         branch_name: &str,
         kind: TransactionType,
+        summary: &str,
+        providence: &Value,
         started_by: Option<Uuid>,
     ) -> Result<OpenTransaction, CommitError> {
         let id = Uuid::now_v7();
-        sqlx::query(
-            r#"INSERT INTO dataset_transactions (
-                   id, dataset_id, branch_id, branch_name, tx_type, status,
-                   operation, summary, providence, started_by
-               )
-               VALUES ($1, $2, $3, $4, $5, 'OPEN', $6, '', '{}'::jsonb, $7)"#,
-        )
-        .bind(id)
-        .bind(dataset_id)
-        .bind(branch_id)
-        .bind(branch_name)
-        .bind(Self::kind_db(kind))
-        .bind(Self::kind_db(kind).to_ascii_lowercase())
-        .bind(started_by)
-        .execute(&self.pool)
-        .await?;
+        RuntimeStore::new(self.pool.clone())
+            .insert_open_transaction(OpenTransactionInsert {
+                id,
+                dataset_id,
+                branch_id,
+                branch_name,
+                tx_type: Self::kind_db(kind),
+                operation: Self::kind_db(kind).to_ascii_lowercase(),
+                summary,
+                providence,
+                started_by,
+            })
+            .await
+            .map_err(|error| match error {
+                sqlx::Error::Database(db)
+                    if db.constraint() == Some("uq_dataset_transactions_one_open_per_branch") =>
+                {
+                    CommitError::ConcurrentOpenTransaction {
+                        branch: branch_name.to_string(),
+                    }
+                }
+                other => CommitError::from(other),
+            })?;
 
         Ok(OpenTransaction {
             id,
@@ -174,12 +185,14 @@ impl TransactionalDatasetWriter {
     /// the SQL mutations (status flip + branch HEAD update + metadata
     /// flags) in a single Postgres transaction.
     pub async fn commit(&self, txn: &OpenTransaction) -> Result<Uuid, CommitError> {
-        txn_domain::commit_transaction(&self.pool, txn.id).await
+        txn_domain::commit_transaction(&self.pool, txn.id).await?;
+        Ok(txn.id)
     }
 
     /// Abort the transaction atomically.
     pub async fn abort(&self, txn: &OpenTransaction) -> Result<Uuid, CommitError> {
-        txn_domain::abort_transaction(&self.pool, txn.id).await
+        txn_domain::abort_transaction(&self.pool, txn.id).await?;
+        Ok(txn.id)
     }
 }
 

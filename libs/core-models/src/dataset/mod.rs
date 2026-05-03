@@ -6,10 +6,8 @@
 pub mod schema;
 pub mod transaction;
 
-pub use schema::{
-    CsvOptions, FieldType, Schema, SchemaField, SchemaValidationError,
-};
+pub use schema::{CsvOptions, FieldType, Schema, SchemaField, SchemaValidationError};
 pub use transaction::{
-    BranchName, DatasetRid, InvalidBranchName, InvalidDatasetRid, TransactionId,
-    TransactionState, TransactionType, UnknownTransactionState, UnknownTransactionType,
+    BranchName, DatasetRid, InvalidBranchName, InvalidDatasetRid, TransactionId, TransactionState,
+    TransactionType, UnknownTransactionState, UnknownTransactionType,
 };

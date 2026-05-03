@@ -32,6 +32,12 @@ nats = ["dep:async-nats", "dep:futures"]
 # Enables the Axum `AuthzGuard<A, R>` extractor and the
 # `AuthzEngine` wiring helpers.
 axum = ["dep:axum", "dep:auth-middleware", "dep:http"]
+# Enables `audit_kafka::KafkaAuthzAuditSink`, which publishes
+# `AuthzAuditEvent`s to Kafka topic `audit.authz.v1` via
+# `event-bus-data`. Off by default so consumers that only need the
+# in-memory `NoopAuditSink`/`TracingAuditSink` (tests, dev tooling)
+# do not pull `librdkafka`.
+kafka = ["dep:event-bus-data"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -72,5 +78,15 @@ optional = true
 version = "1"
 optional = true
 
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
+async-trait = { workspace = true }
+
+[[test]]
+name = "kafka_sink"
+path = "tests/kafka_sink.rs"
+required-features = ["kafka"]

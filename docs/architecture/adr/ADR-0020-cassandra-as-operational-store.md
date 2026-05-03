@@ -5,7 +5,7 @@
 - **Deciders:** OpenFoundry platform architecture group
 - **Supersedes / supplements:**
   - Implicit "Postgres everywhere" pattern visible in
-    [infra/k8s/cnpg/clusters/](../../../infra/k8s/cnpg/clusters/) (71
+    [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/) (71
     per-service CNPG `Cluster` manifests at the time of writing).
   - The fit-for-purpose statement in
     [docs/architecture/audit-and-reference-no-spof.md](../audit-and-reference-no-spof.md)
@@ -22,7 +22,7 @@
   - [ADR-0022](./ADR-0022-transactional-outbox-postgres-debezium.md) —
     The transactional outbox lives in **Postgres**, not in Cassandra.
 - **Related work:** The Cassandra cluster is provisioned by the
-  k8ssandra-operator under `infra/k8s/cassandra/` (see
+  k8ssandra-operator under `infra/k8s/platform/manifests/cassandra/` (see
   [§5 of the migration plan](../migration-plan-cassandra-foundry-parity.md)).
 
 ## Context
@@ -238,7 +238,7 @@ linter on `*.cql` files.
 
 ## Operational consequences
 
-- New sub-chart `infra/k8s/cassandra/` based on the **k8ssandra-operator**
+- New sub-chart `infra/k8s/platform/manifests/cassandra/` based on the **k8ssandra-operator**
   (Apache-2.0).
 - Reaper schedules a full repair per keyspace per gc-grace window
   (default weekly), throttled off-peak.
@@ -297,7 +297,7 @@ linter on `*.cql` files.
 
 - Implement task S0.2 of the migration plan: bring up the dev
   single-node and prod multi-DC clusters under
-  `infra/k8s/cassandra/`.
+  `infra/k8s/platform/manifests/cassandra/`.
 - Implement task S0.3 of the migration plan: publish
   `libs/cassandra-kernel`.
 - Add a CI check that fails on `ALLOW FILTERING`, on bare-tenant PKs

@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
+  import MediaSetSyncWizard from '$lib/components/data-connection/MediaSetSyncWizard.svelte';
   import {
     capabilityLabel,
     dataConnection,
@@ -11,6 +12,7 @@
     type ConnectorCatalogEntry,
     type Credential,
     type CredentialKind,
+    type MediaSetSyncDef,
     type NetworkEgressPolicy,
     type Source,
     type SourceWorker,
@@ -18,7 +20,15 @@
     type TestConnectionResult,
   } from '$lib/api/data-connection';
 
-  type Tab = 'overview' | 'networking' | 'credentials' | 'capabilities' | 'runs';
+  type Tab = 'overview' | 'networking' | 'credentials' | 'capabilities' | 'runs' | 'media-syncs';
+
+  /**
+   * Foundry "Media set syncs" are only available on file-storage
+   * connectors (S3 + ABFS / OneLake per the
+   * docs `Set up a media set sync.md`). The tab + section render
+   * conditionally on this set.
+   */
+  const MEDIA_SYNC_CONNECTORS = new Set(['s3', 'onelake', 'abfs']);
 
   const sourceId = $derived(($page.params.id ?? '') as string);
 
@@ -63,6 +73,36 @@
   let createSyncError = $state('');
   let runningSyncId = $state<string | null>(null);
   let deleteConfirm = $state<{ busy: boolean } | null>(null);
+
+  // Media set syncs (P1.4)
+  let mediaSyncs = $state<MediaSetSyncDef[]>([]);
+  let mediaSyncsError = $state('');
+  let mediaSyncWizardOpen = $state(false);
+
+  const supportsMediaSyncs = $derived(
+    !!source && MEDIA_SYNC_CONNECTORS.has(source.connector_type),
+  );
+
+  async function loadMediaSyncs() {
+    if (!supportsMediaSyncs) {
+      mediaSyncs = [];
+      return;
+    }
+    mediaSyncsError = '';
+    try {
+      mediaSyncs = await dataConnection.listMediaSetSyncs(sourceId);
+    } catch (cause) {
+      console.warn('listMediaSetSyncs failed', cause);
+      mediaSyncsError =
+        cause instanceof Error ? cause.message : 'Failed to load media set syncs';
+      mediaSyncs = [];
+    }
+  }
+
+  function onMediaSyncSaved(sync: MediaSetSyncDef) {
+    mediaSyncs = [sync, ...mediaSyncs];
+    mediaSyncWizardOpen = false;
+  }
 
   async function loadSource() {
     loading = true;
@@ -260,6 +300,7 @@
       void loadPolicies();
     if (tab === 'credentials' && credentials.length === 0) void loadCredentials();
     if (tab === 'runs' && syncs.length === 0) void loadRuns();
+    if (tab === 'media-syncs' && mediaSyncs.length === 0) void loadMediaSyncs();
   }
 
   onMount(async () => {
@@ -269,6 +310,7 @@
     void loadPolicies();
     void loadCredentials();
     void loadRuns();
+    void loadMediaSyncs();
   });
 </script>
 
@@ -335,17 +377,27 @@
     {/if}
 
     <nav class="flex gap-1 border-b border-gray-200 dark:border-gray-800">
-      {#each ['overview', 'networking', 'credentials', 'capabilities', 'runs'] as Tab[] as tab (tab)}
+      {#each (
+        [
+          'overview',
+          'networking',
+          'credentials',
+          'capabilities',
+          'runs',
+          ...(supportsMediaSyncs ? (['media-syncs'] as const) : [])
+        ] as Tab[]
+      ) as tab (tab)}
         <button
           type="button"
+          data-testid={`tab-${tab}`}
           onclick={() => selectTab(tab)}
-          class={`border-b-2 px-3 py-2 text-sm capitalize ${
+          class={`border-b-2 px-3 py-2 text-sm ${tab === 'media-syncs' ? '' : 'capitalize'} ${
             activeTab === tab
               ? 'border-blue-600 font-medium text-blue-700 dark:border-blue-400 dark:text-blue-300'
               : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
           }`}
         >
-          {tab}
+          {tab === 'media-syncs' ? 'Media set syncs' : tab}
           {#if tab === 'networking'}
             <span class="ml-1 rounded-full bg-gray-100 px-1.5 text-[10px] dark:bg-gray-800"
               >{attachedPolicies.length}</span
@@ -357,6 +409,10 @@
           {:else if tab === 'runs'}
             <span class="ml-1 rounded-full bg-gray-100 px-1.5 text-[10px] dark:bg-gray-800"
               >{syncs.length}</span
+            >
+          {:else if tab === 'media-syncs'}
+            <span class="ml-1 rounded-full bg-gray-100 px-1.5 text-[10px] dark:bg-gray-800"
+              >{mediaSyncs.length}</span
             >
           {/if}
         </button>
@@ -791,9 +847,87 @@
           </div>
         {/if}
       </section>
+    {:else if activeTab === 'media-syncs'}
+      <!-- ── Media set syncs (Foundry "Set up a media set sync") ── -->
+      <section class="space-y-4" data-testid="media-syncs-section">
+        <header class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold">Media set syncs</h2>
+            <p class="mt-1 text-xs text-gray-500">
+              Pull media files from this source into a Foundry media set. Two
+              flavours: <em>Media set sync</em> copies bytes; <em>Virtual media
+              set sync</em> only registers metadata so the bytes stay in the
+              source.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            data-testid="media-syncs-new"
+            onclick={() => (mediaSyncWizardOpen = true)}
+          >
+            + Media set sync
+          </button>
+        </header>
+
+        {#if mediaSyncsError}
+          <div class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+            {mediaSyncsError}
+          </div>
+        {/if}
+
+        {#if mediaSyncs.length === 0}
+          <div
+            class="rounded-2xl border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-500 dark:border-gray-700"
+            data-testid="media-syncs-empty"
+          >
+            No media set syncs yet. Click <strong>+ Media set sync</strong> to
+            wire this source to a Foundry media set.
+          </div>
+        {:else}
+          <ul class="space-y-2" data-testid="media-syncs-list">
+            {#each mediaSyncs as sync (sync.id)}
+              <li class="rounded-2xl border border-gray-200 p-3 text-sm dark:border-gray-700">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <a
+                      href={`/media-sets/${encodeURIComponent(sync.target_media_set_rid)}`}
+                      class="break-all font-mono text-blue-600 hover:underline dark:text-blue-300"
+                    >
+                      {sync.target_media_set_rid}
+                    </a>
+                    <div class="text-[11px] text-gray-500">
+                      {sync.kind === 'VIRTUAL_MEDIA_SET_SYNC' ? 'Virtual' : 'Copy'} ·
+                      subfolder
+                      <code class="font-mono">{sync.subfolder || '/'}</code>
+                      {#if sync.schedule_cron}
+                        · cron <code class="font-mono">{sync.schedule_cron}</code>
+                      {/if}
+                    </div>
+                  </div>
+                  <div class="text-[11px] text-gray-400">
+                    Created {new Date(sync.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
     {/if}
   {/if}
 </div>
+
+{#if source && mediaSyncWizardOpen}
+  <div class="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/60 p-6">
+    <MediaSetSyncWizard
+      sourceId={source.id}
+      sourceName={source.name}
+      onSaved={onMediaSyncSaved}
+      onCancel={() => (mediaSyncWizardOpen = false)}
+    />
+  </div>
+{/if}
 
 <ConfirmDialog
   open={deleteConfirm !== null}

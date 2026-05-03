@@ -89,11 +89,12 @@ async fn outbox_enqueue_round_trip_against_real_postgres() {
     // After commit, the row was deleted in the same transaction so it
     // is no longer visible. The WAL still carries the INSERT, which
     // is the record Debezium will publish.
-    let row_count: (i64,) = sqlx::query_as("SELECT count(*) FROM outbox.events WHERE event_id = $1")
-        .bind(event_id)
-        .fetch_one(&pool)
-        .await
-        .expect("count after commit");
+    let row_count: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox.events WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count after commit");
     assert_eq!(
         row_count.0, 0,
         "row must be deleted in same tx (canonical Debezium outbox pattern)"
@@ -133,11 +134,12 @@ async fn outbox_enqueue_round_trip_against_real_postgres() {
     .expect("enqueue inside doomed tx");
     tx.rollback().await.unwrap();
 
-    let row_count: (i64,) = sqlx::query_as("SELECT count(*) FROM outbox.events WHERE event_id = $1")
-        .bind(rolled_back_id)
-        .fetch_one(&pool)
-        .await
-        .expect("count after rollback");
+    let row_count: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox.events WHERE event_id = $1")
+            .bind(rolled_back_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count after rollback");
     assert_eq!(row_count.0, 0, "rollback must leave no trace");
 
     // (4) Distinct event ids in the same transaction all land in the

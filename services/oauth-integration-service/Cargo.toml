@@ -37,6 +37,9 @@ workspace = true
 [dependencies.cassandra-kernel]
 workspace = true
 
+[dependencies.identity-federation-service]
+path = "../identity-federation-service"
+
 [dependencies.chrono]
 workspace = true
 
@@ -71,6 +74,9 @@ workspace = true
 workspace = true
 
 [dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
 workspace = true
 
 [dependencies.url]

@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/time-series-data-pg.yaml`](../../../infra/k8s/cnpg/clusters/time-series-data-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/time-series-data-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/time-series-data-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `time-series-data-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

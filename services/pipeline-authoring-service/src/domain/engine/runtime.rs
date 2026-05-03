@@ -25,7 +25,39 @@ use tokio::fs;
 use uuid::Uuid;
 use wasmtime::{Config, Engine, Instance, Module, Store, Val};
 
-use crate::{AppState, models::pipeline::PipelineNode};
+use crate::{
+    AppState,
+    models::pipeline::{PipelineBuildSettings, PipelineNode},
+};
+
+/// Resolve the streaming consistency the runtime should advertise to
+/// downstream Flink jobs / streams.
+///
+/// Uses the strongest of:
+///   * the operator's Pipeline Builder choice (`build_settings`), and
+///   * the destination stream's `pipeline_consistency` (looked up via
+///     `stream_pipeline_consistency_lookup` for each
+///     `output_stream_id` in `node.config`).
+///
+/// `stream_pipeline_consistency_lookup` is injected so this helper
+/// stays free of any HTTP / DB dependency — call sites pass a closure
+/// that talks to `event-streaming-service`.
+pub fn effective_streaming_consistency(
+    build_settings: &PipelineBuildSettings,
+    output_stream_consistency: Option<&str>,
+) -> &'static str {
+    let from_builder = build_settings.effective_streaming_consistency();
+    let strongest = match (from_builder, output_stream_consistency) {
+        (_, Some("EXACTLY_ONCE")) | ("EXACTLY_ONCE", _) => "EXACTLY_ONCE",
+        _ => "AT_LEAST_ONCE",
+    };
+    // SAFETY: the only two literals we emit are statically known.
+    if strongest == "EXACTLY_ONCE" {
+        "EXACTLY_ONCE"
+    } else {
+        "AT_LEAST_ONCE"
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetInputMetadata {
@@ -1578,6 +1610,24 @@ pub fn execute_wasm_transform(node: &PipelineNode) -> Result<(Option<u64>, Value
     Ok((rows_affected, json!({ "results": output_values })))
 }
 
+/// P1.4 stub for media-typed pipeline nodes.
+///
+/// The real execution path will POST against the (still-future)
+/// `media-transform-runtime`; for now we surface a deterministic
+/// envelope that re-states the node's declared `transform_type` +
+/// `config` so downstream stages can be written against a stable
+/// shape and so lineage / preview UIs render something useful.
+pub fn execute_media_node_stub(node: &PipelineNode) -> Value {
+    serde_json::json!({
+        "media_node": {
+            "transform_type": node.transform_type,
+            "config":         node.config,
+            "status":         "stubbed",
+            "note":           "execution will be delegated to media-transform-runtime",
+        }
+    })
+}
+
 pub fn build_metadata(
     fingerprint: String,
     skipped: bool,
@@ -1980,16 +2030,19 @@ mod tests {
                 .expect("lazy pool should build"),
             jwt_config: auth_middleware::jwt::JwtConfig::generate().with_env_defaults(),
             http_client: reqwest::Client::new(),
-            dataset_service_url: "http://dataset.local".to_string(),
-            workflow_service_url: "http://workflow.local".to_string(),
-            ai_service_url: "http://ai.local".to_string(),
             storage: Arc::new(
                 LocalStorage::new(&storage_root_str).expect("local storage should initialize"),
             ),
+            data_dir: storage_root_str.clone(),
+            dataset_service_url: "http://dataset.local".to_string(),
+            workflow_service_url: "http://workflow.local".to_string(),
+            ai_service_url: "http://ai.local".to_string(),
             storage_backend: "s3".to_string(),
             storage_bucket: "datasets".to_string(),
             s3_endpoint: Some("http://minio.local".to_string()),
             s3_region: Some("us-east-1".to_string()),
+            s3_access_key: None,
+            s3_secret_key: None,
             local_storage_root: Some(storage_root_str),
             distributed_pipeline_workers: 1,
             distributed_compute_poll_interval_ms: 5_000,

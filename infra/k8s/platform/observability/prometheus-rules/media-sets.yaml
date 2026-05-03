@@ -1,0 +1,87 @@
+# Prometheus alerting rules for `media-sets-service` (Foundry-style media sets).
+#
+# Source repo:  services/media-sets-service/
+# Scrape:       The service exposes `/metrics` on its REST port; the Prometheus
+#               operator scrapes via the standard service-monitor selector.
+# Validation:   `promtool check rules infra/k8s/platform/observability/prometheus-rules/media-sets.yaml`
+#               (CI runs this from `.github/workflows/prometheus-rules.yml`).
+#
+# Metric families:
+#   * media_storage_bytes{schema, virtual} (gauge) — live byte footprint.
+#   * media_active_transactions{media_set} (gauge) — open write batches.
+#   * media_retention_purges_total (counter) — soft-deletes by the reaper.
+#   * media_compute_seconds_total{transformation, schema} (counter) — base
+#     for the Foundry "Media usage costs and limits" cost model.
+#
+# Alert rationale (per Foundry "Media usage costs and limits"):
+#   * Live storage above the per-tenant cap is the canonical cost-runaway
+#     signal; we page when chargeable storage (virtual="false") goes
+#     above the 5 TB threshold.
+#   * A purge spike is the leading indicator of accidentally-tightened
+#     retention. We compare a 5-minute rate against the 6-hour baseline.
+#   * Sustained open transactions point at writers that crashed without
+#     committing or aborting; `for: 30m` keeps healthy bursty workloads
+#     out of the alert.
+groups:
+  - name: media_sets.storage
+    rules:
+      - alert: MediaSetsStorageAboveBudget
+        # `virtual="true"` sets reference external bytes Foundry never
+        # holds; we do not bill on them and they do not page.
+        expr: sum by (schema) (media_storage_bytes{virtual="false"}) > 5 * 1024 * 1024 * 1024 * 1024
+        for: 15m
+        labels:
+          severity: warning
+          component: media-sets
+        annotations:
+          summary: "Live media storage above 5 TiB for schema {{ $labels.schema }}"
+          description: |
+            Chargeable media storage for schema `{{ $labels.schema }}` has been
+            above 5 TiB for 15 minutes. Inspect the per-tenant breakdown in
+            the Foundry "Media usage costs and limits" dashboard before
+            increasing the cap. Likely cause: a new ingest pipeline
+            without retention.
+
+  - name: media_sets.retention
+    rules:
+      - alert: MediaSetsRetentionPurgeAnomaly
+        # Compare the recent 5m purge rate against the trailing 6h
+        # baseline. A 10x jump means somebody just shrank a retention
+        # window or a misconfigured reaper is firing too often. Guard
+        # the divisor so a quiet baseline doesn't divide-by-zero.
+        expr: |
+          rate(media_retention_purges_total[5m])
+            >
+          10 * (rate(media_retention_purges_total[6h]) > 0)
+        for: 10m
+        labels:
+          severity: warning
+          component: media-sets
+        annotations:
+          summary: "Retention purge rate is 10x baseline (anomalous)"
+          description: |
+            `rate(media_retention_purges_total[5m])` exceeded 10x the
+            6-hour baseline for 10 minutes. Cross-check the
+            `MediaSetRetentionChanged` audit events to identify the
+            tenant that tightened retention; if unexpected, roll back the
+            window before more items expire.
+
+  - name: media_sets.transactions
+    rules:
+      - alert: MediaSetTransactionStuckOpen
+        # `media_active_transactions` is per-set; an outstanding
+        # transaction beyond 30m on a healthy workload is suspicious
+        # because Foundry's transactional sets are write-once batches.
+        expr: max by (media_set) (media_active_transactions) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: media-sets
+        annotations:
+          summary: "Media set {{ $labels.media_set }} has a transaction open >30m"
+          description: |
+            A media-set transaction has been OPEN on
+            `{{ $labels.media_set }}` for 30+ minutes. Likely cause: a
+            writer crashed without aborting. Investigate, then call
+            `POST /transactions/{rid}/abort` to release the partial
+            unique index `uq_media_set_transactions_one_open_per_branch`.

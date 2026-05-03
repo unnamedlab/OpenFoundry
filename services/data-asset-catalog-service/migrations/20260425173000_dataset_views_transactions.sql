@@ -22,6 +22,14 @@ CREATE TABLE IF NOT EXISTS dataset_views (
 CREATE INDEX IF NOT EXISTS idx_dataset_views_dataset
     ON dataset_views(dataset_id, created_at DESC);
 
+-- Ownership note (S8 dataset consolidation):
+-- `dataset_transactions` is runtime-owned by `dataset-versioning-service`,
+-- which is also the only service allowed to define Foundry transaction
+-- semantics over snapshots / dataset data state. Together with
+-- `dataset_versions` and `dataset_branches`, these rows are legacy
+-- compatibility only in the catalog schema; Iceberg is the mandatory
+-- source of truth for snapshot/data state and Postgres here must remain
+-- declarative metadata only.
 CREATE TABLE IF NOT EXISTS dataset_transactions (
     id UUID PRIMARY KEY,
     dataset_id UUID NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,

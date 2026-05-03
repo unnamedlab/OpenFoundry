@@ -131,7 +131,7 @@ We adopt the following triad:
 
 - **Production search backend: Vespa.** The Vespa subchart becomes
   **mandatory** in every environment that runs a `prod` profile;
-  the "optional" flag is removed from `infra/k8s/vespa/values.yaml`
+  the "optional" flag is removed from `infra/k8s/platform/charts/vespa/values.yaml`
   and from any Helm umbrella that consumes it.
 - **Dev / CI search backend: OpenSearch single-node.** Provisioned
   via `docker compose` and via a Helm release in `dev` / `ci`

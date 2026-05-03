@@ -251,6 +251,22 @@
     return '#334155';
   }
 
+  /**
+   * Per-node tooltip text. The compiler surfaces media-node validation
+   * issues as `pipeline node 'id': <reason>`; we strip the prefix so
+   * the SVG `<title>` shows just the reason on hover. Mirrors the
+   * stale/failed pattern callers already see in the diagnostics list.
+   */
+  function nodeTooltip(node: PipelineNode): string {
+    if (!validation) return node.label || node.id;
+    const issues = [
+      ...validation.errors.filter((e) => e.includes(`'${node.id}'`)),
+      ...validation.warnings.filter((w) => w.includes(`'${node.id}'`))
+    ].map((line) => line.replace(`pipeline node '${node.id}': `, ''));
+    if (issues.length === 0) return node.label || node.id;
+    return issues.join('\n');
+  }
+
   function edgePath(srcId: string, dstId: string): string {
     const s = positions.get(srcId);
     const t = positions.get(dstId);
@@ -349,6 +365,7 @@
             if (e.key === 'Enter' || e.key === ' ') selectNode(node.id);
           }}
         >
+          <title>{nodeTooltip(node)}</title>
           <rect
             width={NODE_W}
             height={NODE_H}
@@ -356,6 +373,14 @@
             fill={nodeFill(node)}
             stroke={nodeStroke(node)}
             stroke-width="1.5"
+            data-testid={`canvas-node-${node.id}`}
+            data-node-state={
+              validation?.errors.some((e) => e.includes(`'${node.id}'`))
+                ? 'error'
+                : validation?.warnings.some((w) => w.includes(`'${node.id}'`))
+                  ? 'warning'
+                  : 'ok'
+            }
           />
           <text x="12" y="22" fill="#f1f5f9" font-size="13" font-weight="600">
             {node.label || node.id}

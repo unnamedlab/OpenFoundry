@@ -73,9 +73,11 @@ async fn put_then_get_fallbacks_round_trip() {
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let v: Value = serde_json::from_slice(&bytes).unwrap();
-    let chain = v["fallbacks"].as_array().cloned().unwrap_or_default();
+    let chain = v.as_array().cloned().unwrap_or_default();
     assert!(
-        chain.iter().any(|c| c.as_str() == Some("master")),
+        chain
+            .iter()
+            .any(|c| c["fallback_branch_name"].as_str() == Some("master")),
         "fallback chain must include master, got {v}"
     );
 }

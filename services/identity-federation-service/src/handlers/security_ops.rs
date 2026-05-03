@@ -1,8 +1,14 @@
 use auth_middleware::layer::AuthUser;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::{AppState, domain::security};
+use crate::{
+    AppState,
+    cedar_authz::{AdminAuthzGuard, JwksKeyResource, RotateJwks},
+    domain::security,
+    hardening::jwks_rotation::{JwksRotationError, RollbackOutcome, RotationOutcome},
+};
 
 use super::common::json_error;
 
@@ -41,6 +47,88 @@ pub struct VerifySignatureRequest {
 pub struct VerifySignatureResponse {
     pub algorithm: String,
     pub valid: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RotateJwksResponse {
+    pub rotation: RotationOutcome,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RollbackJwksRequest {
+    pub target_kid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RollbackJwksResponse {
+    pub rollback: RollbackOutcome,
+}
+
+pub async fn publish_jwks(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(jwks) = state.jwks.as_ref() else {
+        return json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "jwks rotation is not configured",
+        );
+    };
+
+    match jwks.published_jwks(Utc::now()).await {
+        Ok(body) => Json(body).into_response(),
+        Err(error) => jwks_error(error),
+    }
+}
+
+pub async fn rotate_jwks(
+    State(state): State<AppState>,
+    AuthUser(claims): AuthUser,
+    _guard: AdminAuthzGuard<RotateJwks, JwksKeyResource>,
+) -> impl IntoResponse {
+    if let Err(response) = require_jwks_rotation(&claims) {
+        return response;
+    }
+    let Some(jwks) = state.jwks.as_ref() else {
+        return json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "jwks rotation is not configured",
+        );
+    };
+
+    match jwks.rotate(Utc::now()).await {
+        Ok(rotation) => Json(RotateJwksResponse { rotation }).into_response(),
+        Err(error) => jwks_error(error),
+    }
+}
+
+pub async fn rollback_jwks(
+    State(state): State<AppState>,
+    AuthUser(claims): AuthUser,
+    _guard: AdminAuthzGuard<RotateJwks, JwksKeyResource>,
+    Json(body): Json<RollbackJwksRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = require_jwks_rotation(&claims) {
+        return response;
+    }
+    let Some(jwks) = state.jwks.as_ref() else {
+        return json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "jwks rotation is not configured",
+        );
+    };
+
+    match jwks.rollback(body.target_kid.as_deref(), Utc::now()).await {
+        Ok(rollback) => Json(RollbackJwksResponse { rollback }).into_response(),
+        Err(error) => jwks_error(error),
+    }
+}
+
+pub async fn audit_metrics(
+    State(state): State<AppState>,
+    AuthUser(claims): AuthUser,
+) -> impl IntoResponse {
+    if let Err(response) = require_security_write(&claims) {
+        return response;
+    }
+    Json(state.audit.metrics()).into_response()
 }
 
 pub async fn hash_content(
@@ -109,6 +197,20 @@ pub async fn verify_signature(
     .into_response()
 }
 
+fn require_jwks_rotation(claims: &auth_middleware::Claims) -> Result<(), axum::response::Response> {
+    if claims.has_role("admin")
+        || claims.has_permission("jwks", "rotate")
+        || claims.has_permission("control_panel", "write")
+    {
+        Ok(())
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "missing permission jwks:rotate",
+        ))
+    }
+}
+
 fn require_security_write(
     claims: &auth_middleware::Claims,
 ) -> Result<(), axum::response::Response> {
@@ -119,5 +221,19 @@ fn require_security_write(
             StatusCode::FORBIDDEN,
             "missing permission control_panel:write",
         ))
+    }
+}
+
+fn jwks_error(error: JwksRotationError) -> axum::response::Response {
+    match error {
+        JwksRotationError::State(message) => json_error(StatusCode::CONFLICT, message),
+        JwksRotationError::Store(message) => {
+            tracing::error!(error = %message, "jwks store error");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "jwks store error")
+        }
+        JwksRotationError::Vault(error) => {
+            tracing::error!(%error, "vault transit jwks error");
+            json_error(StatusCode::BAD_GATEWAY, "vault transit error")
+        }
     }
 }

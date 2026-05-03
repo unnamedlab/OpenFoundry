@@ -67,15 +67,8 @@ pub async fn test_connection(
     let token = obtain_access_token(state, config, agent_url).await?;
     let project_id = require_project(config)?;
     let url = bigquery_url(&format!("projects/{project_id}"))?;
-    let response = http_runtime::get(
-        state,
-        config,
-        url,
-        HeaderMap::new(),
-        Some(token),
-        agent_url,
-    )
-    .await?;
+    let response =
+        http_runtime::get(state, config, url, HeaderMap::new(), Some(token), agent_url).await?;
     let latency_ms = started.elapsed().as_millis();
     if !(200..300).contains(&response.status) {
         return Err(format!("BigQuery returned HTTP {}", response.status));
@@ -183,10 +176,7 @@ pub async fn fetch_dataset(
 
     let columns = extract_columns(payload.get("schema"));
     let mut rows = extract_rows(payload.get("rows"), &columns);
-    let job_reference = payload
-        .get("jobReference")
-        .cloned()
-        .unwrap_or(Value::Null);
+    let job_reference = payload.get("jobReference").cloned().unwrap_or(Value::Null);
     let job_id = job_reference
         .get("jobId")
         .and_then(Value::as_str)
@@ -319,7 +309,10 @@ async fn bounded_preview(
     )
     .await?;
     if !(200..300).contains(&response.status) {
-        return Err(format!("BigQuery preview returned HTTP {}", response.status));
+        return Err(format!(
+            "BigQuery preview returned HTTP {}",
+            response.status
+        ));
     }
     let payload = http_runtime::json_body(&response)?;
     let columns = extract_columns(payload.get("schema"));
@@ -412,15 +405,8 @@ async fn obtain_access_token(
         ),
         ("assertion".to_string(), jwt),
     ];
-    let response = http_runtime::post_form(
-        state,
-        config,
-        url,
-        HeaderMap::new(),
-        &form,
-        agent_url,
-    )
-    .await?;
+    let response =
+        http_runtime::post_form(state, config, url, HeaderMap::new(), &form, agent_url).await?;
     if !(200..300).contains(&response.status) {
         return Err(format!(
             "BigQuery token exchange returned HTTP {}: {}",
@@ -546,7 +532,12 @@ fn extract_columns(schema: Option<&Value>) -> Vec<String> {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|field| field.get("name").and_then(Value::as_str).map(str::to_string))
+        .filter_map(|field| {
+            field
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect()
 }
 
@@ -590,9 +581,7 @@ mod tests {
     #[test]
     fn requires_project_and_credential() {
         assert!(validate_config(&json!({})).is_err());
-        assert!(
-            validate_config(&json!({ "project_id": "p", "access_token": "t" })).is_ok()
-        );
+        assert!(validate_config(&json!({ "project_id": "p", "access_token": "t" })).is_ok());
         assert!(validate_config(&json!({ "project_id": "p" })).is_err());
     }
 

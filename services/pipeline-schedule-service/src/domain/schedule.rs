@@ -60,7 +60,10 @@ pub fn build_schedule_windows(
     Ok(windows)
 }
 
-pub async fn load_pipeline(state: &AppState, pipeline_id: Uuid) -> Result<Option<Pipeline>, String> {
+pub async fn load_pipeline(
+    state: &AppState,
+    pipeline_id: Uuid,
+) -> Result<Option<Pipeline>, String> {
     sqlx::query_as::<_, Pipeline>("SELECT * FROM pipelines WHERE id = $1")
         .bind(pipeline_id)
         .fetch_optional(&state.db)
@@ -118,15 +121,13 @@ pub async fn list_due_runs(
     let mut due_runs = Vec::new();
 
     match kind {
-        Some(ScheduleTargetKind::Pipeline) => {
+        Some(ScheduleTargetKind::Pipeline) | None => {
             due_runs.extend(list_due_pipeline_runs(state, limit).await?);
         }
         Some(ScheduleTargetKind::Workflow) => {
-            due_runs.extend(workflow::list_due_workflow_runs(state, limit).await?);
-        }
-        None => {
-            due_runs.extend(list_due_pipeline_runs(state, limit).await?);
-            due_runs.extend(workflow::list_due_workflow_runs(state, limit).await?);
+            // Workflow cron dispatch is owned by Temporal Schedules; this
+            // Postgres-polling path was removed alongside the legacy
+            // break-glass admin endpoints.
         }
     }
 
@@ -172,8 +173,9 @@ pub async fn preview_windows(
             let pipeline = load_pipeline(state, target_id)
                 .await?
                 .ok_or_else(|| format!("pipeline {target_id} not found"))?;
-            pipeline_schedule_expression(&pipeline)
-                .ok_or_else(|| format!("pipeline {target_id} does not have an active cron schedule"))?
+            pipeline_schedule_expression(&pipeline).ok_or_else(|| {
+                format!("pipeline {target_id} does not have an active cron schedule")
+            })?
         }
         ScheduleTargetKind::Workflow => {
             let workflow = workflow::load_workflow(state, target_id)
@@ -264,19 +266,18 @@ pub async fn backfill_runs(
 
             Ok(results)
         }
-        ScheduleTargetKind::Workflow => {
-            let workflow = workflow::load_workflow(state, target_id)
-                .await?
-                .ok_or_else(|| format!("workflow {target_id} not found"))?;
-            workflow::backfill_workflow_runs(state, &workflow, &windows, started_by, context).await
-        }
+        ScheduleTargetKind::Workflow => Err(
+            "workflow backfill via /schedules/backfill has been removed; \
+             trigger workflow runs through Temporal Schedules instead"
+                .to_string(),
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
     use chrono::TimeZone;
+    use chrono::Utc;
 
     use super::build_schedule_windows;
 
@@ -289,7 +290,10 @@ mod tests {
 
         assert_eq!(windows.len(), 4);
         assert_eq!(windows[0].window_start, start_at);
-        assert_eq!(windows[0].window_end, Utc.with_ymd_and_hms(2026, 4, 27, 9, 0, 0).unwrap());
+        assert_eq!(
+            windows[0].window_end,
+            Utc.with_ymd_and_hms(2026, 4, 27, 9, 0, 0).unwrap()
+        );
         assert_eq!(windows[3].window_end, end_at);
     }
 

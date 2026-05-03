@@ -37,7 +37,7 @@ pub async fn search_ontology(
     state: &AppState,
     claims: &Claims,
     request: &SearchRequest,
-) -> Result<Vec<SearchResult>, sqlx::Error> {
+) -> Result<Vec<SearchResult>, String> {
     let query = request.query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -78,7 +78,11 @@ pub async fn search_ontology(
 
     if semantic_enabled {
         let provider_backend =
-            semantic::resolve_backend(state, request.embedding_provider.as_deref()).await?;
+            semantic::resolve_backend(state, request.embedding_provider.as_deref())
+                .await
+                .map_err(|error| {
+                    format!("failed to resolve ontology search embedding backend: {error}")
+                })?;
         let query_embedding = match semantic::embed_with_backend(state, &provider_backend, query)
             .await
         {

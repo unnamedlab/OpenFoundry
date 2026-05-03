@@ -40,11 +40,7 @@ impl HotBuffer for NatsHotBuffer {
         "nats"
     }
 
-    async fn ensure_topic(
-        &self,
-        _stream_id: Uuid,
-        _partitions: i32,
-    ) -> Result<(), HotBufferError> {
+    async fn ensure_topic(&self, _stream_id: Uuid, _partitions: i32) -> Result<(), HotBufferError> {
         // NATS subjects are namespaces, not first-class entities. The
         // first publish materialises them with no setup cost.
         Ok(())

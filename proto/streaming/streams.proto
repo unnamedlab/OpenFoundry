@@ -1,0 +1,64 @@
+// Stream configuration contract — Foundry-parity stream type/consistency model.
+//
+// Mirrors the documented Foundry stream settings (Stream type, Partitions,
+// Streaming consistency guarantees) so the control-plane state can be
+// persisted, validated and reconfigured uniformly across Rust services.
+//
+// Compiled by `tonic-build` from `services/event-streaming-service/build.rs`
+// alongside `router.proto`.
+
+syntax = "proto3";
+
+package openfoundry.streaming.streams.v1;
+
+// Streaming consistency contract surfaced by Foundry's docs.
+//
+// Streaming sources only support AT_LEAST_ONCE for extracts/exports;
+// streaming pipelines support both. The validator enforces that the
+// `ingest_consistency` field of `StreamConfig` is never EXACTLY_ONCE.
+enum StreamConsistency {
+  CONSISTENCY_UNSPECIFIED = 0;
+  AT_LEAST_ONCE = 1;
+  EXACTLY_ONCE = 2;
+}
+
+// Stream type tunes the underlying Kafka producer for throughput vs.
+// latency, with an orthogonal compression dimension. Defaults to STANDARD.
+enum StreamType {
+  STREAM_TYPE_UNSPECIFIED = 0;
+  // Foundry default: low-latency producer settings.
+  STANDARD = 1;
+  // Higher `linger.ms` and `batch.size` so the producer batches
+  // aggressively. Trades latency for throughput.
+  HIGH_THROUGHPUT = 2;
+  // Compresses produced batches (lz4) at the cost of some CPU.
+  COMPRESSED = 3;
+  // High-throughput plus compression — combinable variant explicitly
+  // recognised so consumers can render a single radio choice.
+  HIGH_THROUGHPUT_COMPRESSED = 4;
+}
+
+// Operator-facing stream configuration.
+//
+// All knobs map onto runtime behaviour:
+//   * `type`/`compression`           → Kafka producer config + the
+//                                       hot-buffer backend.
+//   * `partitions`                   → Kafka topic partition count
+//                                       (1..=50 per docs throughput
+//                                       slider, ~5 MB/s per partition).
+//   * `retention_ms`                 → hot-buffer retention.
+//   * `ingest_consistency`           → forced AT_LEAST_ONCE per docs;
+//                                       validator rejects EXACTLY_ONCE.
+//   * `pipeline_consistency`         → consumed by Flink runtime as
+//                                       `execution.checkpointing.mode`.
+//   * `checkpoint_interval_ms`       → matching
+//                                       `execution.checkpointing.interval`.
+message StreamConfig {
+  StreamType type = 1;
+  bool compression = 2;
+  uint32 partitions = 3;          // 1..=50
+  uint32 retention_ms = 4;
+  StreamConsistency ingest_consistency = 5;
+  StreamConsistency pipeline_consistency = 6;
+  uint32 checkpoint_interval_ms = 7;
+}

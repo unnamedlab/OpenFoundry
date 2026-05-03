@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Kafka topic — also pinned in the matching ACL CR
-/// `infra/k8s/strimzi/kafka-acls-domain-v1.yaml` (Write for this
+/// `infra/k8s/platform/manifests/strimzi/kafka-acls-domain-v1.yaml` (Write for this
 /// service).
 pub const TOPIC: &str = "ai.events.v1";
 

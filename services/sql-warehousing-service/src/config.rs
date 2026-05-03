@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)] // database_url/jwt_secret/*_service_url are reserved for the
-                    // forthcoming SQL warehousing job persistence layer.
+// forthcoming SQL warehousing job persistence layer.
 pub struct AppConfig {
     #[serde(default = "default_host")]
     pub host: String,

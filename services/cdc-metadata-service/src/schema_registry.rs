@@ -43,10 +43,7 @@ pub fn routes() -> Router<AppState> {
             "/subjects/:name/versions",
             get(list_versions).post(register_version),
         )
-        .route(
-            "/subjects/:name/versions/:version",
-            get(get_version),
-        )
+        .route("/subjects/:name/versions/:version", get(get_version))
         .route(
             "/compatibility/subjects/:name/versions/:version",
             post(check_compatibility),
@@ -78,7 +75,11 @@ struct VersionRow {
 #[derive(Debug, Deserialize)]
 pub struct RegisterVersionRequest {
     pub schema: String,
-    #[serde(rename = "schemaType", alias = "schema_type", default = "default_schema_type")]
+    #[serde(
+        rename = "schemaType",
+        alias = "schema_type",
+        default = "default_schema_type"
+    )]
     pub schema_type: String,
     #[serde(default)]
     pub references: Vec<SchemaReference>,
@@ -113,7 +114,11 @@ struct VersionResponse {
 #[derive(Debug, Deserialize)]
 pub struct CompatibilityCheckRequest {
     pub schema: String,
-    #[serde(rename = "schemaType", alias = "schema_type", default = "default_schema_type")]
+    #[serde(
+        rename = "schemaType",
+        alias = "schema_type",
+        default = "default_schema_type"
+    )]
     pub schema_type: String,
 }
 
@@ -140,7 +145,9 @@ fn db_error(label: &'static str, error: sqlx::Error) -> axum::response::Response
 
 fn schema_error(error: SchemaError) -> axum::response::Response {
     let status = match &error {
-        SchemaError::Parse(_) | SchemaError::UnsupportedSchemaType(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        SchemaError::Parse(_) | SchemaError::UnsupportedSchemaType(_) => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
         SchemaError::UnsupportedCompatibility(_) => StatusCode::BAD_REQUEST,
         SchemaError::Validation(_) | SchemaError::Compatibility(_) => StatusCode::CONFLICT,
     };
@@ -162,10 +169,7 @@ fn parse_schema_type(value: &str) -> Result<SchemaType, axum::response::Response
     SchemaType::from_str(value).map_err(schema_error)
 }
 
-async fn fetch_or_create_subject(
-    db: &PgPool,
-    name: &str,
-) -> Result<SubjectRow, sqlx::Error> {
+async fn fetch_or_create_subject(db: &PgPool, name: &str) -> Result<SubjectRow, sqlx::Error> {
     if let Some(existing) = sqlx::query_as::<_, SubjectRow>(
         "SELECT id, name, compatibility_mode, created_at FROM schema_subjects WHERE name = $1",
     )
@@ -185,10 +189,7 @@ async fn fetch_or_create_subject(
     .await
 }
 
-async fn latest_version(
-    db: &PgPool,
-    subject_id: Uuid,
-) -> Result<Option<VersionRow>, sqlx::Error> {
+async fn latest_version(db: &PgPool, subject_id: Uuid) -> Result<Option<VersionRow>, sqlx::Error> {
     sqlx::query_as::<_, VersionRow>(
         "SELECT id, subject_id, version, schema_type, schema_text, fingerprint, created_at, deprecated_at
          FROM schema_versions
@@ -357,7 +358,9 @@ async fn register_version(
     if let Ok(Some(existing)) = version_by_fingerprint(&state.db, subject.id, &fingerprint).await {
         return (
             StatusCode::OK,
-            Json(RegisterVersionResponse { id: existing.version }),
+            Json(RegisterVersionResponse {
+                id: existing.version,
+            }),
         )
             .into_response();
     }
@@ -376,12 +379,9 @@ async fn register_version(
     let mut compat_outcome = "compatible";
     let mut compat_detail: Option<String> = None;
     if let Some(prev) = &latest {
-        if let Err(error) = validator::check_compatibility(
-            schema_type,
-            &prev.schema_text,
-            &body.schema,
-            mode,
-        ) {
+        if let Err(error) =
+            validator::check_compatibility(schema_type, &prev.schema_text, &body.schema, mode)
+        {
             compat_outcome = "incompatible";
             compat_detail = Some(error.to_string());
             // Audit before returning.

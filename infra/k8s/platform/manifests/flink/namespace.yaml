@@ -1,0 +1,11 @@
+---
+# Namespace for the Apache Flink Kubernetes Operator (Apache-2.0) and the
+# FlinkDeployments it manages. The operator itself is installed via Helm
+# (see infra/k8s/platform/manifests/flink/values.yaml and infra/runbooks/flink.md).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flink
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/part-of: openfoundry

@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS dataset_schemas (
 
 CREATE UNIQUE INDEX idx_dataset_schemas_dataset ON dataset_schemas(dataset_id);
 
+-- Ownership note (dataset versioning / Iceberg consolidation):
+-- `dataset_versions` is no longer runtime-owned by
+-- `data-asset-catalog-service`. New version rows must be produced by
+-- `dataset-versioning-service` together with the authoritative Iceberg
+-- snapshot/data-state write. This table remains only as a read /
+-- upgrade-compatibility bridge until the full merge lands.
 CREATE TABLE IF NOT EXISTS dataset_versions (
     id          UUID PRIMARY KEY,
     dataset_id  UUID NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,

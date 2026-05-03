@@ -64,7 +64,10 @@ pub fn build_dataset_writer(
                 namespace = %settings.iceberg.namespace,
                 "dataset writer: using legacy backend"
             );
-            Arc::new(LegacyDatasetWriter::new(storage, settings.iceberg.namespace.clone()))
+            Arc::new(LegacyDatasetWriter::new(
+                storage,
+                settings.iceberg.namespace.clone(),
+            ))
         }
         WriterBackendKind::Iceberg => match &settings.iceberg.catalog_url {
             Some(url) if !url.trim().is_empty() => {
@@ -126,10 +129,22 @@ mod tests {
     #[test]
     fn parse_backend_defaults_to_legacy() {
         assert_eq!(WriterBackendKind::parse(""), WriterBackendKind::Legacy);
-        assert_eq!(WriterBackendKind::parse("legacy"), WriterBackendKind::Legacy);
-        assert_eq!(WriterBackendKind::parse("anything"), WriterBackendKind::Legacy);
-        assert_eq!(WriterBackendKind::parse("Iceberg"), WriterBackendKind::Iceberg);
-        assert_eq!(WriterBackendKind::parse("ICEBERG"), WriterBackendKind::Iceberg);
+        assert_eq!(
+            WriterBackendKind::parse("legacy"),
+            WriterBackendKind::Legacy
+        );
+        assert_eq!(
+            WriterBackendKind::parse("anything"),
+            WriterBackendKind::Legacy
+        );
+        assert_eq!(
+            WriterBackendKind::parse("Iceberg"),
+            WriterBackendKind::Iceberg
+        );
+        assert_eq!(
+            WriterBackendKind::parse("ICEBERG"),
+            WriterBackendKind::Iceberg
+        );
     }
 
     #[test]

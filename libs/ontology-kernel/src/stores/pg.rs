@@ -176,4 +176,13 @@ impl ActionLogStore for PostgresActionLogStore {
     ) -> RepoResult<PagedResult<ActionLogEntry>> {
         Err(RepoError::Backend(NOT_YET.into()))
     }
+    async fn list_for_action(
+        &self,
+        _tenant: &TenantId,
+        _action_id: &str,
+        _page: Page,
+        _consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<ActionLogEntry>> {
+        Err(RepoError::Backend(NOT_YET.into()))
+    }
 }

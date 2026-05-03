@@ -1,9 +1,6 @@
 pub mod control_plane;
 pub mod enrollment;
 pub mod organization;
-pub mod peer;
-pub mod project;
-pub mod space;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 

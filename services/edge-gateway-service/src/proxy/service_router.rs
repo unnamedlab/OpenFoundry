@@ -1,4 +1,4 @@
-use auth_middleware::{Claims, JwtConfig, jwt, tenant::TenantContext};
+use auth_middleware::{Claims, jwt, jwt::JwtConfig, tenant::TenantContext};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -87,6 +87,16 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/retention")
         || path.ends_with("/retention")
         || path.contains("/transactions/") && path.ends_with("/retention")
+        // P4 — Foundry "View retention policies for a dataset [Beta]"
+        // surface. The dataset-scoped resolution + preview live under
+        // `/v1/datasets/{rid}/applicable-policies` and
+        // `/retention-preview` and route to retention-policy-service.
+        // The bare `/v1/policies` prefix is owned by
+        // authorization-policy-service (RBAC); retention policy CRUD
+        // is accessed via `/api/v1/retention/policies` instead, which
+        // already matches the `/api/v1/retention` rule above.
+        || path.ends_with("/applicable-policies")
+        || path.ends_with("/retention-preview")
     {
         &config.retention_policy_service_url
     } else if path.starts_with("/api/v1/lineage-deletions") || path == "/api/v1/audit/gdpr/erase" {
@@ -142,7 +152,30 @@ pub async fn proxy_handler(
         && (path.ends_with("/versions")
             || path.ends_with("/transactions")
             || path.ends_with("/branches")
-            || path.contains("/branches/"))
+            || path.contains("/branches/")
+            // T6.x — Foundry "dataset views" (file-list views with their
+            // own schema) live in dataset-versioning-service. The
+            // catalog still owns the SQL-view routes (`/views/{view}`,
+            // `/views/{view}/preview`); we route the DVS-specific
+            // suffixes to the versioning service. P2's row preview
+            // sits at `/views/{view}/data` for the same reason — to
+            // avoid colliding with the catalog's SQL-view preview.
+            || path.ends_with("/views/current")
+            || path.ends_with("/views/at")
+            || (path.contains("/views/")
+                && (path.ends_with("/files")
+                    || path.ends_with("/schema")
+                    || path.ends_with("/data")))
+            // P3 — top-level `/files` and per-file download / upload
+            // routes for the Foundry "Backing filesystem" Files tab.
+            // Catalog still owns `/filesystem` (legacy directory listing)
+            // — different ending, so this rule doesn't shadow it.
+            || (path.ends_with("/files")
+                && !path.contains("/views/"))
+            || (path.contains("/files/") && path.ends_with("/download"))
+            || (path.contains("/transactions/") && path.ends_with("/files"))
+            // P3 — Storage details panel (manage role).
+            || path.ends_with("/storage-details"))
     {
         &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/datasets") || path.starts_with("/api/v2/filesystem") {
@@ -287,13 +320,8 @@ pub async fn proxy_handler(
         );
     };
 
-    let uri = format!(
-        "{upstream_base}{}",
-        req.uri()
-            .path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or("/")
-    );
+    let upstream_path_and_query = upstream_path_and_query(req.uri());
+    let uri = format!("{upstream_base}{upstream_path_and_query}");
 
     let Ok(uri) = uri.parse::<Uri>() else {
         return gateway_error(
@@ -477,6 +505,30 @@ fn apply_auth_context_headers(
     request
 }
 
+fn upstream_path_and_query(uri: &Uri) -> String {
+    let path = rewrite_upstream_path(uri.path());
+    match uri.query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path,
+    }
+}
+
+fn rewrite_upstream_path(path: &str) -> String {
+    if path == "/api/v1/datasets/catalog/facets" {
+        return "/v1/catalog/facets".to_string();
+    }
+
+    if let Some(rest) = path.strip_prefix("/api/v1/datasets") {
+        let canonical = format!("/v1/datasets{rest}");
+        if let Some(prefix) = canonical.strip_suffix("/filesystem") {
+            return format!("{prefix}/files");
+        }
+        return canonical;
+    }
+
+    path.to_string()
+}
+
 fn gateway_error(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
@@ -492,8 +544,14 @@ fn gateway_error(status: StatusCode, code: &str, message: &str) -> Response {
 
 #[cfg(test)]
 mod tests {
+    use axum::{Router, body::Body, routing::any};
     use serde_json::json;
+    use tower::ServiceExt;
     use uuid::Uuid;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path, query_param},
+    };
 
     use super::*;
     use auth_middleware::claims::SessionScope;
@@ -538,5 +596,187 @@ mod tests {
         assert!(enforce_zero_trust_scope(&claims, &Method::GET, "/api/v1/datasets").is_ok());
         assert!(enforce_zero_trust_scope(&claims, &Method::POST, "/api/v1/datasets").is_err());
         assert!(enforce_zero_trust_scope(&claims, &Method::GET, "/api/v1/pipelines").is_err());
+    }
+
+    #[test]
+    fn dataset_paths_rewrite_to_backend_v1_compatibility_surface() {
+        let id = Uuid::nil();
+        assert_eq!(rewrite_upstream_path("/api/v1/datasets"), "/v1/datasets");
+        assert_eq!(
+            rewrite_upstream_path(&format!("/api/v1/datasets/{id}/preview")),
+            format!("/v1/datasets/{id}/preview")
+        );
+        assert_eq!(
+            rewrite_upstream_path(&format!("/api/v1/datasets/{id}/schema")),
+            format!("/v1/datasets/{id}/schema")
+        );
+        assert_eq!(
+            rewrite_upstream_path(&format!("/api/v1/datasets/{id}/filesystem")),
+            format!("/v1/datasets/{id}/files")
+        );
+        assert_eq!(
+            rewrite_upstream_path(&format!("/api/v1/datasets/{id}/files")),
+            format!("/v1/datasets/{id}/files")
+        );
+        assert_eq!(
+            rewrite_upstream_path("/api/v1/datasets/catalog/facets"),
+            "/v1/catalog/facets"
+        );
+        assert_eq!(
+            rewrite_upstream_path("/api/v1/pipelines"),
+            "/api/v1/pipelines"
+        );
+    }
+
+    fn gateway_config(catalog_url: &str, versioning_url: &str) -> GatewayConfig {
+        let source = format!(
+            r#"
+                jwt_secret = "test-secret"
+                data_asset_catalog_service_url = "{catalog_url}"
+                dataset_versioning_service_url = "{versioning_url}"
+                dataset_quality_service_url = "{catalog_url}"
+            "#
+        );
+        ::config::Config::builder()
+            .add_source(::config::File::from_str(
+                &source,
+                ::config::FileFormat::Toml,
+            ))
+            .build()
+            .expect("gateway test config")
+            .try_deserialize::<GatewayConfig>()
+            .expect("gateway config deserialize")
+    }
+
+    fn test_router(config: GatewayConfig) -> Router {
+        Router::new()
+            .route("/api/v1/{*rest}", any(proxy_handler))
+            .with_state((config, Client::new(), JwtConfig::new("test-secret")))
+    }
+
+    async fn request(router: &Router, method: Method, uri: String) -> StatusCode {
+        let req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        router.clone().oneshot(req).await.expect("proxy").status()
+    }
+
+    async fn expect_mock(mock: &MockServer, method_name: &str, upstream_path: String) {
+        Mock::given(method(method_name))
+            .and(path(upstream_path))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "ok": true })))
+            .mount(mock)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn datasets_ui_routes_proxy_to_catalog_v1_endpoints() {
+        let catalog = MockServer::start().await;
+        let versioning = MockServer::start().await;
+        let router = test_router(gateway_config(&catalog.uri(), &versioning.uri()));
+        let id = Uuid::nil();
+
+        expect_mock(&catalog, "GET", "/v1/datasets".to_string()).await;
+        expect_mock(&catalog, "POST", "/v1/datasets".to_string()).await;
+        expect_mock(&catalog, "GET", format!("/v1/datasets/{id}")).await;
+        expect_mock(&catalog, "PATCH", format!("/v1/datasets/{id}")).await;
+        expect_mock(&catalog, "DELETE", format!("/v1/datasets/{id}")).await;
+        expect_mock(&catalog, "GET", format!("/v1/datasets/{id}/preview")).await;
+        expect_mock(&catalog, "GET", format!("/v1/datasets/{id}/schema")).await;
+        expect_mock(&catalog, "POST", format!("/v1/datasets/{id}/upload")).await;
+        // P3 — `/files` moved to dataset-versioning-service. The
+        // legacy `/filesystem` listing stays on the catalog and is
+        // covered by `dataset_filesystem_alias_and_versioning_routes_keep_compatibility`.
+        expect_mock(&catalog, "GET", "/v1/catalog/facets".to_string()).await;
+
+        let checks = vec![
+            (Method::GET, "/api/v1/datasets?page=1".to_string()),
+            (Method::POST, "/api/v1/datasets".to_string()),
+            (Method::GET, format!("/api/v1/datasets/{id}")),
+            (Method::PATCH, format!("/api/v1/datasets/{id}")),
+            (Method::DELETE, format!("/api/v1/datasets/{id}")),
+            (
+                Method::GET,
+                format!("/api/v1/datasets/{id}/preview?limit=25"),
+            ),
+            (Method::GET, format!("/api/v1/datasets/{id}/schema")),
+            (Method::POST, format!("/api/v1/datasets/{id}/upload")),
+            (Method::GET, "/api/v1/datasets/catalog/facets".to_string()),
+        ];
+
+        for (method, uri) in checks {
+            assert_eq!(
+                request(&router, method, uri.clone()).await,
+                StatusCode::OK,
+                "{uri} should proxy successfully"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn dataset_filesystem_alias_and_versioning_routes_keep_compatibility() {
+        let catalog = MockServer::start().await;
+        let versioning = MockServer::start().await;
+        let router = test_router(gateway_config(&catalog.uri(), &versioning.uri()));
+        let id = Uuid::nil();
+
+        // Catalog still serves the legacy `/files` listing reached
+        // through the `/filesystem` rewrite. The P3 top-level `/files`
+        // endpoint lives in the versioning service and is mocked below.
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/datasets/{id}/files")))
+            .and(query_param("path", "current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "entries": [] })))
+            .mount(&catalog)
+            .await;
+        expect_mock(&versioning, "GET", format!("/v1/datasets/{id}/versions")).await;
+        expect_mock(
+            &versioning,
+            "GET",
+            format!("/v1/datasets/{id}/transactions"),
+        )
+        .await;
+        // P3 — top-level files listing on the versioning service.
+        expect_mock(&versioning, "GET", format!("/v1/datasets/{id}/files")).await;
+
+        assert_eq!(
+            request(
+                &router,
+                Method::GET,
+                format!("/api/v1/datasets/{id}/filesystem?path=current"),
+            )
+            .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request(
+                &router,
+                Method::GET,
+                format!("/api/v1/datasets/{id}/versions"),
+            )
+            .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request(
+                &router,
+                Method::GET,
+                format!("/api/v1/datasets/{id}/transactions"),
+            )
+            .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request(
+                &router,
+                Method::GET,
+                format!("/api/v1/datasets/{id}/files?branch=master"),
+            )
+            .await,
+            StatusCode::OK
+        );
     }
 }

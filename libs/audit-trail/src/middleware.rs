@@ -54,7 +54,10 @@ pub struct AuditService<S> {
 
 impl<S> Service<Request<Body>> for AuditService<S>
 where
-    S: Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone + Send + 'static,
+    S: Service<Request<Body>, Response = Response<Body>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
     S::Future: Send + 'static,
 {
     type Response = Response<Body>;
@@ -107,12 +110,7 @@ mod tests {
             .route("/ping", get(|| async { "pong" }))
             .layer(audit_layer());
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/ping")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/ping").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);

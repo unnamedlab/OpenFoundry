@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use chrono::Utc;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -11,6 +12,7 @@ use crate::connectors;
 use crate::models::connection::{
     Connection, CreateConnectionRequest, ListConnectionsQuery, VALID_TYPES,
 };
+use crate::outbox as connection_outbox;
 
 /// POST /api/v1/connections
 pub async fn create_connection(
@@ -66,17 +68,26 @@ pub async fn create_connection(
     }
 
     let id = Uuid::now_v7();
-    let result = sqlx::query_as::<_, Connection>(
-        r#"INSERT INTO connections (id, name, connector_type, config, owner_id)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&body.name)
-    .bind(&body.connector_type)
-    .bind(&body.config)
-    .bind(claims.sub)
-    .fetch_one(&state.db)
+    let result = async {
+        let mut tx = state.db.begin().await?;
+        let conn = sqlx::query_as::<_, Connection>(
+            r#"INSERT INTO connections (id, name, connector_type, config, owner_id)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&body.name)
+        .bind(&body.connector_type)
+        .bind(&body.config)
+        .bind(claims.sub)
+        .fetch_one(&mut *tx)
+        .await?;
+        connection_outbox::emit(&mut tx, &connection_outbox::created(&conn))
+            .await
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        tx.commit().await?;
+        Ok::<Connection, sqlx::Error>(conn)
+    }
     .await;
 
     match result {
@@ -191,52 +202,62 @@ pub async fn test_connection(
     );
     let dispatch = async {
         match conn.connector_type.as_str() {
-        "bigquery" => {
-            connectors::bigquery::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "kafka" => {
-            connectors::kafka::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "kinesis" => {
-            connectors::kinesis::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "jdbc" => {
-            connectors::jdbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "mysql" => {
-            connectors::mysql::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "odbc" => {
-            connectors::odbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "parquet" => connectors::parquet::test_connection(&state, &conn.config).await,
-        "power_bi" => {
-            connectors::power_bi::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "postgresql" => connectors::postgres::test_connection(&conn.config).await,
-        "s3" => {
-            connectors::s3::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "gcs" | "google_cloud_storage" => connectors::gcs::test_connection(&conn.config).await,
-        "onelake" => connectors::onelake::test_connection(&conn.config).await,
-        "csv" => connectors::csv::test_connection(&state, &conn.config).await,
-        "json" => connectors::json::test_connection(&state, &conn.config).await,
-        "rest_api" => {
-            connectors::rest_api::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "salesforce" => {
-            connectors::salesforce::test_connection(&state, &conn.config, agent_url.as_deref())
-                .await
-        }
-        "sap" => connectors::sap::test_connection(&state, &conn.config, agent_url.as_deref()).await,
-        "snowflake" => {
-            connectors::snowflake::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "tableau" => {
-            connectors::tableau::test_connection(&state, &conn.config, agent_url.as_deref()).await
-        }
-        "iot" => connectors::iot::test_connection(&state, &conn.config, agent_url.as_deref()).await,
-        other => Err(format!("unsupported connector type: {other}")),
+            "bigquery" => {
+                connectors::bigquery::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "kafka" => {
+                connectors::kafka::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            "kinesis" => {
+                connectors::kinesis::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "jdbc" => {
+                connectors::jdbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            "mysql" => {
+                connectors::mysql::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            "odbc" => {
+                connectors::odbc::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            "parquet" => connectors::parquet::test_connection(&state, &conn.config).await,
+            "power_bi" => {
+                connectors::power_bi::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "postgresql" => connectors::postgres::test_connection(&conn.config).await,
+            "s3" => {
+                connectors::s3::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            "gcs" | "google_cloud_storage" => connectors::gcs::test_connection(&conn.config).await,
+            "onelake" => connectors::onelake::test_connection(&conn.config).await,
+            "csv" => connectors::csv::test_connection(&state, &conn.config).await,
+            "json" => connectors::json::test_connection(&state, &conn.config).await,
+            "rest_api" => {
+                connectors::rest_api::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "salesforce" => {
+                connectors::salesforce::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "sap" => {
+                connectors::sap::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            "snowflake" => {
+                connectors::snowflake::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "tableau" => {
+                connectors::tableau::test_connection(&state, &conn.config, agent_url.as_deref())
+                    .await
+            }
+            "iot" => {
+                connectors::iot::test_connection(&state, &conn.config, agent_url.as_deref()).await
+            }
+            other => Err(format!("unsupported connector type: {other}")),
         }
     };
     let test_result = dispatch.instrument(span).await;
@@ -253,11 +274,28 @@ pub async fn test_connection(
 
     // Update status
     let new_status = if success { "connected" } else { "error" };
-    let _ = sqlx::query("UPDATE connections SET status = $2, updated_at = NOW() WHERE id = $1")
+    let updated = async {
+        let mut tx = state.db.begin().await?;
+        let conn = sqlx::query_as::<_, Connection>(
+            "UPDATE connections
+                SET status = $2, updated_at = NOW()
+              WHERE id = $1
+              RETURNING *",
+        )
         .bind(connection_id)
         .bind(new_status)
-        .execute(&state.db)
-        .await;
+        .fetch_one(&mut *tx)
+        .await?;
+        connection_outbox::emit(&mut tx, &connection_outbox::status_changed(&conn))
+            .await
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        tx.commit().await?;
+        Ok::<Connection, sqlx::Error>(conn)
+    }
+    .await;
+    if let Err(error) = updated {
+        tracing::error!("update connection status failed: {error}");
+    }
 
     // Tarea 9 — observabilidad: emit `connector_test_total{connector,result}`.
     state.metrics.record_test(&conn.connector_type, success);
@@ -276,14 +314,31 @@ pub async fn delete_connection(
     State(state): State<AppState>,
     Path(connection_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let result = sqlx::query("DELETE FROM connections WHERE id = $1")
-        .bind(connection_id)
-        .execute(&state.db)
-        .await;
+    let result = async {
+        let mut tx = state.db.begin().await?;
+        let conn = sqlx::query_as::<_, Connection>("SELECT * FROM connections WHERE id = $1")
+            .bind(connection_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some(conn) = conn else {
+            tx.rollback().await.ok();
+            return Ok::<Option<Connection>, sqlx::Error>(None);
+        };
+        sqlx::query("DELETE FROM connections WHERE id = $1")
+            .bind(connection_id)
+            .execute(&mut *tx)
+            .await?;
+        connection_outbox::emit(&mut tx, &connection_outbox::deleted(&conn, Utc::now()))
+            .await
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        tx.commit().await?;
+        Ok(Some(conn))
+    }
+    .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
-        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+        Ok(Some(_)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("delete connection failed: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

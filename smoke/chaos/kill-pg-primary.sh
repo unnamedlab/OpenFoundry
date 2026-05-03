@@ -4,7 +4,7 @@
 #
 # Justificación de selectores:
 #   - El template base de CNPG está en
-#     `infra/k8s/cnpg/templates/cluster.yaml` con `instances=3` y
+#     `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml` con `instances=3` y
 #     `minSyncReplicas=maxSyncReplicas=1`, así que matar el primary debe
 #     promover una réplica síncrona sin pérdida.
 #   - CloudNativePG etiqueta cada instancia con

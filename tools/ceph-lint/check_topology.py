@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Rook-Ceph topology contract lint.
 
-Validates the Ceph manifests under ``infra/k8s/rook/`` against the quorum,
+Validates the Ceph manifests under ``infra/k8s/platform/manifests/rook/`` against the quorum,
 high-availability and rack/AZ-awareness invariants the lakehouse and Kafka
 tiered storage depend on. Fails (exit code 1) on any drift. The intent is
 the same as ``tools/kafka-lint/check_kraft.py``: encode the contract once
 so accidental regressions in PR review are impossible.
 
 The contract checked here mirrors the P0 requirements documented in the
-ROADMAP and in ``infra/k8s/rook/README.md``:
+ROADMAP and in ``infra/k8s/platform/manifests/rook/README.md``:
 
     1. Mon quorum: ``mon.count`` is odd and ``>= 3``;
        ``allowMultiplePerNode`` is ``false``.
@@ -55,8 +55,8 @@ except ImportError:  # pragma: no cover - exercised only when PyYAML missing
 
 
 DEFAULT_MANIFESTS = (
-    Path("infra/k8s/rook/cluster.yaml"),
-    Path("infra/k8s/rook/objectstore.yaml"),
+    Path("infra/k8s/platform/manifests/rook/cluster.yaml"),
+    Path("infra/k8s/platform/manifests/rook/objectstore.yaml"),
 )
 
 # Topology keys that count as "AZ-aware or stronger". A pure host-level key
@@ -80,7 +80,7 @@ ACCEPTABLE_FAILURE_DOMAINS = frozenset(
 # Pools knowingly accepted at ``failureDomain: host`` because they pre-date
 # the contract and migrating them in-place forces a destructive bucket
 # re-creation. Every entry MUST be documented in
-# ``infra/k8s/rook/README.md`` (see the "CRUSH layout and pool assignment"
+# ``infra/k8s/platform/manifests/rook/README.md`` (see the "CRUSH layout and pool assignment"
 # table) so the deuda técnica stays visible.
 LEGACY_HOST_FAILURE_DOMAIN_ALLOWLIST: frozenset[tuple[str, str, str]] = (
     frozenset(

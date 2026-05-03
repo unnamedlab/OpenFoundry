@@ -1,0 +1,138 @@
+---
+# Strimzi Kafka cluster for OpenFoundry's data plane.
+#
+# License rationale: Strimzi is Apache-2.0. We deliberately avoid Confluent
+# Platform (Confluent Community License is *not* OSI-approved). Schema
+# Registry duties are taken over by Apicurio Registry (Apache-2.0) — see
+# `apicurio-registry.yaml`.
+#
+# Topology rationale:
+#   * KRaft mode (no ZooKeeper). The `KafkaNodePool` below carries both
+#     `controller` and `broker` roles on the same set of pods (combined
+#     mode) which is supported in Strimzi >= 0.36 with the
+#     `strimzi.io/kraft: enabled` annotation on the Kafka resource.
+#   * 3 replicas with `min.insync.replicas=2` and
+#     `default.replication.factor=3` — tolerates one broker loss with no
+#     data loss for `acks=all` producers.
+#   * JBOD with two PersistentVolumes per broker on the `ceph-rbd`
+#     StorageClass (provisioned by Rook — see infra/k8s/platform/manifests/rook). JBOD lets
+#     us add/remove disks without re-balancing the whole pod.
+#   * `unclean.leader.election.enable=false` to never trade durability for
+#     availability.
+#
+# Apply order (see README):
+#   1. Install the Strimzi operator via the upstream Helm chart.
+#   2. kubectl apply -f kafka-cluster.yaml
+#   3. kubectl apply -f kafka-topics.yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: kafka
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+spec:
+  replicas: 3
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 200Gi
+        kraftMetadata: shared
+        deleteClaim: false
+        class: ceph-rbd
+      - id: 1
+        type: persistent-claim
+        size: 200Gi
+        deleteClaim: false
+        class: ceph-rbd
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "2"
+      memory: 6Gi
+  jvmOptions:
+    -Xms: 3072m
+    -Xmx: 3072m
+  template:
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              strimzi.io/cluster: openfoundry
+              strimzi.io/pool-name: kafka
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: openfoundry
+  namespace: kafka
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: 3.8.0
+    metadataVersion: 3.8-IV0
+    # Storage and replicas are owned by the KafkaNodePool above; the fields
+    # here are only required by the CRD schema and ignored when node pools
+    # are enabled. They are kept consistent for clarity.
+    replicas: 3
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: tls
+    config:
+      # ---- Durability ----
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      unclean.leader.election.enable: false
+      # ---- Performance / retention ----
+      auto.create.topics.enable: false
+      log.retention.hours: 168
+      num.partitions: 12
+      compression.type: producer
+      # ---- Rack awareness / fetch-from-follower (see ADR-0012) ----
+      replica.selector.class: >-
+        org.apache.kafka.common.replica.RackAwareReplicaSelector
+    rack:
+      topologyKey: topology.kubernetes.io/zone
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: 200Gi
+          kraftMetadata: shared
+          deleteClaim: false
+          class: ceph-rbd
+        - id: 1
+          type: persistent-claim
+          size: 200Gi
+          deleteClaim: false
+          class: ceph-rbd
+  # Strimzi requires the `entityOperator` block to manage KafkaTopic /
+  # KafkaUser CRs. Both operators are HA-by-default within the cluster
+  # (single instance, but auto-restarted by the cluster operator).
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

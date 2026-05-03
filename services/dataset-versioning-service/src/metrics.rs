@@ -19,7 +19,8 @@
 use once_cell::sync::Lazy;
 use prometheus::{
     Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-    register_histogram, register_int_counter, register_int_counter_vec, register_int_gauge_vec,
+    register_histogram, register_int_counter, register_int_counter_vec, register_int_gauge,
+    register_int_gauge_vec,
 };
 
 /// Legacy generic counter retained from Bloque 7 for the smoke test.
@@ -93,6 +94,70 @@ pub static DATASET_VIEW_COMPUTE_DURATION_SECONDS: Lazy<Histogram> = Lazy::new(||
     .expect("register dataset_view_compute_duration_seconds")
 });
 
+/// Total branches created, labelled by source-kind (`root` |
+/// `child_from_branch` | `child_from_transaction`). Mirrors
+/// `BranchSourceKind::metric_label` in `handlers::foundry`.
+pub static DATASET_BRANCHES_CREATED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        Opts::new(
+            "dataset_branches_created_total",
+            "Total branches minted, labelled by P1 source-kind"
+        ),
+        &["kind"],
+    )
+    .expect("register dataset_branches_created_total")
+});
+
+/// Sampled gauge — number of active branches that currently have an
+/// OPEN transaction. Refreshed on every transaction lifecycle event
+/// (`start_transaction` / commit / abort) and on demand via
+/// `metrics::refresh_branch_gauges`.
+pub static DATASET_BRANCHES_WITH_OPEN_TX: Lazy<IntGauge> = Lazy::new(|| {
+    register_int_gauge!(
+        "dataset_branches_with_open_tx",
+        "Active dataset branches that currently carry an OPEN transaction"
+    )
+    .expect("register dataset_branches_with_open_tx")
+});
+
+/// Sampled gauge — total active branches, labelled by `is_root`.
+/// Pre-registered with both label values at boot so dashboard panels
+/// render immediately even before the first sample.
+pub static DATASET_BRANCHES_TOTAL: Lazy<IntGaugeVec> = Lazy::new(|| {
+    register_int_gauge_vec!(
+        Opts::new(
+            "dataset_branches_total",
+            "Active dataset branches, labelled by is_root"
+        ),
+        &["is_root"],
+    )
+    .expect("register dataset_branches_total")
+});
+
+/// P4 — branches archived by the retention worker. `reason` is
+/// `ttl` for automatic eligibility runs, `manual` when the archive
+/// was forced via the admin endpoint.
+pub static DATASET_BRANCHES_ARCHIVED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        Opts::new(
+            "dataset_branches_archived_total",
+            "Branches archived, labelled by reason (ttl|manual)",
+        ),
+        &["reason"],
+    )
+    .expect("register dataset_branches_archived_total")
+});
+
+/// P4 — branches that *would* be archived on the next worker tick.
+/// Sampled at the end of every `retention_worker::run_once`.
+pub static DATASET_BRANCHES_ARCHIVE_ELIGIBLE: Lazy<IntGauge> = Lazy::new(|| {
+    register_int_gauge!(
+        "dataset_branches_archive_eligible",
+        "Branches that match the retention worker's archive criteria right now",
+    )
+    .expect("register dataset_branches_archive_eligible")
+});
+
 /// Branch fallback resolution outcomes. `hit` = a fallback branch
 /// satisfied a read; `miss` = no fallback configured / none usable.
 pub static DATASET_BRANCH_FALLBACK_RESOLUTIONS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
@@ -153,4 +218,47 @@ pub fn init() {
     ] {
         let _ = DATASET_RBAC_DENIALS_TOTAL.with_label_values(&[op]);
     }
+    for kind in ["root", "child_from_branch", "child_from_transaction"] {
+        let _ = DATASET_BRANCHES_CREATED_TOTAL.with_label_values(&[kind]);
+    }
+    let _ = DATASET_BRANCHES_WITH_OPEN_TX.get();
+    for is_root in ["true", "false"] {
+        let _ = DATASET_BRANCHES_TOTAL.with_label_values(&[is_root]);
+    }
+    for reason in ["ttl", "manual"] {
+        let _ = DATASET_BRANCHES_ARCHIVED_TOTAL.with_label_values(&[reason]);
+    }
+    let _ = DATASET_BRANCHES_ARCHIVE_ELIGIBLE.get();
+}
+
+/// Sample DB-derived gauges. Cheap query, but not free — call from
+/// branch / transaction lifecycle hooks rather than every request.
+pub async fn refresh_branch_gauges(
+    pool: &sqlx::PgPool,
+) -> Result<(), sqlx::Error> {
+    let with_open_tx: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(DISTINCT t.branch_id)
+             FROM dataset_transactions t
+             JOIN dataset_branches b ON b.id = t.branch_id
+            WHERE t.status = 'OPEN' AND b.deleted_at IS NULL"#,
+    )
+    .fetch_one(pool)
+    .await?;
+    DATASET_BRANCHES_WITH_OPEN_TX.set(with_open_tx);
+
+    let counts: (i64, i64) = sqlx::query_as(
+        r#"SELECT
+              COUNT(*) FILTER (WHERE parent_branch_id IS NULL) AS roots,
+              COUNT(*) FILTER (WHERE parent_branch_id IS NOT NULL) AS children
+            FROM dataset_branches WHERE deleted_at IS NULL"#,
+    )
+    .fetch_one(pool)
+    .await?;
+    DATASET_BRANCHES_TOTAL
+        .with_label_values(&["true"])
+        .set(counts.0);
+    DATASET_BRANCHES_TOTAL
+        .with_label_values(&["false"])
+        .set(counts.1);
+    Ok(())
 }

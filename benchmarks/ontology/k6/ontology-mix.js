@@ -19,7 +19,6 @@ import http from 'k6/http';
 import { check, group, fail } from 'k6';
 import { SharedArray } from 'k6/data';
 import { Rate } from 'k6/metrics';
-import { uuidv4 } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 const BASE_URL = __ENV.OF_BENCH_BASE_URL || fail('OF_BENCH_BASE_URL no definida');
 const TOKEN = __ENV.OF_BENCH_TOKEN || fail('OF_BENCH_TOKEN no definida');
@@ -69,6 +68,26 @@ export const options = {
       'p(95)<15',
       'p(99)<35',
     ],
+    'http_req_duration{group:::read-by-id,consistency:strong}': [
+      'p(50)<5',
+      'p(95)<15',
+      'p(99)<35',
+    ],
+    'http_req_duration{group:::read-by-id,consistency:eventual}': [
+      'p(50)<5',
+      'p(95)<15',
+      'p(99)<35',
+    ],
+    'http_req_duration{group:::read-by-type}': [
+      'p(50)<5',
+      'p(95)<20',
+      'p(99)<50',
+    ],
+    'http_req_duration{group:::action-execute}': [
+      'p(50)<20',
+      'p(95)<80',
+      'p(99)<200',
+    ],
     'http_req_failed': ['rate<0.001'],
     // Sustained throughput.
     'iterations': ['rate>=4950'],
@@ -101,6 +120,20 @@ function authHeaders(extra) {
   );
 }
 
+function pseudoUuid() {
+  // Good enough for a per-iteration idempotency key; uniqueness is scoped by
+  // VU + iteration + this random suffix, not by cryptographic strength.
+  const chars = '0123456789abcdef';
+  const sections = [8, 4, 4, 4, 12];
+  return sections.map((size) => {
+    let out = '';
+    for (let i = 0; i < size; i += 1) {
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
+  }).join('-');
+}
+
 function readById() {
   group('read-by-id', () => {
     const id = pickId();
@@ -123,7 +156,7 @@ function readByType() {
   group('read-by-type', () => {
     const consistency = pickConsistency();
     const res = http.get(
-      `${BASE_URL}/api/v1/ontology/objects/${TENANT}/by-type/${TYPE_ID}?limit=50`,
+      `${BASE_URL}/api/v1/ontology/objects/${TENANT}/by-type/${TYPE_ID}?size=50`,
       {
         headers: authHeaders({ 'X-Consistency': consistency }),
         tags: { group: 'read-by-type', consistency },
@@ -137,14 +170,14 @@ function readByType() {
 }
 
 function executeAction() {
-  group('write', () => {
+  group('action-execute', () => {
     const targetId = pickId();
     const payload = JSON.stringify({
       tenant_id: TENANT,
       target_object_id: targetId,
       // event_id determinista por iteración VU/iter — la idempotencia del
       // helper `apply_object_with_outbox` (S1.4.c) absorbe cualquier replay.
-      idempotency_key: `${__VU}-${__ITER}-${uuidv4()}`,
+      idempotency_key: `${__VU}-${__ITER}-${pseudoUuid()}`,
       payload: { source: 'k6-bench' },
     });
     const res = http.post(
@@ -152,7 +185,7 @@ function executeAction() {
       payload,
       {
         headers: authHeaders({ 'Content-Type': 'application/json' }),
-        tags: { group: 'write' },
+        tags: { group: 'action-execute' },
       },
     );
     const ok = check(res, {

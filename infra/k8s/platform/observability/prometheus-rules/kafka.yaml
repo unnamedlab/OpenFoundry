@@ -1,0 +1,176 @@
+# Prometheus alerting rules for Strimzi-managed Kafka clusters.
+#
+# Source repo:  infra/k8s/platform/manifests/strimzi/
+# Scrape:       Strimzi exposes JMX metrics via the Cluster Operator's
+#               kafkaExporter and per-broker JMX exporter.
+# Validation:   `promtool check rules infra/k8s/platform/observability/prometheus-rules/kafka.yaml`
+#
+# SLI rationale (upstream-sourced thresholds):
+#   * UnderReplicatedPartitions: Kafka itself documents this as the canonical
+#     "broker is in trouble" signal — any value > 0 means at least one
+#     partition is missing one or more in-sync replicas.
+#     https://kafka.apache.org/documentation/#monitoring
+#   * IsrShrinksPerSec: Strimzi/Confluent monitoring guides flag sustained
+#     ISR shrinks as the early warning before under-replication.
+#   * Offline partitions / broker down: hard availability signal documented
+#     by Strimzi (KafkaRoller / cluster operator runbook).
+#   * Consumer lag: Strimzi's kafka-exporter exposes
+#     `kafka_consumergroup_lag` per (consumergroup, topic, partition).
+#     A lag spike that grows over a 15m window is the standard "consumer
+#     can't keep up" SLI.
+groups:
+  - name: kafka.availability
+    rules:
+      - alert: KafkaBrokerDown
+        expr: max by (cluster, kafka_broker) (up{job=~"kafka.*"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Kafka broker {{ $labels.kafka_broker }} is down"
+          description: |
+            Broker `{{ $labels.kafka_broker }}` in cluster
+            `{{ $labels.cluster }}` has been unreachable for 2m.
+            Check Strimzi `Kafka` CR status and pod events in the
+            cluster namespace (see infra/k8s/platform/manifests/strimzi/).
+
+      - alert: KafkaBrokerDownInZone
+        # If an AZ loses all of its brokers, durability guarantees of
+        # `min.insync.replicas=2` across 3 AZs are at risk.
+        expr: |
+          count by (cluster, zone) (up{job=~"kafka.*"} == 0)
+            ==
+          count by (cluster, zone) (up{job=~"kafka.*"})
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "All Kafka brokers in zone {{ $labels.zone }} are down"
+          description: |
+            Every broker in availability zone `{{ $labels.zone }}` for
+            cluster `{{ $labels.cluster }}` is down. Cross-AZ replication
+            is degraded; investigate the zone before applying any
+            rolling change.
+
+      - alert: KafkaUnderReplicatedPartitions
+        # Kafka documents this counter as the primary cluster-health signal.
+        # See https://kafka.apache.org/documentation/#monitoring
+        expr: sum by (cluster) (kafka_server_replicamanager_underreplicatedpartitions) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: "Cluster {{ $labels.cluster }} has under-replicated partitions"
+          description: |
+            `UnderReplicatedPartitions > 0` for 10m. A broker is lagging
+            or down; risk of data loss if another broker fails before
+            replication catches up.
+
+      - alert: KafkaOfflinePartitions
+        expr: sum by (cluster) (kafka_controller_kafkacontroller_offlinepartitionscount) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Cluster {{ $labels.cluster }} has offline partitions"
+          description: |
+            One or more partitions have no live leader. Producers will
+            fail and consumers will stall. This is a page-on-call event.
+
+      - alert: KafkaUnderMinIsrPartitions
+        # Distinct from UnderReplicatedPartitions: this counter goes
+        # non-zero only when a partition's ISR has dropped *below*
+        # `min.insync.replicas` (=2 in this cluster — see the KRaft
+        # contract enforced by tools/kafka-lint/check_kraft.py). At that
+        # point any producer using `acks=all` (which is every producer
+        # in event-bus-data) will start receiving NotEnoughReplicas
+        # errors — i.e. the durability contract is actively broken,
+        # not merely at risk. The JMX metric is exposed by the broker
+        # as kafka.server:type=ReplicaManager,name=UnderMinIsrPartitionCount.
+        expr: sum by (cluster) (kafka_server_replicamanager_underminisrpartitioncount) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Cluster {{ $labels.cluster }} has partitions below min.insync.replicas"
+          description: |
+            `UnderMinIsrPartitionCount > 0` for 2m on cluster
+            `{{ $labels.cluster }}`. Producers configured with
+            `acks=all` are failing writes (NotEnoughReplicas). This
+            violates the data-plane durability contract — page on-call.
+
+      - alert: KafkaActiveControllerCountAbnormal
+        # In KRaft mode (enforced by tools/kafka-lint/check_kraft.py)
+        # exactly one node in the controller quorum must report
+        # ActiveControllerCount=1 at any given time. Sum across the
+        # cluster:
+        #   * 0  -> no active controller; metadata writes (topic
+        #          create/alter, leader election) are stalled.
+        #   * >1 -> split-brain; two nodes both believe they are the
+        #          active controller. This should be impossible under
+        #          Raft but is exactly the failure mode worth paging
+        #          for if it ever appears.
+        # Wait 3m to ride out normal controller failover (Strimzi
+        # rolling restart, leader re-election after a node loss).
+        # Source metric: kafka.controller:type=KafkaController,
+        # name=ActiveControllerCount.
+        expr: sum by (cluster) (kafka_controller_kafkacontroller_activecontrollercount) != 1
+        for: 3m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Cluster {{ $labels.cluster }} active controller count = {{ $value }} (expected 1)"
+          description: |
+            `sum(ActiveControllerCount) = {{ $value }}` on cluster
+            `{{ $labels.cluster }}` for 3m. KRaft expects exactly
+            one active controller. 0 means the quorum has lost
+            leadership (no metadata writes); >1 means split-brain.
+            Inspect controller-pool pods and KRaft quorum status
+            (`kafka-metadata-quorum.sh --status`).
+
+  - name: kafka.replication
+    rules:
+      - alert: KafkaIsrShrinkRateHigh
+        # Sustained ISR shrinks precede under-replication; threshold
+        # follows the Confluent monitoring guide ("> 0 over a sustained
+        # period is unusual"). We require 5m of non-zero average to avoid
+        # paging on transient leader elections.
+        expr: |
+          avg by (cluster) (rate(kafka_server_replicamanager_isrshrinkspersec[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: "Sustained ISR shrinks on cluster {{ $labels.cluster }}"
+          description: |
+            Average ISR shrink rate > 0 for 5m. Investigate broker
+            GC pauses, network saturation, or disk pressure before this
+            escalates to UnderReplicatedPartitions.
+
+  - name: kafka.consumers
+    rules:
+      - alert: KafkaConsumerGroupLagHigh
+        # Threshold per Strimzi/kafka-exporter guidance: any consumer
+        # group sustaining > 100k records of lag for 15m is a real
+        # backlog regardless of topic throughput. Tune per-topic via
+        # consumer group label routing if needed.
+        expr: |
+          sum by (cluster, consumergroup, topic) (kafka_consumergroup_lag) > 100000
+        for: 15m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: "Consumer group {{ $labels.consumergroup }} lag > 100k on {{ $labels.topic }}"
+          description: |
+            Consumer group `{{ $labels.consumergroup }}` is lagging
+            `{{ $value }}` records on topic `{{ $labels.topic }}` in
+            cluster `{{ $labels.cluster }}` for 15m. Scale consumers
+            or investigate slow handlers.

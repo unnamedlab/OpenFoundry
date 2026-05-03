@@ -1,5 +1,7 @@
-//! Checkpoint domain model — see migration
-//! `20260502140000_streaming_topology_checkpoints.sql` for the storage schema.
+//! Checkpoint domain model.
+//!
+//! The records live in the streaming runtime store (memory + optional
+//! Cassandra metadata) instead of the Postgres control-plane schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

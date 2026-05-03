@@ -23,24 +23,20 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+temporalio-client = { version = "0.2", optional = true }
+temporalio-common = { version = "0.2", optional = true }
+url = { workspace = true, optional = true }
 
-# The official Rust SDK (`temporal-client`/`temporal-sdk-core`, repo
-# `temporalio/sdk-core`) is still pre-release as of 2026-05. We do
-# **not** take a hard dependency on it from the workspace yet —
-# instead this crate defines a `WorkflowClient` trait that domain code
-# uses (`Arc<dyn WorkflowClient>` pattern, mirroring `Arc<dyn
-# ObjectStore>` from S1). The concrete gRPC-backed implementation
-# lands behind the `grpc` feature once the upstream API stabilises;
-# the crate ships today with a `NoopWorkflowClient` for tests and a
-# `LoggingWorkflowClient` for local development.
+# The official Rust SDK (`temporalio-client`/`temporalio-common`, repo
+# `temporalio/sdk-core`) is still pre-release as of 2026-05, so the
+# workspace keeps it behind the `WorkflowClient` trait. Production
+# services enable `grpc` to talk to Temporal Frontend; unit tests can
+# keep using `NoopWorkflowClient` or their own mock implementation.
 
 [features]
 default = []
-# Reserved for the gRPC implementation against Temporal Frontend.
-# When enabled, pulls in the official `temporal-client` crate plus
-# `tonic`. Disabled by default so the workspace compiles without
-# network-bound prereleases.
-grpc = []
+# gRPC implementation against Temporal Frontend.
+grpc = ["dep:temporalio-client", "dep:temporalio-common", "dep:url"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

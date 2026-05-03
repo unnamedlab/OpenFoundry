@@ -54,7 +54,13 @@ pub mod contract;
 pub fn sanitize_doc_type(s: &str) -> String {
     s.to_ascii_lowercase()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -126,10 +132,7 @@ mod tests {
             BackendChoice::parse("OpenSearch"),
             Some(BackendChoice::OpenSearch)
         );
-        assert_eq!(
-            BackendChoice::parse("os"),
-            Some(BackendChoice::OpenSearch)
-        );
+        assert_eq!(BackendChoice::parse("os"), Some(BackendChoice::OpenSearch));
         assert_eq!(BackendChoice::parse("redis"), None);
     }
 

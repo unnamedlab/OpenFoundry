@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-};
+use std::{collections::HashMap, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use cron::Schedule;
@@ -10,12 +7,9 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::{
-        engine::{self, ExecutionEnvironment, ExecutionRequest, NodeResult},
-        lineage,
-    },
+    domain::engine::{self, ExecutionEnvironment, ExecutionRequest, NodeResult},
     models::{
-        pipeline::{Pipeline, PipelineNode, PipelineRetryPolicy, PipelineScheduleConfig},
+        pipeline::{Pipeline, PipelineRetryPolicy, PipelineScheduleConfig},
         run::PipelineRun,
     },
 };
@@ -123,10 +117,11 @@ pub async fn start_pipeline_run(
     .await
     .map_err(|error| error.to_string())?;
 
-    if let Some(results) = results.as_ref() {
-        if let Err(error) = record_pipeline_lineage(state, pipeline, &nodes, results).await {
-            tracing::warn!(pipeline_id = %pipeline.id, "pipeline lineage recording failed: {error}");
-        }
+    if results.is_some() {
+        tracing::debug!(
+            pipeline_id = %pipeline.id,
+            "skipping pipeline-owned PG lineage writes; lineage-service is the operational boundary"
+        );
     }
 
     if trigger_type == "scheduled" {
@@ -373,107 +368,4 @@ fn finalize_execution_context(context: &Value, results: &[NodeResult]) -> Value 
         );
     }
     context
-}
-
-async fn record_pipeline_lineage(
-    state: &AppState,
-    pipeline: &Pipeline,
-    nodes: &[PipelineNode],
-    results: &[NodeResult],
-) -> Result<(), sqlx::Error> {
-    let completed_nodes: HashSet<&str> = results
-        .iter()
-        .filter(|result| result.status == "completed")
-        .map(|result| result.node_id.as_str())
-        .collect();
-
-    for node in nodes {
-        if !completed_nodes.contains(node.id.as_str()) {
-            continue;
-        }
-
-        let Some(target_dataset_id) = node.output_dataset_id else {
-            continue;
-        };
-
-        for source_dataset_id in &node.input_dataset_ids {
-            lineage::record_lineage(
-                &state.db,
-                *source_dataset_id,
-                target_dataset_id,
-                Some(pipeline.id),
-                Some(&node.id),
-            )
-            .await?;
-        }
-
-        for mapping in node.column_mappings() {
-            let Some(source_dataset_id) = mapping
-                .source_dataset_id
-                .or_else(|| node.input_dataset_ids.first().copied())
-            else {
-                continue;
-            };
-
-            lineage::record_column_lineage(
-                &state.db,
-                source_dataset_id,
-                &mapping.source_column,
-                target_dataset_id,
-                &mapping.target_column,
-                Some(pipeline.id),
-                Some(&node.id),
-            )
-            .await?;
-        }
-
-        if node.transform_type == "passthrough" {
-            let Some(source_dataset_id) = node.input_dataset_ids.first().copied() else {
-                continue;
-            };
-
-            for column in identity_columns(node) {
-                lineage::record_column_lineage(
-                    &state.db,
-                    source_dataset_id,
-                    &column,
-                    target_dataset_id,
-                    &column,
-                    Some(pipeline.id),
-                    Some(&node.id),
-                )
-                .await?;
-            }
-        }
-
-        if let Err(error) = lineage::propagate_pipeline_runtime_lineage(
-            state,
-            pipeline,
-            &node.id,
-            &node.label,
-            &node.transform_type,
-            &node.input_dataset_ids,
-            target_dataset_id,
-            node.config
-                .get("lineage")
-                .and_then(|value| value.get("marking"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        )
-        .await
-        {
-            tracing::warn!(pipeline_id = %pipeline.id, node_id = %node.id, "generalized lineage propagation failed: {error}");
-        }
-    }
-
-    Ok(())
-}
-
-fn identity_columns(node: &PipelineNode) -> Vec<String> {
-    node.config
-        .get("identity_columns")
-        .or_else(|| node.config.get("columns"))
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_default()
 }

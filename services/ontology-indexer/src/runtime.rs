@@ -172,7 +172,7 @@ pub async fn process_message(
 
 /// Prometheus metric names. Pinned so dashboards and alert rules
 /// can reference them as constants (see
-/// `infra/k8s/observability/prometheus-rules-indexer.yaml`).
+/// `infra/k8s/platform/manifests/observability/prometheus-rules-indexer.yaml`).
 pub mod metrics {
     /// Histogram (seconds): gap between `event.created_at` (Kafka
     /// record timestamp) and `index.applied_at` (post-`index()`

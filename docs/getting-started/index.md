@@ -22,8 +22,9 @@ and [`infra/k8s/helm/MIGRATION.md`](https://github.com/diocrafts/OpenFoundry/blo
 - `of-ml-aip` — model catalog/deployment, agent runtime, LLM, retrieval, eval.
 - `of-apps-ops` — apps, notebook, exploratory, workflow, audit, telemetry, federation, code repo, SDK, entity-resolution.
 
-The legacy umbrella `infra/k8s/helm/open-foundry/` is deprecated and
-will be removed on **2026-08-01**.
+The legacy umbrella chart was removed on **2026-05-02**. Deployments
+now go through the five split charts plus the shared profile overlays
+under `infra/k8s/helm/profiles/`.
 
 ## Why this section exists
 

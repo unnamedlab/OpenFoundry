@@ -1,4 +1,4 @@
-use auth_middleware::JwtConfig;
+use auth_middleware::jwt::JwtConfig;
 use axum::{Router, middleware as axum_mw, routing::any};
 use reqwest::Client;
 

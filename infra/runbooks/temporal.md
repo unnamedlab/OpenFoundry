@@ -2,7 +2,7 @@
 
 OpenFoundry runs **Apache Temporal** on top of the existing Cassandra
 cluster (see [`infra/runbooks/cassandra.md`](cassandra.md)). The
-deployment lives in [`infra/k8s/temporal/`](../k8s/temporal/) and is
+deployment lives in [`infra/k8s/platform/manifests/temporal/`](../k8s/platform/manifests/temporal/) and is
 managed by Flux. This runbook is the on-call entry point.
 
 ADRs:
@@ -77,7 +77,7 @@ persistence latency, task queue lag.
 ### Bump the chart minor
 
 The chart and the server image are tracked together. Renovate opens a
-PR against `infra/k8s/temporal/values-prod.yaml` and
+PR against `infra/k8s/platform/manifests/temporal/values-prod.yaml` and
 `helm-release.yaml`. After merge, Flux reconciles the upgrade.
 
 ### Rotate Cassandra credentials
@@ -120,7 +120,7 @@ SLOs of ADR-0012 §A.3 still apply.
 
 ## 6. Decommission
 
-Per the README in `infra/k8s/temporal/`:
+Per the README in `infra/k8s/platform/manifests/temporal/`:
 
 ```bash
 helm uninstall temporal -n temporal

@@ -32,8 +32,10 @@ RUN apk add --no-cache ca-certificates && \
 
 COPY --from=builder /tmp/workflow-automation-worker /usr/local/bin/workflow-automation-worker
 
+ENV TEMPORAL_ADDRESS=temporal-frontend.temporal.svc.cluster.local:7233
 ENV TEMPORAL_HOST_PORT=temporal-frontend.temporal.svc.cluster.local:7233
 ENV TEMPORAL_NAMESPACE=default
+ENV TEMPORAL_TASK_QUEUE=openfoundry.workflow-automation
 ENV OF_LOG_LEVEL=info
 ENV METRICS_ADDR=:9090
 

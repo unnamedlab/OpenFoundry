@@ -1,0 +1,59 @@
+syntax = "proto3";
+package open_foundry.dataset;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Foundry-style dataset branch.
+//
+// Mirrors the section "Dataset branches" of the Foundry "Branching" doc:
+//
+//   * `master` is the canonical root branch (parent_branch_rid empty &
+//     is_root = true).
+//   * Child branches carry a single parent (`parent_branch_rid`) and may
+//     be created from another branch's HEAD or from a specific
+//     committed transaction (`created_from_transaction_rid`).
+//   * `head_transaction_rid` is the latest COMMITTED transaction
+//     visible on this branch — it does not advance until commit.
+//   * `fallback_chain` is the ordered list of branch names a build
+//     falls back to when a dataset doesn't carry the requested branch.
+//   * `labels` carry free-form metadata (persona, ticket, ...) used by
+//     the UI / search facets.
+message Branch {
+  // ri.foundry.main.branch.<uuid>
+  string rid = 1;
+  // ri.foundry.main.dataset.<uuid>
+  string dataset_rid = 2;
+  string name = 3;
+  bool is_root = 4;
+  // Empty when is_root = true.
+  string parent_branch_rid = 5;
+  // Empty when the branch has no committed transactions yet.
+  string head_transaction_rid = 6;
+  // Set when the branch was created via `from_transaction_rid`; differs
+  // from `head_transaction_rid` when later commits move HEAD forward.
+  string created_from_transaction_rid = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp last_activity_at = 9;
+  repeated string fallback_chain = 10;
+  map<string, string> labels = 11;
+  bool has_open_transaction = 12;
+}
+
+message CreateBranchRequest {
+  // Dataset RID (ri.foundry.main.dataset.<uuid>) or bare UUID.
+  string dataset_rid = 1;
+  string name = 2;
+  oneof source {
+    // Create a child branch from another branch's HEAD.
+    string from_branch = 3;
+    // Create a child branch pointing at a specific COMMITTED
+    // transaction. The new branch's parent is the transaction's branch.
+    string from_transaction_rid = 4;
+    // Create a root branch (no parent). Only valid when the dataset has
+    // no other branches yet.
+    google.protobuf.Empty as_root = 5;
+  }
+  repeated string fallback_chain = 6;
+  map<string, string> labels = 7;
+}

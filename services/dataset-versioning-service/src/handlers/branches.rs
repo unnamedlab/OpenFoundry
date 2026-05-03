@@ -12,7 +12,12 @@ use crate::{
         branch::{CreateDatasetBranchRequest, DatasetBranch, MergeDatasetBranchRequest},
         dataset::Dataset,
     },
+    storage::RuntimeStore,
 };
+
+fn runtime(state: &AppState) -> RuntimeStore {
+    RuntimeStore::new(state.db.clone())
+}
 
 pub async fn list_branches(
     State(state): State<AppState>,
@@ -32,15 +37,7 @@ pub async fn list_branches(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    match sqlx::query_as::<_, DatasetBranch>(
-        r#"SELECT * FROM dataset_branches
-           WHERE dataset_id = $1
-           ORDER BY is_default DESC, name ASC"#,
-    )
-    .bind(dataset_id)
-    .fetch_all(&state.db)
-    .await
-    {
+    match runtime(&state).list_legacy_branches(dataset_id).await {
         Ok(branches) => Json(branches).into_response(),
         Err(error) => {
             tracing::error!("list branches failed: {error}");
@@ -77,16 +74,10 @@ pub async fn create_branch(
     }
 
     let source_version = body.source_version.unwrap_or(dataset.current_version);
-    let version_exists = sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS(
-               SELECT 1 FROM dataset_versions WHERE dataset_id = $1 AND version = $2
-           )"#,
-    )
-    .bind(dataset_id)
-    .bind(source_version)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(false);
+    let version_exists = runtime(&state)
+        .source_version_exists(dataset_id, source_version)
+        .await
+        .unwrap_or(false);
 
     if source_version != dataset.current_version && !version_exists {
         return (
@@ -96,21 +87,14 @@ pub async fn create_branch(
             .into_response();
     }
 
-    let result = sqlx::query_as::<_, DatasetBranch>(
-        r#"INSERT INTO dataset_branches (
-               id, dataset_id, name, version, base_version, description, is_default
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, FALSE)
-           RETURNING *"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(dataset_id)
-    .bind(body.name.trim())
-    .bind(source_version)
-    .bind(source_version)
-    .bind(body.description.unwrap_or_default())
-    .fetch_one(&state.db)
-    .await;
+    let result = runtime(&state)
+        .create_legacy_branch(
+            dataset_id,
+            body.name.trim(),
+            source_version,
+            body.description.as_deref().unwrap_or_default(),
+        )
+        .await;
 
     match result {
         Ok(branch) => (StatusCode::CREATED, Json(branch)).into_response(),
@@ -282,32 +266,15 @@ async fn merge_branch_into_target(
         });
     }
 
-    sqlx::query(
-        r#"UPDATE dataset_branches
-           SET version = $3,
-               base_version = $3,
-               updated_at = NOW()
-           WHERE dataset_id = $1 AND name = $2"#,
-    )
-    .bind(dataset_id)
-    .bind(&target.name)
-    .bind(source.version)
-    .execute(&state.db)
-    .await
-    .map_err(MergeBranchError::Database)?;
+    runtime(state)
+        .update_branch_version_and_base(dataset_id, &target.name, source.version)
+        .await
+        .map_err(MergeBranchError::Database)?;
 
-    sqlx::query(
-        r#"UPDATE dataset_branches
-           SET base_version = $3,
-               updated_at = NOW()
-           WHERE dataset_id = $1 AND name = $2"#,
-    )
-    .bind(dataset_id)
-    .bind(&source.name)
-    .bind(source.version)
-    .execute(&state.db)
-    .await
-    .map_err(MergeBranchError::Database)?;
+    runtime(state)
+        .update_branch_base_version(dataset_id, &source.name, source.version)
+        .await
+        .map_err(MergeBranchError::Database)?;
 
     if dataset.active_branch == target.name {
         apply_branch_to_dataset(state, dataset_id, &target.name, source.version)
@@ -325,28 +292,7 @@ async fn merge_branch_into_target(
 }
 
 async fn ensure_default_branch(state: &AppState, dataset: &Dataset) -> Result<(), sqlx::Error> {
-    let has_branches = sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS(SELECT 1 FROM dataset_branches WHERE dataset_id = $1)"#,
-    )
-    .bind(dataset.id)
-    .fetch_one(&state.db)
-    .await?;
-
-    if !has_branches {
-        sqlx::query(
-            r#"INSERT INTO dataset_branches (
-                   id, dataset_id, name, version, base_version, description, is_default
-               )
-               VALUES ($1, $2, 'main', $3, $3, 'Default branch', TRUE)"#,
-        )
-        .bind(Uuid::now_v7())
-        .bind(dataset.id)
-        .bind(dataset.current_version)
-        .execute(&state.db)
-        .await?;
-    }
-
-    Ok(())
+    runtime(state).ensure_default_branch(dataset).await
 }
 
 async fn apply_branch_to_dataset(
@@ -382,14 +328,9 @@ async fn load_branch(
     dataset_id: Uuid,
     branch_name: &str,
 ) -> Result<Option<DatasetBranch>, sqlx::Error> {
-    sqlx::query_as::<_, DatasetBranch>(
-        r#"SELECT * FROM dataset_branches
-           WHERE dataset_id = $1 AND name = $2"#,
-    )
-    .bind(dataset_id)
-    .bind(branch_name)
-    .fetch_optional(&state.db)
-    .await
+    runtime(state)
+        .load_legacy_branch(dataset_id, branch_name)
+        .await
 }
 
 fn has_merge_conflict(source_base_version: i32, source_version: i32, target_version: i32) -> bool {

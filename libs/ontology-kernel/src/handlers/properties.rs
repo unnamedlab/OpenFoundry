@@ -121,7 +121,7 @@ async fn validate_inline_edit_config(
     property_type: &str,
     inline_edit_config: &PropertyInlineEditConfig,
 ) -> Result<(), String> {
-    let row = sqlx::query_as::<_, ActionTypeRow>(
+    let row = crate::domain::pg_repository::typed::<ActionTypeRow>(
         r#"SELECT id, name, display_name, description, object_type_id, operation_kind, input_schema,
                   form_schema, config, confirmation_required, permission_key, authorization_policy, owner_id,
                   created_at, updated_at
@@ -215,7 +215,7 @@ pub async fn list_properties(
     if let Err(error) = ensure_object_type_view_access(&state, &claims, type_id).await {
         return forbidden(error);
     }
-    match sqlx::query_as::<_, Property>(
+    match crate::domain::pg_repository::typed::<Property>(
         r#"SELECT id, object_type_id, name, display_name, description, property_type, required,
                   unique_constraint, time_dependent, default_value, validation_rules,
                   inline_edit_config, created_at, updated_at
@@ -282,7 +282,7 @@ pub async fn create_property(
     let inline_edit_config = body
         .inline_edit_config
         .map(|config| serde_json::to_value(config).unwrap_or(Value::Null));
-    let result = sqlx::query_as::<_, Property>(
+    let result = crate::domain::pg_repository::typed::<Property>(
         r#"INSERT INTO properties (
                id, object_type_id, name, display_name, description, property_type,
                required, unique_constraint, time_dependent, default_value, validation_rules,
@@ -323,7 +323,7 @@ pub async fn update_property(
     Path((_type_id, property_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdatePropertyRequest>,
 ) -> impl IntoResponse {
-    let existing = match sqlx::query_as::<_, Property>(
+    let existing = match crate::domain::pg_repository::typed::<Property>(
         r#"SELECT id, object_type_id, name, display_name, description, property_type, required,
                   unique_constraint, time_dependent, default_value, validation_rules,
                   inline_edit_config, created_at, updated_at
@@ -377,7 +377,7 @@ pub async fn update_property(
     let next_inline_edit_config_value =
         next_inline_edit_config.map(|config| serde_json::to_value(config).unwrap_or(Value::Null));
 
-    match sqlx::query_as::<_, Property>(
+    match crate::domain::pg_repository::typed::<Property>(
         r#"UPDATE properties
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -419,19 +419,20 @@ pub async fn delete_property(
     State(state): State<AppState>,
     Path((_type_id, property_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let existing_type_id =
-        match sqlx::query_scalar::<_, Uuid>("SELECT object_type_id FROM properties WHERE id = $1")
-            .bind(property_id)
-            .fetch_optional(&state.db)
-            .await
-        {
-            Ok(Some(object_type_id)) => object_type_id,
-            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-            Err(error) => {
-                tracing::error!("delete property lookup failed: {error}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
+    let existing_type_id = match crate::domain::pg_repository::scalar::<Uuid>(
+        "SELECT object_type_id FROM properties WHERE id = $1",
+    )
+    .bind(property_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(object_type_id)) => object_type_id,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("delete property lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     if let Err(error) = ensure_object_type_manage_access(&state, &claims, existing_type_id).await {
         return if error == "object type not found" {
@@ -441,7 +442,7 @@ pub async fn delete_property(
         };
     }
 
-    match sqlx::query("DELETE FROM properties WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM properties WHERE id = $1")
         .bind(property_id)
         .execute(&state.db)
         .await

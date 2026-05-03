@@ -1,16 +1,21 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use chrono::{DateTime, Duration, Utc};
+use auth_middleware::claims::Claims;
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::{Map, Value, json};
+use storage_abstraction::repositories::{ActionLogEntry, ObjectId, Page, ReadConsistency};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     domain::{
+        read_models::tenant_from_claims,
         schema::{load_effective_properties, validate_object_properties},
         type_system::validate_property_value,
     },
-    handlers::objects::ObjectInstance,
+    handlers::objects::{
+        ObjectInstance, append_object_revision, apply_object_write, load_repo_object_from_store,
+    },
     models::rule::{
         MachineryCapabilityLoad, MachineryInsight, MachineryQueueItem,
         MachineryQueueRecommendation, MachineryQueueResponse, OntologyRule, OntologyRuleRow,
@@ -18,8 +23,66 @@ use crate::{
     },
 };
 
+const RULE_RUN_KIND: &str = "rule_run";
+
 fn invalid_rule(message: impl Into<String>) -> String {
     message.into()
+}
+
+fn utc_from_millis(ms: i64) -> DateTime<Utc> {
+    Utc.timestamp_millis_opt(ms)
+        .single()
+        .unwrap_or_else(Utc::now)
+}
+
+fn parse_payload_uuid(payload: &Value, field: &str) -> Option<Uuid> {
+    payload
+        .get(field)
+        .and_then(Value::as_str)
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+}
+
+fn action_entry_to_rule_run(entry: ActionLogEntry) -> Option<OntologyRuleRun> {
+    if entry.kind != RULE_RUN_KIND {
+        return None;
+    }
+
+    let payload = entry.payload;
+    let id = parse_payload_uuid(&payload, "id")
+        .or_else(|| parse_payload_uuid(&payload, "rule_run_id"))
+        .or_else(|| Uuid::parse_str(&entry.action_id).ok())?;
+    let object_id = parse_payload_uuid(&payload, "object_id").or_else(|| {
+        entry
+            .object
+            .as_ref()
+            .and_then(|object| Uuid::parse_str(&object.0).ok())
+    })?;
+    let effect_preview = payload
+        .get("effect_preview")
+        .filter(|value| !value.is_null())
+        .cloned();
+
+    Some(OntologyRuleRun {
+        id,
+        rule_id: parse_payload_uuid(&payload, "rule_id")?,
+        object_id,
+        matched: payload.get("matched")?.as_bool()?,
+        simulated: payload.get("simulated")?.as_bool()?,
+        trigger_payload: payload
+            .get("trigger_payload")
+            .cloned()
+            .unwrap_or(Value::Null),
+        effect_preview,
+        created_by: parse_payload_uuid(&payload, "created_by")
+            .or_else(|| Uuid::parse_str(&entry.subject).ok())
+            .unwrap_or_else(Uuid::nil),
+        created_at: payload
+            .get("created_at")
+            .and_then(Value::as_str)
+            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+            .map(|timestamp| timestamp.with_timezone(&Utc))
+            .unwrap_or_else(|| utc_from_millis(entry.recorded_at_ms)),
+    })
 }
 
 async fn ensure_object_type_exists(state: &AppState, object_type_id: Uuid) -> Result<bool, String> {
@@ -494,6 +557,7 @@ pub fn evaluate_rule_against_object(
 
 pub async fn apply_rule_effect(
     state: &AppState,
+    claims: &Claims,
     object: &ObjectInstance,
     effect_preview: &Value,
 ) -> Result<ObjectInstance, String> {
@@ -527,49 +591,95 @@ pub async fn apply_rule_effect(
 
     let normalized = validate_object_properties(&definitions, &Value::Object(next_properties))
         .map_err(|error| format!("invalid rule effect patch: {error}"))?;
-
-    sqlx::query_as::<_, ObjectInstance>(
-        r#"UPDATE object_instances
-           SET properties = $2::jsonb,
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at"#,
+    let repo_object =
+        load_repo_object_from_store(state, claims, object.id, ReadConsistency::Strong)
+            .await?
+            .ok_or_else(|| "object was not found in object store".to_string())?;
+    let updated = ObjectInstance {
+        id: object.id,
+        object_type_id: object.object_type_id,
+        properties: normalized,
+        created_by: object.created_by,
+        organization_id: object.organization_id,
+        marking: object.marking.clone(),
+        created_at: object.created_at,
+        updated_at: Utc::now(),
+    };
+    let outcome = apply_object_write(
+        state,
+        claims,
+        &updated,
+        Some(repo_object.version),
+        "update",
+        json!({
+            "source": "ontology_rule",
+            "effect_preview": effect_preview,
+        }),
     )
-    .bind(object.id)
-    .bind(normalized)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|error| format!("failed to apply rule effect: {error}"))
+    .await?;
+    append_object_revision(
+        state,
+        claims,
+        &updated,
+        "update",
+        outcome.committed_version as i64,
+        None,
+    )
+    .await?;
+    Ok(updated)
 }
 
 pub async fn record_rule_run(
     state: &AppState,
+    claims: &Claims,
     rule_id: Uuid,
     object_id: Uuid,
     matched: bool,
     simulated: bool,
     trigger_payload: &Value,
     effect_preview: Option<&Value>,
-    created_by: Uuid,
 ) -> Result<OntologyRuleRun, String> {
-    sqlx::query_as::<_, OntologyRuleRun>(
-        r#"INSERT INTO ontology_rule_runs (
-               id, rule_id, object_id, matched, simulated, trigger_payload, effect_preview, created_by
-           )
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)
-           RETURNING id, rule_id, object_id, matched, simulated, trigger_payload, effect_preview, created_by, created_at"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(rule_id)
-    .bind(object_id)
-    .bind(matched)
-    .bind(simulated)
-    .bind(trigger_payload)
-    .bind(effect_preview)
-    .bind(created_by)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|error| format!("failed to record rule run: {error}"))
+    let run = OntologyRuleRun {
+        id: Uuid::now_v7(),
+        rule_id,
+        object_id,
+        matched,
+        simulated,
+        trigger_payload: trigger_payload.clone(),
+        effect_preview: effect_preview.cloned(),
+        created_by: claims.sub,
+        created_at: Utc::now(),
+    };
+    let payload = json!({
+        "id": run.id,
+        "rule_id": run.rule_id,
+        "object_id": run.object_id,
+        "matched": run.matched,
+        "simulated": run.simulated,
+        "trigger_payload": run.trigger_payload,
+        "effect_preview": run.effect_preview,
+        "created_by": run.created_by,
+        "created_at": run.created_at,
+        "status": if run.matched { "matched" } else { "not_matched" },
+    });
+
+    state
+        .stores
+        .actions
+        .append(ActionLogEntry {
+            tenant: tenant_from_claims(claims),
+            event_id: None,
+            action_id: run.id.to_string(),
+            kind: RULE_RUN_KIND.to_string(),
+            subject: run.created_by.to_string(),
+            object: Some(ObjectId(object_id.to_string())),
+            payload,
+            recorded_at_ms: run.created_at.timestamp_millis(),
+        })
+        .await
+        .map_err(|error| format!("failed to record rule run: {error}"))?;
+
+    Ok(run)
 }
 
 pub async fn enqueue_rule_schedule(
@@ -865,26 +975,59 @@ pub async fn evaluate_rules_for_object(
 
 pub async fn load_recent_rule_runs(
     state: &AppState,
+    claims: &Claims,
     object_id: Uuid,
     limit: usize,
 ) -> Result<Vec<OntologyRuleRun>, String> {
-    sqlx::query_as::<_, OntologyRuleRun>(
-        r#"SELECT id, rule_id, object_id, matched, simulated, trigger_payload, effect_preview,
-                  created_by, created_at
-           FROM ontology_rule_runs
-           WHERE object_id = $1
-           ORDER BY created_at DESC
-           LIMIT $2"#,
-    )
-    .bind(object_id)
-    .bind(limit as i64)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| format!("failed to load recent rule runs: {error}"))
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let tenant = tenant_from_claims(claims);
+    let object = ObjectId(object_id.to_string());
+    let mut token = None;
+    let mut runs = Vec::new();
+    let page_size = limit.clamp(50, 500) as u32;
+
+    while runs.len() < limit {
+        let page = state
+            .stores
+            .actions
+            .list_for_object(
+                &tenant,
+                &object,
+                Page {
+                    size: page_size,
+                    token: token.clone(),
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .map_err(|error| format!("failed to load recent rule runs: {error}"))?;
+
+        for entry in page.items {
+            if let Some(run) = action_entry_to_rule_run(entry) {
+                runs.push(run);
+                if runs.len() >= limit {
+                    break;
+                }
+            }
+        }
+
+        match page.next_token {
+            Some(next) => token = Some(next),
+            None => break,
+        }
+    }
+
+    runs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    runs.truncate(limit);
+    Ok(runs)
 }
 
 pub async fn machinery_insights(
     state: &AppState,
+    claims: &Claims,
     object_type_id: Option<Uuid>,
 ) -> Result<Vec<MachineryInsight>, String> {
     let rows = if let Some(object_type_id) = object_type_id {
@@ -922,17 +1065,40 @@ pub async fn machinery_insights(
         return Ok(Vec::new());
     }
 
-    let runs = sqlx::query_as::<_, OntologyRuleRun>(
-        r#"SELECT id, rule_id, object_id, matched, simulated, trigger_payload, effect_preview,
-                  created_by, created_at
-           FROM ontology_rule_runs
-           WHERE rule_id = ANY($1)
-           ORDER BY created_at DESC"#,
-    )
-    .bind(&rule_ids)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| format!("failed to load rule runs: {error}"))?;
+    let rule_id_set = rule_ids.iter().copied().collect::<HashSet<_>>();
+    let mut runs = Vec::<OntologyRuleRun>::new();
+    let tenant = tenant_from_claims(claims);
+    let mut token = None;
+
+    loop {
+        let page = state
+            .stores
+            .actions
+            .list_recent(
+                &tenant,
+                Page {
+                    size: 5_000,
+                    token: token.clone(),
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .map_err(|error| format!("failed to load rule runs: {error}"))?;
+
+        runs.extend(
+            page.items
+                .into_iter()
+                .filter_map(action_entry_to_rule_run)
+                .filter(|run| rule_id_set.contains(&run.rule_id)),
+        );
+
+        match page.next_token {
+            Some(next) => token = Some(next),
+            None => break,
+        }
+    }
+
+    runs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
 
     let mut grouped_runs = HashMap::<Uuid, Vec<OntologyRuleRun>>::new();
     for run in runs {

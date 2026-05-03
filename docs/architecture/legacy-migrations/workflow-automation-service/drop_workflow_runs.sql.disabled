@@ -1,0 +1,8 @@
+-- Disabled DROP staged for the G-S2-PG cutover.
+--
+-- Enable only after:
+--   1. historical workflow_runs rows have been exported or accepted as discardable;
+--   2. workflow-automation-service has run Temporal-only handlers for at least 7 days;
+--   3. dashboards and support runbooks no longer query workflow_runs directly.
+
+DROP TABLE IF EXISTS workflow_runs;

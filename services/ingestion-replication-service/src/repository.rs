@@ -1,4 +1,4 @@
-//! Postgres persistence for [`crate::proto::IngestJob`].
+//! Postgres persistence for declarative [`crate::proto::IngestJob`] intent.
 //!
 //! The schema lives in `migrations/20260429120000_ingest_jobs.sql`.
 
@@ -9,9 +9,10 @@ use uuid::Uuid;
 
 use crate::proto::{IngestJob, IngestJobSpec};
 
-/// Status of a persisted job in the control-plane DB.
+/// Low-frequency control-plane status values persisted as desired-state
+/// metadata. These are no longer the authoritative runtime state.
 pub mod status {
-    pub const PENDING: &str = "pending";
+    pub const DESIRED: &str = "desired";
     pub const MATERIALIZED: &str = "materialized";
     pub const FAILED: &str = "failed";
 }
@@ -45,7 +46,7 @@ impl From<IngestJobRecord> for IngestJob {
     }
 }
 
-/// Insert (or upsert by `(namespace, name)`) a fresh `pending` job and return
+/// Insert (or upsert by `(namespace, name)`) a fresh desired-state job and return
 /// the persisted record.
 pub async fn insert_job(
     pool: &PgPool,
@@ -73,14 +74,14 @@ pub async fn insert_job(
     .bind(name)
     .bind(namespace)
     .bind(&spec_json)
-    .bind(status::PENDING)
+    .bind(status::DESIRED)
     .fetch_one(pool)
     .await
     .context("insert ingest_job")?;
     row_to_record(&row)
 }
 
-/// Mark a job as materialised, recording the names of the cluster resources.
+/// Record the names of the cluster resources that represent this desired job.
 pub async fn mark_materialized(
     pool: &PgPool,
     id: Uuid,
@@ -99,7 +100,7 @@ pub async fn mark_materialized(
         "#,
     )
     .bind(id)
-    .bind(status::MATERIALIZED)
+    .bind(status::DESIRED)
     .bind(kafka_connector_name)
     .bind(flink_deployment_name)
     .execute(pool)
@@ -108,8 +109,7 @@ pub async fn mark_materialized(
     Ok(())
 }
 
-/// Record a failure on a job (sets status to `failed` and stores the error
-/// message).
+/// Legacy helper retained for compatibility with pre-runtime-store rows.
 pub async fn mark_failed(pool: &PgPool, id: Uuid, error: &str) -> Result<()> {
     sqlx::query(
         r#"
@@ -179,6 +179,9 @@ pub async fn delete_job(pool: &PgPool, id: Uuid) -> Result<Option<IngestJobRecor
 }
 
 /// List jobs that the reconcile loop should re-process.
+///
+/// Reconciliation is now driven from the declarative inventory itself rather
+/// than a Postgres runtime status column, so every row remains eligible.
 pub async fn list_reconcilable(pool: &PgPool) -> Result<Vec<IngestJobRecord>> {
     let rows = sqlx::query(
         r#"
@@ -186,12 +189,9 @@ pub async fn list_reconcilable(pool: &PgPool) -> Result<Vec<IngestJobRecord>> {
                kafka_connector_name, flink_deployment_name, error,
                created_at, updated_at
         FROM ingest_jobs
-        WHERE status IN ($1, $2)
         ORDER BY updated_at ASC
         "#,
     )
-    .bind(status::PENDING)
-    .bind(status::MATERIALIZED)
     .fetch_all(pool)
     .await
     .context("list_reconcilable")?;

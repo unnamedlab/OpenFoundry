@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/developer-console-pg.yaml`](../../../infra/k8s/cnpg/clusters/developer-console-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/developer-console-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/developer-console-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `developer-console-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

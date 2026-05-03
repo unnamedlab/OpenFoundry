@@ -35,14 +35,14 @@
 
 use std::time::Duration;
 
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use thiserror::Error;
 
 /// Default values tuned for transaction-mode PgBouncer in front of CNPG.
 /// Each service therefore opens at most `MAX_CONNECTIONS` *client* slots
 /// against the Pooler; the Pooler maps them onto the 50-connection
 /// server-side budget defined in
-/// `infra/k8s/cnpg/poolers/<cluster>-pooler.yaml`.
+/// `infra/k8s/platform/manifests/cnpg/poolers/<cluster>-pooler.yaml`.
 const DEFAULT_MAX_CONNECTIONS: u32 = 20;
 const DEFAULT_MIN_CONNECTIONS: u32 = 1;
 const DEFAULT_ACQUIRE_TIMEOUT_SECS: u64 = 5;
@@ -108,8 +108,8 @@ impl DualPool {
 
     /// Same as [`Self::from_env`] but with explicit sizing.
     pub async fn from_env_with(sizing: PoolSizing) -> Result<Self, DualPoolError> {
-        let writer_url = std::env::var(ENV_WRITER_URL)
-            .map_err(|_| DualPoolError::MissingEnv(ENV_WRITER_URL))?;
+        let writer_url =
+            std::env::var(ENV_WRITER_URL).map_err(|_| DualPoolError::MissingEnv(ENV_WRITER_URL))?;
         let reader_url = std::env::var(ENV_READER_URL).ok();
         Self::connect(&writer_url, reader_url.as_deref(), sizing).await
     }
@@ -121,15 +121,23 @@ impl DualPool {
         reader_url: Option<&str>,
         sizing: PoolSizing,
     ) -> Result<Self, DualPoolError> {
-        let writer = build_pool(writer_url, sizing)
-            .await
-            .map_err(|source| DualPoolError::Connect { role: "writer", source })?;
+        let writer =
+            build_pool(writer_url, sizing)
+                .await
+                .map_err(|source| DualPoolError::Connect {
+                    role: "writer",
+                    source,
+                })?;
 
         let reader = match reader_url {
             Some(url) if !url.trim().is_empty() => {
-                let pool = build_pool(url, sizing).await.map_err(|source| {
-                    DualPoolError::Connect { role: "reader", source }
-                })?;
+                let pool =
+                    build_pool(url, sizing)
+                        .await
+                        .map_err(|source| DualPoolError::Connect {
+                            role: "reader",
+                            source,
+                        })?;
                 tracing::info!(
                     target: "openfoundry::db_pool",
                     "dual pool initialised with dedicated reader replica"
@@ -208,7 +216,9 @@ mod tests {
             std::env::remove_var(ENV_WRITER_URL);
             std::env::remove_var(ENV_READER_URL);
         }
-        let err = DualPool::from_env().await.expect_err("must require DATABASE_URL");
+        let err = DualPool::from_env()
+            .await
+            .expect_err("must require DATABASE_URL");
         assert!(matches!(err, DualPoolError::MissingEnv(ENV_WRITER_URL)));
     }
 

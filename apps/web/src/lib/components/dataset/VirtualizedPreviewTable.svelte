@@ -27,6 +27,18 @@
     distinct_count?: number;
   };
 
+  /** P2 — file-format badge + schema-inference banner + CSV tooltip. */
+  export type CsvOptionsSummary = {
+    delimiter: string;
+    quote: string;
+    escape: string;
+    header: boolean;
+    null_value: string;
+    date_format?: string | null;
+    timestamp_format?: string | null;
+    charset: string;
+  };
+
   type Props = {
     columns: ColumnDef[];
     rows: Array<Record<string, unknown>>;
@@ -38,6 +50,19 @@
     rowHeight?: number;
     /** Total visible viewport height. */
     viewportHeight?: number;
+    /** P2 — Foundry file format ("PARQUET" | "AVRO" | "TEXT"). Surfaced
+     *  as a badge in the table header so the user knows which reader
+     *  produced the rows. */
+    fileFormat?: string | null;
+    /** P2 — Sub-format hint for TEXT (`csv` | `json_lines`). */
+    textSubFormat?: string | null;
+    /** P2 — When true, the persisted schema was empty and the reader
+     *  inferred types. Drives the "Schema not configured" banner. */
+    schemaInferred?: boolean;
+    /** P2 — CSV parsing options used for this preview. Tooltip-only. */
+    csvOptions?: CsvOptionsSummary | null;
+    /** P2 — CTA on the schema-inferred banner. */
+    onOpenSchemaEditor?: () => void;
   };
 
   const {
@@ -49,7 +74,35 @@
     onSelectTransaction = () => {},
     rowHeight = 32,
     viewportHeight = 480,
+    fileFormat = null,
+    textSubFormat = null,
+    schemaInferred = false,
+    csvOptions = null,
+    onOpenSchemaEditor,
   }: Props = $props();
+
+  function badgeLabel(format: string | null, sub: string | null): string {
+    if (!format) return '';
+    const upper = format.toUpperCase();
+    if (upper !== 'TEXT') return upper;
+    if (sub === 'json_lines') return 'TEXT-JSON';
+    return 'TEXT-CSV';
+  }
+  function csvTooltip(opts: CsvOptionsSummary | null): string {
+    if (!opts) return '';
+    return [
+      `delimiter='${opts.delimiter}'`,
+      `quote='${opts.quote}'`,
+      `escape='${opts.escape}'`,
+      `header=${opts.header}`,
+      opts.null_value ? `null='${opts.null_value}'` : 'null=""',
+      opts.date_format ? `date='${opts.date_format}'` : null,
+      opts.timestamp_format ? `ts='${opts.timestamp_format}'` : null,
+      `charset=${opts.charset}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
 
   let scrollTop = $state(0);
   let viewport: HTMLDivElement | undefined;
@@ -87,6 +140,36 @@
 </script>
 
 <section class="space-y-3">
+  {#if fileFormat}
+    <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900" data-testid="preview-format-badge">
+      <div class="flex items-center gap-2">
+        <span class={`rounded-full px-2 py-0.5 font-mono ${
+          fileFormat.toUpperCase() === 'PARQUET'
+            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+            : fileFormat.toUpperCase() === 'AVRO'
+              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+              : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200'
+        }`}>
+          {badgeLabel(fileFormat, textSubFormat)}
+        </span>
+        {#if csvOptions && fileFormat.toUpperCase() === 'TEXT'}
+          <span class="cursor-help font-mono text-[10px] text-gray-500" title={csvTooltip(csvOptions)} data-testid="preview-csv-tooltip">
+            csv: {csvOptions.delimiter} / {csvOptions.charset}
+          </span>
+        {/if}
+      </div>
+    </div>
+  {/if}
+  {#if schemaInferred && fileFormat && fileFormat.toUpperCase() === 'TEXT'}
+    <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100" data-testid="preview-inferred-banner" role="status">
+      <span>Schema not configured. Preview using inferred types.</span>
+      {#if onOpenSchemaEditor}
+        <button type="button" class="rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700" onclick={onOpenSchemaEditor}>
+          Open Schema editor
+        </button>
+      {/if}
+    </div>
+  {/if}
   {#if transactions.length > 0}
     <!--
       Horizontal transaction timeline. Foundry calls this the "view

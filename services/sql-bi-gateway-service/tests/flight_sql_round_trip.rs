@@ -31,9 +31,9 @@ async fn flight_sql_select_one_round_trip() {
         database_url: "postgres://test".to_string(),
         jwt_secret: "test-secret".to_string(),
         warehousing_flight_sql_url: None,
-        clickhouse_flight_sql_url: None,
         vespa_flight_sql_url: None,
         postgres_flight_sql_url: None,
+        trino_flight_sql_url: None,
         allow_anonymous: true,
     };
     let router = BackendRouter::from_config(&config);
@@ -109,70 +109,6 @@ async fn flight_sql_select_one_round_trip() {
 
     assert_eq!(total_rows, 1, "SELECT 1 must produce exactly one row");
     assert!(saw_value_one, "the single row must contain the value 1");
-
-    server.abort();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn flight_sql_unconfigured_backend_is_rejected_with_clear_error() {
-    // No JWT and no remote endpoints configured: a query that targets
-    // `clickhouse.*` must be rejected at planning time.
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let local_addr = listener.local_addr().expect("local_addr");
-    let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
-
-    let config = sql_bi_gateway_service::config::AppConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        healthz_port: 0,
-        database_url: "postgres://test".to_string(),
-        jwt_secret: "test-secret".to_string(),
-        warehousing_flight_sql_url: None,
-        clickhouse_flight_sql_url: None,
-        vespa_flight_sql_url: None,
-        postgres_flight_sql_url: None,
-        allow_anonymous: true,
-    };
-    let router = BackendRouter::from_config(&config);
-    let auth = Authenticator::new(&config.jwt_secret, config.allow_anonymous);
-    let service = FlightSqlServiceImpl::new(router, auth);
-
-    let server = tokio::spawn(async move {
-        Server::builder()
-            .add_service(FlightServiceServer::new(service))
-            .serve_with_incoming(incoming)
-            .await
-            .expect("flight server");
-    });
-
-    let endpoint =
-        Endpoint::from_shared(format!("http://{local_addr}")).expect("endpoint from addr");
-    let channel: Channel = {
-        let mut connected = None;
-        for _ in 0..50 {
-            if let Ok(channel) = endpoint.connect().await {
-                connected = Some(channel);
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        connected.expect("connect")
-    };
-    let mut client = FlightSqlServiceClient::new(channel);
-
-    let result = client
-        .execute(
-            "SELECT * FROM clickhouse.events_dist".to_string(),
-            None,
-        )
-        .await;
-
-    let err = result.expect_err("must fail when clickhouse backend is unconfigured");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("not configured") || msg.to_lowercase().contains("failedprecondition"),
-        "expected `backend not configured` error, got: {msg}"
-    );
 
     server.abort();
 }

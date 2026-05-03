@@ -33,3 +33,6 @@ pub mod cassandra;
 
 #[cfg(feature = "it-temporal")]
 pub mod temporal;
+
+#[cfg(feature = "it-temporal")]
+pub mod go_workers;

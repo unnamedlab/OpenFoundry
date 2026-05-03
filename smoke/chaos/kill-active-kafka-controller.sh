@@ -12,7 +12,7 @@
 #
 #   * `kill-one-kafka-broker.sh` selecciona el primer pod Running que
 #     matchea el label selector. En modo combinado controller+broker
-#     (ver `infra/k8s/strimzi/kafka-cluster.yaml`) ese pod *podría* ser
+#     (ver `infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml`) ese pod *podría* ser
 #     el active controller — o no. Como el orden de pods devuelto por
 #     la API depende de tiempos, no es determinista.
 #   * Aquí seleccionamos *deliberadamente* al líder del quorum KRaft, que
@@ -22,7 +22,7 @@
 #     pase de "asumida" a "medida" — alineado con la propiedad que
 #     `tools/kafka-lint/check_kraft.py` impone sobre el manifest y que
 #     la alerta `KafkaActiveControllerCountAbnormal`
-#     (`infra/observability/prometheus-rules/kafka.yaml`) detecta en
+#     (`infra/k8s/platform/observability/prometheus-rules/kafka.yaml`) detecta en
 #     producción.
 #
 # Justificación de selectores y comandos:

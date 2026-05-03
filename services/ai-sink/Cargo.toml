@@ -14,11 +14,30 @@ workspace = true
 [package.rust-version]
 workspace = true
 
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.arrow-array]
+version = "57.3"
+optional = true
+
+[dependencies.arrow-schema]
+version = "57.3"
+optional = true
+
+[dependencies.chrono]
+workspace = true
+
 [dependencies.serde]
 workspace = true
 
 [dependencies.serde_json]
 workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+features = ["iceberg"]
+optional = true
 
 [dependencies.thiserror]
 workspace = true
@@ -45,7 +64,13 @@ optional = true
 
 [features]
 default = []
-runtime = ["dep:event-bus-data", "dep:prometheus"]
+runtime = [
+    "dep:arrow-array",
+    "dep:arrow-schema",
+    "dep:event-bus-data",
+    "dep:prometheus",
+    "dep:storage-abstraction",
+]
 
 [lib]
 path = "src/lib.rs"

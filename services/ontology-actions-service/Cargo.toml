@@ -105,6 +105,10 @@ features = ["repos"]
 [dependencies.storage-abstraction]
 workspace = true
 
+[dependencies.search-abstraction]
+workspace = true
+features = ["vespa", "opensearch"]
+
 # Smoke test: spins up Postgres via testcontainers, applies migrations and
 # verifies the public surface of `build_router`. See `tests/health.rs`.
 [dev-dependencies]

@@ -48,6 +48,20 @@ workspace = true
 [dependencies.url]
 workspace = true
 
+# P3 — backing-FS HMAC presigning for the LocalBackingFs path. Sha256 is
+# pulled in via the workspace already; we expose it here as a direct dep
+# so the crate compiles standalone.
+[dependencies.sha2]
+workspace = true
+
+# P3 — S3 presigned URLs go through `object_store::aws::AmazonS3::signed_url`,
+# which returns the URL associated with an HTTP method. The signer trait
+# uses `reqwest::Method`, so we depend on `reqwest` for that re-export
+# (we don't pull `reqwest`'s default features — we only need the method).
+[dependencies.reqwest]
+workspace = true
+default-features = false
+
 # Optional Iceberg integration (Apache-2.0). Enabled via the `iceberg` feature.
 [dependencies.iceberg]
 version = "0.9"
@@ -69,6 +83,48 @@ version = "57.3"
 optional = true
 features = ["async"]
 
+# P2 — file-format readers (Parquet/Avro/Text). Pinned to arrow 53.x to
+# match the datafusion 44 ecosystem (avoids native-library `links = "lzma"`
+# clashes with the workspace's xz2 / liblzma stack). The iceberg feature
+# stays on arrow 57 — the two are exposed under different rename keys so
+# they can co-exist in this crate's dependency table.
+[dependencies.arrow-array-readers]
+package = "arrow-array"
+version = "53"
+optional = true
+
+[dependencies.arrow-schema-readers]
+package = "arrow-schema"
+version = "53"
+optional = true
+
+[dependencies.arrow-buffer-readers]
+package = "arrow-buffer"
+version = "53"
+optional = true
+
+[dependencies.arrow-csv]
+version = "53"
+optional = true
+
+[dependencies.arrow-json]
+version = "53"
+optional = true
+
+[dependencies.parquet-readers]
+package = "parquet"
+version = "53"
+optional = true
+features = ["async"]
+
+[dependencies.apache-avro]
+workspace = true
+optional = true
+
+[dependencies.regex]
+workspace = true
+optional = true
+
 [features]
 default = []
 # Enables the `iceberg` module that wraps the apache iceberg-rust crate
@@ -79,6 +135,19 @@ iceberg = [
     "dep:iceberg-catalog-rest",
     "dep:arrow-array",
     "dep:parquet",
+]
+# Enables the `readers` module: Parquet/Avro/Text(CSV+JSON-lines) →
+# Arrow RecordBatch decoders behind the [`readers::FileReader`] trait.
+# Used by the Foundry preview path in `dataset-versioning-service`.
+readers = [
+    "dep:arrow-array-readers",
+    "dep:arrow-schema-readers",
+    "dep:arrow-buffer-readers",
+    "dep:arrow-csv",
+    "dep:arrow-json",
+    "dep:parquet-readers",
+    "dep:apache-avro",
+    "dep:regex",
 ]
 
 [dev-dependencies]

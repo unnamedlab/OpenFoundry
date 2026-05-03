@@ -82,16 +82,26 @@ async fn schema_registry_accepts_backwards_compatible_evolution() {
         .send()
         .await
         .expect("register v1");
-    assert!(v1.status().is_success(), "v1 registration failed: {}", v1.status());
+    assert!(
+        v1.status().is_success(),
+        "v1 registration failed: {}",
+        v1.status()
+    );
 
     // Test v2 compatibility.
     let compat = client
-        .post(format!("{base}/compatibility/subjects/{subject}/versions/latest"))
+        .post(format!(
+            "{base}/compatibility/subjects/{subject}/versions/latest"
+        ))
         .json(&v2_schema)
         .send()
         .await
         .expect("compat check");
-    assert!(compat.status().is_success(), "compat HTTP error: {}", compat.status());
+    assert!(
+        compat.status().is_success(),
+        "compat HTTP error: {}",
+        compat.status()
+    );
     let body: serde_json::Value = compat.json().await.expect("compat body");
     assert_eq!(
         body.get("is_compatible").and_then(|v| v.as_bool()),

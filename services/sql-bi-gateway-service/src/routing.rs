@@ -8,7 +8,6 @@
 //!
 //! ```text
 //!   SELECT * FROM iceberg.sales.orders     -> Backend::Iceberg
-//!   SELECT * FROM clickhouse.events_dist   -> Backend::ClickHouse
 //!   SELECT * FROM vespa.documents          -> Backend::Vespa
 //!   SELECT * FROM postgres.public.users    -> Backend::Postgres
 //!   SELECT * FROM trino.of_lineage.runs    -> Backend::Trino
@@ -33,8 +32,6 @@ pub enum Backend {
     /// Iceberg lakehouse, served by the local DataFusion session or by
     /// `sql-warehousing-service` over Flight SQL when configured.
     Iceberg,
-    /// Time-series cluster (ClickHouse).
-    ClickHouse,
     /// Search / hybrid retrieval (Vespa).
     Vespa,
     /// OLTP reference data (PostgreSQL via CloudNativePG).
@@ -51,7 +48,6 @@ impl Backend {
     pub fn as_str(self) -> &'static str {
         match self {
             Backend::Iceberg => "iceberg",
-            Backend::ClickHouse => "clickhouse",
             Backend::Vespa => "vespa",
             Backend::Postgres => "postgres",
             Backend::Trino => "trino",
@@ -62,7 +58,6 @@ impl Backend {
     pub fn all() -> &'static [Backend] {
         &[
             Backend::Iceberg,
-            Backend::ClickHouse,
             Backend::Vespa,
             Backend::Postgres,
             Backend::Trino,
@@ -92,7 +87,6 @@ pub struct RoutingDecision {
 #[derive(Debug, Clone)]
 pub struct BackendRouter {
     warehousing_flight_sql_url: Option<String>,
-    clickhouse_flight_sql_url: Option<String>,
     vespa_flight_sql_url: Option<String>,
     postgres_flight_sql_url: Option<String>,
     trino_flight_sql_url: Option<String>,
@@ -114,7 +108,6 @@ impl BackendRouter {
     pub fn from_config(config: &AppConfig) -> Self {
         Self {
             warehousing_flight_sql_url: normalize(config.warehousing_flight_sql_url.as_deref()),
-            clickhouse_flight_sql_url: normalize(config.clickhouse_flight_sql_url.as_deref()),
             vespa_flight_sql_url: normalize(config.vespa_flight_sql_url.as_deref()),
             postgres_flight_sql_url: normalize(config.postgres_flight_sql_url.as_deref()),
             trino_flight_sql_url: normalize(config.trino_flight_sql_url.as_deref()),
@@ -128,11 +121,6 @@ impl BackendRouter {
         let backend = classify(sql);
         let remote_endpoint = match backend {
             Backend::Iceberg => self.warehousing_flight_sql_url.clone(),
-            Backend::ClickHouse => Some(
-                self.clickhouse_flight_sql_url
-                    .clone()
-                    .ok_or(RoutingError::BackendUnavailable(Backend::ClickHouse))?,
-            ),
             Backend::Vespa => Some(
                 self.vespa_flight_sql_url
                     .clone()
@@ -178,7 +166,6 @@ pub fn classify(sql: &str) -> Backend {
         if next_is_table {
             if let Some(catalog) = tok.split('.').next() {
                 return match catalog {
-                    "clickhouse" => Backend::ClickHouse,
                     "vespa" => Backend::Vespa,
                     "postgres" | "postgresql" => Backend::Postgres,
                     "trino" => Backend::Trino,
@@ -195,18 +182,12 @@ pub fn classify(sql: &str) -> Backend {
 mod tests {
     use super::*;
 
-    fn cfg(
-        warehousing: Option<&str>,
-        clickhouse: Option<&str>,
-        vespa: Option<&str>,
-        postgres: Option<&str>,
-    ) -> AppConfig {
-        cfg_with_trino(warehousing, clickhouse, vespa, postgres, None)
+    fn cfg(warehousing: Option<&str>, vespa: Option<&str>, postgres: Option<&str>) -> AppConfig {
+        cfg_with_trino(warehousing, vespa, postgres, None)
     }
 
     fn cfg_with_trino(
         warehousing: Option<&str>,
-        clickhouse: Option<&str>,
         vespa: Option<&str>,
         postgres: Option<&str>,
         trino: Option<&str>,
@@ -218,7 +199,6 @@ mod tests {
             database_url: "postgres://test".to_string(),
             jwt_secret: "test".to_string(),
             warehousing_flight_sql_url: warehousing.map(str::to_string),
-            clickhouse_flight_sql_url: clickhouse.map(str::to_string),
             vespa_flight_sql_url: vespa.map(str::to_string),
             postgres_flight_sql_url: postgres.map(str::to_string),
             trino_flight_sql_url: trino.map(str::to_string),
@@ -233,14 +213,7 @@ mod tests {
             classify("SELECT * FROM iceberg.sales.orders"),
             Backend::Iceberg
         );
-        assert_eq!(
-            classify("SELECT * FROM clickhouse.events_dist LIMIT 10"),
-            Backend::ClickHouse
-        );
-        assert_eq!(
-            classify("SELECT * FROM vespa.documents"),
-            Backend::Vespa
-        );
+        assert_eq!(classify("SELECT * FROM vespa.documents"), Backend::Vespa);
         assert_eq!(
             classify("SELECT * FROM postgres.public.users"),
             Backend::Postgres
@@ -261,7 +234,6 @@ mod tests {
             None,
             None,
             None,
-            None,
             Some("http://trino-flight-sql-proxy.trino:50133"),
         ));
         let decision = router
@@ -276,7 +248,7 @@ mod tests {
 
     #[test]
     fn missing_trino_endpoint_is_an_explicit_error() {
-        let router = BackendRouter::from_config(&cfg(None, None, None, None));
+        let router = BackendRouter::from_config(&cfg(None, None, None));
         let err = router
             .route("SELECT * FROM trino.of_lineage.runs")
             .expect_err("trino backend must be configured");
@@ -295,7 +267,7 @@ mod tests {
     #[test]
     fn join_and_update_are_recognised_as_table_anchors() {
         assert_eq!(
-            classify("SELECT * FROM iceberg.t1 JOIN clickhouse.t2 USING(id)"),
+            classify("SELECT * FROM iceberg.t1 JOIN vespa.t2 USING(id)"),
             Backend::Iceberg,
             "first FROM target wins (cross-backend joins must be planned in DF)"
         );
@@ -307,7 +279,7 @@ mod tests {
 
     #[test]
     fn local_iceberg_routes_to_local_datafusion_when_warehousing_unconfigured() {
-        let router = BackendRouter::from_config(&cfg(None, None, None, None));
+        let router = BackendRouter::from_config(&cfg(None, None, None));
         let decision = router.route("SELECT 1").expect("should route");
         assert_eq!(decision.backend, Backend::Iceberg);
         assert!(decision.remote_endpoint.is_none());
@@ -317,7 +289,6 @@ mod tests {
     fn iceberg_delegates_to_warehousing_when_configured() {
         let router = BackendRouter::from_config(&cfg(
             Some("http://sql-warehousing-service:50123"),
-            None,
             None,
             None,
         ));
@@ -332,20 +303,8 @@ mod tests {
     }
 
     #[test]
-    fn missing_clickhouse_endpoint_is_an_explicit_error() {
-        let router = BackendRouter::from_config(&cfg(None, None, None, None));
-        let err = router
-            .route("SELECT * FROM clickhouse.events_dist")
-            .expect_err("clickhouse backend must be configured");
-        match err {
-            RoutingError::BackendUnavailable(Backend::ClickHouse) => {}
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
     fn empty_endpoint_string_is_treated_as_unconfigured() {
-        let router = BackendRouter::from_config(&cfg(Some("   "), None, None, None));
+        let router = BackendRouter::from_config(&cfg(Some("   "), None, None));
         let decision = router.route("SELECT 1").expect("should route");
         assert!(decision.remote_endpoint.is_none());
     }

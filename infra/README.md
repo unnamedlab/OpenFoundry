@@ -4,38 +4,35 @@ This directory contains the deployment artifacts used to run OpenFoundry locally
 
 ## Deployment modes
 
-> **S8.2 update** — the umbrella `k8s/helm/open-foundry` chart is
-> deprecated (removal date 2026-08-01). New work targets the five
-> release-aligned charts; see
+> **S8.6 update** — the bash bundle scripts under `k8s/helm/bin/` were
+> removed on 2026-05-03 and replaced by a single declarative
+> [`helmfile.yaml.gotmpl`](k8s/helm/helmfile.yaml.gotmpl). Kubernetes
+> delivery now has a platform layer plus the five release-aligned app
+> charts; see
 > [`k8s/helm/MIGRATION.md`](k8s/helm/MIGRATION.md) and
 > [ADR-0031](../docs/architecture/adr/ADR-0031-helm-chart-split-five-releases.md).
 >
 > ```bash
-> helm upgrade --install of-platform    k8s/helm/of-platform    -f k8s/helm/of-platform/values.yaml
-> helm upgrade --install of-data-engine k8s/helm/of-data-engine -f k8s/helm/of-data-engine/values.yaml
-> helm upgrade --install of-ontology    k8s/helm/of-ontology    -f k8s/helm/of-ontology/values.yaml
-> helm upgrade --install of-ml-aip      k8s/helm/of-ml-aip      -f k8s/helm/of-ml-aip/values.yaml
-> helm upgrade --install of-apps-ops    k8s/helm/of-apps-ops    -f k8s/helm/of-apps-ops/values.yaml
+> cd infra/k8s/platform && helmfile -e prod apply
+> cd infra/k8s/helm && helmfile -e prod apply
 > ```
 
 - `docker-compose.yml`: local control-plane dependencies plus optional `app` profile for `auth-service`, `gateway`, `web`, and an `nginx` edge proxy, with image overrides such as `OPENFOUNDRY_POSTGRES_IMAGE` for mirrored or air-gapped registries.
-- `k8s/helm/open-foundry/values-multicloud.yaml`: multi-cloud SaaS topology with workload identity and Apollo-driven gated fleet sync.
-- `k8s/helm/open-foundry/values-airgap.yaml`: air-gapped / sovereign deployment posture with private registry mirroring and public-egress shutdown.
-- `k8s/helm/open-foundry/values-sovereign-eu.yaml`: EU-only residency profile with ingress allowlists, node residency labels, and egress fencing.
-- `k8s/helm/open-foundry/values-apollo.yaml`: autonomous CI/CD profile that reconciles rollout fleets through the existing platform APIs.
+- `local/`: support files mounted by Compose (`postgres-init/`, `nginx/`).
+- `k8s/platform/observability/`: platform-owned Prometheus rules, Grafana dashboards, and monitor CRs.
+- `k8s/helm/profiles/values-multicloud.yaml`: multi-cloud SaaS topology with workload identity and Apollo-driven gated fleet sync.
+- `k8s/helm/profiles/values-airgap.yaml`: air-gapped / sovereign deployment posture with private registry mirroring and public-egress shutdown.
+- `k8s/helm/profiles/values-sovereign-eu.yaml`: EU-only residency profile with ingress allowlists, node residency labels, and egress fencing.
+- `k8s/helm/profiles/values-apollo.yaml`: autonomous CI/CD profile that reconciles rollout fleets through the existing platform APIs.
 
 ## Render examples
 
 ```bash
-helm template open-foundry infra/k8s/helm/open-foundry \
-  -f infra/k8s/helm/open-foundry/values.yaml \
-  -f infra/k8s/helm/open-foundry/values-multicloud.yaml
+cd infra/k8s/helm && helmfile -e multicloud template > /tmp/openfoundry-multicloud.yaml
 ```
 
 ```bash
-helm template open-foundry infra/k8s/helm/open-foundry \
-  -f infra/k8s/helm/open-foundry/values.yaml \
-  -f infra/k8s/helm/open-foundry/values-airgap.yaml
+cd infra/k8s/helm && helmfile -e airgap template > /tmp/openfoundry-airgap.yaml
 ```
 
 ## Terraform

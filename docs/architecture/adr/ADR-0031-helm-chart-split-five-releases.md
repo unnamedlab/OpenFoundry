@@ -9,8 +9,8 @@
 
 ## Context
 
-Today every OpenFoundry service is a sub-chart of a single umbrella
-[`infra/k8s/helm/open-foundry`](../../../infra/k8s/helm/open-foundry).
+Before the split, every OpenFoundry service was a sub-chart of a single
+umbrella release now removed from the repo.
 A Helm release of that chart spans 97 Deployments + Services + HPAs +
 PDBs + NetworkPolicies. In production this means:
 
@@ -36,7 +36,7 @@ share an oncall rotation, a release cadence and a blast radius.
 | --- | --- | --- |
 | `of-platform` | `edge-gateway-service`, `identity-federation-service`, `authorization-policy-service`, `tenancy-organizations-service` | platform |
 | `of-data-engine` | `connector-management-service`, `ingestion-replication-service`, `dataset-versioning-service`, `lineage-service`, `pipeline-build-service`, `sql-bi-gateway-service` | data-engineering |
-| `of-ontology` | `ontology-definition-service`, `ontology-actions-service`, `ontology-query-service`, `object-database-service`, `ontology-indexer` (sink), `outbox-relay` (sink) | ontology |
+| `of-ontology` | `ontology-definition-service`, `ontology-actions-service`, `ontology-query-service`, `object-database-service`, `ontology-indexer` (sink) | ontology |
 | `of-ml-aip` | `model-catalog-service`, `model-deployment-service`, `agent-runtime-service`, `llm-catalog-service`, `retrieval-context-service`, `ai-evaluation-service`, `ai-sink` (sink) | ai |
 | `of-apps-ops` | `application-composition-service`, `notebook-runtime-service`, `ontology-exploratory-analysis-service`, `solution-design-service`, `workflow-automation-service`, `notification-alerting-service`, `audit-compliance-service`, `audit-sink` (sink), `telemetry-governance-service`, `federation-product-exchange-service`, `code-repository-review-service`, `sdk-generation-service`, `entity-resolution-service` | apps + ops |
 
@@ -49,11 +49,12 @@ infra/k8s/helm/
 │   ├── values.yaml
 │   ├── values-prod.yaml
 │   ├── values-dev.yaml
-│   └── templates/        (deployment.yaml, service.yaml, etc — copied from open-foundry)
+│   └── templates/
 ├── of-data-engine/
 ├── of-ontology/
 ├── of-ml-aip/
 ├── of-apps-ops/
+├── profiles/             (shared env posture: prod/staging/dev/airgap/...)
 ├── of-shared/            (Helm library chart; templates referenced by the 5 releases above)
 │   ├── Chart.yaml        (type: library)
 │   └── templates/
@@ -62,7 +63,6 @@ infra/k8s/helm/
 │       ├── _hpa.tpl
 │       ├── _pdb.tpl
 │       └── _networkpolicy.tpl
-└── open-foundry/         (DEPRECATED; kept until all 5 releases adopted in prod)
 ```
 
 ### Shared library chart
@@ -91,11 +91,13 @@ sidecar) to a single PR against `of-shared`.
   resource; the other releases register their routes via
   `HTTPRoute` referencing the shared Gateway.
 
-### Per-release values overlays
+### Values overlays
 
-Each release ships its own `values-{dev,staging,prod,sovereign-eu,
-airgap,multicloud,apollo}.yaml`. The shared umbrella overlays in
-`open-foundry/values-*.yaml` are partitioned by release name.
+Each release owns its service-specific `values-{dev,staging,prod}.yaml`.
+Cross-release posture lives in `infra/k8s/helm/profiles/values-{dev,
+staging,prod,sovereign-eu,airgap,multicloud,apollo}.yaml` so one
+environment change (ingress, air-gap posture, object store, Cassandra
+failover pinning) can be applied uniformly across all five releases.
 
 ## Consequences
 
@@ -118,10 +120,9 @@ airgap,multicloud,apollo}.yaml`. The shared umbrella overlays in
   contract surface intentionally tiny (3 ConfigMaps + 1 Gateway) and
   by integration tests in `smoke/` that exercise the contract
   end-to-end.
-* **Deprecation tail**: the umbrella `open-foundry` chart must remain
-  installable until every prod cluster has been migrated. A removal
-  date is set for **2026-08-01** (3 months) and tracked in
-  [`infra/k8s/helm/MIGRATION.md`](../../../infra/k8s/helm/MIGRATION.md).
+* **Operational sequencing**: `of-platform` is a hard dependency for
+  the other four releases because it owns the shared ingress and the
+  `openfoundry-platform-profile` ConfigMap.
 
 ## Execution
 
@@ -134,7 +135,12 @@ airgap,multicloud,apollo}.yaml`. The shared umbrella overlays in
 5. Repeat (2–4) for each remaining release.
 6. After all five releases are live in staging for two weeks, cut
    over prod release-by-release.
-7. Delete `infra/k8s/helm/open-foundry` after the deprecation date.
+7. Delete the legacy umbrella after the split bundle reaches parity.
+
+## Follow-up
+
+The legacy umbrella was removed on **2026-05-02**; the operational
+entrypoint is now [`infra/k8s/helm/bin/upgrade-split-releases.sh`](../../../infra/k8s/helm/bin/upgrade-split-releases.sh).
 
 ## References
 

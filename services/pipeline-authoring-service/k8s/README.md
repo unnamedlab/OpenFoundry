@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/pipeline-authoring-pg.yaml`](../../../infra/k8s/cnpg/clusters/pipeline-authoring-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/pipeline-authoring-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/pipeline-authoring-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `pipeline-authoring-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

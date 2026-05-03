@@ -15,7 +15,10 @@ use crate::{
         branch::DatasetBranch,
         dataset::Dataset,
         lifecycle::{MutationRequest, SnapshotRequest},
-        version::DatasetVersion,
+    },
+    storage::runtime::{
+        NewDatasetVersion, ensure_default_branch_tx, insert_dataset_version_tx, load_branch_tx,
+        lock_dataset, next_version_tx, update_branch_version_tx,
     },
 };
 
@@ -117,19 +120,14 @@ async fn commit_lifecycle_operation(
     };
     let mut tx = tx;
 
-    let dataset =
-        match sqlx::query_as::<_, Dataset>("SELECT * FROM datasets WHERE id = $1 FOR UPDATE")
-            .bind(dataset_id)
-            .fetch_optional(&mut *tx)
-            .await
-        {
-            Ok(Some(dataset)) => dataset,
-            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-            Err(error) => {
-                tracing::error!("lifecycle dataset lookup failed: {error}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
+    let dataset = match lock_dataset(&mut tx, dataset_id).await {
+        Ok(Some(dataset)) => dataset,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("lifecycle dataset lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
 
     let branch_name = requested_branch.unwrap_or_else(|| dataset.active_branch.clone());
     let branch = match ensure_branch(&mut tx, &dataset, &branch_name).await {
@@ -138,14 +136,8 @@ async fn commit_lifecycle_operation(
         Err(status) => return status.into_response(),
     };
 
-    let next_version = match sqlx::query_scalar::<_, Option<i32>>(
-        "SELECT MAX(version) FROM dataset_versions WHERE dataset_id = $1",
-    )
-    .bind(dataset_id)
-    .fetch_one(&mut *tx)
-    .await
-    {
-        Ok(value) => value.unwrap_or(dataset.current_version.saturating_sub(1)) + 1,
+    let next_version = match next_version_tx(&mut tx, dataset_id, dataset.current_version).await {
+        Ok(value) => value,
         Err(error) => {
             tracing::error!("lifecycle latest version lookup failed: {error}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -189,22 +181,19 @@ async fn commit_lifecycle_operation(
         }
     };
 
-    let version = match sqlx::query_as::<_, DatasetVersion>(
-        r#"INSERT INTO dataset_versions (
-               id, dataset_id, version, message, size_bytes, row_count, storage_path, transaction_id
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING *"#,
+    let version = match insert_dataset_version_tx(
+        &mut tx,
+        NewDatasetVersion {
+            id: Uuid::now_v7(),
+            dataset_id,
+            version: next_version,
+            message: &summary,
+            size_bytes: next_size_bytes,
+            row_count: next_row_count,
+            storage_path: &storage_path,
+            transaction_id: transaction.id,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(dataset_id)
-    .bind(next_version)
-    .bind(&summary)
-    .bind(next_size_bytes)
-    .bind(next_row_count)
-    .bind(&storage_path)
-    .bind(transaction.id)
-    .fetch_one(&mut *tx)
     .await
     {
         Ok(version) => version,
@@ -214,17 +203,8 @@ async fn commit_lifecycle_operation(
         }
     };
 
-    if let Err(error) = sqlx::query(
-        r#"UPDATE dataset_branches
-           SET version = $3,
-               updated_at = NOW()
-           WHERE dataset_id = $1 AND name = $2"#,
-    )
-    .bind(dataset_id)
-    .bind(&branch.name)
-    .bind(next_version)
-    .execute(&mut *tx)
-    .await
+    if let Err(error) =
+        update_branch_version_tx(&mut tx, dataset_id, &branch.name, next_version).await
     {
         tracing::error!("update lifecycle branch failed: {error}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -276,34 +256,19 @@ async fn ensure_branch(
     branch_name: &str,
 ) -> Result<DatasetBranch, StatusCode> {
     if branch_name == "main" {
-        sqlx::query(
-            r#"INSERT INTO dataset_branches (
-                   id, dataset_id, name, version, base_version, description, is_default
-               )
-               VALUES ($1, $2, 'main', $3, $3, 'Default branch', TRUE)
-               ON CONFLICT (dataset_id, name) DO NOTHING"#,
-        )
-        .bind(Uuid::now_v7())
-        .bind(dataset.id)
-        .bind(dataset.current_version)
-        .execute(&mut **tx)
-        .await
-        .map_err(|error| {
-            tracing::error!("ensure default branch failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ensure_default_branch_tx(tx, dataset)
+            .await
+            .map_err(|error| {
+                tracing::error!("ensure default branch failed: {error}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
     }
 
-    sqlx::query_as::<_, DatasetBranch>(
-        r#"SELECT * FROM dataset_branches WHERE dataset_id = $1 AND name = $2"#,
-    )
-    .bind(dataset.id)
-    .bind(branch_name)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|error| {
-        tracing::error!("load lifecycle branch failed: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
-    .ok_or(StatusCode::NOT_FOUND)
+    load_branch_tx(tx, dataset.id, branch_name)
+        .await
+        .map_err(|error| {
+            tracing::error!("load lifecycle branch failed: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)
 }

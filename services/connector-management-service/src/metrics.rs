@@ -91,7 +91,11 @@ impl Metrics {
     }
 
     pub fn record_test(&self, connector: &str, success: bool) {
-        let label = if success { result::SUCCESS } else { result::FAILURE };
+        let label = if success {
+            result::SUCCESS
+        } else {
+            result::FAILURE
+        };
         self.connector_test_total
             .with_label_values(&[connector, label])
             .inc();
@@ -103,7 +107,11 @@ impl Metrics {
                 .with_label_values(&[connector])
                 .inc_by(rows as u64);
         }
-        let label = if success { result::SUCCESS } else { result::FAILURE };
+        let label = if success {
+            result::SUCCESS
+        } else {
+            result::FAILURE
+        };
         self.connector_sync_duration_seconds
             .with_label_values(&[connector, label])
             .observe(duration_seconds);
@@ -146,8 +154,10 @@ mod tests {
         assert!(exposition.contains("connector_sync_rows_total"));
         assert!(exposition.contains("connector_sync_duration_seconds_bucket"));
         // Only the success path should advance the row counter (rows=0 in the failure case).
-        assert!(exposition
-            .lines()
-            .any(|line| line.starts_with("connector_sync_rows_total{connector=\"s3\"} 1500")));
+        assert!(
+            exposition
+                .lines()
+                .any(|line| line.starts_with("connector_sync_rows_total{connector=\"s3\"} 1500"))
+        );
     }
 }

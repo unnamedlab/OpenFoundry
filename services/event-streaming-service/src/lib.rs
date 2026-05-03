@@ -22,6 +22,7 @@ pub mod grpc;
 pub mod handlers;
 pub mod metrics;
 pub mod models;
+pub mod outbox;
 pub mod router;
 pub mod runtime;
 pub mod storage;
@@ -31,6 +32,14 @@ pub mod proto {
     pub mod router {
         // tonic_build emits files named after the protobuf package.
         tonic::include_proto!("openfoundry.streaming.router.v1");
+    }
+    /// Generated bindings for the stream-config contract
+    /// (`proto/streaming/streams.proto`). Surfaces the
+    /// `StreamConsistency`/`StreamType`/`StreamConfig` types so the
+    /// REST validator in `handlers::streams` can map JSON payloads
+    /// straight onto the proto-defined enums.
+    pub mod streams {
+        tonic::include_proto!("openfoundry.streaming.streams.v1");
     }
 }
 
@@ -75,6 +84,9 @@ pub struct AppState {
     /// into the realtime tier. When neither backend is configured this is
     /// a [`crate::domain::hot_buffer::NoopHotBuffer`].
     pub hot_buffer: Arc<dyn crate::domain::hot_buffer::HotBuffer>,
+    /// Runtime store for hot events, checkpoint offsets and cold archive
+    /// bookkeeping. Keeps Postgres limited to control-plane metadata.
+    pub runtime_store: Arc<dyn crate::domain::runtime_store::RuntimeStore>,
     /// Operator state backend used by the checkpoint subsystem
     /// (Bloque C). Defaults to
     /// [`crate::domain::engine::state_store::InMemoryStateBackend`].
@@ -93,4 +105,10 @@ pub struct AppState {
     /// `flink-runtime` feature, but the config is read so the REST
     /// handlers can surface the planned manifest even without kube.
     pub flink_config: std::sync::Arc<crate::runtime::flink::FlinkRuntimeConfig>,
+    /// Public base URL of the streaming service surfaced to push
+    /// consumers. Used by the reset endpoint to render the
+    /// `https://{base}/streams-push/{view_rid}/records` POST URL the
+    /// UI displays. Read from `STREAMING_PUBLIC_BASE_URL` (env) at
+    /// startup; defaults to `http://localhost:8080` for dev.
+    pub public_base_url: String,
 }

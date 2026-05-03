@@ -9,9 +9,8 @@ use crate::{
     domain::executor,
     models::{
         authoring::{
-            CompilePipelineRequest, CompilePipelineResponse, ExecutablePlan,
-            PipelineGraphSummary, PipelineValidationResponse, PrunePipelineResponse,
-            ValidatePipelineRequest,
+            CompilePipelineRequest, CompilePipelineResponse, ExecutablePlan, PipelineGraphSummary,
+            PipelineValidationResponse, PrunePipelineResponse, ValidatePipelineRequest,
         },
         pipeline::{PipelineNode, PipelineScheduleConfig},
     },
@@ -35,7 +34,10 @@ pub fn validate_definition(
 
     let mut seen_ids = HashSet::new();
     let mut duplicate_ids = HashSet::new();
-    let all_node_ids = nodes.iter().map(|node| node.id.clone()).collect::<HashSet<_>>();
+    let all_node_ids = nodes
+        .iter()
+        .map(|node| node.id.clone())
+        .collect::<HashSet<_>>();
     let mut edge_count = 0usize;
 
     for node in nodes {
@@ -50,13 +52,26 @@ pub fn validate_definition(
         edge_count += node.depends_on.len();
         for dependency in &node.depends_on {
             if dependency == &node.id {
-                errors.push(format!("pipeline node '{}' cannot depend on itself", node.id));
+                errors.push(format!(
+                    "pipeline node '{}' cannot depend on itself",
+                    node.id
+                ));
             }
             if !all_node_ids.contains(dependency) {
                 errors.push(format!(
                     "pipeline node '{}' depends on missing node '{}'",
                     node.id, dependency
                 ));
+            }
+        }
+
+        // Per-kind validation for media-typed nodes (P1.4).
+        if crate::domain::media_nodes::is_media_transform_type(&node.transform_type) {
+            for issue in crate::domain::media_nodes::validate_media_node(
+                &node.transform_type,
+                &node.config,
+            ) {
+                errors.push(format!("pipeline node '{}': {issue}", node.id));
             }
         }
     }
@@ -82,8 +97,7 @@ pub fn validate_definition(
 
         if status != "active" {
             warnings.push(
-                "pipeline schedule is enabled but the pipeline status is not 'active'"
-                    .to_string(),
+                "pipeline schedule is enabled but the pipeline status is not 'active'".to_string(),
             );
         }
     }
@@ -129,7 +143,8 @@ pub fn compile_request(
         return Err(validation);
     }
 
-    let reachable = execution_reachable_nodes(&request.pipeline.nodes, request.start_from_node.as_deref())?;
+    let reachable =
+        execution_reachable_nodes(&request.pipeline.nodes, request.start_from_node.as_deref())?;
     let mut reachable_node_ids = reachable.into_iter().collect::<Vec<_>>();
     reachable_node_ids.sort();
 
@@ -141,15 +156,17 @@ pub fn compile_request(
         .collect::<Vec<_>>();
     let mut pruned_node_ids = all_node_ids
         .into_iter()
-        .filter(|node_id| !reachable_node_ids.iter().any(|reachable_id| reachable_id == node_id))
+        .filter(|node_id| {
+            !reachable_node_ids
+                .iter()
+                .any(|reachable_id| reachable_id == node_id)
+        })
         .collect::<Vec<_>>();
     pruned_node_ids.sort();
 
     let node_order = execution_order(&request.pipeline.nodes, request.start_from_node.as_deref())?;
-    let execution_stages = execution_stages(
-        &request.pipeline.nodes,
-        request.start_from_node.as_deref(),
-    )?;
+    let execution_stages =
+        execution_stages(&request.pipeline.nodes, request.start_from_node.as_deref())?;
 
     Ok(CompilePipelineResponse {
         validation,
@@ -254,7 +271,9 @@ fn execution_stages(
     }
 
     if visited != reachable.len() {
-        return Err(validation_error("cycle detected in pipeline DAG".to_string()));
+        return Err(validation_error(
+            "cycle detected in pipeline DAG".to_string(),
+        ));
     }
 
     Ok(stages)
@@ -270,7 +289,10 @@ fn execution_reachable_nodes(
     }
 }
 
-fn reachable_nodes(nodes: &[PipelineNode], start_from_node: &str) -> Result<HashSet<String>, String> {
+fn reachable_nodes(
+    nodes: &[PipelineNode],
+    start_from_node: &str,
+) -> Result<HashSet<String>, String> {
     if !nodes.iter().any(|node| node.id == start_from_node) {
         return Err(format!("start node '{start_from_node}' not found"));
     }

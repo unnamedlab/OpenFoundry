@@ -7,8 +7,6 @@ pub struct AppConfig {
     #[serde(default = "default_port")]
     pub port: u16,
     pub database_url: String,
-    pub nexus_database_url: String,
-    pub ontology_database_url: String,
     pub jwt_secret: String,
 }
 

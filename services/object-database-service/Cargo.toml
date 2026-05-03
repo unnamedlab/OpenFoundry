@@ -29,6 +29,10 @@ workspace = true
 [dependencies.config]
 workspace = true
 
+[dependencies.cassandra-kernel]
+workspace = true
+features = ["repos"]
+
 [dependencies.core-models]
 workspace = true
 
@@ -57,6 +61,9 @@ workspace = true
 [dependencies.sqlx]
 workspace = true
 
+[dependencies.storage-abstraction]
+workspace = true
+
 [dependencies.thiserror]
 workspace = true
 
@@ -72,6 +79,9 @@ workspace = true
 [dependencies.tracing-subscriber]
 workspace = true
 
+[dependencies.tower-http]
+workspace = true
+
 [dependencies.uuid]
 workspace = true
 
@@ -81,4 +91,10 @@ name = "object-database-service"
 required-features = []
 
 [dependencies.ontology-kernel]
+workspace = true
+
+[dev-dependencies.http-body-util]
+version = "0.1"
+
+[dev-dependencies.tower]
 workspace = true

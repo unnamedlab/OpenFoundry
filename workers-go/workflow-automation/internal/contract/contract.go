@@ -17,8 +17,10 @@ const (
 	// StartWorkflowOptions::SEARCH_ATTR_AUDIT_CORRELATION.
 	SearchAttrAuditCorrelation = "audit_correlation_id"
 
-	// HeaderAuditCorrelation is the gRPC metadata key used when
-	// activities call back into the Rust services.
+	// HeaderAuditCorrelation is the HTTP request header used when
+	// activities call back into the Rust services. See ADR-0021
+	// §Wire format for why activities use HTTP REST + JSON instead
+	// of generated gRPC bindings from `proto/`.
 	HeaderAuditCorrelation = "x-audit-correlation-id"
 )
 
@@ -36,7 +38,8 @@ type AutomationRunInput struct {
 // the run completes. Kept tiny on purpose — the detailed run record
 // lives in the Rust service that owns the data.
 type AutomationRunResult struct {
-	RunID  string `json:"run_id"`
-	Status string `json:"status"` // "completed" | "failed" | "cancelled"
-	Error  string `json:"error,omitempty"`
+	RunID  string         `json:"run_id"`
+	Status string         `json:"status"` // "completed" | "failed" | "cancelled"
+	Error  string         `json:"error,omitempty"`
+	Result map[string]any `json:"result,omitempty"`
 }

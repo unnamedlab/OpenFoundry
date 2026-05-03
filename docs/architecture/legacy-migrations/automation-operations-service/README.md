@@ -11,11 +11,12 @@ automation-ops control plane that was authoritative before Stream
   `openfoundry.automation-ops`). Queue entries, retries and
   dependencies live in workflow event history.
 - The Postgres tables `automation_queues` and `automation_queue_runs`
-  (defined in
-  `services/automation-operations-service/migrations/20260427070600_06_automation_queues_foundation.sql`)
+  (archived in
+  `docs/architecture/legacy-migrations/automation-operations-service/20260427070600_06_automation_queues_foundation.sql`)
   are **deprecated** and must not be written to from new code paths.
-  The substrate keeps them in place for read-side projections during
-  the cutover.
+  As of G-S2-PG (2026-05-03), live Rust handlers no longer read or
+  write them; the disabled DROP remains staged for the database
+  cutover window.
 
 ## Cutover gate
 

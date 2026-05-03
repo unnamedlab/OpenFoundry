@@ -49,9 +49,7 @@ pub fn validate_config(config: &Value) -> Result<(), String> {
     {
         return Ok(());
     }
-    Err(
-        "generic connector requires 'iceberg_tables[]', 'delta_tables[]' or 'catalog_url'".into(),
-    )
+    Err("generic connector requires 'iceberg_tables[]', 'delta_tables[]' or 'catalog_url'".into())
 }
 
 pub async fn discover_sources(config: &Value) -> Result<Vec<DiscoveredSource>, String> {
@@ -75,8 +73,10 @@ mod tests {
         assert!(validate_config(&json!({})).is_err());
         assert!(validate_config(&json!({"catalog_url":"https://x"})).is_ok());
         assert!(
-            validate_config(&json!({"iceberg_tables":[{"selector":"a","metadata_location":"s3://x"}]}))
-                .is_ok()
+            validate_config(
+                &json!({"iceberg_tables":[{"selector":"a","metadata_location":"s3://x"}]})
+            )
+            .is_ok()
         );
     }
 

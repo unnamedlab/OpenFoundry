@@ -4,6 +4,136 @@ use serde_json::Value;
 use sqlx::{FromRow, types::Json as SqlJson};
 use uuid::Uuid;
 
+/// Foundry-parity stream type tuning the underlying Kafka producer.
+///
+/// Mirrors the protobuf `openfoundry.streaming.streams.v1.StreamType`.
+/// Persisted on `streaming_streams.stream_type` as text so the proto
+/// enum and the SQL CHECK stay in lock-step without a custom Postgres
+/// type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StreamType {
+    #[default]
+    Standard,
+    HighThroughput,
+    Compressed,
+    HighThroughputCompressed,
+}
+
+impl StreamType {
+    /// Parse the textual representation persisted in Postgres / surfaced
+    /// over JSON. Treats unknown values as an error so callers get a
+    /// `bad_request` rather than a silent fallback.
+    pub fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "STANDARD" => Ok(Self::Standard),
+            "HIGH_THROUGHPUT" => Ok(Self::HighThroughput),
+            "COMPRESSED" => Ok(Self::Compressed),
+            "HIGH_THROUGHPUT_COMPRESSED" => Ok(Self::HighThroughputCompressed),
+            other => Err(format!("unknown stream_type: {other}")),
+        }
+    }
+
+    /// Canonical textual form (matches the SQL CHECK and the proto enum
+    /// names).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Standard => "STANDARD",
+            Self::HighThroughput => "HIGH_THROUGHPUT",
+            Self::Compressed => "COMPRESSED",
+            Self::HighThroughputCompressed => "HIGH_THROUGHPUT_COMPRESSED",
+        }
+    }
+
+    pub fn is_high_throughput(self) -> bool {
+        matches!(self, Self::HighThroughput | Self::HighThroughputCompressed)
+    }
+
+    pub fn is_compressed(self) -> bool {
+        matches!(self, Self::Compressed | Self::HighThroughputCompressed)
+    }
+}
+
+/// Streaming consistency contract. Maps directly onto the proto
+/// `StreamConsistency` enum. Foundry's docs require `ingest` to be
+/// AT_LEAST_ONCE for streaming sources; pipelines may opt into
+/// EXACTLY_ONCE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StreamConsistency {
+    #[default]
+    AtLeastOnce,
+    ExactlyOnce,
+}
+
+impl StreamConsistency {
+    pub fn from_str(value: &str) -> Result<Self, String> {
+        match value {
+            "AT_LEAST_ONCE" => Ok(Self::AtLeastOnce),
+            "EXACTLY_ONCE" => Ok(Self::ExactlyOnce),
+            other => Err(format!("unknown stream_consistency: {other}")),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::AtLeastOnce => "AT_LEAST_ONCE",
+            Self::ExactlyOnce => "EXACTLY_ONCE",
+        }
+    }
+}
+
+/// Resolved Kafka producer/topic settings for a given stream type.
+///
+/// `linger.ms`/`batch.size` come from the Foundry "high throughput"
+/// recommendation; `lz4` is preferred over Snappy for its better
+/// compression ratio at similar CPU cost.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KafkaProducerSettings {
+    pub linger_ms: u32,
+    pub batch_size_bytes: u32,
+    /// `None` means no explicit `compression.type` override (broker
+    /// default).
+    pub compression: Option<&'static str>,
+}
+
+impl KafkaProducerSettings {
+    /// Resolve from the Foundry stream type. `compression` flag is
+    /// honoured even on STANDARD/HIGH_THROUGHPUT for the rare case
+    /// where an operator wants to force compression without taking the
+    /// throughput-tuned linger/batch settings.
+    pub fn for_stream(stream_type: StreamType, compression: bool) -> Self {
+        let (linger_ms, batch_size_bytes) = if stream_type.is_high_throughput() {
+            (20, 131_072)
+        } else {
+            (5, 32_768)
+        };
+        let compression = if stream_type.is_compressed() || compression {
+            Some("lz4")
+        } else {
+            None
+        };
+        Self {
+            linger_ms,
+            batch_size_bytes,
+            compression,
+        }
+    }
+
+    /// Render as `(key, value)` pairs ready to be set on either
+    /// `rdkafka::ClientConfig` (producer) or `NewTopic` overrides.
+    pub fn to_kafka_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut out = vec![
+            ("linger.ms", self.linger_ms.to_string()),
+            ("batch.size", self.batch_size_bytes.to_string()),
+        ];
+        if let Some(codec) = self.compression {
+            out.push(("compression.type", codec.to_string()));
+        }
+        out
+    }
+}
+
 /// Operator-facing knobs that map to Kafka producer / topic tuning at
 /// runtime. Stored as JSONB so we can extend the shape without further
 /// migrations.
@@ -25,24 +155,24 @@ pub struct StreamProfile {
 }
 
 impl StreamProfile {
+    /// Derive a `StreamType` from the legacy `high_throughput`/
+    /// `compressed` booleans so callers that still set the JSON profile
+    /// pick up the new producer tuning.
+    pub fn derive_stream_type(&self) -> StreamType {
+        match (self.high_throughput, self.compressed) {
+            (true, true) => StreamType::HighThroughputCompressed,
+            (true, false) => StreamType::HighThroughput,
+            (false, true) => StreamType::Compressed,
+            (false, false) => StreamType::Standard,
+        }
+    }
+
     /// Map the profile flags to Kafka producer / topic-level settings.
-    /// Returned as `(key, value)` pairs ready to be applied to either
-    /// `rdkafka::ClientConfig` (producer) or `NewTopic::set` (topic).
+    /// Kept for backwards compatibility — newer call-sites should call
+    /// [`KafkaProducerSettings::for_stream`] directly with a
+    /// `StreamType`.
     pub fn to_kafka_settings(&self) -> Vec<(&'static str, String)> {
-        let mut out: Vec<(&'static str, String)> = Vec::new();
-        if self.high_throughput {
-            out.push(("linger.ms", "25".to_string()));
-            out.push(("batch.size", "262144".to_string()));
-        } else {
-            out.push(("linger.ms", "5".to_string()));
-            out.push(("batch.size", "32768".to_string()));
-        }
-        if self.compressed {
-            out.push(("compression.type", "lz4".to_string()));
-        } else {
-            out.push(("compression.type", "none".to_string()));
-        }
-        out
+        KafkaProducerSettings::for_stream(self.derive_stream_type(), false).to_kafka_pairs()
     }
 }
 
@@ -119,6 +249,27 @@ pub struct StreamDefinition {
     pub consistency_guarantee: String,
     #[serde(default)]
     pub stream_profile: StreamProfile,
+    /// Foundry-parity stream type controlling Kafka producer tuning.
+    #[serde(default)]
+    pub stream_type: StreamType,
+    /// Whether the producer compresses message batches (lz4). Kept
+    /// orthogonal to `stream_type` so an operator can compress a
+    /// STANDARD stream without bumping `linger.ms`.
+    #[serde(default)]
+    pub compression: bool,
+    /// Ingest-side consistency. Always `AT_LEAST_ONCE` per Foundry
+    /// docs ("Streaming sources currently only support AT_LEAST_ONCE
+    /// for extracts and exports"). The validator rejects EXACTLY_ONCE.
+    #[serde(default)]
+    pub ingest_consistency: StreamConsistency,
+    /// Pipeline-side consistency, the contract Pipeline Builder maps to
+    /// `execution.checkpointing.mode` for Flink-backed pipelines.
+    #[serde(default)]
+    pub pipeline_consistency: StreamConsistency,
+    /// Default checkpoint cadence (ms) consumed by the runtime when the
+    /// topology does not override it.
+    #[serde(default = "default_checkpoint_interval_ms")]
+    pub checkpoint_interval_ms: i32,
     /// Optional Avro schema (Bloque E2). When set the push path validates
     /// payloads against this schema using
     /// `event_bus_control::schema_registry::validate_payload`.
@@ -135,12 +286,67 @@ pub struct StreamDefinition {
     /// and rejected on `get_stream` / `push_events`.
     #[serde(default)]
     pub default_marking: Option<String>,
+    /// Foundry-parity classification: only `INGEST` streams may be
+    /// reset (the docs are explicit — "resets are only available for
+    /// ingest streams"). Defaults to `INGEST` so legacy rows behave
+    /// like push targets.
+    #[serde(default)]
+    pub kind: super::stream_view::StreamKind,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 fn default_compatibility() -> String {
     "BACKWARD".to_string()
+}
+
+fn default_checkpoint_interval_ms() -> i32 {
+    2_000
+}
+
+/// Operator-facing view of the new stream-config knobs introduced in
+/// `proto/streaming/streams.proto::StreamConfig`. Surfaced by
+/// `GET /v1/streams/{rid}/config` and accepted (with validation) by
+/// `PUT /v1/streams/{rid}/config`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamConfig {
+    pub stream_type: StreamType,
+    pub compression: bool,
+    pub partitions: i32,
+    pub retention_ms: i64,
+    pub ingest_consistency: StreamConsistency,
+    pub pipeline_consistency: StreamConsistency,
+    pub checkpoint_interval_ms: i32,
+}
+
+/// Patch shape for the `PUT /v1/streams/{rid}/config` endpoint. Every
+/// field is optional so callers can change one knob at a time.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UpdateStreamConfigRequest {
+    pub stream_type: Option<StreamType>,
+    pub compression: Option<bool>,
+    pub partitions: Option<i32>,
+    pub retention_ms: Option<i64>,
+    pub ingest_consistency: Option<StreamConsistency>,
+    pub pipeline_consistency: Option<StreamConsistency>,
+    pub checkpoint_interval_ms: Option<i32>,
+}
+
+impl StreamDefinition {
+    /// Project the persisted stream into the [`StreamConfig`] view.
+    pub fn config_view(&self) -> StreamConfig {
+        StreamConfig {
+            stream_type: self.stream_type,
+            compression: self.compression,
+            partitions: self.partitions,
+            // `retention_hours` is the source of truth for retention;
+            // `retention_ms` is a derived view used by the proto.
+            retention_ms: i64::from(self.retention_hours).saturating_mul(3_600_000),
+            ingest_consistency: self.ingest_consistency,
+            pipeline_consistency: self.pipeline_consistency,
+            checkpoint_interval_ms: self.checkpoint_interval_ms,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +386,12 @@ pub struct CreateStreamRequest {
     pub schema_compatibility_mode: Option<String>,
     #[serde(default)]
     pub default_marking: Option<String>,
+    pub stream_type: Option<StreamType>,
+    pub compression: Option<bool>,
+    pub ingest_consistency: Option<StreamConsistency>,
+    pub pipeline_consistency: Option<StreamConsistency>,
+    pub checkpoint_interval_ms: Option<i32>,
+    pub kind: Option<super::stream_view::StreamKind>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -199,6 +411,12 @@ pub struct UpdateStreamRequest {
     pub schema_compatibility_mode: Option<String>,
     #[serde(default)]
     pub default_marking: Option<String>,
+    pub stream_type: Option<StreamType>,
+    pub compression: Option<bool>,
+    pub ingest_consistency: Option<StreamConsistency>,
+    pub pipeline_consistency: Option<StreamConsistency>,
+    pub checkpoint_interval_ms: Option<i32>,
+    pub kind: Option<super::stream_view::StreamKind>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -217,12 +435,27 @@ pub struct StreamRow {
     pub schema_fingerprint: Option<String>,
     pub schema_compatibility_mode: String,
     pub default_marking: Option<String>,
+    pub stream_type: String,
+    pub compression: bool,
+    pub ingest_consistency: String,
+    pub pipeline_consistency: String,
+    pub checkpoint_interval_ms: i32,
+    pub kind: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl From<StreamRow> for StreamDefinition {
     fn from(value: StreamRow) -> Self {
+        // The CHECK constraints in `20260504000001_stream_config.sql`
+        // guarantee these values are well-formed; fall back to the
+        // default if a future operator drops the constraint.
+        let stream_type = StreamType::from_str(&value.stream_type).unwrap_or_default();
+        let ingest_consistency =
+            StreamConsistency::from_str(&value.ingest_consistency).unwrap_or_default();
+        let pipeline_consistency =
+            StreamConsistency::from_str(&value.pipeline_consistency).unwrap_or_default();
+        let kind = super::stream_view::StreamKind::from_str(&value.kind).unwrap_or_default();
         Self {
             id: value.id,
             name: value.name,
@@ -238,6 +471,12 @@ impl From<StreamRow> for StreamDefinition {
             schema_fingerprint: value.schema_fingerprint,
             schema_compatibility_mode: value.schema_compatibility_mode,
             default_marking: value.default_marking,
+            stream_type,
+            compression: value.compression,
+            ingest_consistency,
+            pipeline_consistency,
+            checkpoint_interval_ms: value.checkpoint_interval_ms,
+            kind,
             created_at: value.created_at,
             updated_at: value.updated_at,
         }

@@ -67,7 +67,10 @@ pub async fn invoke_webhook(
     let definition = match load_webhook_definition(&state, id).await {
         Ok(Some(definition)) => definition,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(json!({ "error": "webhook not found" })))
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "webhook not found" })),
+            )
                 .into_response();
         }
         Err(error) => {

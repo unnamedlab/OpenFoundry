@@ -1,7 +1,7 @@
 # `tools/kafka-lint`
 
 Static contract lint for the Strimzi Kafka cluster manifest used by the
-data plane (`infra/k8s/strimzi/kafka-cluster.yaml`).
+data plane (`infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml`).
 
 ## Why
 
@@ -44,5 +44,5 @@ violated invariant.
 
 ## CI
 
-Runs on every push and pull request that touches `infra/k8s/strimzi/**` or
+Runs on every push and pull request that touches `infra/k8s/platform/manifests/strimzi/**` or
 this tool — see `.github/workflows/kafka-lint.yml`.

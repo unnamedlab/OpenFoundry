@@ -4,9 +4,9 @@
 - **Date:** 2026-04-30
 - **Deciders:** OpenFoundry platform architecture group
 - **Related work:**
-  - `infra/k8s/strimzi/kafka-cluster.yaml` (Strimzi `Kafka` + `KafkaNodePool` manifest)
+  - `infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml` (Strimzi `Kafka` + `KafkaNodePool` manifest)
   - `tools/kafka-lint/check_kraft.py` (manifest-time contract lint)
-  - `infra/observability/prometheus-rules/kafka.yaml` (runtime alerts)
+  - `infra/k8s/platform/observability/prometheus-rules/kafka.yaml` (runtime alerts)
   - `smoke/chaos/kill-active-kafka-controller.sh` and `smoke/chaos/run.sh` (chaos-suite enforcement)
   - `infra/runbooks/kafka.md` §2.1 and `infra/runbooks/upgrade-playbook.md` (operational procedure)
   - [ADR-0011](./ADR-0011-control-vs-data-bus-contract.md) (which scopes Kafka to data-plane firehoses only)
@@ -14,7 +14,7 @@
 
 ## Context
 
-OpenFoundry's data plane runs Apache Kafka in **KRaft combined mode** — three pods that are simultaneously controllers and brokers, deployed by Strimzi from `infra/k8s/strimzi/kafka-cluster.yaml`. The cluster is the only durable transport for the five data-plane topics (`cdc.<source>`, `dataset.changes`, `lineage.events`, `model.inferences`, `audit.events` — see `infra/runbooks/kafka.md` §1) and is referenced by ADR-0011 as the data-plane half of the bus split and by ADR-0012 as the source of the data-plane durability SLOs (`acks=all`, `min.insync.replicas=2`, `unclean.leader.election.enable=false`).
+OpenFoundry's data plane runs Apache Kafka in **KRaft combined mode** — three pods that are simultaneously controllers and brokers, deployed by Strimzi from `infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml`. The cluster is the only durable transport for the five data-plane topics (`cdc.<source>`, `dataset.changes`, `lineage.events`, `model.inferences`, `audit.events` — see `infra/runbooks/kafka.md` §1) and is referenced by ADR-0011 as the data-plane half of the bus split and by ADR-0012 as the source of the data-plane durability SLOs (`acks=all`, `min.insync.replicas=2`, `unclean.leader.election.enable=false`).
 
 That topology gives us a strict, fragile invariant set:
 
@@ -35,7 +35,7 @@ We make the four invariants above a **mechanically enforced contract** with four
 
 ### Layer A — Manifest-time lint
 
-`tools/kafka-lint/check_kraft.py` parses `infra/k8s/strimzi/kafka-cluster.yaml` and refuses (exit 1) any manifest where:
+`tools/kafka-lint/check_kraft.py` parses `infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml` and refuses (exit 1) any manifest where:
 
 - KRaft is not enabled (`strimzi.io/kraft: enabled` annotation missing) or any ZooKeeper config remains.
 - `default.replication.factor != 3`, `min.insync.replicas != 2`, `unclean.leader.election.enable != false`, or the offsets/transaction-state-log replication factors don't match.
@@ -45,12 +45,12 @@ The lint is wired into the existing CI workflow via `.github/workflows/kafka-lin
 
 ### Layer B — Runtime alerts
 
-`infra/observability/prometheus-rules/kafka.yaml` carries two KRaft-contract alerts in addition to the pre-existing operational ones (broker down, under-replicated, ISR shrink, offline partitions, consumer lag):
+`infra/k8s/platform/observability/prometheus-rules/kafka.yaml` carries two KRaft-contract alerts in addition to the pre-existing operational ones (broker down, under-replicated, ISR shrink, offline partitions, consumer lag):
 
 - **`KafkaUnderMinIsrPartitions`** (`severity: critical`, `for: 2m`): fires when `sum(kafka_server_replicamanager_underminisrpartitioncount) > 0`. This is the *direct* signal that `acks=all` producers are failing writes (`NotEnoughReplicas`), not the same as `UnderReplicatedPartitions`.
 - **`KafkaActiveControllerCountAbnormal`** (`severity: critical`, `for: 3m`): fires when `sum(kafka_controller_kafkacontroller_activecontrollercount) != 1`. Single rule covers `0` (no controller, metadata stalled) and `>1` (split-brain). The 3-minute window absorbs normal failover events, including a Strimzi controller-pool rolling restart.
 
-Both rules are unit-tested with `promtool test rules` in `infra/observability/prometheus-rules/tests/kafka_kraft_test.yaml` and validated on every PR by `.github/workflows/prometheus-rules.yml`.
+Both rules are unit-tested with `promtool test rules` in `infra/k8s/platform/observability/prometheus-rules/tests/kafka_kraft_test.yaml` and validated on every PR by `.github/workflows/prometheus-rules.yml`.
 
 ### Layer C — Chaos test for the active controller
 

@@ -109,7 +109,7 @@ fn normalize_branch_name(value: &str) -> Result<String, String> {
 }
 
 async fn load_project(state: &AppState, id: Uuid) -> Result<Option<OntologyProject>, String> {
-    sqlx::query_as::<_, OntologyProject>(
+    crate::domain::pg_repository::typed::<OntologyProject>(
         r#"SELECT id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at
            FROM ontology_projects
            WHERE id = $1"#,
@@ -145,7 +145,7 @@ pub async fn list_projects(
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
     let search_pattern = format!("%{}%", query.search.unwrap_or_default());
 
-    let projects = match sqlx::query_as::<_, OntologyProject>(
+    let projects = match crate::domain::pg_repository::typed::<OntologyProject>(
         r#"SELECT id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at
            FROM ontology_projects
            WHERE slug ILIKE $1 OR display_name ILIKE $1
@@ -202,7 +202,7 @@ pub async fn create_project(
     let display_name = body.display_name.unwrap_or_else(|| slug.clone());
     let description = body.description.unwrap_or_default();
 
-    match sqlx::query_as::<_, OntologyProject>(
+    match crate::domain::pg_repository::typed::<OntologyProject>(
         r#"INSERT INTO ontology_projects (id, slug, display_name, description, workspace_slug, owner_id)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at"#,
@@ -268,7 +268,7 @@ pub async fn update_project(
         None => existing.workspace_slug.clone(),
     };
 
-    match sqlx::query_as::<_, OntologyProject>(
+    match crate::domain::pg_repository::typed::<OntologyProject>(
         r#"UPDATE ontology_projects
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -306,7 +306,7 @@ pub async fn delete_project(
         return forbidden(error);
     }
 
-    match sqlx::query("DELETE FROM ontology_projects WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM ontology_projects WHERE id = $1")
         .bind(id)
         .execute(&state.db)
         .await
@@ -333,7 +333,7 @@ pub async fn list_project_memberships(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectMembership>(
+    match crate::domain::pg_repository::typed::<OntologyProjectMembership>(
         r#"SELECT project_id, user_id, role, created_at, updated_at
            FROM ontology_project_memberships
            WHERE project_id = $1
@@ -367,7 +367,7 @@ pub async fn upsert_project_membership(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectMembership>(
+    match crate::domain::pg_repository::typed::<OntologyProjectMembership>(
         r#"INSERT INTO ontology_project_memberships (project_id, user_id, role)
            VALUES ($1, $2, $3)
            ON CONFLICT (project_id, user_id)
@@ -403,7 +403,7 @@ pub async fn delete_project_membership(
         return forbidden(error);
     }
 
-    match sqlx::query(
+    match crate::domain::pg_repository::raw(
         r#"DELETE FROM ontology_project_memberships
            WHERE project_id = $1 AND user_id = $2"#,
     )
@@ -436,7 +436,7 @@ pub async fn list_project_resources(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectResourceBinding>(
+    match crate::domain::pg_repository::typed::<OntologyProjectResourceBinding>(
         r#"SELECT project_id, resource_kind, resource_id, bound_by, created_at
            FROM ontology_project_resources
            WHERE project_id = $1
@@ -498,7 +498,7 @@ pub async fn bind_project_resource(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectResourceBinding>(
+    match crate::domain::pg_repository::typed::<OntologyProjectResourceBinding>(
         r#"INSERT INTO ontology_project_resources (project_id, resource_kind, resource_id, bound_by)
            VALUES ($1, $2, $3, $4)
            ON CONFLICT (resource_kind, resource_id)
@@ -531,7 +531,7 @@ pub async fn unbind_project_resource(
         return forbidden(error);
     }
 
-    let binding = match sqlx::query_as::<_, OntologyProjectResourceBinding>(
+    let binding = match crate::domain::pg_repository::typed::<OntologyProjectResourceBinding>(
         r#"SELECT project_id, resource_kind, resource_id, bound_by, created_at
            FROM ontology_project_resources
            WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3"#,
@@ -565,7 +565,7 @@ pub async fn unbind_project_resource(
         return forbidden(error);
     }
 
-    match sqlx::query(
+    match crate::domain::pg_repository::raw(
         r#"DELETE FROM ontology_project_resources
            WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3"#,
     )
@@ -599,7 +599,7 @@ pub async fn get_project_working_state(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectWorkingState>(
+    match crate::domain::pg_repository::typed::<OntologyProjectWorkingState>(
         r#"SELECT project_id, changes, updated_by, updated_at
            FROM ontology_project_working_states
            WHERE project_id = $1"#,
@@ -639,7 +639,7 @@ pub async fn replace_project_working_state(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectWorkingState>(
+    match crate::domain::pg_repository::typed::<OntologyProjectWorkingState>(
         r#"INSERT INTO ontology_project_working_states (project_id, changes, updated_by)
            VALUES ($1, $2, $3)
            ON CONFLICT (project_id)
@@ -675,7 +675,7 @@ pub async fn list_project_branches(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectBranch>(
+    match crate::domain::pg_repository::typed::<OntologyProjectBranch>(
         r#"SELECT id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
                   enable_indexing, created_by, created_at, updated_at, latest_rebased_at
            FROM ontology_project_branches
@@ -713,7 +713,7 @@ pub async fn create_project_branch(
         Err(error) => return invalid(error),
     };
 
-    match sqlx::query_as::<_, OntologyProjectBranch>(
+    match crate::domain::pg_repository::typed::<OntologyProjectBranch>(
         r#"INSERT INTO ontology_project_branches
               (id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
                enable_indexing, created_by, latest_rebased_at)
@@ -747,7 +747,7 @@ pub async fn update_project_branch(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectBranch>(
+    match crate::domain::pg_repository::typed::<OntologyProjectBranch>(
         r#"UPDATE ontology_project_branches
            SET description = COALESCE($3, description),
                status = COALESCE($4, status),
@@ -788,7 +788,7 @@ pub async fn list_project_proposals(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectProposal>(
+    match crate::domain::pg_repository::typed::<OntologyProjectProposal>(
         r#"SELECT id, project_id, branch_id, title, description, status, reviewer_ids, tasks, comments,
                   created_by, created_at, updated_at
            FROM ontology_project_proposals
@@ -814,7 +814,7 @@ pub async fn create_project_proposal(
         return forbidden(error);
     }
 
-    let branch = match sqlx::query_as::<_, OntologyProjectBranch>(
+    let branch = match crate::domain::pg_repository::typed::<OntologyProjectBranch>(
         r#"SELECT id, project_id, name, description, status, proposal_id, changes, conflict_resolutions,
                   enable_indexing, created_by, created_at, updated_at, latest_rebased_at
            FROM ontology_project_branches
@@ -830,7 +830,7 @@ pub async fn create_project_proposal(
         Err(error) => return db_error(format!("failed to load ontology project branch: {error}")),
     };
 
-    let proposal = match sqlx::query_as::<_, OntologyProjectProposal>(
+    let proposal = match crate::domain::pg_repository::typed::<OntologyProjectProposal>(
         r#"INSERT INTO ontology_project_proposals
               (id, project_id, branch_id, title, description, status, reviewer_ids, tasks, comments, created_by)
            VALUES ($1, $2, $3, $4, $5, 'in_review', $6, $7, $8, $9)
@@ -853,7 +853,7 @@ pub async fn create_project_proposal(
         Err(error) => return db_error(format!("failed to create ontology project proposal: {error}")),
     };
 
-    match sqlx::query(
+    match crate::domain::pg_repository::raw(
         r#"UPDATE ontology_project_branches
            SET status = 'in_review', proposal_id = $3, updated_at = NOW()
            WHERE project_id = $1 AND id = $2"#,
@@ -879,7 +879,7 @@ pub async fn update_project_proposal(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectProposal>(
+    match crate::domain::pg_repository::typed::<OntologyProjectProposal>(
         r#"UPDATE ontology_project_proposals
            SET title = COALESCE($3, title),
                description = COALESCE($4, description),
@@ -918,7 +918,7 @@ pub async fn list_project_migrations(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectMigration>(
+    match crate::domain::pg_repository::typed::<OntologyProjectMigration>(
         r#"SELECT id, project_id, source_project_id, target_project_id, resources, submitted_at, status, note, submitted_by
            FROM ontology_project_migrations
            WHERE project_id = $1
@@ -943,7 +943,7 @@ pub async fn create_project_migration(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyProjectMigration>(
+    match crate::domain::pg_repository::typed::<OntologyProjectMigration>(
         r#"INSERT INTO ontology_project_migrations
               (id, project_id, source_project_id, target_project_id, resources, status, note, submitted_by)
            VALUES ($1, $2, $3, $4, $5, 'planned', $6, $7)

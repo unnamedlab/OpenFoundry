@@ -67,6 +67,34 @@ pub fn build_router(state: AppState) -> Router {
                 .patch(handlers::crud::update_dataset)
                 .delete(handlers::crud::delete_dataset),
         )
+        .route(
+            "/v1/datasets/{rid}/model",
+            get(handlers::dataset_model::get_dataset_model),
+        )
+        .route(
+            "/v1/datasets/{rid}/metadata",
+            axum::routing::patch(handlers::dataset_model::patch_dataset_metadata),
+        )
+        .route(
+            "/v1/datasets/{rid}/markings",
+            get(handlers::dataset_model::list_dataset_markings)
+                .put(handlers::dataset_model::put_dataset_markings),
+        )
+        .route(
+            "/v1/datasets/{rid}/permissions",
+            get(handlers::dataset_model::list_dataset_permissions)
+                .put(handlers::dataset_model::put_dataset_permissions),
+        )
+        .route(
+            "/v1/datasets/{rid}/lineage-links",
+            get(handlers::dataset_model::list_dataset_lineage_links)
+                .put(handlers::dataset_model::put_dataset_lineage_links),
+        )
+        .route(
+            "/v1/datasets/{rid}/files/index",
+            get(handlers::dataset_model::list_dataset_file_index)
+                .put(handlers::dataset_model::put_dataset_file_index),
+        )
         // Preview / schema
         .route(
             "/v1/datasets/{rid}/preview",

@@ -1,9 +1,11 @@
 pub mod category;
+pub mod dataset_product;
 pub mod devops;
 pub mod install;
 pub mod listing;
 pub mod package;
 pub mod review;
+pub mod schedule_manifest;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 

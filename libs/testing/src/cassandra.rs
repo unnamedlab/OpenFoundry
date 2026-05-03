@@ -29,8 +29,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use scylla::transport::session::Session;
 use scylla::SessionBuilder;
+use scylla::transport::session::Session;
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,
     core::{IntoContainerPort, WaitFor},

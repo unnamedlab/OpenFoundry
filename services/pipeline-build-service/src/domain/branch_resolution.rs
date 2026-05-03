@@ -22,7 +22,7 @@
 //! `dataset-versioning-service` for the actual branch creation /
 //! transaction open.
 
-use core_models::dataset::transaction::BranchName;
+use core_models::dataset::transaction::{BranchName, DatasetRid};
 
 /// Outcome of resolving a *read* on an input dataset.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +62,19 @@ pub enum ResolveError {
         build_branch: BranchName,
         tried: Vec<BranchName>,
         available: Vec<BranchName>,
+    },
+    /// The fallback chain is not a sub-sequence of the dataset's
+    /// recorded branch ancestry. Foundry "Build branch guarantees"
+    /// require that "Build resolution only succeeds if the specified
+    /// branch fallback sequence is compatible with the branch
+    /// ancestries in the involved datasets" — this variant is the
+    /// signal that the chain references an unrelated lineage.
+    #[error("incompatible ancestry on dataset='{dataset_rid}': build='{build_branch}' chain=[{}] ancestry=[{}]", join_branches(.target_chain), join_branches(.ancestry))]
+    IncompatibleAncestry {
+        dataset_rid: DatasetRid,
+        build_branch: BranchName,
+        target_chain: Vec<BranchName>,
+        ancestry: Vec<BranchName>,
     },
 }
 
@@ -110,6 +123,51 @@ pub fn resolve_input_dataset(
         tried: fallback_chain.to_vec(),
         available: dataset_branches.to_vec(),
     })
+}
+
+/// Foundry "Build branch guarantees" — the fallback chain must be
+/// **compatible** with the dataset's branch ancestry, i.e. every
+/// branch named in the chain that exists on the dataset must appear
+/// in the ancestry walk in the same relative order.
+///
+/// `dataset_ancestry` is expected child→root (matches the
+/// `GET /branches/{branch}/ancestry` endpoint added in P1). When the
+/// dataset has no branches at all, ancestry is empty and any chain is
+/// trivially compatible (the dataset will be created from scratch).
+///
+/// Returns `Ok(())` when compatible, `Err(IncompatibleAncestry)` when
+/// the chain reorders or breaks the ancestry.
+pub fn assert_chain_ancestry_compatible(
+    dataset_rid: &DatasetRid,
+    build_branch: &BranchName,
+    fallback_chain: &[BranchName],
+    dataset_ancestry: &[BranchName],
+) -> Result<(), ResolveError> {
+    if dataset_ancestry.is_empty() {
+        return Ok(());
+    }
+    let mut cursor = 0usize;
+    for candidate in fallback_chain {
+        if let Some(offset) = dataset_ancestry[cursor..]
+            .iter()
+            .position(|a| a == candidate)
+        {
+            cursor += offset + 1;
+        } else if dataset_ancestry.contains(candidate) {
+            // Branch exists in ancestry but in wrong order ⇒ chain
+            // crosses a parent boundary that the ancestry doesn't.
+            return Err(ResolveError::IncompatibleAncestry {
+                dataset_rid: dataset_rid.clone(),
+                build_branch: build_branch.clone(),
+                target_chain: fallback_chain.to_vec(),
+                ancestry: dataset_ancestry.to_vec(),
+            });
+        }
+        // Branches absent from ancestry are tolerated: they refer to
+        // sibling lineages that just don't exist on this dataset, which
+        // is the documented "skip absent fallbacks" behaviour.
+    }
+    Ok(())
 }
 
 /// Resolve where to open the write transaction for an output dataset.
@@ -179,12 +237,8 @@ mod tests {
         assert_eq!(b_.branch, b("feature"));
         assert_eq!(b_.fallback_index, 0);
 
-        let c = resolve_input_dataset(
-            &build,
-            &chain,
-            &[b("feature"), b("develop"), b("master")],
-        )
-        .unwrap();
+        let c = resolve_input_dataset(&build, &chain, &[b("feature"), b("develop"), b("master")])
+            .unwrap();
         assert_eq!(c.branch, b("feature"));
         assert_eq!(c.fallback_index, 0);
 
@@ -199,7 +253,71 @@ mod tests {
             .expect_err("no overlap");
         match err {
             ResolveError::NoMatch { build_branch, .. } => assert_eq!(build_branch, b("feature")),
+            other => panic!("expected NoMatch, got {other:?}"),
         }
+    }
+
+    fn rid(suffix: &str) -> DatasetRid {
+        format!("ri.foundry.main.dataset.{suffix}").parse().unwrap()
+    }
+
+    #[test]
+    fn ancestry_check_accepts_chain_in_walk_order() {
+        // ancestry: feature → develop → master.
+        // chain   : develop → master  (subset, same order) ⇒ OK.
+        assert!(
+            assert_chain_ancestry_compatible(
+                &rid("00000000-0000-0000-0000-000000000001"),
+                &b("feature"),
+                &[b("develop"), b("master")],
+                &[b("feature"), b("develop"), b("master")]
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn ancestry_check_rejects_reversed_chain() {
+        // ancestry has master after develop but the chain inverts the
+        // order ⇒ the chain crosses a parent boundary that doesn't
+        // exist on this dataset.
+        let err = assert_chain_ancestry_compatible(
+            &rid("00000000-0000-0000-0000-000000000002"),
+            &b("feature"),
+            &[b("master"), b("develop")],
+            &[b("feature"), b("develop"), b("master")],
+        )
+        .expect_err("inverted");
+        assert!(matches!(err, ResolveError::IncompatibleAncestry { .. }));
+    }
+
+    #[test]
+    fn ancestry_check_tolerates_unknown_branches_in_chain() {
+        // `staging` doesn't exist on this dataset, the chain is just
+        // skipping past it on its way to `master`. Foundry's "skip
+        // absent fallbacks" behaviour — chain stays compatible.
+        assert!(
+            assert_chain_ancestry_compatible(
+                &rid("00000000-0000-0000-0000-000000000003"),
+                &b("feature"),
+                &[b("staging"), b("master")],
+                &[b("feature"), b("master")]
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn ancestry_check_passes_for_brand_new_dataset() {
+        assert!(
+            assert_chain_ancestry_compatible(
+                &rid("00000000-0000-0000-0000-000000000004"),
+                &b("feature"),
+                &[b("develop"), b("master")],
+                &[]
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -237,12 +355,8 @@ mod tests {
     #[test]
     fn output_skips_absent_fallbacks() {
         // `develop` not on the dataset → resolver walks past it to `master`.
-        let r = resolve_output_dataset(
-            &b("feature"),
-            &[b("develop"), b("master")],
-            &[b("master")],
-        )
-        .unwrap();
+        let r = resolve_output_dataset(&b("feature"), &[b("develop"), b("master")], &[b("master")])
+            .unwrap();
         assert_eq!(
             r,
             ResolvedOutput::CreateFrom {

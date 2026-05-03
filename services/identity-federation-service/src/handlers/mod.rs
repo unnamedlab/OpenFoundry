@@ -7,6 +7,8 @@ pub mod permission_mgmt;
 pub mod policy_mgmt;
 pub mod register;
 pub mod role_mgmt;
+pub mod scim;
+pub mod security_ops;
 pub mod sessions;
 pub mod token;
 pub mod user_mgmt;

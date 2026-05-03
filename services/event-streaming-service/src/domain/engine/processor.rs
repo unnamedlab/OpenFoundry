@@ -1,15 +1,15 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use auth_middleware::jwt::{build_access_claims, encode_token};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
-use sqlx::types::Json as SqlJson;
 use uuid::Uuid;
 
 use crate::{
     AppState,
     domain::backpressure,
+    domain::runtime_store::{RuntimeEvent, StreamCheckpointOffset},
     models::{
         sink::{
             BackpressureSnapshot, CepMatch, LiveTailEvent, StateStoreSnapshot, WindowAggregate,
@@ -39,25 +39,6 @@ pub struct TopologyRuntimeAnalysis {
     pub source_throughput_per_second: HashMap<Uuid, f32>,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct StreamEventRow {
-    id: Uuid,
-    stream_id: Uuid,
-    sequence_no: i64,
-    payload: SqlJson<Value>,
-    event_time: DateTime<Utc>,
-    processed_at: Option<DateTime<Utc>>,
-    archived_at: Option<DateTime<Utc>>,
-    archive_path: Option<String>,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct StreamingCheckpointRow {
-    stream_id: Uuid,
-    last_sequence_no: i64,
-    updated_at: DateTime<Utc>,
-}
-
 #[derive(Debug, Clone)]
 struct ProcessedEvent {
     id: Uuid,
@@ -77,13 +58,13 @@ pub async fn run_topology(
     windows: &[WindowDefinition],
 ) -> Result<TopologyExecution, String> {
     let started_at = Utc::now();
-    let checkpoint_map = load_checkpoints(&state.db, topology.id).await?;
+    let checkpoint_map = load_checkpoints(state, topology.id).await?;
     let stream_lookup = streams
         .iter()
         .map(|stream| (stream.id, stream))
         .collect::<HashMap<_, _>>();
     let source_events = load_source_events_since_checkpoint(
-        &state.db,
+        state,
         topology,
         &stream_lookup,
         &checkpoint_map,
@@ -122,9 +103,8 @@ pub async fn run_topology(
         &cep_matches,
     )
     .await?;
-    persist_checkpoints(&state.db, topology.id, &source_events).await?;
-    mark_events_processed(&state.db, &source_events).await?;
-    archive_processed_events(state, streams, &source_events).await?;
+    persist_checkpoints(state, topology.id, &source_events).await?;
+    mark_events_processed(state, &source_events).await?;
 
     let completed_at = Utc::now();
     let mut metrics = build_run_metrics(
@@ -162,14 +142,14 @@ pub async fn preview_topology_runtime(
     windows: &[WindowDefinition],
 ) -> Result<TopologyRuntimeAnalysis, String> {
     let generated_at = Utc::now();
-    let checkpoint_map = load_checkpoints(&state.db, topology.id).await?;
+    let checkpoint_map = load_checkpoints(state, topology.id).await?;
     let stream_lookup = streams
         .iter()
         .map(|stream| (stream.id, stream))
         .collect::<HashMap<_, _>>();
 
     let pending_events = load_source_events_since_checkpoint(
-        &state.db,
+        state,
         topology,
         &stream_lookup,
         &checkpoint_map,
@@ -177,7 +157,7 @@ pub async fn preview_topology_runtime(
     )
     .await?;
     let recent_events =
-        load_recent_source_events(&state.db, topology, &stream_lookup, generated_at, 12).await?;
+        load_recent_source_events(state, topology, &stream_lookup, generated_at, 12).await?;
     let analysis_events = if pending_events.is_empty() {
         recent_events.clone()
     } else {
@@ -244,27 +224,21 @@ pub async fn preview_topology_runtime(
 }
 
 async fn load_checkpoints(
-    db: &sqlx::PgPool,
+    state: &AppState,
     topology_id: Uuid,
-) -> Result<HashMap<Uuid, StreamingCheckpointRow>, String> {
-    let rows = sqlx::query_as::<_, StreamingCheckpointRow>(
-        r#"SELECT stream_id, last_sequence_no, updated_at
-           FROM streaming_checkpoints
-           WHERE topology_id = $1"#,
-    )
-    .bind(topology_id)
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
-
-    Ok(rows.into_iter().map(|row| (row.stream_id, row)).collect())
+) -> Result<HashMap<Uuid, StreamCheckpointOffset>, String> {
+    state
+        .runtime_store
+        .load_topology_offsets(topology_id)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn load_source_events_since_checkpoint(
-    db: &sqlx::PgPool,
+    state: &AppState,
     topology: &TopologyDefinition,
     stream_lookup: &HashMap<Uuid, &StreamDefinition>,
-    checkpoint_map: &HashMap<Uuid, StreamingCheckpointRow>,
+    checkpoint_map: &HashMap<Uuid, StreamCheckpointOffset>,
     processing_time: DateTime<Utc>,
 ) -> Result<Vec<ProcessedEvent>, String> {
     let mut source_events = Vec::new();
@@ -276,19 +250,11 @@ async fn load_source_events_since_checkpoint(
             .get(stream_id)
             .map(|checkpoint| checkpoint.last_sequence_no)
             .unwrap_or(0);
-        let rows = sqlx::query_as::<_, StreamEventRow>(
-            r#"SELECT id, stream_id, sequence_no, payload, event_time, processed_at, archived_at, archive_path
-               FROM streaming_events
-               WHERE stream_id = $1
-                 AND sequence_no > $2
-                 AND archived_at IS NULL
-               ORDER BY sequence_no ASC"#,
-        )
-        .bind(stream_id)
-        .bind(last_sequence_no)
-        .fetch_all(db)
-        .await
-        .map_err(|error| error.to_string())?;
+        let rows = state
+            .runtime_store
+            .list_events_since(*stream_id, last_sequence_no)
+            .await
+            .map_err(|error| error.to_string())?;
 
         for row in rows {
             source_events.push(to_processed_event(stream, row, processing_time));
@@ -300,7 +266,7 @@ async fn load_source_events_since_checkpoint(
 }
 
 async fn load_recent_source_events(
-    db: &sqlx::PgPool,
+    state: &AppState,
     topology: &TopologyDefinition,
     stream_lookup: &HashMap<Uuid, &StreamDefinition>,
     processing_time: DateTime<Utc>,
@@ -311,19 +277,11 @@ async fn load_recent_source_events(
         let Some(stream) = stream_lookup.get(stream_id).copied() else {
             continue;
         };
-        let rows = sqlx::query_as::<_, StreamEventRow>(
-            r#"SELECT id, stream_id, sequence_no, payload, event_time, processed_at, archived_at, archive_path
-               FROM streaming_events
-               WHERE stream_id = $1
-                 AND archived_at IS NULL
-               ORDER BY event_time DESC, sequence_no DESC
-               LIMIT $2"#,
-        )
-        .bind(stream_id)
-        .bind(limit_per_stream)
-        .fetch_all(db)
-        .await
-        .map_err(|error| error.to_string())?;
+        let rows = state
+            .runtime_store
+            .list_recent_events(*stream_id, limit_per_stream as usize)
+            .await
+            .map_err(|error| error.to_string())?;
 
         for row in rows {
             source_events.push(to_processed_event(stream, row, processing_time));
@@ -336,18 +294,16 @@ async fn load_recent_source_events(
 
 fn to_processed_event(
     stream: &StreamDefinition,
-    row: StreamEventRow,
+    row: RuntimeEvent,
     default_processing_time: DateTime<Utc>,
 ) -> ProcessedEvent {
     let processing_time = row.processed_at.unwrap_or(default_processing_time);
-    let _ = row.archived_at;
-    let _ = row.archive_path;
     ProcessedEvent {
         id: row.id,
         stream_id: row.stream_id,
         stream_name: stream.name.clone(),
         connector_type: stream.source_binding.connector_type.clone(),
-        payload: row.payload.0,
+        payload: row.payload,
         event_time: row.event_time,
         processing_time,
         sequence_no: row.sequence_no,
@@ -631,115 +587,34 @@ fn materialization_rows(
 }
 
 async fn persist_checkpoints(
-    db: &sqlx::PgPool,
+    state: &AppState,
     topology_id: Uuid,
     events: &[ProcessedEvent],
 ) -> Result<(), String> {
-    let mut max_offsets = HashMap::<Uuid, (i64, Uuid)>::new();
+    let mut max_offsets = HashMap::<Uuid, i64>::new();
     for event in events {
         let entry = max_offsets
             .entry(event.stream_id)
-            .or_insert((event.sequence_no, event.id));
-        if event.sequence_no > entry.0 {
-            *entry = (event.sequence_no, event.id);
+            .or_insert(event.sequence_no);
+        if event.sequence_no > *entry {
+            *entry = event.sequence_no;
         }
     }
 
-    for (stream_id, (sequence_no, event_id)) in max_offsets {
-        sqlx::query(
-            r#"INSERT INTO streaming_checkpoints (
-                   topology_id, stream_id, last_event_id, last_sequence_no, updated_at
-               )
-               VALUES ($1, $2, $3, $4, now())
-               ON CONFLICT (topology_id, stream_id)
-               DO UPDATE SET
-                   last_event_id = EXCLUDED.last_event_id,
-                   last_sequence_no = EXCLUDED.last_sequence_no,
-                   updated_at = now()"#,
-        )
-        .bind(topology_id)
-        .bind(stream_id)
-        .bind(event_id)
-        .bind(sequence_no)
-        .execute(db)
+    state
+        .runtime_store
+        .save_topology_offsets(topology_id, max_offsets)
         .await
-        .map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
+        .map_err(|error| error.to_string())
 }
 
-async fn mark_events_processed(db: &sqlx::PgPool, events: &[ProcessedEvent]) -> Result<(), String> {
-    for event in events {
-        sqlx::query("UPDATE streaming_events SET processed_at = now() WHERE id = $1")
-            .bind(event.id)
-            .execute(db)
-            .await
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
-}
-
-async fn archive_processed_events(
-    state: &AppState,
-    streams: &[StreamDefinition],
-    events: &[ProcessedEvent],
-) -> Result<(), String> {
-    let stream_lookup = streams
-        .iter()
-        .map(|stream| (stream.id, stream))
-        .collect::<HashMap<_, _>>();
-    let now = Utc::now();
-    let mut grouped = HashMap::<Uuid, Vec<&ProcessedEvent>>::new();
-
-    for event in events {
-        let Some(stream) = stream_lookup.get(&event.stream_id) else {
-            continue;
-        };
-        let retention_cutoff = now - Duration::hours(stream.retention_hours.max(0) as i64);
-        if event.event_time <= retention_cutoff {
-            grouped.entry(event.stream_id).or_default().push(event);
-        }
-    }
-
-    for (stream_id, stream_events) in grouped {
-        let archive_dir = Path::new(&state.archive_dir).join(stream_id.to_string());
-        tokio::fs::create_dir_all(&archive_dir)
-            .await
-            .map_err(|error| error.to_string())?;
-        let archive_path = archive_dir.join(format!("{}.jsonl", Uuid::now_v7()));
-        let archive_contents = stream_events
-            .iter()
-            .map(|event| {
-                json!({
-                    "stream_id": event.stream_id,
-                    "stream_name": event.stream_name,
-                    "event_time": event.event_time,
-                    "payload": event.payload,
-                    "sequence_no": event.sequence_no,
-                })
-                .to_string()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        tokio::fs::write(&archive_path, format!("{archive_contents}\n"))
-            .await
-            .map_err(|error| error.to_string())?;
-        let archive_path_string = archive_path.to_string_lossy().to_string();
-
-        for event in stream_events {
-            sqlx::query(
-                "UPDATE streaming_events SET archived_at = now(), archive_path = $2 WHERE id = $1",
-            )
-            .bind(event.id)
-            .bind(&archive_path_string)
-            .execute(&state.db)
-            .await
-            .map_err(|error| error.to_string())?;
-        }
-    }
-
-    Ok(())
+async fn mark_events_processed(state: &AppState, events: &[ProcessedEvent]) -> Result<(), String> {
+    let event_ids = events.iter().map(|event| event.id).collect::<Vec<_>>();
+    state
+        .runtime_store
+        .mark_events_processed(&event_ids)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn upload_dataset_rows(

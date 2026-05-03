@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/sql-bi-gateway-pg.yaml`](../../../infra/k8s/cnpg/clusters/sql-bi-gateway-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/sql-bi-gateway-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/sql-bi-gateway-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `sql-bi-gateway-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

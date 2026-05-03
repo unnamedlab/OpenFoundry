@@ -10,16 +10,6 @@ use uuid::Uuid;
 use crate::{AppState, domain::executor, models::pipeline::Pipeline};
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]
-pub struct LineageEdge {
-    pub id: Uuid,
-    pub source_dataset_id: Uuid,
-    pub target_dataset_id: Uuid,
-    pub pipeline_id: Option<Uuid>,
-    pub node_id: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow, Serialize)]
 pub struct ColumnLineageEdge {
     pub id: Uuid,
     pub source_dataset_id: Uuid,
@@ -207,6 +197,7 @@ struct LineageRelationRecord {
     step_id: Option<String>,
     effective_marking: String,
     metadata: Value,
+    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -269,44 +260,69 @@ struct RelationWriteInput<'a> {
     metadata: Value,
 }
 
+const RELATION_KIND_DERIVES: &str = "derives";
+const RELATION_KIND_COLUMN_DERIVES: &str = "column_derives";
+const METADATA_SOURCE_COLUMN: &str = "source_column";
+const METADATA_TARGET_COLUMN: &str = "target_column";
+
+struct LineageServingSnapshot {
+    node_overlays: HashMap<NodeKey, LineageNodeRecord>,
+    relations: Vec<LineageRelationRecord>,
+}
+
 /// Get lineage graph rooted at a specific dataset (upstream + downstream).
 pub async fn get_lineage_graph(db: &PgPool, dataset_id: Uuid) -> Result<LineageGraph, sqlx::Error> {
-    let nodes = load_lineage_nodes(db).await?;
-    let relations = load_lineage_relations(db).await?;
     let root = NodeKey {
         id: dataset_id,
         kind: NodeKind::Dataset,
     };
-    let reachable = collect_connected_nodes(root, &relations);
-    Ok(build_graph(&nodes, &relations, Some(&reachable)))
+    let snapshot = load_serving_snapshot_from_pg_compat(db, &[root]).await?;
+    let reachable = collect_connected_nodes(root, &snapshot.relations);
+    Ok(build_graph(
+        &snapshot.node_overlays,
+        &snapshot.relations,
+        Some(&reachable),
+    ))
 }
 
 /// Get the full lineage graph for all datasets, pipelines, and workflows.
 pub async fn get_full_lineage_graph(db: &PgPool) -> Result<LineageGraph, sqlx::Error> {
-    let nodes = load_lineage_nodes(db).await?;
-    let relations = load_lineage_relations(db).await?;
-    Ok(build_graph(&nodes, &relations, None))
+    let snapshot = load_serving_snapshot_from_pg_compat(db, &[]).await?;
+    Ok(build_graph(
+        &snapshot.node_overlays,
+        &snapshot.relations,
+        None,
+    ))
 }
 
 pub async fn get_lineage_impact_analysis(
     db: &PgPool,
     dataset_id: Uuid,
 ) -> Result<Option<LineageImpactAnalysis>, sqlx::Error> {
-    let nodes = load_lineage_nodes(db).await?;
-    let relations = load_lineage_relations(db).await?;
     let root = NodeKey {
         id: dataset_id,
         kind: NodeKind::Dataset,
     };
-    let Some(root_node) = build_node_view(root, &nodes) else {
+    let snapshot = load_serving_snapshot_from_pg_compat(db, &[root]).await?;
+    let Some(root_node) = build_node_view(root, &snapshot.node_overlays) else {
         return Ok(None);
     };
 
-    let upstream = bfs_paths(root, &relations, Direction::Incoming);
-    let downstream = bfs_paths(root, &relations, Direction::Outgoing);
+    let upstream = bfs_paths(root, &snapshot.relations, Direction::Incoming);
+    let downstream = bfs_paths(root, &snapshot.relations, Direction::Outgoing);
 
-    let upstream_items = build_impact_items(root, &upstream, &nodes, &relations);
-    let downstream_items = build_impact_items(root, &downstream, &nodes, &relations);
+    let upstream_items = build_impact_items(
+        root,
+        &upstream,
+        &snapshot.node_overlays,
+        &snapshot.relations,
+    );
+    let downstream_items = build_impact_items(
+        root,
+        &downstream,
+        &snapshot.node_overlays,
+        &snapshot.relations,
+    );
     let build_candidates = downstream_items
         .iter()
         .filter(|item| {
@@ -315,7 +331,7 @@ pub async fn get_lineage_impact_analysis(
                 Some(NodeKind::Pipeline | NodeKind::Workflow)
             )
         })
-        .map(|item| build_candidate(item, &nodes))
+        .map(|item| build_candidate(item, &snapshot.node_overlays))
         .collect();
 
     Ok(Some(LineageImpactAnalysis {
@@ -745,19 +761,34 @@ pub async fn record_lineage(
     pipeline_id: Option<Uuid>,
     node_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"INSERT INTO lineage_edges (id, source_dataset_id, target_dataset_id, pipeline_id, node_id)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT DO NOTHING"#,
+    persist_relation(
+        db,
+        RelationWriteInput {
+            source_id: source_dataset_id,
+            source_kind: NodeKind::Dataset,
+            target_id: target_dataset_id,
+            target_kind: NodeKind::Dataset,
+            relation_kind: RELATION_KIND_DERIVES,
+            producer_key: format!(
+                "dataset:{}:{}:{}:{}",
+                source_dataset_id,
+                target_dataset_id,
+                pipeline_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "direct".to_string()),
+                node_id.unwrap_or("root"),
+            ),
+            pipeline_id,
+            workflow_id: None,
+            node_id,
+            step_id: None,
+            explicit_marking: None,
+            metadata: json!({
+                "source": "runtime_lineage",
+            }),
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(source_dataset_id)
-    .bind(target_dataset_id)
-    .bind(pipeline_id)
-    .bind(node_id)
-    .execute(db)
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn get_dataset_column_lineage(
@@ -765,11 +796,28 @@ pub async fn get_dataset_column_lineage(
     dataset_id: Uuid,
 ) -> Result<Vec<ColumnLineageEdge>, sqlx::Error> {
     sqlx::query_as::<_, ColumnLineageEdge>(
-        r#"SELECT * FROM column_lineage_edges
-           WHERE source_dataset_id = $1 OR target_dataset_id = $1
+        r#"SELECT
+               id,
+               source_id AS source_dataset_id,
+               metadata->>'source_column' AS source_column,
+               target_id AS target_dataset_id,
+               metadata->>'target_column' AS target_column,
+               pipeline_id,
+               node_id,
+               created_at
+           FROM lineage_relations
+           WHERE relation_kind = $2
+             AND source_kind = 'dataset'
+             AND target_kind = 'dataset'
+             AND (source_id = $1 OR target_id = $1)
+             AND metadata ? $3
+             AND metadata ? $4
            ORDER BY created_at DESC"#,
     )
     .bind(dataset_id)
+    .bind(RELATION_KIND_COLUMN_DERIVES)
+    .bind(METADATA_SOURCE_COLUMN)
+    .bind(METADATA_TARGET_COLUMN)
     .fetch_all(db)
     .await
 }
@@ -783,23 +831,38 @@ pub async fn record_column_lineage(
     pipeline_id: Option<Uuid>,
     node_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"INSERT INTO column_lineage_edges (
-               id, source_dataset_id, source_column, target_dataset_id, target_column, pipeline_id, node_id
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT DO NOTHING"#,
+    persist_relation(
+        db,
+        RelationWriteInput {
+            source_id: source_dataset_id,
+            source_kind: NodeKind::Dataset,
+            target_id: target_dataset_id,
+            target_kind: NodeKind::Dataset,
+            relation_kind: RELATION_KIND_COLUMN_DERIVES,
+            producer_key: format!(
+                "column:{}:{}:{}:{}:{}:{}",
+                source_dataset_id,
+                source_column,
+                target_dataset_id,
+                target_column,
+                pipeline_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "direct".to_string()),
+                node_id.unwrap_or("root"),
+            ),
+            pipeline_id,
+            workflow_id: None,
+            node_id,
+            step_id: None,
+            explicit_marking: None,
+            metadata: json!({
+                METADATA_SOURCE_COLUMN: source_column,
+                METADATA_TARGET_COLUMN: target_column,
+                "source": "runtime_lineage",
+            }),
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(source_dataset_id)
-    .bind(source_column)
-    .bind(target_dataset_id)
-    .bind(target_column)
-    .bind(pipeline_id)
-    .bind(node_id)
-    .execute(db)
-    .await?;
-    Ok(())
+    .await
 }
 
 pub fn can_access_marking(claims: &Claims, marking: &str) -> bool {
@@ -1180,61 +1243,82 @@ async fn ensure_placeholder_workflow(db: &PgPool, workflow_id: Uuid) -> Result<(
     Ok(())
 }
 
-async fn load_lineage_nodes(
+async fn load_serving_snapshot_from_pg_compat(
     db: &PgPool,
+    seed_nodes: &[NodeKey],
+) -> Result<LineageServingSnapshot, sqlx::Error> {
+    let relations = load_lineage_relations(db).await?;
+    let mut keys = collect_relation_node_keys(&relations);
+    keys.extend(seed_nodes.iter().copied());
+    let node_overlays = load_lineage_node_overlays(db, &keys).await?;
+    Ok(LineageServingSnapshot {
+        node_overlays,
+        relations,
+    })
+}
+
+async fn load_lineage_node_overlays(
+    db: &PgPool,
+    keys: &HashSet<NodeKey>,
 ) -> Result<HashMap<NodeKey, LineageNodeRecord>, sqlx::Error> {
+    if keys.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let entity_ids: Vec<Uuid> = keys.iter().map(|key| key.id).collect();
     let rows = sqlx::query_as::<_, LineageNodeRecord>(
         r#"SELECT entity_id, entity_kind, label, marking, metadata
-           FROM lineage_nodes"#,
+           FROM lineage_nodes
+           WHERE entity_id = ANY($1)"#,
     )
+    .bind(entity_ids)
     .fetch_all(db)
     .await?;
 
     Ok(rows
         .into_iter()
         .filter_map(|row| {
-            NodeKind::parse(&row.entity_kind).map(|kind| {
-                (
-                    NodeKey {
-                        id: row.entity_id,
-                        kind,
-                    },
-                    row,
-                )
-            })
+            let kind = NodeKind::parse(&row.entity_kind)?;
+            let key = NodeKey {
+                id: row.entity_id,
+                kind,
+            };
+            keys.contains(&key).then_some((key, row))
         })
         .collect())
 }
 
 async fn load_lineage_relations(db: &PgPool) -> Result<Vec<LineageRelationRecord>, sqlx::Error> {
-    let mut relations = sqlx::query_as::<_, LineageRelationRecord>(
+    sqlx::query_as::<_, LineageRelationRecord>(
         r#"SELECT
                id, source_id, source_kind, target_id, target_kind, relation_kind,
-               pipeline_id, workflow_id, node_id, step_id, effective_marking, metadata
+               pipeline_id, workflow_id, node_id, step_id, effective_marking, metadata,
+               created_at
            FROM lineage_relations"#,
     )
     .fetch_all(db)
-    .await?;
+    .await
+}
 
-    let legacy = sqlx::query_as::<_, LineageEdge>("SELECT * FROM lineage_edges")
-        .fetch_all(db)
-        .await?;
-    relations.extend(legacy.into_iter().map(|edge| LineageRelationRecord {
-        id: edge.id,
-        source_id: edge.source_dataset_id,
-        source_kind: "dataset".to_string(),
-        target_id: edge.target_dataset_id,
-        target_kind: "dataset".to_string(),
-        relation_kind: "derives".to_string(),
-        pipeline_id: edge.pipeline_id,
-        workflow_id: None,
-        node_id: edge.node_id,
-        step_id: None,
-        effective_marking: "public".to_string(),
-        metadata: json!({ "legacy": true }),
-    }));
-
-    Ok(relations)
+fn collect_relation_node_keys(relations: &[LineageRelationRecord]) -> HashSet<NodeKey> {
+    let mut keys = HashSet::new();
+    for relation in relations {
+        let Some(source_kind) = NodeKind::parse(&relation.source_kind) else {
+            continue;
+        };
+        let Some(target_kind) = NodeKind::parse(&relation.target_kind) else {
+            continue;
+        };
+        keys.insert(NodeKey {
+            id: relation.source_id,
+            kind: source_kind,
+        });
+        keys.insert(NodeKey {
+            id: relation.target_id,
+            kind: target_kind,
+        });
+    }
+    keys
 }
 
 fn build_graph(
@@ -1721,6 +1805,7 @@ mod tests {
                 step_id: None,
                 effective_marking: "confidential".to_string(),
                 metadata: json!({}),
+                created_at: Utc::now(),
             },
             LineageRelationRecord {
                 id: Uuid::now_v7(),
@@ -1735,6 +1820,7 @@ mod tests {
                 step_id: None,
                 effective_marking: "confidential".to_string(),
                 metadata: json!({}),
+                created_at: Utc::now(),
             },
         ];
 
@@ -1787,6 +1873,7 @@ mod tests {
             step_id: Some("step".to_string()),
             effective_marking: "pii".to_string(),
             metadata: json!({}),
+            created_at: Utc::now(),
         }];
         let mut nodes = HashMap::new();
         nodes.insert(
@@ -1837,6 +1924,7 @@ mod tests {
             step_id: None,
             effective_marking: "confidential".to_string(),
             metadata: json!({}),
+            created_at: Utc::now(),
         }];
         let mut nodes = HashMap::new();
         nodes.insert(

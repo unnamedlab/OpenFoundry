@@ -5,9 +5,11 @@
 FROM rust:1.95-alpine3.23 AS builder
 WORKDIR /workspace
 
-RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers
+RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers
 ENV PYO3_PYTHON=python3
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+ENV RUSTFLAGS="-C target-feature=-crt-static"
+
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
@@ -18,7 +20,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM alpine:3.23 AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 zlib zstd-libs cyrus-sasl
+RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 zlib zstd-libs cyrus-sasl libcurl
 
 ENV HOST=0.0.0.0
 ENV PORT=50089

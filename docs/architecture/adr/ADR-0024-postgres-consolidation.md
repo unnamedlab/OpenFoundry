@@ -5,7 +5,7 @@
 - **Deciders:** OpenFoundry platform architecture group
 - **Supersedes / supplements:**
   - The 71-cluster topology currently described under
-    [infra/k8s/cnpg/clusters/](../../../infra/k8s/cnpg/clusters/) and
+    [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/) and
     in
     [docs/architecture/audit-and-reference-no-spof.md](../audit-and-reference-no-spof.md).
 - **Related ADRs:**
@@ -25,7 +25,7 @@
 ## Context
 
 Today the platform deploys **71 CNPG `Cluster` CRs**, one per service,
-under [infra/k8s/cnpg/clusters/](../../../infra/k8s/cnpg/clusters/).
+under [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/).
 Each cluster is HA (3 instances), each one runs continuous backups to
 object storage, each one is monitored, each one is alerted on, and
 each one runs a connection pooler. The pattern was inherited from the
@@ -277,7 +277,7 @@ cluster, valid until step 3 of the same cluster).
 ## Operational consequences
 
 - 71 `Cluster` CRs in
-  [infra/k8s/cnpg/clusters/](../../../infra/k8s/cnpg/clusters/) →
+  [infra/k8s/platform/manifests/cnpg/clusters/](../../../infra/k8s/platform/manifests/cnpg/clusters/) →
   4 (`pg-schemas`, `pg-policy`, `pg-lakekeeper`, `pg-runtime-config`).
 - Backup chains: 71 → 4. Each retains the same RPO/RTO posture as
   before; the **operational surface** drops by ~94%.
@@ -288,7 +288,7 @@ cluster, valid until step 3 of the same cluster).
   `DATABASE_URL`.
 - New runbook `infra/runbooks/postgres-consolidation.md`.
 - New CI checks:
-  - Every `Cluster` CR under `infra/k8s/cnpg/clusters/` matches one
+  - Every `Cluster` CR under `infra/k8s/platform/manifests/cnpg/clusters/` matches one
     of the four allowed names.
   - Every service's `DATABASE_URL` Helm value points at one of those
     four clusters.
@@ -339,12 +339,16 @@ cluster, valid until step 3 of the same cluster).
 - Implement migration plan tasks in **S0.6** (consolidated CNPG
   manifests) and the per-cluster migration steps in **S1.x**, **S3.x**,
   **S4.x** that repoint each service.
-- Author `infra/k8s/cnpg/clusters/pg-schemas.yaml`,
+- Author `infra/k8s/platform/manifests/cnpg/clusters/pg-schemas.yaml`,
   `pg-policy.yaml`, `pg-lakekeeper.yaml`, `pg-runtime-config.yaml`.
 - Author the per-cluster `pg-*-roles.sql` migration that creates the
   owner / app / reader roles and grants.
 - Author `infra/runbooks/postgres-consolidation.md`.
 - Add the CI checks listed under "Operational consequences".
 - Once migration is complete, delete every legacy `Cluster` CR under
-  `infra/k8s/cnpg/clusters/` that is not one of the four allowed
+  `infra/k8s/platform/manifests/cnpg/clusters/` that is not one of the four allowed
   names.
+- Do **not** mark the plan milestone "Postgres residual" as closed
+  until the final gates `G-S1`, `G-S3`, `G-S5` and `G-S6` in
+  [`migration-plan-cassandra-foundry-parity.md`](../migration-plan-cassandra-foundry-parity.md)
+  are all green.

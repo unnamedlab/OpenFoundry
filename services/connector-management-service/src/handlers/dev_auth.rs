@@ -18,9 +18,9 @@
 //!
 //! Do NOT use in production. This is a bring-up shim, not an auth provider.
 
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use auth_middleware::claims::Claims;
 use auth_middleware::jwt;
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

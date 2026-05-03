@@ -25,8 +25,6 @@ CHAOS_SCRIPTS=(
   "kill-one-mon.sh"
   "kill-one-kafka-broker.sh"
   "kill-active-kafka-controller.sh"
-  "kill-one-clickhouse-replica.sh"
-  "kill-one-keeper.sh"
   "kill-one-nats-node.sh"
   "kill-pg-primary.sh"
 )

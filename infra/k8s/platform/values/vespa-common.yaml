@@ -1,0 +1,5 @@
+enabled: true
+
+# Preserve the Service DNS (`of-ontology-vespa`) and StatefulSet PVC names
+# used by the ontology indexer and existing clusters.
+fullnameOverride: of-ontology-vespa

@@ -1,11 +1,9 @@
-"""S1.9.b — Python SDK parity check post-Cassandra migration.
+"""S1.9.b - Python SDK parity check post-Cassandra migration.
 
-Ejerce los tres paths cubiertos por el bench S1.8 (read-by-id,
-read-by-type, action execute) usando el SDK Python publicado. El
-contrato no cambia con la migración a Cassandra; cualquier diff de
-shape detectado aquí es una regresión.
-
-Salida: imprime un JSON `{ok, …}` por stdout. Exit 0 si todo pasa.
+The generated Python SDK does not currently expose convenience wrappers for
+the migrated ontology runtime endpoints. This smoke uses the existing client
+request primitive to exercise the public HTTP contract without changing SDK
+surface area.
 """
 
 from __future__ import annotations
@@ -13,15 +11,33 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Any
 
 from openfoundry_sdk import OpenFoundryClient  # type: ignore
+
+
+Check = dict[str, Any]
 
 
 def env_or_die(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        raise SystemExit(f"{name} no definida")
+        raise RuntimeError(f"{name} no definida")
     return value
+
+
+def object_id_of(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("id") or payload.get("object_id")
+    return value if isinstance(value, str) else None
+
+
+def list_items_of(payload: Any) -> list[Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("items") or payload.get("objects")
+    return value if isinstance(value, list) else None
 
 
 def main() -> None:
@@ -33,38 +49,91 @@ def main() -> None:
     action_id = env_or_die("OPENFOUNDRY_ACTION_ID")
 
     client = OpenFoundryClient(base_url=base_url, token=token)
+    checks: list[Check] = []
 
-    # 1. read by id (strong default).
-    by_id = client.ontology.get_object(tenant, object_id)
-    if not isinstance(by_id, dict) or "object_id" not in by_id:
-        raise SystemExit(f"unexpected by-id payload: {str(by_id)[:200]}")
+    def run_check(name: str, endpoint: str, fn: Any) -> None:
+        try:
+            details = fn()
+            checks.append({"name": name, "endpoint": endpoint, "pass": True, "details": details})
+        except Exception as exc:  # noqa: BLE001 - smoke script, keep going and aggregate.
+            checks.append({"name": name, "endpoint": endpoint, "pass": False, "error": str(exc)})
 
-    # 2. read by id eventual.
-    by_id_eventual = client.ontology.get_object(tenant, object_id, consistency="eventual")
-    if not isinstance(by_id_eventual, dict):
-        raise SystemExit("unexpected eventual by-id payload")
+    def read_by_id(consistency: str) -> dict[str, Any]:
+        payload = client._request(  # noqa: SLF001 - no public generic request in Python SDK.
+            "GET",
+            "/api/v1/ontology/objects/{tenant}/{object_id}",
+            {"tenant": tenant, "object_id": object_id},
+            None,
+            None,
+            headers={"X-Consistency": consistency},
+        )
+        returned_id = object_id_of(payload)
+        if consistency == "strong" and returned_id != object_id:
+            raise RuntimeError(f"unexpected by-id payload shape/id: {str(payload)[:200]}")
+        if not returned_id:
+            raise RuntimeError(f"unexpected {consistency} by-id payload: {str(payload)[:200]}")
+        return {"returned_id": returned_id}
 
-    # 3. list by type.
-    page = client.ontology.list_objects_by_type(tenant, type_id, limit=25)
-    if not isinstance(getattr(page, "objects", None), list):
-        raise SystemExit(f"list_by_type missing objects[]: {str(page)[:200]}")
-
-    # 4. action execute.
-    result = client.ontology.execute_action(
-        action_id,
-        tenant_id=tenant,
-        target_object_id=object_id,
-        payload={"source": "sdk-parity-py"},
+    run_check(
+        "read_by_id_strong",
+        "GET /api/v1/ontology/objects/{tenant}/{object_id}",
+        lambda: read_by_id("strong"),
     )
-    if not isinstance(result, dict):
-        raise SystemExit("unexpected execute payload")
+    run_check(
+        "read_by_id_eventual",
+        "GET /api/v1/ontology/objects/{tenant}/{object_id}",
+        lambda: read_by_id("eventual"),
+    )
 
-    print(json.dumps({"ok": True, "by_id_id": by_id["object_id"], "listed": len(page.objects)}))
+    def list_by_type() -> dict[str, Any]:
+        payload = client._request(  # noqa: SLF001 - smoke-only use of existing primitive.
+            "GET",
+            "/api/v1/ontology/objects/{tenant}/by-type/{type_id}",
+            {"tenant": tenant, "type_id": type_id},
+            {"size": 25},
+            None,
+        )
+        items = list_items_of(payload)
+        if items is None:
+            raise RuntimeError(f"list_by_type missing items[]/objects[]: {str(payload)[:200]}")
+        return {"returned_items": len(items)}
+
+    run_check(
+        "list_by_type",
+        "GET /api/v1/ontology/objects/{tenant}/by-type/{type_id}",
+        list_by_type,
+    )
+
+    def action_execute() -> dict[str, Any]:
+        payload = client._request(  # noqa: SLF001 - smoke-only use of existing primitive.
+            "POST",
+            "/api/v1/ontology/actions/{id}/execute",
+            {"id": action_id},
+            None,
+            {
+                "target_object_id": object_id,
+                "parameters": {"source": "sdk-parity-py"},
+            },
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"unexpected execute payload: {str(payload)[:200]}")
+        return {"response_shape": "object"}
+
+    run_check(
+        "action_execute",
+        "POST /api/v1/ontology/actions/{id}/execute",
+        action_execute,
+    )
+
+    pass_ = all(check["pass"] for check in checks)
+    print(json.dumps({"client": "python", "pass": pass_, "checks": checks}))
+    if not pass_:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:  # noqa: BLE001 — smoke script, summarise & exit.
-        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - smoke script, summarise & exit.
+        print(json.dumps({"client": "python", "pass": False, "checks": [], "error": str(exc)}))
         sys.exit(1)

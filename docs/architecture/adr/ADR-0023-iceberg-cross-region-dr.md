@@ -230,10 +230,10 @@ once a year in a live game day.
 ## Operational consequences
 
 - New CNPG `Cluster` manifest for the standby in
-  `infra/k8s/cnpg/clusters/pg-lakekeeper-replica.yaml`.
+  `infra/k8s/platform/manifests/cnpg/clusters/pg-lakekeeper-replica.yaml`.
 - New Lakekeeper Helm release in Region B with `readOnly: true`.
 - New Ceph `MultisiteRealm` / `MultisiteZoneGroup` /
-  `MultisiteZone` CRs in `infra/k8s/rook-ceph/multisite/`.
+  `MultisiteZone` CRs in `infra/k8s/platform/manifests/rook-ceph/multisite/`.
 - New runbook `infra/runbooks/lakehouse-dr.md`.
 - New Prometheus alerts:
   - `radosgw_sync_lag_seconds > 60` (P3, page on > 300 s).

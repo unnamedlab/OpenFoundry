@@ -64,11 +64,7 @@ impl SqlAuditEvent<'_> {
 /// deterministic, and avoids pulling in a cryptographic hash crate just
 /// for log fingerprints.
 pub fn sql_fingerprint(sql: &str) -> String {
-    let normalized: String = sql
-        .trim()
-        .chars()
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
+    let normalized: String = sql.trim().chars().map(|c| c.to_ascii_lowercase()).collect();
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in normalized.as_bytes() {
         hash ^= u64::from(*byte);

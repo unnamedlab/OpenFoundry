@@ -1,10 +1,17 @@
 -- Consolidated schema for the ontology schema-of-types domain.
 --
--- Per S1.6 of the Cassandra-Foundry parity plan, the 17 historical
+-- Per S1.6 of the Cassandra-Foundry parity plan, the historical
 -- migrations under services/ontology-definition-service/migrations/
 -- (now archived under docs/architecture/legacy-migrations/) are
 -- collapsed into a single idempotent script applied by
 -- pre-upgrade Helm jobs against the pg-schemas cluster.
+--
+-- This consolidated file intentionally carries only the declarative
+-- ontology schema boundary that still belongs in `pg-schemas`.
+-- Hot/runtime tables such as `object_instances`, `link_instances`
+-- and execution/run ledgers remain archived under
+-- `docs/architecture/legacy-migrations/` until their owning services
+-- finish the Cassandra/runtime cut-over.
 --
 -- This file MUST run inside the ontology_schema schema; the
 -- service's sqlx pool sets search_path=ontology_schema at the
@@ -14,9 +21,10 @@ CREATE SCHEMA IF NOT EXISTS ontology_schema;
 SET search_path TO ontology_schema, public;
 
 -- =====================================================================
--- Source: migrations/20260419100004_initial_ontology.sql (archived; preserved verbatim below)
+-- Source: migrations/20260419100004_initial_ontology.sql
+--         (archived; declarative subset retained below)
 -- =====================================================================
--- Ontology: object types, properties, link types, instances
+-- Ontology: object types, properties and link types
 
 CREATE TABLE IF NOT EXISTS object_types (
     id          UUID PRIMARY KEY,
@@ -61,35 +69,68 @@ CREATE TABLE IF NOT EXISTS link_types (
     UNIQUE (name, source_type_id, target_type_id)
 );
 
-CREATE TABLE IF NOT EXISTS object_instances (
-    id              UUID PRIMARY KEY,
-    object_type_id  UUID NOT NULL REFERENCES object_types(id) ON DELETE CASCADE,
-    properties      JSONB NOT NULL DEFAULT '{}',
-    created_by      UUID NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS link_instances (
-    id                UUID PRIMARY KEY,
-    link_type_id      UUID NOT NULL REFERENCES link_types(id) ON DELETE CASCADE,
-    source_object_id  UUID NOT NULL REFERENCES object_instances(id) ON DELETE CASCADE,
-    target_object_id  UUID NOT NULL REFERENCES object_instances(id) ON DELETE CASCADE,
-    properties        JSONB,
-    created_by        UUID NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE INDEX idx_properties_object_type ON properties(object_type_id);
 CREATE INDEX idx_link_types_source ON link_types(source_type_id);
 CREATE INDEX idx_link_types_target ON link_types(target_type_id);
-CREATE INDEX idx_object_instances_type ON object_instances(object_type_id);
-CREATE INDEX idx_link_instances_type ON link_instances(link_type_id);
-CREATE INDEX idx_link_instances_source ON link_instances(source_object_id);
-CREATE INDEX idx_link_instances_target ON link_instances(target_object_id);
+
+-- `object_instances` and `link_instances` are runtime state owned by the
+-- object database / query / actions path. They are intentionally excluded
+-- from `pg-schemas`; see the archived legacy DDL plus the Cassandra tables
+-- under `object-database-service` for their current owner path.
 
 -- =====================================================================
--- Source: migrations/20260425003000_p3_semantic_runtime.sql (archived; preserved verbatim below)
+-- Source: docs/architecture/legacy-migrations/ontology-actions-service/
+--         20260423113000_action_types.sql
+--         20260426001500_action_type_policies_and_what_if.sql
+--         20260426113000_action_type_form_schema.sql
+--         20260502000000_add_submission_criteria.sql
+--         20260503000000_action_log.sql
+--         20260504000000_action_executions_revert.sql
+--         (archived; declarative subset retained below)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS action_types (
+    id                    UUID PRIMARY KEY,
+    name                  TEXT NOT NULL UNIQUE,
+    display_name          TEXT NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    object_type_id        UUID NOT NULL REFERENCES object_types(id) ON DELETE CASCADE,
+    operation_kind        TEXT NOT NULL,
+    input_schema          JSONB NOT NULL DEFAULT '[]'::jsonb,
+    config                JSONB NOT NULL DEFAULT 'null'::jsonb,
+    confirmation_required BOOLEAN NOT NULL DEFAULT FALSE,
+    permission_key        TEXT,
+    authorization_policy  JSONB NOT NULL DEFAULT '{}'::jsonb,
+    form_schema           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    submission_criteria   JSONB NOT NULL DEFAULT 'null'::jsonb,
+    action_log_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    action_log_summary_template TEXT,
+    action_log_extra_property_names JSONB NOT NULL DEFAULT '[]'::jsonb,
+    action_log_object_type_id UUID,
+    allow_revert_after_action_submission BOOLEAN NOT NULL DEFAULT TRUE,
+    owner_id              UUID NOT NULL,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_action_types_object_type
+    ON action_types(object_type_id);
+
+CREATE INDEX IF NOT EXISTS idx_action_types_operation_kind
+    ON action_types(operation_kind);
+
+CREATE INDEX IF NOT EXISTS idx_action_types_authorization_policy
+    ON action_types USING GIN (authorization_policy);
+
+COMMENT ON COLUMN action_types.submission_criteria IS
+    'Typed SubmissionNode AST evaluated server-side after auth checks and before plan_action commits. Null disables evaluation.';
+
+-- `action_executions`, `action_execution_side_effects`, `action_log_records`
+-- and `action_what_if_branches` are operational runtime tables. Only the
+-- action type declaration stays in `pg-schemas`.
+
+-- =====================================================================
+-- Source: migrations/20260425003000_p3_semantic_runtime.sql
+--         (archived; declarative subset retained below)
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS ontology_interfaces (
     id UUID PRIMARY KEY,
@@ -128,26 +169,15 @@ CREATE TABLE IF NOT EXISTS object_type_interfaces (
 ALTER TABLE properties
     ADD COLUMN IF NOT EXISTS time_dependent BOOLEAN NOT NULL DEFAULT FALSE;
 
-ALTER TABLE object_instances
-    ADD COLUMN IF NOT EXISTS organization_id UUID;
-
-ALTER TABLE object_instances
-    ADD COLUMN IF NOT EXISTS marking TEXT NOT NULL DEFAULT 'public';
-
 CREATE INDEX IF NOT EXISTS idx_interface_properties_interface
     ON interface_properties(interface_id);
 
 CREATE INDEX IF NOT EXISTS idx_object_type_interfaces_object_type
     ON object_type_interfaces(object_type_id);
 
-CREATE INDEX IF NOT EXISTS idx_object_instances_organization
-    ON object_instances(organization_id);
-
-CREATE INDEX IF NOT EXISTS idx_object_instances_marking
-    ON object_instances(marking);
-
 -- =====================================================================
--- Source: migrations/20260425233000_functions_rules_runtime.sql (archived; preserved verbatim below)
+-- Source: migrations/20260425233000_functions_rules_runtime.sql
+--         (archived; declarative subset retained below)
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS ontology_function_packages (
     id UUID PRIMARY KEY,
@@ -186,29 +216,11 @@ CREATE INDEX IF NOT EXISTS idx_ontology_rules_object_type
 CREATE INDEX IF NOT EXISTS idx_ontology_rules_evaluation_mode
     ON ontology_rules(evaluation_mode);
 
-CREATE TABLE IF NOT EXISTS ontology_rule_runs (
-    id UUID PRIMARY KEY,
-    rule_id UUID NOT NULL REFERENCES ontology_rules(id) ON DELETE CASCADE,
-    object_id UUID NOT NULL REFERENCES object_instances(id) ON DELETE CASCADE,
-    matched BOOLEAN NOT NULL DEFAULT FALSE,
-    simulated BOOLEAN NOT NULL DEFAULT FALSE,
-    trigger_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-    effect_preview JSONB,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_runs_rule_id
-    ON ontology_rule_runs(rule_id);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_runs_object_id
-    ON ontology_rule_runs(object_id);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_runs_created_at
-    ON ontology_rule_runs(created_at DESC);
+-- `ontology_rule_runs` is runtime telemetry, not declarative schema.
 
 -- =====================================================================
--- Source: migrations/20260425235900_shared_property_types.sql (archived; preserved verbatim below)
+-- Source: migrations/20260425235900_shared_property_types.sql
+--         (archived; preserved verbatim below)
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS shared_property_types (
     id UUID PRIMARY KEY,
@@ -243,37 +255,11 @@ CREATE INDEX IF NOT EXISTS idx_object_type_shared_property_types_shared_property
     ON object_type_shared_property_types(shared_property_type_id);
 
 -- =====================================================================
--- Source: migrations/20260426013000_machinery_queue.sql (archived; preserved verbatim below)
+-- Source: migrations/20260426013000_machinery_queue.sql
+--         (archived; runtime section intentionally excluded)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS ontology_rule_schedules (
-    id UUID PRIMARY KEY,
-    rule_id UUID NOT NULL REFERENCES ontology_rules(id) ON DELETE CASCADE,
-    rule_run_id UUID NOT NULL REFERENCES ontology_rule_runs(id) ON DELETE CASCADE,
-    object_id UUID NOT NULL REFERENCES object_instances(id) ON DELETE CASCADE,
-    status TEXT NOT NULL DEFAULT 'pending',
-    scheduled_for TIMESTAMPTZ NOT NULL,
-    priority_score INTEGER NOT NULL DEFAULT 50,
-    estimated_duration_minutes INTEGER NOT NULL DEFAULT 30,
-    required_capability TEXT NULL,
-    constraint_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    started_at TIMESTAMPTZ NULL,
-    completed_at TIMESTAMPTZ NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_schedules_rule_id
-    ON ontology_rule_schedules(rule_id);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_schedules_rule_run_id
-    ON ontology_rule_schedules(rule_run_id);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_schedules_object_id
-    ON ontology_rule_schedules(object_id);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_rule_schedules_status_scheduled_for
-    ON ontology_rule_schedules(status, scheduled_for ASC);
+-- `ontology_rule_schedules` belongs to runtime orchestration, not to the
+-- declarative ontology schema boundary.
 
 -- =====================================================================
 -- Source: migrations/20260426023000_quiver_visual_functions.sql (archived; preserved verbatim below)
@@ -362,35 +348,11 @@ CREATE INDEX IF NOT EXISTS idx_ontology_function_packages_name
     ON ontology_function_packages(name);
 
 -- =====================================================================
--- Source: migrations/20260426170000_function_package_run_metrics.sql (archived; preserved verbatim below)
+-- Source: migrations/20260426170000_function_package_run_metrics.sql
+--         (archived; runtime section intentionally excluded)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS ontology_function_package_runs (
-    id UUID PRIMARY KEY,
-    function_package_id UUID NOT NULL REFERENCES ontology_function_packages(id) ON DELETE CASCADE,
-    function_package_name TEXT NOT NULL,
-    function_package_version TEXT NOT NULL,
-    runtime TEXT NOT NULL,
-    status TEXT NOT NULL,
-    invocation_kind TEXT NOT NULL,
-    action_id UUID,
-    action_name TEXT,
-    object_type_id UUID,
-    target_object_id UUID,
-    actor_id UUID NOT NULL,
-    duration_ms BIGINT NOT NULL CHECK (duration_ms >= 0),
-    error_message TEXT,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS ontology_function_package_runs_package_completed_idx
-    ON ontology_function_package_runs (function_package_id, completed_at DESC);
-
-CREATE INDEX IF NOT EXISTS ontology_function_package_runs_package_status_idx
-    ON ontology_function_package_runs (function_package_id, status);
-
-CREATE INDEX IF NOT EXISTS ontology_function_package_runs_package_invocation_idx
-    ON ontology_function_package_runs (function_package_id, invocation_kind);
+-- `ontology_function_package_runs` is runtime telemetry, not declarative
+-- control-plane schema.
 
 -- =====================================================================
 -- Source: migrations/20260426200500_ontology_projects.sql (archived; preserved verbatim below)
@@ -437,7 +399,8 @@ CREATE INDEX IF NOT EXISTS idx_ontology_project_resources_project
     ON ontology_project_resources(project_id, resource_kind, created_at DESC);
 
 -- =====================================================================
--- Source: migrations/20260426213000_ontology_funnel.sql (archived; preserved verbatim below)
+-- Source: migrations/20260426213000_ontology_funnel.sql
+--         (archived; declarative subset retained below)
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS ontology_funnel_sources (
     id UUID PRIMARY KEY,
@@ -470,31 +433,8 @@ CREATE INDEX IF NOT EXISTS idx_ontology_funnel_sources_owner
 CREATE INDEX IF NOT EXISTS idx_ontology_funnel_sources_status
     ON ontology_funnel_sources(status);
 
-CREATE TABLE IF NOT EXISTS ontology_funnel_runs (
-    id UUID PRIMARY KEY,
-    source_id UUID NOT NULL REFERENCES ontology_funnel_sources(id) ON DELETE CASCADE,
-    object_type_id UUID NOT NULL REFERENCES object_types(id) ON DELETE CASCADE,
-    dataset_id UUID NOT NULL,
-    pipeline_id UUID,
-    pipeline_run_id UUID,
-    status TEXT NOT NULL,
-    trigger_type TEXT NOT NULL,
-    started_by UUID,
-    rows_read INTEGER NOT NULL DEFAULT 0,
-    inserted_count INTEGER NOT NULL DEFAULT 0,
-    updated_count INTEGER NOT NULL DEFAULT 0,
-    skipped_count INTEGER NOT NULL DEFAULT 0,
-    error_count INTEGER NOT NULL DEFAULT 0,
-    details JSONB NOT NULL DEFAULT '{}'::jsonb,
-    error_message TEXT,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    finished_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_ontology_funnel_runs_source
-    ON ontology_funnel_runs(source_id, started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ontology_funnel_runs_object_type
-    ON ontology_funnel_runs(object_type_id, started_at DESC);
+-- `ontology_funnel_runs` is execution history and stays outside
+-- `pg-schemas`.
 
 -- =====================================================================
 -- Source: migrations/20260429104000_ontology_project_governance.sql (archived; preserved verbatim below)
@@ -714,4 +654,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ontology_folder_permissions_group
 
 CREATE INDEX IF NOT EXISTS idx_ontology_folder_permissions_folder
     ON ontology_folder_permissions (folder_id);
-

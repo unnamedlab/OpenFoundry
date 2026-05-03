@@ -53,13 +53,19 @@ pub async fn create_oauth_client(
         return response;
     }
     if body.slug.trim().is_empty() || body.display_name.trim().is_empty() {
-        return json_error(StatusCode::BAD_REQUEST, "slug and display_name are required");
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "slug and display_name are required",
+        );
     }
 
     let id = Uuid::now_v7();
     let client_id = format!("ofcli_{}", &id.simple().to_string()[..16]);
     let client_secret = security::random_token(48);
-    let secret_hint = format!("...{}", &client_secret[client_secret.len().saturating_sub(6)..]);
+    let secret_hint = format!(
+        "...{}",
+        &client_secret[client_secret.len().saturating_sub(6)..]
+    );
     let created_at = Utc::now();
     let status = body.status.clone().unwrap_or_else(|| "active".to_string());
 

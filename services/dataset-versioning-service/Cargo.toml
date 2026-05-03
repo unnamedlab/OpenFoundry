@@ -59,6 +59,7 @@ workspace = true
 
 [dependencies.storage-abstraction]
 workspace = true
+features = ["readers"]
 
 [dependencies.thiserror]
 workspace = true
@@ -71,6 +72,32 @@ workspace = true
 
 [dependencies.once_cell]
 version = "1"
+
+# T6.x — arrow-schema is used by `models::schema::DatasetSchema::to_arrow_schema`
+# to surface a runtime-typed Arrow schema. We pin to 53 to match the rest of the
+# arrow toolchain in the workspace (see Cargo.toml [patch.crates-io]).
+[dependencies.arrow-schema]
+version = "53"
+
+# Schema content-hash idempotency uses MD5 to stay byte-compatible with
+# the SQL trigger in `migrations/20260503000001_schema_per_view.sql`,
+# which uses Postgres `md5()`.
+[dependencies.md-5]
+version = "0.10"
+
+# P6 — API conformance helpers in `handlers::conformance`.
+# Cursor pagination uses base64; ETag/`If-None-Match` uses SHA-256.
+[dependencies.base64]
+workspace = true
+
+[dependencies.sha2]
+workspace = true
+
+# P4 — outbox publishes branch-lifecycle domain events (created,
+# reparented, deleted, archived, restored, markings.updated,
+# retention.updated) on the `foundry.branch.events.v1` topic.
+[dependencies.outbox]
+workspace = true
 
 # T7 — integration / smoke tests (testcontainers-driven; gated behind
 # `#[ignore]` so default `cargo test` stays Docker-free).
@@ -110,6 +137,22 @@ workspace = true
 
 [dev-dependencies.auth-middleware]
 workspace = true
+
+# P2 — preview integration tests build small Avro fixtures inline via
+# apache-avro (mirroring the `dataset_versioning_service::storage::preview`
+# Avro path) and exercise the storage backend directly.
+[dev-dependencies.apache-avro]
+workspace = true
+
+[dev-dependencies.bytes]
+workspace = true
+
+[dev-dependencies.url]
+workspace = true
+
+[dev-dependencies.storage-abstraction]
+workspace = true
+features = ["readers"]
 
 [[bin]]
 path = "src/main.rs"

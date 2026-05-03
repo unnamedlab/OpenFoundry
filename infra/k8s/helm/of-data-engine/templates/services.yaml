@@ -1,16 +1,16 @@
 {{- $release := .Values.release -}}
 {{- range $name, $svc := .Values.services }}
+{{- if not (hasKey $svc "enabled") }}{{- $_ := set $svc "enabled" true -}}{{- end }}
+{{- if $svc.enabled }}
 ---
 {{- $ctx := dict
+    "root" $
     "name" $name
     "release" $release
-    "image" (printf "%s/%s:%s" $.Values.image.registry $name $.Values.image.tag)
-    "replicas" $svc.replicas
-    "ports" $svc.ports
-    "resources" $svc.resources
-    "env" (default (list) $svc.env)
+    "image" (include "of-shared.image" (dict "root" $ "name" $name "service" $svc))
+    "service" $svc
 }}
-{{ include "of-shared.serviceaccount" (dict "name" $name "release" $release "annotations" (default dict $svc.serviceAccountAnnotations)) }}
+{{ include "of-shared.serviceaccount" (dict "root" $ "name" $name "release" $release "annotations" (default dict $svc.serviceAccountAnnotations)) }}
 ---
 {{ include "of-shared.deployment" $ctx }}
 ---
@@ -20,13 +20,21 @@
 {{- if $svc.autoscaling }}
 {{- if $svc.autoscaling.enabled }}
 ---
-{{ include "of-shared.hpa" (dict "name" $name "release" $release "autoscaling" $svc.autoscaling) }}
-{{- end }}
-{{- end }}
-{{- if $svc.pdb }}
-{{- if $svc.pdb.enabled }}
+{{ include "of-shared.hpa" (dict "root" $ "name" $name "release" $release "autoscaling" $svc.autoscaling) }}
+{{- if and $svc.autoscaling.keda $svc.autoscaling.keda.enabled }}
 ---
-{{ include "of-shared.pdb" (dict "name" $name "release" $release "pdb" $svc.pdb) }}
+{{ include "of-shared.scaledobject" (dict "root" $ "name" $name "release" $release "autoscaling" $svc.autoscaling) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $globalPdb := ($.Values.global.podDisruptionBudget | default dict) -}}
+{{- $pdb := $svc.pdb | default (dict) -}}
+{{- if not (hasKey $pdb "enabled") }}
+  {{- $_ := set $pdb "enabled" ($globalPdb.enabled | default false) -}}
+{{- end }}
+{{- if and $pdb $pdb.enabled }}
+---
+{{ include "of-shared.pdb" (dict "root" $ "name" $name "release" $release "pdb" (mergeOverwrite (dict) $globalPdb $pdb)) }}
 {{- end }}
 {{- end }}
 {{- end }}

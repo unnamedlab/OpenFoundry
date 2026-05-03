@@ -96,7 +96,7 @@ pub async fn create_interface(
 
     let id = Uuid::now_v7();
     let display_name = body.display_name.unwrap_or_else(|| body.name.clone());
-    match sqlx::query_as::<_, OntologyInterface>(
+    match crate::domain::pg_repository::typed::<OntologyInterface>(
         r#"INSERT INTO ontology_interfaces (id, name, display_name, description, owner_id)
            VALUES ($1, $2, $3, $4, $5)
            RETURNING *"#,
@@ -127,7 +127,7 @@ pub async fn list_interfaces(
     let offset = (page - 1) * per_page;
     let search_pattern = format!("%{}%", params.search.unwrap_or_default());
 
-    let _total = sqlx::query_scalar::<_, i64>(
+    let _total = crate::domain::pg_repository::scalar::<i64>(
         r#"SELECT COUNT(*) FROM ontology_interfaces
            WHERE name ILIKE $1 OR display_name ILIKE $1"#,
     )
@@ -136,7 +136,7 @@ pub async fn list_interfaces(
     .await
     .unwrap_or(0);
 
-    match sqlx::query_as::<_, OntologyInterface>(
+    match crate::domain::pg_repository::typed::<OntologyInterface>(
         r#"SELECT * FROM ontology_interfaces
            WHERE name ILIKE $1 OR display_name ILIKE $1
            ORDER BY created_at DESC
@@ -207,10 +207,12 @@ pub async fn get_interface(
     State(state): State<AppState>,
     Path(interface_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    match sqlx::query_as::<_, OntologyInterface>("SELECT * FROM ontology_interfaces WHERE id = $1")
-        .bind(interface_id)
-        .fetch_optional(&state.db)
-        .await
+    match crate::domain::pg_repository::typed::<OntologyInterface>(
+        "SELECT * FROM ontology_interfaces WHERE id = $1",
+    )
+    .bind(interface_id)
+    .fetch_optional(&state.db)
+    .await
     {
         Ok(Some(interface)) => {
             if let Err(error) = ensure_interface_view_access(&state, &claims, interface_id).await {
@@ -239,7 +241,7 @@ pub async fn update_interface(
             (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response()
         };
     }
-    match sqlx::query_as::<_, OntologyInterface>(
+    match crate::domain::pg_repository::typed::<OntologyInterface>(
         r#"UPDATE ontology_interfaces
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -274,7 +276,7 @@ pub async fn delete_interface(
             (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response()
         };
     }
-    match sqlx::query("DELETE FROM ontology_interfaces WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM ontology_interfaces WHERE id = $1")
         .bind(interface_id)
         .execute(&state.db)
         .await
@@ -296,7 +298,7 @@ pub async fn list_interface_properties(
     if let Err(error) = ensure_interface_view_access(&state, &claims, interface_id).await {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
-    match sqlx::query_as::<_, InterfaceProperty>(
+    match crate::domain::pg_repository::typed::<InterfaceProperty>(
         r#"SELECT * FROM interface_properties
            WHERE interface_id = $1
            ORDER BY created_at ASC"#,
@@ -344,7 +346,7 @@ pub async fn create_interface_property(
 
     let id = Uuid::now_v7();
     let display_name = body.display_name.unwrap_or_else(|| body.name.clone());
-    match sqlx::query_as::<_, InterfaceProperty>(
+    match crate::domain::pg_repository::typed::<InterfaceProperty>(
         r#"INSERT INTO interface_properties (
                id, interface_id, name, display_name, description, property_type,
                required, unique_constraint, time_dependent, default_value, validation_rules
@@ -380,7 +382,7 @@ pub async fn update_interface_property(
     Path((_interface_id, property_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateInterfacePropertyRequest>,
 ) -> impl IntoResponse {
-    let existing = match sqlx::query_as::<_, InterfaceProperty>(
+    let existing = match crate::domain::pg_repository::typed::<InterfaceProperty>(
         "SELECT * FROM interface_properties WHERE id = $1",
     )
     .bind(property_id)
@@ -411,7 +413,7 @@ pub async fn update_interface_property(
         }
     }
 
-    match sqlx::query_as::<_, InterfaceProperty>(
+    match crate::domain::pg_repository::typed::<InterfaceProperty>(
         r#"UPDATE interface_properties
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
@@ -449,7 +451,7 @@ pub async fn delete_interface_property(
     State(state): State<AppState>,
     Path((_interface_id, property_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let interface_id = match sqlx::query_scalar::<_, Uuid>(
+    let interface_id = match crate::domain::pg_repository::scalar::<Uuid>(
         "SELECT interface_id FROM interface_properties WHERE id = $1",
     )
     .bind(property_id)
@@ -470,7 +472,7 @@ pub async fn delete_interface_property(
             (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response()
         };
     }
-    match sqlx::query("DELETE FROM interface_properties WHERE id = $1")
+    match crate::domain::pg_repository::raw("DELETE FROM interface_properties WHERE id = $1")
         .bind(property_id)
         .execute(&state.db)
         .await
@@ -501,7 +503,7 @@ pub async fn attach_interface_to_type(
             };
         }
     }
-    match sqlx::query_as::<_, ObjectTypeInterfaceBinding>(
+    match crate::domain::pg_repository::typed::<ObjectTypeInterfaceBinding>(
         r#"INSERT INTO object_type_interfaces (object_type_id, interface_id)
            VALUES ($1, $2)
            ON CONFLICT (object_type_id, interface_id) DO NOTHING
@@ -534,7 +536,7 @@ pub async fn list_type_interfaces(
     if let Err(error) = ensure_object_type_view_access(&state, &claims, type_id).await {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
-    match sqlx::query_as::<_, OntologyInterface>(
+    match crate::domain::pg_repository::typed::<OntologyInterface>(
         r#"SELECT i.*
            FROM ontology_interfaces i
            INNER JOIN object_type_interfaces oti ON oti.interface_id = i.id
@@ -570,7 +572,7 @@ pub async fn detach_interface_from_type(
             };
         }
     }
-    match sqlx::query(
+    match crate::domain::pg_repository::raw(
         "DELETE FROM object_type_interfaces WHERE object_type_id = $1 AND interface_id = $2",
     )
     .bind(type_id)

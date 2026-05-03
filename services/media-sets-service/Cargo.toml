@@ -1,0 +1,163 @@
+[package]
+name = "media-sets-service"
+description = "Foundry-style media sets: unstructured media storage with transactions, branches and access patterns"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.audit-trail]
+workspace = true
+features = ["outbox"]
+
+[dependencies.outbox]
+workspace = true
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.authz-cedar]
+workspace = true
+features = ["axum"]
+
+[dependencies.cedar-policy]
+version = "4"
+
+[dependencies.jsonwebtoken]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+features = ["multipart"]
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.core-models]
+workspace = true
+
+[dependencies.db-pool]
+workspace = true
+
+[dependencies.opentelemetry]
+workspace = true
+
+[dependencies.prometheus]
+workspace = true
+
+[dependencies.prost]
+workspace = true
+
+[dependencies.prost-types]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tonic]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+
+[dependencies.url]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+[dependencies.once_cell]
+version = "1"
+
+[build-dependencies.tonic-build]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[dev-dependencies.wiremock]
+workspace = true
+
+[dev-dependencies.testcontainers]
+workspace = true
+
+[dev-dependencies.testing]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.tower]
+workspace = true
+
+[dev-dependencies.http-body-util]
+version = "0.1"
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.sqlx]
+workspace = true
+features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
+
+[dev-dependencies.uuid]
+workspace = true
+
+[dev-dependencies.chrono]
+workspace = true
+
+[dev-dependencies.reqwest]
+workspace = true
+
+[[bin]]
+path = "src/main.rs"
+name = "media-sets-service"
+required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "media_sets_service"
+required-features = []
+crate-type = ["lib"]

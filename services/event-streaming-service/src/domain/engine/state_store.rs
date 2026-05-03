@@ -62,11 +62,7 @@ pub trait StateBackend: Send + Sync + std::fmt::Debug {
 
     /// Replace the key/value space for `topology_id` with the contents
     /// of `payload` (previously produced by [`Self::snapshot`]).
-    async fn restore(
-        &self,
-        topology_id: Uuid,
-        payload: &[u8],
-    ) -> Result<usize, StateBackendError>;
+    async fn restore(&self, topology_id: Uuid, payload: &[u8]) -> Result<usize, StateBackendError>;
 }
 
 pub type SharedStateBackend = Arc<dyn StateBackend>;
@@ -118,11 +114,7 @@ impl StateBackend for InMemoryStateBackend {
         serde_json::to_vec(&map).map_err(|e| StateBackendError::Serialize(e.to_string()))
     }
 
-    async fn restore(
-        &self,
-        topology_id: Uuid,
-        payload: &[u8],
-    ) -> Result<usize, StateBackendError> {
+    async fn restore(&self, topology_id: Uuid, payload: &[u8]) -> Result<usize, StateBackendError> {
         let map: HashMap<String, Vec<u8>> = if payload.is_empty() {
             HashMap::new()
         } else {
@@ -209,8 +201,7 @@ mod rocks {
             let prefix = Self::prefix_for(topology_id);
             tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
                 let mut map: HashMap<String, Vec<u8>> = HashMap::new();
-                let iter =
-                    db.iterator(IteratorMode::From(&prefix, rocksdb::Direction::Forward));
+                let iter = db.iterator(IteratorMode::From(&prefix, rocksdb::Direction::Forward));
                 for item in iter {
                     let (k, v) = item.map_err(|e| e.to_string())?;
                     if !k.starts_with(&prefix) {
@@ -241,8 +232,7 @@ mod rocks {
             let prefix = Self::prefix_for(topology_id);
             let count = map.len();
             tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let iter =
-                    db.iterator(IteratorMode::From(&prefix, rocksdb::Direction::Forward));
+                let iter = db.iterator(IteratorMode::From(&prefix, rocksdb::Direction::Forward));
                 let mut to_delete: Vec<Vec<u8>> = Vec::new();
                 for item in iter {
                     let (k, _) = item.map_err(|e| e.to_string())?;
@@ -280,8 +270,14 @@ mod tests {
     async fn in_memory_backend_round_trips_snapshot() {
         let backend = InMemoryStateBackend::new();
         let topology_id = Uuid::now_v7();
-        backend.put(topology_id, "k1", b"v1".to_vec()).await.unwrap();
-        backend.put(topology_id, "k2", b"v2".to_vec()).await.unwrap();
+        backend
+            .put(topology_id, "k1", b"v1".to_vec())
+            .await
+            .unwrap();
+        backend
+            .put(topology_id, "k2", b"v2".to_vec())
+            .await
+            .unwrap();
         let snap = backend.snapshot(topology_id).await.unwrap();
         assert!(!snap.is_empty());
 
@@ -291,8 +287,7 @@ mod tests {
         let snap2 = other.snapshot(topology_id).await.unwrap();
         // HashMap iteration order is unspecified, so compare semantic
         // content rather than the raw bytes.
-        let m1: std::collections::HashMap<String, Vec<u8>> =
-            serde_json::from_slice(&snap).unwrap();
+        let m1: std::collections::HashMap<String, Vec<u8>> = serde_json::from_slice(&snap).unwrap();
         let m2: std::collections::HashMap<String, Vec<u8>> =
             serde_json::from_slice(&snap2).unwrap();
         assert_eq!(m1, m2);

@@ -1,6 +1,10 @@
 //! REST handlers for the checkpoint subsystem (Bloque C).
 
-use axum::{Json, extract::Path};
+use axum::{
+    Json,
+    extract::{Path, Query},
+};
+use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -17,10 +21,7 @@ use crate::{
     },
 };
 
-async fn load_topology_row(
-    db: &sqlx::PgPool,
-    id: Uuid,
-) -> Result<TopologyRow, sqlx::Error> {
+async fn load_topology_row(db: &sqlx::PgPool, id: Uuid) -> Result<TopologyRow, sqlx::Error> {
     sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
                 backpressure_policy, source_stream_ids, sink_bindings, state_backend,
@@ -57,7 +58,7 @@ pub async fn trigger_checkpoint(
 
     let started = std::time::Instant::now();
     let cp = checkpoints::take_checkpoint(
-        &state.db,
+        &state.runtime_store,
         &state.state_backend,
         topology_id,
         &topology.source_stream_ids,
@@ -82,18 +83,30 @@ pub async fn trigger_checkpoint(
 }
 
 /// `GET /api/v1/streaming/topologies/{id}/checkpoints`
+/// Query parameters for `GET /topologies/{id}/checkpoints`.
+///
+/// `last=N` mirrors the Foundry "last 20 checkpoints" view in Job
+/// Details (P4). When omitted, the handler defaults to 20 to match
+/// the UI; `N` is clamped to `[1, 200]`.
+#[derive(Debug, Default, Deserialize)]
+pub struct ListCheckpointsQuery {
+    pub last: Option<usize>,
+}
+
 pub async fn list_checkpoints(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path(topology_id): Path<Uuid>,
+    Query(params): Query<ListCheckpointsQuery>,
 ) -> ServiceResult<ListResponse<Checkpoint>> {
     match load_topology_row(&state.db, topology_id).await {
         Ok(_) => {}
         Err(sqlx::Error::RowNotFound) => return Err(not_found("topology not found")),
         Err(cause) => return Err(db_error(&cause)),
     }
-    let items = checkpoints::list_checkpoints(&state.db, topology_id, 100)
+    let limit = params.last.unwrap_or(20).clamp(1, 200);
+    let items = checkpoints::list_checkpoints(&state.runtime_store, topology_id, limit)
         .await
-        .map_err(|cause| db_error(&cause))?;
+        .map_err(|cause| internal_error(cause.to_string()))?;
     Ok(Json(ListResponse { data: items }))
 }
 
@@ -154,12 +167,12 @@ async fn reset_builtin(
     }
 
     let checkpoint = checkpoints::load_checkpoint(
-        &state.db,
+        &state.runtime_store,
         topology.id,
         payload.from_checkpoint_id,
     )
     .await
-    .map_err(|cause| db_error(&cause))?
+    .map_err(|cause| internal_error(cause.to_string()))?
     .ok_or_else(|| not_found("no checkpoint found for topology"))?;
 
     // Restore state. We do not actually fetch the blob in this MVP — the
@@ -172,9 +185,23 @@ async fn reset_builtin(
         .await
         .map_err(|e| internal_error(e.to_string()))?;
 
-    let rewound = checkpoints::rewind_offsets_to(&state.db, &checkpoint.last_offsets)
+    let rewound = checkpoints::rewind_offsets_to(&state.runtime_store, &checkpoint.last_offsets)
         .await
         .map_err(|e| internal_error(e.to_string()))?;
+    if let Value::Object(map) = &checkpoint.last_offsets {
+        for (stream_id, offset) in map {
+            let stream_id =
+                Uuid::parse_str(stream_id).map_err(|e| internal_error(e.to_string()))?;
+            let offset = offset
+                .as_i64()
+                .ok_or_else(|| internal_error("checkpoint offset must be integer".to_string()))?;
+            state
+                .runtime_store
+                .set_topology_offset(topology.id, stream_id, offset)
+                .await
+                .map_err(|e| internal_error(e.to_string()))?;
+        }
+    }
 
     Ok(Json(ResetTopologyResponse {
         topology_id: topology.id,
@@ -213,8 +240,8 @@ async fn reset_flink(
     payload: &ResetTopologyRequest,
 ) -> ServiceResult<ResetTopologyResponse> {
     use k8s_openapi::api::core::v1::Namespace;
-    use kube::api::{Api, Patch, PatchParams};
     use kube::Client;
+    use kube::api::{Api, Patch, PatchParams};
 
     let job_name = topology
         .flink_job_name
@@ -223,10 +250,11 @@ async fn reset_flink(
     let savepoint_uri = if let Some(uri) = &payload.savepoint_uri {
         uri.clone()
     } else if let Some(checkpoint_id) = payload.from_checkpoint_id {
-        let cp = checkpoints::load_checkpoint(&_state.db, topology.id, Some(checkpoint_id))
-            .await
-            .map_err(|c| db_error(&c))?
-            .ok_or_else(|| not_found("checkpoint not found"))?;
+        let cp =
+            checkpoints::load_checkpoint(&_state.runtime_store, topology.id, Some(checkpoint_id))
+                .await
+                .map_err(|c| internal_error(c.to_string()))?
+                .ok_or_else(|| not_found("checkpoint not found"))?;
         cp.savepoint_uri
             .ok_or_else(|| bad_request("checkpoint has no savepoint_uri to restore from"))?
     } else {
@@ -263,9 +291,13 @@ async fn reset_flink(
             }
         }
     });
-    api.patch(&job_name, &PatchParams::apply("event-streaming-service"), &Patch::Merge(&patch))
-        .await
-        .map_err(|e| internal_error(format!("kubectl patch flinkdeployment: {e}")))?;
+    api.patch(
+        &job_name,
+        &PatchParams::apply("event-streaming-service"),
+        &Patch::Merge(&patch),
+    )
+    .await
+    .map_err(|e| internal_error(format!("kubectl patch flinkdeployment: {e}")))?;
 
     Ok(Json(ResetTopologyResponse {
         topology_id: topology.id,

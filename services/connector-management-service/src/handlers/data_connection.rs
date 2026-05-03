@@ -1,5 +1,5 @@
-//! Data Connection MVP handlers: credentials, source-policy bindings, batch
-//! sync defs and runs. The frontend
+//! Data Connection MVP handlers: credentials, source-policy bindings and batch
+//! sync definitions. The frontend
 //! (`apps/web/src/lib/api/data-connection.ts`) drives every signature here.
 //!
 //! Credentials are stored encrypted via a fingerprint-only contract; the
@@ -8,11 +8,9 @@
 //! column is wired so a real KMS envelope can be plugged in without a
 //! schema migration.
 //!
-//! `runSync` only enqueues a `sync_runs` row in `pending`. The actual
-//! materialisation is owned by `ingestion-replication-service`'s
-//! `IngestionControlPlane.CreateIngestJob`; the gRPC bridge is wired in a
-//! follow-up so the frontend has live data as soon as that service publishes
-//! a callback.
+//! Runtime authority for sync execution does not live here anymore:
+//! `runSync` dispatches into `ingestion-replication-service`, and any run
+//! listing exposed here is a filtered view of that remote control plane.
 
 use axum::{
     Json,
@@ -108,7 +106,13 @@ pub async fn set_credential(
     match row {
         Ok((id, source_id, kind, fingerprint, created_at)) => (
             StatusCode::OK,
-            Json(CredentialResponse { id, source_id, kind, fingerprint, created_at }),
+            Json(CredentialResponse {
+                id,
+                source_id,
+                kind,
+                fingerprint,
+                created_at,
+            }),
         )
             .into_response(),
         Err(err) => internal(err),
@@ -130,9 +134,15 @@ pub async fn list_credentials(
         Ok(rows) => {
             let body: Vec<CredentialResponse> = rows
                 .into_iter()
-                .map(|(id, source_id, kind, fingerprint, created_at)| CredentialResponse {
-                    id, source_id, kind, fingerprint, created_at,
-                })
+                .map(
+                    |(id, source_id, kind, fingerprint, created_at)| CredentialResponse {
+                        id,
+                        source_id,
+                        kind,
+                        fingerprint,
+                        created_at,
+                    },
+                )
                 .collect();
             (StatusCode::OK, Json(body)).into_response()
         }
@@ -179,7 +189,9 @@ pub async fn list_source_policies(
             let body: Vec<SourcePolicyBindingResponse> = rows
                 .into_iter()
                 .map(|(source_id, policy_id, kind)| SourcePolicyBindingResponse {
-                    source_id, policy_id, kind,
+                    source_id,
+                    policy_id,
+                    kind,
                 })
                 .collect();
             (StatusCode::OK, Json(body)).into_response()
@@ -217,7 +229,11 @@ pub async fn attach_policy(
     match row {
         Ok((source_id, policy_id, kind)) => (
             StatusCode::OK,
-            Json(SourcePolicyBindingResponse { source_id, policy_id, kind }),
+            Json(SourcePolicyBindingResponse {
+                source_id,
+                policy_id,
+                kind,
+            }),
         )
             .into_response(),
         Err(err) => internal(err),
@@ -228,13 +244,12 @@ pub async fn detach_policy(
     State(state): State<AppState>,
     Path((source_id, policy_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        "DELETE FROM source_policy_bindings WHERE source_id = $1 AND policy_id = $2",
-    )
-    .bind(source_id)
-    .bind(policy_id)
-    .execute(&state.db)
-    .await;
+    let result =
+        sqlx::query("DELETE FROM source_policy_bindings WHERE source_id = $1 AND policy_id = $2")
+            .bind(source_id)
+            .bind(policy_id)
+            .execute(&state.db)
+            .await;
 
     match result {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -281,7 +296,17 @@ pub async fn list_syncs(
     State(state): State<AppState>,
     Path(source_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid, Option<String>, Option<String>, DateTime<Utc>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            Uuid,
+            Option<String>,
+            Option<String>,
+            DateTime<Utc>,
+        ),
+    >(
         "SELECT id, source_id, output_dataset_id, file_glob, schedule_cron, created_at
          FROM batch_sync_defs WHERE source_id = $1 ORDER BY created_at DESC",
     )
@@ -293,11 +318,18 @@ pub async fn list_syncs(
         Ok(rows) => {
             let body: Vec<BatchSyncDefResponse> = rows
                 .into_iter()
-                .map(|(id, source_id, output_dataset_id, file_glob, schedule_cron, created_at)| {
-                    BatchSyncDefResponse {
-                        id, source_id, output_dataset_id, file_glob, schedule_cron, created_at,
-                    }
-                })
+                .map(
+                    |(id, source_id, output_dataset_id, file_glob, schedule_cron, created_at)| {
+                        BatchSyncDefResponse {
+                            id,
+                            source_id,
+                            output_dataset_id,
+                            file_glob,
+                            schedule_cron,
+                            created_at,
+                        }
+                    },
+                )
                 .collect();
             (StatusCode::OK, Json(body)).into_response()
         }
@@ -310,7 +342,17 @@ pub async fn create_sync(
     Json(body): Json<CreateBatchSyncRequest>,
 ) -> impl IntoResponse {
     let id = Uuid::now_v7();
-    let row = sqlx::query_as::<_, (Uuid, Uuid, Uuid, Option<String>, Option<String>, DateTime<Utc>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            Uuid,
+            Option<String>,
+            Option<String>,
+            DateTime<Utc>,
+        ),
+    >(
         r#"
         INSERT INTO batch_sync_defs (id, source_id, output_dataset_id, file_glob, schedule_cron)
         VALUES ($1, $2, $3, $4, $5)
@@ -329,7 +371,12 @@ pub async fn create_sync(
         Ok((id, source_id, output_dataset_id, file_glob, schedule_cron, created_at)) => (
             StatusCode::CREATED,
             Json(BatchSyncDefResponse {
-                id, source_id, output_dataset_id, file_glob, schedule_cron, created_at,
+                id,
+                source_id,
+                output_dataset_id,
+                file_glob,
+                schedule_cron,
+                created_at,
             }),
         )
             .into_response(),
@@ -347,10 +394,11 @@ pub async fn run_sync(
     // the row.2 column.
     let started = std::time::Instant::now();
     // Resolve the sync def → source so we can build an `IngestJobSpec` for
-    // ingestion-replication-service.
-    let source = sqlx::query_as::<_, (Uuid, String, String, serde_json::Value, Uuid)>(
+    // ingestion-replication-service. The sync definition stays local; the
+    // resulting runtime job does not.
+    let source = sqlx::query_as::<_, (String, String, serde_json::Value)>(
         r#"
-        SELECT s.id, s.name, s.connector_type, s.config, d.output_dataset_id
+        SELECT s.name, s.connector_type, s.config
         FROM batch_sync_defs d
         JOIN connections s ON s.id = d.source_id
         WHERE d.id = $1
@@ -371,194 +419,81 @@ pub async fn run_sync(
         }
         Err(err) => return internal(err),
     };
-    let output_dataset_id = source.4;
+    let job_name = sync_job_name(&source.0, sync_id);
 
-    // Decide initial status + remote ingest_job_id by attempting the gRPC
-    // bridge when the URL is configured. Failures degrade gracefully:
-    //   * URL unset            → status `pending`, no bridge attempt
-    //   * unsupported connector → `failed`, error captured
-    //   * gRPC transport error  → `failed`, error captured
-    //   * gRPC ok               → `running`, ingest_job_id stored
-    let (status, ingest_job_id, error_msg) =
-        materialise_via_bridge(&state, &source.1, &source.2, &source.3).await;
+    let dispatched = match materialise_via_bridge(&state, &job_name, &source.1, &source.2).await {
+        Ok(job) => job,
+        Err((status, error)) => {
+            tracing::warn!(
+                target: "connector.run_sync",
+                connector_kind = %source.1,
+                sync_def_id = %sync_id,
+                bridge_status = %status,
+                error = %error,
+                "sync dispatch failed"
+            );
+            state
+                .metrics
+                .record_sync(&source.1, 0, started.elapsed().as_secs_f64(), false);
+            return (
+                status,
+                Json(serde_json::json!({
+                    "error": error,
+                    "sync_def_id": sync_id,
+                })),
+            )
+                .into_response();
+        }
+    };
 
     // Tarea 9 — observabilidad: emit a span event with connector kind so
     // OTel exporters group sync_run telemetry consistently with
     // `connector.test_connection`.
     tracing::info!(
         target: "connector.run_sync",
-        connector_kind = %source.2,
+        connector_kind = %source.1,
         sync_def_id = %sync_id,
-        bridge_status = %status,
+        bridge_status = %dispatched.status,
+        ingest_job_id = %dispatched.id,
         "sync run dispatched"
     );
 
-    let id = Uuid::now_v7();
-    let row = sqlx::query_as::<_, (
-        Uuid,
-        Uuid,
-        String,
-        DateTime<Utc>,
-        Option<DateTime<Utc>>,
-        i64,
-        i64,
-        Option<String>,
-        Option<String>,
-    )>(
-        r#"
-        INSERT INTO sync_runs (id, sync_def_id, status, error, ingest_job_id)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, sync_def_id, status, started_at, finished_at,
-                  bytes_written, files_written, error, ingest_job_id
-        "#,
-    )
-    .bind(id)
-    .bind(sync_id)
-    .bind(&status)
-    .bind(error_msg.as_deref())
-    .bind(ingest_job_id.as_deref())
-    .fetch_one(&state.db)
-    .await;
+    let http_status = if dispatched.status == "failed" {
+        StatusCode::BAD_GATEWAY
+    } else {
+        StatusCode::ACCEPTED
+    };
+    let duration_seconds = started.elapsed().as_secs_f64();
+    state.metrics.record_sync(
+        &source.1,
+        0,
+        duration_seconds,
+        dispatched.status != "failed",
+    );
 
-    match row {
-        Ok((
-            id,
-            sync_def_id,
-            status,
-            started_at,
-            finished_at,
-            bytes_written,
-            files_written,
-            error,
-            ingest_job_id,
-        )) => {
-            // After a successful sync_run, register a dataset version with
-            // dataset-versioning-service so the version graph carries the
-            // (content_hash, schema, row_count, source_id) lineage. Failures
-            // are logged but do not flip the run to failed: the ingest may
-            // have already happened out-of-band via the gRPC bridge.
-            let (dataset_version_id, content_hash) = if status == "failed" {
-                (None, None)
-            } else {
-                match register_version_for_run(
-                    &state,
-                    sync_def_id,
-                    output_dataset_id,
-                    source.0,
-                    &source.1,
-                    &source.2,
-                    &source.3,
-                    id,
-                )
-                .await
-                {
-                    Ok(reg) => (
-                        Some(reg.dataset_version_id),
-                        Some(reg.content_hash),
-                    ),
-                    Err(err) => {
-                        tracing::warn!(
-                            sync_run_id = %id,
-                            error = %err,
-                            "dataset version registration failed; sync_run kept without dataset_version_id"
-                        );
-                        (None, None)
-                    }
-                }
-            };
-
-            let http_status = if status == "failed" {
-                StatusCode::BAD_GATEWAY
-            } else {
-                StatusCode::ACCEPTED
-            };
-            // Tarea 9 — record duration histogram + (best-effort) row count.
-            let duration_seconds = started.elapsed().as_secs_f64();
-            state
-                .metrics
-                .record_sync(&source.2, 0, duration_seconds, status != "failed");
-            (
-                http_status,
-                Json(SyncRunResponse {
-                    id,
-                    sync_def_id,
-                    status,
-                    started_at,
-                    finished_at,
-                    bytes_written,
-                    files_written,
-                    error,
-                    ingest_job_id,
-                    dataset_version_id,
-                    content_hash,
-                }),
-            )
-                .into_response()
-        }
-        Err(err) => internal(err),
+    match sync_run_response_from_ingest_job(sync_id, dispatched) {
+        Ok(response) => (http_status, Json(response)).into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error, "sync_def_id": sync_id })),
+        )
+            .into_response(),
     }
 }
 
-/// Look up `output_dataset_id` for the given sync_def and call
-/// [`crate::domain::dataset_versioning::register_for_run`].
-#[allow(clippy::too_many_arguments)]
-async fn register_version_for_run(
-    state: &AppState,
-    sync_def_id: Uuid,
-    output_dataset_id: Uuid,
-    source_id: Uuid,
-    source_name: &str,
-    connector_type: &str,
-    config: &serde_json::Value,
-    sync_run_id: Uuid,
-) -> Result<crate::domain::dataset_versioning::VersionRegistration, String> {
-    let signature_extra = serde_json::json!({
-        "source_name": source_name,
-        "connector_type": connector_type,
-        "config": config,
-    });
-    let content_hash = crate::domain::dataset_versioning::signature_for_bridge_run(
-        sync_def_id,
-        source_id,
-        output_dataset_id,
-        &signature_extra,
-    );
-    let content = crate::domain::dataset_versioning::VersionContent {
-        source_id,
-        output_dataset_id,
-        content_hash,
-        row_count: 0,
-        size_bytes: 0,
-        schema: serde_json::json!({
-            "connector_type": connector_type,
-            "source_name": source_name,
-        }),
-        message: format!("sync_run {sync_run_id} via {connector_type}"),
-        branch_name: None,
-    };
-    crate::domain::dataset_versioning::register_for_run(
-        &state.db,
-        &state.http_client,
-        &state.dataset_service_url,
-        sync_def_id,
-        sync_run_id,
-        content,
-    )
-    .await
-}
-
-/// Try to issue `CreateIngestJob` against `ingestion-replication-service`.
-/// Returns `(status, ingest_job_id, error)` ready to be persisted in `sync_runs`.
+/// Issue `CreateIngestJob` against `ingestion-replication-service`.
 async fn materialise_via_bridge(
     state: &AppState,
     source_name: &str,
     connector_type: &str,
     config: &serde_json::Value,
-) -> (String, Option<String>, Option<String>) {
+) -> Result<crate::ingestion_bridge::IngestJob, (StatusCode, String)> {
     let url = state.ingestion_replication_grpc_url.trim();
     if url.is_empty() {
-        // Bridge disabled — keep legacy behaviour.
-        return ("pending".to_string(), None, None);
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ingestion-replication gRPC bridge is not configured".to_string(),
+        ));
     }
 
     let spec = match crate::ingestion_bridge::build_spec(
@@ -569,33 +504,30 @@ async fn materialise_via_bridge(
         "openfoundry-connect",
     ) {
         Ok(spec) => spec,
-        Err(err) => return ("failed".to_string(), None, Some(err.to_string())),
+        Err(err) => return Err((StatusCode::BAD_REQUEST, err.to_string())),
     };
 
-    let mut client =
-        match crate::ingestion_bridge::IngestionControlPlaneClient::connect(url.to_string()).await
-        {
-            Ok(c) => c,
-            Err(err) => {
-                return (
-                    "failed".to_string(),
-                    None,
-                    Some(format!("connect ingestion gRPC: {err}")),
-                );
-            }
-        };
+    let mut client = match crate::ingestion_bridge::IngestionControlPlaneClient::connect(
+        url.to_string(),
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(err) => {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                format!("connect ingestion gRPC: {err}"),
+            ));
+        }
+    };
 
     let req = crate::ingestion_bridge::CreateIngestJobRequest { spec: Some(spec) };
     match client.create_ingest_job(req).await {
-        Ok(resp) => {
-            let job = resp.into_inner();
-            ("running".to_string(), Some(job.id), None)
-        }
-        Err(status) => (
-            "failed".to_string(),
-            None,
-            Some(format!("CreateIngestJob: {status}")),
-        ),
+        Ok(resp) => Ok(resp.into_inner()),
+        Err(status) => Err((
+            StatusCode::BAD_GATEWAY,
+            format!("CreateIngestJob: {status}"),
+        )),
     }
 }
 
@@ -603,28 +535,164 @@ pub async fn list_runs(
     State(state): State<AppState>,
     Path(sync_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query_as::<_, (Uuid, Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>, i64, i64, Option<String>, Option<String>, Option<Uuid>, Option<String>)>(
-        "SELECT id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id, dataset_version_id, content_hash
-         FROM sync_runs WHERE sync_def_id = $1 ORDER BY started_at DESC",
+    let source = sqlx::query_as::<_, (String,)>(
+        r#"
+        SELECT s.name
+        FROM batch_sync_defs d
+        JOIN connections s ON s.id = d.source_id
+        WHERE d.id = $1
+        "#,
     )
     .bind(sync_id)
-    .fetch_all(&state.db)
+    .fetch_optional(&state.db)
     .await;
 
-    match rows {
-        Ok(rows) => {
-            let body: Vec<SyncRunResponse> = rows
-                .into_iter()
-                .map(|(id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id, dataset_version_id, content_hash)| {
-                    SyncRunResponse {
-                        id, sync_def_id, status, started_at, finished_at, bytes_written, files_written, error, ingest_job_id, dataset_version_id, content_hash,
-                    }
-                })
-                .collect();
-            (StatusCode::OK, Json(body)).into_response()
+    let source = match source {
+        Ok(Some(source)) => source,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => return internal(err),
+    };
+
+    let mut client = match connect_ingestion_control_plane(&state).await {
+        Ok(client) => client,
+        Err(response) => return response,
+    };
+
+    let response = match client
+        .list_ingest_jobs(crate::ingestion_bridge::ListIngestJobsRequest {})
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(error) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": format!("ListIngestJobs: {error}") })),
+            )
+                .into_response();
         }
-        Err(err) => internal(err),
+    };
+
+    let job_name = sync_job_name(&source.0, sync_id);
+    let mut runs = Vec::new();
+    for job in response.jobs {
+        let matches_sync_def = job
+            .spec
+            .as_ref()
+            .map(|spec| spec.name == job_name)
+            .unwrap_or(false);
+        if !matches_sync_def {
+            continue;
+        }
+        match sync_run_response_from_ingest_job(sync_id, job) {
+            Ok(run) => runs.push(run),
+            Err(error) => {
+                tracing::warn!(sync_def_id = %sync_id, "remote ingest job decode failed: {error}");
+            }
+        }
     }
+
+    (StatusCode::OK, Json(runs)).into_response()
+}
+
+async fn connect_ingestion_control_plane(
+    state: &AppState,
+) -> Result<
+    crate::ingestion_bridge::IngestionControlPlaneClient<tonic::transport::Channel>,
+    axum::response::Response,
+> {
+    let url = state.ingestion_replication_grpc_url.trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "ingestion-replication gRPC bridge is not configured",
+            })),
+        )
+            .into_response());
+    }
+
+    crate::ingestion_bridge::IngestionControlPlaneClient::connect(url.to_string())
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": format!("connect ingestion gRPC: {error}"),
+                })),
+            )
+                .into_response()
+        })
+}
+
+fn sync_job_name(source_name: &str, sync_id: Uuid) -> String {
+    let mut slug = String::with_capacity(source_name.len());
+    let mut last_was_dash = false;
+    for ch in source_name.chars() {
+        let normalized = if ch.is_ascii_alphanumeric() {
+            Some(ch.to_ascii_lowercase())
+        } else {
+            Some('-')
+        };
+        if let Some(value) = normalized {
+            if value == '-' {
+                if last_was_dash {
+                    continue;
+                }
+                last_was_dash = true;
+            } else {
+                last_was_dash = false;
+            }
+            slug.push(value);
+        }
+    }
+    let slug = slug.trim_matches('-');
+    let slug = if slug.is_empty() { "sync" } else { slug };
+    let suffix = sync_id.to_string();
+    let max_slug_len = 63usize.saturating_sub(suffix.len() + 1);
+    let slug = &slug[..slug.len().min(max_slug_len)];
+    format!("{slug}-{suffix}")
+}
+
+fn sync_run_response_from_ingest_job(
+    sync_def_id: Uuid,
+    job: crate::ingestion_bridge::IngestJob,
+) -> Result<SyncRunResponse, String> {
+    let id = Uuid::parse_str(&job.id).map_err(|error| error.to_string())?;
+    let started_at = parse_rfc3339_utc(&job.created_at)?;
+    let updated_at = parse_rfc3339_utc(&job.updated_at)?;
+    let finished_at = if is_remote_terminal_status(&job.status) {
+        Some(updated_at)
+    } else {
+        None
+    };
+
+    Ok(SyncRunResponse {
+        id,
+        sync_def_id,
+        status: job.status.clone(),
+        started_at,
+        finished_at,
+        bytes_written: 0,
+        files_written: 0,
+        error: if job.error.trim().is_empty() {
+            None
+        } else {
+            Some(job.error)
+        },
+        ingest_job_id: Some(job.id),
+        dataset_version_id: None,
+        content_hash: None,
+    })
+}
+
+fn parse_rfc3339_utc(raw: &str) -> Result<DateTime<Utc>, String> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|value| value.with_timezone(&Utc))
+        .map_err(|error| error.to_string())
+}
+
+fn is_remote_terminal_status(status: &str) -> bool {
+    matches!(status, "materialized" | "failed")
 }
 
 fn internal(err: sqlx::Error) -> axum::response::Response {

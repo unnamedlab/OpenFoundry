@@ -48,11 +48,7 @@ pub async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool, String) {
 
     let mut attempts = 0;
     let pool = loop {
-        match PgPoolOptions::new()
-            .max_connections(8)
-            .connect(&url)
-            .await
-        {
+        match PgPoolOptions::new().max_connections(8).connect(&url).await {
             Ok(pool) => break pool,
             Err(error) if attempts < 30 => {
                 attempts += 1;
@@ -65,4 +61,3 @@ pub async fn boot_postgres() -> (ContainerAsync<GenericImage>, PgPool, String) {
 
     (container, pool, url)
 }
-

@@ -34,7 +34,7 @@ resource "kubernetes_namespace_v1" "rook_ceph" {
 # The operator chart only installs the operator and CRDs; the CephCluster /
 # CephObjectStore / OBC instances are applied separately as raw manifests
 # below so that the desired topology lives in source control under
-# infra/k8s/rook.
+# infra/k8s/platform/manifests/rook.
 # ---------------------------------------------------------------------------
 resource "helm_release" "rook_ceph" {
   name       = "rook-ceph"
@@ -75,13 +75,13 @@ resource "helm_release" "rook_ceph" {
 # ---------------------------------------------------------------------------
 # Render the in-tree manifests so they can be applied via kubernetes_manifest.
 #
-# Each YAML file under infra/k8s/rook may contain multiple documents
+# Each YAML file under infra/k8s/platform/manifests/rook may contain multiple documents
 # (e.g. objectstore.yaml has the CephObjectStore + a StorageClass, and
 # bucket.yaml has three OBCs). We split on the YAML separator and decode
 # each document into a HCL map for kubernetes_manifest.
 # ---------------------------------------------------------------------------
 locals {
-  manifests_dir = "${path.module}/../../../k8s/rook"
+  manifests_dir = "${path.module}/../../../k8s/platform/manifests/rook"
 
   # CephCluster (single doc)
   cluster_docs = [

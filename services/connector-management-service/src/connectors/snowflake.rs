@@ -164,14 +164,9 @@ pub async fn fetch_dataset(
     if partition_count > 1 && !statement_handle.is_empty() {
         let cap = partition_count.min(MAX_PARTITIONS);
         for partition_index in 1..cap {
-            let partition_response = fetch_partition(
-                state,
-                config,
-                &statement_handle,
-                partition_index,
-                agent_url,
-            )
-            .await?;
+            let partition_response =
+                fetch_partition(state, config, &statement_handle, partition_index, agent_url)
+                    .await?;
             let next_rows = extract_rows(partition_response.get("data"), &columns);
             rows.extend(next_rows);
         }
@@ -263,15 +258,8 @@ async fn fetch_partition(
         .append_pair("partition", &partition.to_string());
     let token = obtain_token(config)?;
     let headers = build_auth_headers(config, &token)?;
-    let response = http_runtime::get(
-        state,
-        config,
-        url,
-        headers,
-        Some(token.token),
-        agent_url,
-    )
-    .await?;
+    let response =
+        http_runtime::get(state, config, url, headers, Some(token.token), agent_url).await?;
     if !(200..300).contains(&response.status) {
         return Err(format!(
             "Snowflake partition fetch HTTP {}",
@@ -283,7 +271,10 @@ async fn fetch_partition(
 
 fn build_statement_body(config: &Value, statement: &str, limit: Option<i64>) -> Value {
     let mut object = Map::new();
-    object.insert("statement".to_string(), Value::String(statement.to_string()));
+    object.insert(
+        "statement".to_string(),
+        Value::String(statement.to_string()),
+    );
     object.insert("timeout".to_string(), Value::from(60));
     if let Some(database) = config.get("database").and_then(Value::as_str) {
         object.insert("database".to_string(), Value::String(database.to_string()));
@@ -330,12 +321,16 @@ fn obtain_token(config: &Value) -> Result<AuthToken, String> {
     let fingerprint = config
         .get("public_key_fingerprint")
         .and_then(Value::as_str)
-        .ok_or_else(|| "snowflake connector requires 'public_key_fingerprint' for keypair JWT".to_string())?
+        .ok_or_else(|| {
+            "snowflake connector requires 'public_key_fingerprint' for keypair JWT".to_string()
+        })?
         .to_string();
     let private_key = config
         .get("private_key_pem")
         .and_then(Value::as_str)
-        .ok_or_else(|| "snowflake connector requires 'private_key_pem' for keypair JWT".to_string())?;
+        .ok_or_else(|| {
+            "snowflake connector requires 'private_key_pem' for keypair JWT".to_string()
+        })?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -433,7 +428,12 @@ fn extract_columns(meta: Option<&Value>) -> Vec<String> {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|field| field.get("name").and_then(Value::as_str).map(str::to_string))
+        .filter_map(|field| {
+            field
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect()
 }
 
@@ -503,10 +503,7 @@ mod tests {
             build_query(&config, "DB.PUBLIC.X", 10).unwrap(),
             "SELECT * FROM DB.PUBLIC.X LIMIT 10"
         );
-        assert_eq!(
-            build_query(&config, "select 1", 10).unwrap(),
-            "select 1"
-        );
+        assert_eq!(build_query(&config, "select 1", 10).unwrap(), "select 1");
     }
 
     #[test]
@@ -526,6 +523,9 @@ mod tests {
             "database": "DB", "schema": "PUBLIC", "oauth_token": "t"
         });
         let url = base_url(&config).unwrap();
-        assert_eq!(url.as_str(), "https://xy12345.eu-central-1.snowflakecomputing.com/");
+        assert_eq!(
+            url.as_str(),
+            "https://xy12345.eu-central-1.snowflakecomputing.com/"
+        );
     }
 }

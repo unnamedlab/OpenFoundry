@@ -7,11 +7,15 @@
     getCatalogFacets,
     getDatasetQuality,
     listDatasets,
+    loadJobSpecStatus,
+    type DatasetJobSpecStatus,
     type Dataset,
     type DatasetQualityResponse,
   } from '$lib/api/datasets';
+  import JobSpecBadge from '$lib/components/dataset/JobSpecBadge.svelte';
 
   let datasets = $state<Dataset[]>([]);
+  let jobSpecByDatasetId = $state<Record<string, DatasetJobSpecStatus>>({});
   let qualityByDatasetId = $state<Record<string, DatasetQualityResponse>>({});
   let users = $state<UserProfile[]>([]);
   let availableTags = $state<{ value: string; count: number }[]>([]);
@@ -102,6 +106,20 @@
       datasets = response.data;
       total = response.total;
       await loadQuality(response.data);
+      // P3 — JobSpec coloring per Foundry doc § "Job graph compilation".
+      // Fire-and-forget per dataset so a single 404 doesn't block the
+      // rest of the catalog rendering.
+      const next: Record<string, DatasetJobSpecStatus> = {};
+      const statusPairs = await Promise.allSettled(
+        response.data.map(async (d) => [d.id, await loadJobSpecStatus(d.id)] as const),
+      );
+      for (const result of statusPairs) {
+        if (result.status === 'fulfilled') {
+          const [id, status] = result.value;
+          next[id] = status;
+        }
+      }
+      jobSpecByDatasetId = next;
     } catch (cause) {
       console.error('Failed to load datasets', cause);
       error = cause instanceof Error ? cause.message : 'Failed to load datasets';
@@ -235,6 +253,10 @@
             <div class="space-y-3">
               <div class="flex flex-wrap items-center gap-2">
                 <a href="/datasets/{dataset.id}" class="text-lg font-semibold hover:text-blue-600">{dataset.name}</a>
+                <JobSpecBadge
+                  hasMasterJobspec={jobSpecByDatasetId[dataset.id]?.has_master_jobspec ?? false}
+                  branchesWithJobspec={jobSpecByDatasetId[dataset.id]?.branches_with_jobspec ?? []}
+                />
                 <span class={`rounded-full px-2.5 py-1 text-xs font-medium ${toneFor(scoreFor(dataset.id))}`}>
                   {#if scoreFor(dataset.id) !== null}
                     Quality {scoreFor(dataset.id)?.toFixed(1)}

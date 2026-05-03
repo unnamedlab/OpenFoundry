@@ -1,10 +1,5 @@
 use auth_middleware::layer::AuthUser;
-use axum::{
-    Extension, Json,
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{Extension, Json, extract::Path, http::StatusCode, response::IntoResponse};
 use serde_json::json;
 use temporal_client::PipelineScheduleClient;
 

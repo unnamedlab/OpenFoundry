@@ -163,7 +163,10 @@ pub async fn run_contract_suite(backend: &dyn SearchBackend) -> Vec<CaseOutcome>
                     type_id: None,
                     q: None,
                     filters: HashMap::new(),
-                    page: Page { size: 2, token: None },
+                    page: Page {
+                        size: 2,
+                        token: None,
+                    },
                 },
                 ReadConsistency::Eventual,
             )
@@ -188,30 +191,28 @@ pub async fn run_contract_suite(backend: &dyn SearchBackend) -> Vec<CaseOutcome>
 
     // -------------------- stale-write protection --------------------
 
-    out.push(
-        case_bool(
-            "stale-write-discarded-and-current-stays",
-            async {
-                let stale = IndexDoc {
-                    tenant: t1.clone(),
-                    id: ObjectId("a1".into()),
-                    type_id: ty_doc.clone(),
-                    payload: serde_json::json!({"color": "red", "v": 0}),
-                    version: 0,
-                    embedding: None,
-                };
-                backend.index(stale).await.ok();
-                let res = backend
-                    .search(
-                        qbuilder(&t1, Some(&ty_doc), None, &[("color", "blue")]),
-                        ReadConsistency::Eventual,
-                    )
-                    .await;
-                matches!(res, Ok(p) if p.items.len() == 1)
-            }
-            .await,
-        ),
-    );
+    out.push(case_bool(
+        "stale-write-discarded-and-current-stays",
+        async {
+            let stale = IndexDoc {
+                tenant: t1.clone(),
+                id: ObjectId("a1".into()),
+                type_id: ty_doc.clone(),
+                payload: serde_json::json!({"color": "red", "v": 0}),
+                version: 0,
+                embedding: None,
+            };
+            backend.index(stale).await.ok();
+            let res = backend
+                .search(
+                    qbuilder(&t1, Some(&ty_doc), None, &[("color", "blue")]),
+                    ReadConsistency::Eventual,
+                )
+                .await;
+            matches!(res, Ok(p) if p.items.len() == 1)
+        }
+        .await,
+    ));
 
     // -------------------- delete --------------------
 
@@ -237,25 +238,32 @@ pub async fn run_contract_suite(backend: &dyn SearchBackend) -> Vec<CaseOutcome>
     out.push(case_bool(
         "delete-missing-returns-false",
         matches!(
-            backend.delete(&t1, &ObjectId("does-not-exist".into())).await,
+            backend
+                .delete(&t1, &ObjectId("does-not-exist".into()))
+                .await,
             Ok(false)
         ),
     ));
 
     // -------------------- vector search --------------------
 
-    let vec_q = |tenant: &TenantId, type_id: Option<&TypeId>, emb: Vec<f32>, k: usize| VectorQuery {
-        tenant: tenant.clone(),
-        type_id: type_id.cloned(),
-        embedding: emb,
-        k,
-        filters: HashMap::new(),
-    };
+    let vec_q =
+        |tenant: &TenantId, type_id: Option<&TypeId>, emb: Vec<f32>, k: usize| VectorQuery {
+            tenant: tenant.clone(),
+            type_id: type_id.cloned(),
+            embedding: emb,
+            k,
+            filters: HashMap::new(),
+        };
 
     let res = backend
-        .search_vector(vec_q(&t1, Some(&ty_doc), vec![1.0, 0.0, 0.0], 5), ReadConsistency::Eventual)
+        .search_vector(
+            vec_q(&t1, Some(&ty_doc), vec![1.0, 0.0, 0.0], 5),
+            ReadConsistency::Eventual,
+        )
         .await;
-    let vector_supported = !matches!(&res, Err(crate::RepoError::Backend(m)) if m.contains("not supported"));
+    let vector_supported =
+        !matches!(&res, Err(crate::RepoError::Backend(m)) if m.contains("not supported"));
 
     if vector_supported {
         out.push(case_bool(
@@ -327,16 +335,41 @@ pub async fn run_contract_suite(backend: &dyn SearchBackend) -> Vec<CaseOutcome>
             "vector-search-tenant-isolation",
             "vector-search-skips-docs-without-embedding",
         ] {
-            out.push(CaseOutcome { name, ok: true, detail: Some("skipped: no vector support".into()) });
+            out.push(CaseOutcome {
+                name,
+                ok: true,
+                detail: Some("skipped: no vector support".into()),
+            });
         }
     }
 
     // -------------------- bulk_index --------------------
 
     let bulk_docs = vec![
-        mk_doc(&t1, "b1", &ty_doc, 1, serde_json::json!({"color": "yellow"}), None),
-        mk_doc(&t1, "b2", &ty_doc, 1, serde_json::json!({"color": "yellow"}), None),
-        mk_doc(&t1, "b3", &ty_doc, 1, serde_json::json!({"color": "yellow"}), None),
+        mk_doc(
+            &t1,
+            "b1",
+            &ty_doc,
+            1,
+            serde_json::json!({"color": "yellow"}),
+            None,
+        ),
+        mk_doc(
+            &t1,
+            "b2",
+            &ty_doc,
+            1,
+            serde_json::json!({"color": "yellow"}),
+            None,
+        ),
+        mk_doc(
+            &t1,
+            "b3",
+            &ty_doc,
+            1,
+            serde_json::json!({"color": "yellow"}),
+            None,
+        ),
     ];
     let bulk = backend.bulk_index(bulk_docs).await;
     out.push(case_eq(
@@ -470,7 +503,10 @@ fn qbuilder(
             .iter()
             .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
             .collect(),
-        page: Page { size: 100, token: None },
+        page: Page {
+            size: 100,
+            token: None,
+        },
     }
 }
 
@@ -495,12 +531,20 @@ fn case_bool(name: &'static str, ok: bool) -> CaseOutcome {
     CaseOutcome {
         name,
         ok,
-        detail: if ok { None } else { Some("predicate failed".into()) },
+        detail: if ok {
+            None
+        } else {
+            Some("predicate failed".into())
+        },
     }
 }
 
 fn fail(name: &'static str, detail: String) -> CaseOutcome {
-    CaseOutcome { name, ok: false, detail: Some(detail) }
+    CaseOutcome {
+        name,
+        ok: false,
+        detail: Some(detail),
+    }
 }
 
 #[cfg(test)]
@@ -525,11 +569,7 @@ mod tests {
             outcomes.len(),
             failures
                 .iter()
-                .map(|f| format!(
-                    "{}: {}",
-                    f.name,
-                    f.detail.clone().unwrap_or_default()
-                ))
+                .map(|f| format!("{}: {}", f.name, f.detail.clone().unwrap_or_default()))
                 .collect::<Vec<_>>()
                 .join("\n  - ")
         );

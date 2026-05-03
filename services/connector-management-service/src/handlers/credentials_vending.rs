@@ -76,19 +76,10 @@ pub async fn vend(connection: &Connection, ttl_secs: i64) -> VendedCredentials {
                     .get("assume_role_session_name")
                     .and_then(Value::as_str)
                     .unwrap_or("openfoundry-vended");
-                let external_id = cfg
-                    .get("assume_role_external_id")
-                    .and_then(Value::as_str);
+                let external_id = cfg.get("assume_role_external_id").and_then(Value::as_str);
                 let region = cfg.get("region").and_then(Value::as_str);
-                match assume_role_cached(
-                    connection.id,
-                    arn,
-                    session,
-                    external_id,
-                    region,
-                    ttl_secs,
-                )
-                .await
+                match assume_role_cached(connection.id, arn, session, external_id, region, ttl_secs)
+                    .await
                 {
                     Ok(creds) => {
                         entries.push(("s3.access-key-id", json!(creds.access_key_id)));
@@ -138,7 +129,9 @@ pub async fn vend(connection: &Connection, ttl_secs: i64) -> VendedCredentials {
                         .unwrap_or("rl");
                     let container = cfg.get("container_name").and_then(Value::as_str);
                     let sas_result = match container {
-                        Some(c) => generate_service_sas_container(account, key, c, perms, expires_at_ms),
+                        Some(c) => {
+                            generate_service_sas_container(account, key, c, perms, expires_at_ms)
+                        }
                         None => generate_account_sas(account, key, perms, expires_at_ms),
                     };
                     match sas_result {
@@ -333,8 +326,8 @@ fn generate_account_sas(
     let key_bytes = B64
         .decode(account_key_b64.as_bytes())
         .map_err(|e| format!("account_key is not base64: {e}"))?;
-    let mut mac = HmacSha256::new_from_slice(&key_bytes)
-        .map_err(|e| format!("hmac key error: {e}"))?;
+    let mut mac =
+        HmacSha256::new_from_slice(&key_bytes).map_err(|e| format!("hmac key error: {e}"))?;
     mac.update(string_to_sign.as_bytes());
     let signature = B64.encode(mac.finalize().into_bytes());
 
@@ -398,8 +391,8 @@ fn generate_service_sas_container(
     let key_bytes = B64
         .decode(account_key_b64.as_bytes())
         .map_err(|e| format!("account_key is not base64: {e}"))?;
-    let mut mac = HmacSha256::new_from_slice(&key_bytes)
-        .map_err(|e| format!("hmac key error: {e}"))?;
+    let mut mac =
+        HmacSha256::new_from_slice(&key_bytes).map_err(|e| format!("hmac key error: {e}"))?;
     mac.update(string_to_sign.as_bytes());
     let signature = B64.encode(mac.finalize().into_bytes());
 

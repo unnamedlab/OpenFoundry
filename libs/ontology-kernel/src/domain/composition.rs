@@ -16,6 +16,7 @@
 use storage_abstraction::repositories::{
     Link, LinkStore, LinkTypeId, ObjectId, RepoError, TenantId,
 };
+use uuid::Uuid;
 
 /// Reasons a link composition request can be rejected before touching the store.
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +31,17 @@ pub enum CompositionError {
     SelfLoop,
     #[error(transparent)]
     Repo(#[from] RepoError),
+}
+
+/// Stable UUID for a logical link triple. This keeps handler responses and
+/// traversal results deterministic across backends that do not persist a
+/// dedicated surrogate key.
+pub fn stable_link_id(link_type: &LinkTypeId, from: &ObjectId, to: &ObjectId) -> Uuid {
+    let material = format!(
+        "openfoundry/ontology-link/{}/{}/{}",
+        link_type.0, from.0, to.0
+    );
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, material.as_bytes())
 }
 
 /// Validate inputs and persist a link instance. Idempotent: per the

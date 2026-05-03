@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/retention-policy-pg.yaml`](../../../infra/k8s/cnpg/clusters/retention-policy-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/retention-policy-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/retention-policy-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `retention-policy-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

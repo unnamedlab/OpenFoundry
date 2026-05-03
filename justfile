@@ -61,7 +61,7 @@ test-temporal:
 # Boot a one-shot Cassandra 5 node on localhost:9042 for ad-hoc dev
 # work (cqlsh sessions, schema scratching). Foreground; Ctrl-C to
 # tear down. For a real multi-node dev cluster use the k8s manifests
-# under `infra/k8s/cassandra/`.
+# under `infra/k8s/platform/manifests/cassandra/`.
 dev-up-cassandra:
     docker run --rm -it --name of-cass-dev \
         -p 9042:9042 \
@@ -205,12 +205,49 @@ kafka-kraft-lint:
 ceph-topology-lint:
     python3 tools/ceph-lint/check_topology.py
 
-# Validate the Helm chart across base/dev/staging/prod overlays
+# Validate platform and app Helm releases across dev/staging/prod profiles via
+# helmfile. Renders manifests for each environment to /tmp/openfoundry-<env>.yaml
+# so they can be diffed in CI. Requires `helmfile` 0.165+ and `helm` 3.14+.
 helm-check:
-    helm lint infra/k8s/helm/open-foundry -f infra/k8s/helm/open-foundry/values.yaml -f infra/k8s/helm/open-foundry/values-dev.yaml
-    helm template open-foundry infra/k8s/helm/open-foundry --namespace openfoundry -f infra/k8s/helm/open-foundry/values.yaml >/tmp/open-foundry-base.yaml
-    helm template open-foundry infra/k8s/helm/open-foundry --namespace openfoundry -f infra/k8s/helm/open-foundry/values.yaml -f infra/k8s/helm/open-foundry/values-staging.yaml >/tmp/open-foundry-staging.yaml
-    helm template open-foundry infra/k8s/helm/open-foundry --namespace openfoundry -f infra/k8s/helm/open-foundry/values.yaml -f infra/k8s/helm/open-foundry/values-prod.yaml >/tmp/open-foundry-prod.yaml
+    cd infra/k8s/helm && for release in of-platform of-data-engine of-ontology of-ml-aip of-apps-ops; do \
+        helm dependency update $$release; \
+    done
+    cd infra/k8s/platform && helmfile -e dev     lint
+    cd infra/k8s/platform && helmfile -e staging lint
+    cd infra/k8s/platform && helmfile -e prod    lint
+    cd infra/k8s/platform && helmfile -e prod template --args "--api-versions monitoring.coreos.com/v1/PodMonitor" > /tmp/openfoundry-platform-prod.yaml
+    cd infra/k8s/helm && helmfile -e dev     lint
+    cd infra/k8s/helm && helmfile -e staging lint
+    cd infra/k8s/helm && helmfile -e prod    lint
+    cd infra/k8s/helm && helmfile -e dev     template > /tmp/openfoundry-dev.yaml
+    cd infra/k8s/helm && helmfile -e staging template > /tmp/openfoundry-staging.yaml
+    cd infra/k8s/helm && helmfile -e prod    template > /tmp/openfoundry-prod.yaml
+
+# Apply platform releases for the given environment via helmfile. Run this
+# before `helm-deploy` for a fresh cluster.
+platform-deploy env='dev':
+    cd infra/k8s/platform && helmfile -e {{env}} apply
+
+# Show platform changes for the given environment (helm diff plugin required).
+platform-diff env='dev':
+    cd infra/k8s/platform && helmfile -e {{env}} diff
+
+# Apply the five split Helm releases for the given environment via helmfile.
+# Examples:
+#   just helm-deploy dev
+#   just helm-deploy prod
+#   just helm-deploy airgap        # prod profile + airgap posture
+#   just helm-deploy sovereign-eu  # prod profile + EU residency posture
+helm-deploy env='dev':
+    cd infra/k8s/helm && helmfile -e {{env}} apply
+
+# Show what would change for the given environment (helm diff plugin required).
+helm-diff env='dev':
+    cd infra/k8s/helm && helmfile -e {{env}} diff
+
+# Tear down the five releases for the given environment. Destructive.
+helm-destroy env='dev':
+    cd infra/k8s/helm && helmfile -e {{env}} destroy
 
 # Generate Terraform provider schema for docs and portal consumption
 terraform-schema:
@@ -224,16 +261,22 @@ bench-critical-paths:
 # Run the ontology hot-path mixed workload (S1.8) against a live stack via k6.
 # Requires k6 1.0+ and OF_BENCH_* env vars (see benchmarks/ontology/README.md).
 bench-ontology:
-    mkdir -p benchmarks/results
-    k6 run --summary-export=benchmarks/results/ontology-mix-summary.json \
-        --out json=benchmarks/results/ontology-mix-k6.json \
-        benchmarks/ontology/k6/ontology-mix.js
+    benchmarks/ontology/scripts/run-s1-baseline.sh
 
 # Sequential latency baseline for the ontology hot path (sin RPS shape).
 bench-ontology-baseline:
     cargo run -p of-cli -- bench run \
         --scenario benchmarks/ontology/scenarios/ontology-mix.json \
         --output benchmarks/results/ontology-mix-baseline.json
+
+# Capture a Cassandra JMX baseline (nodetool tablestats -F json per
+# node × keyspace) into benchmarks/results/cassandra-baseline-<UTC>/
+# for ADR-0012 §A.3. Idempotent: re-running suffixes -2/-3/... so an
+# existing capture is never overwritten. Override defaults via env
+# vars OF_BENCH_CASS_NS / OF_BENCH_CASS_POD_LABEL / OF_BENCH_CASS_CONTAINER
+# (see the script header for details).
+bench-capture-baseline:
+    bash benchmarks/ontology/scripts/capture-cassandra-baseline.sh
 
 # Run the critical-path smoke suite against a live stack
 smoke-critical-paths:

@@ -32,10 +32,9 @@ Constants in
 * The topic name in
   [`services/ontology-indexer::topics::ONTOLOGY_REINDEX_V1`](../../services/ontology-indexer/src/lib.rs).
 
-## Substrate vs runtime
+## Runtime
 
-This worker compiles and registers. The activity bodies (Cassandra
-scanner + Kafka publisher) are stubs that return empty pages — the
-real implementations land in a follow-up PR on the Rust side, where
-they reuse the `ObjectStore` repo + `OutboxEvent` deterministic
-event-id derivation.
+The worker pages `ontology_objects.objects_by_type`, hydrates each
+object from `objects_by_id`, and republishes the resulting JSON
+documents to `ontology.reindex.v1` with the same payload shape that
+the live `ontology-indexer` consumer already understands.

@@ -1,5 +1,7 @@
 pub mod compiler;
 pub mod crud;
+pub mod job_specs;
+pub mod parameterized;
 // Authoring service does NOT expose run / scheduler endpoints (Foundry
 // separates Pipeline Builder from the Builds queue and Schedules apps).
 // These modules stay declared so `pipeline-build-service` and

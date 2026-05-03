@@ -1,0 +1,285 @@
+S5 restart drill - 2026-05-03
+Status: BLOCKED - S5 runtime not deployed in current Kubernetes context
+Outcome: NOT CLOSED
+
+Purpose:
+  Restart audit-sink, lineage-service, ai-sink and relevant writer/consumer
+  deployments while real S5 traffic is active. Prove consumer offset recovery,
+  bounded lag, empty DLQ, no observable duplicate event ids or documented
+  idempotence.
+
+Execution metadata:
+  Local timestamp: 2026-05-03T13:24:29+0200
+  UTC timestamp: 2026-05-03T11:13:59Z
+  Kubernetes context: default
+  Git SHA: 70a5fbe930f0b3fec1c80fae234f1b1fdd154d1d
+  Operator result: BLOCKED before restart because required namespaces and
+    runtime deployments do not exist in this cluster.
+
+Important evidence rule:
+  This file does not prove restart-drill PASS. The restart commands were
+  attempted, but all expected S5 namespaces were absent. No active Kafka
+  traffic, offsets, lag recovery, DLQ state, duplicate checks or Iceberg
+  idempotence were observed.
+
+Cluster context command:
+
+  kubectl config current-context
+
+Exit code: 0
+
+Output:
+
+  default
+
+Namespace discovery command:
+
+  kubectl get ns
+
+Exit code: 0
+
+Output:
+
+  NAME                  STATUS   AGE
+  cert-manager          Active   4h14m
+  cnpg-system           Active   4h13m
+  default               Active   2d13h
+  k8ssandra-operator    Active   4h13m
+  kube-node-lease       Active   2d13h
+  kube-public           Active   2d13h
+  kube-system           Active   2d13h
+  openfoundry           Active   4h4m
+
+Expected S5 namespace discovery command:
+
+  kubectl get ns of-apps-ops of-data-engine of-ml-aip of-ontology openfoundry-spark kafka trino lakekeeper observability
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "of-apps-ops" not found
+  Error from server (NotFound): namespaces "of-data-engine" not found
+  Error from server (NotFound): namespaces "of-ml-aip" not found
+  Error from server (NotFound): namespaces "of-ontology" not found
+  Error from server (NotFound): namespaces "openfoundry-spark" not found
+  Error from server (NotFound): namespaces "kafka" not found
+  Error from server (NotFound): namespaces "trino" not found
+  Error from server (NotFound): namespaces "lakekeeper" not found
+  Error from server (NotFound): namespaces "observability" not found
+
+Deployment discovery command:
+
+  kubectl get deploy -A
+
+Exit code: 0
+
+Output:
+
+  NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+  cert-manager         cert-manager                       1/1     1            1           4h14m
+  cert-manager         cert-manager-cainjector            1/1     1            1           4h14m
+  cert-manager         cert-manager-webhook               1/1     1            1           4h14m
+  cnpg-system          cnpg-cloudnative-pg                1/1     1            1           4h12m
+  k8ssandra-operator   k8ssandra-operator                 1/1     1            1           4h13m
+  k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           4h13m
+  kube-system          coredns                            1/1     1            1           2d13h
+  kube-system          local-path-provisioner             1/1     1            1           2d13h
+  kube-system          metrics-server                     1/1     1            1           2d13h
+  kube-system          traefik                            1/1     1            1           2d13h
+  openfoundry          authorization-policy-service       0/1     1            0           4h3m
+  openfoundry          edge-gateway-service               0/1     1            0           4h3m
+  openfoundry          identity-federation-service        0/1     1            0           4h3m
+  openfoundry          tenancy-organizations-service      0/1     1            0           4h3m
+
+Pod discovery command:
+
+  kubectl get pods -A
+
+Exit code: 0
+
+Output:
+
+  NAMESPACE            NAME                                                        READY   STATUS             RESTARTS   AGE
+  cert-manager         cert-manager-76c7d9d948-qwzg2                               1/1     Running            0          4h14m
+  cert-manager         cert-manager-cainjector-85655498bb-8gghn                    1/1     Running            0          4h14m
+  cert-manager         cert-manager-webhook-66bcff4778-z4nlm                       1/1     Running            0          4h14m
+  cnpg-system          cnpg-cloudnative-pg-56b4466f48-2n6cp                         1/1     Running            0          4h12m
+  k8ssandra-operator   k8ssandra-operator-686f7b88b5-fkgvh                         1/1     Running            0          4h13m
+  k8ssandra-operator   k8ssandra-operator-cass-operator-64f56884fc-vjzxk           1/1     Running            0          4h13m
+  kube-system          coredns-64fd4b4794-hc95j                                    1/1     Running            0          2d13h
+  kube-system          helm-install-traefik-crd-dq6z8                               0/1     Completed          0          2d13h
+  kube-system          helm-install-traefik-cxz5g                                   0/1     Completed          1          2d13h
+  kube-system          local-path-provisioner-774c6665dc-4rpdv                     1/1     Running            0          2d13h
+  kube-system          metrics-server-7b6f4c95c6-rknhk                              1/1     Running            0          2d13h
+  kube-system          svclb-traefik-2285712a-6qqrh                                 2/2     Running            0          2d13h
+  kube-system          traefik-c98fdf6fb-khtpm                                      1/1     Running            0          2d13h
+  openfoundry          authorization-policy-service-647df79486-dqgsc               0/1     ImagePullBackOff    0          4h3m
+  openfoundry          edge-gateway-service-5c77bc7bbd-xp76w                       0/1     ImagePullBackOff    0          4h3m
+  openfoundry          identity-federation-service-756f584796-rpmrg                0/1     ImagePullBackOff    0          4h3m
+  openfoundry          tenancy-organizations-service-59d6d6bfbc-6z2vw              0/1     ImagePullBackOff    0          4h3m
+
+Kafka CRD discovery command:
+
+  kubectl get kafkas -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "kafkas"
+
+KafkaTopic CRD discovery command:
+
+  kubectl get kafkatopics -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "kafkatopics"
+
+SparkApplication CRD discovery command:
+
+  kubectl get sparkapplications -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "sparkapplications"
+
+Pre-restart active traffic:
+  BLOCKED. No Kafka namespace, Strimzi CRDs, S5 sink deployments or runtime
+  producer deployments are present. Therefore there was no observable active
+  traffic on audit.events.v1, lineage.events.v1, ai.events.v1, ontology topics
+  or reindex topics at drill time.
+
+Pre-restart offsets:
+  BLOCKED. Offsets were not captured because Kafka is not deployed in this
+  context.
+
+Commands to capture pre-restart offsets in the required environment:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group audit-sink
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group lineage-service
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ai-sink
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ontology-indexer
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group reindex
+
+Restart attempt 1 - audit-sink:
+
+  kubectl rollout restart deploy/audit-sink -n of-apps-ops
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "of-apps-ops" not found
+
+Restart attempt 2 - lineage-service:
+
+  kubectl rollout restart deploy/lineage-service -n of-data-engine
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "of-data-engine" not found
+
+Restart attempt 3 - ai-sink:
+
+  kubectl rollout restart deploy/ai-sink -n of-ml-aip
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "of-ml-aip" not found
+
+Restart attempt 4 - ontology-indexer:
+
+  kubectl rollout restart deploy/ontology-indexer -n of-ontology
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "of-ontology" not found
+
+Restart attempt 5 - reindex:
+
+  kubectl rollout restart deploy/reindex -n of-ontology
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "of-ontology" not found
+
+Rollout wait:
+  NOT EXECUTED. No rollout was created because all restart attempts failed on
+  missing namespaces.
+
+Commands to wait for rollout in the required environment:
+
+  kubectl rollout status deploy/audit-sink -n of-apps-ops --timeout=10m
+  kubectl rollout status deploy/lineage-service -n of-data-engine --timeout=10m
+  kubectl rollout status deploy/ai-sink -n of-ml-aip --timeout=10m
+  kubectl rollout status deploy/ontology-indexer -n of-ontology --timeout=10m
+  kubectl rollout status deploy/reindex -n of-ontology --timeout=10m
+
+Post-restart offsets and lag:
+  BLOCKED. No post-restart offsets or lag were captured because no service was
+  restarted and Kafka is absent.
+
+Commands to capture post-restart offsets in the required environment:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group audit-sink
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group lineage-service
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ai-sink
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group ontology-indexer
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group reindex
+
+DLQ verification:
+  BLOCKED. No DLQ topics could be listed because Kafka and KafkaTopic CRDs are
+  absent.
+
+Command to verify DLQ topics in the required environment:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --all-groups --describe
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-topics.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --list
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-console-consumer.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --topic audit.events.v1.dlq --from-beginning --timeout-ms 10000 --max-messages 1
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-console-consumer.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --topic lineage.events.v1.dlq --from-beginning --timeout-ms 10000 --max-messages 1
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- bin/kafka-console-consumer.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --topic ai.events.v1.dlq --from-beginning --timeout-ms 10000 --max-messages 1
+
+Duplicate/idempotence verification:
+  BLOCKED. Duplicate checks were not executed because Trino/Lakekeeper/Iceberg
+  are not deployed in this context and no restart occurred under active
+  traffic.
+
+Commands to verify duplicates in the required environment:
+
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'of_audit.events' AS table_name, event_id, count(*) AS duplicates FROM of_audit.events GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'of_lineage.events' AS table_name, event_id, count(*) AS duplicates FROM of_lineage.events GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'of_ai.prompts' AS table_name, event_id, count(*) AS duplicates FROM of_ai.prompts GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'of_ai.responses' AS table_name, event_id, count(*) AS duplicates FROM of_ai.responses GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'of_ai.evaluations' AS table_name, event_id, count(*) AS duplicates FROM of_ai.evaluations GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+  kubectl -n trino exec deploy/trino-coordinator -- trino --catalog iceberg --execute "SELECT 'of_ai.traces' AS table_name, event_id, count(*) AS duplicates FROM of_ai.traces GROUP BY event_id HAVING count(*) > 1 LIMIT 20"
+
+Metrics verification:
+  BLOCKED. Prometheus/ServiceMonitor CRDs and observability namespace are not
+  present, so lag-return-to-range and sink commit metrics were not captured.
+
+Commands to capture metrics in the required environment:
+
+  kubectl -n observability port-forward svc/prometheus-operated 9090:9090
+  curl -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=audit_sink_lag_seconds'
+  curl -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=lineage_service_lag_seconds'
+  curl -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=ai_sink_lag_seconds'
+
+Formal restart-drill conclusion:
+  FAIL/BLOCKED for S5-OPS closure. The requested restart drill was not
+  completed because audit-sink, lineage-service, ai-sink, ontology-indexer,
+  reindex, Kafka, Trino, Lakekeeper and observability are absent from the
+  current Kubernetes context. No PASS is claimed.

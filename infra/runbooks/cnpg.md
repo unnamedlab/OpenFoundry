@@ -6,17 +6,17 @@ in [ADR-0010 — CloudNativePG as the single Postgres operator](../../docs/archi
 This runbook covers day-2 operations.
 
 > **Out of scope:** the operator itself
-> (`infra/k8s/cnpg/operator/values.yaml`). Operator upgrades follow the
+> (`infra/k8s/platform/manifests/cnpg/operator/values.yaml`). Operator upgrades follow the
 > generic playbook in `infra/runbooks/upgrade-playbook.md`.
 
 ## Layout
 
 | Path                                       | Purpose                                                                 |
 |--------------------------------------------|-------------------------------------------------------------------------|
-| `infra/k8s/cnpg/operator/`                 | Helm values for the cluster-wide CNPG operator (do **not** touch in service-migration PRs). |
-| `infra/k8s/cnpg/templates/cluster.yaml`    | Reference Helm template for a `Cluster` CR with sane platform defaults. |
-| `infra/k8s/cnpg/clusters/`                 | One standalone `Cluster` manifest per bounded context (`<bc>-pg.yaml`). |
-| `infra/k8s/cnpg/clusters/README.md`        | Naming convention and required fields per file.                         |
+| `infra/k8s/platform/manifests/cnpg/operator/`                 | Helm values for the cluster-wide CNPG operator (do **not** touch in service-migration PRs). |
+| `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`    | Reference Helm template for a `Cluster` CR with sane platform defaults. |
+| `infra/k8s/platform/manifests/cnpg/clusters/`                 | One standalone `Cluster` manifest per bounded context (`<bc>-pg.yaml`). |
+| `infra/k8s/platform/manifests/cnpg/clusters/README.md`        | Naming convention and required fields per file.                         |
 | `services/<svc>/k8s/README.md`             | Service-side wiring notes (which `Cluster` backs the service, DSN env). |
 
 ## Create a new bounded-context cluster
@@ -26,9 +26,10 @@ never migrate everything in one PR.
 
 1. **Pick the bounded context.** It must already have versioned
    migrations under `services/<svc>/migrations/` and (preferably) be
-   present in `infra/k8s/helm/open-foundry/values.yaml`.
+   present in one of the split Helm release values files under
+   `infra/k8s/helm/of-*/values.yaml`.
 
-2. **Create `infra/k8s/cnpg/clusters/<bc>-pg.yaml`.** Copy one of the
+2. **Create `infra/k8s/platform/manifests/cnpg/clusters/<bc>-pg.yaml`.** Copy one of the
    existing pilots (`identity-federation-pg.yaml`,
    `data-asset-catalog-pg.yaml`) and tune:
    * `metadata.name` → `<bc>-pg`
@@ -36,15 +37,16 @@ never migrate everything in one PR.
    * `spec.bootstrap.initdb.{database,owner}` → `<bc_with_underscores>`
    * `spec.bootstrap.initdb.secret.name` → `<bc>-pg-app`
    * `spec.storage.size` → fit expected dataset (see
-     `infra/k8s/cnpg/clusters/README.md` for guidance).
+     `infra/k8s/platform/manifests/cnpg/clusters/README.md` for guidance).
    * `spec.backup.barmanObjectStore.destinationPath` →
      `s3://openfoundry-pg-backups/<bc>-pg`.
    * The bootstrap `Secret` (`<bc>-pg-app`) and backup-credentials
      `Secret` (`<bc>-pg-backup`) — keep `change-me` as placeholder
      and replace in-cluster via External Secrets / Vault.
 
-3. **Wire the service in the umbrella chart.** Edit
-   `infra/k8s/helm/open-foundry/values.yaml`, adding to the service's
+3. **Wire the service in the split chart.** Edit the owning release
+   values file under `infra/k8s/helm/of-*/values.yaml`, adding to the
+   service's block:
    block:
 
    ```yaml
@@ -64,19 +66,18 @@ never migrate everything in one PR.
 5. **Validate locally:**
 
    ```bash
-   helm lint infra/k8s/helm/open-foundry
-   kubectl --dry-run=client apply -f infra/k8s/cnpg/clusters/<bc>-pg.yaml
+   just helm-check
+   kubectl --dry-run=client apply -f infra/k8s/platform/manifests/cnpg/clusters/<bc>-pg.yaml
    grep -rln "cnpg\|cloudnative-pg\|postgresql.cnpg.io" services/   # must list <svc>
    ```
 
 6. **Apply (in the target cluster, after operator is healthy):**
 
    ```bash
-   kubectl apply -f infra/k8s/cnpg/clusters/<bc>-pg.yaml
+   kubectl apply -f infra/k8s/platform/manifests/cnpg/clusters/<bc>-pg.yaml
    kubectl -n openfoundry wait --for=condition=Ready \
      cluster.postgresql.cnpg.io/<bc>-pg --timeout=10m
-   helm upgrade --install open-foundry infra/k8s/helm/open-foundry \
-     -n openfoundry -f infra/k8s/helm/open-foundry/values-<env>.yaml
+   cd infra/k8s/helm && helmfile -e <env> apply
    ```
 
 7. **Run migrations.** Migrations are baked into the service container
@@ -118,7 +119,7 @@ Every per-bounded-context cluster ships its own
 
 * **Bucket:** `openfoundry-pg-backups` on the cluster-local Ceph RGW
   (`http://rook-ceph-rgw-openfoundry.rook-ceph.svc:80`, defined by
-  `infra/k8s/rook/objectstore.yaml`).
+  `infra/k8s/platform/manifests/rook/objectstore.yaml`).
 * **Sub-path:** `s3://openfoundry-pg-backups/<bc>-pg/` — one prefix
   per cluster, never shared.
 * **Credentials:** `Secret/<bc>-pg-backup` keys
@@ -175,7 +176,7 @@ find services -mindepth 2 -maxdepth 2 -type d -name migrations \
   | sort > /tmp/bc.txt
 
 # Bounded contexts that already have one.
-ls infra/k8s/cnpg/clusters/*.yaml \
+ls infra/k8s/platform/manifests/cnpg/clusters/*.yaml \
   | xargs -n1 basename \
   | sed 's|-pg\.yaml$||' \
   | sort > /tmp/cluster.txt
@@ -194,8 +195,8 @@ grep -rln "cnpg\|cloudnative-pg\|postgresql.cnpg.io" services/ | sort
 ## See also
 
 * [ADR-0010 — CloudNativePG as the single Postgres operator](../../docs/architecture/adr/ADR-0010-cnpg-postgres-operator.md)
-* `infra/k8s/cnpg/operator/values.yaml` — operator install values
-* `infra/k8s/cnpg/templates/cluster.yaml` — reference Helm template
-* `infra/k8s/cnpg/clusters/README.md` — per-bounded-context manifest convention
+* `infra/k8s/platform/manifests/cnpg/operator/values.yaml` — operator install values
+* `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml` — reference Helm template
+* `infra/k8s/platform/manifests/cnpg/clusters/README.md` — per-bounded-context manifest convention
 * `infra/runbooks/disaster-recovery.md` — multi-component DR flow
 * `infra/runbooks/ceph.md` — Ceph RGW / S3 endpoint and credentials

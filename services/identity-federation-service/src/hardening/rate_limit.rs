@@ -11,9 +11,11 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use redis::aio::ConnectionManager;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RateLimitDecision {
@@ -45,6 +47,96 @@ impl LimitConfig {
 #[async_trait]
 pub trait RateLimiter: Send + Sync {
     async fn check(&self, key: &str, cfg: &LimitConfig) -> RateLimitDecision;
+}
+
+#[derive(Clone)]
+pub struct RedisRateLimiter {
+    manager: ConnectionManager,
+    prefix: String,
+}
+
+impl RedisRateLimiter {
+    pub async fn connect(redis_url: &str) -> Result<Self, redis::RedisError> {
+        let client = redis::Client::open(redis_url)?;
+        let manager = ConnectionManager::new(client).await?;
+        Ok(Self {
+            manager,
+            prefix: "of:identity:rl".to_string(),
+        })
+    }
+
+    pub fn new(manager: ConnectionManager) -> Self {
+        Self {
+            manager,
+            prefix: "of:identity:rl".to_string(),
+        }
+    }
+
+    pub fn with_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.prefix = prefix.into();
+        self
+    }
+
+    fn redis_key(&self, key: &str) -> String {
+        redis_key_with_prefix(&self.prefix, key)
+    }
+}
+
+#[async_trait]
+impl RateLimiter for RedisRateLimiter {
+    async fn check(&self, key: &str, cfg: &LimitConfig) -> RateLimitDecision {
+        match self.check_redis(key, cfg).await {
+            Ok(decision) => decision,
+            Err(error) => {
+                tracing::warn!(%error, key, "redis rate-limit check failed; allowing request");
+                RateLimitDecision::Allow
+            }
+        }
+    }
+}
+
+impl RedisRateLimiter {
+    async fn check_redis(
+        &self,
+        key: &str,
+        cfg: &LimitConfig,
+    ) -> Result<RateLimitDecision, redis::RedisError> {
+        let mut conn = self.manager.clone();
+        let redis_key = self.redis_key(key);
+        let now_ms = unix_ms();
+        let window_ms = cfg.window.as_millis().max(1) as i64;
+        let cutoff = now_ms.saturating_sub(window_ms);
+        let member = format!("{now_ms}:{}", Uuid::now_v7());
+
+        let _: () = redis::cmd("ZREMRANGEBYSCORE")
+            .arg(&redis_key)
+            .arg(0)
+            .arg(cutoff)
+            .query_async(&mut conn)
+            .await?;
+        let _: () = redis::cmd("ZADD")
+            .arg(&redis_key)
+            .arg(now_ms)
+            .arg(member)
+            .query_async(&mut conn)
+            .await?;
+        let count: u32 = redis::cmd("ZCARD")
+            .arg(&redis_key)
+            .query_async(&mut conn)
+            .await?;
+        let _: () = redis::cmd("PEXPIRE")
+            .arg(&redis_key)
+            .arg(window_ms)
+            .query_async(&mut conn)
+            .await?;
+
+        if count > cfg.max_requests {
+            return Ok(RateLimitDecision::Deny {
+                retry_after_secs: cfg.window.as_secs().max(1),
+            });
+        }
+        Ok(RateLimitDecision::Allow)
+    }
 }
 
 /// In-memory implementation. Used in unit tests and dev. Stores a
@@ -93,6 +185,17 @@ pub fn key(user_id: &str, ip: &str, route: &str) -> String {
     format!("{route}|{user_id}|{ip}")
 }
 
+fn unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+fn redis_key_with_prefix(prefix: &str, key: &str) -> String {
+    format!("{prefix}:{}", key.replace([' ', '\n', '\r', '\t'], "_"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +224,10 @@ mod tests {
             key("u", "1.1.1.1", "/login"),
             key("u", "1.1.1.1", "/oauth/token")
         );
+    }
+
+    #[test]
+    fn redis_key_sanitizes_whitespace() {
+        assert_eq!(redis_key_with_prefix("p", "a b\nc"), "p:a_b_c");
     }
 }

@@ -1,10 +1,10 @@
+use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use auth_middleware::layer::AuthUser;
 use serde_json::json;
 
 use crate::{
@@ -59,11 +59,7 @@ pub async fn preview_windows(
             "data": data,
         }))
         .into_response(),
-        Err(error) => (
-            error_status(&error),
-            Json(json!({ "error": error })),
-        )
-            .into_response(),
+        Err(error) => (error_status(&error), Json(json!({ "error": error }))).into_response(),
     }
 }
 
@@ -105,10 +101,6 @@ pub async fn backfill_runs(
             "data": data,
         }))
         .into_response(),
-        Err(error) => (
-            error_status(&error),
-            Json(json!({ "error": error })),
-        )
-            .into_response(),
+        Err(error) => (error_status(&error), Json(json!({ "error": error }))).into_response(),
     }
 }

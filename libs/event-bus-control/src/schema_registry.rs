@@ -109,8 +109,7 @@ pub fn fingerprint(schema_type: SchemaType, schema_text: &str) -> Result<String,
         SchemaType::Avro | SchemaType::Json => {
             let value: Value = serde_json::from_str(schema_text)
                 .map_err(|error| SchemaError::Parse(error.to_string()))?;
-            serde_json::to_string(&value)
-                .map_err(|error| SchemaError::Parse(error.to_string()))?
+            serde_json::to_string(&value).map_err(|error| SchemaError::Parse(error.to_string()))?
         }
         SchemaType::Protobuf => schema_text.to_string(),
     };
@@ -285,7 +284,9 @@ fn json_compatibility(
         CompatibilityMode::None => Ok(()),
         CompatibilityMode::Backward | CompatibilityMode::BackwardTransitive => backward(),
         CompatibilityMode::Forward | CompatibilityMode::ForwardTransitive => forward(),
-        CompatibilityMode::Full | CompatibilityMode::FullTransitive => backward().and_then(|_| forward()),
+        CompatibilityMode::Full | CompatibilityMode::FullTransitive => {
+            backward().and_then(|_| forward())
+        }
     }
 }
 
@@ -334,7 +335,9 @@ fn validate_protobuf(schema_text: &str, payload: &Value) -> Result<(), SchemaErr
         .as_object()
         .ok_or_else(|| SchemaError::Validation("protobuf payload must be an object".to_string()))?;
     for field in descriptor.fields() {
-        if !payload_obj.contains_key(field.name()) && field.cardinality() == prost_reflect::Cardinality::Required {
+        if !payload_obj.contains_key(field.name())
+            && field.cardinality() == prost_reflect::Cardinality::Required
+        {
             return Err(SchemaError::Validation(format!(
                 "missing required protobuf field '{}'",
                 field.name()
@@ -399,7 +402,9 @@ fn protobuf_compatibility(
         CompatibilityMode::None => Ok(()),
         CompatibilityMode::Backward | CompatibilityMode::BackwardTransitive => backward(),
         CompatibilityMode::Forward | CompatibilityMode::ForwardTransitive => forward(),
-        CompatibilityMode::Full | CompatibilityMode::FullTransitive => backward().and_then(|_| forward()),
+        CompatibilityMode::Full | CompatibilityMode::FullTransitive => {
+            backward().and_then(|_| forward())
+        }
     }
 }
 
@@ -446,10 +451,8 @@ mod tests {
     fn fingerprint_is_canonical_and_stable() {
         let f1 = fingerprint(SchemaType::Avro, AVRO_V1).unwrap();
         // Same schema with reformatted whitespace must produce same fingerprint.
-        let pretty = serde_json::to_string_pretty(
-            &serde_json::from_str::<Value>(AVRO_V1).unwrap(),
-        )
-        .unwrap();
+        let pretty =
+            serde_json::to_string_pretty(&serde_json::from_str::<Value>(AVRO_V1).unwrap()).unwrap();
         let f2 = fingerprint(SchemaType::Avro, &pretty).unwrap();
         assert_eq!(f1, f2);
         assert!(f1.starts_with("sha256:"));
@@ -494,8 +497,7 @@ mod tests {
                 "amount": { "type": "number" }
             }
         }"#;
-        validate_payload(SchemaType::Json, schema, &json!({ "order_id": "ord-1" }))
-            .expect("valid");
+        validate_payload(SchemaType::Json, schema, &json!({ "order_id": "ord-1" })).expect("valid");
         let error = validate_payload(SchemaType::Json, schema, &json!({ "amount": 1 }))
             .expect_err("missing required");
         assert!(matches!(error, SchemaError::Validation(_)));
@@ -513,7 +515,12 @@ mod tests {
             "required": ["a", "b"],
             "properties": { "a": { "type": "string" } }
         }"#;
-        check_compatibility(SchemaType::Json, v1, v2_breaking, CompatibilityMode::Backward)
-            .expect_err("BREAKING: new required field 'b' was not in previous schema");
+        check_compatibility(
+            SchemaType::Json,
+            v1,
+            v2_breaking,
+            CompatibilityMode::Backward,
+        )
+        .expect_err("BREAKING: new required field 'b' was not in previous schema");
     }
 }

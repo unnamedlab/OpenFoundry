@@ -1,2 +1,14 @@
 host = "0.0.0.0"
 port = 50078
+
+# P3 — Foundry "Backing filesystem" block. The doc requires a base
+# directory inside a Hadoop-style FS instance; we default to a local
+# filesystem rooted under the workspace tmpdir for dev. Production
+# overrides every key via OF_BACKING_FS_* env vars.
+[backing_fs]
+driver = "local"
+base_directory = "foundry/datasets"
+local_root = "/var/lib/openfoundry/storage"
+presign_secret = "dev-presign-secret-do-not-use-in-prod"
+public_origin = ""
+presign_ttl_seconds = 300

@@ -12,10 +12,10 @@
     `services/marketplace-service/migrations`,
     `services/sql-warehousing-service/migrations`,
     `services/identity-federation-service/migrations`, etc.).
-  - `infra/k8s/cnpg/templates/cluster.yaml`
+  - `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`
     — plantilla de referencia del CRD `postgresql.cnpg.io/v1 Cluster`
     usada por los servicios de plataforma.
-  - `infra/k8s/rook/` (`cluster.yaml`, `objectstore.yaml`, `bucket.yaml`) —
+  - `infra/k8s/platform/manifests/rook/` (`cluster.yaml`, `objectstore.yaml`, `bucket.yaml`) —
     Ceph + RGW como proveedor S3 cluster-local.
   - ADR-0007 (`docs/architecture/adr/ADR-0007-search-engine-choice.md`) —
     precedente de "un único operador / un único stack stateful por capacidad".
@@ -35,7 +35,7 @@ Hoy conviven dos realidades:
 
 1. **Un uso aislado de CloudNativePG** ya introducido como plantilla de
    referencia para clústeres Postgres de plataforma (ver
-   `infra/k8s/cnpg/templates/cluster.yaml`),
+   `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`),
    donde el operador reconcilia un clúster con replicación en streaming y
    expone los servicios `<name>-rw` / `<name>-ro`.
 2. **El resto de servicios** no tiene un operador estandarizado. Las
@@ -54,7 +54,7 @@ Sin un operador único:
 - No hay una forma estándar de declarar topología (primary + réplicas),
   ventanas de mantenimiento, o políticas de retención.
 - El plano de almacenamiento S3 disponible en cluster
-  (`infra/k8s/rook/objectstore.yaml`) está infrautilizado para WAL/base
+  (`infra/k8s/platform/manifests/rook/objectstore.yaml`) está infrautilizado para WAL/base
   backups.
 
 El proyecto mantiene una postura **100% OSS** (Apache-2.0 / MIT / BSD); el
@@ -73,7 +73,7 @@ precedente de ADR-0007 ("un solo stack stateful por capacidad").
 - Failover gestionado por el operador vía la API de Kubernetes (sin VIP).
 - Servicios `<name>-rw`, `<name>-ro`, `<name>-r` generados automáticamente
   → los servicios de aplicación se conectan por DNS estable.
-- Ya en uso como plantilla de referencia bajo `infra/k8s/cnpg/` (precedente
+- Ya en uso como plantilla de referencia bajo `infra/k8s/platform/manifests/cnpg/` (precedente
   vivo en el repo).
 
 ### Opción B — Patroni + HAProxy / keepalived (VIP)
@@ -124,8 +124,8 @@ OpenFoundry.
 - **Backups y WAL archive a Ceph RGW.** Todos los clústeres configuran
   `spec.backup.barmanObjectStore` apuntando a
   `s3://openfoundry-pg-backups/<service>/<cluster>/`, sirviendo Ceph RGW
-  declarado en `infra/k8s/rook/objectstore.yaml` y
-  `infra/k8s/rook/bucket.yaml`. Esto incluye:
+  declarado en `infra/k8s/platform/manifests/rook/objectstore.yaml` y
+  `infra/k8s/platform/manifests/rook/bucket.yaml`. Esto incluye:
   - **WAL archiving** continuo (`wal: { compression: gzip }`).
   - **Base backups programados** (`ScheduledBackup`) con cadencia diaria.
   - **Retención** mínima de 14 días, máxima de 30 días por defecto;
@@ -137,7 +137,7 @@ OpenFoundry.
   externos.
 - **Credenciales.** Se gestionan mediante `Secret` de tipo
   `kubernetes.io/basic-auth`, siguiendo el patrón establecido en
-  `infra/k8s/cnpg/templates/cluster.yaml`.
+  `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`.
 - **Upgrades.** Las versiones mayores de Postgres se planifican vía el
   flujo de upgrade in-place del operador o mediante `Cluster` de réplica
   lógica + cutover, según se documente en el runbook.
@@ -154,7 +154,7 @@ OpenFoundry.
 - **HA declarativa** (1 primary + 2 réplicas con al menos 1 síncrona) y
   failover automático sin VIPs ni SPOFs externos.
 - **Backups y PITR uniformes** sobre Ceph RGW, reutilizando el almacenamiento
-  S3 ya provisto por `infra/k8s/rook/`.
+  S3 ya provisto por `infra/k8s/platform/manifests/rook/`.
 - **Aislamiento por bounded context** preservado: cada servicio mantiene su
   propio `Cluster` y sus propias migraciones bajo
   `services/<svc>/migrations/`.
@@ -177,7 +177,7 @@ OpenFoundry.
 ### Migración / cleanup
 
 - La plantilla CNPG bajo
-  `infra/k8s/cnpg/templates/cluster.yaml`
+  `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`
   se considera el patrón de referencia. Nuevos charts de servicio deben
   reutilizar la misma forma (CR `Cluster` + `Secret` basic-auth).
 - No existen Patroni externos ni VIPs de Postgres en `infra/k8s/**` al
@@ -209,9 +209,9 @@ cumple:
 - `docs/architecture/runtime-topology.md` — modelo "Postgres por servicio".
 - `docs/architecture/adr/ADR-0007-search-engine-choice.md` — precedente de
   "un solo stack stateful por capacidad" y de filtrado por licencia OSS.
-- `infra/k8s/cnpg/templates/cluster.yaml`
+- `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`
   — patrón de CR `Cluster` + `Secret` basic-auth de referencia.
-- `infra/k8s/rook/objectstore.yaml`, `infra/k8s/rook/bucket.yaml` —
+- `infra/k8s/platform/manifests/rook/objectstore.yaml`, `infra/k8s/platform/manifests/rook/bucket.yaml` —
   proveedor S3 para `s3://openfoundry-pg-backups/`.
 - `services/*/migrations/` — esquemas por servicio (p. ej.
   `services/cipher-service/migrations`,

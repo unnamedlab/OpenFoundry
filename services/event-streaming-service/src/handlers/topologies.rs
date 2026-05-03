@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use axum::{Json, extract::Path};
 use chrono::{DateTime, Utc};
-use sqlx::types::Json as SqlJson;
+use sqlx::{Postgres, Transaction, types::Json as SqlJson};
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::{connectors, engine::processor},
+    domain::{connectors, engine::processor, runtime_store::StreamActivity},
     handlers::{ServiceResult, bad_request, db_error, not_found},
     models::{
         ListResponse, StreamingOverview,
@@ -21,6 +21,7 @@ use crate::{
         },
         window::{WindowDefinition, WindowRow},
     },
+    outbox as streaming_outbox,
 };
 
 async fn load_topology_row(db: &sqlx::PgPool, id: Uuid) -> Result<TopologyRow, sqlx::Error> {
@@ -34,6 +35,23 @@ async fn load_topology_row(db: &sqlx::PgPool, id: Uuid) -> Result<TopologyRow, s
     )
     .bind(id)
     .fetch_one(db)
+    .await
+}
+
+async fn load_topology_row_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<TopologyRow, sqlx::Error> {
+    sqlx::query_as::<_, TopologyRow>(
+        "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
+                backpressure_policy, source_stream_ids, sink_bindings, state_backend,
+                checkpoint_interval_ms, runtime_kind, flink_job_name, flink_deployment_name, flink_job_id, flink_namespace, consistency_guarantee,
+                created_at, updated_at
+         FROM streaming_topologies
+         WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&mut **tx)
     .await
 }
 
@@ -85,53 +103,15 @@ async fn load_all_windows(
 }
 
 async fn restore_topology_events(
-    db: &sqlx::PgPool,
+    state: &AppState,
     stream_ids: &[Uuid],
     from_sequence_no: Option<i64>,
-) -> Result<i64, sqlx::Error> {
-    if stream_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let result = match from_sequence_no {
-        Some(sequence_no) => {
-            sqlx::query(
-                "UPDATE streaming_events
-                 SET processed_at = NULL,
-                     archived_at = NULL,
-                     archive_path = NULL
-                 WHERE stream_id = ANY($1)
-                   AND sequence_no >= $2",
-            )
-            .bind(stream_ids)
-            .bind(sequence_no)
-            .execute(db)
-            .await?
-        }
-        None => {
-            sqlx::query(
-                "UPDATE streaming_events
-                 SET processed_at = NULL,
-                     archived_at = NULL,
-                     archive_path = NULL
-                 WHERE stream_id = ANY($1)",
-            )
-            .bind(stream_ids)
-            .execute(db)
-            .await?
-        }
-    };
-
-    Ok(result.rows_affected() as i64)
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct StreamActivityRow {
-    stream_id: Uuid,
-    backlog: i64,
-    recent_events: i64,
-    oldest_event_time: Option<DateTime<Utc>>,
-    newest_event_time: Option<DateTime<Utc>>,
+) -> Result<i64, String> {
+    state
+        .runtime_store
+        .restore_events(stream_ids, from_sequence_no)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn validate_topology_configuration(
@@ -362,21 +342,13 @@ fn throughput_from_window(
 }
 
 async fn load_stream_activity_stats(
-    db: &sqlx::PgPool,
-) -> Result<HashMap<Uuid, StreamActivityRow>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, StreamActivityRow>(
-        r#"SELECT stream_id,
-                  COUNT(*) FILTER (WHERE archived_at IS NULL AND processed_at IS NULL) AS backlog,
-                  COUNT(*) FILTER (WHERE archived_at IS NULL AND event_time >= now() - interval '5 minutes') AS recent_events,
-                  MIN(event_time) FILTER (WHERE archived_at IS NULL AND event_time >= now() - interval '5 minutes') AS oldest_event_time,
-                  MAX(event_time) FILTER (WHERE archived_at IS NULL AND event_time >= now() - interval '5 minutes') AS newest_event_time
-           FROM streaming_events
-           GROUP BY stream_id"#,
-    )
-    .fetch_all(db)
-    .await?;
-
-    Ok(rows.into_iter().map(|row| (row.stream_id, row)).collect())
+    state: &AppState,
+) -> Result<HashMap<Uuid, StreamActivity>, String> {
+    state
+        .runtime_store
+        .stream_activity(Utc::now() - chrono::Duration::minutes(5))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn apply_topology_connector_runtime(
@@ -463,15 +435,11 @@ pub async fn get_overview(
         }
     }
 
-    let live_event_count = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*)
-           FROM streaming_events
-           WHERE archived_at IS NULL
-             AND event_time >= now() - interval '15 minutes'"#,
-    )
-    .fetch_one(&state.db)
-    .await
-    .map_err(|cause| db_error(&cause))?;
+    let live_event_count = state
+        .runtime_store
+        .live_event_count_since(Utc::now() - chrono::Duration::minutes(15))
+        .await
+        .map_err(|cause| bad_request(cause.to_string()))?;
 
     Ok(Json(StreamingOverview {
         stream_count: all_streams.len() as i64,
@@ -565,6 +533,7 @@ pub async fn create_topology(
 
     let topology_id = Uuid::now_v7();
 
+    let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query(
         "INSERT INTO streaming_topologies (
 		    id, name, description, status, nodes, edges, join_definition, cep_definition,
@@ -586,22 +555,34 @@ pub async fn create_topology(
     .bind(SqlJson(source_stream_ids))
     .bind(SqlJson(sink_bindings))
     .bind(state_backend.unwrap_or_else(|| "rocksdb".to_string()))
-    .bind(checkpoint_interval_ms.unwrap_or(60_000).clamp(1_000, 86_400_000))
+    .bind(
+        checkpoint_interval_ms
+            .unwrap_or(60_000)
+            .clamp(1_000, 86_400_000),
+    )
     .bind(runtime_kind.unwrap_or_else(|| "builtin".to_string()))
     .bind(flink_job_name)
     .bind(flink_deployment_name)
     .bind(flink_job_id)
     .bind(flink_namespace)
     .bind(consistency_guarantee.unwrap_or_else(|| "at-least-once".to_string()))
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|cause| db_error(&cause))?;
 
-    let row = load_topology_row(&state.db, topology_id)
+    let row = load_topology_row_tx(&mut tx, topology_id)
         .await
         .map_err(|cause| db_error(&cause))?;
+    let definition: TopologyDefinition = row.into();
+    streaming_outbox::emit(&mut tx, &streaming_outbox::topology_created(&definition))
+        .await
+        .map_err(|cause| {
+            tracing::error!(topology_id = %topology_id, error = %cause, "failed to enqueue outbox event");
+            crate::handlers::internal_error("failed to enqueue outbox event")
+        })?;
+    tx.commit().await.map_err(|cause| db_error(&cause))?;
 
-    Ok(Json(row.into()))
+    Ok(Json(definition))
 }
 
 pub async fn update_topology(
@@ -673,6 +654,7 @@ pub async fn update_topology(
     )
     .map_err(bad_request)?;
 
+    let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query(
         "UPDATE streaming_topologies
 		 SET name = $2,
@@ -715,15 +697,23 @@ pub async fn update_topology(
     .bind(payload.flink_job_id)
     .bind(payload.flink_namespace)
     .bind(consistency_guarantee)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|cause| db_error(&cause))?;
 
-    let row = load_topology_row(&state.db, id)
+    let row = load_topology_row_tx(&mut tx, id)
         .await
         .map_err(|cause| db_error(&cause))?;
+    let definition: TopologyDefinition = row.into();
+    streaming_outbox::emit(&mut tx, &streaming_outbox::topology_updated(&definition))
+        .await
+        .map_err(|cause| {
+            tracing::error!(topology_id = %id, error = %cause, "failed to enqueue outbox event");
+            crate::handlers::internal_error("failed to enqueue outbox event")
+        })?;
+    tx.commit().await.map_err(|cause| db_error(&cause))?;
 
-    Ok(Json(row.into()))
+    Ok(Json(definition))
 }
 
 pub async fn run_topology(
@@ -756,15 +746,11 @@ pub async fn run_topology(
     let mut execution = execution;
     if topology.consistency_guarantee == "exactly-once" && topology.runtime_kind == "builtin" {
         let stale_threshold_ms = i64::from(topology.checkpoint_interval_ms.saturating_mul(2));
-        let recent: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
-            "SELECT created_at FROM streaming_topology_checkpoints
-             WHERE topology_id = $1 AND status = 'committed'
-             ORDER BY created_at DESC LIMIT 1",
-        )
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|cause| db_error(&cause))?;
+        let recent = state
+            .runtime_store
+            .latest_checkpoint_at(id)
+            .await
+            .map_err(|cause| bad_request(cause.to_string()))?;
         let fresh = recent
             .map(|ts| (chrono::Utc::now() - ts).num_milliseconds() <= stale_threshold_ms)
             .unwrap_or(false);
@@ -844,41 +830,26 @@ pub async fn replay_topology(
     }
 
     let restored_event_count =
-        restore_topology_events(&state.db, &stream_ids, payload.from_sequence_no)
+        restore_topology_events(&state, &stream_ids, payload.from_sequence_no)
             .await
-            .map_err(|cause| db_error(&cause))?;
+            .map_err(bad_request)?;
 
     match payload.from_sequence_no {
         Some(sequence_no) => {
             for stream_id in &stream_ids {
-                sqlx::query(
-                    "INSERT INTO streaming_checkpoints (
-                         topology_id, stream_id, last_event_id, last_sequence_no, updated_at
-                     ) VALUES ($1, $2, NULL, $3, now())
-                     ON CONFLICT (topology_id, stream_id)
-                     DO UPDATE SET last_event_id = NULL,
-                                   last_sequence_no = EXCLUDED.last_sequence_no,
-                                   updated_at = now()",
-                )
-                .bind(id)
-                .bind(stream_id)
-                .bind(sequence_no - 1)
-                .execute(&state.db)
-                .await
-                .map_err(|cause| db_error(&cause))?;
+                state
+                    .runtime_store
+                    .set_topology_offset(id, *stream_id, sequence_no - 1)
+                    .await
+                    .map_err(|cause| bad_request(cause.to_string()))?;
             }
         }
         None => {
-            sqlx::query(
-                "DELETE FROM streaming_checkpoints
-                 WHERE topology_id = $1
-                   AND stream_id = ANY($2)",
-            )
-            .bind(id)
-            .bind(&stream_ids)
-            .execute(&state.db)
-            .await
-            .map_err(|cause| db_error(&cause))?;
+            state
+                .runtime_store
+                .clear_topology_offsets(id, &stream_ids)
+                .await
+                .map_err(|cause| bad_request(cause.to_string()))?;
         }
     }
 
@@ -947,9 +918,9 @@ pub async fn list_connectors(
     let streams = load_all_streams(&state.db)
         .await
         .map_err(|cause| db_error(&cause))?;
-    let stream_activity = load_stream_activity_stats(&state.db)
+    let stream_activity = load_stream_activity_stats(&state)
         .await
-        .map_err(|cause| db_error(&cause))?;
+        .map_err(bad_request)?;
     let topologies = sqlx::query_as::<_, TopologyRow>(
         "SELECT id, name, description, status, nodes, edges, join_definition, cep_definition,
 		        backpressure_policy, source_stream_ids, sink_bindings, state_backend,
@@ -1100,6 +1071,12 @@ mod tests {
             schema_fingerprint: None,
             schema_compatibility_mode: "BACKWARD".to_string(),
             default_marking: None,
+            stream_type: crate::models::stream::StreamType::default(),
+            compression: false,
+            ingest_consistency: crate::models::stream::StreamConsistency::AtLeastOnce,
+            pipeline_consistency: crate::models::stream::StreamConsistency::AtLeastOnce,
+            checkpoint_interval_ms: 2_000,
+            kind: crate::models::stream_view::StreamKind::Ingest,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

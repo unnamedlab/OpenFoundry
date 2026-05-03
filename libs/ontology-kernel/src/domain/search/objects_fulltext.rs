@@ -1,21 +1,20 @@
-//! Postgres full-text object search backed by the `searchable_text` tsvector
-//! column on `object_instances`.
-//!
-//! `ts_rank_cd` is used as the BM25 analogue (cover density ranking which
-//! takes into account term proximity and inverse-document-frequency-like
-//! weighting). Matching is `plainto_tsquery`-based so callers can paste raw
-//! user input without worrying about operator syntax.
-
 use auth_middleware::claims::Claims;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::FromRow;
+use std::collections::HashMap;
+use storage_abstraction::repositories::{Page, ReadConsistency, SearchQuery, TypeId};
 use uuid::Uuid;
 
-use crate::{AppState, domain::access::clearance_rank};
+use crate::{
+    AppState,
+    domain::{
+        access::clearance_rank,
+        read_models::{search_hit_to_object_instance, tenant_from_claims},
+    },
+};
 
-#[derive(Debug, Clone, FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ObjectFulltextHit {
     pub id: Uuid,
     pub object_type_id: Uuid,
@@ -65,7 +64,7 @@ pub async fn search_objects(
     state: &AppState,
     claims: &Claims,
     query: ObjectFulltextQuery,
-) -> Result<Vec<ObjectFulltextHit>, sqlx::Error> {
+) -> Result<Vec<ObjectFulltextHit>, String> {
     let trimmed = query.query.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -75,37 +74,43 @@ pub async fn search_objects(
     if markings.is_empty() {
         return Ok(Vec::new());
     }
-    let object_type_filter = query.object_type_id;
-    let org_filter = if claims.has_role("admin") {
-        None
-    } else {
-        claims.org_id
-    };
-
-    let sql = r#"
-        SELECT
-            id,
-            object_type_id,
-            properties,
-            marking,
-            created_at,
-            updated_at,
-            ts_rank_cd(searchable_text, plainto_tsquery('simple', $1))::real AS rank
-        FROM object_instances
-        WHERE searchable_text @@ plainto_tsquery('simple', $1)
-          AND ($2::uuid IS NULL OR object_type_id = $2)
-          AND marking = ANY($3::text[])
-          AND ($4::uuid IS NULL OR organization_id IS NULL OR organization_id = $4)
-        ORDER BY rank DESC, updated_at DESC
-        LIMIT $5
-    "#;
-
-    sqlx::query_as::<_, ObjectFulltextHit>(sql)
-        .bind(trimmed)
-        .bind(object_type_filter)
-        .bind(&markings)
-        .bind(org_filter)
-        .bind(limit)
-        .fetch_all(&state.db)
+    let tenant = tenant_from_claims(claims);
+    let hits = state
+        .stores
+        .search
+        .search(
+            SearchQuery {
+                tenant,
+                type_id: query.object_type_id.map(|value| TypeId(value.to_string())),
+                q: Some(trimmed.to_string()),
+                filters: HashMap::new(),
+                page: Page {
+                    size: limit as u32,
+                    token: None,
+                },
+            },
+            ReadConsistency::Eventual,
+        )
         .await
+        .map_err(|error| format!("search backend full-text query failed: {error}"))?;
+
+    Ok(hits
+        .items
+        .iter()
+        .filter_map(|hit| {
+            let object = search_hit_to_object_instance(hit, claims.org_id)?;
+            if !markings.iter().any(|marking| marking == &object.marking) {
+                return None;
+            }
+            Some(ObjectFulltextHit {
+                id: object.id,
+                object_type_id: object.object_type_id,
+                properties: object.properties,
+                marking: object.marking,
+                created_at: object.created_at,
+                updated_at: object.updated_at,
+                rank: hit.score,
+            })
+        })
+        .collect())
 }

@@ -15,15 +15,23 @@
 		triggerCheckpoint,
 		resetTopology,
 		getRuntime,
-		updateStream,
+		listStreamViews,
+		listPipelineStreamingProfiles,
+		listDeadLetters,
 		type StreamDefinition,
 		type TopologyDefinition,
 		type StreamBranch,
 		type StreamSchemaVersion,
 		type ValidateSchemaResponse,
 		type Checkpoint,
-		type TopologyRuntimeSnapshot
+		type TopologyRuntimeSnapshot,
+		type StreamView,
+		type StreamingDeadLetter
 	} from '$lib/api/streaming';
+	import StreamSettings from '$lib/components/streaming/StreamSettings.svelte';
+	import JobDetails from '$lib/components/streaming/JobDetails.svelte';
+	import StreamLiveDataView from '$lib/components/streaming/StreamLiveDataView.svelte';
+	import StreamUsage from '$lib/components/streaming/StreamUsage.svelte';
 
 	$: streamId = ($page.params.id ?? '') as string;
 
@@ -35,6 +43,12 @@
 		| 'backpressure'
 		| 'branches'
 		| 'settings'
+		| 'history'
+		| 'profile'
+		| 'jobdetails'
+		| 'live'
+		| 'usage'
+		| 'deadletters'
 		| 'lineage';
 	let activeTab: Tab = 'overview';
 
@@ -57,6 +71,25 @@
 
 	let history: StreamSchemaVersion[] = [];
 	let historyError = '';
+
+	let viewHistory: StreamView[] = [];
+	let viewHistoryError = '';
+
+	async function refreshViewHistory() {
+		try {
+			const res = await listStreamViews(streamId);
+			viewHistory = res.data;
+		} catch (err) {
+			viewHistoryError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	function diffSchemas(curr: unknown, prev: unknown): string {
+		if (!prev) return 'Initial schema';
+		const a = JSON.stringify(curr);
+		const b = JSON.stringify(prev);
+		return a === b ? 'unchanged' : 'modified';
+	}
 	let schemaJson = '';
 	let validateMode = '';
 	let validation: ValidateSchemaResponse | null = null;
@@ -68,14 +101,6 @@
 	let runtime: TopologyRuntimeSnapshot | null = null;
 	let runtimeError = '';
 
-	// Settings form
-	let editConsistency = '';
-	let editPartitions = 1;
-	let editProfileHigh = false;
-	let editProfileCompressed = false;
-	let settingsError = '';
-	let settingsSaving = false;
-
 	async function refreshMain() {
 		loadingMain = true;
 		mainError = '';
@@ -83,12 +108,6 @@
 			const [streamsRes, topRes] = await Promise.all([listStreams(), listTopologies()]);
 			stream = streamsRes.data.find((s) => s.id === streamId) ?? null;
 			topologies = topRes.data;
-			if (stream) {
-				editConsistency = stream.consistency_guarantee;
-				editPartitions = stream.partitions;
-				editProfileHigh = stream.stream_profile.high_throughput;
-				editProfileCompressed = stream.stream_profile.compressed;
-			}
 			if (relatedTopologies.length > 0 && !selectedTopologyId) {
 				selectedTopologyId = relatedTopologies[0].id;
 			}
@@ -220,34 +239,18 @@
 		}
 	}
 
-	async function handleSaveSettings() {
-		if (!stream) return;
-		settingsError = '';
-		settingsSaving = true;
-		try {
-			await updateStream(streamId, {
-				consistency_guarantee: editConsistency,
-				partitions: editPartitions,
-				stream_profile: {
-					high_throughput: editProfileHigh,
-					compressed: editProfileCompressed,
-					partitions: stream.stream_profile.partitions
-				}
-			} as never);
-			await refreshMain();
-		} catch (err) {
-			settingsError = err instanceof Error ? err.message : String(err);
-		} finally {
-			settingsSaving = false;
-		}
-	}
-
 	function tabClick(tab: Tab) {
 		activeTab = tab;
 		if (tab === 'branches' && branches.length === 0) refreshBranches();
 		if (tab === 'schema' && history.length === 0) refreshHistory();
 		if (tab === 'checkpoints') refreshCheckpoints();
 		if (tab === 'backpressure') refreshRuntime();
+		if (tab === 'history' && viewHistory.length === 0) refreshViewHistory();
+	}
+
+	async function fetchDeadLetters(rid: string): Promise<StreamingDeadLetter[]> {
+		const res = await listDeadLetters(rid);
+		return res.data;
 	}
 
 	onMount(() => {
@@ -264,7 +267,15 @@
 			<h1>{stream.name}</h1>
 			<p class="meta">
 				<span class="badge">{stream.status}</span>
-				<span class="badge">{stream.consistency_guarantee}</span>
+				<span class="badge" data-testid="stream-type-badge">
+					{stream.stream_type ?? 'STANDARD'}
+				</span>
+				<span
+					class="badge"
+					data-testid="stream-pipeline-consistency-badge"
+				>
+					pipeline: {stream.pipeline_consistency ?? 'AT_LEAST_ONCE'}
+				</span>
 				<span>partitions: {stream.partitions}</span>
 			</p>
 		{:else if loadingMain}
@@ -280,9 +291,15 @@
 			['overview', 'Overview'],
 			['schema', 'Schema'],
 			['jobgraph', 'Job Graph'],
+			['jobdetails', 'Job Details'],
+			['live', 'Live'],
+			['usage', 'Usage'],
 			['checkpoints', 'Checkpoints'],
+			['deadletters', 'Dead letters'],
 			['backpressure', 'Backpressure'],
 			['branches', 'Branches'],
+			['history', 'History'],
+			['profile', 'Profile'],
 			['settings', 'Settings'],
 			['lineage', 'Lineage']
 		] as [key, label]}
@@ -517,32 +534,149 @@
 	{:else if activeTab === 'settings' && stream}
 		<section class="panel">
 			<h2>Settings</h2>
-			<form on:submit|preventDefault={handleSaveSettings} class="settings-form">
-				<label>
-					Consistency guarantee
-					<select bind:value={editConsistency}>
-						<option value="at-least-once">at-least-once</option>
-						<option value="exactly-once">exactly-once</option>
-						<option value="at-most-once">at-most-once</option>
-					</select>
-				</label>
-				<label>
-					Partitions
-					<input type="number" min="1" max="64" bind:value={editPartitions} />
-				</label>
-				<label class="checkbox">
-					<input type="checkbox" bind:checked={editProfileHigh} />
-					High throughput profile
-				</label>
-				<label class="checkbox">
-					<input type="checkbox" bind:checked={editProfileCompressed} />
-					Compressed payloads
-				</label>
-				{#if settingsError}<p class="error">{settingsError}</p>{/if}
-				<button type="submit" disabled={settingsSaving}>
-					{settingsSaving ? 'Saving…' : 'Save settings'}
-				</button>
-			</form>
+			<StreamSettings
+				{streamId}
+				streamName={stream.name}
+				streamKind={stream.kind ?? 'INGEST'}
+			/>
+		</section>
+	{:else if activeTab === 'history'}
+		<section class="panel" data-testid="history-tab">
+			<h2>History</h2>
+			<p class="hint">
+				Every Reset Stream rotates the viewRid. Push consumers must update their POST URL on each
+				new generation; downstream pipelines must replay.
+			</p>
+			{#if viewHistoryError}<p class="error">{viewHistoryError}</p>{/if}
+			<table>
+				<thead>
+					<tr>
+						<th>Generation</th>
+						<th>viewRid</th>
+						<th>Status</th>
+						<th>Schema</th>
+						<th>Created</th>
+						<th>Retired</th>
+						<th>By</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each viewHistory as v, idx (v.id)}
+						<tr>
+							<td><strong>{v.generation}</strong></td>
+							<td><code>{v.view_rid}</code></td>
+							<td>
+								{#if v.active}
+									<span class="badge active-badge">active</span>
+								{:else}
+									<span class="badge">retired</span>
+								{/if}
+							</td>
+							<td>
+								{diffSchemas(
+									v.schema_json,
+									viewHistory[idx + 1]?.schema_json ?? null
+								)}
+							</td>
+							<td>{new Date(v.created_at).toLocaleString()}</td>
+							<td>{v.retired_at ? new Date(v.retired_at).toLocaleString() : '—'}</td>
+							<td>{v.created_by}</td>
+						</tr>
+					{:else}
+						<tr><td colspan="7">No views recorded.</td></tr>
+					{/each}
+				</tbody>
+			</table>
+		</section>
+	{:else if activeTab === 'jobdetails' && stream}
+		<section class="panel">
+			<h2>Job Details</h2>
+			<JobDetails
+				{streamId}
+				streamName={stream.name}
+				topology={relatedTopologies[0] ?? null}
+			/>
+		</section>
+	{:else if activeTab === 'live' && stream}
+		<section class="panel">
+			<h2>Live data</h2>
+			<StreamLiveDataView {streamId} />
+		</section>
+	{:else if activeTab === 'usage' && stream}
+		<section class="panel" data-testid="usage-tab">
+			<h2>Usage</h2>
+			<StreamUsage {streamId} />
+		</section>
+	{:else if activeTab === 'deadletters' && stream}
+		<section class="panel" data-testid="deadletters-tab">
+			<h2>Dead letters</h2>
+			<p class="hint">
+				Records the push proxy or runtime rejected. The reason column tells you
+				whether it was a schema mismatch (Avro/structural), an avro-validate
+				failure, or a hot buffer publish error.
+			</p>
+			{#await fetchDeadLetters(streamId)}
+				<p>Loading…</p>
+			{:then deadLetters}
+				<table>
+					<thead>
+						<tr><th>Reason</th><th>Event time</th><th>Replays</th><th>Payload</th></tr>
+					</thead>
+					<tbody>
+						{#each deadLetters as dl (dl.id)}
+							<tr>
+								<td>{dl.reason}</td>
+								<td>{new Date(dl.event_time).toLocaleString()}</td>
+								<td>{dl.replay_count}</td>
+								<td>
+									<details>
+										<summary>{Object.keys(dl.payload).length} fields</summary>
+										<pre>{JSON.stringify(dl.payload, null, 2)}</pre>
+									</details>
+								</td>
+							</tr>
+						{:else}
+							<tr><td colspan="4">No dead letters.</td></tr>
+						{/each}
+					</tbody>
+				</table>
+			{:catch err}
+				<p class="error">{err instanceof Error ? err.message : String(err)}</p>
+			{/await}
+		</section>
+	{:else if activeTab === 'profile' && stream}
+		<section class="panel" data-testid="profile-tab">
+			<h2>Streaming profiles</h2>
+			<p class="hint">
+				Profiles attached to topologies that consume this stream. To attach a
+				profile, open the topology and edit its build settings, or
+				<a href="/control-panel/streaming-profiles">manage profile imports in Control Panel</a>.
+			</p>
+			{#each relatedTopologies as t (t.id)}
+				<div class="profile-block">
+					<h3>{t.name}</h3>
+					<p class="hint">topology <code>{t.id}</code></p>
+					{#await listPipelineStreamingProfiles(t.id)}
+						<p>Loading…</p>
+					{:then result}
+						<ul>
+							{#each result.data as p}
+								<li>
+									<strong>{p.name}</strong>
+									<small>{p.category} · {p.size_class}</small>
+									{#if p.restricted}<span class="badge restricted">restricted</span>{/if}
+								</li>
+							{:else}
+								<li class="hint">No profiles attached — Foundry defaults apply.</li>
+							{/each}
+						</ul>
+					{:catch err}
+						<p class="error">{err instanceof Error ? err.message : String(err)}</p>
+					{/await}
+				</div>
+			{:else}
+				<p class="hint">No topology consumes this stream yet.</p>
+			{/each}
 		</section>
 	{:else if activeTab === 'lineage'}
 		<section class="panel">
@@ -585,6 +719,22 @@
 		padding: 0.1rem 0.5rem;
 		border-radius: 3px;
 	}
+	.badge.active-badge {
+		background: #d4f4dd;
+		color: #1f5631;
+	}
+	.badge.restricted {
+		background: #fde7e9;
+		color: #720010;
+		font-weight: 600;
+		margin-left: 0.4rem;
+	}
+	.profile-block {
+		margin: 0.75rem 0;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid #eee;
+		border-radius: 4px;
+	}
 	.tabs {
 		display: flex;
 		gap: 0.25rem;
@@ -625,16 +775,12 @@
 		border-radius: 4px;
 		text-decoration: none;
 	}
-	.create-form,
-	.settings-form {
+	.create-form {
 		display: flex;
 		gap: 0.5rem;
 		flex-wrap: wrap;
 		margin-bottom: 1rem;
 	}
-	.settings-form { flex-direction: column; max-width: 360px; }
-	.settings-form label { display: flex; flex-direction: column; gap: 0.25rem; }
-	.settings-form .checkbox { flex-direction: row; align-items: center; gap: 0.5rem; }
 	.create-form input { flex: 1 1 180px; padding: 0.4rem 0.6rem; }
 	table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
 	th, td {

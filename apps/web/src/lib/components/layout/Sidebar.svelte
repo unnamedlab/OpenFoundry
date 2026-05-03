@@ -169,6 +169,24 @@
       browseHref: '/pipelines'
     },
     {
+      // Foundry "Builds application" — formerly Job Tracker. Surfaces
+      // every build across the platform with state filters, the job
+      // graph, live logs, lineage and audit trail. See
+      // `docs_original_palantir_foundry/.../Application reference.md`
+      // § Builds.
+      id: 'builds',
+      href: '/builds',
+      icon: 'graph',
+      name: { en: 'Builds', es: 'Builds' },
+      description: {
+        en: 'Inspect every build, drill into the job graph, follow live logs.',
+        es: 'Inspecciona cada build, accede al grafo de jobs y sigue logs en vivo.'
+      },
+      badge: { en: 'Data integration', es: 'Integración de datos' },
+      categoryIds: ['all', 'integration'],
+      browseHref: '/builds'
+    },
+    {
       id: 'lineage',
       href: '/lineage',
       icon: 'graph',

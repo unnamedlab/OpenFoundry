@@ -11,6 +11,7 @@
     type LineageImpactAnalysis,
     type LineageNode,
   } from '$lib/api/pipelines';
+  import { loadJobSpecStatus } from '$lib/api/datasets';
   import { notifications } from '$stores/notifications';
 
   let container = $state<HTMLDivElement | undefined>(undefined);
@@ -25,12 +26,19 @@
   let acknowledgeSensitiveLineage = $state(false);
 
   let cy = $state<Core | null>(null);
+  let jobSpecByDatasetId = $state<Record<string, boolean>>({});
 
+  // Foundry doc § "Job graph compilation":
+  //   * dataset icon GREY  ⇒ no JobSpec on master
+  //   * dataset icon BLUE  ⇒ JobSpec is defined on master
+  // Other kinds keep the existing semantic palette.
   const kindPalette: Record<string, string> = {
-    dataset: '#0f766e',
+    dataset: '#94a3b8',
     pipeline: '#2563eb',
     workflow: '#d97706',
   };
+  const datasetWithMasterColor = '#2563eb';
+  const datasetWithoutMasterColor = '#94a3b8';
 
   const markingPalette: Record<string, string> = {
     public: '#a3a3a3',
@@ -38,8 +46,28 @@
     pii: '#ef4444',
   };
 
-  function nodeColor(kind: string) {
+  function nodeColor(kind: string, nodeId?: string) {
+    if (kind === 'dataset' && nodeId != null) {
+      return jobSpecByDatasetId[nodeId]
+        ? datasetWithMasterColor
+        : datasetWithoutMasterColor;
+    }
     return kindPalette[kind] ?? '#64748b';
+  }
+
+  async function loadJobSpecPalette(nodes: LineageNode[]) {
+    const datasetIds = nodes.filter((n) => n.kind === 'dataset').map((n) => n.id);
+    const next: Record<string, boolean> = {};
+    const results = await Promise.allSettled(
+      datasetIds.map(async (id) => [id, await loadJobSpecStatus(id)] as const),
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        const [id, status] = r.value;
+        next[id] = status.has_master_jobspec;
+      }
+    }
+    jobSpecByDatasetId = next;
   }
 
   function markingColor(marking: string) {
@@ -51,6 +79,11 @@
     error = '';
     try {
       graph = await getFullLineage();
+      // P3 — colour datasets by JobSpec-on-master status. We pull
+      // the badge map *before* the cytoscape render so the first
+      // paint has the right palette; failures fall back to grey
+      // (the safer default per Foundry's gray = no spec convention).
+      await loadJobSpecPalette(graph.nodes);
       renderGraph();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Failed to load lineage';
@@ -105,8 +138,9 @@
         label: node.label,
         kind: node.kind,
         marking: node.marking,
-        color: nodeColor(node.kind),
+        color: nodeColor(node.kind, node.id),
         borderColor: markingColor(node.marking),
+        jobspecOnMaster: node.kind === 'dataset' ? Boolean(jobSpecByDatasetId[node.id]) : null,
       },
     }));
 

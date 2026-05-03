@@ -7,6 +7,8 @@
 	import { evaluateObjectSet, listObjects } from '$lib/api/ontology';
 	import { executeQuery, type QueryResult } from '$lib/api/queries';
 	import type { AppWidget, WidgetEvent } from '$lib/api/apps';
+	import MediaPreviewWidget from '$lib/components/app-builder/MediaPreviewWidget.svelte';
+	import MediaUploaderWidget from '$lib/components/app-builder/MediaUploaderWidget.svelte';
 	import AppWidgetRenderer from './AppWidgetRenderer.svelte';
 
 	interface Props {
@@ -703,6 +705,14 @@
 			{#if mapPoints.length === 0}
 				<div class="flex h-full items-center justify-center text-sm text-slate-500">Map bindings need `lat` and `lon` columns.</div>
 			{/if}
+		</div>
+	{:else if widget.widget_type === 'media_preview'}
+		<div class="min-h-0 flex-1">
+			<MediaPreviewWidget {widget} {runtimeParameters} />
+		</div>
+	{:else if widget.widget_type === 'media_uploader'}
+		<div class="min-h-0 flex-1">
+			<MediaUploaderWidget {widget} {runtimeParameters} {onAction} />
 		</div>
 	{:else if widget.widget_type === 'container'}
 		<div class="flex flex-1 flex-col gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">

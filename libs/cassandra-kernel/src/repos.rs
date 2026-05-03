@@ -35,7 +35,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use bytes::Bytes;
 use chrono::Utc;
 use scylla::Session;
-use scylla::frame::value::{CqlDate, CqlTimestamp};
+use scylla::frame::value::{CqlDate, CqlTimestamp, CqlTimeuuid};
 use scylla::prepared_statement::PreparedStatement;
 use scylla::statement::{Consistency, SerialConsistency};
 use tokio::sync::OnceCell;
@@ -92,6 +92,14 @@ fn parse_uuid(field: &str, raw: &str) -> RepoResult<Uuid> {
     Uuid::parse_str(raw).map_err(|e| invalid(format!("{field} is not a valid UUID: {e}")))
 }
 
+fn parse_timeuuid(field: &str, raw: &str) -> RepoResult<CqlTimeuuid> {
+    parse_uuid(field, raw).map(CqlTimeuuid::from)
+}
+
+fn timeuuid_to_string(value: CqlTimeuuid) -> String {
+    Uuid::from(value).to_string()
+}
+
 fn ms_to_ts(ms: i64) -> CqlTimestamp {
     CqlTimestamp(ms)
 }
@@ -107,6 +115,10 @@ fn ms_to_day(ms: i64) -> CqlDate {
 
 fn tenant_str(t: &TenantId) -> &str {
     t.0.as_str()
+}
+
+fn organization_id_from_tenant(t: &TenantId) -> Option<String> {
+    Uuid::parse_str(t.0.as_str()).ok().map(|id| id.to_string())
 }
 
 fn clamp_page_size(n: u32) -> i32 {
@@ -263,8 +275,8 @@ impl CassandraObjectStore {
     async fn stmt_insert_if_not_exists(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
             "INSERT INTO {ks}.objects_by_id \
-             (tenant, object_id, type_id, owner_id, properties, marking, revision_number, created_at, updated_at, deleted) \
-             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, false) IF NOT EXISTS",
+             (tenant, object_id, type_id, owner_id, properties, marking, organization_id, revision_number, created_at, updated_at, deleted) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, false) IF NOT EXISTS",
             ks = self.ctx.keyspace
         );
         ObjectPreparedStatements::get_or_prepare(
@@ -278,7 +290,7 @@ impl CassandraObjectStore {
     async fn stmt_update_if_version(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
             "UPDATE {ks}.objects_by_id \
-             SET type_id = ?, owner_id = ?, properties = ?, marking = ?, \
+             SET type_id = ?, owner_id = ?, properties = ?, marking = ?, organization_id = ?, \
                  revision_number = ?, updated_at = ?, deleted = false \
              WHERE tenant = ? AND object_id = ? IF revision_number = ?",
             ks = self.ctx.keyspace
@@ -293,7 +305,7 @@ impl CassandraObjectStore {
 
     async fn stmt_select_by_id(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
-            "SELECT type_id, owner_id, properties, marking, revision_number, updated_at, deleted \
+            "SELECT type_id, owner_id, properties, marking, organization_id, revision_number, created_at, updated_at, deleted \
              FROM {ks}.objects_by_id WHERE tenant = ? AND object_id = ?",
             ks = self.ctx.keyspace
         );
@@ -475,6 +487,13 @@ impl CassandraObjectStore {
             .ok_or_else(|| invalid("Object.owner is required by the Cassandra schema"))?;
         parse_uuid("owner", &owner.0)
     }
+
+    fn organization_uuid(o: &Object) -> RepoResult<Option<Uuid>> {
+        o.organization_id
+            .as_deref()
+            .map(|raw| parse_uuid("organization_id", raw))
+            .transpose()
+    }
 }
 
 #[async_trait]
@@ -501,7 +520,9 @@ impl ObjectStore for CassandraObjectStore {
             Uuid,
             String,
             Option<HashSet<String>>,
+            Option<Uuid>,
             i64,
+            Option<CqlTimestamp>,
             CqlTimestamp,
             Option<bool>,
         )>();
@@ -510,7 +531,17 @@ impl ObjectStore for CassandraObjectStore {
             None => return Ok(None),
         };
 
-        let (type_id, owner_uuid, properties, marking, revision, updated_at, deleted) = row;
+        let (
+            type_id,
+            owner_uuid,
+            properties,
+            marking,
+            organization_id,
+            revision,
+            created_at,
+            updated_at,
+            deleted,
+        ) = row;
         if deleted.unwrap_or(false) {
             return Ok(None);
         }
@@ -529,6 +560,8 @@ impl ObjectStore for CassandraObjectStore {
             type_id: TypeId(type_id),
             version: revision as u64,
             payload,
+            organization_id: organization_id.map(|id| id.to_string()),
+            created_at_ms: created_at.map(cql_ts_to_ms),
             updated_at_ms: cql_ts_to_ms(updated_at),
             owner: Some(OwnerId(owner_uuid.to_string())),
             markings,
@@ -541,6 +574,8 @@ impl ObjectStore for CassandraObjectStore {
         let properties = serde_json::to_string(&obj.payload)
             .map_err(|e| invalid(format!("payload is not serialisable: {e}")))?;
         let markings: HashSet<String> = obj.markings.iter().map(|m| m.0.clone()).collect();
+        let organization_id = Self::organization_uuid(&obj)?;
+        let created_at = ms_to_ts(obj.created_at_ms.unwrap_or(obj.updated_at_ms));
         let updated_at = ms_to_ts(obj.updated_at_ms);
 
         match expected_version {
@@ -559,7 +594,8 @@ impl ObjectStore for CassandraObjectStore {
                             owner_uuid,
                             properties.as_str(),
                             markings.clone(),
-                            updated_at,
+                            organization_id,
+                            created_at,
                             updated_at,
                         ),
                     )
@@ -599,6 +635,7 @@ impl ObjectStore for CassandraObjectStore {
                             owner_uuid,
                             properties.as_str(),
                             markings.clone(),
+                            organization_id,
                             new_version,
                             updated_at,
                             tenant_str(&obj.tenant),
@@ -691,6 +728,8 @@ impl ObjectStore for CassandraObjectStore {
                     .as_deref()
                     .and_then(|s| serde_json::from_str(s).ok())
                     .unwrap_or_else(|| serde_json::json!({})),
+                organization_id: organization_id_from_tenant(tenant),
+                created_at_ms: Some(cql_ts_to_ms(updated_at)),
                 updated_at_ms: cql_ts_to_ms(updated_at),
                 owner: Some(OwnerId(owner_id.to_string())),
                 markings: marking
@@ -736,6 +775,8 @@ impl ObjectStore for CassandraObjectStore {
                 type_id: TypeId(type_id),
                 version: 0,
                 payload: serde_json::json!({}),
+                organization_id: organization_id_from_tenant(tenant),
+                created_at_ms: Some(cql_ts_to_ms(updated_at)),
                 updated_at_ms: cql_ts_to_ms(updated_at),
                 owner: Some(owner.clone()),
                 markings: Vec::new(),
@@ -777,6 +818,8 @@ impl ObjectStore for CassandraObjectStore {
                 type_id: TypeId(type_id),
                 version: 0,
                 payload: serde_json::json!({}),
+                organization_id: organization_id_from_tenant(tenant),
+                created_at_ms: Some(cql_ts_to_ms(updated_at)),
                 updated_at_ms: cql_ts_to_ms(updated_at),
                 owner: Some(OwnerId(owner_id.to_string())),
                 markings: vec![marking.clone()],
@@ -790,8 +833,8 @@ impl ObjectStore for CassandraObjectStore {
 // LinkStore (S1.4 wiring)
 // ---------------------------------------------------------------------------
 
-/// `LinkStore` backed by `ontology_indexes.links_by_source` and
-/// `links_by_target`.
+/// `LinkStore` backed by `ontology_indexes.links_outgoing` and
+/// `links_incoming`.
 pub struct CassandraLinkStore {
     ctx: CassandraRepoCtx,
     prepared: LinkPreparedStatements,
@@ -854,7 +897,7 @@ impl CassandraLinkStore {
         let cql = format!(
             "INSERT INTO {ks}.links_outgoing \
              (tenant, source_id, link_type, target_id, target_type, properties, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
             ks = self.ctx.keyspace
         );
         ObjectPreparedStatements::get_or_prepare(
@@ -869,7 +912,7 @@ impl CassandraLinkStore {
         let cql = format!(
             "INSERT INTO {ks}.links_incoming \
              (tenant, target_id, link_type, source_id, source_type, properties, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
             ks = self.ctx.keyspace
         );
         ObjectPreparedStatements::get_or_prepare(
@@ -973,12 +1016,16 @@ impl CassandraLinkStore {
 #[async_trait]
 impl LinkStore for CassandraLinkStore {
     async fn put(&self, link: Link) -> RepoResult<()> {
-        let source_id = parse_uuid("from", &link.from.0)?;
-        let target_id = parse_uuid("to", &link.to.0)?;
+        let source_id = parse_timeuuid("from", &link.from.0)?;
+        let target_id = parse_timeuuid("to", &link.to.0)?;
         let created_at = ms_to_ts(link.created_at_ms);
         let payload = Self::payload_to_cql(link.payload)?;
-        let outgoing = self.stmt_insert_outgoing().await?.clone();
-        let incoming = self.stmt_insert_incoming().await?.clone();
+        let mut outgoing = self.stmt_insert_outgoing().await?.clone();
+        outgoing.set_consistency(Consistency::LocalQuorum);
+        outgoing.set_serial_consistency(Some(SerialConsistency::LocalSerial));
+        let mut incoming = self.stmt_insert_incoming().await?.clone();
+        incoming.set_consistency(Consistency::LocalQuorum);
+        incoming.set_serial_consistency(Some(SerialConsistency::LocalSerial));
 
         self.ctx
             .session
@@ -1024,8 +1071,8 @@ impl LinkStore for CassandraLinkStore {
         from: &ObjectId,
         to: &ObjectId,
     ) -> RepoResult<bool> {
-        let source_id = parse_uuid("from", &from.0)?;
-        let target_id = parse_uuid("to", &to.0)?;
+        let source_id = parse_timeuuid("from", &from.0)?;
+        let target_id = parse_timeuuid("to", &to.0)?;
         let mut exact = self.stmt_select_outgoing_exact().await?.clone();
         exact.set_consistency(Consistency::LocalQuorum);
         let existed = self
@@ -1047,8 +1094,10 @@ impl LinkStore for CassandraLinkStore {
             .map(|rows| !rows.is_empty())
             .unwrap_or(false);
 
-        let outgoing = self.stmt_delete_outgoing().await?.clone();
-        let incoming = self.stmt_delete_incoming().await?.clone();
+        let mut outgoing = self.stmt_delete_outgoing().await?.clone();
+        outgoing.set_consistency(Consistency::LocalQuorum);
+        let mut incoming = self.stmt_delete_incoming().await?.clone();
+        incoming.set_consistency(Consistency::LocalQuorum);
         self.ctx
             .session
             .execute(
@@ -1086,7 +1135,7 @@ impl LinkStore for CassandraLinkStore {
         page: Page,
         consistency: ReadConsistency,
     ) -> RepoResult<PagedResult<Link>> {
-        let source_id = parse_uuid("from", &from.0)?;
+        let source_id = parse_timeuuid("from", &from.0)?;
         let mut prep = self.stmt_select_outgoing().await?.clone();
         prep.set_consistency(cql_consistency(consistency));
         prep.set_page_size(clamp_page_size(page.size));
@@ -1103,13 +1152,13 @@ impl LinkStore for CassandraLinkStore {
             .map_err(driver_err)?;
         let next_token = encode_paging_state(result.paging_state.clone());
         let mut items = Vec::new();
-        for row in result.rows_typed_or_empty::<(Uuid, Option<String>, CqlTimestamp)>() {
+        for row in result.rows_typed_or_empty::<(CqlTimeuuid, Option<String>, CqlTimestamp)>() {
             let (target_id, properties, created_at) = row.map_err(driver_err)?;
             items.push(Link {
                 tenant: tenant.clone(),
                 link_type: link_type.clone(),
                 from: from.clone(),
-                to: ObjectId(target_id.to_string()),
+                to: ObjectId(timeuuid_to_string(target_id)),
                 payload: Self::payload_from_cql(properties)?,
                 created_at_ms: cql_ts_to_ms(created_at),
             });
@@ -1125,7 +1174,7 @@ impl LinkStore for CassandraLinkStore {
         page: Page,
         consistency: ReadConsistency,
     ) -> RepoResult<PagedResult<Link>> {
-        let target_id = parse_uuid("to", &to.0)?;
+        let target_id = parse_timeuuid("to", &to.0)?;
         let mut prep = self.stmt_select_incoming().await?.clone();
         prep.set_consistency(cql_consistency(consistency));
         prep.set_page_size(clamp_page_size(page.size));
@@ -1142,12 +1191,12 @@ impl LinkStore for CassandraLinkStore {
             .map_err(driver_err)?;
         let next_token = encode_paging_state(result.paging_state.clone());
         let mut items = Vec::new();
-        for row in result.rows_typed_or_empty::<(Uuid, Option<String>, CqlTimestamp)>() {
+        for row in result.rows_typed_or_empty::<(CqlTimeuuid, Option<String>, CqlTimestamp)>() {
             let (source_id, properties, created_at) = row.map_err(driver_err)?;
             items.push(Link {
                 tenant: tenant.clone(),
                 link_type: link_type.clone(),
-                from: ObjectId(source_id.to_string()),
+                from: ObjectId(timeuuid_to_string(source_id)),
                 to: to.clone(),
                 payload: Self::payload_from_cql(properties)?,
                 created_at_ms: cql_ts_to_ms(created_at),
@@ -1240,18 +1289,22 @@ impl SessionStore for CassandraSessionStore {
 // ActionLogStore (S1.4 wiring)
 // ---------------------------------------------------------------------------
 
-/// `ActionLogStore` backed by `actions_log.actions_log` and
-/// `actions_by_object`.
+/// `ActionLogStore` backed by `actions_log.actions_log`, the object/action
+/// read indexes and a deterministic event-id dedupe table.
 pub struct CassandraActionLogStore {
     ctx: CassandraRepoCtx,
     prepared: ActionLogPreparedStatements,
 }
 
 struct ActionLogPreparedStatements {
+    insert_event: OnceCell<PreparedStatement>,
     insert_log: OnceCell<PreparedStatement>,
     insert_by_object: OnceCell<PreparedStatement>,
+    insert_by_action: OnceCell<PreparedStatement>,
+    select_event: OnceCell<PreparedStatement>,
     select_recent: OnceCell<PreparedStatement>,
     select_by_object: OnceCell<PreparedStatement>,
+    select_by_action: OnceCell<PreparedStatement>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -1264,12 +1317,30 @@ struct ActionRecentToken {
 impl ActionLogPreparedStatements {
     fn new() -> Self {
         Self {
+            insert_event: OnceCell::new(),
             insert_log: OnceCell::new(),
             insert_by_object: OnceCell::new(),
+            insert_by_action: OnceCell::new(),
+            select_event: OnceCell::new(),
             select_recent: OnceCell::new(),
             select_by_object: OnceCell::new(),
+            select_by_action: OnceCell::new(),
         }
     }
+}
+
+#[derive(Clone)]
+struct ActionLogRow {
+    tenant: TenantId,
+    event_id: String,
+    action_id: CqlTimeuuid,
+    kind: String,
+    actor_id: Option<Uuid>,
+    subject: String,
+    target_object_id: Option<CqlTimeuuid>,
+    payload: String,
+    applied_at: CqlTimestamp,
+    day_bucket: CqlDate,
 }
 
 impl CassandraActionLogStore {
@@ -1291,19 +1362,38 @@ impl CassandraActionLogStore {
 
     /// Eagerly prepare every statement this store may issue.
     pub async fn warm_up(&self) -> RepoResult<()> {
+        self.stmt_insert_event().await?;
         self.stmt_insert_log().await?;
         self.stmt_insert_by_object().await?;
+        self.stmt_insert_by_action().await?;
+        self.stmt_select_event().await?;
         self.stmt_select_recent().await?;
         self.stmt_select_by_object().await?;
+        self.stmt_select_by_action().await?;
         Ok(())
+    }
+
+    async fn stmt_insert_event(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "INSERT INTO {ks}.actions_by_event \
+             (tenant, event_id, action_id, kind, actor_id, subject, target_object_id, payload, applied_at, day_bucket) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.insert_event,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
     }
 
     async fn stmt_insert_log(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
             "INSERT INTO {ks}.actions_log \
              (tenant, day_bucket, applied_at, action_id, kind, actor_id, subject, \
-              target_object_id, target_type_id, payload, status, failure_type, duration_ms) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              target_object_id, target_type_id, payload, status, failure_type, duration_ms, event_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ks = self.ctx.keyspace
         );
         ObjectPreparedStatements::get_or_prepare(&self.prepared.insert_log, &self.ctx.session, &cql)
@@ -1313,8 +1403,8 @@ impl CassandraActionLogStore {
     async fn stmt_insert_by_object(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
             "INSERT INTO {ks}.actions_by_object \
-             (tenant, target_object_id, applied_at, action_id, kind, actor_id, subject, payload) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (tenant, target_object_id, applied_at, action_id, kind, actor_id, subject, payload, event_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ks = self.ctx.keyspace
         );
         ObjectPreparedStatements::get_or_prepare(
@@ -1325,9 +1415,38 @@ impl CassandraActionLogStore {
         .await
     }
 
+    async fn stmt_insert_by_action(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "INSERT INTO {ks}.actions_by_action \
+             (tenant, action_id, day_bucket, applied_at, event_id, kind, actor_id, subject, target_object_id, payload) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.insert_by_action,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_select_event(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "SELECT action_id, kind, actor_id, subject, target_object_id, payload, applied_at, day_bucket \
+             FROM {ks}.actions_by_event WHERE tenant = ? AND event_id = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.select_event,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
     async fn stmt_select_recent(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
-            "SELECT applied_at, action_id, kind, actor_id, subject, target_object_id, payload \
+            "SELECT applied_at, action_id, kind, actor_id, subject, target_object_id, payload, event_id \
              FROM {ks}.actions_log WHERE tenant = ? AND day_bucket = ?",
             ks = self.ctx.keyspace
         );
@@ -1341,12 +1460,26 @@ impl CassandraActionLogStore {
 
     async fn stmt_select_by_object(&self) -> RepoResult<&PreparedStatement> {
         let cql = format!(
-            "SELECT applied_at, action_id, kind, actor_id, subject, payload \
+            "SELECT applied_at, action_id, kind, actor_id, subject, payload, event_id \
              FROM {ks}.actions_by_object WHERE tenant = ? AND target_object_id = ?",
             ks = self.ctx.keyspace
         );
         ObjectPreparedStatements::get_or_prepare(
             &self.prepared.select_by_object,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_select_by_action(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "SELECT applied_at, event_id, kind, actor_id, subject, target_object_id, payload \
+             FROM {ks}.actions_by_action WHERE tenant = ? AND action_id = ? AND day_bucket = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.select_by_action,
             &self.ctx.session,
             &cql,
         )
@@ -1383,6 +1516,72 @@ impl CassandraActionLogStore {
             .unwrap_or_default()
     }
 
+    fn event_id_from_payload(kind: &str, payload: &serde_json::Value) -> Option<String> {
+        for key in [
+            "event_id",
+            "idempotency_key",
+            "idempotencyKey",
+            "execution_id",
+            "executionId",
+            "run_id",
+            "runId",
+        ] {
+            if let Some(value) = payload.get(key).and_then(serde_json::Value::as_str) {
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    return Some(format!("{kind}:{trimmed}"));
+                }
+            }
+        }
+        None
+    }
+
+    fn stable_payload_projection(payload: &serde_json::Value) -> Option<serde_json::Value> {
+        if payload.get("side_effect_type").is_some() && payload.get("webhook_id").is_some() {
+            return Some(serde_json::json!({
+                "action_type_id": payload.get("action_type_id").cloned().unwrap_or(serde_json::Value::Null),
+                "side_effect_type": payload.get("side_effect_type").cloned().unwrap_or(serde_json::Value::Null),
+                "webhook_id": payload.get("webhook_id").cloned().unwrap_or(serde_json::Value::Null),
+                "status": payload.get("status").cloned().unwrap_or(serde_json::Value::Null),
+            }));
+        }
+        if payload.get("action_type_id").is_some() && payload.get("parameters").is_some() {
+            return Some(serde_json::json!({
+                "action_type_id": payload.get("action_type_id").cloned().unwrap_or(serde_json::Value::Null),
+                "target_object_id": payload.get("target_object_id").cloned().unwrap_or(serde_json::Value::Null),
+                "parameters": payload.get("parameters").cloned().unwrap_or(serde_json::Value::Null),
+                "status": payload.get("status").cloned().unwrap_or(serde_json::Value::Null),
+                "failure_type": payload.get("failure_type").cloned().unwrap_or(serde_json::Value::Null),
+            }));
+        }
+        None
+    }
+
+    fn derive_event_id(entry: &ActionLogEntry, payload: &str) -> String {
+        if let Some(event_id) = entry.event_id.as_deref().map(str::trim) {
+            if !event_id.is_empty() {
+                return event_id.to_string();
+            }
+        }
+        if let Some(event_id) = Self::event_id_from_payload(&entry.kind, &entry.payload) {
+            return event_id;
+        }
+
+        let object = entry.object.as_ref().map(|id| id.0.as_str()).unwrap_or("");
+        let payload_material = Self::stable_payload_projection(&entry.payload)
+            .and_then(|value| serde_json::to_string(&value).ok())
+            .unwrap_or_else(|| payload.to_string());
+        let material = format!(
+            "of-action-log-v1\0{}\0{}\0{}\0{}\0{}",
+            entry.tenant.0, entry.kind, entry.subject, object, payload_material
+        );
+        Uuid::new_v5(
+            &Uuid::from_u128(0x6d1d_30aa_4d0c_5da9_9d8d_e8280a5a1c3f),
+            material.as_bytes(),
+        )
+        .to_string()
+    }
+
     fn action_payload_to_cql(payload: &serde_json::Value) -> RepoResult<String> {
         serde_json::to_string(payload)
             .map_err(|e| invalid(format!("action payload is not serialisable: {e}")))
@@ -1392,82 +1591,220 @@ impl CassandraActionLogStore {
         serde_json::from_str(&raw)
             .map_err(|e| RepoError::Backend(format!("invalid stored action payload JSON: {e}")))
     }
-}
 
-#[async_trait]
-impl ActionLogStore for CassandraActionLogStore {
-    async fn append(&self, entry: ActionLogEntry) -> RepoResult<()> {
-        let action_id = parse_uuid("action_id", &entry.action_id)?;
-        let actor_id = Uuid::parse_str(&entry.subject).ok();
-        let target_object_id = entry
-            .object
-            .as_ref()
-            .map(|object| parse_uuid("object", &object.0))
-            .transpose()?;
+    fn row_from_entry(entry: &ActionLogEntry) -> RepoResult<ActionLogRow> {
         let payload = Self::action_payload_to_cql(&entry.payload)?;
-        let applied_at = ms_to_ts(entry.recorded_at_ms);
-        let day_bucket = ms_to_day(entry.recorded_at_ms);
-        let target_type_id: Option<&str> = None;
-        let status = entry
-            .payload
+        let event_id = Self::derive_event_id(entry, &payload);
+        let recorded_at_ms = entry.recorded_at_ms;
+        Ok(ActionLogRow {
+            tenant: entry.tenant.clone(),
+            event_id,
+            action_id: parse_timeuuid("action_id", &entry.action_id)?,
+            kind: entry.kind.clone(),
+            actor_id: Uuid::parse_str(&entry.subject).ok(),
+            subject: entry.subject.clone(),
+            target_object_id: entry
+                .object
+                .as_ref()
+                .map(|object| parse_timeuuid("object", &object.0))
+                .transpose()?,
+            payload,
+            applied_at: ms_to_ts(recorded_at_ms),
+            day_bucket: ms_to_day(recorded_at_ms),
+        })
+    }
+
+    async fn read_event_row(&self, tenant: &TenantId, event_id: &str) -> RepoResult<ActionLogRow> {
+        let mut prep = self.stmt_select_event().await?.clone();
+        prep.set_consistency(Consistency::LocalQuorum);
+        let result = self
+            .ctx
+            .session
+            .execute(&prep, (tenant_str(tenant), event_id))
+            .await
+            .map_err(driver_err)?;
+        let mut rows = result.rows_typed_or_empty::<(
+            CqlTimeuuid,
+            String,
+            Option<Uuid>,
+            Option<String>,
+            Option<CqlTimeuuid>,
+            String,
+            CqlTimestamp,
+            CqlDate,
+        )>();
+        let Some(row) = rows.next() else {
+            return Err(RepoError::Backend(format!(
+                "action event {event_id} was not readable after idempotent insert"
+            )));
+        };
+        let (action_id, kind, actor_id, subject, target_object_id, payload, applied_at, day_bucket) =
+            row.map_err(driver_err)?;
+        Ok(ActionLogRow {
+            tenant: tenant.clone(),
+            event_id: event_id.to_string(),
+            action_id,
+            kind,
+            actor_id,
+            subject: Self::subject_from(actor_id, subject),
+            target_object_id,
+            payload,
+            applied_at,
+            day_bucket,
+        })
+    }
+
+    async fn put_event_row(&self, row: &ActionLogRow) -> RepoResult<bool> {
+        let mut insert_event = self.stmt_insert_event().await?.clone();
+        insert_event.set_consistency(Consistency::LocalQuorum);
+        insert_event.set_serial_consistency(Some(SerialConsistency::LocalSerial));
+        let res = self
+            .ctx
+            .session
+            .execute(
+                &insert_event,
+                (
+                    tenant_str(&row.tenant),
+                    row.event_id.as_str(),
+                    row.action_id,
+                    row.kind.as_str(),
+                    row.actor_id,
+                    row.subject.as_str(),
+                    row.target_object_id,
+                    row.payload.as_str(),
+                    row.applied_at,
+                    row.day_bucket,
+                ),
+            )
+            .await
+            .map_err(driver_err)?;
+        Ok(lwt_applied(&res))
+    }
+
+    async fn write_action_fanout(&self, row: &ActionLogRow) -> RepoResult<()> {
+        let status = Self::action_payload_from_cql(row.payload.clone())?
             .get("status")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("applied");
-        let failure_type = entry
-            .payload
+            .unwrap_or("applied")
+            .to_string();
+        let parsed_payload = Self::action_payload_from_cql(row.payload.clone())?;
+        let failure_type = parsed_payload
             .get("failure_type")
             .and_then(serde_json::Value::as_str);
-        let duration_ms = entry
-            .payload
+        let duration_ms = parsed_payload
             .get("duration_ms")
             .and_then(serde_json::Value::as_i64)
             .and_then(|n| i32::try_from(n).ok());
+        let target_type_id: Option<&str> = None;
 
-        let insert_log = self.stmt_insert_log().await?.clone();
+        let mut insert_log = self.stmt_insert_log().await?.clone();
+        insert_log.set_consistency(Consistency::LocalQuorum);
         self.ctx
             .session
             .execute(
                 &insert_log,
                 (
-                    tenant_str(&entry.tenant),
-                    day_bucket,
-                    applied_at,
-                    action_id,
-                    entry.kind.as_str(),
-                    actor_id,
-                    entry.subject.as_str(),
-                    target_object_id,
+                    tenant_str(&row.tenant),
+                    row.day_bucket,
+                    row.applied_at,
+                    row.action_id,
+                    row.kind.as_str(),
+                    row.actor_id,
+                    row.subject.as_str(),
+                    row.target_object_id,
                     target_type_id,
-                    payload.as_str(),
-                    Some(status),
+                    row.payload.as_str(),
+                    Some(status.as_str()),
                     failure_type,
                     duration_ms,
+                    row.event_id.as_str(),
                 ),
             )
             .await
             .map_err(driver_err)?;
 
-        if let Some(object_id) = target_object_id {
-            let insert_by_object = self.stmt_insert_by_object().await?.clone();
+        let mut insert_by_action = self.stmt_insert_by_action().await?.clone();
+        insert_by_action.set_consistency(Consistency::LocalQuorum);
+        self.ctx
+            .session
+            .execute(
+                &insert_by_action,
+                (
+                    tenant_str(&row.tenant),
+                    row.action_id,
+                    row.day_bucket,
+                    row.applied_at,
+                    row.event_id.as_str(),
+                    row.kind.as_str(),
+                    row.actor_id,
+                    row.subject.as_str(),
+                    row.target_object_id,
+                    row.payload.as_str(),
+                ),
+            )
+            .await
+            .map_err(driver_err)?;
+
+        if let Some(object_id) = row.target_object_id {
+            let mut insert_by_object = self.stmt_insert_by_object().await?.clone();
+            insert_by_object.set_consistency(Consistency::LocalQuorum);
             self.ctx
                 .session
                 .execute(
                     &insert_by_object,
                     (
-                        tenant_str(&entry.tenant),
+                        tenant_str(&row.tenant),
                         object_id,
-                        applied_at,
-                        action_id,
-                        entry.kind.as_str(),
-                        actor_id,
-                        entry.subject.as_str(),
-                        payload.as_str(),
+                        row.applied_at,
+                        row.action_id,
+                        row.kind.as_str(),
+                        row.actor_id,
+                        row.subject.as_str(),
+                        row.payload.as_str(),
+                        row.event_id.as_str(),
                     ),
                 )
                 .await
                 .map_err(driver_err)?;
         }
 
+        Ok(())
+    }
+
+    fn entry_from_row(
+        tenant: TenantId,
+        event_id: Option<String>,
+        action_id: CqlTimeuuid,
+        kind: String,
+        actor_id: Option<Uuid>,
+        subject: Option<String>,
+        object_id: Option<CqlTimeuuid>,
+        payload: String,
+        applied_at: CqlTimestamp,
+    ) -> RepoResult<ActionLogEntry> {
+        Ok(ActionLogEntry {
+            tenant,
+            event_id,
+            action_id: timeuuid_to_string(action_id),
+            kind,
+            subject: Self::subject_from(actor_id, subject),
+            object: object_id.map(|id| ObjectId(timeuuid_to_string(id))),
+            payload: Self::action_payload_from_cql(payload)?,
+            recorded_at_ms: cql_ts_to_ms(applied_at),
+        })
+    }
+}
+
+#[async_trait]
+impl ActionLogStore for CassandraActionLogStore {
+    async fn append(&self, entry: ActionLogEntry) -> RepoResult<()> {
+        let row = Self::row_from_entry(&entry)?;
+        let row = if self.put_event_row(&row).await? {
+            row
+        } else {
+            self.read_event_row(&entry.tenant, &row.event_id).await?
+        };
+        self.write_action_fanout(&row).await?;
         Ok(())
     }
 
@@ -1501,24 +1838,27 @@ impl ActionLogStore for CassandraActionLogStore {
 
             for row in result.rows_typed_or_empty::<(
                 CqlTimestamp,
-                Uuid,
+                CqlTimeuuid,
                 String,
                 Option<Uuid>,
                 Option<String>,
-                Option<Uuid>,
+                Option<CqlTimeuuid>,
                 String,
+                Option<String>,
             )>() {
-                let (applied_at, action_id, kind, actor_id, subject, object_id, payload) =
+                let (applied_at, action_id, kind, actor_id, subject, object_id, payload, event_id) =
                     row.map_err(driver_err)?;
-                items.push(ActionLogEntry {
-                    tenant: tenant.clone(),
-                    action_id: action_id.to_string(),
+                items.push(Self::entry_from_row(
+                    tenant.clone(),
+                    event_id,
+                    action_id,
                     kind,
-                    subject: Self::subject_from(actor_id, subject),
-                    object: object_id.map(|id| ObjectId(id.to_string())),
-                    payload: Self::action_payload_from_cql(payload)?,
-                    recorded_at_ms: cql_ts_to_ms(applied_at),
-                });
+                    actor_id,
+                    subject,
+                    object_id,
+                    payload,
+                    applied_at,
+                )?);
             }
 
             if page_state.is_some() {
@@ -1550,7 +1890,7 @@ impl ActionLogStore for CassandraActionLogStore {
         page: Page,
         consistency: ReadConsistency,
     ) -> RepoResult<PagedResult<ActionLogEntry>> {
-        let object_id = parse_uuid("object", &object.0)?;
+        let object_id = parse_timeuuid("object", &object.0)?;
         let mut prep = self.stmt_select_by_object().await?.clone();
         prep.set_consistency(cql_consistency(consistency));
         prep.set_page_size(clamp_page_size(page.size));
@@ -1565,24 +1905,107 @@ impl ActionLogStore for CassandraActionLogStore {
         let mut items = Vec::new();
         for row in result.rows_typed_or_empty::<(
             CqlTimestamp,
-            Uuid,
+            CqlTimeuuid,
             String,
             Option<Uuid>,
             Option<String>,
             String,
+            Option<String>,
         )>() {
-            let (applied_at, action_id, kind, actor_id, subject, payload) =
+            let (applied_at, action_id, kind, actor_id, subject, payload, event_id) =
                 row.map_err(driver_err)?;
-            items.push(ActionLogEntry {
-                tenant: tenant.clone(),
-                action_id: action_id.to_string(),
+            items.push(Self::entry_from_row(
+                tenant.clone(),
+                event_id,
+                action_id,
                 kind,
-                subject: Self::subject_from(actor_id, subject),
-                object: Some(object.clone()),
-                payload: Self::action_payload_from_cql(payload)?,
-                recorded_at_ms: cql_ts_to_ms(applied_at),
-            });
+                actor_id,
+                subject,
+                Some(object_id),
+                payload,
+                applied_at,
+            )?);
         }
+        Ok(PagedResult { items, next_token })
+    }
+
+    async fn list_for_action(
+        &self,
+        tenant: &TenantId,
+        action_id: &str,
+        page: Page,
+        consistency: ReadConsistency,
+    ) -> RepoResult<PagedResult<ActionLogEntry>> {
+        let action_id = parse_timeuuid("action_id", action_id)?;
+        let mut token = Self::decode_recent_token(page.token.as_deref())?;
+        let limit = clamp_page_size(page.size) as usize;
+        let mut items = Vec::with_capacity(limit.min(128));
+        let mut next_token = None;
+
+        while items.len() < limit && token.days_scanned < ACTION_LOG_LOOKBACK_DAYS {
+            let mut prep = self.stmt_select_by_action().await?.clone();
+            prep.set_consistency(cql_consistency(consistency));
+            prep.set_page_size((limit - items.len()).clamp(1, 5_000) as i32);
+            let paging = match token.paging.take() {
+                Some(raw) => decode_paging_state(Some(raw.as_str()))?,
+                None => None,
+            };
+
+            let result = self
+                .ctx
+                .session
+                .execute_paged(
+                    &prep,
+                    (tenant_str(tenant), action_id, CqlDate(token.day)),
+                    paging,
+                )
+                .await
+                .map_err(driver_err)?;
+            let page_state = result.paging_state.clone();
+
+            for row in result.rows_typed_or_empty::<(
+                CqlTimestamp,
+                String,
+                String,
+                Option<Uuid>,
+                Option<String>,
+                Option<CqlTimeuuid>,
+                String,
+            )>() {
+                let (applied_at, event_id, kind, actor_id, subject, object_id, payload) =
+                    row.map_err(driver_err)?;
+                items.push(Self::entry_from_row(
+                    tenant.clone(),
+                    Some(event_id),
+                    action_id,
+                    kind,
+                    actor_id,
+                    subject,
+                    object_id,
+                    payload,
+                    applied_at,
+                )?);
+            }
+
+            if page_state.is_some() {
+                token.paging = encode_paging_state(page_state);
+                next_token = Some(Self::encode_recent_token(token)?);
+                break;
+            }
+
+            let Some(previous_day) = token.day.checked_sub(1) else {
+                break;
+            };
+            token.day = previous_day;
+            token.days_scanned += 1;
+            token.paging = None;
+
+            if items.len() >= limit && token.days_scanned < ACTION_LOG_LOOKBACK_DAYS {
+                next_token = Some(Self::encode_recent_token(token)?);
+                break;
+            }
+        }
+
         Ok(PagedResult { items, next_token })
     }
 }
@@ -1625,5 +2048,140 @@ mod tests {
         let big = "x".repeat(2_000);
         assert_eq!(truncate_summary(&big).len(), 1024);
         assert_eq!(truncate_summary("tiny"), "tiny");
+    }
+
+    #[test]
+    fn link_payload_round_trips_through_canonical_json() {
+        let payload = serde_json::json!({
+            "confidence": 0.98,
+            "evidence": ["sensor-a", "sensor-b"],
+        });
+        let encoded = CassandraLinkStore::payload_to_cql(Some(payload.clone()))
+            .unwrap()
+            .unwrap();
+        let decoded = CassandraLinkStore::payload_from_cql(Some(encoded))
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded, payload);
+        assert_eq!(CassandraLinkStore::payload_to_cql(None).unwrap(), None);
+    }
+
+    #[test]
+    fn link_timeuuid_conversion_preserves_object_id_string() {
+        let id = Uuid::now_v7().to_string();
+        let cql = parse_timeuuid("object_id", &id).unwrap();
+        assert_eq!(timeuuid_to_string(cql), id);
+    }
+
+    #[test]
+    fn link_timeuuid_conversion_rejects_malformed_ids() {
+        let err = parse_timeuuid("source_id", "not-a-uuid").unwrap_err();
+        assert!(matches!(err, RepoError::InvalidArgument(_)));
+    }
+
+    #[test]
+    fn action_event_id_prefers_explicit_value() {
+        let entry = ActionLogEntry {
+            tenant: TenantId("tenant-a".into()),
+            event_id: Some("explicit-event".into()),
+            action_id: Uuid::now_v7().to_string(),
+            kind: "action_attempt".into(),
+            subject: Uuid::now_v7().to_string(),
+            object: Some(ObjectId(Uuid::now_v7().to_string())),
+            payload: serde_json::json!({ "status": "applied" }),
+            recorded_at_ms: 1,
+        };
+        let payload = CassandraActionLogStore::action_payload_to_cql(&entry.payload).unwrap();
+        assert_eq!(
+            CassandraActionLogStore::derive_event_id(&entry, &payload),
+            "explicit-event"
+        );
+    }
+
+    #[test]
+    fn action_event_id_uses_payload_idempotency_key() {
+        let entry = ActionLogEntry {
+            tenant: TenantId("tenant-a".into()),
+            event_id: None,
+            action_id: Uuid::now_v7().to_string(),
+            kind: "side_effect".into(),
+            subject: Uuid::now_v7().to_string(),
+            object: Some(ObjectId(Uuid::now_v7().to_string())),
+            payload: serde_json::json!({ "idempotency_key": "webhook-123" }),
+            recorded_at_ms: 1,
+        };
+        let payload = CassandraActionLogStore::action_payload_to_cql(&entry.payload).unwrap();
+        assert_eq!(
+            CassandraActionLogStore::derive_event_id(&entry, &payload),
+            "side_effect:webhook-123"
+        );
+    }
+
+    #[test]
+    fn action_event_id_is_deterministic_without_timestamp_or_action_id() {
+        let tenant = TenantId("tenant-a".into());
+        let subject = Uuid::now_v7().to_string();
+        let object = ObjectId(Uuid::now_v7().to_string());
+        let payload = serde_json::json!({ "status": "applied", "value": 42 });
+        let left = ActionLogEntry {
+            tenant: tenant.clone(),
+            event_id: None,
+            action_id: Uuid::now_v7().to_string(),
+            kind: "action_attempt".into(),
+            subject: subject.clone(),
+            object: Some(object.clone()),
+            payload: payload.clone(),
+            recorded_at_ms: 1,
+        };
+        let right = ActionLogEntry {
+            tenant,
+            event_id: None,
+            action_id: Uuid::now_v7().to_string(),
+            kind: "action_attempt".into(),
+            subject,
+            object: Some(object),
+            payload,
+            recorded_at_ms: 999,
+        };
+        let left_payload = CassandraActionLogStore::action_payload_to_cql(&left.payload).unwrap();
+        let right_payload = CassandraActionLogStore::action_payload_to_cql(&right.payload).unwrap();
+
+        assert_eq!(
+            CassandraActionLogStore::derive_event_id(&left, &left_payload),
+            CassandraActionLogStore::derive_event_id(&right, &right_payload)
+        );
+    }
+
+    #[test]
+    fn action_event_id_ignores_attempt_duration_noise() {
+        let tenant = TenantId("tenant-a".into());
+        let subject = Uuid::now_v7().to_string();
+        let object = ObjectId(Uuid::now_v7().to_string());
+        let action_type_id = Uuid::now_v7().to_string();
+        let mk = |duration_ms| ActionLogEntry {
+            tenant: tenant.clone(),
+            event_id: None,
+            action_id: Uuid::now_v7().to_string(),
+            kind: "action_attempt".into(),
+            subject: subject.clone(),
+            object: Some(object.clone()),
+            payload: serde_json::json!({
+                "action_type_id": action_type_id.clone(),
+                "target_object_id": object.0.clone(),
+                "parameters": { "next_status": "grounded" },
+                "status": "applied",
+                "duration_ms": duration_ms,
+            }),
+            recorded_at_ms: duration_ms,
+        };
+        let left = mk(10);
+        let right = mk(90);
+        let left_payload = CassandraActionLogStore::action_payload_to_cql(&left.payload).unwrap();
+        let right_payload = CassandraActionLogStore::action_payload_to_cql(&right.payload).unwrap();
+
+        assert_eq!(
+            CassandraActionLogStore::derive_event_id(&left, &left_payload),
+            CassandraActionLogStore::derive_event_id(&right, &right_payload)
+        );
     }
 }

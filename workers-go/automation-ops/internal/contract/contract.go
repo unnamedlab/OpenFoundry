@@ -16,5 +16,6 @@ type AutomationOpsInput struct {
 type AutomationOpsResult struct {
 	TaskID string `json:"task_id"`
 	Status string `json:"status"`
+	RunID  string `json:"run_id,omitempty"`
 	Error  string `json:"error,omitempty"`
 }

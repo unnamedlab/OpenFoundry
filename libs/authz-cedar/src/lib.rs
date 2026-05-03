@@ -120,18 +120,16 @@ impl PolicyStore {
     /// [`ValidationMode::Strict`]; only on success do we swap the
     /// internal `RwLock` content. Concurrent readers therefore never
     /// observe a partially-applied or invalid state.
-    pub async fn replace_policies(
-        &self,
-        records: &[PolicyRecord],
-    ) -> Result<(), PolicyStoreError> {
+    pub async fn replace_policies(&self, records: &[PolicyRecord]) -> Result<(), PolicyStoreError> {
         let mut next = PolicySet::new();
         for record in records {
             let policy_id = PolicyId::new(&record.id);
-            let policy = Policy::parse(Some(policy_id), &record.source)
-                .map_err(|source| PolicyStoreError::PolicyParse {
+            let policy = Policy::parse(Some(policy_id), &record.source).map_err(|source| {
+                PolicyStoreError::PolicyParse {
                     id: record.id.clone(),
                     source,
-                })?;
+                }
+            })?;
             next.add(policy)
                 .map_err(|e| PolicyStoreError::Validation(e.to_string()))?;
         }
@@ -167,11 +165,7 @@ impl PolicyStore {
     /// set. Cloning the inner [`PolicySet`] is cheap (its policies are
     /// reference-counted internally), so we hold the read lock only
     /// long enough to clone.
-    pub async fn is_authorized(
-        &self,
-        request: &Request,
-        entities: &Entities,
-    ) -> Response {
+    pub async fn is_authorized(&self, request: &Request, entities: &Entities) -> Response {
         let policies = self.policies.read().await.clone();
         self.authorizer.is_authorized(request, &policies, entities)
     }
@@ -202,9 +196,16 @@ pub mod nats;
 pub mod axum;
 
 pub mod audit;
+#[cfg(feature = "kafka")]
+pub mod audit_kafka;
 pub mod engine;
+pub mod schedule_policies;
 
-pub use audit::{AuditSinkHandle, AuthzAuditEvent, AuthzAuditSink, NoopAuditSink, TracingAuditSink};
+pub use audit::{
+    AuditSinkHandle, AuthzAuditEvent, AuthzAuditSink, NoopAuditSink, TracingAuditSink,
+};
+#[cfg(feature = "kafka")]
+pub use audit_kafka::{KafkaAuthzAuditSink, TOPIC as KAFKA_AUDIT_TOPIC};
 pub use engine::{AuthorizeOutcome, AuthzEngine};
 
 #[cfg(test)]
@@ -250,10 +251,7 @@ mod tests {
             description: None,
             source: "this is not cedar".into(),
         };
-        let err = store
-            .replace_policies(&[bad])
-            .await
-            .expect_err("must fail");
+        let err = store.replace_policies(&[bad]).await.expect_err("must fail");
         assert!(matches!(err, PolicyStoreError::PolicyParse { .. }));
     }
 }

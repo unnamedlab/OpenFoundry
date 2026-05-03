@@ -55,4 +55,3 @@ pub async fn seed_dataset(pool: &PgPool, rid: &str, name: &str, format: &str) ->
     .expect("seed dataset row");
     id
 }
-

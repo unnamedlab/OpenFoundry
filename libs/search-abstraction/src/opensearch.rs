@@ -21,11 +21,11 @@
 //! review.
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{
-    sanitize_doc_type, BulkOutcome, IndexDoc, ObjectId, PagedResult, ReadConsistency, RepoError,
-    RepoResult, SearchBackend, SearchHit, SearchQuery, TenantId, TypeId, VectorQuery,
+    BulkOutcome, IndexDoc, ObjectId, PagedResult, ReadConsistency, RepoError, RepoResult,
+    SearchBackend, SearchHit, SearchQuery, TenantId, TypeId, VectorQuery, sanitize_doc_type,
 };
 
 /// OpenSearch client. Construct with the cluster's HTTP endpoint
@@ -66,7 +66,13 @@ impl OpenSearchBackend {
 fn sanitize_index(s: &str) -> String {
     s.to_ascii_lowercase()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -140,7 +146,10 @@ impl SearchBackend for OpenSearchBackend {
             .await
             .map_err(|e| RepoError::Backend(format!("opensearch search send: {e}")))?;
         if resp.status().as_u16() == 404 {
-            return Ok(PagedResult { items: vec![], next_token: None });
+            return Ok(PagedResult {
+                items: vec![],
+                next_token: None,
+            });
         }
         if let Some(err) = map_status(resp.status(), "search") {
             return Err(err);
@@ -331,8 +340,13 @@ impl SearchBackend for OpenSearchBackend {
         if let Some(items) = v.get("items").and_then(|x| x.as_array()) {
             for (i, entry) in items.iter().enumerate() {
                 let result = entry.get("index").or_else(|| entry.get("create"));
-                let status = result.and_then(|r| r.get("status")).and_then(|s| s.as_u64());
-                let id = docs.get(i).map(|d| d.id.clone()).unwrap_or(ObjectId(String::new()));
+                let status = result
+                    .and_then(|r| r.get("status"))
+                    .and_then(|s| s.as_u64());
+                let id = docs
+                    .get(i)
+                    .map(|d| d.id.clone())
+                    .unwrap_or(ObjectId(String::new()));
                 match status {
                     Some(s) if (200..300).contains(&s) || s == 409 => out.indexed += 1,
                     Some(s) => out.failed.push((id, format!("status {s}"))),

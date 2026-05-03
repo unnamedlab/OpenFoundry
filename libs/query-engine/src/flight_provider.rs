@@ -140,11 +140,7 @@ impl FlightSqlTableProvider {
     /// * `endpoint` – a `tonic`-compatible URI (e.g. `http://host:port`).
     /// * `query`    – the SQL statement to issue against the remote service.
     /// * `schema`   – the Arrow schema of the result-set.
-    pub fn new(
-        endpoint: impl Into<String>,
-        query: impl Into<String>,
-        schema: SchemaRef,
-    ) -> Self {
+    pub fn new(endpoint: impl Into<String>, query: impl Into<String>, schema: SchemaRef) -> Self {
         Self {
             endpoint: endpoint.into(),
             query: query.into(),
@@ -203,7 +199,10 @@ impl TableProvider for FlightSqlTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(vec![TableProviderFilterPushDown::Unsupported; filters.len()])
+        Ok(vec![
+            TableProviderFilterPushDown::Unsupported;
+            filters.len()
+        ])
     }
 }
 
@@ -353,10 +352,8 @@ async fn connect(endpoint: &str) -> Result<FlightSqlServiceClient<Channel>, Flig
 async fn run_remote_query(
     endpoint: String,
     query: String,
-) -> Result<
-    impl futures::Stream<Item = DfResult<RecordBatch>> + Send + 'static,
-    FlightProviderError,
-> {
+) -> Result<impl futures::Stream<Item = DfResult<RecordBatch>> + Send + 'static, FlightProviderError>
+{
     let mut client = connect(&endpoint).await?;
     let info = client
         .execute(query, None)
@@ -433,4 +430,3 @@ where
         },
     )
 }
-

@@ -42,16 +42,11 @@ pub async fn create_item(
     }
 }
 
-pub async fn get_item(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
-    match sqlx::query_as::<_, PrimaryItem>(
-        "SELECT * FROM monitoring_rules WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await
+pub async fn get_item(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
+    match sqlx::query_as::<_, PrimaryItem>("SELECT * FROM monitoring_rules WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(row)) => Json(row).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "not found").into_response(),

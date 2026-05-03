@@ -1,0 +1,96 @@
+syntax = "proto3";
+package open_foundry.media_set;
+
+import "google/protobuf/timestamp.proto";
+
+// Media schema accepted by a media set. Mirrors the Foundry-documented
+// "permitted file formats" taxonomy (image, audio, video, document,
+// spreadsheet, email).
+enum MediaSetSchema {
+  MEDIA_SET_SCHEMA_UNSPECIFIED = 0;
+  MEDIA_SET_SCHEMA_IMAGE = 1;
+  MEDIA_SET_SCHEMA_AUDIO = 2;
+  MEDIA_SET_SCHEMA_VIDEO = 3;
+  MEDIA_SET_SCHEMA_DOCUMENT = 4;
+  MEDIA_SET_SCHEMA_SPREADSHEET = 5;
+  MEDIA_SET_SCHEMA_EMAIL = 6;
+}
+
+// How writes are sealed on a media set.
+//
+// Foundry default is `TRANSACTIONLESS` — items are visible immediately and
+// cannot be rolled back. `TRANSACTIONAL` mirrors dataset semantics: writes
+// are staged in an open transaction and only visible after commit.
+enum TransactionPolicy {
+  TRANSACTION_POLICY_UNSPECIFIED = 0;
+  TRANSACTION_POLICY_TRANSACTIONLESS = 1;
+  TRANSACTION_POLICY_TRANSACTIONAL = 2;
+}
+
+// Lifecycle of a transactional write batch on a media set branch.
+enum TransactionState {
+  TRANSACTION_STATE_UNSPECIFIED = 0;
+  TRANSACTION_STATE_OPEN = 1;
+  TRANSACTION_STATE_COMMITTED = 2;
+  TRANSACTION_STATE_ABORTED = 3;
+}
+
+// A collection of media items (unstructured files) sharing a common schema.
+//
+// `rid` is a Foundry-style resource identifier
+// (`ri.foundry.main.media_set.<uuid>`). When `virtual` is true the items
+// are read directly from `source_rid` (an external system) rather than
+// from OpenFoundry-managed object storage.
+message MediaSet {
+  string rid = 1;
+  string name = 2;
+  string project_rid = 3;
+  MediaSetSchema schema = 4;
+  // Allowed MIME types. Empty = inferred from `schema`.
+  repeated string allowed_mime_types = 5;
+  TransactionPolicy transaction_policy = 6;
+  // Retention window in seconds. `0` means retain forever.
+  int64 retention_seconds = 7;
+  // True when the media set is virtual (data lives in `source_rid`).
+  bool virtual = 8;
+  // External source RID for virtual media sets (data-connection source).
+  optional string source_rid = 9;
+  // Marking RIDs (security classifications) attached to the media set.
+  repeated string markings = 10;
+  google.protobuf.Timestamp created_at = 11;
+  string created_by = 12;
+}
+
+// A single file inside a media set.
+//
+// `path` is the logical key (typically the original filename); uploads to
+// the same path overwrite the previous item but keep prior versions
+// reachable through the immutable `rid` (Foundry path-deduplication).
+message MediaItem {
+  string rid = 1;
+  string media_set_rid = 2;
+  string branch = 3;
+  // RID of the transaction that wrote this item; empty for transactionless
+  // media sets.
+  string transaction_rid = 4;
+  string path = 5;
+  string mime_type = 6;
+  int64 size_bytes = 7;
+  string sha256 = 8;
+  // Free-form metadata blob (JSON-encoded).
+  string metadata = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // RID of the prior item this one replaced via path deduplication.
+  optional string deduplicated_from = 11;
+}
+
+// A write batch on a transactional media set branch.
+message Transaction {
+  string rid = 1;
+  string media_set_rid = 2;
+  string branch = 3;
+  TransactionState state = 4;
+  google.protobuf.Timestamp opened_at = 5;
+  google.protobuf.Timestamp closed_at = 6;
+  string opened_by = 7;
+}

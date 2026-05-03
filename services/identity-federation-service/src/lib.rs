@@ -22,9 +22,16 @@
 //! Postgres remains for control-plane user/RBAC reads.
 
 use auth_middleware::jwt::JwtConfig;
+use authz_cedar::AuthzEngine;
+use hardening::{
+    audit_topic::IdentityAuditService, jwks_rotation::JwksRotationService, rate_limit::RateLimiter,
+    webauthn::WebAuthnService,
+};
 use sessions_cassandra::SessionsAdapter;
 use sqlx::PgPool;
+use std::sync::Arc;
 
+pub mod cedar_authz;
 pub mod domain;
 pub mod handlers;
 pub mod hardening;
@@ -36,4 +43,14 @@ pub struct AppState {
     pub db: PgPool,
     pub jwt_config: JwtConfig,
     pub sessions: SessionsAdapter,
+    pub jwks: Option<JwksRotationService>,
+    pub webauthn: WebAuthnService,
+    pub audit: IdentityAuditService,
+    pub rate_limiter: Arc<dyn RateLimiter>,
+    /// Cedar engine — owns the bundled `policies/identity_admin.cedar`
+    /// set plus any rows hot-loaded from `pg-policy.cedar_policies`.
+    /// `AuthzEngine` is `Clone` (its inner state is `Arc`-shared) so
+    /// the request extractor `AuthzGuard` clones it cheaply per
+    /// request.
+    pub authz: Arc<AuthzEngine>,
 }

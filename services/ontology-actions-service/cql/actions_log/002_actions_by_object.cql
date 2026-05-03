@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS actions_log.actions_by_object (
     actor_id          uuid,
     subject           text,
     payload           text,
+    event_id          text,
     PRIMARY KEY ((tenant, target_object_id), applied_at, action_id)
 )
 WITH CLUSTERING ORDER BY (applied_at DESC, action_id ASC)

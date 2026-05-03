@@ -90,12 +90,7 @@ pub async fn discover_sources(
                     "partitions": topic.partitions,
                     "discovered_via": "kafka_metadata",
                 });
-                basic_discovered_source(
-                    topic.name.clone(),
-                    topic.name,
-                    "kafka_topic",
-                    metadata,
-                )
+                basic_discovered_source(topic.name.clone(), topic.name, "kafka_topic", metadata)
             })
             .collect());
     }

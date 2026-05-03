@@ -40,8 +40,7 @@ const PG_DB: &str = "cdc_e2e";
 /// Boot one Postgres container with `wal_level=logical`. Returns the
 /// container handle (kept alive by the caller) and a libpq URL for the
 /// host.
-async fn boot_postgres()
--> (testcontainers::ContainerAsync<GenericImage>, String) {
+async fn boot_postgres() -> (testcontainers::ContainerAsync<GenericImage>, String) {
     let image = GenericImage::new("debezium/postgres", "16-alpine")
         .with_exposed_port(5432.tcp())
         .with_wait_for(WaitFor::message_on_stderr(
@@ -101,7 +100,10 @@ async fn wait_for_envelopes(
                 "timed out waiting for {n} envelopes; got {} so far: {:?}",
                 snap.len(),
                 snap.iter()
-                    .map(|e| (e.headers.get("cdc.op").cloned(), e.headers.get("cdc.lsn").cloned()))
+                    .map(|e| (
+                        e.headers.get("cdc.op").cloned(),
+                        e.headers.get("cdc.lsn").cloned()
+                    ))
                     .collect::<Vec<_>>()
             );
         }
@@ -219,7 +221,11 @@ async fn postgres_insert_update_delete_round_trip() {
     let _ = worker.await;
 
     // ── 3. Envelope assertions ──────────────────────────────────────────
-    assert_eq!(envelopes.len(), 3, "expected exactly 3 envelopes (insert/update/delete)");
+    assert_eq!(
+        envelopes.len(),
+        3,
+        "expected exactly 3 envelopes (insert/update/delete)"
+    );
     let ops: Vec<&str> = envelopes
         .iter()
         .map(|e| e.headers.get("cdc.op").map(String::as_str).unwrap_or(""))
@@ -235,8 +241,14 @@ async fn postgres_insert_update_delete_round_trip() {
     );
     for env in &envelopes {
         assert_eq!(env.topic, "data.cdc.orders");
-        assert!(env.headers.contains_key("cdc.lsn"), "missing cdc.lsn header");
-        assert!(env.headers.contains_key("cdc.tx_id"), "missing cdc.tx_id header");
+        assert!(
+            env.headers.contains_key("cdc.lsn"),
+            "missing cdc.lsn header"
+        );
+        assert!(
+            env.headers.contains_key("cdc.tx_id"),
+            "missing cdc.tx_id header"
+        );
         assert_eq!(
             env.headers.get("cdc.table").map(String::as_str),
             Some("orders"),
@@ -353,7 +365,8 @@ async fn worker_resumes_from_last_lsn_after_restart() {
     let _ = stop_a_tx.send(());
     let _ = task_a.await;
     assert_eq!(first_batch.len(), 2);
-    let last_lsn_after_run_1 = parse_lsn(first_batch.last().unwrap().headers.get("cdc.lsn").unwrap());
+    let last_lsn_after_run_1 =
+        parse_lsn(first_batch.last().unwrap().headers.get("cdc.lsn").unwrap());
 
     // ── While the worker is down, write more data ──────────────────────
     sqlx::query("INSERT INTO events (payload) VALUES ($1)")
@@ -387,7 +400,11 @@ async fn worker_resumes_from_last_lsn_after_restart() {
 
     // Run 2 must see exactly the rows produced after the first shutdown.
     // The "first" / "second" payloads must NOT reappear.
-    assert_eq!(resumed.len(), 1, "resumed worker must not replay already-acked rows");
+    assert_eq!(
+        resumed.len(),
+        1,
+        "resumed worker must not replay already-acked rows"
+    );
     let third_payload = std::str::from_utf8(&resumed[0].payload).unwrap();
     assert!(
         third_payload.contains("third"),

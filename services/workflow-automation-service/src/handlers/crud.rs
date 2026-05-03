@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::{executor, lineage},
+    domain::lineage,
     models::workflow::{
         CreateWorkflowRequest, ListWorkflowsQuery, UpdateWorkflowRequest, WorkflowDefinition,
     },
@@ -111,21 +111,7 @@ pub async fn create_workflow(
 	.await;
 
     match workflow {
-        Ok(mut workflow) => {
-            let next_run_at = executor::compute_next_run_at(&workflow);
-            if next_run_at.is_some() {
-                if let Ok(updated) = sqlx::query_as::<_, WorkflowDefinition>(
-                    r#"UPDATE workflows SET next_run_at = $2 WHERE id = $1 RETURNING *"#,
-                )
-                .bind(workflow.id)
-                .bind(next_run_at)
-                .fetch_one(&state.db)
-                .await
-                {
-                    workflow = updated;
-                }
-            }
-
+        Ok(workflow) => {
             if let Err(error) = lineage::sync_workflow_lineage(&state, &workflow).await {
                 tracing::warn!(workflow_id = %workflow.id, "workflow lineage sync failed: {error}");
             }
@@ -221,19 +207,7 @@ pub async fn update_workflow(
     .await;
 
     match updated {
-        Ok(mut workflow) => {
-            let next_run_at = executor::compute_next_run_at(&workflow);
-            if let Ok(reloaded) = sqlx::query_as::<_, WorkflowDefinition>(
-                r#"UPDATE workflows SET next_run_at = $2 WHERE id = $1 RETURNING *"#,
-            )
-            .bind(workflow.id)
-            .bind(next_run_at)
-            .fetch_one(&state.db)
-            .await
-            {
-                workflow = reloaded;
-            }
-
+        Ok(workflow) => {
             if let Err(error) = lineage::sync_workflow_lineage(&state, &workflow).await {
                 tracing::warn!(workflow_id = %workflow.id, "workflow lineage sync failed: {error}");
             }

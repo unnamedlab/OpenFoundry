@@ -6,8 +6,8 @@
 - **Related work:**
   - `docs/architecture/adr/ADR-0007-search-engine-choice.md` (Vespa as the
     sole production search engine).
-  - `infra/k8s/clickhouse/`, `infra/k8s/vespa/`, `infra/k8s/strimzi/`,
-    `infra/k8s/flink/` — the Kubernetes packaging of the
+  - `infra/k8s/platform/charts/vespa/`, `infra/k8s/platform/manifests/strimzi/`,
+    `infra/k8s/platform/manifests/flink/` — the Kubernetes packaging of the
     data-plane components covered by this ADR.
   - `infra/docker-compose.monitoring.yml` — Prometheus / Grafana / Loki /
     Tempo stack used to compute the SLIs below.
@@ -15,7 +15,7 @@
 ## Context
 
 The OpenFoundry data plane spans several stateful systems (Flight SQL caches,
-Iceberg + DataFusion, Kafka via Strimzi, ClickHouse, Vespa, NATS for control
+Iceberg + DataFusion, Kafka via Strimzi, Vespa, NATS for control
 events). Each of them already exposes Prometheus metrics through the
 monitoring stack defined in `infra/docker-compose.monitoring.yml` and the
 Helm charts under `infra/k8s/**`, but there is no single document that:
@@ -52,9 +52,8 @@ zone. Measurement window for each percentile is **rolling 30 days**.
 | 1 | **Flight SQL point query** — cache hit, hot dataset | < 3 ms | **< 20 ms** | < 60 ms |
 | 2 | **Iceberg scan, 1 GB, single-node DataFusion** | < 400 ms | **< 1.5 s** | < 4 s |
 | 3 | **Kafka producer ack** — `acks=all`, intra-AZ | < 5 ms | **< 25 ms** | < 80 ms |
-| 4 | **ClickHouse dashboard query** | < 40 ms | **< 200 ms** | < 600 ms |
-| 5 | **Vespa hybrid query, top-50** (BM25 + vector + filter) | < 15 ms | **< 80 ms** | < 250 ms |
-| 6 | **NATS control event end-to-end** (publish → subscriber handler entry) | < 1 ms | **< 5 ms** | < 15 ms |
+| 4 | **Vespa hybrid query, top-50** (BM25 + vector + filter) | < 15 ms | **< 80 ms** | < 250 ms |
+| 5 | **NATS control event end-to-end** (publish → subscriber handler entry) | < 1 ms | **< 5 ms** | < 15 ms |
 
 The **bold p99 targets are the load-bearing SLO**: alerting, error budgets
 and freeze decisions are computed against them. p50 and p99.9 targets are
@@ -119,23 +118,7 @@ that layer (tracked as part of the rollout for this ADR).
   ```
 - **Good/total ratio:** as 2.1 with `le="0.025"`.
 
-#### 2.4 ClickHouse dashboard query
-
-- **Histogram:** `clickhouse_query_duration_seconds_bucket`
-  (label `workload="dashboard"`). The label is set by the query router /
-  user profile in `infra/k8s/clickhouse/`.
-- **p99 SLI:**
-  ```promql
-  histogram_quantile(
-    0.99,
-    sum by (le) (
-      rate(clickhouse_query_duration_seconds_bucket{workload="dashboard"}[5m])
-    )
-  )
-  ```
-- **Good/total ratio:** as 2.1 with `le="0.200"`.
-
-#### 2.5 Vespa hybrid query, top-50
+#### 2.4 Vespa hybrid query, top-50
 
 - **Histogram:** `vespa_query_latency_seconds_bucket`
   (label `query_profile="hybrid_top50"`).
@@ -150,7 +133,7 @@ that layer (tracked as part of the rollout for this ADR).
   ```
 - **Good/total ratio:** as 2.1 with `le="0.080"`.
 
-#### 2.6 NATS control event end-to-end
+#### 2.5 NATS control event end-to-end
 
 - **Histogram:** `nats_control_event_e2e_seconds_bucket`
   (exposed by the OpenFoundry control-plane SDK at the subscriber side, with
@@ -180,7 +163,6 @@ requests per 30-day window**.
 | Flight SQL point query | 99.5 % under 20 ms | 0.5 % of point queries |
 | Iceberg scan 1 GB | 99.0 % under 1.5 s | 1.0 % of scans |
 | Kafka producer ack | 99.5 % under 25 ms | 0.5 % of produced records |
-| ClickHouse dashboard query | 99.5 % under 200 ms | 0.5 % of dashboard queries |
 | Vespa hybrid top-50 | 99.5 % under 80 ms | 0.5 % of hybrid queries |
 | NATS control event | 99.9 % under 5 ms | 0.1 % of control events |
 
@@ -197,8 +179,8 @@ The freeze policy is evaluated **per SLI**, not globally:
    an on-call page fires for that layer.
 2. **Soft freeze (>= 50 % of monthly budget consumed):** non-urgent
    changes that touch the affected layer (schema migrations, ranking
-   profile changes, broker config changes, ClickHouse merges tuning,
-   Vespa application package deploys, NATS subject restructuring) require
+   profile changes, broker config changes, Vespa application package
+   deploys, NATS subject restructuring) require
    an explicit reviewer from the platform team.
 3. **Hard freeze (>= 90 % of monthly budget consumed):** all
    non-reliability changes to the affected layer are blocked until the
@@ -223,12 +205,11 @@ p99.9 panels and the error-budget burn-down for its SLI.
 
 | Dashboard | UID (proposed) | Backing component / chart |
 |---|---|---|
-| Data Plane SLO Overview | `dp-slo-overview` | aggregates the six SLIs above |
+| Data Plane SLO Overview | `dp-slo-overview` | aggregates the five SLIs above |
 | Flight SQL — point query SLO | `dp-slo-flightsql` | Flight SQL service metrics |
 | DataFusion / Iceberg scan SLO | `dp-slo-datafusion` | DataFusion + Iceberg scan metrics |
-| Kafka producer ack SLO | `dp-slo-kafka` | `infra/k8s/strimzi/` |
-| ClickHouse dashboard query SLO | `dp-slo-clickhouse` | `infra/k8s/clickhouse/` |
-| Vespa hybrid query SLO | `dp-slo-vespa` | `infra/k8s/vespa/` |
+| Kafka producer ack SLO | `dp-slo-kafka` | `infra/k8s/platform/manifests/strimzi/` |
+| Vespa hybrid query SLO | `dp-slo-vespa` | `infra/k8s/platform/charts/vespa/` |
 | NATS control event SLO | `dp-slo-nats` | NATS control plane |
 
 The "Data Plane SLO Overview" dashboard is the single pane used by on-call
@@ -259,7 +240,7 @@ to decide whether a freeze is in effect.
 
 - Add the histograms listed in section 2 wherever they are missing; this
   is a prerequisite for declaring any SLO "live".
-- Provision the seven Grafana dashboards listed in section 4 next to the
+- Provision the six Grafana dashboards listed in section 4 next to the
   existing monitoring stack.
 - Link this ADR from `docs/operations/index.md` so on-call engineers can
   find it from the operations entry point.
@@ -268,8 +249,8 @@ to decide whether a freeze is in effect.
 
 This ADR should be revisited if **any** of the following becomes true:
 
-1. A component is replaced (e.g. a different OLAP engine instead of
-   ClickHouse, or a different streaming substrate instead of Kafka),
+1. A component is replaced (e.g. a different search backend instead of
+   Vespa, or a different streaming substrate instead of Kafka),
    invalidating the corresponding histogram and SLI.
 2. Production traffic shape changes such that the chosen percentiles
    (p50 / p99 / p99.9) no longer represent user-visible behaviour
@@ -282,13 +263,13 @@ This ADR should be revisited if **any** of the following becomes true:
 
 ## References
 
-- `infra/k8s/clickhouse/`, `infra/k8s/vespa/`, `infra/k8s/strimzi/`,
-  `infra/k8s/flink/` — data-plane component packaging.
+- `infra/k8s/platform/charts/vespa/`, `infra/k8s/platform/manifests/strimzi/`,
+  `infra/k8s/platform/manifests/flink/` — data-plane component packaging.
 - `infra/docker-compose.monitoring.yml` — Prometheus / Grafana / Loki /
   Tempo stack used to host the dashboards above.
 - `docs/operations/index.md` — operations entry point, links to this ADR.
 - `docs/architecture/adr/ADR-0007-search-engine-choice.md` — Vespa as the
-  sole production search engine, on which SLI 2.5 depends.
+  sole production search engine, on which SLI 2.4 depends.
 
 ---
 
@@ -314,7 +295,7 @@ moka cache for `eventual` reads).
 | # | Operation | p50 | p95 | p99 |
 |---|---|---|---|---|
 | A1 | `GET /api/v1/ontology/objects/{tenant}/{id}` (read by id, mixed strong/eventual) | < 5 ms | **< 15 ms** | < 35 ms |
-| A2 | `GET /api/v1/ontology/objects/{tenant}/by-type/{type_id}?limit=50` | < 5 ms | **< 20 ms** | < 50 ms |
+| A2 | `GET /api/v1/ontology/objects/{tenant}/by-type/{type_id}?size=50` | < 5 ms | **< 20 ms** | < 50 ms |
 | A3 | `POST /api/v1/ontology/actions/{id}/execute` (writeback w/ outbox) | < 20 ms | **< 80 ms** | < 200 ms |
 | A4 | Sustained throughput on the mix above | 5 000 RPS sostenidos sin `dropped_iterations` |
 
@@ -365,7 +346,7 @@ histogram_quantile(
 
 In addition to the application-level SLIs, Cassandra-side health is
 tracked via the JMX exporter shipped by the k8ssandra-operator
-sidecar (see `infra/k8s/cassandra/cluster-prod.yaml`):
+sidecar (see `infra/k8s/platform/manifests/cassandra/cluster-prod.yaml`):
 
 | SLI | Metric | Threshold |
 |---|---|---|
@@ -378,24 +359,63 @@ sidecar (see `infra/k8s/cassandra/cluster-prod.yaml`):
 Mantenimiento operativo de estos thresholds vive en el runbook
 [`benchmarks/ontology/runbooks/hot-partitions.md`](../../../benchmarks/ontology/runbooks/hot-partitions.md).
 
-### A.4 Resultados de baseline observados (run 2026-05-XX)
+### A.4 Resultados de baseline observados
 
-> **Pendiente de poblar al cierre formal de S1.9** con los números de
-> la primera ejecución verde en el cluster prod. La estructura de la
-> tabla queda lista para que el ingeniero on-call rellene los valores
-> sin reformatear el ADR.
+**Estado de medición al 2026-05-03:** pendiente de ejecución en un
+entorno real. No se reclaman números de S1 desde el workspace local
+porque no había endpoint OpenFoundry levantado, no había dataset
+`OF_BENCH_*` configurado y `k6` no estaba instalado en la máquina de
+trabajo.
+
+Evidencia de preflight local:
+
+| Campo | Valor |
+|---|---|
+| Fecha de intento | 2026-05-03 |
+| Commit base | `70a5fbe` |
+| Estado del workspace | dirty; había cambios no relacionados en curso |
+| Entorno usado | workspace local `/Users/torrefacto/Documents/Repositorios/OpenFoundry` |
+| Plataforma live disponible | No; `curl -fsS --max-time 2` falló contra `127.0.0.1:8080`, `127.0.0.1:50101` y `127.0.0.1:50104` |
+| Dataset | No disponible; no estaban definidos `OF_BENCH_TENANT`, `OF_BENCH_TYPE_ID`, `OF_BENCH_OBJECT_IDS` ni `OF_BENCH_ACTION_ID` |
+| Runner de carga | No disponible localmente; `command -v k6` no devolvió binario |
+| Resultado | Benchmark no ejecutado; no hay métricas reales que reportar |
+
+El harness queda cableado para la primera corrida real:
+
+```bash
+export OF_BENCH_BASE_URL=https://<gateway-o-read-service>
+export OF_BENCH_TOKEN=<jwt-con-scope-read-y-execute>
+export OF_BENCH_TENANT=bench-tenant
+export OF_BENCH_TYPE_ID=bench-type-T01
+export OF_BENCH_OBJECT_IDS=benchmarks/ontology/k6/object-ids.txt
+export OF_BENCH_ACTION_ID=<action-type-id>
+export OF_BENCH_ENVIRONMENT=<cluster/region/node-shape>
+export OF_BENCH_DATASET="50k objects; 10 type_ids; 5k objects/type"
+
+benchmarks/ontology/scripts/run-s1-baseline.sh
+```
+
+El comando anterior ejecuta `k6`, escribe
+`benchmarks/results/ontology-mix-k6.json`,
+`benchmarks/results/ontology-mix-summary.json`,
+`benchmarks/results/ontology-mix-metadata.json` y genera
+`benchmarks/results/adr-0012-s1-baseline.md`, que contiene la tabla
+lista para pegar aquí con p50/p95/p99 reales por operación.
+
+Tabla de cierre actual:
 
 | Operación | p50 medido | p95 medido | p99 medido | Run id |
 |---|---|---|---|---|
-| A1 read by id (strong) | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| A1 read by id (eventual, cache hit) | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| A2 list by type | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| A3 action execute | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Throughput (mix) | _TBD_ RPS | — | — | _TBD_ |
+| A1 read by id (strong) | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
+| A1 read by id (eventual, cache hit) | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
+| A2 list by type | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
+| A3 action execute | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
+| Throughput (mix) | No medido; falta corrida en cluster real | dropped iterations no medidos | error rate no medido | Sin run real |
 
-Cada run alimenta `benchmarks/results/ontology-mix-k6.json` y un
-snapshot post-run de `nodetool tablestats -F json`. Esos artefactos
-son la evidencia primaria; esta tabla los resume.
+Cada corrida aceptable debe adjuntar, además de los JSON de k6, un
+snapshot pre/post de `nodetool tablestats -F json` generado con
+`benchmarks/ontology/scripts/capture-cassandra-baseline.sh`. Esos
+artefactos son la evidencia primaria; esta sección solo los resume.
 
 ### A.5 Error budgets
 

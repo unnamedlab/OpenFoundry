@@ -57,7 +57,9 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | Path | Purpose |
 | --- | --- |
 | `infra/docker-compose*.yml` | local infrastructure |
-| `infra/k8s/helm/open-foundry` | Kubernetes delivery |
+| `infra/local` | Compose-mounted local assets |
+| `infra/k8s/platform` | Kubernetes platform layer: third-party charts, operator CRs, bootstrap manifests |
+| `infra/k8s/helm` | Kubernetes app layer: split OpenFoundry releases + shared profiles |
 | `infra/terraform/providers/openfoundry` | Terraform provider schema output |
 | `.github/workflows` | CI/CD pipelines |
 | `docs/` | technical documentation website |

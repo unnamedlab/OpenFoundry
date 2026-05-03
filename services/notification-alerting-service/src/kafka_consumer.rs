@@ -5,10 +5,7 @@
 //! that wires `event-bus-data::DataSubscriber`.
 
 /// Topics this service consumes. Mirrors the live ontology topics.
-pub const SUBSCRIBE_TOPICS: &[&str] = &[
-    "ontology.object.changed.v1",
-    "ontology.action.applied.v1",
-];
+pub const SUBSCRIBE_TOPICS: &[&str] = &["ontology.object.changed.v1", "ontology.action.applied.v1"];
 
 /// Consumer group. Pinned across replicas so Kafka rebalance keeps
 /// alerting deterministic.

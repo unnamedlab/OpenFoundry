@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, anyhow, bail};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::Client;
+use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use serde_json::json;
 
 use crate::crds::{
@@ -86,7 +86,11 @@ fn render_postgres_kafka_connector(
     if postgres.hostname.trim().is_empty() || postgres.database.trim().is_empty() {
         bail!("postgres source requires hostname and database");
     }
-    let port = if postgres.port == 0 { 5432 } else { postgres.port };
+    let port = if postgres.port == 0 {
+        5432
+    } else {
+        postgres.port
+    };
     let topic_prefix = if postgres.topic_prefix.trim().is_empty() {
         spec.name.clone()
     } else {
@@ -112,7 +116,10 @@ fn render_postgres_kafka_connector(
         // Standard Strimzi/KafkaConnect external secret reference syntax.
         config.insert(
             "database.password".into(),
-            json!(format!("${{secrets:{}/password}}", postgres.password_secret)),
+            json!(format!(
+                "${{secrets:{}/password}}",
+                postgres.password_secret
+            )),
         );
     }
     config.insert("plugin.name".into(), json!("pgoutput"));
@@ -313,7 +320,8 @@ pub async fn delete_resources(
         let api: Api<KafkaConnector> = Api::namespaced(client.clone(), namespace);
         if let Err(err) = api.delete(name, &dp).await {
             if !is_not_found(&err) {
-                return Err(err).with_context(|| format!("delete KafkaConnector {namespace}/{name}"));
+                return Err(err)
+                    .with_context(|| format!("delete KafkaConnector {namespace}/{name}"));
             }
         }
     }
@@ -396,7 +404,10 @@ mod tests {
         );
         assert_eq!(kc.spec.tasks_max, 1);
         assert_eq!(
-            kc.spec.config.get("database.hostname").and_then(|v| v.as_str()),
+            kc.spec
+                .config
+                .get("database.hostname")
+                .and_then(|v| v.as_str()),
             Some("pg.example.com"),
         );
         // Default port applied.
@@ -435,7 +446,14 @@ mod tests {
         assert_eq!(flink.metadata.name.as_deref(), Some("orders-iceberg-sink"));
         assert_eq!(flink.spec.image, DEFAULT_FLINK_IMAGE);
         assert_eq!(flink.spec.flink_version, DEFAULT_FLINK_VERSION);
-        assert!(flink.spec.job.args.iter().any(|a| a == "s3://lake/warehouse"));
+        assert!(
+            flink
+                .spec
+                .job
+                .args
+                .iter()
+                .any(|a| a == "s3://lake/warehouse")
+        );
         assert!(flink.spec.job.args.iter().any(|a| a == "ops"));
         assert!(flink.spec.job.args.iter().any(|a| a == "orders"));
     }

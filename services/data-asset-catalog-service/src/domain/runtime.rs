@@ -14,6 +14,15 @@ use crate::{
     },
 };
 
+const DATASET_BRANCH_BY_NAME_PROJECTION_SQL: &str =
+    "SELECT * FROM dataset_branches WHERE dataset_id = $1 AND name = $2";
+const DATASET_VERSION_BY_NUMBER_PROJECTION_SQL: &str =
+    "SELECT * FROM dataset_versions WHERE dataset_id = $1 AND version = $2";
+const DATASET_VERSIONS_PROJECTION_SQL: &str =
+    "SELECT * FROM dataset_versions WHERE dataset_id = $1 ORDER BY version DESC";
+const DATASET_BRANCHES_PROJECTION_SQL: &str =
+    "SELECT * FROM dataset_branches WHERE dataset_id = $1 ORDER BY is_default DESC, name ASC";
+
 pub struct PreparedDatasetQuery {
     pub ctx: QueryContext,
     pub path: PathBuf,
@@ -31,6 +40,42 @@ pub struct ResolvedDatasetSource {
 pub enum DatasetSourceError {
     Invalid(String),
     Database(String),
+}
+
+pub async fn list_dataset_versions(
+    state: &AppState,
+    dataset_id: Uuid,
+) -> Result<Vec<DatasetVersion>, DatasetSourceError> {
+    sqlx::query_as::<_, DatasetVersion>(DATASET_VERSIONS_PROJECTION_SQL)
+        .bind(dataset_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|error| DatasetSourceError::Database(error.to_string()))
+}
+
+pub async fn list_dataset_branches(
+    state: &AppState,
+    dataset_id: Uuid,
+) -> Result<Vec<DatasetBranch>, DatasetSourceError> {
+    sqlx::query_as::<_, DatasetBranch>(DATASET_BRANCHES_PROJECTION_SQL)
+        .bind(dataset_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|error| DatasetSourceError::Database(error.to_string()))
+}
+
+pub fn versioning_runtime_write_conflict(dataset_id: Uuid) -> Value {
+    json!({
+        "error": "dataset runtime writes moved to dataset-versioning-service",
+        "dataset_id": dataset_id,
+        "owner": "dataset-versioning-service",
+        "details": {
+            "dataset_versions": "owned by dataset-versioning-service",
+            "dataset_branches": "owned by dataset-versioning-service",
+            "dataset_transactions": "owned by dataset-versioning-service",
+            "snapshots_and_data_state": "Iceberg is mandatory; Postgres remains declarative metadata only"
+        }
+    })
 }
 
 pub async fn resolve_dataset_source(
@@ -59,15 +104,11 @@ pub async fn resolve_dataset_source(
 
     let branch = branch.map(str::trim).filter(|value| !value.is_empty());
 
+    // Read-only projection bridge: branch/version resolution still consults
+    // the catalog copy, but runtime ownership lives in
+    // `dataset-versioning-service`.
     let branch_record = if let Some(branch_name) = branch {
-        sqlx::query_as::<_, DatasetBranch>(
-            "SELECT * FROM dataset_branches WHERE dataset_id = $1 AND name = $2",
-        )
-        .bind(dataset_id)
-        .bind(branch_name)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|error| DatasetSourceError::Database(error.to_string()))?
+        load_branch_projection(state, dataset_id, branch_name).await?
     } else {
         None
     };
@@ -80,14 +121,7 @@ pub async fn resolve_dataset_source(
         .or_else(|| branch_record.as_ref().map(|record| record.version))
         .unwrap_or(dataset.current_version);
 
-    let version_record = sqlx::query_as::<_, DatasetVersion>(
-        "SELECT * FROM dataset_versions WHERE dataset_id = $1 AND version = $2",
-    )
-    .bind(dataset_id)
-    .bind(version)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|error| DatasetSourceError::Database(error.to_string()))?;
+    let version_record = load_version_projection(state, dataset_id, version).await?;
 
     let (storage_path, size_bytes) = if version == dataset.current_version {
         (
@@ -107,6 +141,32 @@ pub async fn resolve_dataset_source(
         size_bytes,
         storage_path,
     }))
+}
+
+async fn load_branch_projection(
+    state: &AppState,
+    dataset_id: Uuid,
+    branch_name: &str,
+) -> Result<Option<DatasetBranch>, DatasetSourceError> {
+    sqlx::query_as::<_, DatasetBranch>(DATASET_BRANCH_BY_NAME_PROJECTION_SQL)
+        .bind(dataset_id)
+        .bind(branch_name)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|error| DatasetSourceError::Database(error.to_string()))
+}
+
+async fn load_version_projection(
+    state: &AppState,
+    dataset_id: Uuid,
+    version: i32,
+) -> Result<Option<DatasetVersion>, DatasetSourceError> {
+    sqlx::query_as::<_, DatasetVersion>(DATASET_VERSION_BY_NUMBER_PROJECTION_SQL)
+        .bind(dataset_id)
+        .bind(version)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|error| DatasetSourceError::Database(error.to_string()))
 }
 
 pub async fn prepare_query_context(
@@ -329,8 +389,13 @@ pub fn preview_payload(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use uuid::Uuid;
 
-    use super::{count_query, json_scalar_or_string, paged_query, wrap_query};
+    use super::{
+        DATASET_BRANCH_BY_NAME_PROJECTION_SQL, DATASET_BRANCHES_PROJECTION_SQL,
+        DATASET_VERSION_BY_NUMBER_PROJECTION_SQL, DATASET_VERSIONS_PROJECTION_SQL, count_query,
+        json_scalar_or_string, paged_query, versioning_runtime_write_conflict, wrap_query,
+    };
 
     #[test]
     fn parses_json_scalars_when_possible() {
@@ -354,6 +419,37 @@ mod tests {
         assert_eq!(
             paged_query(sql, 25, 10),
             "SELECT * FROM (SELECT * FROM dataset WHERE amount > 10) AS dataset_view LIMIT 25 OFFSET 10"
+        );
+    }
+
+    #[test]
+    fn versioning_projection_queries_are_read_only() {
+        for sql in [
+            DATASET_BRANCH_BY_NAME_PROJECTION_SQL,
+            DATASET_VERSION_BY_NUMBER_PROJECTION_SQL,
+            DATASET_VERSIONS_PROJECTION_SQL,
+            DATASET_BRANCHES_PROJECTION_SQL,
+        ] {
+            let upper = sql.to_ascii_uppercase();
+            assert!(upper.starts_with("SELECT "));
+            assert!(!upper.contains(" INSERT "));
+            assert!(!upper.contains(" UPDATE "));
+            assert!(!upper.contains(" DELETE "));
+        }
+    }
+
+    #[test]
+    fn runtime_write_conflict_names_versioning_owner() {
+        let payload = versioning_runtime_write_conflict(Uuid::nil());
+
+        assert_eq!(
+            payload["error"],
+            json!("dataset runtime writes moved to dataset-versioning-service")
+        );
+        assert_eq!(payload["owner"], json!("dataset-versioning-service"));
+        assert_eq!(
+            payload["details"]["dataset_transactions"],
+            json!("owned by dataset-versioning-service")
         );
     }
 }

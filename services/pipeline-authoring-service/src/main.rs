@@ -24,9 +24,8 @@ use std::sync::Arc;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
-    Router,
-    middleware,
-    routing::{delete, get, post, put},
+    Router, middleware,
+    routing::{get, post},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use storage_abstraction::StorageBackend;
@@ -35,9 +34,8 @@ use tracing_subscriber::EnvFilter;
 use crate::config::AppConfig;
 
 /// Shared state for every Axum handler. Field set is the union of what
-/// `domain::executor`, `domain::engine::runtime` and `domain::lineage`
-/// (shimmed from `lineage-service`) read; do not narrow without auditing
-/// every consumer.
+/// `domain::executor` and `domain::engine::runtime` read; do not narrow
+/// without auditing every consumer.
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -63,9 +61,11 @@ pub struct AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("pipeline_authoring_service=info,tower_http=info")
-        }))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::new("pipeline_authoring_service=info,tower_http=info")
+            }),
+        )
         .init();
 
     let app_config = AppConfig::from_env()?;
@@ -78,7 +78,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_config = JwtConfig::new(&app_config.jwt_secret).with_env_defaults();
     let http_client = reqwest::Client::new();
     let storage = build_storage(&app_config)?;
-
     let state = AppState {
         db,
         jwt_config: jwt_config.clone(),
@@ -125,6 +124,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/pipelines/_validate", post(handlers::compiler::validate_pipeline))
         .route("/pipelines/_compile", post(handlers::compiler::compile_pipeline))
         .route("/pipelines/_prune", post(handlers::compiler::prune_pipeline))
+        // P2 — JobSpec publish/list. Foundry doc § "Job graph compilation":
+        // each commit on a Code-Repo branch publishes one JobSpec per
+        // output dataset; builds resolve them by walking the branch
+        // fallback chain.
+        .route(
+            "/pipelines/{pipeline_rid}/branches/{branch}/job-specs",
+            get(handlers::job_specs::list_by_pipeline_branch)
+                .post(handlers::job_specs::publish_job_spec),
+        )
+        .route(
+            "/datasets/{dataset_rid}/job-specs",
+            get(handlers::job_specs::list_by_dataset),
+        )
+        // P4 — Parameterized pipelines. Per the Foundry doc the surface
+        // is intentionally narrow: enable, then per-deployment CRUD +
+        // a `:run` endpoint that rejects non-manual triggers.
+        .route(
+            "/pipelines/{rid}/parameterized",
+            post(handlers::parameterized::enable_parameterized),
+        )
+        .route(
+            "/parameterized-pipelines/{id}/deployments",
+            post(handlers::parameterized::create_deployment)
+                .get(handlers::parameterized::list_deployments),
+        )
+        .route(
+            "/parameterized-pipelines/{id}/deployments/{dep_id}",
+            axum::routing::delete(handlers::parameterized::delete_deployment),
+        )
+        .route(
+            "/parameterized-pipelines/{id}/deployments/{dep_id}:run",
+            post(handlers::parameterized::run_deployment),
+        )
         .layer(middleware::from_fn_with_state(
             jwt_config.clone(),
             auth_middleware::layer::auth_layer,
@@ -165,6 +197,8 @@ fn build_storage(cfg: &AppConfig) -> Result<Arc<dyn StorageBackend>, Box<dyn std
             .clone()
             .unwrap_or_else(|| cfg.data_dir.clone());
         std::fs::create_dir_all(&root).ok();
-        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(&root)?))
+        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(
+            &root,
+        )?))
     }
 }

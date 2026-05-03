@@ -31,7 +31,7 @@ services:
       POSTGRES_USER: openfoundry
       POSTGRES_PASSWORD: openfoundry
       POSTGRES_DB: openfoundry
-      # Comma-separated extra databases created by ./init-db/01-create-databases.sh.
+      # Comma-separated extra databases created by ./local/postgres-init/01-create-databases.sh.
       # Override (extend) in `docker-compose.dev.yml` for full per-service split.
       # `pg_policy` is included by default because the transactional outbox
       # (ADR-0022) lives in `pg_policy.outbox.events` and is mirrored to Kafka
@@ -50,7 +50,7 @@ services:
       - max_wal_senders=4
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db:/docker-entrypoint-initdb.d
+      - ./local/postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openfoundry"]
       interval: 5s
@@ -156,7 +156,7 @@ services:
   # ── Cassandra 5 (single-node DX) ────────────────────────
   # Single-node Cassandra 5 for local development. Production runs the
   # full 3-DC × 3-rack × RF=3 layout via k8ssandra-operator (see
-  # `infra/k8s/cassandra/` and `infra/runbooks/cassandra.md`); here we
+  # `infra/k8s/platform/manifests/cassandra/` and `infra/runbooks/cassandra.md`); here we
   # use one node with `SimpleSnitch`-grade overrides because dev work
   # never validates replica placement.
   cassandra:
@@ -182,7 +182,7 @@ services:
       start_period: 60s
 
   # Init container that creates the 6 application keyspaces with RF=1.
-  # Mirrors `infra/k8s/cassandra/keyspaces-job.yaml` but with RF=1 since
+  # Mirrors `infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml` but with RF=1 since
   # this is a single-node cluster. The `temporal_persistence` and
   # `temporal_visibility` keyspaces are created by the Temporal
   # auto-setup container itself, so we do not duplicate them here.
@@ -415,6 +415,78 @@ services:
             "transforms.outbox.headers.json.fields.placement": "headers"
           }' \
           http://debezium-connect:8083/connectors/pg-policy-outbox/config
+        echo "Registering Debezium connector event-streaming-outbox…"
+        curl -fsS -X PUT \
+          -H 'Content-Type: application/json' \
+          --data '{
+            "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+            "tasks.max": "1",
+            "database.hostname": "postgres",
+            "database.port": "5432",
+            "database.user": "openfoundry",
+            "database.password": "openfoundry",
+            "database.dbname": "openfoundry_event_streaming_service",
+            "topic.prefix": "openfoundry.event_streaming",
+            "table.include.list": "outbox.events",
+            "plugin.name": "pgoutput",
+            "slot.name": "of_event_streaming_outbox_slot",
+            "publication.name": "of_event_streaming_outbox_pub",
+            "publication.autocreate.mode": "filtered",
+            "snapshot.mode": "initial",
+            "tombstones.on.delete": "false",
+            "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "key.converter.schemas.enable": "false",
+            "value.converter.schemas.enable": "false",
+            "transforms": "outbox",
+            "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+            "transforms.outbox.table.field.event.id": "event_id",
+            "transforms.outbox.table.field.event.key": "aggregate_id",
+            "transforms.outbox.table.field.event.payload": "payload",
+            "transforms.outbox.table.field.event.timestamp": "created_at",
+            "transforms.outbox.table.expand.json.payload": "true",
+            "transforms.outbox.route.by.field": "topic",
+            "transforms.outbox.route.topic.replacement": "${routedByValue}",
+            "transforms.outbox.table.fields.additional.placement": "aggregate:header:aggregateType,event_id:header:id",
+            "transforms.outbox.headers.json.fields.placement": "headers"
+          }' \
+          http://debezium-connect:8083/connectors/event-streaming-outbox/config
+        echo "Registering Debezium connector connector-management-outbox…"
+        curl -fsS -X PUT \
+          -H 'Content-Type: application/json' \
+          --data '{
+            "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+            "tasks.max": "1",
+            "database.hostname": "postgres",
+            "database.port": "5432",
+            "database.user": "openfoundry",
+            "database.password": "openfoundry",
+            "database.dbname": "openfoundry_data_connector",
+            "topic.prefix": "openfoundry.data_connector",
+            "table.include.list": "outbox.events",
+            "plugin.name": "pgoutput",
+            "slot.name": "of_connector_management_outbox_slot",
+            "publication.name": "of_connector_management_outbox_pub",
+            "publication.autocreate.mode": "filtered",
+            "snapshot.mode": "initial",
+            "tombstones.on.delete": "false",
+            "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+            "key.converter.schemas.enable": "false",
+            "value.converter.schemas.enable": "false",
+            "transforms": "outbox",
+            "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+            "transforms.outbox.table.field.event.id": "event_id",
+            "transforms.outbox.table.field.event.key": "aggregate_id",
+            "transforms.outbox.table.field.event.payload": "payload",
+            "transforms.outbox.table.field.event.timestamp": "created_at",
+            "transforms.outbox.table.expand.json.payload": "true",
+            "transforms.outbox.route.by.field": "topic",
+            "transforms.outbox.route.topic.replacement": "${routedByValue}",
+            "transforms.outbox.table.fields.additional.placement": "aggregate:header:aggregateType,event_id:header:id",
+            "transforms.outbox.headers.json.fields.placement": "headers"
+          }' \
+          http://debezium-connect:8083/connectors/connector-management-outbox/config
         echo "Done."
 
   # ── Apicurio Registry (Schema Registry) ────────────────────
@@ -497,12 +569,58 @@ services:
             }
           }' \
           "$BASE?ifExists=RETURN_OR_UPDATE" >/dev/null
+        echo "Registering dataset.streaming.changed.v1 payload schema …"
+        curl -fsS -X POST \
+          -H 'Content-Type: application/json' \
+          -H 'X-Registry-ArtifactId: dataset.streaming.changed.v1' \
+          -H 'X-Registry-ArtifactType: JSON' \
+          --data '{
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "DatasetStreamingChangedV1",
+            "type": "object",
+            "required": ["event_type", "aggregate", "aggregate_id", "version", "occurred_at", "payload"],
+            "properties": {
+              "event_type":   {"type": "string"},
+              "aggregate":    {"type": "string"},
+              "aggregate_id": {"type": "string"},
+              "stream_id":    {"type": ["string", "null"]},
+              "version":      {"type": "string"},
+              "occurred_at":  {"type": "string", "format": "date-time"},
+              "payload":      {"type": "object"}
+            },
+            "additionalProperties": false
+          }' \
+          "$BASE?ifExists=RETURN_OR_UPDATE" >/dev/null
+        echo "Registering connector.connection.changed.v1 payload schema …"
+        curl -fsS -X POST \
+          -H 'Content-Type: application/json' \
+          -H 'X-Registry-ArtifactId: connector.connection.changed.v1' \
+          -H 'X-Registry-ArtifactType: JSON' \
+          --data '{
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "ConnectorConnectionChangedV1",
+            "type": "object",
+            "required": ["event_type", "aggregate", "aggregate_id", "version", "occurred_at", "name", "connector_type", "status", "payload"],
+            "properties": {
+              "event_type":     {"type": "string"},
+              "aggregate":      {"type": "string"},
+              "aggregate_id":   {"type": "string"},
+              "version":        {"type": "string"},
+              "occurred_at":    {"type": "string", "format": "date-time"},
+              "name":           {"type": "string"},
+              "connector_type": {"type": "string"},
+              "status":         {"type": "string"},
+              "payload":        {"type": "object"}
+            },
+            "additionalProperties": false
+          }' \
+          "$BASE?ifExists=RETURN_OR_UPDATE" >/dev/null
         echo "Done."
 
   # ── Iceberg REST Catalog ───────────────────────────────────
   # Apache Polaris was removed from the default DX stack on 2026-04-30
   # (see ADR-0008). In Kubernetes the Iceberg REST Catalog is provided by
-  # Lakekeeper (`infra/k8s/lakekeeper/`); there is no Polaris/Lakekeeper
+  # Lakekeeper (`infra/k8s/platform/manifests/lakekeeper/`); there is no Polaris/Lakekeeper
   # service in this Compose file. Services that read `ICEBERG_CATALOG_URL`
   # (e.g. dataset-versioning-service, event-streaming-service) treat the
   # variable as optional and fall back to the legacy dataset writer when
@@ -761,6 +879,37 @@ services:
         condition: service_healthy
     ports:
       - "${OPENFOUNDRY_DATASET_VERSIONING_HOST_PORT:-50078}:50078"
+
+  media-sets-service:
+    <<: *app-common
+    profiles: *profiles-data
+    build:
+      context: ..
+      dockerfile: services/media-sets-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50156
+      GRPC_PORT: 50157
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_media_set_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: media
+      STORAGE_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_started
+    ports:
+      - "${OPENFOUNDRY_MEDIA_SETS_HOST_PORT:-50156}:50156"
+      - "${OPENFOUNDRY_MEDIA_SETS_GRPC_HOST_PORT:-50157}:50157"
 
   data-asset-catalog-service:
     <<: *app-common
@@ -2768,7 +2917,7 @@ services:
     ports:
       - "${OPENFOUNDRY_APP_HOST_PORT:-3000}:80"
     volumes:
-      - ./nginx/openfoundry.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./local/nginx/openfoundry.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   postgres_data:

@@ -20,7 +20,7 @@ pub mod iceberg;
 pub mod legacy;
 pub mod writer;
 
-pub use factory::{build_dataset_writer, IcebergSettings, WriterBackendKind, WriterSettings};
+pub use factory::{IcebergSettings, WriterBackendKind, WriterSettings, build_dataset_writer};
 pub use iceberg::{
     IcebergCatalog, IcebergDatasetWriter, IcebergTableRef, InMemoryCatalog, RestCatalogClient,
     SnapshotCommit,

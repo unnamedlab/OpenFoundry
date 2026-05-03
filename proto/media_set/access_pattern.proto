@@ -1,0 +1,77 @@
+syntax = "proto3";
+package open_foundry.media_set;
+
+import "common/types.proto";
+
+// How derived outputs of an access pattern are stored.
+//
+// - RECOMPUTE: never persist; re-run the pattern on every request.
+// - PERSIST: write the derived artifact alongside the source media item.
+// - CACHE_TTL: cache for `ttl_seconds` and recompute after expiry.
+enum PersistencePolicy {
+  PERSISTENCE_POLICY_UNSPECIFIED = 0;
+  PERSISTENCE_POLICY_RECOMPUTE = 1;
+  PERSISTENCE_POLICY_PERSIST = 2;
+  PERSISTENCE_POLICY_CACHE_TTL = 3;
+}
+
+// A registered transformation/derivation that can be applied to items in a
+// media set (e.g. thumbnail, waveform, OCR, HLS segments, geo tile).
+//
+// `kind` is a free-form discriminator interpreted by the worker that runs
+// the pattern (Pipeline Builder transform, ML model, geo tiler, ...).
+// `params` is a JSON blob with kind-specific configuration.
+message AccessPattern {
+  string id = 1;
+  string media_set_rid = 2;
+  // Kind of pattern, e.g. `thumbnail`, `waveform`, `ocr`, `hls`, `geo_tile`.
+  string kind = 3;
+  // Kind-specific configuration as a JSON-encoded string.
+  string params = 4;
+  PersistencePolicy persistence = 5;
+  // TTL in seconds; only consulted when `persistence = CACHE_TTL`.
+  int64 ttl_seconds = 6;
+}
+
+// AccessPatternService registers and runs access patterns against media
+// items in a media set.
+service AccessPatternService {
+  rpc RegisterAccessPattern(RegisterAccessPatternRequest) returns (AccessPattern);
+  rpc ListAccessPatterns(ListAccessPatternsRequest) returns (ListAccessPatternsResponse);
+  rpc RunAccessPattern(RunAccessPatternRequest) returns (RunAccessPatternResponse);
+}
+
+message RegisterAccessPatternRequest {
+  string media_set_rid = 1;
+  string kind = 2;
+  string params = 3;
+  PersistencePolicy persistence = 4;
+  int64 ttl_seconds = 5;
+}
+
+message ListAccessPatternsRequest {
+  string media_set_rid = 1;
+  open_foundry.common.PageRequest pagination = 2;
+}
+
+message ListAccessPatternsResponse {
+  repeated AccessPattern patterns = 1;
+  open_foundry.common.PageResponse pagination = 2;
+}
+
+message RunAccessPatternRequest {
+  string access_pattern_id = 1;
+  // Item to apply the pattern to.
+  string media_item_rid = 2;
+  // Optional override of the registered params, JSON-encoded.
+  string params_override = 3;
+}
+
+message RunAccessPatternResponse {
+  // Presigned URL pointing to the computed/cached artifact.
+  string result_url = 1;
+  string mime_type = 2;
+  int64 size_bytes = 3;
+  // True if the result was served from cache or persisted storage.
+  bool cached = 4;
+}

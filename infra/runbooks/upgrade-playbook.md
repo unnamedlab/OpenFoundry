@@ -48,7 +48,7 @@ Resumen operacional:
      resultante (Layer A).
    - Última hora sin disparos de `KafkaUnderMinIsrPartitions` ni
      `KafkaActiveControllerCountAbnormal` en producción (Layer B —
-     `infra/observability/prometheus-rules/kafka.yaml`).
+     `infra/k8s/platform/observability/prometheus-rules/kafka.yaml`).
    - `kafka-topics.sh ... --under-replicated-partitions` vacío.
    - Última ejecución verde del workflow *Chaos Smoke (Data Plane no-SPOF)*
      hace ≤ 7 días (Layer C — incluye `kill-active-kafka-controller.sh`).

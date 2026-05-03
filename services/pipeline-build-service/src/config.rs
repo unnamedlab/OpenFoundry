@@ -30,6 +30,10 @@ pub struct AppConfig {
     pub s3_secret_key: Option<String>,
     #[serde(default)]
     pub local_storage_root: Option<String>,
+    #[serde(default)]
+    pub cassandra_contact_points: String,
+    #[serde(default = "default_cassandra_local_dc")]
+    pub cassandra_local_dc: String,
     #[serde(default = "default_distributed_pipeline_workers")]
     pub distributed_pipeline_workers: usize,
     #[serde(default = "default_distributed_compute_poll_interval_ms")]
@@ -68,6 +72,10 @@ fn default_storage_backend() -> String {
 
 fn default_storage_bucket() -> String {
     "datasets".to_string()
+}
+
+fn default_cassandra_local_dc() -> String {
+    "dc1".to_string()
 }
 
 fn default_distributed_pipeline_workers() -> usize {

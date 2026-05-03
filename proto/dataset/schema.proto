@@ -1,20 +1,77 @@
 syntax = "proto3";
 package open_foundry.dataset;
 
+// Foundry-parity schema model.
+//
+// Mirrors the 14 Foundry field types documented in
+// docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/
+// Core concepts/Datasets.md (sections "Schemas", "Supported field types",
+// "Schema options", "File formats"):
+//
+//   BOOLEAN, BYTE, SHORT, INTEGER, LONG, FLOAT, DOUBLE, DECIMAL,
+//   STRING, MAP, ARRAY, STRUCT, BINARY, DATE, TIMESTAMP.
+//
+// Composite types (DECIMAL/ARRAY/MAP/STRUCT) carry their parameters in
+// the typed `Field.params` `oneof`. Schema-level options (CSV parsing
+// for `file_format = TEXT`) live in `Schema.custom_metadata`.
+
+// Top-level dataset schema. Persisted per-view in the
+// `dataset_view_schemas` table (Foundry semantics: schemas are metadata
+// on a *dataset view*, so they version with the dataset).
 message Schema {
   repeated Field fields = 1;
+  // Storage format the schema applies to. Drives interpretation of
+  // `custom_metadata` (only TEXT consumes `csv` options today).
+  FileFormat file_format = 2;
+  // Format-level options (CSV parsing for TEXT, etc.). For non-TEXT
+  // formats this is normally unset.
+  CustomMetadata custom_metadata = 3;
 }
 
+// Storage format of the files in the dataset view. Mirrors the three
+// formats listed in Datasets.md § "File formats".
+enum FileFormat {
+  FILE_FORMAT_UNSPECIFIED = 0;
+  PARQUET = 1;
+  AVRO = 2;
+  TEXT = 3;
+}
+
+// One column / field. Composite types nest further `Field`s through the
+// `params` oneof. The legacy `metadata` map is kept for free-form
+// extensions; first-party params live in `params` for type safety.
 message Field {
   string name = 1;
   FieldType field_type = 2;
   bool nullable = 3;
   map<string, string> metadata = 4;
+
+  // Typed parameters for composite types. Exactly one variant is set
+  // depending on `field_type`; primitives leave `params` empty.
+  oneof params {
+    DecimalParams decimal = 10;
+    ArrayParams array = 11;
+    MapParams map = 12;
+    StructParams struct = 13;
+  }
 }
 
+// Foundry field types. Insertions go in numeric order; renaming or
+// reusing a number is a wire-incompatible change.
+//
+// `FIELD_TYPE_LIST` is retained as a deprecated alias for
+// `FIELD_TYPE_ARRAY` so existing payloads keep round-tripping during
+// the rollout.
 enum FieldType {
   FIELD_TYPE_UNSPECIFIED = 0;
   FIELD_TYPE_BOOLEAN = 1;
+
+  // T6.x — promoted from compat to first-class Foundry types. BYTE and
+  // SHORT slot between BOOLEAN and INT32 to match Spark's numeric
+  // ladder (Boolean → Byte → Short → Integer → Long → Float → Double).
+  FIELD_TYPE_BYTE = 14;
+  FIELD_TYPE_SHORT = 15;
+
   FIELD_TYPE_INT32 = 2;
   FIELD_TYPE_INT64 = 3;
   FIELD_TYPE_FLOAT32 = 4;
@@ -24,6 +81,55 @@ enum FieldType {
   FIELD_TYPE_DATE = 8;
   FIELD_TYPE_TIMESTAMP = 9;
   FIELD_TYPE_DECIMAL = 10;
-  FIELD_TYPE_LIST = 11;
+  FIELD_TYPE_LIST = 11 [deprecated = true];
   FIELD_TYPE_STRUCT = 12;
+  FIELD_TYPE_ARRAY = 16;
+  FIELD_TYPE_MAP = 17;
+}
+
+// DECIMAL params. Both `precision` and `scale` are required at runtime;
+// the recommended default in the Foundry docs is precision=38 / scale=18.
+message DecimalParams {
+  uint32 precision = 1;
+  uint32 scale = 2;
+}
+
+// ARRAY params: the element field type. The wrapped Field's `name` is
+// conventionally `"item"` or `"element"` and is informational.
+message ArrayParams {
+  Field array_sub_type = 1;
+}
+
+// MAP params: key + value field types. Foundry documentation requires
+// the key type to be a primitive at the schema validation layer.
+message MapParams {
+  Field map_key_type = 1;
+  Field map_value_type = 2;
+}
+
+// STRUCT params: the ordered list of nested fields. Empty `sub_schemas`
+// is rejected at validation time.
+message StructParams {
+  repeated Field sub_schemas = 1;
+}
+
+// Format-level options carried in `Schema.custom_metadata`. Only
+// `csv` is populated when `file_format = TEXT`; it's empty otherwise.
+message CustomMetadata {
+  CsvOptions csv = 1;
+}
+
+// CSV parsing options for `file_format = TEXT`. Mirrors the keys
+// rendered by Foundry's TextDataFrameReader UI (delimiter, quote,
+// escape, header, null value, charset) plus per-column date and
+// timestamp format strings.
+message CsvOptions {
+  string delimiter = 1;
+  string quote = 2;
+  string escape = 3;
+  bool header = 4;
+  string null_value = 5;
+  string date_format = 6;
+  string timestamp_format = 7;
+  string charset = 8;
 }

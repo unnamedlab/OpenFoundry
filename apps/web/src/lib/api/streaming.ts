@@ -40,6 +40,16 @@ export interface StreamProfile {
 	partitions: number | null;
 }
 
+export type StreamType =
+	| 'STANDARD'
+	| 'HIGH_THROUGHPUT'
+	| 'COMPRESSED'
+	| 'HIGH_THROUGHPUT_COMPRESSED';
+
+export type StreamConsistency = 'AT_LEAST_ONCE' | 'EXACTLY_ONCE';
+
+export type StreamKind = 'INGEST' | 'DERIVED';
+
 export interface StreamDefinition {
 	id: string;
 	name: string;
@@ -51,8 +61,65 @@ export interface StreamDefinition {
 	partitions: number;
 	consistency_guarantee: string;
 	stream_profile: StreamProfile;
+	stream_type: StreamType;
+	compression: boolean;
+	ingest_consistency: StreamConsistency;
+	pipeline_consistency: StreamConsistency;
+	checkpoint_interval_ms: number;
+	kind: StreamKind;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface StreamView {
+	id: string;
+	stream_rid: string;
+	view_rid: string;
+	schema_json: unknown | null;
+	config_json: unknown | null;
+	generation: number;
+	active: boolean;
+	created_by: string;
+	created_at: string;
+	retired_at: string | null;
+}
+
+export interface ResetStreamResponse {
+	stream_rid: string;
+	old_view_rid: string;
+	new_view_rid: string;
+	generation: number;
+	view: StreamView;
+	push_url: string;
+	forced: boolean;
+}
+
+export interface PushUrlResponse {
+	stream_rid: string;
+	view_rid: string;
+	generation: number;
+	push_url: string;
+	note: string;
+}
+
+export interface StreamConfig {
+	stream_type: StreamType;
+	compression: boolean;
+	partitions: number;
+	retention_ms: number;
+	ingest_consistency: StreamConsistency;
+	pipeline_consistency: StreamConsistency;
+	checkpoint_interval_ms: number;
+}
+
+export interface UpdateStreamConfigRequest {
+	stream_type?: StreamType;
+	compression?: boolean;
+	partitions?: number;
+	retention_ms?: number;
+	ingest_consistency?: StreamConsistency;
+	pipeline_consistency?: StreamConsistency;
+	checkpoint_interval_ms?: number;
 }
 
 export interface PushStreamEventsResponse {
@@ -89,6 +156,9 @@ export interface WindowDefinition {
 	allowed_lateness_seconds: number;
 	aggregation_keys: string[];
 	measure_fields: string[];
+	keyed?: boolean;
+	key_columns?: string[];
+	state_ttl_seconds?: number;
 	created_at: string;
 	updated_at: string;
 }
@@ -287,8 +357,42 @@ export function updateStream(id: string, body: {
 	schema?: StreamSchema;
 	source_binding?: ConnectorBinding;
 	retention_hours?: number;
+	partitions?: number;
+	consistency_guarantee?: string;
+	stream_profile?: StreamProfile;
+	stream_type?: StreamType;
+	compression?: boolean;
+	ingest_consistency?: StreamConsistency;
+	pipeline_consistency?: StreamConsistency;
+	checkpoint_interval_ms?: number;
 }) {
 	return api.put<StreamDefinition>(`/streaming/streams/${id}`, body);
+}
+
+export function getStreamConfig(id: string) {
+	return api.get<StreamConfig>(`/streaming/streams/${id}/config`);
+}
+
+export function updateStreamConfig(id: string, body: UpdateStreamConfigRequest) {
+	return api.put<StreamConfig>(`/streaming/streams/${id}/config`, body);
+}
+
+export function listStreamViews(id: string) {
+	return api.get<ListResponse<StreamView>>(`/streaming/streams/${id}/views`);
+}
+
+export function getCurrentStreamView(id: string) {
+	return api.get<StreamView>(`/streaming/streams/${id}/current-view`);
+}
+
+export interface ResetStreamRequest {
+	new_schema?: unknown;
+	new_config?: unknown;
+	force?: boolean;
+}
+
+export function resetStream(id: string, body: ResetStreamRequest = {}) {
+	return api.post<ResetStreamResponse>(`/streaming/streams/${id}/reset`, body);
 }
 
 export function pushStreamEvents(id: string, body: {
@@ -563,9 +667,109 @@ export interface ResetTopologyResponse {
 	message: string;
 }
 
-export function listCheckpoints(topologyId: string) {
+export function listCheckpoints(topologyId: string, last: number | null = null) {
+	const qs = last ? `?last=${last}` : '';
 	return api.get<ListResponse<Checkpoint>>(
-		`/streaming/topologies/${topologyId}/checkpoints`
+		`/streaming/topologies/${topologyId}/checkpoints${qs}`
+	);
+}
+
+// Bloque P4 — stream-monitoring metrics rollup.
+export interface StreamMetricsResponse {
+	stream_id: string;
+	window_seconds: number;
+	records_ingested: number;
+	records_output: number;
+	total_lag: number;
+	total_throughput: number;
+	utilization_pct: number;
+	from: string;
+	to: string;
+}
+
+export function getStreamMetrics(streamId: string, window: '5m' | '30m' | string = '5m') {
+	return api.get<StreamMetricsResponse>(
+		`/streaming/streams/${streamId}/metrics?window=${encodeURIComponent(window)}`
+	);
+}
+
+// Bloque P6 — streaming compute usage rollup.
+export interface UsageBucket {
+	bucket_start: string;
+	compute_seconds: number;
+	records_processed: number;
+}
+
+export interface UsageResponse {
+	from: string;
+	to: string;
+	group: 'hour' | 'day';
+	buckets: UsageBucket[];
+	total_compute_seconds: number;
+	total_records_processed: number;
+}
+
+export function getStreamUsage(
+	streamId: string,
+	options: { from?: string; to?: string; group?: 'hour' | 'day' } = {}
+) {
+	const params = new URLSearchParams();
+	if (options.from) params.set('from', options.from);
+	if (options.to) params.set('to', options.to);
+	if (options.group) params.set('group', options.group);
+	const qs = params.toString();
+	return api.get<UsageResponse>(
+		`/streaming/streams/${streamId}/usage${qs ? `?${qs}` : ''}`
+	);
+}
+
+export function getTopologyUsage(
+	topologyId: string,
+	options: { from?: string; to?: string; group?: 'hour' | 'day' } = {}
+) {
+	const params = new URLSearchParams();
+	if (options.from) params.set('from', options.from);
+	if (options.to) params.set('to', options.to);
+	if (options.group) params.set('group', options.group);
+	const qs = params.toString();
+	return api.get<UsageResponse>(
+		`/streaming/topologies/${topologyId}/usage${qs ? `?${qs}` : ''}`
+	);
+}
+
+// Bloque P5 — hybrid hot/cold preview.
+export type PreviewMode = 'oldest' | 'hot_only' | 'cold_only';
+
+export interface PreviewRow {
+	sequence_no: number | null;
+	event_time: string;
+	payload: unknown;
+	/** Per-record source. The UI keys the "live"/"archived" badge off
+	 * this field. */
+	source: 'hot' | 'cold';
+	snapshot_id: string | null;
+	parquet_path: string | null;
+}
+
+export interface PreviewResponse {
+	/** Aggregate label so the UI knows whether the response is purely
+	 * hot, purely cold, or a hybrid mix. */
+	source: 'hot' | 'cold' | 'hybrid';
+	data: PreviewRow[];
+}
+
+export function previewStream(
+	streamId: string,
+	options: { mode?: PreviewMode; limit?: number; from_offset?: number } = {}
+) {
+	const params = new URLSearchParams();
+	if (options.mode) params.set('from', options.mode);
+	if (options.limit !== undefined) params.set('limit', String(options.limit));
+	if (options.from_offset !== undefined)
+		params.set('from_offset', String(options.from_offset));
+	const qs = params.toString();
+	return api.get<PreviewResponse>(
+		`/streaming/streams/${streamId}/preview${qs ? `?${qs}` : ''}`
 	);
 }
 export function triggerCheckpoint(
@@ -581,5 +785,132 @@ export function resetTopology(
 	return api.post<ResetTopologyResponse>(
 		`/streaming/topologies/${topologyId}/reset`,
 		body
+	);
+}
+
+// Bloque P3 — Streaming profiles
+export type ProfileCategory =
+	| 'TASKMANAGER_RESOURCES'
+	| 'JOBMANAGER_RESOURCES'
+	| 'PARALLELISM'
+	| 'NETWORK'
+	| 'CHECKPOINTING'
+	| 'ADVANCED';
+
+export type ProfileSizeClass = 'SMALL' | 'MEDIUM' | 'LARGE';
+
+export interface StreamingProfile {
+	id: string;
+	name: string;
+	description: string;
+	category: ProfileCategory;
+	size_class: ProfileSizeClass;
+	restricted: boolean;
+	config_json: Record<string, string>;
+	version: number;
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface StreamingProfileProjectRef {
+	project_rid: string;
+	profile_id: string;
+	imported_by: string;
+	imported_at: string;
+	imported_order: number;
+}
+
+export interface PipelineProfileAttachment {
+	pipeline_rid: string;
+	profile_id: string;
+	attached_by: string;
+	attached_at: string;
+	attached_order: number;
+}
+
+export interface EffectiveFlinkConfig {
+	pipeline_rid: string;
+	config: Record<string, string>;
+	source_map: Record<string, string>;
+	warnings: string[];
+}
+
+export interface CreateStreamingProfileRequest {
+	name: string;
+	description?: string;
+	category: ProfileCategory;
+	size_class: ProfileSizeClass;
+	restricted?: boolean;
+	config_json: Record<string, string>;
+}
+
+export interface PatchStreamingProfileRequest {
+	name?: string;
+	description?: string;
+	category?: ProfileCategory;
+	size_class?: ProfileSizeClass;
+	restricted?: boolean;
+	config_json?: Record<string, string>;
+}
+
+export function listStreamingProfiles(filters: { category?: ProfileCategory; size_class?: ProfileSizeClass } = {}) {
+	const params = new URLSearchParams();
+	if (filters.category) params.set('category', filters.category);
+	if (filters.size_class) params.set('size_class', filters.size_class);
+	const qs = params.toString();
+	const url = qs ? `/streaming/streaming-profiles?${qs}` : '/streaming/streaming-profiles';
+	return api.get<ListResponse<StreamingProfile>>(url);
+}
+
+export function createStreamingProfile(body: CreateStreamingProfileRequest) {
+	return api.post<StreamingProfile>('/streaming/streaming-profiles', body);
+}
+
+export function patchStreamingProfile(id: string, body: PatchStreamingProfileRequest) {
+	return api.patch<StreamingProfile>(`/streaming/streaming-profiles/${id}`, body);
+}
+
+export function listStreamingProfileProjectRefs(profileId: string) {
+	return api.get<ListResponse<StreamingProfileProjectRef>>(
+		`/streaming/streaming-profiles/${profileId}/project-refs`
+	);
+}
+
+export function importStreamingProfileToProject(projectRid: string, profileId: string) {
+	return api.post<StreamingProfileProjectRef>(
+		`/streaming/projects/${encodeURIComponent(projectRid)}/streaming-profile-refs/${profileId}`,
+		{}
+	);
+}
+
+export function removeStreamingProfileFromProject(projectRid: string, profileId: string) {
+	return api.delete<{ removed: boolean; warning: string }>(
+		`/streaming/projects/${encodeURIComponent(projectRid)}/streaming-profile-refs/${profileId}`
+	);
+}
+
+export function listPipelineStreamingProfiles(pipelineRid: string) {
+	return api.get<ListResponse<StreamingProfile>>(
+		`/streaming/pipelines/${encodeURIComponent(pipelineRid)}/streaming-profiles`
+	);
+}
+
+export function attachProfileToPipeline(pipelineRid: string, body: { project_rid: string; profile_id: string }) {
+	return api.post<PipelineProfileAttachment>(
+		`/streaming/pipelines/${encodeURIComponent(pipelineRid)}/streaming-profiles`,
+		body
+	);
+}
+
+export function detachProfileFromPipeline(pipelineRid: string, profileId: string) {
+	return api.delete<{ detached: boolean }>(
+		`/streaming/pipelines/${encodeURIComponent(pipelineRid)}/streaming-profiles/${profileId}`
+	);
+}
+
+export function getPipelineEffectiveFlinkConfig(pipelineRid: string) {
+	return api.get<EffectiveFlinkConfig>(
+		`/streaming/pipelines/${encodeURIComponent(pipelineRid)}/effective-flink-config`
 	);
 }

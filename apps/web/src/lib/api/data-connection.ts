@@ -222,6 +222,45 @@ export interface TestConnectionResult {
   latency_ms: number | null;
 }
 
+// ---------------------------------------------------------------------------
+// Media-set syncs (Foundry "Set up a media set sync" — S3 / ABFS)
+//
+// Mirrors `services/connector-management-service/src/handlers/media_set_syncs.rs`.
+// Two flavours are supported:
+//   * `MEDIA_SET_SYNC` copies bytes into Foundry storage.
+//   * `VIRTUAL_MEDIA_SET_SYNC` only registers metadata (bytes stay
+//     in the source). Per Foundry "Virtual media sets.md".
+// ---------------------------------------------------------------------------
+
+export type MediaSetSyncKind = 'MEDIA_SET_SYNC' | 'VIRTUAL_MEDIA_SET_SYNC';
+
+export interface MediaSetSyncFilters {
+  exclude_already_synced: boolean;
+  path_glob: string | null;
+  /** Bytes — `null` means "no limit". */
+  file_size_limit: number | null;
+  ignore_unmatched_schema: boolean;
+}
+
+export interface MediaSetSyncDef {
+  id: string;
+  source_id: string;
+  kind: MediaSetSyncKind;
+  target_media_set_rid: string;
+  subfolder: string;
+  filters: MediaSetSyncFilters;
+  schedule_cron: string | null;
+  created_at: string;
+}
+
+export interface CreateMediaSetSyncRequest {
+  kind: MediaSetSyncKind;
+  target_media_set_rid: string;
+  subfolder?: string;
+  filters?: Partial<MediaSetSyncFilters>;
+  schedule_cron?: string | null;
+}
+
 // Registrations / discovery payloads ----------------------------------------
 
 export interface DiscoveredSource {
@@ -335,6 +374,17 @@ export const dataConnection = {
   },
   listRuns(syncId: string): Promise<SyncRun[]> {
     return api.get(`${BASE}/syncs/${syncId}/runs`);
+  },
+
+  // Media-set syncs (P1.4) -----------------------------------------------
+  listMediaSetSyncs(sourceId: string): Promise<MediaSetSyncDef[]> {
+    return api.get(`${BASE}/sources/${sourceId}/media-set-syncs`);
+  },
+  createMediaSetSync(
+    sourceId: string,
+    body: CreateMediaSetSyncRequest
+  ): Promise<MediaSetSyncDef> {
+    return api.post(`${BASE}/sources/${sourceId}/media-set-syncs`, body);
   },
 };
 

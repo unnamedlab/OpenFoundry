@@ -1,0 +1,174 @@
+---
+# Apache Cassandra cluster for `dev` / `ci` environments.
+#
+# Topology rationale (per ADR-0020):
+#   * Single DC with 3 nodes — the smallest topology that exercises
+#     replication, repair and quorum reads/writes faithfully.
+#   * RF=3 with `LOCAL_QUORUM` as the platform default so handlers
+#     hit the same consistency profile they will see in production.
+#   * NetworkTopologyStrategy is used (not SimpleStrategy) so this
+#     cluster is shape-compatible with the multi-DC production
+#     cluster (`cluster-prod.yaml`, added in S0.2.c).
+#   * JBOD on `ceph-rbd-fast` (NVMe-backed Ceph block, see
+#     infra/k8s/platform/manifests/rook/cluster.yaml). Single data volume per pod —
+#     Ceph already provides triple-replicated, striped storage;
+#     splitting Cassandra's data dir over multiple PVs in dev would
+#     add IOPS contention without a durability win.
+#   * Reaper is enabled (sub-range repair, weekly per keyspace).
+#   * Medusa is enabled (backups to a Ceph S3 bucket; ObjectBucketClaim
+#     follows the convention in infra/k8s/platform/manifests/rook/bucket.yaml).
+#   * Stargate is disabled — services use the `scylla` Rust crate over
+#     CQL.
+#
+# Resources are sized for a developer laptop / CI node: 2 vCPU and
+# 4 GiB heap per Cassandra pod, which keeps the whole cluster under
+# ~7 GiB of pod RAM. Production sizing lives in `cluster-prod.yaml`.
+
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: of-cass-dev
+  namespace: cassandra
+spec:
+  cassandra:
+    serverVersion: "5.0.2"
+    serverType: cassandra
+    superuserSecretRef:
+      name: of-cass-dev-superuser
+    storageConfig:
+      cassandraDataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ceph-rbd-fast
+        resources:
+          requests:
+            storage: 100Gi
+    config:
+      jvmOptions:
+        heap_initial_size: 4G
+        heap_max_size: 4G
+        heap_size_young_generation: 800M
+        gc: G1GC
+        additional-jvm-opts:
+          - "-Dcassandra.system_distributed_replication_dc_names=dc1"
+          - "-Dcassandra.system_distributed_replication_per_dc=3"
+      cassandraYaml:
+        # Tuning aligned with ADR-0020 hard rules.
+        num_tokens: 16
+        allocate_tokens_for_local_replication_factor: 3
+        endpoint_snitch: GossipingPropertyFileSnitch
+        # No client-side TLS in dev; production overrides this.
+        client_encryption_options:
+          enabled: false
+        server_encryption_options:
+          internode_encryption: none
+        # Defensive defaults that catch modelling mistakes early
+        # (see ADR-0020 §"Hard modelling rules").
+        tombstone_warn_threshold: 1000
+        tombstone_failure_threshold: 100000
+        # Cassandra 5 SAI is allowed only by exception; the default
+        # query lint rejects it. See data-model-cassandra.md.
+        allow_unsafe_aggressive_sstable_expiration: false
+    networking:
+      hostNetwork: false
+    # Single DC named `dc1` — symmetric with the production layout
+    # so that consistency levels translate without code changes.
+    datacenters:
+      - metadata:
+          name: dc1
+        size: 3
+        racks:
+          - name: rack1
+          - name: rack2
+          - name: rack3
+        resources:
+          requests:
+            cpu: "1500m"
+            memory: 6Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+        stargate: {}   # explicitly empty — Stargate is not deployed
+        # Spread the 3 Cassandra pods across 3 racks (mapped to k8s
+        # zones via the GossipingPropertyFileSnitch + topology labels)
+        # so a single-zone outage takes at most one replica per token
+        # range.
+        racksOverrides: []
+
+  # Reaper: scheduled anti-entropy repairs. Sub-range parallelism so a
+  # single repair pass does not saturate the cluster.
+  reaper:
+    deploymentMode: PER_DC
+    keyspace: reaper_db
+    autoScheduling:
+      enabled: true
+      initialDelayPeriod: PT15M
+      periodBetweenPolls: PT10M
+      timeBeforeFirstSchedule: PT5M
+      scheduleSpreadPeriod: PT6H
+      excludedKeyspaces:
+        - system
+        - system_auth
+        - system_schema
+        - system_distributed
+        - system_traces
+    resources:
+      requests:
+        cpu: "200m"
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # Medusa: backups to Ceph S3. The bucket and credentials are
+  # provisioned via an ObjectBucketClaim (see infra/k8s/platform/manifests/rook/bucket.yaml
+  # for the pattern). The referenced Secret carries `access_key` and
+  # `secret_key` for the S3 endpoint.
+  medusa:
+    storageProperties:
+      storageProvider: s3_compatible
+      bucketName: cassandra-backups-dev
+      prefix: of-cass-dev
+      storageSecretRef:
+        name: medusa-bucket-credentials
+      host: rook-ceph-rgw-rgw-data.rook-ceph.svc
+      port: 80
+      secure: false
+      maxBackupAge: 14   # days
+      maxBackupCount: 14
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+---
+# Superuser secret. Generated out-of-band in real deployments; this
+# placeholder is overwritten by External Secrets in non-dev profiles.
+# In `dev`, kustomize / helm overlays inject a random value at install
+# time. Do not commit a real password here.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: of-cass-dev-superuser
+  namespace: cassandra
+type: Opaque
+stringData:
+  username: cassandra-superuser
+  # Replace with `kubectl create secret generic ... --from-literal=password=$(openssl rand -base64 32)`
+  password: REPLACE_ME_AT_INSTALL
+---
+# Reference Secret holding S3 credentials for the Medusa bucket. Real
+# credentials come from the ObjectBucketClaim that provisions
+# `cassandra-backups-dev`; this Secret is the place the OBC binding
+# materialises them.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: medusa-bucket-credentials
+  namespace: cassandra
+type: Opaque
+stringData:
+  access_key: REPLACE_VIA_OBC
+  secret_key: REPLACE_VIA_OBC

@@ -5,7 +5,7 @@ Provisions the production object-storage backend for OpenFoundry:
 1. Creates the `rook-ceph` namespace.
 2. Installs the upstream **rook-ceph** operator via Helm
    (chart repo `https://charts.rook.io/release`).
-3. Applies the desired Ceph topology from `infra/k8s/rook/`:
+3. Applies the desired Ceph topology from `infra/k8s/platform/manifests/rook/`:
    - `cluster.yaml` — `CephCluster` (mon=5, mgr=2, host-path state, device discovery)
    - `objectstore.yaml` — `CephObjectStore` with EC 8+3 data pool + replicated metadata pool, 3 RGW pods, and a `ceph-bucket` `StorageClass`
    - `bucket.yaml` — `ObjectBucketClaim`s for `openfoundry-datasets`, `openfoundry-models`, `openfoundry-iceberg`

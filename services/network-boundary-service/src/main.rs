@@ -31,9 +31,11 @@ pub struct AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("network_boundary_service=info,tower_http=info")
-        }))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::new("network_boundary_service=info,tower_http=info")
+            }),
+        )
         .init();
 
     let app_config = AppConfig::from_env()?;
@@ -54,7 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Full network-boundary surface (used by gateway/admin tooling).
     let network_boundary = Router::new()
-        .route("/policies", get(handlers::boundary::list_policies).post(handlers::boundary::create_policy))
+        .route(
+            "/policies",
+            get(handlers::boundary::list_policies).post(handlers::boundary::create_policy),
+        )
         .route(
             "/policies/ingress",
             get(handlers::boundary::list_ingress_policies),
@@ -69,7 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/private-links",
-            get(handlers::boundary::list_private_links).post(handlers::boundary::create_private_link),
+            get(handlers::boundary::list_private_links)
+                .post(handlers::boundary::create_private_link),
         )
         .route(
             "/proxies",

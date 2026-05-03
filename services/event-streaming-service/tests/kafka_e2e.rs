@@ -37,10 +37,7 @@ async fn publish_and_subscribe_roundtrip() {
 
     // Topic must be pre-created: the producer config disables auto-create.
     let topic = "openfoundry.it.roundtrip";
-    broker
-        .create_topic(topic, 1)
-        .await
-        .expect("create topic");
+    broker.create_topic(topic, 1).await.expect("create topic");
 
     let bus_cfg = broker.config_for(SERVICE);
     let backend = RdKafkaBackend::new(bus_cfg, format!("{SERVICE}-router"))
@@ -74,18 +71,29 @@ async fn publish_and_subscribe_roundtrip() {
     // Drain three records with a generous timeout so a slow CI host does not
     // produce flakes.
     for expected in 0..3u8 {
-        let next =
-            tokio::time::timeout(Duration::from_secs(15), stream.next()).await;
+        let next = tokio::time::timeout(Duration::from_secs(15), stream.next()).await;
         let item = next
             .expect("must receive a record before timeout")
             .expect("stream must yield Some")
             .expect("envelope must be Ok");
         assert_eq!(item.topic, topic);
-        assert_eq!(item.payload.as_ref(), &[expected, expected + 1, expected + 2]);
-        assert_eq!(item.schema_id.as_deref(), Some(format!("schema-{expected}").as_str()));
+        assert_eq!(
+            item.payload.as_ref(),
+            &[expected, expected + 1, expected + 2]
+        );
+        assert_eq!(
+            item.schema_id.as_deref(),
+            Some(format!("schema-{expected}").as_str())
+        );
         // Caller-provided headers must round-trip verbatim.
-        assert_eq!(item.headers.get("ol-namespace").map(String::as_str), Some("of://test"));
-        assert_eq!(item.headers.get("ol-job-name").map(String::as_str), Some("kafka-e2e"));
+        assert_eq!(
+            item.headers.get("ol-namespace").map(String::as_str),
+            Some("of://test")
+        );
+        assert_eq!(
+            item.headers.get("ol-job-name").map(String::as_str),
+            Some("kafka-e2e")
+        );
         // The auto-stamped `ol-event-time` must be present.
         assert!(
             item.headers.contains_key("ol-event-time"),
@@ -102,10 +110,19 @@ async fn subscribe_with_wildcard_translates_to_kafka_regex() {
         .expect("ephemeral Kafka broker must start");
 
     // Two siblings matched by a single-token wildcard.
-    broker.create_topic("data.alpha", 1).await.expect("create alpha");
-    broker.create_topic("data.beta", 1).await.expect("create beta");
+    broker
+        .create_topic("data.alpha", 1)
+        .await
+        .expect("create alpha");
+    broker
+        .create_topic("data.beta", 1)
+        .await
+        .expect("create beta");
     // A non-match that must NOT show up.
-    broker.create_topic("other.gamma", 1).await.expect("create gamma");
+    broker
+        .create_topic("other.gamma", 1)
+        .await
+        .expect("create gamma");
 
     let backend = RdKafkaBackend::new(broker.config_for(SERVICE), format!("{SERVICE}-wildcard"))
         .expect("backend builds");
@@ -140,5 +157,8 @@ async fn subscribe_with_wildcard_translates_to_kafka_regex() {
         }
     }
     received.sort();
-    assert_eq!(received, vec!["data.alpha".to_string(), "data.beta".to_string()]);
+    assert_eq!(
+        received,
+        vec!["data.alpha".to_string(), "data.beta".to_string()]
+    );
 }

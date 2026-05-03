@@ -24,12 +24,25 @@ pub async fn create_pipeline(
         nodes,
         schedule_config,
         retry_policy,
+        seed_dataset_rid,
+        inputs,
     } = body;
     let id = Uuid::now_v7();
     let description = description.unwrap_or_default();
     let status = status.unwrap_or_else(|| "draft".to_string());
     let schedule_config = schedule_config.unwrap_or_default();
     let retry_policy = retry_policy.unwrap_or_default();
+
+    // P5 — when no DAG was provided, synthesise a passthrough input
+    // node from `seed_dataset_rid` / `inputs`. Mirrors Foundry's
+    // "Open in Pipeline Builder" entry point: the user lands on a
+    // pipeline already wired to read from the upstream dataset.
+    let nodes = if nodes.is_empty() {
+        synthesize_seed_nodes(seed_dataset_rid.as_deref(), &inputs)
+    } else {
+        nodes
+    };
+
     let validation = compiler::validate_definition(&status, &schedule_config, &nodes);
     if !validation.valid {
         return (StatusCode::BAD_REQUEST, Json(validation)).into_response();
@@ -202,6 +215,46 @@ pub async fn update_pipeline(
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
+}
+
+/// P5 — build seed input nodes when the caller leaves `nodes` empty.
+/// One passthrough node per `inputs[]` entry; if both lists are
+/// non-empty the explicit `inputs` win. The dataset RID is stored
+/// under `config.seed_dataset_rid` so a later resolution step (or a
+/// catalog lookup) can replace it with the canonical UUID.
+fn synthesize_seed_nodes(
+    seed_dataset_rid: Option<&str>,
+    inputs: &[crate::models::pipeline::PipelineInputSeed],
+) -> Vec<crate::models::pipeline::PipelineNode> {
+    use crate::models::pipeline::PipelineNode;
+    let mut nodes = Vec::new();
+    let combined: Vec<(String, Option<String>)> = if !inputs.is_empty() {
+        inputs
+            .iter()
+            .map(|i| (i.dataset_rid.clone(), i.label.clone()))
+            .collect()
+    } else if let Some(rid) = seed_dataset_rid {
+        vec![(rid.to_string(), None)]
+    } else {
+        Vec::new()
+    };
+
+    for (i, (rid, label)) in combined.into_iter().enumerate() {
+        let node_id = format!("input_{i}");
+        let label = label.unwrap_or_else(|| format!("Dataset input {}", i + 1));
+        nodes.push(PipelineNode {
+            id: node_id,
+            label,
+            transform_type: "passthrough".to_string(),
+            config: serde_json::json!({
+                "seed_dataset_rid": rid,
+            }),
+            depends_on: Vec::new(),
+            input_dataset_ids: Vec::new(),
+            output_dataset_id: None,
+        });
+    }
+    nodes
 }
 
 pub async fn delete_pipeline(

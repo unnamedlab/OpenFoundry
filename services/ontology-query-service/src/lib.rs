@@ -38,10 +38,7 @@ pub struct QueryState {
 /// `/metrics` routes so unauthenticated probes keep working.
 pub fn build_router(state: QueryState) -> Router {
     let api = Router::new()
-        .route(
-            "/objects/{tenant}/{object_id}",
-            get(handlers::get_object),
-        )
+        .route("/objects/{tenant}/{object_id}", get(handlers::get_object))
         .route(
             "/objects/{tenant}/by-type/{type_id}",
             get(handlers::list_objects_by_type),

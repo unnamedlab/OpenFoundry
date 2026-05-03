@@ -124,8 +124,7 @@ pub async fn bulk_register(
     let mut created = Vec::with_capacity(body.registrations.len());
     let mut errors = Vec::new();
     for item in body.registrations {
-        let mode = match discovery::normalize_registration_mode(item.registration_mode.as_deref())
-        {
+        let mode = match discovery::normalize_registration_mode(item.registration_mode.as_deref()) {
             Ok(mode) => mode,
             Err(error) => {
                 errors.push(json!({ "selector": item.selector, "error": error }));
@@ -380,7 +379,11 @@ pub async fn query_registration_arrow(
             .into_response(),
         Err(error) => {
             tracing::error!("arrow encoding failed: {error}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": error }))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": error })),
+            )
+                .into_response()
         }
     }
 }
@@ -431,13 +434,12 @@ pub async fn delete_registration(
     if !can_manage(&claims, &connection) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let result = sqlx::query(
-        "DELETE FROM connection_registrations WHERE id = $1 AND connection_id = $2",
-    )
-    .bind(registration_id)
-    .bind(connection_id)
-    .execute(&state.db)
-    .await;
+    let result =
+        sqlx::query("DELETE FROM connection_registrations WHERE id = $1 AND connection_id = $2")
+            .bind(registration_id)
+            .bind(connection_id)
+            .execute(&state.db)
+            .await;
     match result {
         Ok(res) if res.rows_affected() == 0 => StatusCode::NOT_FOUND.into_response(),
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -616,13 +618,12 @@ pub async fn update_auto_registration(
         block.insert("interval_secs".into(), json!(v));
     }
 
-    let result = sqlx::query(
-        "UPDATE connections SET config = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(&config)
-    .bind(connection_id)
-    .execute(&state.db)
-    .await;
+    let result =
+        sqlx::query("UPDATE connections SET config = $1, updated_at = NOW() WHERE id = $2")
+            .bind(&config)
+            .bind(connection_id)
+            .execute(&state.db)
+            .await;
     match result {
         Ok(r) if r.rows_affected() > 0 => Json(json!({
             "connection_id": connection_id,

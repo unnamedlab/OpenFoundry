@@ -13,8 +13,10 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates && \
     addgroup -S worker && adduser -S worker -G worker -u 10001
 COPY --from=builder /tmp/automation-ops-worker /usr/local/bin/automation-ops-worker
+ENV TEMPORAL_ADDRESS=temporal-frontend.temporal.svc.cluster.local:7233
 ENV TEMPORAL_HOST_PORT=temporal-frontend.temporal.svc.cluster.local:7233
 ENV TEMPORAL_NAMESPACE=default
+ENV TEMPORAL_TASK_QUEUE=openfoundry.automation-ops
 ENV OF_LOG_LEVEL=info
 ENV METRICS_ADDR=:9090
 USER worker

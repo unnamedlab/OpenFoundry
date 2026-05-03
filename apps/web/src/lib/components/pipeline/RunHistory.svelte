@@ -8,6 +8,22 @@
   import type { PipelineRun } from '$lib/api/pipelines';
   import { listRuns, triggerRun, retryPipelineRun, abortBuild } from '$lib/api/pipelines';
   import RunLogs from './RunLogs.svelte';
+  import LiveLogViewer from './LiveLogViewer.svelte';
+
+  // P4 — when the selected run is live, replace the per-node summary
+  // with the streaming LiveLogViewer (Foundry doc § Live logs). The
+  // legacy summary stays for terminal runs so historical inspections
+  // keep their per-node breakdown.
+  const LIVE_STATUSES = new Set([
+    'running',
+    'pending',
+    'BUILD_RUNNING',
+    'BUILD_QUEUED',
+    'BUILD_RESOLUTION',
+    'BUILD_ABORTING',
+    'RUN_PENDING',
+    'ABORT_PENDING'
+  ]);
 
   type Props = {
     pipelineId: string;
@@ -170,7 +186,16 @@
   {/if}
 
   {#if selectedRun}
-    <RunLogs run={selectedRun} onClose={() => (selectedRunId = null)} />
+    {#if LIVE_STATUSES.has(selectedRun.status)}
+      <!-- Live (SSE-backed) viewer for jobs still in flight. -->
+      <LiveLogViewer jobRid={`ri.foundry.main.job.${selectedRun.id}`} mode="live" />
+    {:else}
+      <!-- Terminal runs: per-node summary + historical REST-backed
+           log viewer side by side, so operators see the timeline that
+           was captured during the run. -->
+      <RunLogs run={selectedRun} onClose={() => (selectedRunId = null)} />
+      <LiveLogViewer jobRid={`ri.foundry.main.job.${selectedRun.id}`} mode="historical" />
+    {/if}
   {/if}
 </section>
 

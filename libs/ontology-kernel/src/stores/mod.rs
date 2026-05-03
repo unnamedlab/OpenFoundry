@@ -21,7 +21,10 @@
 
 use std::sync::Arc;
 
-use storage_abstraction::repositories::{ActionLogStore, LinkStore, ObjectStore};
+use storage_abstraction::repositories::{
+    ActionLogStore, DefinitionStore, LinkStore, ObjectSetMaterializationStore, ObjectStore,
+    ReadModelStore, SearchBackedObjectSetMaterializationStore, SearchBackend,
+};
 
 #[cfg(feature = "legacy-pg")]
 pub mod pg;
@@ -31,16 +34,18 @@ pub mod mock;
 
 /// Bundle of the storage trait objects the kernel handlers depend on.
 ///
-/// `Schema*` and `Session*` stores are intentionally absent: the
-/// migration plan keeps schema/session data in PostgreSQL (S1.6 →
-/// `pg-schemas` cluster) and only moves the *high-cardinality, mutable*
-/// object/link/action data to Cassandra. PG-resident handlers can keep
-/// using `AppState::db` directly until S1.6.
+/// Declarative definitions may still be backed by PostgreSQL (`pg-schemas`),
+/// but they live behind [`DefinitionStore`] so live handlers no longer need to
+/// know whether a row comes from Postgres, Cassandra, or an in-memory fake.
 #[derive(Clone)]
 pub struct Stores {
     pub objects: Arc<dyn ObjectStore>,
     pub links: Arc<dyn LinkStore>,
     pub actions: Arc<dyn ActionLogStore>,
+    pub definitions: Arc<dyn DefinitionStore>,
+    pub read_models: Arc<dyn ReadModelStore>,
+    pub search: Arc<dyn SearchBackend>,
+    pub object_set_materializations: Arc<dyn ObjectSetMaterializationStore>,
 }
 
 impl Stores {
@@ -49,10 +54,17 @@ impl Stores {
     /// smoke-testing handlers without spinning up infrastructure.
     pub fn in_memory() -> Self {
         use storage_abstraction::repositories::noop::*;
+        let search = Arc::new(InMemorySearchBackend::default());
         Self {
             objects: Arc::new(InMemoryObjectStore::default()),
             links: Arc::new(InMemoryLinkStore::default()),
             actions: Arc::new(InMemoryActionLogStore::default()),
+            definitions: Arc::new(InMemoryDefinitionStore::default()),
+            read_models: Arc::new(InMemoryReadModelStore::default()),
+            search: search.clone(),
+            object_set_materializations: Arc::new(SearchBackedObjectSetMaterializationStore::new(
+                search,
+            )),
         }
     }
 }

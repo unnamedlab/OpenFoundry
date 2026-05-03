@@ -15,12 +15,26 @@
 <script lang="ts">
   import type { DatasetTransaction } from '$lib/api/datasets';
 
+  /** P4 — retention preview marker keyed by transaction id. The
+   *  parent fetches `getRetentionPreview` and forwards a map of the
+   *  txns flagged `would_delete = true` so the timeline can surface a
+   *  "purged in N days" badge cross-linking to the Retention tab. */
+  export type RetentionPurgeMarker = {
+    policyName: string;
+    daysUntilPurge: number;
+  };
+
   type Props = {
     transactions: DatasetTransaction[];
     /** True while a rollback is in flight so we can disable buttons. */
     rollingBack?: string | null;
     onView?: (tx: DatasetTransaction) => void;
     onRollback?: (tx: DatasetTransaction) => void | Promise<void>;
+    /** Retention purge markers, keyed by transaction id. */
+    retentionPurges?: Record<string, RetentionPurgeMarker>;
+    /** Click handler for the purge badge — typically navigates the
+     *  parent to the Retention tab. */
+    onOpenRetention?: () => void;
   };
 
   const {
@@ -28,6 +42,8 @@
     rollingBack = null,
     onView = () => {},
     onRollback = () => {},
+    retentionPurges = {},
+    onOpenRetention,
   }: Props = $props();
 
   function icon(op: string): string {
@@ -101,6 +117,20 @@
                 <div class="mt-0.5 font-mono text-[10px] text-gray-500">{tx.id}</div>
                 {#if tx.summary}
                   <p class="mt-1 text-sm">{tx.summary}</p>
+                {/if}
+                {#if retentionPurges[tx.id]}
+                  {@const marker = retentionPurges[tx.id]}
+                  <button
+                    type="button"
+                    class="mt-1 inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-800 hover:bg-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-900/60"
+                    title="Open the Retention tab"
+                    onclick={() => onOpenRetention?.()}
+                    data-testid="history-retention-badge"
+                  >
+                    Will be purged
+                    {#if marker.daysUntilPurge <= 0}now{:else}in {marker.daysUntilPurge}d{/if}
+                    by {marker.policyName}
+                  </button>
                 {/if}
               </div>
             </div>

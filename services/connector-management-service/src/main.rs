@@ -2,8 +2,10 @@
 //!
 //! Wires the Axum HTTP server that backs the Data Connection app
 //! (`/api/v1/data-connection/*`). The service owns the connector catalog,
-//! source CRUD and connection test flow. Egress policy ownership stays in
-//! `network-boundary-service`; sync runs stay in `ingestion-replication-service`.
+//! source CRUD, sync definitions and connection test flow. Egress policy
+//! ownership stays in `network-boundary-service`; sync runtime ownership and
+//! Kafka/Flink ingest-job materialization stay in
+//! `ingestion-replication-service`.
 
 mod config;
 mod connectors;
@@ -13,6 +15,7 @@ mod handlers;
 mod ingestion_bridge;
 mod metrics;
 mod models;
+mod outbox;
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -44,9 +47,9 @@ pub struct AppState {
     pub dataset_service_url: String,
     pub pipeline_service_url: String,
     pub ontology_service_url: String,
-    pub ingestion_replication_service_url: String,
     /// gRPC endpoint of `ingestion-replication-service`. Empty string disables
-    /// the bridge: `run_sync` then records `pending` runs as before.
+    /// runtime dispatch/read APIs instead of falling back to local runtime
+    /// bookkeeping.
     pub ingestion_replication_grpc_url: String,
     pub allow_private_network_egress: bool,
     pub allowed_egress_hosts: Vec<String>,
@@ -81,8 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              SET A DEDICATED 32-byte base64 key in production."
         );
     }
-    let credential_key =
-        credential_crypto::derive_key(env_key.as_deref(), &app_config.jwt_secret)?;
+    let credential_key = credential_crypto::derive_key(env_key.as_deref(), &app_config.jwt_secret)?;
 
     let state = AppState {
         db,
@@ -91,9 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         dataset_service_url: app_config.dataset_service_url.clone(),
         pipeline_service_url: app_config.pipeline_service_url.clone(),
         ontology_service_url: app_config.ontology_service_url.clone(),
-        ingestion_replication_service_url: app_config
-            .ingestion_replication_service_url
-            .clone(),
         ingestion_replication_grpc_url: app_config.ingestion_replication_grpc_url.clone(),
         allow_private_network_egress: app_config.allow_private_network_egress,
         allowed_egress_hosts: app_config.allowed_egress_hosts.clone(),
@@ -111,6 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/catalog/contracts",
             get(handlers::catalog::get_connector_contracts),
+        )
+        // Bloque P5 — typed streaming-source wizard catalogue.
+        .route(
+            "/streaming-sources",
+            get(handlers::streaming_syncs::list_streaming_sources),
         )
         .route(
             "/sources",
@@ -151,6 +155,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/syncs", post(handlers::data_connection::create_sync))
         .route("/syncs/{id}/run", post(handlers::data_connection::run_sync))
         .route("/syncs/{id}/runs", get(handlers::data_connection::list_runs))
+        // Media-set syncs (Foundry "Set up a media set sync"):
+        // S3 / ABFS / OneLake → `media-sets-service`. Two flavours:
+        // MEDIA_SET_SYNC copies bytes; VIRTUAL_MEDIA_SET_SYNC only
+        // registers the metadata pointer.
+        .route(
+            "/sources/{id}/media-set-syncs",
+            get(handlers::media_set_syncs::list_media_set_syncs)
+                .post(handlers::media_set_syncs::create_media_set_sync),
+        )
         // Virtual table registration surface (Foundry "Virtual tables" UI):
         // discovery + bulk register + one-shot auto-register. Recurring
         // auto-registration runs in `domain::auto_registration` and is
@@ -240,38 +253,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
     let app = Router::new()
-        .nest(
-            "/api/v1",
-            {
-                let mut v1 = Router::new()
-                    .nest("/data-connection", data_connection)
-                    .merge(connections_alias)
-                    .route(
-                        "/webhooks/{id}/invoke",
-                        post(handlers::webhooks::invoke_webhook),
-                    );
-                // Dev-only auth shim: enabled when OPENFOUNDRY_DEV_AUTH=1.
-                // Mounts /api/v1/auth/* and /api/v1/users/me so the SvelteKit
-                // app can complete the login flow against this binary while
-                // identity-federation-service is not yet wired. See
-                // handlers::dev_auth for the contract.
-                if std::env::var("OPENFOUNDRY_DEV_AUTH").as_deref() == Ok("1") {
-                    tracing::warn!(
-                        "OPENFOUNDRY_DEV_AUTH=1 — exposing dev /auth shim. \
+        .nest("/api/v1", {
+            let mut v1 = Router::new()
+                .nest("/data-connection", data_connection)
+                .merge(connections_alias)
+                .route(
+                    "/webhooks/{id}/invoke",
+                    post(handlers::webhooks::invoke_webhook),
+                );
+            // Dev-only auth shim: enabled when OPENFOUNDRY_DEV_AUTH=1.
+            // Mounts /api/v1/auth/* and /api/v1/users/me so the SvelteKit
+            // app can complete the login flow against this binary while
+            // identity-federation-service is not yet wired. See
+            // handlers::dev_auth for the contract.
+            if std::env::var("OPENFOUNDRY_DEV_AUTH").as_deref() == Ok("1") {
+                tracing::warn!(
+                    "OPENFOUNDRY_DEV_AUTH=1 — exposing dev /auth shim. \
                          Do not use this configuration in production."
-                    );
-                    v1 = v1
-                        .route("/auth/login", post(handlers::dev_auth::login))
-                        .route("/auth/refresh", post(handlers::dev_auth::refresh))
-                        .route(
-                            "/auth/bootstrap-status",
-                            get(handlers::dev_auth::bootstrap_status),
-                        )
-                        .route("/users/me", get(handlers::dev_auth::me));
-                }
-                v1
-            },
-        )
+                );
+                v1 = v1
+                    .route("/auth/login", post(handlers::dev_auth::login))
+                    .route("/auth/refresh", post(handlers::dev_auth::refresh))
+                    .route(
+                        "/auth/bootstrap-status",
+                        get(handlers::dev_auth::bootstrap_status),
+                    )
+                    .route("/users/me", get(handlers::dev_auth::me));
+            }
+            v1
+        })
         .nest("/iceberg", iceberg)
         .layer(middleware::from_fn_with_state(
             state.jwt_config.clone(),
@@ -312,7 +322,10 @@ async fn metrics_handler(State(state): State<AppState>) -> Response {
     match state.metrics.render() {
         Ok(body) => (
             axum::http::StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; version=0.0.4",
+            )],
             body,
         )
             .into_response(),

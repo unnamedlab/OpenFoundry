@@ -1,0 +1,16 @@
+-- S3.4 / final auth cleanup — DROP legacy Postgres OAuth runtime
+-- tables after Cassandra cutover.
+--
+-- DO NOT EXECUTE THIS MIGRATION YET. See sibling README.md for the
+-- gate. The runtime cutover gate must be satisfied before this file
+-- is renamed to drop the `.disabled` suffix.
+--
+-- This file deliberately uses the `.disabled` suffix so `sqlx
+-- migrate run` skips it.
+--
+-- `oauth_pending_auth` and `oauth_token_exchange` are runtime
+-- artifacts that belong in Cassandra `auth_runtime.*`, not in the
+-- remaining Postgres control-plane surface.
+
+DROP TABLE IF EXISTS oauth_pending_auth;
+DROP TABLE IF EXISTS oauth_token_exchange;

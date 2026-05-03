@@ -1,0 +1,99 @@
+# Mimir Helm values overlay (S5.4.a).
+#
+# Chart: grafana/mimir-distributed (https://github.com/grafana/mimir,
+# Apache-2.0 only — pin v2.13.x; never bump to >=3.0 which is AGPL).
+#
+# Object store: Ceph RGW bucket `openfoundry-metrics-long` provisioned
+# by infra/k8s/platform/manifests/rook/. The ObjectBucketClaim lands in this directory in
+# the runtime PR.
+
+global:
+  clusterDomain: cluster.local
+mimir:
+  structuredConfig:
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80
+          bucket_name: openfoundry-metrics-long
+          access_key_id: ${RGW_ACCESS_KEY_ID}
+          secret_access_key: ${RGW_SECRET_ACCESS_KEY}
+          insecure: true
+    blocks_storage:
+      tsdb:
+        retention_period: 2h
+      bucket_store:
+        sync_dir: /data/tsdb-sync
+    compactor:
+      block_ranges: [2h, 12h, 24h]
+      retention_period: 90d # raw blocks
+    limits:
+      compactor_blocks_retention_period: 90d
+      max_global_series_per_tenant: 5000000
+      ingestion_rate: 50000
+    ruler:
+      enable_api: true
+    server:
+      http_listen_port: 8080
+      grpc_listen_port: 9095
+
+distributor:
+  replicas: 3
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 16Gi
+
+ingester:
+  replicas: 3
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+    storageClass: rook-ceph-block
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: mimir
+
+querier:
+  replicas: 3
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 16Gi
+
+store_gateway:
+  replicas: 3
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+    storageClass: rook-ceph-block
+
+compactor:
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+    storageClass: rook-ceph-block
+
+nginx:
+  replicas: 2
+
+# Disable the bundled MinIO (we use Ceph).
+minio:
+  enabled: false
+
+metaMonitoring:
+  serviceMonitor:
+    enabled: true
+    labels:
+      role: alert-rules

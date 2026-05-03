@@ -1,6 +1,8 @@
 //! Selects the [`DatasetWriter`] implementation at startup based on runtime
-//! configuration. If Iceberg is requested, the REST Catalog endpoint is
-//! mandatory so the service cannot silently fall back to legacy writes.
+//! configuration. Iceberg is the default because snapshots / dataset state
+//! are owned by Iceberg; the legacy writer is opt-in only. The REST Catalog
+//! endpoint is mandatory so the service cannot silently fall back to blob
+//! snapshots in Postgres-centric flows.
 
 use std::sync::Arc;
 
@@ -13,17 +15,17 @@ use super::writer::DatasetWriter;
 /// Which writer to materialize at startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriterBackendKind {
-    /// Pre-Iceberg behaviour. Default for safety / rollback.
+    /// Pre-Iceberg behaviour. Opt-in only for explicit rollback.
     Legacy,
-    /// New behaviour: append to an Iceberg table via REST Catalog.
+    /// Default behaviour: append to an Iceberg table via REST Catalog.
     Iceberg,
 }
 
 impl WriterBackendKind {
     pub fn parse(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "iceberg" => Self::Iceberg,
-            _ => Self::Legacy,
+            "legacy" => Self::Legacy,
+            _ => Self::Iceberg,
         }
     }
 }
@@ -70,9 +72,9 @@ impl WriterSettings {
 
 /// Build the configured writer.
 ///
-/// * If `backend == Legacy`, returns the legacy writer wrapping `storage`.
 /// * If `backend == Iceberg` and `iceberg.catalog_url` is set, returns the
 ///   Iceberg writer talking to the REST Catalog at that URL.
+/// * If `backend == Legacy`, returns the legacy writer wrapping `storage`.
 pub fn build_dataset_writer(
     storage: Arc<dyn StorageBackend>,
     settings: &WriterSettings,
@@ -138,15 +140,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_backend_defaults_to_legacy() {
-        assert_eq!(WriterBackendKind::parse(""), WriterBackendKind::Legacy);
+    fn parse_backend_defaults_to_iceberg() {
+        assert_eq!(WriterBackendKind::parse(""), WriterBackendKind::Iceberg);
         assert_eq!(
             WriterBackendKind::parse("legacy"),
             WriterBackendKind::Legacy
         );
         assert_eq!(
             WriterBackendKind::parse("anything"),
-            WriterBackendKind::Legacy
+            WriterBackendKind::Iceberg
         );
         assert_eq!(
             WriterBackendKind::parse("Iceberg"),

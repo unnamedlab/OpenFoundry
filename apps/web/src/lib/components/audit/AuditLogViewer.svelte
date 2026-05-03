@@ -34,6 +34,14 @@
 	export let onApplyFilters: () => void;
 	export let onDraftChange: (patch: Partial<EventDraft>) => void;
 	export let onAppendEvent: () => void;
+	/**
+	 * Show the "Manual event probe" appender. The global Audit page
+	 * uses it to seed test events; per-resource Activity panels embed
+	 * the viewer in read-only mode and pass `false` to keep the
+	 * surface focused on history. Defaults to `true` so existing
+	 * call-sites are unaffected.
+	 */
+	export let showProbeForm = true;
 
 	const statuses: AuditEventStatus[] = ['success', 'failure', 'denied'];
 	const severities: AuditSeverity[] = ['low', 'medium', 'high', 'critical'];
@@ -54,10 +62,12 @@
 			<h3 class="mt-2 text-xl font-semibold text-stone-900">Append-only events with filters and manual probes</h3>
 			<p class="mt-1 text-sm text-stone-500">Filter by service, subject, or classification, and append probe events to validate the chain end to end.</p>
 		</div>
-		<button class="rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-stone-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-sky-200" onclick={onAppendEvent} disabled={busy}>Append event</button>
+		{#if showProbeForm}
+			<button class="rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-stone-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-sky-200" onclick={onAppendEvent} disabled={busy}>Append event</button>
+		{/if}
 	</div>
 
-	<div class="mt-5 grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
+	<div class={`mt-5 grid gap-4 ${showProbeForm ? 'xl:grid-cols-[1.02fr_0.98fr]' : ''}`}>
 		<div class="space-y-4 rounded-2xl border border-stone-200 bg-stone-50/80 p-4">
 			<div class="grid gap-4 md:grid-cols-3">
 				<label class="block text-sm">
@@ -102,6 +112,7 @@
 			</div>
 		</div>
 
+		{#if showProbeForm}
 		<div class="rounded-2xl border border-stone-200 bg-stone-950 p-4 text-stone-100">
 			<p class="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Manual event probe</p>
 			<div class="mt-4 grid gap-4 md:grid-cols-2">
@@ -179,5 +190,6 @@
 				</label>
 			</div>
 		</div>
+		{/if}
 	</div>
 </section>

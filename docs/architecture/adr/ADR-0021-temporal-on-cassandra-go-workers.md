@@ -168,8 +168,8 @@ The cost of choosing W1 today is:
   versioning, replay tests, encryption codecs).
 - Workers run as **independent Kubernetes Deployments**, not as
   sidecars in the Rust service pods. Communication with Rust services
-  happens through the **same gRPC contracts in `proto/`** that any
-  other client uses; Temporal mediates execution.
+  is **HTTP REST + JSON** (see "Wire format" below); Temporal
+  mediates execution.
 - The Rust services keep the **client side** of Temporal, using the
   `temporalio-client` crate. The client surface is much more stable
   than the worker surface (it is a thin wrapper over the gRPC API),
@@ -225,9 +225,56 @@ most stable surface of the Rust SDK) wrapped behind a workspace crate
 `libs/temporal-client` with strongly typed per-domain client helpers.
 
 Activities Go invokes do not bypass service boundaries: they call the
-owning Rust service via the same `proto/` gRPC contracts that any
-other client uses. There is no shortcut from Go workers to Cassandra
-or Postgres.
+owning Rust service over **HTTP REST + JSON** with a service-token
+bearer and the `x-audit-correlation-id` header (see "Wire format"
+below). There is no shortcut from Go workers to Cassandra or
+Postgres. The single exception is the `reindex` worker, whose
+explicit job is to scan Cassandra and publish to Kafka — that
+exception is documented inline in [`workers-go/README.md`](../../../workers-go/README.md).
+
+### Wire format between Go activities and Rust services
+
+When ADR-0021 was first drafted (May 2026) the assumption was that
+activities would consume Go bindings generated from `proto/`. We
+reverted that assumption while wiring S2.3 / S2.5 / S2.6 because:
+
+1. The Rust services on the receiving end (`ontology-actions-service`,
+   `pipeline-authoring-service`, `pipeline-build-service`,
+   `audit-compliance-service`, `automation-operations-service`) all
+   expose REST handlers, not gRPC servers. Adding gRPC servers in
+   Rust would have been a parallel, larger migration with no
+   functional payoff for the worker case (single in-cluster hop, no
+   streaming).
+2. `buf.gen.yaml` already emits Rust + TypeScript bindings; adding a
+   third Go target would force every proto change to regenerate and
+   commit `proto/gen/go`, plus a Dockerfile/COPY dance for each
+   worker image. The activities are thin enough (a JSON encode + an
+   HTTP POST) that the bindings would not earn their keep.
+3. The audit-correlation header `x-audit-correlation-id` is identical
+   on the wire whether the transport is HTTP or gRPC metadata, so
+   nothing in the audit chain is sensitive to the choice.
+
+The canonical contract for activities is therefore:
+
+- **Transport**: HTTP/1.1 to the owning service inside the cluster.
+- **Body**: JSON, shape derived from the corresponding `proto/`
+  message but written directly as `map[string]any` in Go (the proto
+  files remain the source-of-truth that the Rust handler validates
+  against).
+- **Auth**: `Authorization: Bearer <service-token>` from
+  `OF_<SERVICE>_BEARER_TOKEN`.
+- **Correlation**: `x-audit-correlation-id: <uuid-v7>` from the
+  workflow's `audit_correlation_id` search attribute.
+- **Idempotency**: 4xx responses (other than 429) become
+  `temporal.NewNonRetryableApplicationError`; 5xx and 429 are retried
+  by Temporal under the workflow's `RetryPolicy`.
+
+`proto/` continues to be the contract source for the TypeScript web
+client and for `libs/proto-gen` (Rust). If a future audit shows the
+maintenance cost of hand-written JSON in Go activities exceeds the
+buf-generated alternative, this decision can be revisited without
+touching the Rust services or the Temporal wiring.
+
 
 ## Topology and configuration
 
@@ -281,7 +328,8 @@ Each worker:
 - Reads `TEMPORAL_HOSTPORT`, `TEMPORAL_NAMESPACE` and
   `TEMPORAL_TASK_QUEUE` from environment.
 - Registers its workflows and activities at startup.
-- Calls Rust services through generated gRPC clients from `proto/`.
+- Calls Rust services over HTTP REST + JSON (see "Wire format"
+  above), propagating the `x-audit-correlation-id` header.
 - Emits OpenTelemetry traces and Prometheus metrics in the same
   format as the rest of the platform.
 
@@ -304,7 +352,7 @@ no workflow definitions live in Rust.
 
 - New top-level directory `workers-go/` with its own `go.work` and CI
   job (`go-workers-build`).
-- New `infra/k8s/temporal/` Helm release.
+- New `infra/k8s/platform/manifests/temporal/` Helm release.
 - New runbook `infra/runbooks/temporal.md` covering schema upgrades,
   task queue rebalancing, scaling history shards, namespace
   configuration, retention policies and the failover procedure for the
@@ -341,8 +389,10 @@ no workflow definitions live in Rust.
   operator, k8ssandra-operator are written in Go but not in our repo;
   this is the first Go code we own).
 - Workers cannot share business types with Rust services through the
-  Rust type system; the contract is gRPC. This is a feature, not a
-  bug — the contract is explicit and versioned.
+  Rust type system; the contract is HTTP/JSON, with `proto/` as the
+  message-shape source-of-truth. This is a feature, not a bug — the
+  contract is explicit, versioned, and the same one external clients
+  use.
 - Temporal adds a new HA stateful system to operate (the Temporal
   cluster itself). Mitigated by sharing the Cassandra backend with
   the rest of the platform.
@@ -371,7 +421,8 @@ or sooner if **any** of the following becomes true:
 
 If re-evaluation concludes that the Rust SDK is ready, the migration
 path is straightforward: rewrite one worker domain at a time inside
-`workers-go/` → `workers-rust/`, keep the same gRPC contracts, retire
+`workers-go/` → `workers-rust/`, keep the same wire contract (REST
+or whatever it has become by then), retire
 each Go binary as its Rust replacement passes the test suite. The
 service-side code (Rust) does not change at all because it only ever
 talked to Temporal through `temporalio-client`.

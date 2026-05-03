@@ -20,8 +20,8 @@ use std::sync::Arc;
 use cedar_policy::{Context, Decision, Entities, EntityUid, Request};
 
 use crate::{
-    audit::{AuditSinkHandle, AuthzAuditEvent, NoopAuditSink},
     PolicyStore, PolicyStoreError,
+    audit::{AuditSinkHandle, AuthzAuditEvent, NoopAuditSink},
 };
 
 /// Combined handle: policy store + audit sink.

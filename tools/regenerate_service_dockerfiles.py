@@ -27,31 +27,67 @@ CONFIG_RE = re.compile(r"COPY --from=(?:builder|build) /workspace/services/([^/]
 # - extra_runtime_apk: additional Alpine packages installed in the runtime
 #   stage (e.g. dynamic libs needed at startup).
 # - cargo_features: comma-separated cargo feature list passed via --features.
+# - rust_flags: value for `ENV RUSTFLAGS=...` in the builder stage. Used by
+#   rdkafka services to disable musl static-CRT so cyrus-sasl/openssl/curl
+#   link dynamically — the alternative (chasing *-static for every cyrus-sasl
+#   plugin: sqlite-static, openldap-static, ...) is fragile and Alpine doesn't
+#   ship all of them. The runtime stage already installs the matching .so
+#   packages.
 SERVICE_OVERRIDES: dict[str, dict[str, str]] = {
     # event-streaming-service: enable real Kafka backend (rdkafka with
     # vendored librdkafka built through cmake) for production images.
     "event-streaming-service": {
-        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers",
-        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl",
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
     },
     # Data-connection plane connectors: enable live Kafka I/O
     # (test_connection / discover_sources / query_virtual_table) backed by
     # rdkafka. Same native deps as event-streaming-service.
     "connector-management-service": {
-        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers",
-        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl",
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
     },
     "ingestion-replication-service": {
-        "extra_build_apk": "protobuf-dev cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers",
-        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl",
+        "extra_build_apk": "protobuf-dev cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
     },
+    "ontology-indexer": {
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
+        "cargo_features": "runtime,opensearch",
+    },
+    "audit-sink": {
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
+        "cargo_features": "runtime",
+    },
+    "ai-sink": {
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
+        "cargo_features": "runtime",
+    },
     "virtual-table-service": {
-        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev linux-headers",
-        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl",
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
+    },
+    # Pulls rdkafka transitively through libs/event-bus-data (no feature
+    # flag — the dependency is unconditional), so it needs the same
+    # native packages as the explicit Kafka services.
+    "identity-federation-service": {
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
     },
 }
 
@@ -65,6 +101,7 @@ WORKDIR /workspace
 RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3{extra_build_apk}
 ENV PYO3_PYTHON=python3
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+{rust_flags_env}
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \\
@@ -122,6 +159,7 @@ def render(meta: dict[str, str | bool]) -> str:
     extra_build = overrides.get("extra_build_apk", "")
     extra_runtime = overrides.get("extra_runtime_apk", "")
     cargo_features = overrides.get("cargo_features", "")
+    rust_flags = overrides.get("rust_flags", "")
     return TEMPLATE.format(
         pkg=pkg,
         port=port,
@@ -130,6 +168,7 @@ def render(meta: dict[str, str | bool]) -> str:
         extra_build_apk=(f" {extra_build}" if extra_build else ""),
         extra_runtime_apk=(f" {extra_runtime}" if extra_runtime else ""),
         cargo_features=(f" --features {cargo_features}" if cargo_features else ""),
+        rust_flags_env=(f'ENV RUSTFLAGS="{rust_flags}"\n' if rust_flags else ""),
     )
 
 

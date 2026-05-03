@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    domain::runtime,
     models::{branch::DatasetBranch, dataset::Dataset, version::DatasetVersion, view::DatasetView},
 };
 
@@ -37,20 +38,31 @@ pub async fn list_files(
         }
     };
 
-    let versions = sqlx::query_as::<_, DatasetVersion>(
-        "SELECT * FROM dataset_versions WHERE dataset_id = $1 ORDER BY version DESC",
-    )
-    .bind(dataset_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-    let branches = sqlx::query_as::<_, DatasetBranch>(
-        "SELECT * FROM dataset_branches WHERE dataset_id = $1 ORDER BY is_default DESC, name ASC",
-    )
-    .bind(dataset_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    // Read-only projection only. Runtime ownership already moved to
+    // `dataset-versioning-service`; this endpoint surfaces the catalog
+    // copy without mutating version state locally.
+    let versions = match runtime::list_dataset_versions(&state, dataset_id).await {
+        Ok(versions) => versions,
+        Err(runtime::DatasetSourceError::Database(error)) => {
+            tracing::error!("dataset version projection lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(runtime::DatasetSourceError::Invalid(error)) => {
+            tracing::error!("unexpected dataset version projection error: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let branches = match runtime::list_dataset_branches(&state, dataset_id).await {
+        Ok(branches) => branches,
+        Err(runtime::DatasetSourceError::Database(error)) => {
+            tracing::error!("dataset branch projection lookup failed: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(runtime::DatasetSourceError::Invalid(error)) => {
+            tracing::error!("unexpected dataset branch projection error: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
     let views = sqlx::query_as::<_, DatasetView>(
         "SELECT * FROM dataset_views WHERE dataset_id = $1 ORDER BY created_at DESC",
     )
@@ -427,6 +439,9 @@ mod tests {
             tags: Vec::new(),
             current_version: 2,
             active_branch: "main".to_string(),
+            metadata: serde_json::json!({}),
+            health_status: "unknown".to_string(),
+            current_view_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }

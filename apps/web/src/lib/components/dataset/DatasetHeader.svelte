@@ -17,8 +17,9 @@
         - "Explore pipeline ▾" — jump into the lineage / pipeline graph.
 -->
 <script lang="ts">
-  import type { Dataset, DatasetBranch } from '$lib/api/datasets';
+  import type { Dataset, DatasetBranch, DatasetJobSpecStatus } from '$lib/api/datasets';
   import BranchPicker from './BranchPicker.svelte';
+  import JobSpecBadge from './JobSpecBadge.svelte';
   import MarkingBadge from './MarkingBadge.svelte';
 
   type EffectiveMarking = {
@@ -33,6 +34,14 @@
     branches: DatasetBranch[];
     markings: EffectiveMarking[];
     busy?: boolean;
+    /**
+     * P3 — JobSpec coloring (Foundry doc § "Job graph compilation").
+     * When omitted the badge falls back to "no JobSpec on master".
+     */
+    jobSpecStatus?: DatasetJobSpecStatus;
+    /** P5 — true when the current user has dataset-manage role. Drives
+     *  the visibility of the "Publish to Marketplace" entry. */
+    canManage?: boolean;
     onSwitchBranch: (name: string) => void | Promise<void>;
     onCreateBranch: (params: { name: string; from: string; description?: string }) => void | Promise<void>;
     /** Parent owns the action handlers; when omitted, we wire stubs. */
@@ -40,23 +49,109 @@
     onBuild?: (target: string) => void;
     onAnalyze?: (target: string) => void;
     onExplorePipeline?: (target: string) => void;
+    /** P5 — "Open in…" callback. The parent calls the destination
+     *  service's create endpoint with `seed_dataset_rid` and then
+     *  navigates to the resulting URL. When omitted we fall back to
+     *  query-string-only navigation (no resource creation). */
+    onOpenIn?: (target: OpenInTarget) => void | Promise<void>;
+    /** P5 — "Publish to Marketplace" callback. Parent opens the
+     *  modal and calls `POST /v1/products/from-dataset/{rid}`. */
+    onPublishToMarketplace?: () => void;
   };
+
+  /** P5 — destinations supported by the "Open in…" menu. The four
+   *  marked `comingSoon` are listed but disabled because their target
+   *  services don't have a real `main.rs` yet (Foundry doc parity but
+   *  no runtime). */
+  export type OpenInTarget =
+    | 'pipeline_builder'
+    | 'notebook'
+    | 'sql_workbench'
+    | 'contour'
+    | 'fusion'
+    | 'workshop'
+    | 'code_workspaces';
 
   const {
     dataset,
     branches,
     markings,
     busy = false,
+    jobSpecStatus,
+    canManage = false,
     onSwitchBranch,
     onCreateBranch,
     onAllActions,
     onBuild,
     onAnalyze,
     onExplorePipeline,
+    onOpenIn,
+    onPublishToMarketplace,
   }: Props = $props();
 
   // Track which menu is open at most one at a time.
-  let openMenu = $state<'actions' | 'build' | 'analyze' | 'explore' | null>(null);
+  let openMenu = $state<'actions' | 'build' | 'analyze' | 'explore' | 'open_in' | null>(null);
+
+  /** Per-destination metadata. `disabled` = the binary isn't wired yet,
+   *  in which case the click is suppressed and we surface a "Coming
+   *  soon" tooltip. The `fallbackHref` is what the parent should
+   *  navigate to when no callback is wired (a vanilla URL with
+   *  `dataset_rid` prefilled in the query string, matching the doc's
+   *  contract for cross-app entry points). */
+  const OPEN_IN_TARGETS: ReadonlyArray<{
+    target: OpenInTarget;
+    label: string;
+    fallbackHref: (rid: string) => string;
+    comingSoon: boolean;
+    note?: string;
+  }> = [
+    {
+      target: 'pipeline_builder',
+      label: 'Pipeline Builder',
+      fallbackHref: (rid) => `/pipelines/new?input=${encodeURIComponent(rid)}`,
+      comingSoon: false,
+    },
+    {
+      target: 'notebook',
+      label: 'Notebook',
+      fallbackHref: (rid) => `/notebooks/new?seed_dataset_rid=${encodeURIComponent(rid)}`,
+      comingSoon: true,
+      note: 'notebook-runtime-service binary stub',
+    },
+    {
+      target: 'sql_workbench',
+      label: 'SQL workbench',
+      fallbackHref: (rid) => `/workbench/new?seed_dataset_rid=${encodeURIComponent(rid)}`,
+      comingSoon: false,
+    },
+    {
+      target: 'contour',
+      label: 'Contour',
+      fallbackHref: (rid) => `/contour?dataset_rid=${encodeURIComponent(rid)}`,
+      comingSoon: true,
+      note: 'Contour binary not wired yet',
+    },
+    {
+      target: 'fusion',
+      label: 'Fusion',
+      fallbackHref: (rid) => `/fusion?dataset_rid=${encodeURIComponent(rid)}`,
+      comingSoon: true,
+      note: 'Fusion binary not wired yet',
+    },
+    {
+      target: 'workshop',
+      label: 'Workshop',
+      fallbackHref: (rid) => `/workshop?dataset_rid=${encodeURIComponent(rid)}`,
+      comingSoon: true,
+      note: 'Workshop binary not wired yet',
+    },
+    {
+      target: 'code_workspaces',
+      label: 'Code Workspaces',
+      fallbackHref: (rid) => `/code-workspaces/new?dataset_rid=${encodeURIComponent(rid)}`,
+      comingSoon: false,
+    },
+  ];
 
   function toggle(menu: NonNullable<typeof openMenu>) {
     openMenu = openMenu === menu ? null : menu;
@@ -106,6 +201,10 @@
       <span class="rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700 dark:bg-gray-800 dark:text-gray-300">
         {dataset.id}
       </span>
+      <JobSpecBadge
+        hasMasterJobspec={jobSpecStatus?.has_master_jobspec ?? false}
+        branchesWithJobspec={jobSpecStatus?.branches_with_jobspec ?? []}
+      />
       <BranchPicker
         branches={branches}
         currentBranch={dataset.active_branch}
@@ -173,6 +272,67 @@
           <div class="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
             <button class="block w-full px-3 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-gray-800" onclick={() => fire(onAnalyze, 'open_contour', `/contour?dataset_rid=${dataset.id}`)}>Open in Contour</button>
             <button class="block w-full px-3 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-gray-800" onclick={() => fire(onAnalyze, 'open_quiver', `/quiver?dataset_rid=${dataset.id}`)}>Open in Quiver</button>
+          </div>
+        {/if}
+      </div>
+
+      <!-- P5 — Open in… cross-app entry points -->
+      <div class="relative">
+        <button
+          type="button"
+          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
+          onclick={() => toggle('open_in')}
+          data-testid="open-in-trigger"
+        >
+          Open in… ▾
+        </button>
+        {#if openMenu === 'open_in'}
+          <div class="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900" data-testid="open-in-menu">
+            {#each OPEN_IN_TARGETS as item (item.target)}
+              <button
+                type="button"
+                class={`block w-full px-3 py-1.5 text-left text-sm ${
+                  item.comingSoon
+                    ? 'cursor-not-allowed text-gray-400 dark:text-gray-500'
+                    : 'hover:bg-slate-50 dark:hover:bg-gray-800'
+                }`}
+                disabled={item.comingSoon}
+                title={item.comingSoon ? `Coming soon — ${item.note ?? ''}` : ''}
+                data-testid={`open-in-${item.target}`}
+                onclick={() => {
+                  if (item.comingSoon) return;
+                  close();
+                  if (onOpenIn) {
+                    void onOpenIn(item.target);
+                    return;
+                  }
+                  window.location.assign(item.fallbackHref(dataset.id));
+                }}
+              >
+                <span class="flex items-center justify-between gap-2">
+                  <span>{item.label}</span>
+                  {#if item.comingSoon}
+                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                      Coming soon
+                    </span>
+                  {/if}
+                </span>
+              </button>
+            {/each}
+            {#if canManage}
+              <div class="my-1 border-t border-slate-200 dark:border-gray-700"></div>
+              <button
+                type="button"
+                class="block w-full px-3 py-1.5 text-left text-sm text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                data-testid="publish-to-marketplace"
+                onclick={() => {
+                  close();
+                  onPublishToMarketplace?.();
+                }}
+              >
+                Publish to Marketplace…
+              </button>
+            {/if}
           </div>
         {/if}
       </div>

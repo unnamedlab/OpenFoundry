@@ -169,6 +169,32 @@ Current repo audit: 24 components are shipped. Enterprise auth remains the only 
 - [x] **Pipeline scheduling** — Cron-based pipeline scheduling
 - [x] **Retry & failure handling** — Configurable retry policies, partial re-execution
 - [x] **Dataset branching** — Git-like branches for datasets, branch selector in UI
+- [x] **D1.1.4 Branching parity (5/5)** — full Foundry branching surface
+      ([ADR-0033](docs/architecture/adr/ADR-0033-branching-foundry-parity.md)):
+      P1 unified Branch model · P2 JobSpec + build-branch resolver ·
+      P3 BranchGraph / OpenTransactionBanner / JobSpec icon coloring ·
+      P4 retention worker + markings inheritance + global-branch-service ·
+      P5 BranchCompare + lifecycle timeline + full E2E suite
+- [x] **D1.1.5 Builds parity (5/5)** — full Foundry builds lifecycle
+      ([ADR-0035](docs/architecture/adr/ADR-0035-builds-foundry-parity.md)):
+      P1 BuildState/JobState lifecycle + resolver (cycles + locks + queue) ·
+      P2 parallel JoinSet executor + multi-output atomicity + abort_policy
+      cascade + staleness/force_build · P3 five logic kinds (Sync /
+      Transform / HealthCheck / Analytical / Export) + InputSpec view filters
+      (AT_TIMESTAMP / AT_TRANSACTION / RANGE / INCREMENTAL_SINCE_LAST_BUILD) ·
+      P4 dual `LogSink` (Postgres + broadcast) + SSE/WS endpoints with the
+      doc-compliant 10s heartbeat delay + LiveLogViewer · P5 dedicated
+      `/builds` application (list + detail with Job graph, Live logs,
+      Inputs, Outputs, Audit tabs), outbox `foundry.build.events.v1`,
+      Prometheus metrics, full E2E suite
+- [x] **D1.1.1 Datasets parity (5/5)** — full Foundry datasets surface
+      ([ADR-0034](docs/architecture/adr/ADR-0034-datasets-foundry-parity.md)):
+      P1 schema-per-view · P2 file-format readers + view preview ·
+      P3 backing filesystem (`logical_path → physical_path`) + Files tab ·
+      P4 retention preview + applicable policies · P5 Compare + Open in… ·
+      P6 dataset-quality-service binary, QualityDashboard,
+      Application-reference conformance (cursor pagination + ETag/304 +
+      207 batch + unified error envelope) and full E2E journey
 
 **Phase 2 exit criteria:**
 > Teams can collaborate with proper auth/RBAC, build dashboards over their data, set up data quality monitoring, automate workflows with approvals, and receive notifications.
@@ -413,27 +439,27 @@ ADRs 0008–0012 in [`docs/architecture/adr/`](./docs/architecture/adr/).
   enforces the contract in CI. See
   [`docs/architecture/adr/ADR-0011-control-vs-data-bus-contract.md`](./docs/architecture/adr/ADR-0011-control-vs-data-bus-contract.md).
 - [x] **5. ADR-0012 — Data-plane SLOs, SLIs and error budgets.** Latency
-  budgets per layer (Flight SQL, Iceberg scans, Kafka acks, ClickHouse,
-  Vespa, NATS) with Prometheus SLIs and freeze policy. See
+  budgets per layer (Flight SQL, Iceberg scans, Kafka acks, Vespa, NATS)
+  with Prometheus SLIs and freeze policy. See
   [`docs/architecture/adr/ADR-0012-data-plane-slos.md`](./docs/architecture/adr/ADR-0012-data-plane-slos.md).
 - [x] **6. CloudNativePG operator + cluster templates.** Operator install
-  and nil-safe cluster template under `infra/k8s/cnpg/` for service-owned
+  and nil-safe cluster template under `infra/k8s/platform/manifests/cnpg/` for service-owned
   Postgres provisioning aligned with ADR-0010.
 - [x] **7. Lakekeeper Iceberg REST Catalog deployment.** Kubernetes
-  manifests under `infra/k8s/lakekeeper/` materialising the ADR-0008
+  manifests under `infra/k8s/platform/manifests/lakekeeper/` materialising the ADR-0008
   decision; `libs/storage-abstraction/` README tightened accordingly.
 - [x] **8. Rook Ceph: rbd-fast pool + RGW EC 4+2 object store.** Storage
-  plane upgrade in `infra/k8s/rook/` providing fast block storage and
+  plane upgrade in `infra/k8s/platform/manifests/rook/` providing fast block storage and
   erasure-coded S3 object storage for the lakehouse.
 - [x] **9. Strimzi Kafka rack/zone awareness +
   `RackAwareReplicaSelector`.** Multi-AZ resilience for the Kafka data
-  plane in `infra/k8s/strimzi/`.
-- [x] **10. ClickHouse cluster scale-out (shards=2, replicas=3).** Time-
-  series storage tier upgraded under
-  `infra/k8s/clickhouse/` with the `openfoundry` cluster topology.
+  plane in `infra/k8s/platform/manifests/strimzi/`.
+- [x] **10. Retired time-series OLAP tier.** The former dedicated
+  time-series storage tier has been removed; current analytics flow
+  through Iceberg / Trino and service-owned Postgres where appropriate.
 - [x] **11. Flink scheduled Iceberg maintenance jobs.** Rewrite, expire
   snapshots and orphan-file cleanup with HA + RGW checkpoints and
-  documented 7-day / 90-day retention under `infra/k8s/flink/`.
+  documented 7-day / 90-day retention under `infra/k8s/platform/manifests/flink/`.
 - [x] **12. Bus-lint: control vs data bus contract.** Static check in
   `tools/bus-lint/check_bus.py` wired into CI to block cross-bus
   regressions implementing ADR-0011.
@@ -460,11 +486,10 @@ ADRs 0008–0012 in [`docs/architecture/adr/`](./docs/architecture/adr/).
 - [x] **17. ADR-0014 — Retire Trino, single Flight SQL edge gateway.**
   `sql-bi-gateway-service` is rewritten as a real Apache Arrow Flight
   SQL server (port `50133`) backed by DataFusion, with per-statement
-  routing to `sql-warehousing-service` (Iceberg), ClickHouse, Vespa and
+  routing to `sql-warehousing-service` (Iceberg), Trino, Vespa and
   Postgres. Auth, tenant quotas, audit and saved queries are applied
-  uniformly on the Flight SQL surface. The previous Trino deployment
-  under `infra/k8s/trino/` and its ClickHouse catalog
-  (`infra/k8s/clickhouse/trino-catalog.yaml`) are deleted. Tableau /
+  uniformly on the Flight SQL surface. The previous Trino edge deployment
+  under `infra/k8s/platform/manifests/trino/` was deleted. Tableau /
   Superset connect with the Apache Arrow Flight SQL JDBC driver. See
   [`docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md`](./docs/architecture/adr/ADR-0014-retire-trino-flight-sql-only.md).
 

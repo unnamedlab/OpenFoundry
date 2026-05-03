@@ -6,9 +6,8 @@
 //! `docs/architecture/migration-plan-cassandra-foundry-parity.md`,
 //! the durable state of an approval (pending → approved/rejected/expired)
 //! lives in **Temporal** as an [`ApprovalRequestWorkflow`] execution
-//! (signal `decide`, 24h selector timeout). The Postgres table
-//! `workflow_approvals` is **deprecated** and its CRUD path is being
-//! retired PR-by-PR; new code paths must go through
+//! (signal `decide`, 24h selector timeout). The legacy Postgres CRUD
+//! path is retired from live runtime; new code paths must go through
 //! [`domain::temporal_adapter::ApprovalsAdapter`] instead.
 //!
 //! [`ApprovalRequestWorkflow`]: https://github.com/openfoundry/openfoundry/tree/main/workers-go/approvals/workflows/approval_request.go

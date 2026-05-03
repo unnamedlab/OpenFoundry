@@ -16,6 +16,7 @@ use crate::proto::{
     IngestJob, ListIngestJobsRequest, ListIngestJobsResponse,
 };
 use crate::repository;
+use crate::runtime_state::{self, IngestJobRuntimeState};
 
 /// Concrete state injected into the gRPC service.
 #[derive(Clone)]
@@ -59,22 +60,28 @@ impl IngestionControlPlane for ControlPlaneService {
             spec.namespace = self.state.default_namespace.to_string();
         }
 
-        let rendered = render_resources(&spec)
-            .map_err(|err| Status::invalid_argument(err.to_string()))?;
+        let rendered =
+            render_resources(&spec).map_err(|err| Status::invalid_argument(err.to_string()))?;
 
-        let record = repository::insert_job(
-            &self.state.db,
-            &spec.namespace,
-            &spec.name,
-            &spec,
+        let record = repository::insert_job(&self.state.db, &spec.namespace, &spec.name, &spec)
+            .await
+            .map_err(|e| internal("persist ingest_job", e))?;
+
+        runtime_state::upsert_job_runtime_state(
+            &self.state.kube,
+            &record,
+            &IngestJobRuntimeState::pending(),
         )
         .await
-        .map_err(|e| internal("persist ingest_job", e))?;
+        .map_err(|e| internal("persist runtime state", e))?;
 
         if let Err(err) = apply_resources(&self.state.kube, &rendered).await {
-            // Persist the failure so the reconcile loop can surface it and
-            // retry; surface to the caller as well.
-            let _ = repository::mark_failed(&self.state.db, record.id, &err.to_string()).await;
+            let _ = runtime_state::upsert_job_runtime_state(
+                &self.state.kube,
+                &record,
+                &IngestJobRuntimeState::failed(err.to_string()),
+            )
+            .await;
             return Err(internal("apply kubernetes resources", err));
         }
 
@@ -93,11 +100,22 @@ impl IngestionControlPlane for ControlPlaneService {
             .await
             .map_err(|e| internal("mark_materialized", e))?;
 
+        runtime_state::upsert_job_runtime_state(
+            &self.state.kube,
+            &record,
+            &IngestJobRuntimeState::materialized(&kc_name, fl_name.as_deref()),
+        )
+        .await
+        .map_err(|e| internal("persist runtime state", e))?;
+
         let updated = repository::get_job(&self.state.db, record.id)
             .await
             .map_err(|e| internal("get_job", e))?
             .ok_or_else(|| Status::internal("job vanished after insert"))?;
-        Ok(Response::new(updated.into()))
+        let response = runtime_state::hydrate_job(&self.state.kube, updated)
+            .await
+            .map_err(|e| internal("hydrate runtime state", e))?;
+        Ok(Response::new(response))
     }
 
     async fn get_ingest_job(
@@ -109,7 +127,10 @@ impl IngestionControlPlane for ControlPlaneService {
             .await
             .map_err(|e| internal("get_job", e))?
             .ok_or_else(|| Status::not_found("ingest job not found"))?;
-        Ok(Response::new(record.into()))
+        let response = runtime_state::hydrate_job(&self.state.kube, record)
+            .await
+            .map_err(|e| internal("hydrate runtime state", e))?;
+        Ok(Response::new(response))
     }
 
     async fn list_ingest_jobs(
@@ -119,9 +140,15 @@ impl IngestionControlPlane for ControlPlaneService {
         let rows = repository::list_jobs(&self.state.db)
             .await
             .map_err(|e| internal("list_jobs", e))?;
-        Ok(Response::new(ListIngestJobsResponse {
-            jobs: rows.into_iter().map(IngestJob::from).collect(),
-        }))
+        let mut jobs = Vec::with_capacity(rows.len());
+        for row in rows {
+            jobs.push(
+                runtime_state::hydrate_job(&self.state.kube, row)
+                    .await
+                    .map_err(|e| internal("hydrate runtime state", e))?,
+            );
+        }
+        Ok(Response::new(ListIngestJobsResponse { jobs }))
     }
 
     async fn delete_ingest_job(
@@ -135,6 +162,8 @@ impl IngestionControlPlane for ControlPlaneService {
         let Some(record) = deleted else {
             return Err(Status::not_found("ingest job not found"));
         };
+        let _ =
+            runtime_state::delete_job_runtime_state(&self.state.kube, &record.namespace, id).await;
         delete_resources(
             &self.state.kube,
             &record.namespace,

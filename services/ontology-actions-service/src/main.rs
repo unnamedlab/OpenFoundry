@@ -22,9 +22,11 @@
 //!   service no longer applies `sqlx::migrate!` against its own
 //!   tree — the legacy DDL has been archived under
 //!   `docs/architecture/legacy-migrations/ontology-actions-service/`
-//!   ([S1.4.d]) and any residual schema is provisioned by the
-//!   `pg-policy` cluster owner (`outbox.events`) plus the
-//!   `pg-schemas` consolidation that lands in S1.6.
+//!   ([S1.4.d]). The only schema that still lands in `pg-schemas`
+//!   during S1.6 is the declarative ontology boundary
+//!   (`object_types`, `properties`, `link_types`, `action_types`, ...);
+//!   runtime PG tables such as `object_instances`, `link_instances`
+//!   and execution ledgers are intentionally not revived here.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -41,8 +43,10 @@ use cassandra_kernel::{
     repos::{CassandraActionLogStore, CassandraLinkStore, CassandraObjectStore},
 };
 use ontology_actions_service::{build_router, config::AppConfig, jwt_config_from_secret};
-use ontology_kernel::AppState;
-use sqlx::postgres::PgPoolOptions;
+use ontology_kernel::{AppState, domain::pg_repository::PostgresDefinitionStore};
+use search_abstraction::search_backend_from_env;
+use sqlx::{PgPool, postgres::PgPoolOptions};
+use storage_abstraction::repositories::SearchBackedObjectSetMaterializationStore;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -79,6 +83,13 @@ const ACTIONS_LOG_MIGRATIONS: &[Migration] = &[
         name: "actions_by_object_index",
         statements: &[include_str!("../cql/actions_log/002_actions_by_object.cql")],
     },
+    Migration {
+        version: 3,
+        name: "actions_by_action_and_event_indexes",
+        statements: &[include_str!(
+            "../cql/actions_log/003_actions_by_action_and_event.cql"
+        )],
+    },
 ];
 
 #[tokio::main]
@@ -95,14 +106,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // residual handler queries that have not yet been migrated to
     // `cassandra-kernel`). No `sqlx::migrate!` call: the outbox DDL
     // is owned by `libs/outbox/migrations/` and applied by the
-    // platform DBA, and every other table that lived in this tree
-    // was archived under `docs/architecture/legacy-migrations/`.
+    // platform DBA; declarative action/object schema is owned by
+    // `ontology-definition-service` on `pg-schemas`; runtime legacy
+    // tables remain archived under `docs/architecture/legacy-migrations/`.
     let db = PgPoolOptions::new()
         .max_connections(10)
         .connect(&app_config.database_url)
         .await?;
 
-    let stores = build_stores(&app_config).await?;
+    let stores = build_stores(&app_config, db.clone()).await?;
 
     let state = AppState {
         db,
@@ -145,13 +157,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// smoke tests and local `cargo run` keep working without infrastructure.
 async fn build_stores(
     cfg: &AppConfig,
+    db: PgPool,
 ) -> Result<ontology_kernel::stores::Stores, Box<dyn std::error::Error>> {
     if cfg.cassandra_contact_points.trim().is_empty() {
         tracing::warn!(
             "CASSANDRA_CONTACT_POINTS not set — falling back to in-memory ObjectStore. \
              Production deployments MUST set this variable (S1.4.a)."
         );
-        return Ok(ontology_kernel::stores::Stores::in_memory());
+        let mut stores = ontology_kernel::stores::Stores::in_memory();
+        stores.definitions = Arc::new(PostgresDefinitionStore::new(db));
+        return Ok(stores);
     }
 
     let cluster = ClusterConfig {
@@ -178,6 +193,21 @@ async fn build_stores(
     bag.objects = Arc::new(object_store);
     bag.links = Arc::new(link_store);
     bag.actions = Arc::new(action_store);
+    bag.definitions = Arc::new(PostgresDefinitionStore::new(db));
+    match search_backend_from_env() {
+        Ok(search) => {
+            bag.search = search;
+            bag.object_set_materializations = Arc::new(
+                SearchBackedObjectSetMaterializationStore::new(bag.search.clone()),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "SEARCH_ENDPOINT/SEARCH_BACKEND not configured for ontology-actions-service; using in-memory search backend"
+            );
+        }
+    }
     Ok(bag)
 }
 

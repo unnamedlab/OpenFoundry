@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/security-governance-pg.yaml`](../../../infra/k8s/cnpg/clusters/security-governance-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/security-governance-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/security-governance-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `security-governance-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

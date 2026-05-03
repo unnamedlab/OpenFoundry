@@ -58,8 +58,10 @@ pub async fn create_policy(
         return Err(bad_request("updated_by is required"));
     }
     let rules = retention::policy_rules_payload(&request).map_err(internal_error)?;
-    let selector = serde_json::to_value(&request.selector).map_err(|e| internal_error(e.to_string()))?;
-    let criteria = serde_json::to_value(&request.criteria).map_err(|e| internal_error(e.to_string()))?;
+    let selector =
+        serde_json::to_value(&request.selector).map_err(|e| internal_error(e.to_string()))?;
+    let criteria =
+        serde_json::to_value(&request.criteria).map_err(|e| internal_error(e.to_string()))?;
 
     let row = sqlx::query_as::<_, crate::models::retention::RetentionPolicyRow>(
         "INSERT INTO retention_policies (id, name, scope, target_kind, retention_days, legal_hold, purge_mode, rules, updated_by, active, selector, criteria, grace_period_minutes)
@@ -101,8 +103,10 @@ pub async fn update_policy(
     };
     retention::apply_update(&mut policy, request);
     let rules = retention::updated_rules_payload(&policy.rules).map_err(internal_error)?;
-    let selector = serde_json::to_value(&policy.selector).map_err(|e| internal_error(e.to_string()))?;
-    let criteria = serde_json::to_value(&policy.criteria).map_err(|e| internal_error(e.to_string()))?;
+    let selector =
+        serde_json::to_value(&policy.selector).map_err(|e| internal_error(e.to_string()))?;
+    let criteria =
+        serde_json::to_value(&policy.criteria).map_err(|e| internal_error(e.to_string()))?;
 
     let row = sqlx::query_as::<_, crate::models::retention::RetentionPolicyRow>(
         "UPDATE retention_policies
@@ -237,4 +241,186 @@ pub async fn get_transaction_retention(
         transaction_id,
         policies: filtered,
     }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P4 — applicable-policies + retention-preview.
+//
+// `applicable-policies` resolves the inheritance chain (Org → Space →
+// Project → Dataset) for a dataset RID and surfaces the winning
+// "most restrictive" policy. `retention-preview` simulates which
+// transactions / files would be purged if the runner fired now (or in
+// `as_of_days` days). Both share the same context query params so the
+// UI can pass the same dataset metadata once.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ResolutionContext {
+    pub project_id: Option<Uuid>,
+    pub marking_id: Option<Uuid>,
+    pub space_id: Option<Uuid>,
+    pub org_id: Option<Uuid>,
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct InheritedPolicies {
+    pub org: Vec<crate::models::retention::RetentionPolicy>,
+    pub space: Vec<crate::models::retention::RetentionPolicy>,
+    pub project: Vec<crate::models::retention::RetentionPolicy>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PolicyConflict {
+    pub winner_id: Uuid,
+    pub loser_id: Uuid,
+    pub reason: &'static str,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ApplicablePoliciesResponse {
+    pub dataset_rid: String,
+    pub context: ResolutionContext,
+    pub inherited: InheritedPolicies,
+    pub explicit: Vec<crate::models::retention::RetentionPolicy>,
+    pub effective: Option<crate::models::retention::RetentionPolicy>,
+    pub conflicts: Vec<PolicyConflict>,
+}
+
+impl serde::Serialize for ResolutionContext {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("ResolutionContext", 4)?;
+        st.serialize_field("project_id", &self.project_id)?;
+        st.serialize_field("marking_id", &self.marking_id)?;
+        st.serialize_field("space_id", &self.space_id)?;
+        st.serialize_field("org_id", &self.org_id)?;
+        st.end()
+    }
+}
+
+pub async fn applicable_policies(
+    State(state): State<AppState>,
+    Path(rid): Path<String>,
+    Query(ctx): Query<ResolutionContext>,
+) -> ServiceResult<ApplicablePoliciesResponse> {
+    let policies = retention::load_policies(&state.db)
+        .await
+        .map_err(internal_error)?;
+
+    let resolved = retention::resolve_applicable(&policies, &rid, &ctx);
+
+    // Tag the metric with the dominant inheritance origin so dashboards
+    // show whether explicit policies are common.
+    let origin = if !resolved.explicit.is_empty() {
+        "hit_dataset"
+    } else if !resolved.inherited.project.is_empty() {
+        "hit_project"
+    } else if !resolved.inherited.space.is_empty() {
+        "hit_space"
+    } else if !resolved.inherited.org.is_empty() {
+        "hit_org"
+    } else {
+        "none"
+    };
+    crate::metrics::RETENTION_APPLICABLE_TOTAL
+        .with_label_values(&[origin])
+        .inc();
+
+    Ok(Json(ApplicablePoliciesResponse {
+        dataset_rid: rid,
+        context: ctx,
+        inherited: resolved.inherited,
+        explicit: resolved.explicit,
+        effective: resolved.effective,
+        conflicts: resolved.conflicts,
+    }))
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct RetentionPreviewQuery {
+    /// `now + as_of_days` is the wall-clock the simulator pretends it's
+    /// running at. Negative values are clamped to 0.
+    pub as_of_days: Option<i64>,
+    pub project_id: Option<Uuid>,
+    pub marking_id: Option<Uuid>,
+    pub space_id: Option<Uuid>,
+    pub org_id: Option<Uuid>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RetentionPreviewTransaction {
+    pub id: Uuid,
+    pub tx_type: String,
+    pub status: String,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub committed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub would_delete: bool,
+    pub policy_id: Option<Uuid>,
+    pub policy_name: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RetentionPreviewFile {
+    pub id: Uuid,
+    pub transaction_id: Uuid,
+    pub logical_path: String,
+    pub physical_uri: String,
+    pub size_bytes: i64,
+    pub policy_id: Uuid,
+    pub policy_name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Serialize, Default)]
+pub struct RetentionPreviewSummary {
+    pub transactions_total: usize,
+    pub transactions_would_delete: usize,
+    pub files_total: usize,
+    pub bytes_total: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RetentionPreviewResponse {
+    pub dataset_rid: String,
+    pub as_of_days: i64,
+    pub as_of: chrono::DateTime<chrono::Utc>,
+    pub effective_policy: Option<crate::models::retention::RetentionPolicy>,
+    pub transactions: Vec<RetentionPreviewTransaction>,
+    pub files: Vec<RetentionPreviewFile>,
+    pub summary: RetentionPreviewSummary,
+    /// Non-fatal warnings. Surfaces e.g. "dataset_transactions table not
+    /// found" when DVS migrations haven't been applied to this DB.
+    pub warnings: Vec<String>,
+}
+
+pub async fn retention_preview(
+    State(state): State<AppState>,
+    Path(rid): Path<String>,
+    Query(q): Query<RetentionPreviewQuery>,
+) -> ServiceResult<RetentionPreviewResponse> {
+    let as_of_days = q.as_of_days.unwrap_or(0).max(0);
+    let bucket = crate::metrics::preview_bucket(as_of_days);
+    crate::metrics::RETENTION_PREVIEW_TOTAL
+        .with_label_values(&[bucket])
+        .inc();
+
+    let policies = retention::load_policies(&state.db)
+        .await
+        .map_err(internal_error)?;
+    let ctx = ResolutionContext {
+        project_id: q.project_id,
+        marking_id: q.marking_id,
+        space_id: q.space_id,
+        org_id: q.org_id,
+    };
+    let resolved = retention::resolve_applicable(&policies, &rid, &ctx);
+
+    let preview = retention::run_preview(&state.db, &rid, as_of_days, &resolved)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(preview))
 }

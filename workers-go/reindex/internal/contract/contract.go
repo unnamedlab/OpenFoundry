@@ -16,9 +16,7 @@ const (
 	WorkflowOntologyReindex = "OntologyReindex"
 
 	// ActivityScanCassandra activity reads a page of objects from
-	// Cassandra. The activity body lives in the Rust side; the
-	// worker invokes it via a heartbeat-bounded local activity
-	// proxy.
+	// Cassandra.
 	ActivityScanCassandra = "ScanCassandraObjects"
 
 	// ActivityPublishReindexBatch publishes a batch of objects
@@ -33,8 +31,11 @@ const (
 	// `services/ontology-indexer::topics::ONTOLOGY_REINDEX_V1`.
 	TopicReindex = "ontology.reindex.v1"
 
-	// HeaderAuditCorrelation is the gRPC metadata key used when
-	// activities call back into the Rust services.
+	// HeaderAuditCorrelation is the HTTP request header used when
+	// activities call back into the Rust services. The reindex
+	// worker itself does not call Rust services (it goes direct to
+	// Cassandra + Kafka — see the package doc on activities), but
+	// the constant is kept here for parity with the other workers.
 	HeaderAuditCorrelation = "x-audit-correlation-id"
 )
 

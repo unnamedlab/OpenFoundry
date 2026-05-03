@@ -1,7 +1,8 @@
 # S3.1.j — Pen-test runbook: `identity-federation-service`
 
 > Gate: must complete with **zero criticals** and **zero highs**
-> before Stream S3 closes.
+> before Stream S3 closes, but this sign-off alone does **not** close
+> S3; the stream still requires gate `G-S3` in the migration plan.
 
 ## Scope
 
@@ -57,11 +58,29 @@ pen-test on `authorization-policy-service`.
 4. File anything ≥ medium in JIRA; criticals/highs block the stream.
 5. Sign off in this runbook below.
 
+## Verifiable Checks
+
+Run these checks in addition to ZAP. Save command output and topic
+payloads with the final report.
+
+| Control | Command / action | Expected result |
+|---|---|---|
+| Redis rate limit | Send 11 `POST /api/v1/auth/login` requests with the same `email` and source IP. | First 10 requests are auth failures; request 11 returns `429` and `Retry-After`. |
+| Route isolation | After saturating login, call `POST /api/v1/auth/token/refresh` with an invalid token. | Response is `401`, not `429`; limiter key includes route. |
+| Audit publication | Subscribe with `kcat -b $KAFKA_BOOTSTRAP_SERVERS -t audit.identity.v1 -C -o end`, then perform failed login, successful login and refresh replay. | Topic receives `login` and `refresh_token_replay` envelopes with UUIDv7 `event_id` and propagated `correlation_id`. |
+| Vault Transit signing | Remove local JWT signing secrets from the pod and issue a token with Vault reachable. | Token header `kid` matches `<VAULT_TRANSIT_KEY>-v<version>` and validates via `/.well-known/jwks.json`. |
+| Vault fail-closed | Deny pod egress to `$VAULT_ADDR` and issue a fresh token. | Token issuance fails; no HS256/local fallback appears in logs or JWT header. |
+| WebAuthn origin binding | Begin registration with `OF_WEBAUTHN_RP_ORIGIN=https://id.example.test`, finish assertion from a mismatched origin. | Finish endpoint returns 4xx and does not advance credential counter. |
+| WebAuthn replay counter | Replay a previously accepted assertion with the same or lower authenticator counter. | Login finish returns 4xx and emits MFA failure telemetry. |
+| SCIM service principal | POST `/scim/v2/Users` as a service account with `scim_writer`. | User is created or idempotently returned when `externalId` already exists. |
+| SCIM human principal deny | POST `/scim/v2/Users` with a human user JWT. | Request is denied by Cedar/authz path. |
+
 ## Reporting
 
 Findings live in `docs/architecture/security/findings/<date>.md`.
 Closure of S3 requires **zero criticals + zero highs** signed off
-by the security architect.
+by the security architect **and** the rest of the final gates in
+`migration-plan-cassandra-foundry-parity.md` §18.
 
 ## Sign-off
 

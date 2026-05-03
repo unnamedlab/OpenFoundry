@@ -18,9 +18,7 @@
 //!     the `dataset_` family is always present in `/metrics`.
 
 use once_cell::sync::Lazy;
-use prometheus::{
-    IntCounter, IntCounterVec, Opts, register_int_counter, register_int_counter_vec,
-};
+use prometheus::{IntCounter, IntCounterVec, Opts, register_int_counter, register_int_counter_vec};
 
 /// Total number of dataset CRUD operations served. Bumped from
 /// handlers when they reach a terminal status.

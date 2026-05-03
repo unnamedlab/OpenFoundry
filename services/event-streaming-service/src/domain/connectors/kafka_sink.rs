@@ -70,7 +70,8 @@ pub async fn publish_events(
         return Err(KafkaSinkError::BackendMissing);
     }
     for event in events {
-        let payload = serde_json::to_vec(event).map_err(|e| KafkaSinkError::Encoding(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(event).map_err(|e| KafkaSinkError::Encoding(e.to_string()))?;
         let mut headers = headers_extra.clone();
         headers.insert("content-type".to_string(), "application/json".to_string());
         let envelope = Envelope {
@@ -88,9 +89,9 @@ pub async fn publish_events(
 }
 
 fn parse_topic(endpoint: &str) -> Result<String, KafkaSinkError> {
-    let stripped = endpoint
-        .strip_prefix("kafka://")
-        .ok_or_else(|| KafkaSinkError::InvalidBinding(format!("expected kafka://… got '{endpoint}'")))?;
+    let stripped = endpoint.strip_prefix("kafka://").ok_or_else(|| {
+        KafkaSinkError::InvalidBinding(format!("expected kafka://… got '{endpoint}'"))
+    })?;
     if stripped.is_empty() {
         return Err(KafkaSinkError::InvalidBinding(
             "kafka endpoint must include a topic".to_string(),

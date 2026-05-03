@@ -31,8 +31,16 @@ pub struct EventRouterService {
 }
 
 impl EventRouterService {
-    pub fn new(table: Arc<RouteTable>, backends: Arc<BackendRegistry>, metrics: Arc<Metrics>) -> Self {
-        Self { table, backends, metrics }
+    pub fn new(
+        table: Arc<RouteTable>,
+        backends: Arc<BackendRegistry>,
+        metrics: Arc<Metrics>,
+    ) -> Self {
+        Self {
+            table,
+            backends,
+            metrics,
+        }
     }
 
     /// Wrap into a tonic [`EventRouterServer`] ready to be added to a
@@ -98,7 +106,8 @@ impl EventRouter for EventRouterService {
 
         match res {
             Ok(()) => {
-                self.metrics.record_publish(backend_id, &pattern_label, publish_result::OK);
+                self.metrics
+                    .record_publish(backend_id, &pattern_label, publish_result::OK);
                 Ok(Response::new(PublishResponse {
                     backend: backend_id.as_str().to_string(),
                     matched_pattern: pattern_label,
@@ -320,12 +329,7 @@ mod tests {
     async fn publish_returns_invalid_argument_when_no_match() {
         let nats = MockBackend::new(BackendId::Nats);
         let kafka = MockBackend::new(BackendId::Kafka);
-        let (svc, metrics) = make_service(
-            vec![("ctrl.*", BackendId::Nats)],
-            None,
-            nats,
-            kafka,
-        );
+        let (svc, metrics) = make_service(vec![("ctrl.*", BackendId::Nats)], None, nats, kafka);
 
         let err = svc
             .publish(Request::new(PublishRequest {

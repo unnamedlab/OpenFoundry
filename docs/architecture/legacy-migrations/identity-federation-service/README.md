@@ -8,13 +8,22 @@ Stream **S3** (see `docs/architecture/migration-plan-cassandra-foundry-parity.md
 
 - **Authoritative store** for ephemeral identity state is now the
   Cassandra keyspace `auth_runtime` with three tables:
-  `user_session`, `refresh_token`, `oauth_state` (DDL in
+  `user_session`, `refresh_token`, `oauth_state`, plus the lookup/list
+  companions `scoped_session_by_user`, `scoped_session_by_id` and
+  `refresh_token_by_id` (DDL in
   [`services/identity-federation-service/src/sessions_cassandra.rs`](../../../services/identity-federation-service/src/sessions_cassandra.rs),
   applied via `cassandra_kernel::migrate::apply`).
 - JWKS signing keys remain in `pg-schemas.auth_schema.jwks_keys`
   (rare rotation, custody in Vault transit per S3.1.b).
 - Postgres `refresh_tokens`, `scoped_sessions` and any oauth-state
-  table become read-side mirrors during the cutover.
+  table are now legacy-only and staged for DROP after cutover sign-off.
+  The last runtime migration that created `scoped_sessions` now lives
+  alongside this README as
+  `20260425193000_scoped_sessions_security.sql`, and the original
+  `refresh_tokens` DDL now lives in `20260419000001_refresh_tokens.sql`.
+- The remaining Postgres surface for auth is limited to long-lived
+  control-plane data such as users, roles/permissions/policies, MFA
+  metadata and JWKS mirrors.
 
 ## Cutover gate
 
@@ -38,5 +47,6 @@ NOT** run before:
 - Pen-test runbook: [`identity-pen-test-runbook.md`](../../runbooks/identity-pen-test-runbook.md).
 - Plan reference: `docs/architecture/migration-plan-cassandra-foundry-parity.md` §S3.
 
-> **Do not resurrect** the legacy Postgres session path. New write
-> paths must go through the Cassandra adapter.
+> **Do not resurrect** the legacy Postgres session path. No runtime
+> writer should target those tables; new write paths must go through
+> the Cassandra adapter.

@@ -10,7 +10,7 @@
 ADR-0014 (Accepted) retired Trino in favour of a single Flight SQL
 edge gateway (`sql-bi-gateway-service`) backed by DataFusion plus
 optional remote Flight SQL endpoints (`sql-warehousing-service`,
-ClickHouse, Vespa, Postgres). That decision was right for the
+Vespa, Postgres). That decision was right for the
 Sprint-3 timeframe: it removed an operational liability and let us
 collapse OLAP, search and OLTP behind one wire protocol.
 
@@ -39,10 +39,14 @@ to **batch maintenance** jobs (S5.7) — not interactive query.
 ## Decision
 
 Reintroduce Trino as the **Iceberg-analytics engine**, deployed via
-`infra/k8s/trino/values.yaml` (S5.6.a/b/c). Keep Flight SQL as the
+`infra/k8s/platform/manifests/trino/values.yaml` (S5.6.a/b/c). Keep Flight SQL as the
 **edge protocol**: BI clients still connect to
 `sql-bi-gateway-service:50133` and the gateway delegates by catalog
 prefix.
+
+This ADR being `Accepted` does **not** by itself close Stream S5. The
+stream closes only once Trino and the lakehouse sinks are live in
+runtime and gate `G-S5` in the migration plan is green.
 
 Concretely the routing table inside `services/sql-bi-gateway-service/src/routing.rs`
 gains a fifth backend:
@@ -51,7 +55,6 @@ gains a fifth backend:
 |-----------------------|---------|----------|
 | `trino.*`             | `Backend::Trino` | `trino-flight-sql-proxy.trino:50133` (Flight SQL adapter in front of Trino's HTTP API) |
 | `iceberg.*` (default) | `Backend::Iceberg` | local DataFusion / `sql-warehousing-service` |
-| `clickhouse.*`        | `Backend::ClickHouse` | unchanged |
 | `vespa.*`             | `Backend::Vespa` | unchanged |
 | `postgres.*` / `postgresql.*` | `Backend::Postgres` | unchanged |
 
@@ -76,12 +79,12 @@ fetch.
 - Two more StatefulSets (Trino coordinator HA pair) + a HPA-managed
   worker Deployment.
 - One new Helm chart dependency (`trinodb/trino`, Apache-2.0) bumped
-  in `infra/k8s/helm/open-foundry/Chart.yaml` (deferred to runtime
+  in the split Helm profile set under `infra/k8s/helm/profiles/` (deferred to runtime
   PR).
 - `sql-bi-gateway-service` gains an additional optional env var
   `TRINO_FLIGHT_SQL_URL`. When unset the gateway returns
   `RoutingError::BackendUnavailable(Backend::Trino)` for `trino.*`
-  statements (same pattern as ClickHouse / Vespa).
+  statements (same pattern as Vespa / Postgres).
 
 ## Consequences
 

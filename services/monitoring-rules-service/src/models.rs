@@ -54,7 +54,9 @@ pub struct CreateActionRuleRequest {
     pub severity: String,
 }
 
-fn default_severity() -> String { "medium".to_string() }
+fn default_severity() -> String {
+    "medium".to_string()
+}
 
 impl CreateActionRuleRequest {
     pub fn validate(&self) -> Result<(), String> {
@@ -64,9 +66,7 @@ impl CreateActionRuleRequest {
         match self.kind {
             ActionRuleKind::ActionDurationP95 => {
                 if self.threshold_ms.is_none() {
-                    return Err(
-                        "threshold_ms is required when kind = action_duration_p95".into(),
-                    );
+                    return Err("threshold_ms is required when kind = action_duration_p95".into());
                 }
             }
             ActionRuleKind::ActionFailuresInWindow => {

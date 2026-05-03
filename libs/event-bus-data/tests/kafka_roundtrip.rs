@@ -24,8 +24,7 @@ async fn publish_and_consume_roundtrip_with_explicit_commit() {
     let consumer_cfg = kafka.config_for("orders-consumer");
 
     let publisher = KafkaPublisher::new(&producer_cfg).expect("build publisher");
-    let subscriber =
-        KafkaSubscriber::new(&consumer_cfg, "orders-cg-it").expect("build subscriber");
+    let subscriber = KafkaSubscriber::new(&consumer_cfg, "orders-cg-it").expect("build subscriber");
     subscriber.subscribe(&[topic]).expect("subscribe");
 
     let lineage = OpenLineageHeaders::new(
@@ -37,10 +36,18 @@ async fn publish_and_consume_roundtrip_with_explicit_commit() {
     .with_schema_url("https://schemas.openfoundry.dev/orders/v1");
 
     publisher
-        .publish(topic, Some(b"order-1"), b"{\"order_id\":\"order-1\"}", &lineage)
+        .publish(
+            topic,
+            Some(b"order-1"),
+            b"{\"order_id\":\"order-1\"}",
+            &lineage,
+        )
         .await
         .expect("publish");
-    publisher.flush(Duration::from_secs(10)).await.expect("flush");
+    publisher
+        .flush(Duration::from_secs(10))
+        .await
+        .expect("flush");
 
     let msg = tokio::time::timeout(Duration::from_secs(20), subscriber.recv())
         .await
@@ -51,7 +58,9 @@ async fn publish_and_consume_roundtrip_with_explicit_commit() {
     assert_eq!(msg.key(), Some(b"order-1".as_ref()));
     assert_eq!(msg.payload(), Some(b"{\"order_id\":\"order-1\"}".as_ref()));
 
-    let parsed = msg.lineage().expect("OpenLineage headers should be present");
+    let parsed = msg
+        .lineage()
+        .expect("OpenLineage headers should be present");
     assert_eq!(parsed.namespace, "of://datasets");
     assert_eq!(parsed.job_name, "etl.orders.publish_test");
     assert_eq!(parsed.run_id, "run-it-001");

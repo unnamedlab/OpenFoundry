@@ -6,7 +6,7 @@ OpenFoundry usa **Strimzi** (Apache-2.0) como operador de Kafka y **Apicurio
 Registry** (Apache-2.0) como Schema Registry. Confluent queda explícitamente
 excluido (Confluent Community License no es OSS).
 
-Manifestos: `infra/k8s/strimzi/`
+Manifestos: `infra/k8s/platform/manifests/strimzi/`
 Runbook relacionado: `infra/runbooks/ceph.md` (los volúmenes JBOD de los
 brokers se aprovisionan sobre la `StorageClass` `ceph-rbd` gestionada por
 Rook).
@@ -34,12 +34,12 @@ respetando `min.insync.replicas`. El procedimiento estándar:
 # 1. Actualizar el operador (CRDs + controller).
 helm repo update strimzi
 helm upgrade -n kafka strimzi-operator strimzi/strimzi-kafka-operator \
-  -f infra/k8s/strimzi/values-strimzi-operator.yaml
+  -f infra/k8s/platform/manifests/strimzi/values-strimzi-operator.yaml
 
 # 2. Subir versión de Kafka. Editar `spec.kafka.version` y
 #    `spec.kafka.metadataVersion` en kafka-cluster.yaml siguiendo
 #    https://strimzi.io/docs/operators/latest/deploying#con-upgrade-cluster-str
-kubectl apply -f infra/k8s/strimzi/kafka-cluster.yaml
+kubectl apply -f infra/k8s/platform/manifests/strimzi/kafka-cluster.yaml
 
 # 3. Observar el rollout. Los pods se reinician de uno en uno.
 kubectl -n kafka get pods -l strimzi.io/cluster=openfoundry -w
@@ -184,7 +184,7 @@ bin/kafka-reassign-partitions.sh --bootstrap-server localhost:9092 \
 ## 3. Topics base
 
 Los cinco topics del data plane se crean vía CRs `KafkaTopic`
-(`infra/k8s/strimzi/kafka-topics.yaml`). Para añadir un nuevo topic CDC:
+(`infra/k8s/platform/manifests/strimzi/kafka-topics.yaml`). Para añadir un nuevo topic CDC:
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -232,7 +232,7 @@ curl -X POST -H 'Content-Type: application/json; artifactType=AVRO' \
 Recovery del backend Postgres: ver `infra/runbooks/disaster-recovery.md`
 (sección CNPG); la `Cluster` de Apicurio sigue el mismo procedimiento que
 cualquier otro `postgresql.cnpg.io/v1 Cluster` de la plataforma (plantilla
-de referencia en `infra/k8s/cnpg/templates/cluster.yaml`; el antiguo
+de referencia en `infra/k8s/platform/manifests/cnpg/templates/cluster.yaml`; el antiguo
 subchart de Apache Polaris fue retirado por
 [ADR-0008](../../docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md)).
 
@@ -251,7 +251,7 @@ Cuando se incorpora un servicio nuevo:
 2. Añadir el nombre a la lista `matchExpressions[*].values` correspondiente
    en `network-policies.yaml`.
 3. Crear un `KafkaUser` con las ACLs mínimas (un PR aparte).
-4. `kubectl apply -f infra/k8s/strimzi/network-policies.yaml`.
+4. `kubectl apply -f infra/k8s/platform/manifests/strimzi/network-policies.yaml`.
 
 ## 6. Troubleshooting
 

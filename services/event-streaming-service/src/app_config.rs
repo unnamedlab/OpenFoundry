@@ -70,6 +70,28 @@ pub struct AppConfig {
     /// `kafka-rdkafka` feature is enabled.
     #[serde(default)]
     pub kafka_bootstrap_servers: Option<String>,
+
+    /// Optional Cassandra contact points for the runtime store. When
+    /// omitted the service keeps hot events/checkpoints in memory only.
+    #[serde(default)]
+    pub cassandra_contact_points: Option<String>,
+
+    /// Cassandra local datacenter used when the runtime store is backed
+    /// by Cassandra.
+    #[serde(default = "default_cassandra_local_datacenter")]
+    pub cassandra_local_datacenter: String,
+
+    /// Optional Cassandra username for authenticated clusters.
+    #[serde(default)]
+    pub cassandra_username: Option<String>,
+
+    /// Optional Cassandra password for authenticated clusters.
+    #[serde(default)]
+    pub cassandra_password: Option<String>,
+
+    /// Cassandra keyspace used by the runtime store metadata.
+    #[serde(default = "default_cassandra_keyspace")]
+    pub cassandra_keyspace: String,
 }
 
 fn default_host() -> String {
@@ -98,6 +120,12 @@ fn default_iceberg_namespace() -> String {
 }
 fn default_archive_dir() -> String {
     "/tmp/of-event-stream-archive".to_string()
+}
+fn default_cassandra_local_datacenter() -> String {
+    "dc1".to_string()
+}
+fn default_cassandra_keyspace() -> String {
+    "streaming_runtime".to_string()
 }
 
 impl AppConfig {
@@ -133,6 +161,9 @@ mod tests {
         assert_eq!(cfg.iceberg_namespace, "streaming_service");
         assert!(cfg.iceberg_catalog_url.is_none());
         assert!(cfg.kafka_bootstrap_servers.is_none());
+        assert!(cfg.cassandra_contact_points.is_none());
+        assert_eq!(cfg.cassandra_local_datacenter, "dc1");
+        assert_eq!(cfg.cassandra_keyspace, "streaming_runtime");
     }
 
     #[test]

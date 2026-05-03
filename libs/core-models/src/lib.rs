@@ -8,13 +8,15 @@ pub mod dataset;
 pub mod error;
 pub mod health;
 pub mod ids;
+pub mod media_reference;
 pub mod observability;
 pub mod pagination;
 pub mod security;
 pub mod timestamp;
 
 pub use dataset::{
-    BranchName, DatasetRid, InvalidBranchName, InvalidDatasetRid, TransactionId,
-    TransactionState, TransactionType, UnknownTransactionState, UnknownTransactionType,
+    BranchName, DatasetRid, InvalidBranchName, InvalidDatasetRid, TransactionId, TransactionState,
+    TransactionType, UnknownTransactionState, UnknownTransactionType,
 };
+pub use media_reference::{MediaReference, MediaSetSchema, UnknownMediaSetSchema};
 pub use security::{EffectiveMarking, InvalidMarkingId, MarkingId, MarkingSource};

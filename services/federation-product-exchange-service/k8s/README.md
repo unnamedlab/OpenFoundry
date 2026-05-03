@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/federation-product-exchange-pg.yaml`](../../../infra/k8s/cnpg/clusters/federation-product-exchange-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/federation-product-exchange-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/federation-product-exchange-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `federation-product-exchange-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

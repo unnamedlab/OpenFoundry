@@ -1,0 +1,25 @@
+---
+# S4.1.f — PodMonitor for the Debezium Connect cluster.
+#
+# Strimzi exposes the JMX exporter on port 9404; the metrics map is
+# defined in the ConfigMap `debezium-connect-metrics`
+# (see `kafka-connect.yaml`).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: debezium-connect
+  namespace: kafka
+  labels:
+    openfoundry.io/component: debezium-connect
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: debezium
+      strimzi.io/kind: KafkaConnect
+  namespaceSelector:
+    matchNames: [kafka]
+  podMetricsEndpoints:
+    - port: tcp-prometheus
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 25s

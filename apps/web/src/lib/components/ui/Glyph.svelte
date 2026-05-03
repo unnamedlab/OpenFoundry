@@ -26,9 +26,32 @@
     | 'object'
     | 'link'
     | 'artifact'
-    | 'run' = 'cube';
+    | 'run'
+    | 'image'
+    | 'audio'
+    | 'video'
+    | 'document'
+    | 'spreadsheet'
+    | 'email' = 'cube';
   export let size = 18;
   export let strokeWidth = 1.8;
+  /**
+   * Optional CSS colour. Defaults to the per-name accent for the six
+   * media-schema icons; everything else uses `currentColor` so existing
+   * call sites keep their look.
+   */
+  export let tone: string | null = null;
+
+  const SCHEMA_TONE: Record<string, string> = {
+    image: '#7c3aed',
+    audio: '#0ea5e9',
+    video: '#ef4444',
+    document: '#0891b2',
+    spreadsheet: '#16a34a',
+    email: '#f59e0b'
+  };
+
+  $: stroke = tone ?? SCHEMA_TONE[name] ?? 'currentColor';
 
   const paths: Record<string, string[]> = {
     menu: ['M4 6h16', 'M4 12h16', 'M4 18h16'],
@@ -69,7 +92,28 @@
     object: ['M5 6h14v12H5z', 'M8 9h8', 'M8 12h8', 'M8 15h5'],
     link: ['M10 8.5 8.5 7A3.2 3.2 0 0 0 4 11.5 3.2 3.2 0 0 0 7.2 14.7l1.8-1.8', 'M14 15.5 15.5 17A3.2 3.2 0 0 0 20 12.5 3.2 3.2 0 0 0 16.8 9.3L15 11.1', 'M9 15l6-6'],
     artifact: ['M7 4.5h7l4 4v11H7z', 'M14 4.5v4h4'],
-    run: ['M8 6.5v11l9-5.5z']
+    run: ['M8 6.5v11l9-5.5z'],
+    // Media-set schema icons.
+    image: [
+      'M4.5 5.5h15v13h-15z',
+      'M4.5 15.5l4-4 4 4 3-3 4 4',
+      'M9 9.5a1.4 1.4 0 1 1 0-2.8 1.4 1.4 0 0 1 0 2.8z'
+    ],
+    audio: [
+      'M9 18V8l8-3v10',
+      'M9 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0z',
+      'M17 15a2 2 0 1 1-4 0 2 2 0 0 1 4 0z'
+    ],
+    video: ['M4.5 6.5h11v11h-11z', 'M15.5 9.5l4-2v9l-4-2z'],
+    document: ['M7 4.5h7l4 4v11H7z', 'M14 4.5v4h4', 'M9 13h6', 'M9 16h6', 'M9 10h3'],
+    spreadsheet: [
+      'M4.5 5.5h15v13h-15z',
+      'M4.5 9.5h15',
+      'M4.5 13.5h15',
+      'M9.5 5.5v13',
+      'M14.5 5.5v13'
+    ],
+    email: ['M4.5 6.5h15v11h-15z', 'M4.5 7l7.5 6 7.5-6']
   };
 </script>
 
@@ -84,7 +128,7 @@
   {#each paths[name] ?? paths.cube as d}
     <path
       d={d}
-      stroke="currentColor"
+      {stroke}
       stroke-width={strokeWidth}
       stroke-linecap="round"
       stroke-linejoin="round"

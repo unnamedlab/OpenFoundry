@@ -1997,6 +1997,7 @@ mod tests {
             distributed_pipeline_workers: 1,
             distributed_compute_poll_interval_ms: 5_000,
             distributed_compute_timeout_secs: 900,
+            lifecycle_ports: None,
         }
     }
 

@@ -57,6 +57,8 @@ pub enum OutboxError {
 
 pub type OutboxResult<T> = Result<T, OutboxError>;
 
+pub mod lineage_event;
+
 /// Domain event ready to be appended to `outbox.events`.
 ///
 /// `event_id` should be deterministic (typically a v5 UUID derived
@@ -108,10 +110,7 @@ impl OutboxEvent {
 /// The caller owns the transaction lifecycle — this helper never
 /// commits or rolls back. Pair it with the application's primary
 /// write so a single `tx.commit().await?` atomically publishes both.
-pub async fn enqueue(
-    tx: &mut Transaction<'_, Postgres>,
-    event: OutboxEvent,
-) -> OutboxResult<()> {
+pub async fn enqueue(tx: &mut Transaction<'_, Postgres>, event: OutboxEvent) -> OutboxResult<()> {
     let headers = serde_json::to_value(&event.headers)?;
 
     // INSERT. `ON CONFLICT DO NOTHING` makes deterministic retries
@@ -177,8 +176,14 @@ mod tests {
         .with_header("ol-run-id", "run-abc")
         .with_header("ol-namespace", "of");
 
-        assert_eq!(evt.headers.get("ol-run-id").map(String::as_str), Some("run-abc"));
-        assert_eq!(evt.headers.get("ol-namespace").map(String::as_str), Some("of"));
+        assert_eq!(
+            evt.headers.get("ol-run-id").map(String::as_str),
+            Some("run-abc")
+        );
+        assert_eq!(
+            evt.headers.get("ol-namespace").map(String::as_str),
+            Some("of")
+        );
         assert_eq!(evt.topic, "ontology.object.changed.v1");
     }
 }

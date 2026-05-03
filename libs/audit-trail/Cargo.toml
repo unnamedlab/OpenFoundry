@@ -47,6 +47,20 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.outbox]
+workspace = true
+optional = true
+
+[dependencies.sqlx]
+workspace = true
+optional = true
+
+[features]
+# Enables the Postgres-backed publisher (`events::publisher`). Off by
+# default so the crate stays usable from non-Postgres call sites
+# (gRPC code-gen, tracing-only services, the front-end TS bridge).
+outbox = ["dep:outbox", "dep:sqlx"]
+
 [lib]
 path = "src/lib.rs"
 name = "audit_trail"

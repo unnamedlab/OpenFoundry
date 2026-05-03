@@ -4,6 +4,7 @@ pub mod dataset_versioning;
 pub mod discovery;
 pub mod egress;
 pub mod hyperauto;
+pub mod media_set_sync;
 pub mod scheduler;
 pub mod schema_inference;
 pub mod secret_manager;

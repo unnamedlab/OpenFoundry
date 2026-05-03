@@ -25,7 +25,9 @@ use axum::{
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::models::{CreateSavedQueryRequest, ListQueriesQuery, SavedQuery};
+use crate::models::{
+    CreateSavedQueryParams, CreateSavedQueryRequest, ListQueriesQuery, SavedQuery,
+};
 
 /// Axum state shared by every saved-queries handler.
 #[derive(Clone)]
@@ -60,8 +62,22 @@ async fn healthz() -> (StatusCode, &'static str) {
     (StatusCode::OK, "ok")
 }
 
+/// Conservative dataset-RID safety check used by the
+/// `?seed_dataset_rid=` autofill path. Foundry RIDs are
+/// `ri.foundry.main.dataset.<uuid>`; we accept any string composed
+/// solely of alphanumerics + `._-` so the embed in SQL is safe even
+/// if the caller passes a non-canonical RID. Anything else falls
+/// through (the SQL stays empty).
+fn is_safe_rid(rid: &str) -> bool {
+    !rid.is_empty()
+        && rid
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
 async fn create_saved_query(
     State(state): State<AppState>,
+    Query(params): Query<CreateSavedQueryParams>,
     Json(body): Json<CreateSavedQueryRequest>,
 ) -> impl IntoResponse {
     let id = Uuid::now_v7();
@@ -72,6 +88,22 @@ async fn create_saved_query(
     // primary auth-gated entrypoint; the saved-queries CRUD here is a
     // BI-dashboard convenience.
     let owner_id = Uuid::nil();
+    // P5 — Foundry "Open in SQL workbench" entry point. When the body
+    // `sql` is empty AND `?seed_dataset_rid=` is present, pre-fill the
+    // SQL with `SELECT * FROM <dataset>` so the user lands on a
+    // runnable query. The dataset RID is sanitised to alphanumeric +
+    // dot/dash/underscore so it can be embedded in SQL safely.
+    let body_sql = body.sql.as_deref().unwrap_or("").trim().to_string();
+    let sql = if body_sql.is_empty() {
+        match params.seed_dataset_rid.as_deref() {
+            Some(rid) if is_safe_rid(rid) => {
+                format!("SELECT * FROM \"{rid}\" LIMIT 100")
+            }
+            _ => body_sql,
+        }
+    } else {
+        body_sql
+    };
     let result = sqlx::query_as::<_, SavedQuery>(
         r#"INSERT INTO saved_queries (id, name, description, sql, owner_id)
            VALUES ($1, $2, $3, $4, $5)
@@ -80,7 +112,7 @@ async fn create_saved_query(
     .bind(id)
     .bind(&body.name)
     .bind(body.description.as_deref().unwrap_or(""))
-    .bind(&body.sql)
+    .bind(&sql)
     .bind(owner_id)
     .fetch_one(state.db.as_ref())
     .await;

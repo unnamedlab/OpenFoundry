@@ -19,7 +19,7 @@ use ontology_definition_service::{
     AppState, build_router,
     config::AppConfig,
     db::build_pool,
-    schema_events::{SchemaPublisher, SOURCE},
+    schema_events::{SOURCE, SchemaPublisher},
 };
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{EnvFilter, fmt};

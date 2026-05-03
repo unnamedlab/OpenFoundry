@@ -95,9 +95,7 @@ func OntologyReindex(ctx workflow.Context, input contract.OntologyReindexInput) 
 }
 
 // scanInput / scanPage / publishInput / publishResult are the
-// activity payloads. The activity bodies live on the Rust side
-// (see `services/ontology-indexer` and the future Cassandra
-// scanner); these structs are the wire contract.
+// activity payloads exchanged with the worker activities.
 
 type scanInput struct {
 	TenantID    string `json:"tenant_id"`

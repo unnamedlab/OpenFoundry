@@ -23,6 +23,16 @@ pub mod runs {
         pub const FACETS: &str = "facets"; // serialized JSON
     }
 
+    pub mod field_ids {
+        pub const RUN_ID: i32 = 1;
+        pub const JOB_NAMESPACE: i32 = 2;
+        pub const JOB_NAME: i32 = 3;
+        pub const STARTED_AT: i32 = 4;
+        pub const COMPLETED_AT: i32 = 5;
+        pub const STATE: i32 = 6;
+        pub const FACETS: i32 = 7;
+    }
+
     pub const PARTITION_SOURCE_FIELD: &str = fields::STARTED_AT;
     pub const PARTITION_TRANSFORM: &str = common::DAY;
     pub const SORT_FIELD: &str = fields::STARTED_AT;
@@ -51,6 +61,16 @@ pub mod events {
         pub const PAYLOAD: &str = "payload"; // serialized JSON
     }
 
+    pub mod field_ids {
+        pub const EVENT_ID: i32 = 1;
+        pub const RUN_ID: i32 = 2;
+        pub const EVENT_TIME: i32 = 3;
+        pub const EVENT_TYPE: i32 = 4;
+        pub const PRODUCER: i32 = 5;
+        pub const SCHEMA_URL: i32 = 6;
+        pub const PAYLOAD: i32 = 7;
+    }
+
     pub const PARTITION_SOURCE_FIELD: &str = fields::EVENT_TIME;
     pub const PARTITION_TRANSFORM: &str = common::DAY;
     pub const SORT_FIELD: &str = fields::EVENT_TIME;
@@ -75,6 +95,15 @@ pub mod datasets_io {
         pub const DATASET_NAMESPACE: &str = "dataset_namespace";
         pub const DATASET_NAME: &str = "dataset_name";
         pub const FACETS: &str = "facets"; // JSON
+    }
+
+    pub mod field_ids {
+        pub const RUN_ID: i32 = 1;
+        pub const EVENT_TIME: i32 = 2;
+        pub const SIDE: i32 = 3;
+        pub const DATASET_NAMESPACE: i32 = 4;
+        pub const DATASET_NAME: i32 = 5;
+        pub const FACETS: i32 = 6;
     }
 
     pub const PARTITION_SOURCE_FIELD: &str = fields::EVENT_TIME;
@@ -126,7 +155,11 @@ mod tests {
         // events.event_time is the canonical partition source quoted in
         // the target const `"day(event_time)"`.
         assert_eq!(
-            format!("{}({})", events::PARTITION_TRANSFORM, events::PARTITION_SOURCE_FIELD),
+            format!(
+                "{}({})",
+                events::PARTITION_TRANSFORM,
+                events::PARTITION_SOURCE_FIELD
+            ),
             iceberg_target::PARTITION_TRANSFORM
         );
     }
@@ -135,5 +168,12 @@ mod tests {
     fn datasets_io_side_values_documented() {
         assert_eq!(datasets_io::SIDE_INPUT, "input");
         assert_eq!(datasets_io::SIDE_OUTPUT, "output");
+    }
+
+    #[test]
+    fn field_ids_are_stable() {
+        assert_eq!(runs::field_ids::RUN_ID, 1);
+        assert_eq!(events::field_ids::PAYLOAD, 7);
+        assert_eq!(datasets_io::field_ids::FACETS, 6);
     }
 }

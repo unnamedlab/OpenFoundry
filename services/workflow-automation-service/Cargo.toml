@@ -52,6 +52,7 @@ workspace = true
 
 [dependencies.temporal-client]
 workspace = true
+features = ["grpc"]
 
 [dependencies.tokio]
 workspace = true
@@ -84,3 +85,6 @@ workspace = true
 [dev-dependencies.tokio]
 workspace = true
 features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.async-trait]
+workspace = true

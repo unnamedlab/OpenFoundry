@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS actions_log.actions_log (
     status            text,
     failure_type      text,
     duration_ms       int,
+    event_id          text,
     PRIMARY KEY ((tenant, day_bucket), applied_at, action_id)
 )
 WITH CLUSTERING ORDER BY (applied_at DESC, action_id ASC)

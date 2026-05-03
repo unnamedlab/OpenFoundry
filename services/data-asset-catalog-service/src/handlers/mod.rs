@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod crud;
+pub mod dataset_model;
 pub mod export;
 pub mod internal;
 pub mod preview;

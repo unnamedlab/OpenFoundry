@@ -191,7 +191,10 @@ impl VectorBackend for VespaBackend {
         if !embedding.is_empty() {
             // Indexed tensors go on the wire as plain JSON arrays under
             // the field name; Vespa parses them according to the schema.
-            payload_fields.insert(self.cfg.embedding_field.clone(), embedding_to_json(embedding));
+            payload_fields.insert(
+                self.cfg.embedding_field.clone(),
+                embedding_to_json(embedding),
+            );
         }
         let body = json!({ "fields": Value::Object(payload_fields) });
 

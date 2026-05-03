@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/ontology-exploratory-analysis-pg.yaml`](../../../infra/k8s/cnpg/clusters/ontology-exploratory-analysis-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/ontology-exploratory-analysis-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/ontology-exploratory-analysis-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `ontology-exploratory-analysis-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

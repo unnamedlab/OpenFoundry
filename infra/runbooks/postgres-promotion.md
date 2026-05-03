@@ -100,12 +100,12 @@ the new primary.
 
 ## Step 4 — Switch application DSNs
 
-Application services in region B have been started with the
-`DATABASE_URL` overlay pointing at the **`-replica-rw`** Service
-([infra/k8s/helm/open-foundry/values-region-b.yaml](../k8s/helm/open-foundry/values-region-b.yaml)
-— if it does not exist yet, create it as part of the failover and
-commit afterwards). No DSN change is needed in steady state because
-the Service name is stable across promotion.
+Application services in region B are expected to consume the
+`<bc>-db-dsn` Secret contract documented in
+[`infra/k8s/helm/DATABASE_URL.md`](../k8s/helm/DATABASE_URL.md). The
+region-B copy of each Secret should already point at the stable
+`*-replica-rw` / `*-replica-ro` Services, so no per-chart Helm change
+is needed in steady state.
 
 If any service was hard-coded against `pg-<name>-rw.openfoundry.svc`
 (region A name), patch its Deployment now:
@@ -132,12 +132,12 @@ Expected: insert succeeds, select returns one row, table drops cleanly.
 Open a PR against `main` that:
 
 1. Sets `replica.enabled: false` in the manifest at
-   [`cnpg-replicas-region-b.yaml`](../k8s/cnpg/region-b/cnpg-replicas-region-b.yaml)
+   [`cnpg-replicas-region-b.yaml`](../k8s/platform/manifests/cnpg/region-b/cnpg-replicas-region-b.yaml)
    for the promoted clusters (so the next reconciliation does not
    silently re-enable replica mode).
-2. Updates `infra/k8s/helm/open-foundry/values-prod.yaml` to point the
-   `DATABASE_URL` and `DATABASE_READ_URL` Helm values at the
-   `-replica-rw` / `-replica-ro` Services.
+2. Updates the backing `<bc>-db-dsn` Secret inputs (Vault / External
+   Secrets / SealedSecrets) so `DATABASE_URL` and `DATABASE_READ_URL`
+   resolve to the promoted `-replica-rw` / `-replica-ro` Services.
 3. Adds the incident timestamp to the PR description for audit
    correlation.
 
@@ -153,7 +153,7 @@ accepted in B). To fail back:
    ```
 2. **Bootstrap region A as a fresh replica** of the now-primary in B:
    create a new Cluster manifest in region A modelled on
-   [`cnpg-replicas-region-b.yaml`](../k8s/cnpg/region-b/cnpg-replicas-region-b.yaml)
+   [`cnpg-replicas-region-b.yaml`](../k8s/platform/manifests/cnpg/region-b/cnpg-replicas-region-b.yaml)
    but with `externalClusters.host` pointing at
    `pg-<name>-replica-rw.openfoundry-region-b.svc.openfoundry.example.com`
    and `replica.enabled: true`.
@@ -173,7 +173,7 @@ game day.
 * This runbook does **not** promote Cassandra (always multi-master,
   see [`cassandra-app-failover.md`](cassandra-app-failover.md)) or
   Lakekeeper region-B serving mode (transitions from RO to RW are
-  documented in [`infra/k8s/lakekeeper/region-b/README.md`](../k8s/lakekeeper/region-b/README.md)
+  documented in [`infra/k8s/platform/manifests/lakekeeper/region-b/README.md`](../k8s/platform/manifests/lakekeeper/region-b/README.md)
   and require coordination with the lakehouse on-call).
 * This runbook does **not** rotate the `streaming_replica` user's
   credentials. That happens on the regular cert-manager schedule and

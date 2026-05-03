@@ -1,0 +1,90 @@
+---
+# S6.1.c + S6.1.d — bootstrap SQL for `pg-policy`.
+#
+# Cluster-specific fragment: per-bounded-context `svc_<bc>` roles +
+# schemas + grants on the shared `outbox.events` table, plus the
+# Debezium read-only access on every policy schema (CDC source — see
+# the cluster manifest comments for the `wal_level=logical` rationale).
+# The shared `outbox.*` schema and the `debezium_cdc` role itself are
+# provisioned by the two reusable ConfigMaps in `bootstrap-sql/`, which
+# the cluster manifest references BEFORE this one — see
+# [`bootstrap-sql/README.md`](bootstrap-sql/README.md) for the
+# composition order.
+#
+# Additional concern for this cluster: `wal_level=logical` means rows
+# stream out via Debezium. The default REPLICA IDENTITY of new tables
+# created by the audit/policy services SHOULD be `FULL` for
+# `audit_event` style tables (so updates carry the previous row image).
+# Service migrations are responsible for `ALTER TABLE ... REPLICA
+# IDENTITY FULL` where needed; this bootstrap only sets up the
+# schemas/roles.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pg-policy-bootstrap-sql
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-policy
+    openfoundry.io/managed-by: cnpg
+data:
+  bootstrap.sql: |
+    -- ============================================================
+    -- pg-policy — security/policy/audit/governance bounded contexts
+    -- (CDC source via Debezium — see cluster manifest comments)
+    -- ============================================================
+    DO $$
+    DECLARE
+      bc TEXT;
+      bcs TEXT[] := ARRAY[
+        'identity_federation',
+        'oauth_integration',
+        'network_boundary',
+        'cipher',
+        'security_governance',
+        'sds',
+        'audit_compliance',
+        'retention_policy',
+        'lineage_deletion',
+        'checkpoints_purpose',
+        'telemetry_governance',
+        'code_security_scanning'
+      ];
+    BEGIN
+      FOREACH bc IN ARRAY bcs LOOP
+        EXECUTE format(
+          'CREATE ROLE svc_%I LOGIN REPLICATION PASSWORD %L NOINHERIT',
+          bc,
+          'PLACEHOLDER_ROTATE_VIA_EXTERNAL_SECRETS'
+        );
+        EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION svc_%I', bc, bc);
+        EXECUTE format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', bc);
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO svc_%I', bc, bc);
+        EXECUTE format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE svc_%I IN SCHEMA %I '
+          'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO svc_%I',
+          bc, bc, bc
+        );
+        EXECUTE format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE svc_%I IN SCHEMA %I '
+          'GRANT USAGE, SELECT ON SEQUENCES TO svc_%I',
+          bc, bc, bc
+        );
+        EXECUTE format('GRANT USAGE ON SCHEMA outbox TO svc_%I', bc);
+        EXECUTE format(
+          'GRANT SELECT, INSERT, DELETE ON TABLE outbox.events TO svc_%I',
+          bc
+        );
+        -- Debezium read-only access on every policy schema, plus default
+        -- privileges so future tables created by svc_<bc> are visible to
+        -- the CDC consumer. The role itself is created by
+        -- `cnpg-common-debezium-cdc-role` (applied before this fragment).
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO debezium_cdc', bc);
+        EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO debezium_cdc', bc);
+        EXECUTE format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE svc_%I IN SCHEMA %I '
+          'GRANT SELECT ON TABLES TO debezium_cdc',
+          bc, bc
+        );
+      END LOOP;
+    END$$;

@@ -67,7 +67,10 @@ pub struct RdKafkaBackend {
 
 impl RdKafkaBackend {
     /// Build a backend from a fully-resolved [`DataBusConfig`].
-    pub fn new(config: DataBusConfig, group_prefix: impl Into<String>) -> Result<Self, BackendError> {
+    pub fn new(
+        config: DataBusConfig,
+        group_prefix: impl Into<String>,
+    ) -> Result<Self, BackendError> {
         let producer: FutureProducer =
             config
                 .producer_config()
@@ -89,12 +92,11 @@ impl RdKafkaBackend {
     /// Falls back to a PLAINTEXT dev principal when SASL credentials are
     /// absent (test brokers / local docker-compose).
     pub fn from_env(service_name: &str) -> Result<Self, BackendError> {
-        let bootstrap = std::env::var("KAFKA_BOOTSTRAP_SERVERS").map_err(|_| {
-            BackendError::Unavailable {
+        let bootstrap =
+            std::env::var("KAFKA_BOOTSTRAP_SERVERS").map_err(|_| BackendError::Unavailable {
                 backend: BackendId::Kafka,
                 message: "KAFKA_BOOTSTRAP_SERVERS is not set".to_string(),
-            }
-        })?;
+            })?;
         let principal = match (
             std::env::var("KAFKA_SASL_USERNAME").ok(),
             std::env::var("KAFKA_SASL_PASSWORD").ok(),
@@ -133,8 +135,9 @@ impl Backend for RdKafkaBackend {
         // `FutureRecord` borrows from its inputs; keep `payload` alive for
         // the duration of the await.
         let payload = envelope.payload;
-        let record: FutureRecord<'_, [u8], [u8]> =
-            FutureRecord::to(&topic).payload(payload.as_ref()).headers(headers);
+        let record: FutureRecord<'_, [u8], [u8]> = FutureRecord::to(&topic)
+            .payload(payload.as_ref())
+            .headers(headers);
 
         match self
             .producer
@@ -229,7 +232,10 @@ fn build_headers(envelope: &Envelope) -> OwnedHeaders {
     // Stamp `ol-event-time` if absent so downstream OpenLineage consumers
     // (see `event_bus_data::headers`) always see a usable timestamp without
     // forcing every router caller to populate it explicitly.
-    if !envelope.headers.contains_key(event_bus_data::headers::keys::EVENT_TIME) {
+    if !envelope
+        .headers
+        .contains_key(event_bus_data::headers::keys::EVENT_TIME)
+    {
         let now = Utc::now().to_rfc3339();
         headers = headers.insert(Header {
             key: event_bus_data::headers::keys::EVENT_TIME,
@@ -368,9 +374,10 @@ mod tests {
             headers: BTreeMap::new(),
             schema_id: None,
         };
-        envelope
-            .headers
-            .insert(event_bus_data::headers::keys::EVENT_TIME.into(), "2026-05-01T00:00:00Z".into());
+        envelope.headers.insert(
+            event_bus_data::headers::keys::EVENT_TIME.into(),
+            "2026-05-01T00:00:00Z".into(),
+        );
         let headers = build_headers(&envelope);
         let mut event_times: Vec<String> = Vec::new();
         for i in 0..headers.count() {

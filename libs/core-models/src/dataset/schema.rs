@@ -164,7 +164,10 @@ impl CsvOptions {
             let mut chars = value.chars();
             let first = chars
                 .next()
-                .ok_or(SchemaValidationError::InvalidCsvOption { key, value: value.into() })?;
+                .ok_or(SchemaValidationError::InvalidCsvOption {
+                    key,
+                    value: value.into(),
+                })?;
             if chars.next().is_some() {
                 return Err(SchemaValidationError::InvalidCsvOption {
                     key,
@@ -235,7 +238,9 @@ impl SchemaField {
         match &self.field_type {
             FieldType::Decimal { precision, scale } => {
                 if *precision == 0 || *precision > 38 {
-                    return Err(SchemaValidationError::DecimalPrecisionOutOfRange(*precision));
+                    return Err(SchemaValidationError::DecimalPrecisionOutOfRange(
+                        *precision,
+                    ));
                 }
                 if *scale > *precision {
                     return Err(SchemaValidationError::DecimalScaleOutOfRange {
@@ -285,7 +290,9 @@ impl Schema {
         let mut seen = std::collections::HashSet::new();
         for field in &self.fields {
             if !seen.insert(field.name.as_str()) {
-                return Err(SchemaValidationError::DuplicateFieldName(field.name.clone()));
+                return Err(SchemaValidationError::DuplicateFieldName(
+                    field.name.clone(),
+                ));
             }
             field.validate()?;
         }
@@ -381,7 +388,10 @@ mod tests {
         assert_eq!(cases.len(), 15);
         for (ft, expected_tag) in cases {
             let json = serde_json::to_value(&ft).unwrap();
-            assert_eq!(json.get("type").and_then(|v| v.as_str()), Some(expected_tag));
+            assert_eq!(
+                json.get("type").and_then(|v| v.as_str()),
+                Some(expected_tag)
+            );
         }
     }
 
@@ -511,7 +521,9 @@ mod tests {
     fn struct_must_have_subschemas() {
         let s = SchemaField {
             name: "s".into(),
-            field_type: FieldType::Struct { sub_schemas: vec![] },
+            field_type: FieldType::Struct {
+                sub_schemas: vec![],
+            },
             nullable: true,
             description: None,
         };
@@ -563,7 +575,10 @@ mod tests {
         meta.insert("delimiter".into(), "||".into());
         assert!(matches!(
             CsvOptions::from_metadata(&meta),
-            Err(SchemaValidationError::InvalidCsvOption { key: "delimiter", .. })
+            Err(SchemaValidationError::InvalidCsvOption {
+                key: "delimiter",
+                ..
+            })
         ));
     }
 

@@ -600,7 +600,6 @@ mod tests {
             dataset_service_url: "http://localhost:50053".to_string(),
             pipeline_service_url: "http://localhost:50080".to_string(),
             ontology_service_url: "http://localhost:50103".to_string(),
-            ingestion_replication_service_url: "http://localhost:50090".to_string(),
             ingestion_replication_grpc_url: String::new(),
             allowed_egress_hosts: Vec::new(),
             allow_private_network_egress: true,

@@ -1,12 +1,15 @@
 //! `ontology-definition-service` — schema-of-types domain.
 //!
 //! Per the Cassandra-Foundry parity plan (S1.6), this service keeps
+//! the declarative ontology schema boundary in **Postgres**, on the
+//! consolidated `pg-schemas` cluster, schema `ontology_schema`:
 //! object types, link types, action types, properties, interfaces,
-//! shared property types and ontology projects in **Postgres**, on the
-//! consolidated `pg-schemas` cluster, schema `ontology_schema`.
+//! shared property types and ontology projects.
 //! Cassandra is reserved for hot-path object/link state owned by
 //! `object-database-service`, `ontology-actions-service` and
-//! `ontology-query-service`.
+//! `ontology-query-service`. Runtime rows such as `object_instances`,
+//! `link_instances` and execution/run ledgers are intentionally out
+//! of scope here.
 //!
 //! This crate is the substrate shell:
 //!
@@ -56,10 +59,7 @@ mod handlers {
 
     pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         let db_ready = match state.db.as_ref() {
-            Some(pool) => matches!(
-                sqlx::query("SELECT 1").execute(pool).await,
-                Ok(_)
-            ),
+            Some(pool) => matches!(sqlx::query("SELECT 1").execute(pool).await, Ok(_)),
             None => false,
         };
         let body = serde_json::json!({

@@ -128,11 +128,7 @@ pub async fn fetch_dataset(
         all_records.append(&mut page_records);
         pages += 1;
 
-        if payload
-            .get("done")
-            .and_then(Value::as_bool)
-            .unwrap_or(true)
-        {
+        if payload.get("done").and_then(Value::as_bool).unwrap_or(true) {
             break;
         }
         if let Some(path) = payload.get("nextRecordsUrl").and_then(Value::as_str) {

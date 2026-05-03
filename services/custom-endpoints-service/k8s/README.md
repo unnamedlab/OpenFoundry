@@ -10,7 +10,7 @@ CloudNativePG (CNPG, `postgresql.cnpg.io`) `Cluster`.
 
 | Field          | Value                                                              |
 |----------------|--------------------------------------------------------------------|
-| Manifest       | [`infra/k8s/cnpg/clusters/custom-endpoints-pg.yaml`](../../../infra/k8s/cnpg/clusters/custom-endpoints-pg.yaml) |
+| Manifest       | [`infra/k8s/platform/manifests/cnpg/clusters/custom-endpoints-pg.yaml`](../../../infra/k8s/platform/manifests/cnpg/clusters/custom-endpoints-pg.yaml) |
 | `kind`         | `Cluster` (`postgresql.cnpg.io/v1`, CloudNativePG / cloudnative-pg)|
 | Cluster name   | `custom-endpoints-pg`                                                   |
 | Namespace      | `openfoundry`                                                      |

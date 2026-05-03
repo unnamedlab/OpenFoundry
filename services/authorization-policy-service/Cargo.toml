@@ -47,6 +47,16 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.authz-cedar]
+workspace = true
+features = ["kafka"]
+
+[dependencies.event-bus-data]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "authorization-policy-service"

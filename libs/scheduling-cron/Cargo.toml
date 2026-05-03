@@ -1,0 +1,30 @@
+[package]
+name = "scheduling-cron"
+description = "Foundry-parity cron parser & evaluator (Unix-5 + Quartz-6, L/#, IANA TZ + DST handling)"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.chrono-tz]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dev-dependencies.serde_json]
+workspace = true

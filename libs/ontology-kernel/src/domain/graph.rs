@@ -1,16 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use auth_middleware::claims::Claims;
+use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::access::ensure_object_access,
-    handlers::{
-        links::LinkInstance,
-        objects::{ObjectInstance, load_object_instance},
+    domain::{
+        access::ensure_object_access,
+        composition,
+        read_models::{load_object_instance_from_read_model, tenant_from_claims},
+        traversal,
     },
+    handlers::{links::LinkInstance, objects::ObjectInstance},
     models::{
         graph::{GraphEdge, GraphNode, GraphQuery, GraphResponse, GraphSummary},
         interface::{ObjectTypeInterfaceBinding, OntologyInterface},
@@ -328,11 +331,12 @@ async fn build_object_graph(
     let depth = depth.unwrap_or(2).clamp(1, 4);
     let limit = limit.unwrap_or(40).clamp(1, 120);
 
-    let root_object = load_object_instance(&state.db, root_object_id)
+    let root_object = load_object_instance_from_read_model(state, claims, root_object_id, None)
         .await
         .map_err(|error| format!("failed to load root object: {error}"))?
         .ok_or_else(|| "root object was not found".to_string())?;
     ensure_object_access(claims, &root_object)?;
+    let tenant = tenant_from_claims(claims);
 
     let object_types = sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types")
         .fetch_all(&state.db)
@@ -349,6 +353,11 @@ async fn build_object_graph(
         .into_iter()
         .map(|link_type| (link_type.id, link_type))
         .collect::<HashMap<_, _>>();
+    let link_type_ids = link_type_map
+        .keys()
+        .copied()
+        .map(|id| storage_abstraction::repositories::LinkTypeId(id.to_string()))
+        .collect::<Vec<_>>();
 
     let mut visited_objects = HashSet::from([root_object_id]);
     let mut distance_from_root = HashMap::from([(root_object_id, 0usize)]);
@@ -361,36 +370,54 @@ async fn build_object_graph(
             continue;
         }
 
-        let rows = sqlx::query_as::<_, LinkInstance>(
-            r#"SELECT id, link_type_id, source_object_id, target_object_id, properties, created_by, created_at
-               FROM link_instances
-               WHERE source_object_id = $1 OR target_object_id = $1
-               ORDER BY created_at ASC"#,
+        let object_key = storage_abstraction::repositories::ObjectId(object_id.to_string());
+        let adjacent = traversal::collect_links(
+            state.stores.links.as_ref(),
+            &tenant,
+            &object_key,
+            &link_type_ids,
+            limit,
         )
-        .bind(object_id)
-        .fetch_all(&state.db)
         .await
-        .map_err(|error| format!("failed to load object graph edges: {error}"))?;
+        .map_err(|error| format!("failed to load graph edges: {error}"))?;
 
-        for link_instance in rows {
-            if !seen_edges.insert(link_instance.id) {
+        for link in adjacent {
+            let Ok(link_type_id) = Uuid::parse_str(&link.link_type.0) else {
                 continue;
-            }
-
-            let neighbor_id = if link_instance.source_object_id == object_id {
-                link_instance.target_object_id
-            } else {
-                link_instance.source_object_id
+            };
+            let Ok(source_object_id) = Uuid::parse_str(&link.from.0) else {
+                continue;
+            };
+            let Ok(target_object_id) = Uuid::parse_str(&link.to.0) else {
+                continue;
             };
 
-            link_instances.push(link_instance);
-
-            if visited_objects.len() >= limit {
+            let link_id = composition::stable_link_id(&link.link_type, &link.from, &link.to);
+            if !seen_edges.insert(link_id) {
                 continue;
             }
-            if visited_objects.insert(neighbor_id) {
-                distance_from_root.insert(neighbor_id, level + 1);
-                queue.push_back((neighbor_id, level + 1));
+
+            link_instances.push(LinkInstance {
+                id: link_id,
+                link_type_id,
+                source_object_id,
+                target_object_id,
+                properties: link.payload.clone(),
+                created_by: Uuid::nil(),
+                created_at: chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                    link.created_at_ms,
+                )
+                .unwrap_or_else(Utc::now),
+            });
+
+            let neighbour_object_id = if source_object_id == object_id {
+                target_object_id
+            } else {
+                source_object_id
+            };
+            if visited_objects.len() < limit && visited_objects.insert(neighbour_object_id) {
+                distance_from_root.insert(neighbour_object_id, level + 1);
+                queue.push_back((neighbour_object_id, level + 1));
             }
         }
     }
@@ -398,7 +425,7 @@ async fn build_object_graph(
     let mut objects = Vec::new();
     let mut allowed_object_ids = HashSet::new();
     for object_id in visited_objects {
-        let Some(object) = load_object_instance(&state.db, object_id)
+        let Some(object) = load_object_instance_from_read_model(state, claims, object_id, None)
             .await
             .map_err(|error| format!("failed to hydrate object graph node: {error}"))?
         else {

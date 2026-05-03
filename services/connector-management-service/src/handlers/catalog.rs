@@ -65,6 +65,15 @@ const AVAILABLE_TYPES: &[&str] = &[
     "kinesis",
     "iot",
     "sap",
+    // Bloque P5 — Foundry-parity streaming source kinds. Each maps
+    // to a `StreamingSourceConnector` implementation in
+    // `event-streaming-service::domain::connectors`.
+    "streaming_kafka",
+    "streaming_kinesis",
+    "streaming_sqs",
+    "streaming_pubsub",
+    "streaming_aveva_pi",
+    "streaming_external",
 ];
 
 /// GET /api/v1/data-connection/catalog — gallery shape for the UI.
@@ -167,4 +176,3 @@ pub async fn get_connection_capabilities(
     })
     .into_response()
 }
-

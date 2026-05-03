@@ -1,0 +1,80 @@
+# Trino Helm values overlay (S5.6.a + S5.6.b + S5.6.c).
+#
+# Chart: trinodb/trino (Apache-2.0).
+# Repo: https://trinodb.github.io/charts
+# Pin to Trino LTS image — never use `latest`.
+
+image:
+  repository: trinodb/trino
+  tag: "459"
+  pullPolicy: IfNotPresent
+
+server:
+  workers: 4
+  config:
+    query:
+      maxMemory: "100GB"
+      maxMemoryPerNode: "12GB"
+    memory:
+      heapHeadroomPerNode: "1GB"
+  log:
+    trino:
+      level: INFO
+  exchangeManager:
+    name: filesystem
+    baseDir: "s3://openfoundry-trino-exchange/"
+  autoscaling:
+    enabled: true
+    maxReplicas: 16
+    targetCPUUtilizationPercentage: 60
+
+# S5.6.b — keep the coordinator explicitly sized and scale workers through
+# the chart's worker HPA (`server.autoscaling`).
+coordinator:
+  jvm:
+    maxHeapSize: "16G"
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "8"
+      memory: 32Gi
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: coordinator
+
+worker:
+  jvm:
+    maxHeapSize: "32G"
+  resources:
+    requests:
+      cpu: "4"
+      memory: 16Gi
+    limits:
+      cpu: "16"
+      memory: 64Gi
+# Custom catalog (Iceberg) is mounted from the file
+# `connectors/iceberg.properties` via the chart's `additionalCatalogs`
+# helper.
+additionalCatalogs:
+  iceberg: |-
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://lakekeeper.lakekeeper.svc:8181
+    iceberg.rest-catalog.warehouse=openfoundry-iceberg
+    iceberg.file-format=PARQUET
+    iceberg.compression-codec=ZSTD
+    fs.native-s3.enabled=true
+    s3.endpoint=http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80
+    s3.path-style-access=true
+    s3.region=us-east-1
+
+serviceMonitor:
+  enabled: true
+  labels:
+    role: alert-rules

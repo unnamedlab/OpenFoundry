@@ -17,13 +17,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("..")
         .join("proto");
     let router_proto = proto_root.join("streaming").join("router.proto");
+    let streams_proto = proto_root.join("streaming").join("streams.proto");
 
     println!("cargo:rerun-if-changed={}", router_proto.display());
+    println!("cargo:rerun-if-changed={}", streams_proto.display());
 
     tonic_build::configure()
         .build_server(true)
         .build_client(false)
-        .compile_protos(&[router_proto], &[proto_root])?;
+        .compile_protos(&[router_proto, streams_proto], &[proto_root])?;
 
     Ok(())
 }

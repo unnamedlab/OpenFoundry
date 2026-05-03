@@ -5,5 +5,7 @@ pub mod data_connection;
 pub mod dev_auth;
 pub mod hyperauto;
 pub mod iceberg_catalog;
+pub mod media_set_syncs;
 pub mod registrations;
+pub mod streaming_syncs;
 pub mod webhooks;

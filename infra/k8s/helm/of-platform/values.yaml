@@ -1,12 +1,105 @@
-# of-platform values — owns gateway, identity, authz, tenancy.
+# of-platform values — owns gateway, identity, authz, tenancy, the
+# shared ingress, and the cross-release platform profile ConfigMap.
 release: of-platform
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
 
 image:
   registry: ghcr.io/openfoundry
   tag: "0.1.0"
 
-# S8.5 — Single ingress entrypoint owned by of-platform; the other
-# four releases register HTTPRoutes against the same gateway service.
+global:
+  imagePullPolicy: IfNotPresent
+  imageRegistry: ""
+  imagePullSecrets: []
+  existingSecret: open-foundry-env
+  publicWebOrigin: https://openfoundry.example.com
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+  podAnnotations: {}
+  podSecurityContext:
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    readOnlyRootFilesystem: false
+  terminationGracePeriodSeconds: 30
+  topologySpreadConstraints:
+    enabled: true
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  networkPolicy:
+    enabled: true
+    allowSameNamespaceTraffic: true
+    additionalEgressCidrs: []
+  platformProfile:
+    enabled: true
+    configMapName: openfoundry-platform-profile
+  probes:
+    readiness:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 8
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 6
+    liveness:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 3
+      failureThreshold: 3
+  deploymentFabric:
+    cloud: kubernetes
+    environment: shared
+    cell: core
+    region: global
+    multiCloud:
+      enabled: false
+      activeProvider: ""
+      workloadIdentity:
+        awsRoleArn: ""
+        gcpServiceAccount: ""
+        azureClientId: ""
+      providers: []
+    airGap:
+      enabled: false
+      privateRegistry: ""
+      releaseBundle: ""
+      disablePublicEgress: false
+      mirrorRegistries: []
+      allowedEgressCidrs: []
+    geoRestrictions:
+      enabled: false
+      allowedCountries: []
+      allowedIngressCidrs: []
+      allowedEgressCidrs: []
+      ingressAnnotations: {}
+      requiredNodeLabels: {}
+      residencyLabel: ""
+  cassandra:
+    localDc: dc1
+  kafka:
+    bootstrap: ""
+    topicPrefix: ""
+
+# S8.5 — single ingress entrypoint owned by of-platform; the other
+# releases consume the same hostname through shared service discovery.
 ingress:
   enabled: true
   className: traefik
@@ -19,23 +112,138 @@ ingress:
   tls: []
 
 # S8.3 — Postgres migrations as Helm pre-upgrade Jobs.
-# Each entry produces one Job that runs `migrator migrate run --source
-# /migrations/<key>` against the DSN in the named secret.
 migrations:
   pg-schemas:
     enabled: true
-    dsnSecret: { name: pg-schemas-app, key: dsn }
+    dsnSecret:
+      name: pg-schemas-app
+      key: dsn
   pg-policy:
     enabled: true
-    dsnSecret: { name: pg-policy-app, key: dsn }
+    dsnSecret:
+      name: pg-policy-app
+      key: dsn
+
+apollo:
+  enabled: false
+  schedule: "*/15 * * * *"
+  actionMode: observe
+  image:
+    repository: curlimages/curl
+    tag: "8.8.0"
+  gatewayUrl: ""
+  readinessPath: /api/v1/control-panel/upgrade-readiness
+  fleetsPath: /api/v1/marketplace/devops/fleets
+  reconcileFleetIds: []
+  promoteWebhookPath: ""
+  tokenSecretName: open-foundry-apollo
+  tokenSecretKey: token
+  env: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+temporal:
+  # Frontend gRPC address consumed by Go workers via TEMPORAL_ADDRESS.
+  # TEMPORAL_HOST_PORT is also rendered for SDK/backward compatibility.
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  namespace: openfoundry-default
+
+temporalWorkers:
+  enabled: true
+  defaults:
+    replicas: 2
+    metricsPort: 9090
+    logLevel: info
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    pdb:
+      enabled: true
+      minAvailable: 1
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+  workers:
+    workflow-automation-worker:
+      image:
+        repository: workflow-automation-worker
+      taskQueue: openfoundry.workflow-automation
+      env:
+        OF_ONTOLOGY_ACTIONS_URL: http://ontology-actions-service:8080
+      envSecrets:
+        OF_ONTOLOGY_ACTIONS_BEARER_TOKEN:
+          secretName: open-foundry-worker-secrets
+          key: ontology-actions-bearer-token
+          optional: true
+    pipeline-worker:
+      image:
+        repository: pipeline-worker
+      taskQueue: openfoundry.pipeline
+      env:
+        OF_PIPELINE_AUTHORING_URL: http://pipeline-authoring-service:8080
+        OF_PIPELINE_BUILD_URL: http://pipeline-build-service:8080
+      envSecrets:
+        OF_PIPELINE_BEARER_TOKEN:
+          secretName: open-foundry-worker-secrets
+          key: pipeline-bearer-token
+          optional: true
+    approvals-worker:
+      image:
+        repository: approvals-worker
+      taskQueue: openfoundry.approvals
+      env:
+        OF_AUDIT_COMPLIANCE_URL: http://audit-compliance-service:8080
+      envSecrets:
+        OF_AUDIT_BEARER_TOKEN:
+          secretName: open-foundry-worker-secrets
+          key: audit-bearer-token
+          optional: true
+    automation-ops-worker:
+      image:
+        repository: automation-ops-worker
+      taskQueue: openfoundry.automation-ops
+      env:
+        OF_AUTOMATION_OPS_URL: http://automation-operations-service:8080
+      envSecrets:
+        OF_AUTOMATION_OPS_BEARER_TOKEN:
+          secretName: open-foundry-worker-secrets
+          key: automation-ops-bearer-token
+          optional: true
 
 services:
   edge-gateway-service:
     replicas: 3
-    ports: [{ name: http, containerPort: 8080 }]
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      RUST_LOG: info
     resources:
-      requests: { cpu: "200m", memory: "256Mi" }
-      limits:   { cpu: "1",    memory: "512Mi" }
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
     autoscaling:
       enabled: true
       minReplicas: 3
@@ -45,27 +253,150 @@ services:
     pdb:
       enabled: true
       minAvailable: 2
+
   identity-federation-service:
     replicas: 2
-    ports: [{ name: http, containerPort: 8080 }]
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      RUST_LOG: info
     resources:
-      requests: { cpu: "100m", memory: "256Mi" }
-      limits:   { cpu: "500m", memory: "512Mi" }
-    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: 80 }
-    pdb: { enabled: true, minAvailable: 1 }
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    pdb:
+      enabled: true
+      minAvailable: 1
+
   authorization-policy-service:
     replicas: 2
-    ports: [{ name: http, containerPort: 8080 }]
+    ports:
+      - name: http
+        containerPort: 8080
     resources:
-      requests: { cpu: "100m", memory: "256Mi" }
-      limits:   { cpu: "500m", memory: "512Mi" }
-    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: 80 }
-    pdb: { enabled: true, minAvailable: 1 }
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    pdb:
+      enabled: true
+      minAvailable: 1
+
   tenancy-organizations-service:
     replicas: 2
-    ports: [{ name: http, containerPort: 8080 }]
+    ports:
+      - name: http
+        containerPort: 8080
     resources:
-      requests: { cpu: "100m", memory: "256Mi" }
-      limits:   { cpu: "500m", memory: "512Mi" }
-    autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: 80 }
-    pdb: { enabled: true, minAvailable: 1 }
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    pdb:
+      enabled: true
+      minAvailable: 1
+
+  # ── Platform-wide services completed (S8.6 — full coverage) ──────────
+  cipher-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  network-boundary-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  security-governance-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  session-governance-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  oauth-integration-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  approvals-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi

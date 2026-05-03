@@ -75,6 +75,9 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+[dependencies.tower-http]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "ontology-funnel-service"
@@ -82,3 +85,14 @@ required-features = []
 
 [dependencies.ontology-kernel]
 workspace = true
+
+[dependencies.cassandra-kernel]
+workspace = true
+features = ["repos"]
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.search-abstraction]
+workspace = true
+features = ["vespa", "opensearch"]

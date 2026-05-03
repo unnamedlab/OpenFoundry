@@ -4,9 +4,14 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use storage_abstraction::repositories::{
+    ActionLogEntry, MarkingId, Object as RepoObject, ObjectId, OwnerId, Page, ReadConsistency,
+    TenantId, TypeId,
+};
 use uuid::Uuid;
 
 use auth_middleware::layer::AuthUser;
@@ -15,21 +20,23 @@ use crate::{
     AppState,
     domain::{
         access::{ensure_object_access, validate_marking},
+        definition_queries,
         function_runtime::{load_accessible_object_set, load_linked_objects, object_to_json},
         graph,
+        read_models::{load_object_instance_from_read_model, search_hit_to_object_instance},
         rules::{
             evaluate_rule_against_object, evaluate_rules_for_object, load_recent_rule_runs,
             load_rules_for_object_type,
         },
         schema::{load_effective_properties, validate_object_properties},
         search::semantic::cosine_similarity,
+        writeback,
     },
     handlers::actions::preview_action_for_simulation,
     handlers::actions::{ensure_action_actor_permission, ensure_action_target_permission},
     models::{
         action_type::ActionType,
         graph::{GraphEdge, GraphNode, GraphQuery, GraphResponse},
-        object_type::ObjectType,
         object_view::{
             ObjectScenarioSimulationRequest, ObjectScenarioSimulationResponse,
             ObjectSimulationImpactSummary, ObjectSimulationRequest, ObjectSimulationResponse,
@@ -59,7 +66,7 @@ fn db_error(message: impl Into<String>) -> axum::response::Response {
         .into_response()
 }
 
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectInstance {
     pub id: Uuid,
     pub object_type_id: Uuid,
@@ -113,6 +120,390 @@ struct ScenarioRuntimeState {
     graph: GraphResponse,
 }
 
+pub(crate) fn tenant_from_claims(claims: &auth_middleware::claims::Claims) -> TenantId {
+    TenantId(
+        claims
+            .org_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "default".to_string()),
+    )
+}
+
+fn utc_from_millis(ms: i64) -> chrono::DateTime<Utc> {
+    Utc.timestamp_millis_opt(ms)
+        .single()
+        .unwrap_or_else(Utc::now)
+}
+
+fn marking_from_store(markings: &[MarkingId]) -> String {
+    markings
+        .first()
+        .map(|marking| marking.0.clone())
+        .unwrap_or_else(|| "public".to_string())
+}
+
+fn organization_id_from_tenant(tenant: &TenantId) -> Option<Uuid> {
+    Uuid::parse_str(&tenant.0).ok()
+}
+
+fn created_by_from_owner(owner: &Option<OwnerId>) -> Uuid {
+    owner
+        .as_ref()
+        .and_then(|owner| Uuid::parse_str(&owner.0).ok())
+        .unwrap_or_else(Uuid::nil)
+}
+
+pub(crate) fn repo_object_to_instance(object: RepoObject) -> ObjectInstance {
+    let tenant = object.tenant.clone();
+    let created_at = utc_from_millis(object.created_at_ms.unwrap_or(object.updated_at_ms));
+    let updated_at = utc_from_millis(object.updated_at_ms);
+    ObjectInstance {
+        id: Uuid::parse_str(&object.id.0).unwrap_or_else(|_| Uuid::nil()),
+        object_type_id: Uuid::parse_str(&object.type_id.0).unwrap_or_else(|_| Uuid::nil()),
+        properties: object.payload,
+        created_by: created_by_from_owner(&object.owner),
+        organization_id: object
+            .organization_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+            .or_else(|| organization_id_from_tenant(&tenant)),
+        marking: marking_from_store(&object.markings),
+        created_at,
+        updated_at,
+    }
+}
+
+pub(crate) fn instance_to_repo_object(
+    tenant: TenantId,
+    object: &ObjectInstance,
+    version: u64,
+    properties: Value,
+    marking: String,
+) -> RepoObject {
+    RepoObject {
+        tenant,
+        id: ObjectId(object.id.to_string()),
+        type_id: TypeId(object.object_type_id.to_string()),
+        version,
+        payload: properties,
+        organization_id: object.organization_id.map(|id| id.to_string()),
+        created_at_ms: Some(object.created_at.timestamp_millis()),
+        updated_at_ms: object.updated_at.timestamp_millis(),
+        owner: Some(OwnerId(object.created_by.to_string())),
+        markings: vec![MarkingId(marking)],
+    }
+}
+
+pub(crate) fn repo_error_response(
+    context: &str,
+    error: impl std::fmt::Display,
+) -> axum::response::Response {
+    tracing::error!("{context}: {error}");
+    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+}
+
+pub(crate) async fn load_object_instance_from_store(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    obj_id: Uuid,
+    consistency: ReadConsistency,
+) -> Result<Option<ObjectInstance>, String> {
+    state
+        .stores
+        .objects
+        .get(
+            &tenant_from_claims(claims),
+            &ObjectId(obj_id.to_string()),
+            consistency,
+        )
+        .await
+        .map(|row| row.map(repo_object_to_instance))
+        .map_err(|error| format!("object store get failed: {error}"))
+}
+
+pub(crate) async fn load_repo_object_from_store(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    obj_id: Uuid,
+    consistency: ReadConsistency,
+) -> Result<Option<RepoObject>, String> {
+    state
+        .stores
+        .objects
+        .get(
+            &tenant_from_claims(claims),
+            &ObjectId(obj_id.to_string()),
+            consistency,
+        )
+        .await
+        .map_err(|error| format!("object store get failed: {error}"))
+}
+
+pub(crate) async fn append_object_revision(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    object: &ObjectInstance,
+    operation: &str,
+    revision_number: i64,
+    restored_from_revision_number: Option<i64>,
+) -> Result<(), String> {
+    let mut payload = json!({
+        "object_id": object.id,
+        "object_type_id": object.object_type_id,
+        "operation": operation,
+        "properties": object.properties.clone(),
+        "marking": object.marking.clone(),
+        "organization_id": object.organization_id,
+        "changed_by": claims.sub,
+        "revision_number": revision_number,
+    });
+    if let Some(restored_from) = restored_from_revision_number {
+        payload["restored_from_revision_number"] = json!(restored_from);
+    }
+
+    state
+        .stores
+        .actions
+        .append(ActionLogEntry {
+            tenant: tenant_from_claims(claims),
+            event_id: None,
+            action_id: Uuid::now_v7().to_string(),
+            kind: "revision".to_string(),
+            subject: claims.sub.to_string(),
+            object: Some(ObjectId(object.id.to_string())),
+            payload,
+            recorded_at_ms: Utc::now().timestamp_millis(),
+        })
+        .await
+        .map_err(|error| format!("failed to append object revision: {error}"))
+}
+
+pub(crate) async fn apply_object_write(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    object: &ObjectInstance,
+    expected_version: Option<u64>,
+    operation: &str,
+    extra_payload: Value,
+) -> Result<writeback::WritebackOutcome, String> {
+    let target_version = expected_version.map(|version| version + 1).unwrap_or(1);
+    let mut payload = json!({
+        "object_id": object.id,
+        "object_type_id": object.object_type_id,
+        "operation": operation,
+        "properties": object.properties.clone(),
+        "actor_id": claims.sub,
+        "organization_id": object.organization_id,
+        "marking": object.marking.clone(),
+        "version": target_version,
+    });
+    if let (Some(payload), Some(extra)) = (payload.as_object_mut(), extra_payload.as_object()) {
+        payload.extend(extra.clone());
+    }
+
+    writeback::apply_object_with_outbox(
+        &state.db,
+        state.stores.objects.as_ref(),
+        instance_to_repo_object(
+            tenant_from_claims(claims),
+            object,
+            target_version,
+            object.properties.clone(),
+            object.marking.clone(),
+        ),
+        expected_version,
+        "object",
+        "ontology.object.changed.v1",
+        payload,
+    )
+    .await
+    .map_err(|error| format!("failed to apply object write via Cassandra writeback: {error}"))
+}
+
+pub(crate) fn value_as_store_text(value: &Value) -> Result<String, String> {
+    match value {
+        Value::Null => Err("primary key value cannot be null".to_string()),
+        Value::String(value) => Ok(value.clone()),
+        other => serde_json::to_string(other)
+            .map_err(|error| format!("failed to serialize property value: {error}")),
+    }
+}
+
+pub(crate) async fn find_object_id_by_property(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    object_type_id: Uuid,
+    property_name: &str,
+    property_value: &str,
+    consistency: ReadConsistency,
+) -> Result<Option<Uuid>, String> {
+    let tenant = tenant_from_claims(claims);
+    let type_id = TypeId(object_type_id.to_string());
+    let mut token = None;
+
+    loop {
+        let page = state
+            .stores
+            .objects
+            .list_by_type(
+                &tenant,
+                &type_id,
+                Page {
+                    size: 200,
+                    token: token.clone(),
+                },
+                consistency,
+            )
+            .await
+            .map_err(|error| format!("failed to scan object store for existing object: {error}"))?;
+
+        for object in page.items {
+            let Some(value) = object.payload.get(property_name) else {
+                continue;
+            };
+            if value_as_store_text(value)? == property_value {
+                return Uuid::parse_str(&object.id.0)
+                    .map(Some)
+                    .map_err(|error| format!("object store returned invalid object id: {error}"));
+            }
+        }
+
+        match page.next_token {
+            Some(next) => token = Some(next),
+            None => return Ok(None),
+        }
+    }
+}
+
+pub async fn load_object_instance(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    obj_id: Uuid,
+    consistency: ReadConsistency,
+) -> Result<Option<ObjectInstance>, String> {
+    load_object_instance_from_store(state, claims, obj_id, consistency).await
+}
+
+fn action_entry_to_revision(entry: ActionLogEntry) -> Option<ObjectRevision> {
+    if entry.kind != "revision" {
+        return None;
+    }
+
+    let payload = entry.payload;
+    Some(ObjectRevision {
+        id: Uuid::parse_str(&entry.action_id).ok()?,
+        object_id: payload
+            .get("object_id")
+            .and_then(Value::as_str)
+            .and_then(|raw| Uuid::parse_str(raw).ok())?,
+        object_type_id: payload
+            .get("object_type_id")
+            .and_then(Value::as_str)
+            .and_then(|raw| Uuid::parse_str(raw).ok())?,
+        operation: payload.get("operation")?.as_str()?.to_string(),
+        properties: payload.get("properties")?.clone(),
+        marking: payload.get("marking")?.as_str()?.to_string(),
+        organization_id: payload
+            .get("organization_id")
+            .and_then(Value::as_str)
+            .and_then(|raw| Uuid::parse_str(raw).ok()),
+        changed_by: payload
+            .get("changed_by")
+            .and_then(Value::as_str)
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+            .or_else(|| Uuid::parse_str(&entry.subject).ok())?,
+        revision_number: payload.get("revision_number")?.as_i64()?,
+        written_at: utc_from_millis(entry.recorded_at_ms),
+    })
+}
+
+async fn list_revisions_from_action_log(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    obj_id: Uuid,
+    limit: usize,
+) -> Result<Vec<ObjectRevision>, String> {
+    let tenant = tenant_from_claims(claims);
+    let object_id = ObjectId(obj_id.to_string());
+    let mut token = None;
+    let mut revisions = Vec::new();
+
+    while revisions.len() < limit {
+        let page = state
+            .stores
+            .actions
+            .list_for_object(
+                &tenant,
+                &object_id,
+                Page {
+                    size: limit.max(1) as u32,
+                    token: token.clone(),
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .map_err(|error| format!("failed to read object revisions from action log: {error}"))?;
+
+        for entry in page.items {
+            if let Some(revision) = action_entry_to_revision(entry) {
+                revisions.push(revision);
+                if revisions.len() >= limit {
+                    break;
+                }
+            }
+        }
+
+        match page.next_token {
+            Some(next) => token = Some(next),
+            None => break,
+        }
+    }
+
+    revisions.sort_by(|left, right| right.revision_number.cmp(&left.revision_number));
+    Ok(revisions)
+}
+
+async fn load_revision_from_action_log(
+    state: &AppState,
+    claims: &auth_middleware::claims::Claims,
+    obj_id: Uuid,
+    revision_number: i64,
+) -> Result<Option<ObjectRevision>, String> {
+    let tenant = tenant_from_claims(claims);
+    let object_id = ObjectId(obj_id.to_string());
+    let mut token = None;
+
+    loop {
+        let page = state
+            .stores
+            .actions
+            .list_for_object(
+                &tenant,
+                &object_id,
+                Page {
+                    size: 200,
+                    token: token.clone(),
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+            .map_err(|error| format!("failed to read object revisions from action log: {error}"))?;
+
+        for entry in page.items {
+            if let Some(revision) = action_entry_to_revision(entry) {
+                if revision.revision_number == revision_number {
+                    return Ok(Some(revision));
+                }
+            }
+        }
+
+        match page.next_token {
+            Some(next) => token = Some(next),
+            None => return Ok(None),
+        }
+    }
+}
+
 pub async fn create_object(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
@@ -139,26 +530,35 @@ pub async fn create_object(
     };
 
     let id = Uuid::now_v7();
-    let result = sqlx::query_as::<_, ObjectInstance>(
-        r#"INSERT INTO object_instances (id, object_type_id, properties, created_by, organization_id, marking)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at"#,
-    )
-    .bind(id)
-    .bind(type_id)
-    .bind(&properties)
-    .bind(claims.sub)
-    .bind(claims.org_id)
-    .bind(&marking)
-    .fetch_one(&state.db)
-    .await;
+    let now = Utc::now();
+    let object = ObjectInstance {
+        id,
+        object_type_id: type_id,
+        properties: properties.clone(),
+        created_by: claims.sub,
+        organization_id: claims.org_id,
+        marking: marking.clone(),
+        created_at: now,
+        updated_at: now,
+    };
 
-    match result {
-        Ok(obj) => (StatusCode::CREATED, Json(json!(obj))).into_response(),
-        Err(error) => {
-            tracing::error!("create object failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    match apply_object_write(&state, &claims, &object, None, "create", json!({})).await {
+        Ok(outcome) => {
+            if let Err(error) = append_object_revision(
+                &state,
+                &claims,
+                &object,
+                "create",
+                outcome.committed_version as i64,
+                None,
+            )
+            .await
+            {
+                return repo_error_response("create object revision append failed", error);
+            }
+            (StatusCode::CREATED, Json(json!(object))).into_response()
         }
+        Err(error) => repo_error_response("create object failed", error),
     }
 }
 
@@ -171,33 +571,60 @@ pub async fn list_objects(
     let page = params.page.unwrap_or(1).max(1);
     let per_page = params.per_page.unwrap_or(20).clamp(1, 100) as usize;
 
-    let objects = match sqlx::query_as::<_, ObjectInstance>(
-        r#"SELECT id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at
-           FROM object_instances
-           WHERE object_type_id = $1
-           ORDER BY created_at DESC"#,
-    )
-    .bind(type_id)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(objects) => objects
-            .into_iter()
-            .filter(|object| ensure_object_access(&claims, object).is_ok())
-            .collect::<Vec<_>>(),
-        Err(error) => {
-            tracing::error!("list objects failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let total = objects.len();
+    let tenant = tenant_from_claims(&claims);
     let offset = (page.saturating_sub(1) as usize) * per_page;
-    let data = objects
-        .into_iter()
-        .skip(offset)
-        .take(per_page)
-        .collect::<Vec<_>>();
+    let end = offset + per_page;
+    let mut total = 0usize;
+    let mut token = None;
+    let mut data = Vec::new();
+
+    loop {
+        let page_result = match state
+            .stores
+            .objects
+            .list_by_type(
+                &tenant,
+                &TypeId(type_id.to_string()),
+                Page {
+                    size: 200,
+                    token: token.clone(),
+                },
+                ReadConsistency::Strong,
+            )
+            .await
+        {
+            Ok(page_result) => page_result,
+            Err(error) => return repo_error_response("list objects failed", error),
+        };
+
+        for summary in page_result.items {
+            let summary_instance = repo_object_to_instance(summary.clone());
+            if ensure_object_access(&claims, &summary_instance).is_err() {
+                continue;
+            }
+
+            if total >= offset && total < end {
+                match state
+                    .stores
+                    .objects
+                    .get(&tenant, &summary.id, ReadConsistency::Strong)
+                    .await
+                {
+                    Ok(Some(full)) => data.push(repo_object_to_instance(full)),
+                    Ok(None) => {}
+                    Err(error) => {
+                        return repo_error_response("list objects hydration failed", error);
+                    }
+                }
+            }
+            total += 1;
+        }
+
+        match page_result.next_token {
+            Some(next) => token = Some(next),
+            None => break,
+        }
+    }
 
     Json(json!({
         "data": data,
@@ -213,16 +640,13 @@ pub async fn get_object(
     State(state): State<AppState>,
     Path((_type_id, obj_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    match load_object_instance(&state.db, obj_id).await {
+    match load_object_instance_from_store(&state, &claims, obj_id, ReadConsistency::Strong).await {
         Ok(Some(object)) => match ensure_object_access(&claims, &object) {
             Ok(_) => Json(json!(object)).into_response(),
             Err(error) => (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response(),
         },
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("get object failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Err(error) => repo_error_response("get object failed", error),
     }
 }
 
@@ -232,14 +656,13 @@ pub async fn update_object(
     Path((_type_id, obj_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateObjectRequest>,
 ) -> impl IntoResponse {
-    let object = match load_object_instance(&state.db, obj_id).await {
-        Ok(Some(object)) => object,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("update object lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let repo_object =
+        match load_repo_object_from_store(&state, &claims, obj_id, ReadConsistency::Strong).await {
+            Ok(Some(object)) => object,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(error) => return repo_error_response("update object lookup failed", error),
+        };
+    let object = repo_object_to_instance(repo_object.clone());
 
     if let Err(error) = ensure_object_access(&claims, &object) {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
@@ -283,26 +706,44 @@ pub async fn update_object(
         }
     };
 
-    match sqlx::query_as::<_, ObjectInstance>(
-        r#"UPDATE object_instances
-           SET properties = $2::jsonb,
-               marking = COALESCE($3, marking),
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at"#,
+    let next_marking = body.marking.unwrap_or_else(|| object.marking.clone());
+    let updated = ObjectInstance {
+        id: object.id,
+        object_type_id: object.object_type_id,
+        properties: normalized.clone(),
+        created_by: object.created_by,
+        organization_id: object.organization_id,
+        marking: next_marking.clone(),
+        created_at: object.created_at,
+        updated_at: Utc::now(),
+    };
+
+    match apply_object_write(
+        &state,
+        &claims,
+        &updated,
+        Some(repo_object.version),
+        "update",
+        json!({}),
     )
-    .bind(obj_id)
-    .bind(normalized)
-    .bind(body.marking)
-    .fetch_optional(&state.db)
     .await
     {
-        Ok(Some(object)) => Json(json!(object)).into_response(),
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("update object failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(outcome) => {
+            if let Err(error) = append_object_revision(
+                &state,
+                &claims,
+                &updated,
+                "update",
+                outcome.committed_version as i64,
+                None,
+            )
+            .await
+            {
+                return repo_error_response("update object revision append failed", error);
+            }
+            Json(json!(updated)).into_response()
         }
+        Err(error) => repo_error_response("update object failed", error),
     }
 }
 
@@ -311,30 +752,41 @@ pub async fn delete_object(
     State(state): State<AppState>,
     Path((_type_id, obj_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let object = match load_object_instance(&state.db, obj_id).await {
-        Ok(Some(object)) => object,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("delete object lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let repo_object =
+        match load_repo_object_from_store(&state, &claims, obj_id, ReadConsistency::Strong).await {
+            Ok(Some(object)) => object,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(error) => return repo_error_response("delete object lookup failed", error),
+        };
+    let object = repo_object_to_instance(repo_object.clone());
 
     if let Err(error) = ensure_object_access(&claims, &object) {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
 
-    match sqlx::query("DELETE FROM object_instances WHERE id = $1")
-        .bind(obj_id)
-        .execute(&state.db)
+    match state
+        .stores
+        .objects
+        .delete(&tenant_from_claims(&claims), &ObjectId(obj_id.to_string()))
         .await
     {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
-        Ok(_) => StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("delete object failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        Ok(true) => {
+            if let Err(error) = append_object_revision(
+                &state,
+                &claims,
+                &object,
+                "delete",
+                repo_object.version as i64 + 1,
+                None,
+            )
+            .await
+            {
+                return repo_error_response("delete object revision append failed", error);
+            }
+            StatusCode::NO_CONTENT.into_response()
         }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => repo_error_response("delete object failed", error),
     }
 }
 
@@ -436,7 +888,14 @@ pub async fn knn_objects(
             vector.clone()
         }
         (Some(anchor_object_id), None) => {
-            let anchor = match load_object_instance(&state.db, *anchor_object_id).await {
+            let anchor = match load_object_instance_from_read_model(
+                &state,
+                &claims,
+                *anchor_object_id,
+                Some(type_id),
+            )
+            .await
+            {
                 Ok(Some(object)) => object,
                 Ok(None) => return StatusCode::NOT_FOUND.into_response(),
                 Err(error) => {
@@ -469,30 +928,57 @@ pub async fn knn_objects(
         .exclude_anchor
         .unwrap_or(body.anchor_object_id.is_some());
 
-    let objects = match load_accessible_object_set(&state, &claims, type_id).await {
-        Ok(objects) => objects,
+    let tenant = tenant_from_claims(&claims);
+    let vector_hits = match state
+        .stores
+        .search
+        .search_vector(
+            storage_abstraction::repositories::VectorQuery {
+                tenant,
+                type_id: Some(storage_abstraction::repositories::TypeId(
+                    type_id.to_string(),
+                )),
+                embedding: query_vector.clone(),
+                k: limit.saturating_add(16),
+                filters: HashMap::new(),
+            },
+            storage_abstraction::repositories::ReadConsistency::Eventual,
+        )
+        .await
+    {
+        Ok(hits) => hits,
         Err(error) => {
             tracing::error!("failed to load candidate object set for KNN query: {error}");
             return db_error("failed to load candidate objects");
         }
     };
 
-    let mut data = objects
-        .into_iter()
-        .filter_map(|object| {
+    let mut data = vector_hits
+        .iter()
+        .filter_map(|hit| {
+            let object = search_hit_to_object_instance(hit, claims.org_id)?;
+            if ensure_object_access(&claims, &object).is_err() {
+                return None;
+            }
             if exclude_anchor
                 && body.anchor_object_id.is_some()
-                && object_json_id(&object) == body.anchor_object_id
+                && Some(object.id) == body.anchor_object_id
             {
                 return None;
             }
 
-            let candidate_vector = extract_vector_from_object_json(&object, &body.property_name)?;
+            let object_json = object_to_json(object.clone());
+            let candidate_vector =
+                extract_vector_from_object_json(&object_json, &body.property_name)?;
             let (score, distance) = knn_score(&metric, &query_vector, &candidate_vector)?;
 
             Some(KnnObjectResult {
-                object,
-                score,
+                object: object_json,
+                score: if hit.score.is_finite() {
+                    hit.score
+                } else {
+                    score
+                },
                 distance,
             })
         })
@@ -538,13 +1024,6 @@ fn extract_vector_from_value(value: &Value) -> Option<Vec<f32>> {
         .iter()
         .map(|entry| entry.as_f64().map(|value| value as f32))
         .collect()
-}
-
-fn object_json_id(object: &Value) -> Option<Uuid> {
-    object
-        .get("id")
-        .and_then(Value::as_str)
-        .and_then(|value| Uuid::parse_str(value).ok())
 }
 
 fn knn_score(metric: &str, query: &[f32], candidate: &[f32]) -> Option<(f32, Option<f32>)> {
@@ -601,7 +1080,8 @@ pub async fn list_neighbors(
     State(state): State<AppState>,
     Path((_type_id, obj_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let object = match load_object_instance(&state.db, obj_id).await {
+    let object = match load_object_instance(&state, &claims, obj_id, ReadConsistency::Strong).await
+    {
         Ok(Some(object)) => object,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
@@ -628,19 +1108,9 @@ async fn load_applicable_actions(
     claims: &auth_middleware::claims::Claims,
     object: &ObjectInstance,
 ) -> Result<Vec<ActionType>, String> {
-    let rows = sqlx::query_as::<_, crate::models::action_type::ActionTypeRow>(
-        r#"SELECT id, name, display_name, description, object_type_id, operation_kind,
-                  input_schema, form_schema, config, confirmation_required, permission_key, authorization_policy,
-                  owner_id,
-                  created_at, updated_at
-           FROM action_types
-           WHERE object_type_id = $1
-           ORDER BY created_at DESC"#,
-    )
-    .bind(object.object_type_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|error| format!("failed to load actions: {error}"))?;
+    let rows = definition_queries::load_actions_for_object_type(&state.db, object.object_type_id)
+        .await
+        .map_err(|error| format!("failed to load actions: {error}"))?;
 
     let mut actions = Vec::new();
     for row in rows {
@@ -678,9 +1148,12 @@ fn build_object_timeline(
         timeline.push(json!({
             "kind": if run.simulated { "rule_simulated" } else { "rule_applied" },
             "at": run.created_at,
+            "rule_run_id": run.id,
             "rule_id": run.rule_id,
             "matched": run.matched,
+            "simulated": run.simulated,
             "effect_preview": run.effect_preview,
+            "created_by": run.created_by,
         }));
     }
 
@@ -826,7 +1299,8 @@ pub async fn get_object_view(
     State(state): State<AppState>,
     Path((type_id, obj_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
-    let object = match load_object_instance(&state.db, obj_id).await {
+    let object = match load_object_instance(&state, &claims, obj_id, ReadConsistency::Strong).await
+    {
         Ok(Some(object)) => object,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
@@ -873,7 +1347,7 @@ pub async fn get_object_view(
             .collect::<Vec<RuleMatchResponse>>(),
         Err(error) => return db_error(error),
     };
-    let recent_rule_runs = match load_recent_rule_runs(&state, obj_id, 12).await {
+    let recent_rule_runs = match load_recent_rule_runs(&state, &claims, obj_id, 12).await {
         Ok(runs) => runs,
         Err(error) => return db_error(error),
     };
@@ -908,7 +1382,8 @@ pub async fn simulate_object(
     Path((type_id, obj_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<ObjectSimulationRequest>,
 ) -> impl IntoResponse {
-    let object = match load_object_instance(&state.db, obj_id).await {
+    let object = match load_object_instance(&state, &claims, obj_id, ReadConsistency::Strong).await
+    {
         Ok(Some(object)) => object,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
@@ -1026,7 +1501,7 @@ pub async fn simulate_object(
         impacted_objects.push(obj_id);
     }
 
-    let recent_rule_runs = match load_recent_rule_runs(&state, obj_id, 8).await {
+    let recent_rule_runs = match load_recent_rule_runs(&state, &claims, obj_id, 8).await {
         Ok(runs) => runs,
         Err(error) => return db_error(error),
     };
@@ -1070,14 +1545,15 @@ pub async fn simulate_object_scenarios(
         return invalid("scenarios must contain at least one candidate scenario");
     }
 
-    let root_object = match load_object_instance(&state.db, obj_id).await {
-        Ok(Some(object)) => object,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("scenario simulation lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let root_object =
+        match load_object_instance(&state, &claims, obj_id, ReadConsistency::Strong).await {
+            Ok(Some(object)) => object,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(error) => {
+                tracing::error!("scenario simulation lookup failed: {error}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
     if root_object.object_type_id != type_id {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -1191,7 +1667,7 @@ async fn load_scenario_context(
     let mut object_states = BTreeMap::new();
     let mut object_type_ids = BTreeSet::new();
     for object_id in object_ids {
-        let object = load_object_instance(&state.db, object_id)
+        let object = load_object_instance(state, claims, object_id, ReadConsistency::Strong)
             .await
             .map_err(|error| format!("failed to load scenario object {object_id}: {error}"))?
             .ok_or_else(|| format!("scenario object {object_id} was not found"))?;
@@ -1653,7 +2129,7 @@ async fn ensure_scenario_object_loaded(
         return Ok(());
     }
 
-    let object = load_object_instance(&state.db, object_id)
+    let object = load_object_instance(state, claims, object_id, ReadConsistency::Strong)
         .await
         .map_err(|error| format!("failed to load scenario object {object_id}: {error}"))?
         .ok_or_else(|| format!("scenario object {object_id} was not found"))?;
@@ -1680,13 +2156,10 @@ async fn ensure_object_type_label(
         return Ok(());
     }
 
-    let display_name =
-        sqlx::query_scalar::<_, String>("SELECT display_name FROM object_types WHERE id = $1")
-            .bind(object_type_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|error| format!("failed to load object type label: {error}"))?
-            .unwrap_or_else(|| object_type_id.to_string());
+    let display_name = definition_queries::load_object_type_display_name(&state.db, object_type_id)
+        .await
+        .map_err(|error| format!("failed to load object type label: {error}"))?
+        .unwrap_or_else(|| object_type_id.to_string());
     type_labels.insert(object_type_id, display_name);
     Ok(())
 }
@@ -1699,9 +2172,7 @@ async fn load_object_type_labels(
         return Ok(HashMap::new());
     }
 
-    let labels = sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = ANY($1)")
-        .bind(type_ids)
-        .fetch_all(&state.db)
+    let labels = definition_queries::load_object_types_by_ids(&state.db, type_ids)
         .await
         .map_err(|error| format!("failed to load object type labels: {error}"))?
         .into_iter()
@@ -2455,37 +2926,21 @@ fn build_summary_delta(
     }
 }
 
-pub async fn load_object_instance(
-    db: &sqlx::PgPool,
-    obj_id: Uuid,
-) -> Result<Option<ObjectInstance>, sqlx::Error> {
-    sqlx::query_as::<_, ObjectInstance>(
-        r#"SELECT id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at
-           FROM object_instances
-           WHERE id = $1"#,
-    )
-    .bind(obj_id)
-    .fetch_optional(db)
-    .await
-}
-
 // ---------------------------------------------------------------------------
 // Object timeline / lineage of revisions (T9)
 // ---------------------------------------------------------------------------
 //
-// `object_revisions` is an append-only audit log populated on every write to
-// `object_instances` (see `20260429120000_write_path_tables.sql`). The handlers
-// below expose two endpoints:
+// Revisions are sourced from the Cassandra-backed action log (`kind=revision`)
+// populated on every object mutation. The handlers below expose two endpoints:
 //
 //   GET  /ontology/types/:type_id/objects/:obj_id/revisions?limit=
 //   POST /ontology/types/:type_id/objects/:obj_id/revisions/:revision_number/restore
 //
-// Restore reads the historical `properties`/`marking` and applies them to the
-// live `object_instances` row inside a transaction that also writes a new
-// `object_revisions` row tagged with `operation = 'update'` and a stable audit
-// payload. The caller's identity is captured in `changed_by`.
+// Restore reads the historical `properties`/`marking` snapshot and applies it
+// to the live object via `ObjectStore`, then appends a new revision entry to
+// the action log. The caller's identity is captured in `changed_by`.
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct ObjectRevision {
     pub id: Uuid,
     pub object_id: Uuid,
@@ -2516,52 +2971,36 @@ pub async fn list_object_revisions(
     Path((_type_id, obj_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<ListRevisionsQuery>,
 ) -> impl IntoResponse {
-    let object = match load_object_instance(&state.db, obj_id).await {
-        Ok(Some(object)) => object,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("list revisions lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let object =
+        match load_object_instance_from_store(&state, &claims, obj_id, ReadConsistency::Strong)
+            .await
+        {
+            Ok(Some(object)) => object,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(error) => return repo_error_response("list revisions lookup failed", error),
+        };
     if let Err(error) = ensure_object_access(&claims, &object) {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
 
     let limit = params.limit.unwrap_or(50).clamp(1, 500);
 
-    match sqlx::query_as::<_, ObjectRevision>(
-        r#"SELECT id, object_id, object_type_id, operation, properties, marking,
-                  organization_id, changed_by, revision_number, written_at
-           FROM object_revisions
-           WHERE object_id = $1
-           ORDER BY revision_number DESC
-           LIMIT $2"#,
-    )
-    .bind(obj_id)
-    .bind(limit)
-    .fetch_all(&state.db)
-    .await
-    {
+    match list_revisions_from_action_log(&state, &claims, obj_id, limit as usize).await {
         Ok(rows) => Json(json!({
             "object_id": obj_id,
             "total": rows.len(),
             "data": rows,
         }))
         .into_response(),
-        Err(error) => {
-            tracing::error!("list revisions failed: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+        Err(error) => repo_error_response("list revisions failed", error),
     }
 }
 
 /// `POST /ontology/types/:type_id/objects/:obj_id/revisions/:revision_number/restore`
 ///
-/// Restores the live `object_instances` row to the snapshot captured in the
-/// referenced revision. A new `object_revisions` row is appended with
-/// `operation = 'update'` so the history remains append-only and the action is
-/// auditable.
+/// Restores the live object to the snapshot captured in the referenced
+/// revision. A new `revision` action-log row is appended with
+/// `operation = 'update'` so the history remains append-only and auditable.
 pub async fn restore_object_revision(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
@@ -2571,42 +3010,29 @@ pub async fn restore_object_revision(
         return invalid("revision_number must be >= 1");
     }
 
-    let object = match load_object_instance(&state.db, obj_id).await {
-        Ok(Some(object)) => object,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(error) => {
-            tracing::error!("restore revision lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let repo_object =
+        match load_repo_object_from_store(&state, &claims, obj_id, ReadConsistency::Strong).await {
+            Ok(Some(object)) => object,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(error) => return repo_error_response("restore revision lookup failed", error),
+        };
+    let object = repo_object_to_instance(repo_object.clone());
     if let Err(error) = ensure_object_access(&claims, &object) {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": error }))).into_response();
     }
 
-    let revision = match sqlx::query_as::<_, ObjectRevision>(
-        r#"SELECT id, object_id, object_type_id, operation, properties, marking,
-                  organization_id, changed_by, revision_number, written_at
-           FROM object_revisions
-           WHERE object_id = $1 AND revision_number = $2"#,
-    )
-    .bind(obj_id)
-    .bind(revision_number)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(Some(rev)) => rev,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "revision not found for this object" })),
-            )
-                .into_response();
-        }
-        Err(error) => {
-            tracing::error!("restore revision load failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
+    let revision =
+        match load_revision_from_action_log(&state, &claims, obj_id, revision_number).await {
+            Ok(Some(rev)) => rev,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "revision not found for this object" })),
+                )
+                    .into_response();
+            }
+            Err(error) => return repo_error_response("restore revision load failed", error),
+        };
 
     if revision.operation == "delete" {
         return invalid("cannot restore a delete revision; create a new object instead");
@@ -2616,65 +3042,45 @@ pub async fn restore_object_revision(
         return invalid(error);
     }
 
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(error) => return db_error(format!("begin restore tx: {error}")),
+    let updated = ObjectInstance {
+        id: object.id,
+        object_type_id: object.object_type_id,
+        properties: revision.properties.clone(),
+        created_by: object.created_by,
+        organization_id: object.organization_id,
+        marking: revision.marking.clone(),
+        created_at: object.created_at,
+        updated_at: Utc::now(),
     };
+    let next_revision_number = repo_object.version as i64 + 1;
 
-    let updated = match sqlx::query_as::<_, ObjectInstance>(
-        r#"UPDATE object_instances
-           SET properties = $2::jsonb,
-               marking = $3,
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at"#,
+    let outcome = match apply_object_write(
+        &state,
+        &claims,
+        &updated,
+        Some(repo_object.version),
+        "update",
+        json!({
+            "restored_from_revision_number": revision.revision_number,
+        }),
     )
-    .bind(obj_id)
-    .bind(&revision.properties)
-    .bind(&revision.marking)
-    .fetch_optional(&mut *tx)
     .await
     {
-        Ok(Some(row)) => row,
-        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-        Err(error) => return db_error(format!("update during restore: {error}")),
+        Ok(outcome) => outcome,
+        Err(error) => return repo_error_response("restore revision apply failed", error),
     };
 
-    // Append a new revision row that records this restore operation.
-    let next_rev: Option<i64> = match sqlx::query_scalar(
-        "SELECT MAX(revision_number) FROM object_revisions WHERE object_id = $1",
+    if let Err(error) = append_object_revision(
+        &state,
+        &claims,
+        &updated,
+        "update",
+        outcome.committed_version as i64,
+        Some(revision.revision_number),
     )
-    .bind(obj_id)
-    .fetch_one(&mut *tx)
     .await
     {
-        Ok(value) => value,
-        Err(error) => return db_error(format!("read revision counter: {error}")),
-    };
-    let next_revision_number = next_rev.unwrap_or(0) + 1;
-
-    if let Err(error) = sqlx::query(
-        r#"INSERT INTO object_revisions
-                (id, object_id, object_type_id, operation, properties, marking,
-                 organization_id, changed_by, revision_number)
-           VALUES ($1, $2, $3, 'update', $4, $5, $6, $7, $8)"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(obj_id)
-    .bind(updated.object_type_id)
-    .bind(&revision.properties)
-    .bind(&revision.marking)
-    .bind(updated.organization_id)
-    .bind(claims.sub)
-    .bind(next_revision_number)
-    .execute(&mut *tx)
-    .await
-    {
-        return db_error(format!("write restore revision: {error}"));
-    }
-
-    if let Err(error) = tx.commit().await {
-        return db_error(format!("commit restore: {error}"));
+        return repo_error_response("write restore revision failed", error);
     }
 
     Json(json!({
@@ -2687,11 +3093,13 @@ pub async fn restore_object_revision(
 
 #[cfg(test)]
 mod tests {
+    use auth_middleware::claims::Claims;
     use serde_json::json;
+    use storage_abstraction::repositories::{ObjectStore, PutOutcome, noop::InMemoryObjectStore};
 
     use super::{
         build_simulation_impact_summary, extract_graph_object_ids, extract_vector_from_object_json,
-        knn_score,
+        knn_score, load_object_instance_from_store,
     };
     use crate::models::graph::{GraphEdge, GraphNode, GraphResponse, GraphSummary};
     use uuid::Uuid;
@@ -2749,6 +3157,98 @@ mod tests {
                 metadata: json!({}),
             }],
         }
+    }
+
+    fn test_claims(tenant: Uuid, user: Uuid) -> Claims {
+        let now = chrono::Utc::now().timestamp();
+        Claims {
+            sub: user,
+            iat: now,
+            exp: now + 3600,
+            iss: None,
+            aud: None,
+            jti: Uuid::now_v7(),
+            email: "objects-test@openfoundry.dev".into(),
+            name: "Objects Test".into(),
+            roles: vec!["admin".into()],
+            permissions: vec!["*:*".into()],
+            org_id: Some(tenant),
+            attributes: json!({}),
+            auth_methods: vec!["password".into()],
+            token_use: Some("access".into()),
+            api_key_id: None,
+            session_kind: None,
+            session_scope: None,
+        }
+    }
+
+    fn test_state(object_store: InMemoryObjectStore) -> crate::AppState {
+        crate::AppState {
+            db: crate::test_support::lazy_pg_pool(),
+            stores: crate::stores::Stores {
+                objects: std::sync::Arc::new(object_store),
+                ..crate::stores::Stores::in_memory()
+            },
+            http_client: reqwest::Client::new(),
+            jwt_config: auth_middleware::jwt::JwtConfig::new("test-secret"),
+            audit_service_url: String::new(),
+            dataset_service_url: String::new(),
+            ontology_service_url: String::new(),
+            pipeline_service_url: String::new(),
+            ai_service_url: String::new(),
+            notification_service_url: String::new(),
+            search_embedding_provider: "deterministic".into(),
+            node_runtime_command: "node".into(),
+            connector_management_service_url: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn load_object_instance_reads_from_object_store() {
+        let tenant = Uuid::now_v7();
+        let user = Uuid::now_v7();
+        let object_id = Uuid::now_v7();
+        let type_id = Uuid::now_v7();
+        let store = InMemoryObjectStore::default();
+        let outcome = store
+            .put(
+                storage_abstraction::repositories::Object {
+                    tenant: super::tenant_from_claims(&test_claims(tenant, user)),
+                    id: storage_abstraction::repositories::ObjectId(object_id.to_string()),
+                    type_id: storage_abstraction::repositories::TypeId(type_id.to_string()),
+                    version: 1,
+                    payload: json!({ "tail": "N123OF" }),
+                    organization_id: Some(tenant.to_string()),
+                    created_at_ms: Some(1_700_000_000_000),
+                    updated_at_ms: 1_700_000_000_500,
+                    owner: Some(storage_abstraction::repositories::OwnerId(user.to_string())),
+                    markings: vec![storage_abstraction::repositories::MarkingId(
+                        "public".into(),
+                    )],
+                },
+                None,
+            )
+            .await
+            .expect("seed object");
+        assert!(matches!(outcome, PutOutcome::Inserted));
+
+        let state = test_state(store);
+        let claims = test_claims(tenant, user);
+        let loaded = load_object_instance_from_store(
+            &state,
+            &claims,
+            object_id,
+            storage_abstraction::repositories::ReadConsistency::Strong,
+        )
+        .await
+        .expect("load object")
+        .expect("object exists");
+
+        assert_eq!(loaded.id, object_id);
+        assert_eq!(loaded.object_type_id, type_id);
+        assert_eq!(loaded.properties["tail"], "N123OF");
+        assert_eq!(loaded.created_by, user);
+        assert_eq!(loaded.marking, "public");
     }
 
     #[test]

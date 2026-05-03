@@ -18,6 +18,12 @@ workspace = true
 cron = "0.12"
 wasmtime = "24"
 
+[dependencies.arrow-array]
+version = "57.3"
+
+[dependencies.arrow-schema]
+version = "57.3"
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -39,6 +45,9 @@ workspace = true
 [dependencies.config]
 workspace = true
 
+[dependencies.cassandra-kernel]
+workspace = true
+
 [dependencies.core-models]
 workspace = true
 
@@ -46,6 +55,9 @@ workspace = true
 workspace = true
 
 [dependencies.event-bus-control]
+workspace = true
+
+[dependencies.event-bus-data]
 workspace = true
 
 [dependencies.futures]
@@ -73,6 +85,7 @@ workspace = true
 
 [dependencies.storage-abstraction]
 workspace = true
+features = ["iceberg"]
 
 [dependencies.thiserror]
 workspace = true

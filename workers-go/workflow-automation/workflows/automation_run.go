@@ -18,20 +18,22 @@
 package workflows
 
 import (
+	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/open-foundry/open-foundry/workers-go/workflow-automation/activities"
 	"github.com/open-foundry/open-foundry/workers-go/workflow-automation/internal/contract"
 )
 
 // AutomationRun is the entry-point workflow for every business
 // automation triggered by the Rust adapter
-// (`services/workflow-automation-service`). The body is a placeholder
-// today — concrete branches (`branching`, `parallel`, `compensation`,
-// `human_in_loop`, `simulation`) land per-PR alongside the matching
-// activities, mirroring the structure of the archived Rust executor.
+// (`services/workflow-automation-service`). When the trigger payload
+// carries an ontology action invocation, the workflow executes it via
+// `Activities.ExecuteOntologyAction` and returns the activity outcome
+// in the workflow result.
 func AutomationRun(ctx workflow.Context, input contract.AutomationRunInput) (contract.AutomationRunResult, error) {
 	logger := workflow.GetLogger(ctx)
 	logger.Info("AutomationRun started",
@@ -54,14 +56,42 @@ func AutomationRun(ctx workflow.Context, input contract.AutomationRunInput) (con
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Real branching lands in subsequent PRs (S2.3.b per workflow
-	// type). Today we materialise the substrate so the worker
-	// compiles, registers, and the Rust client side can be wired
-	// against a deployed Temporal cluster.
-	logger.Info("AutomationRun substrate-only completion (no steps registered yet)")
+	if triggerHasOntologyAction(input.TriggerPayload) {
+		var actionResult map[string]any
+		if err := workflow.ExecuteActivity(ctx, (*activities.Activities).ExecuteOntologyAction, input).Get(ctx, &actionResult); err != nil {
+			logger.Error("AutomationRun ontology action failed", "err", err)
+			return contract.AutomationRunResult{
+				RunID:  input.RunID,
+				Status: "failed",
+				Error:  err.Error(),
+			}, nil
+		}
+		logger.Info("AutomationRun ontology action completed")
+		return contract.AutomationRunResult{
+			RunID:  input.RunID,
+			Status: "completed",
+			Result: actionResult,
+		}, nil
+	}
+
+	logger.Info("AutomationRun completed without external action")
 
 	return contract.AutomationRunResult{
 		RunID:  input.RunID,
 		Status: "completed",
 	}, nil
+}
+
+func triggerHasOntologyAction(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	if actionID, ok := payload["action_id"]; ok && fmt.Sprint(actionID) != "" {
+		return true
+	}
+	if nested, ok := payload["ontology_action"].(map[string]any); ok {
+		actionID, ok := nested["action_id"]
+		return ok && fmt.Sprint(actionID) != ""
+	}
+	return false
 }

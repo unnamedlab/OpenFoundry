@@ -8,7 +8,7 @@
 //! * `get_flight_info_catalogs` / `get_flight_info_schemas` /
 //!   `get_flight_info_tables` — return the catalog tree so BI clients can
 //!   render a sensible navigator panel even though the data lives across
-//!   multiple backends (Iceberg, ClickHouse, Vespa, Postgres).
+//!   multiple backends (Iceberg, Vespa, Postgres, Trino).
 //! * `get_flight_info_statement` — plan a SQL query and return a ticket.
 //! * `do_get_statement` — stream Arrow record batches for the planned
 //!   ticket.
@@ -27,7 +27,7 @@
 //! lakehouse statements run against the local
 //! `query_engine::QueryContext` (or are forwarded to
 //! `sql-warehousing-service` over Flight SQL when configured), while
-//! statements that target ClickHouse / Vespa / Postgres are forwarded to
+//! statements that target Vespa / Postgres / Trino are forwarded to
 //! their respective Flight SQL endpoints.
 
 use std::pin::Pin;
@@ -61,8 +61,8 @@ use crate::routing::{Backend, BackendRouter, RoutingDecision, RoutingError};
 
 /// Fixed catalog name advertised to BI clients. The schemas under it map
 /// 1:1 onto [`Backend`] variants, so a connected Tableau/Superset session
-/// sees exactly one catalog (`openfoundry`) and four schemas
-/// (`iceberg`, `clickhouse`, `vespa`, `postgres`).
+/// sees exactly one catalog (`openfoundry`) and the configured backend
+/// schemas (`iceberg`, `vespa`, `postgres`, `trino`).
 pub const GATEWAY_CATALOG: &str = "openfoundry";
 
 /// Stream type used by Flight SQL `do_get_*` methods.
@@ -136,7 +136,14 @@ impl FlightSqlServiceImpl {
             match self.collect_batches(sql, &decision, quotas).await {
                 Ok((batches, schema)) => (batches, schema, AuditOutcome::Ok),
                 Err(status) => {
-                    self.audit(sql, auth, &decision, 0, started.elapsed(), AuditOutcome::Error);
+                    self.audit(
+                        sql,
+                        auth,
+                        &decision,
+                        0,
+                        started.elapsed(),
+                        AuditOutcome::Error,
+                    );
                     return Err(status);
                 }
             };
@@ -159,14 +166,13 @@ impl FlightSqlServiceImpl {
         decision: &RoutingDecision,
         quotas: EnforcedQuotas,
     ) -> Result<(Vec<RecordBatch>, arrow::datatypes::SchemaRef), Status> {
-        let batches = match decision.remote_endpoint.as_deref() {
-            None => self
-                .ctx
-                .execute_sql(sql)
-                .await
-                .map_err(|err| Status::internal(format!("DataFusion execution failed: {err}")))?,
-            Some(endpoint) => delegate_to_remote(endpoint, sql).await?,
-        };
+        let batches =
+            match decision.remote_endpoint.as_deref() {
+                None => self.ctx.execute_sql(sql).await.map_err(|err| {
+                    Status::internal(format!("DataFusion execution failed: {err}"))
+                })?,
+                Some(endpoint) => delegate_to_remote(endpoint, sql).await?,
+            };
 
         let schema = batches
             .first()
@@ -236,7 +242,7 @@ fn routing_status(error: RoutingError) -> Status {
 /// Delegate a SQL statement to a remote Flight SQL endpoint and collect
 /// every Arrow record batch returned by it. Used to fan out queries to
 /// `sql-warehousing-service` (Iceberg shared compute pool) and to the
-/// ClickHouse / Vespa / Postgres Flight SQL fronts.
+/// Vespa / Postgres / Trino Flight SQL fronts.
 async fn delegate_to_remote(endpoint: &str, sql: &str) -> Result<Vec<RecordBatch>, Status> {
     let channel: Channel = Endpoint::from_shared(endpoint.to_string())
         .map_err(|err| Status::internal(format!("invalid backend endpoint `{endpoint}`: {err}")))?
@@ -291,11 +297,8 @@ fn build_schemas_batch() -> Result<(RecordBatch, arrow::datatypes::SchemaRef), S
     let backends = Backend::all();
     let catalogs = StringArray::from(vec![GATEWAY_CATALOG; backends.len()]);
     let schemas = StringArray::from(backends.iter().map(|b| b.as_str()).collect::<Vec<_>>());
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![Arc::new(catalogs), Arc::new(schemas)],
-    )
-    .map_err(|err| Status::internal(format!("build schemas batch failed: {err}")))?;
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(catalogs), Arc::new(schemas)])
+        .map_err(|err| Status::internal(format!("build schemas batch failed: {err}")))?;
     Ok((batch, schema))
 }
 

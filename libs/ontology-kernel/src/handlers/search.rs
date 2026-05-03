@@ -133,7 +133,7 @@ async fn load_quiver_visual_function(
     state: &AppState,
     id: Uuid,
 ) -> Result<Option<QuiverVisualFunction>, String> {
-    sqlx::query_as::<_, QuiverVisualFunction>(
+    crate::domain::pg_repository::typed::<QuiverVisualFunction>(
         r#"SELECT id, name, description, primary_type_id, secondary_type_id, join_field,
                   secondary_join_field, date_field, metric_field, group_field, selected_group,
                   chart_kind, shared, vega_spec, owner_id, created_at, updated_at
@@ -184,9 +184,9 @@ pub struct ObjectFulltextSearchQuery {
 
 /// `GET /ontology/search?q=&type=&marking=&limit=`
 ///
-/// Postgres `tsvector` + `ts_rank_cd` (BM25-equivalent) full-text search over
-/// `object_instances.searchable_text`. Returns the matching object instances
-/// ranked by relevance, filtered by the caller's clearance + organisation.
+/// SearchBackend-powered full-text search over the ontology object read model.
+/// Returns the matching object instances ranked by relevance, filtered by the
+/// caller's clearance and tenant scope.
 pub async fn search_objects_fulltext(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
@@ -259,7 +259,7 @@ pub async fn list_quiver_visual_functions(
     let search_pattern = format!("%{search}%");
     let include_shared = query.include_shared.unwrap_or(true);
 
-    let total = match sqlx::query_scalar::<_, i64>(
+    let total = match crate::domain::pg_repository::scalar::<i64>(
         r#"SELECT COUNT(*)
            FROM ontology_quiver_visual_functions
            WHERE (owner_id = $1 OR ($2 AND shared = TRUE))
@@ -278,7 +278,7 @@ pub async fn list_quiver_visual_functions(
         }
     };
 
-    let records = match sqlx::query_as::<_, QuiverVisualFunction>(
+    let records = match crate::domain::pg_repository::typed::<QuiverVisualFunction>(
         r#"SELECT id, name, description, primary_type_id, secondary_type_id, join_field,
                   secondary_join_field, date_field, metric_field, group_field, selected_group,
                   chart_kind, shared, vega_spec, owner_id, created_at, updated_at
@@ -328,7 +328,7 @@ pub async fn create_quiver_visual_function(
     };
 
     let id = Uuid::now_v7();
-    let created = match sqlx::query_as::<_, QuiverVisualFunction>(
+    let created = match crate::domain::pg_repository::typed::<QuiverVisualFunction>(
         r#"INSERT INTO ontology_quiver_visual_functions (
                id, name, description, primary_type_id, secondary_type_id, join_field,
                secondary_join_field, date_field, metric_field, group_field, selected_group,
@@ -419,7 +419,7 @@ pub async fn update_quiver_visual_function(
         Err(error) => return bad_request(error),
     };
 
-    let updated = match sqlx::query_as::<_, QuiverVisualFunction>(
+    let updated = match crate::domain::pg_repository::typed::<QuiverVisualFunction>(
         r#"UPDATE ontology_quiver_visual_functions
            SET name = $2,
                description = $3,
@@ -486,10 +486,12 @@ pub async fn delete_quiver_visual_function(
         return forbidden("only the owner can delete this quiver visual function");
     }
 
-    match sqlx::query("DELETE FROM ontology_quiver_visual_functions WHERE id = $1")
-        .bind(id)
-        .execute(&state.db)
-        .await
+    match crate::domain::pg_repository::raw(
+        "DELETE FROM ontology_quiver_visual_functions WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await
     {
         Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
         Ok(_) => not_found("quiver visual function not found"),

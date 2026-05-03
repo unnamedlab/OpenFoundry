@@ -1,0 +1,159 @@
+syntax = "proto3";
+package open_foundry.pipeline;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// Foundry-equivalent Build / Job lifecycle contract.
+//
+// Mirrors the section "Build lifecycle" of the Foundry "Builds" doc:
+//
+//   * A *Build* is a one-time computation of a set of output datasets;
+//     it owns one or more *Jobs*.
+//   * Each Job materialises a JobSpec (declarative recipe persisted at
+//     pipeline-author time) into actual work + a transaction per output.
+//   * Jobs and Builds advance through the strict state machines encoded
+//     in `JobState` / `BuildState` below; transitions outside the
+//     allowed set are rejected by `domain::job_lifecycle`.
+//
+// This file is the cross-service source of truth for the lifecycle
+// vocabulary. The Rust types in `services/pipeline-build-service/src/
+// models/{build,job}.rs` mirror the field names verbatim so the SQL
+// rows and the proto wire format share a single mental model.
+
+// ---------------------------------------------------------------------------
+// Job state machine
+// ---------------------------------------------------------------------------
+
+// `JobState` literally matches the Foundry documentation under
+// "Builds.md § Job states". Do NOT add or rename variants without
+// updating `domain::job_lifecycle::is_valid_transition` and the
+// `jobs.state` CHECK constraint in
+// `services/pipeline-build-service/migrations/20260504000050_builds_init.sql`.
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  // Initial state — waiting on dependent jobs.
+  WAITING = 1;
+  // Submitted to executor, environment has not confirmed status.
+  RUN_PENDING = 2;
+  // Currently executing.
+  RUNNING = 3;
+  // Abort requested, executor has not confirmed.
+  ABORT_PENDING = 4;
+  // Aborted (user request or cascading from failed dependency).
+  ABORTED = 5;
+  // Invoked; computation failed.
+  FAILED = 6;
+  // Invoked; computation succeeded.
+  COMPLETED = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Build state machine
+// ---------------------------------------------------------------------------
+
+// `BuildState` covers the per-build lifecycle, distinct from per-job:
+//   BUILD_RESOLUTION → BUILD_QUEUED?  → BUILD_RUNNING → BUILD_COMPLETED
+//                                                    ↘ BUILD_FAILED
+//                    → BUILD_ABORTING → BUILD_ABORTED
+enum BuildState {
+  BUILD_STATE_UNSPECIFIED = 0;
+  // Resolving inputs / outputs / cycles (see Build resolution doc).
+  BUILD_RESOLUTION = 1;
+  // Queued waiting for an upstream build to release its lock.
+  BUILD_QUEUED = 2;
+  // Jobs are executing.
+  BUILD_RUNNING = 3;
+  // Abort signalled, jobs flushing.
+  BUILD_ABORTING = 4;
+  // At least one job ended in FAILED.
+  BUILD_FAILED = 5;
+  // All jobs ended in ABORTED (user request or cascade).
+  BUILD_ABORTED = 6;
+  // All jobs ended in COMPLETED.
+  BUILD_COMPLETED = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Specs
+// ---------------------------------------------------------------------------
+
+// One input dataset declaration on a `JobSpec`.
+//
+// `view_filter` mirrors Foundry's "InputSpecs specify a subset of data
+// to read from a dataset in terms of its views" — empty means "use the
+// default current view of the resolved branch".
+message InputSpec {
+  string dataset_rid = 1;
+  // Branch fallback chain consumed by `branch_resolution::resolve_input_dataset`.
+  repeated string fallback_chain = 2;
+  // Optional view selector subset (P3 view filtering).
+  repeated string view_filter = 3;
+  // When true, the resolver refuses to fall back to a stale snapshot
+  // and fails with `BuildResolutionError::StaleInput`.
+  bool require_fresh = 4;
+}
+
+// Declarative recipe stored alongside the pipeline. Builds reify a
+// JobSpec into a concrete `Job` row at resolution time.
+message JobSpec {
+  string rid = 1;
+  string pipeline_rid = 2;
+  // Branch the JobSpec was authored against.
+  string branch_name = 3;
+  repeated InputSpec inputs = 4;
+  // A job may produce multiple datasets; they always commit together.
+  repeated string output_dataset_rids = 5;
+  // Discriminator from the D1.1.5 P3 job-kind taxonomy:
+  // SYNC | TRANSFORM | HEALTH_CHECK | ANALYTICAL | EXPORT.
+  string logic_kind = 6;
+  // Serialized node config (transform code reference, SQL text,
+  // sync connector params, ...).
+  google.protobuf.Struct logic_payload = 7;
+  // sha256(canonical(inputs + logic_payload)) — used by the staleness
+  // check to detect "logic unchanged since last build".
+  string content_hash = 8;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime objects
+// ---------------------------------------------------------------------------
+
+message Build {
+  string rid = 1;
+  string pipeline_rid = 2;
+  string build_branch = 3;
+  // Snapshot of the fallback chain captured when the build was
+  // submitted (so retries and re-resolution stay deterministic).
+  repeated string job_spec_fallback = 4;
+  BuildState state = 5;
+  // MANUAL | SCHEDULED | FORCE.
+  string trigger_kind = 6;
+  // True when the operator clicked "force build" — disables staleness
+  // skipping per Foundry's "Staleness" section.
+  bool force_build = 7;
+  google.protobuf.Timestamp queued_at = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp finished_at = 10;
+  string error_message = 11;
+  string requested_by = 12;
+}
+
+message Job {
+  string rid = 1;
+  string build_rid = 2;
+  string job_spec_rid = 3;
+  JobState state = 4;
+  // One transaction RID per output dataset; opened during build
+  // resolution so build-locking is atomic.
+  repeated string output_transaction_rids = 5;
+  google.protobuf.Timestamp state_changed_at = 6;
+  int32 attempt = 7;
+  // Set when the staleness check skipped re-execution.
+  bool stale_skipped = 8;
+  string failure_reason = 9;
+  // Recomputed `JobSpec.content_hash` at execution time — committed
+  // together with the output transaction so downstream builds can
+  // diff against it.
+  string output_content_hash = 10;
+}

@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "of-shared.platformProfileConfigMapName" . }}
+  labels:
+    {{- include "of-shared.labels" (dict "root" . "name" "platform-profile" "release" .Values.release) | nindent 4 }}
+data:
+  deployment-fabric.yaml: |
+    publicWebOrigin: {{ (.Values.global.publicWebOrigin | default "") | quote }}
+    cloud: {{ (.Values.global.deploymentFabric.cloud | default "kubernetes") | quote }}
+    environment: {{ (.Values.global.deploymentFabric.environment | default "shared") | quote }}
+    cell: {{ (.Values.global.deploymentFabric.cell | default "core") | quote }}
+    region: {{ (.Values.global.deploymentFabric.region | default "global") | quote }}
+    multiCloud:
+{{ toYaml ((.Values.global.deploymentFabric.multiCloud | default dict)) | nindent 6 }}
+    airGap:
+{{ toYaml ((.Values.global.deploymentFabric.airGap | default dict)) | nindent 6 }}
+    geoRestrictions:
+{{ toYaml ((.Values.global.deploymentFabric.geoRestrictions | default dict)) | nindent 6 }}
+    cassandra:
+{{ toYaml ((.Values.global.cassandra | default dict)) | nindent 6 }}
+    kafka:
+{{ toYaml ((.Values.global.kafka | default dict)) | nindent 6 }}
+  apollo-rollout.yaml: |
+    enabled: {{ .Values.apollo.enabled | default false }}
+    schedule: {{ (.Values.apollo.schedule | default "*/15 * * * *") | quote }}
+    actionMode: {{ (.Values.apollo.actionMode | default "observe") | quote }}
+    gatewayUrl: {{ include "of-shared.apolloGatewayUrl" . | quote }}
+    readinessPath: {{ (.Values.apollo.readinessPath | default "/api/v1/control-panel/upgrade-readiness") | quote }}
+    fleetsPath: {{ (.Values.apollo.fleetsPath | default "/api/v1/marketplace/devops/fleets") | quote }}
+    reconcileFleetIds:
+{{ toYaml (.Values.apollo.reconcileFleetIds | default (list)) | nindent 6 }}
+    promoteWebhookPath: {{ (.Values.apollo.promoteWebhookPath | default "") | quote }}

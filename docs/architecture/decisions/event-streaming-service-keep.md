@@ -50,8 +50,7 @@ storage" path that used to live inside `event-streaming-service`,
 **KEEP** `event-streaming-service`, with the following scope
 reduction (executed in a follow-up PR — out of S5.5 scope):
 
-1. Remove the now-dead "write to ClickHouse / write to Postgres"
-   storage backends from the routing table — those paths are
+1. Remove the now-dead direct storage backends from the routing table — those paths are
    superseded by the new sinks.
 2. Mark the `legacy-storage-fanout` feature flag deprecated.
 3. Cap memory + replicas — the service is now a thin

@@ -1,0 +1,88 @@
+# OpenFoundry platform layer.
+#
+# Owns third-party infrastructure releases whose lifecycle should be
+# decoupled from the five OpenFoundry application charts in ../helm.
+#
+# Usage:
+#   cd infra/k8s/platform
+#   helmfile -e prod template --args "--api-versions monitoring.coreos.com/v1/PodMonitor"
+#   helmfile -e prod apply
+#
+# Environment variables honoured:
+#   HELM_KUBECONTEXT                  optional kube context
+#   HELM_NAMESPACE                    OpenFoundry app namespace fallback
+#   OPENFOUNDRY_NAMESPACE             namespace for app-adjacent platform services
+#   TRINO_NAMESPACE                   default: trino
+#   SPARK_OPERATOR_NAMESPACE          default: spark-operator
+#   MIMIR_NAMESPACE                   default: observability
+
+helmDefaults:
+  createNamespace: true
+  wait: false
+  timeout: 900
+  atomic: false
+  cleanupOnFail: true
+  historyMax: 10
+  {{- with env "HELM_KUBECONTEXT" }}
+  kubeContext: {{ . | quote }}
+  {{- end }}
+
+environments:
+  default:
+    values:
+      - profile: dev
+  dev:
+    values:
+      - profile: dev
+  staging:
+    values:
+      - profile: staging
+  prod:
+    values:
+      - profile: prod
+---
+{{- $profile := .Environment.Values | get "profile" "dev" -}}
+{{- $helmNamespace := env "HELM_NAMESPACE" | default "openfoundry" -}}
+{{- $openfoundryNamespace := env "OPENFOUNDRY_NAMESPACE" | default $helmNamespace -}}
+{{- $trinoNamespace := env "TRINO_NAMESPACE" | default "trino" -}}
+{{- $sparkNamespace := env "SPARK_OPERATOR_NAMESPACE" | default "spark-operator" -}}
+{{- $mimirNamespace := env "MIMIR_NAMESPACE" | default "observability" -}}
+
+releases:
+  # Vespa is installed as its own platform release, while keeping the
+  # historical resource fullname to preserve service DNS and PVC names.
+  - name: vespa
+    namespace: {{ $openfoundryNamespace }}
+    chart: ./charts/vespa
+    skipDeps: true
+    installed: {{ ne $profile "dev" }}
+    values:
+      - ./values/vespa-common.yaml
+      - ./values/vespa-{{ $profile }}.yaml
+
+  - name: trino
+    namespace: {{ $trinoNamespace }}
+    chart: ./charts/trino
+    skipDeps: true
+    installed: {{ eq $profile "prod" }}
+    values:
+      - ./manifests/trino/values.yaml
+      - ./values/trino-{{ $profile }}.yaml
+
+  - name: spark-operator
+    namespace: {{ $sparkNamespace }}
+    chart: ./charts/spark-operator
+    skipDeps: true
+    installed: {{ eq $profile "prod" }}
+    values:
+      - ./manifests/spark-operator/values.yaml
+      - ./values/spark-operator-{{ $profile }}.yaml
+
+  - name: mimir
+    namespace: {{ $mimirNamespace }}
+    chart: ./charts/mimir-distributed
+    skipDeps: true
+    installed: {{ eq $profile "prod" }}
+    values:
+      - ./manifests/observability/mimir/values.yaml
+      - ./values/mimir-{{ $profile }}.yaml

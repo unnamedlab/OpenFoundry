@@ -85,6 +85,8 @@ async fn cassandra_object_store_inserts_10k_and_pages_by_type() {
             type_id,
             version: 0,
             payload: serde_json::json!({"i": i, "label": format!("row-{i}")}),
+            organization_id: None,
+            created_at_ms: Some(now_ms + i as i64),
             updated_at_ms: now_ms + i as i64,
             owner: Some(owner.clone()),
             markings: vec![MarkingId("PUBLIC".to_string())],

@@ -49,9 +49,7 @@ pub fn require_dataset_write(
     if claims.has_role(auth_middleware::rbac::roles::ADMIN) {
         return Ok(());
     }
-    if claims.has_permission_key(SCOPE_DATASET_WRITE)
-        || claims.has_permission("dataset", "write")
-    {
+    if claims.has_permission_key(SCOPE_DATASET_WRITE) || claims.has_permission("dataset", "write") {
         return Ok(());
     }
     crate::metrics::DATASET_MARKING_ENFORCEMENT_DENIALS_TOTAL.inc();
@@ -83,9 +81,7 @@ pub fn require_dataset_admin(
     if claims.has_role(auth_middleware::rbac::roles::ADMIN) {
         return Ok(());
     }
-    if claims.has_permission_key(SCOPE_DATASET_ADMIN)
-        || claims.has_permission("dataset", "admin")
-    {
+    if claims.has_permission_key(SCOPE_DATASET_ADMIN) || claims.has_permission("dataset", "admin") {
         return Ok(());
     }
     crate::metrics::DATASET_MARKING_ENFORCEMENT_DENIALS_TOTAL.inc();

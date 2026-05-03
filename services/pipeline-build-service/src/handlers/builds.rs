@@ -7,13 +7,13 @@
 //! surface that Pipeline Builder's UI cannot synthesize from per-pipeline
 //! calls.
 
+use auth_middleware::layer::AuthUser;
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use auth_middleware::layer::AuthUser;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -107,10 +107,7 @@ pub async fn abort_build(
 }
 
 /// Aggregate counters by status for the queue dashboard.
-pub async fn queue_summary(
-    _user: AuthUser,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn queue_summary(_user: AuthUser, State(state): State<AppState>) -> impl IntoResponse {
     let rows = sqlx::query_as::<_, (String, i64)>(
         r#"SELECT status, COUNT(*)::bigint
            FROM pipeline_runs

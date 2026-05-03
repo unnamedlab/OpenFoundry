@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::AppState;
 use crate::domain::{jwt, mfa};
+use crate::hardening::webauthn::{LoginFinishRequest, RegisterFinishRequest, WebAuthnError};
 use crate::models::mfa::TotpConfiguration;
 use crate::models::user::User;
 
@@ -36,6 +37,17 @@ pub struct CompleteLoginRequest {
     pub code: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WebAuthnLoginChallengeRequest {
+    pub challenge_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebAuthnLoginFinishRequest {
+    pub challenge_token: String,
+    pub credential: LoginFinishRequest,
+}
+
 pub async fn status(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
@@ -62,6 +74,104 @@ pub async fn status(
         .into_response(),
         Err(e) => {
             tracing::error!("failed to load MFA status: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+pub async fn webauthn_register_challenge(
+    State(state): State<AppState>,
+    AuthUser(claims): AuthUser,
+) -> impl IntoResponse {
+    if !claims.has_permission("mfa", "self") && !claims.has_permission("users", "write") {
+        return json_error(StatusCode::FORBIDDEN, "missing permission mfa:self");
+    }
+
+    match state
+        .webauthn
+        .register_challenge(claims.sub, &claims.email, &claims.name)
+        .await
+    {
+        Ok(challenge) => Json(challenge).into_response(),
+        Err(error) => webauthn_error(error),
+    }
+}
+
+pub async fn webauthn_register_finish(
+    State(state): State<AppState>,
+    AuthUser(claims): AuthUser,
+    Json(body): Json<RegisterFinishRequest>,
+) -> impl IntoResponse {
+    if !claims.has_permission("mfa", "self") && !claims.has_permission("users", "write") {
+        return json_error(StatusCode::FORBIDDEN, "missing permission mfa:self");
+    }
+
+    match state.webauthn.register_finish(body).await {
+        Ok(credential) => Json(credential).into_response(),
+        Err(error) => webauthn_error(error),
+    }
+}
+
+pub async fn webauthn_login_challenge(
+    State(state): State<AppState>,
+    Json(body): Json<WebAuthnLoginChallengeRequest>,
+) -> impl IntoResponse {
+    let challenge = match mfa::validate_challenge(&state.jwt_config, &body.challenge_token) {
+        Ok(challenge) => challenge,
+        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "invalid MFA challenge"),
+    };
+
+    match state.webauthn.login_challenge(challenge.sub).await {
+        Ok(challenge) => Json(challenge).into_response(),
+        Err(error) => webauthn_error(error),
+    }
+}
+
+pub async fn webauthn_login_finish(
+    State(state): State<AppState>,
+    Json(body): Json<WebAuthnLoginFinishRequest>,
+) -> impl IntoResponse {
+    let challenge = match mfa::validate_challenge(&state.jwt_config, &body.challenge_token) {
+        Ok(challenge) => challenge,
+        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "invalid MFA challenge"),
+    };
+
+    let user = match load_user(&state.db, challenge.sub).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!("failed to load user for WebAuthn completion: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match state.webauthn.login_finish(body.credential).await {
+        Ok(_) => {}
+        Err(error) => return webauthn_error(error),
+    }
+
+    let mut auth_methods = challenge.auth_methods;
+    auth_methods.push("webauthn".to_string());
+
+    match jwt::issue_tokens(
+        &state.db,
+        &state.sessions,
+        &state.jwt_config,
+        state.jwks.as_ref(),
+        &user,
+        mfa::normalize_scopes(&auth_methods),
+    )
+    .await
+    {
+        Ok((access_token, refresh_token)) => Json(TokenResponse {
+            access_token,
+            refresh_token,
+            token_type: "Bearer".to_string(),
+            expires_in: state.jwt_config.access_ttl_secs,
+        })
+        .into_response(),
+        Err(error) => {
+            tracing::error!("failed to issue tokens after WebAuthn: {error}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -103,6 +213,19 @@ pub async fn enroll(
         Err(e) => {
             tracing::error!("failed to persist MFA enrollment: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+fn webauthn_error(error: WebAuthnError) -> axum::response::Response {
+    match error {
+        WebAuthnError::Config(message) | WebAuthnError::Challenge(message) => {
+            json_error(StatusCode::BAD_REQUEST, message)
+        }
+        WebAuthnError::Verify(message) => json_error(StatusCode::UNAUTHORIZED, message),
+        WebAuthnError::Store(message) => {
+            tracing::error!(error = %message, "webauthn store error");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "webauthn store error")
         }
     }
 }
@@ -261,6 +384,7 @@ pub async fn complete_login(
         &state.db,
         &state.sessions,
         &state.jwt_config,
+        state.jwks.as_ref(),
         &user,
         mfa::normalize_scopes(&auth_methods),
     )

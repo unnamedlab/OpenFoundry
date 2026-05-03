@@ -17,7 +17,7 @@ of-cass-prod (single logical cluster, NetworkTopologyStrategy)
 ```
 
 * Replication factor: `dc1:3, dc2:3, dc3:3, dc-b1:3` on every
-  application keyspace ([keyspaces-job.yaml](../k8s/cassandra/keyspaces-job.yaml)).
+  application keyspace ([keyspaces-job.yaml](../k8s/platform/manifests/cassandra/keyspaces-job.yaml)).
 * Application default consistency: `LOCAL_QUORUM` (per ADR-0020 / 0021).
 * Driver: [`scylla`](https://docs.rs/scylla) Rust crate; `local_dc` is
   configured via `CASSANDRA_LOCAL_DC` environment variable wired into
@@ -54,16 +54,15 @@ kubectl --context region-b -n cassandra exec sts/of-cass-prod-dc-b1-default-sts-
 
 ## Step 1 — Cut application traffic to region B (2 min)
 
-The `CASSANDRA_LOCAL_DC` env var is set per-service in the Helm
-umbrella. Override it cluster-wide via the platform values overlay:
+The `CASSANDRA_LOCAL_DC` env var is wired into every split release via
+the shared Helm profile. Override it cluster-wide through the split
+bundle entrypoint:
 
 ```sh
-helm --kube-context region-b upgrade open-foundry \
-    infra/k8s/helm/open-foundry \
-    -f infra/k8s/helm/open-foundry/values.yaml \
-    -f infra/k8s/helm/open-foundry/values-prod.yaml \
-    --set globals.cassandra.localDc=dc-b1 \
-    --reuse-values
+cd infra/k8s/helm && \
+    HELM_KUBECONTEXT=region-b \
+    helmfile -e prod apply \
+    --state-values-set global.cassandra.localDc=dc-b1
 ```
 
 This re-renders every service's Deployment with
@@ -105,12 +104,12 @@ Watch the Grafana dashboard `cassandra-overview` (region B):
 
 ## Step 5 — Pin the promotion in the platform state
 
-Commit the values-prod overlay change so the next `helm upgrade` does
+Commit the shared production profile change so the next Helm reconcile does
 not silently revert:
 
 ```sh
 git checkout -b dr/failover-to-dc-b1
-sed -i.bak 's/localDc: dc1/localDc: dc-b1/' infra/k8s/helm/open-foundry/values-prod.yaml
+sed -i.bak 's/localDc: dc1/localDc: dc-b1/' infra/k8s/helm/profiles/values-prod.yaml
 git add -A && git commit -m "dr: pin Cassandra LOCAL_QUORUM to dc-b1 (region B)"
 ```
 
@@ -127,7 +126,7 @@ After region A is fully restored:
        curl -X POST "http://localhost:8080/repair_run?clusterName=of-cass-prod&keyspace=ALL&datacenters=dc1,dc2,dc3&owner=dr-rollback&parallelism=PARALLEL&intensity=0.6&repairType=FULL"
    ```
 2. Wait for repair `DONE` per keyspace (Reaper UI or
-   [`cross-dc-repair-job.yaml`](../k8s/cassandra/cross-dc-repair-job.yaml)
+   [`cross-dc-repair-job.yaml`](../k8s/platform/manifests/cassandra/cross-dc-repair-job.yaml)
    adapted to target `dc1,dc2,dc3`).
 3. Reverse Step 2 (DNS) and Step 1 (Helm `localDc=dc1`).
 4. Revert the PR from Step 5.
@@ -136,7 +135,7 @@ After region A is fully restored:
 
 * This runbook does **not** promote any other component. Postgres
   promotion lives in [`dr-failover.md`](dr-failover.md) (S7.5.a),
-  Lakekeeper region-B is permanently read-only ([region-B README](../k8s/lakekeeper/region-b/README.md)),
+  Lakekeeper region-B is permanently read-only ([region-B README](../k8s/platform/manifests/lakekeeper/region-b/README.md)),
   Kafka MM2 sequencing is owned by S7.3.
 
 * This runbook does **not** modify `system_auth` replication. The

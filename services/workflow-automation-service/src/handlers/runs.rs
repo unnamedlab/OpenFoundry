@@ -21,7 +21,17 @@ pub async fn list_runs(
     let offset = (page - 1) * per_page;
 
     let runs = sqlx::query_as::<_, WorkflowRun>(
-        r#"SELECT * FROM workflow_runs
+        r#"SELECT id,
+                  workflow_id,
+                  trigger_type,
+                  status,
+                  started_by,
+                  current_step_id,
+                  context,
+                  error_message,
+                  started_at,
+                  finished_at
+           FROM workflow_run_projections
 		   WHERE workflow_id = $1
 		   ORDER BY started_at DESC
 		   LIMIT $2 OFFSET $3"#,
@@ -33,7 +43,7 @@ pub async fn list_runs(
     .await;
 
     let total = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*) FROM workflow_runs WHERE workflow_id = $1"#,
+        r#"SELECT COUNT(*) FROM workflow_run_projections WHERE workflow_id = $1"#,
     )
     .bind(workflow_id)
     .fetch_one(&state.db)

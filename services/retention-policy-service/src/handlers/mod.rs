@@ -1,3 +1,4 @@
+pub mod health;
 pub mod retention;
 
 use axum::{Json, http::StatusCode};

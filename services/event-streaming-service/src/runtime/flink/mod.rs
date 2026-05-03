@@ -19,6 +19,27 @@
 
 pub mod sql;
 
+use crate::models::stream::{StreamConsistency, StreamDefinition};
+use crate::models::topology::TopologyDefinition;
+
+/// Resolve whether a topology should be deployed with `EXACTLY_ONCE`
+/// checkpointing — the strongest of the topology's own consistency
+/// guarantee and any source stream's `pipeline_consistency`.
+///
+/// Per Foundry docs, "Streaming pipelines support both AT_LEAST_ONCE
+/// and EXACTLY_ONCE". The stream record carries the operator's intent,
+/// the topology carries the runtime's translation. When either side
+/// asks for EXACTLY_ONCE the Flink job must run with EXACTLY_ONCE.
+pub fn effective_exactly_once(topology: &TopologyDefinition, streams: &[StreamDefinition]) -> bool {
+    if topology.consistency_guarantee.eq_ignore_ascii_case("exactly-once") {
+        return true;
+    }
+    streams
+        .iter()
+        .filter(|s| topology.source_stream_ids.contains(&s.id))
+        .any(|s| matches!(s.pipeline_consistency, StreamConsistency::ExactlyOnce))
+}
+
 #[cfg(feature = "flink-runtime")]
 pub mod deployer;
 
@@ -71,12 +92,9 @@ impl FlinkRuntimeConfig {
             sql_runner_image: std::env::var("FLINK_SQL_RUNNER_IMAGE").unwrap_or_else(|_| {
                 "ghcr.io/unnamedlab/openfoundry/flink-sql-runner:1.19.1-0.1.0".to_string()
             }),
-            flink_version: std::env::var("FLINK_VERSION")
-                .unwrap_or_else(|_| "v1_19".to_string()),
+            flink_version: std::env::var("FLINK_VERSION").unwrap_or_else(|_| "v1_19".to_string()),
             jobmanager_url_template: std::env::var("FLINK_JOBMANAGER_URL_TEMPLATE")
-                .unwrap_or_else(|_| {
-                    "http://{deployment}-rest.{namespace}.svc:8081".to_string()
-                }),
+                .unwrap_or_else(|_| "http://{deployment}-rest.{namespace}.svc:8081".to_string()),
             metrics_poll_interval_ms: std::env::var("FLINK_METRICS_POLL_INTERVAL_MS")
                 .ok()
                 .and_then(|v| v.parse().ok())

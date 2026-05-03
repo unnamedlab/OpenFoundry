@@ -39,4 +39,4 @@ magnitude above audit volume.
 ## Required Kafka ACL
 
 Read on `ai.events.v1` and group `ai-sink` — declared in
-[`infra/k8s/strimzi/kafka-acls-domain-v1.yaml`](../../infra/k8s/strimzi/kafka-acls-domain-v1.yaml).
+[`infra/k8s/platform/manifests/strimzi/kafka-acls-domain-v1.yaml`](../../infra/k8s/platform/manifests/strimzi/kafka-acls-domain-v1.yaml).

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::{runtime, transactions},
+    domain::runtime,
     models::{
         dataset::Dataset,
         view::{CreateDatasetViewRequest, DatasetView},
@@ -367,26 +367,6 @@ pub async fn refresh_view_materialization(
     .bind(rows.len() as i64)
     .bind(runtime::schema_to_value(&columns).map_err(|error| error.to_string())?)
     .fetch_one(&mut *tx)
-    .await
-    .map_err(|error| error.to_string())?;
-
-    let _ = transactions::record_committed_transaction(
-        &mut tx,
-        dataset.id,
-        transactions::TransactionRecord {
-            view_id: Some(view.id),
-            operation: "refresh_view".to_string(),
-            branch_name: source.branch.clone(),
-            summary: format!("Refreshed dataset view '{}'", view.name),
-            metadata: json!({
-                "view_name": view.name,
-                "source_version": source.version,
-                "view_version": next_version,
-                "row_count": rows.len(),
-                "storage_path": storage_path,
-            }),
-        },
-    )
     .await
     .map_err(|error| error.to_string())?;
 

@@ -2,11 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use auth_middleware::claims::Claims;
 use serde_json::{Value, json};
+use storage_abstraction::repositories::{Page, ReadConsistency, TypeId};
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::access::ensure_object_access,
+    domain::{
+        access::ensure_object_access,
+        read_models::{object_store_to_object_instance, tenant_from_claims},
+    },
     handlers::objects::ObjectInstance,
     models::{
         action_type::ActionTypeRow,
@@ -78,16 +82,64 @@ fn object_title(object_type: &ObjectType, object: &ObjectInstance) -> String {
     }
 }
 
+const OBJECT_SEARCH_PAGE_SIZE: u32 = 512;
+
+async fn load_object_instances_for_search(
+    state: &AppState,
+    claims: &Claims,
+    object_type_ids: &[Uuid],
+) -> Result<Vec<ObjectInstance>, String> {
+    let tenant = tenant_from_claims(claims);
+    let mut objects = Vec::new();
+
+    for object_type_id in object_type_ids {
+        let mut token = None;
+        loop {
+            let page = state
+                .stores
+                .objects
+                .list_by_type(
+                    &tenant,
+                    &TypeId(object_type_id.to_string()),
+                    Page {
+                        size: OBJECT_SEARCH_PAGE_SIZE,
+                        token: token.clone(),
+                    },
+                    ReadConsistency::Eventual,
+                )
+                .await
+                .map_err(|error| {
+                    format!("failed to load object instances from object store: {error}")
+                })?;
+
+            objects.extend(
+                page.items
+                    .into_iter()
+                    .filter_map(|object| object_store_to_object_instance(object, claims.org_id))
+                    .filter(|object| ensure_object_access(claims, object).is_ok()),
+            );
+
+            match page.next_token {
+                Some(next_token) => token = Some(next_token),
+                None => break,
+            }
+        }
+    }
+
+    Ok(objects)
+}
+
 pub async fn build_search_documents(
     state: &AppState,
     claims: &Claims,
     object_type_filter: Option<Uuid>,
     kind_filter: Option<&str>,
-) -> Result<Vec<SearchDocument>, sqlx::Error> {
+) -> Result<Vec<SearchDocument>, String> {
     let object_types =
         sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types ORDER BY created_at DESC")
             .fetch_all(&state.db)
-            .await?;
+            .await
+            .map_err(|error| format!("failed to load object types: {error}"))?;
     let object_type_map = object_types
         .iter()
         .cloned()
@@ -139,13 +191,15 @@ pub async fn build_search_documents(
             )
             .bind(object_type_id)
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load ontology interfaces: {error}"))?
         } else {
             sqlx::query_as::<_, OntologyInterface>(
                 "SELECT * FROM ontology_interfaces ORDER BY created_at DESC",
             )
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load ontology interfaces: {error}"))?
         };
 
         for interface_row in interface_rows {
@@ -182,7 +236,8 @@ pub async fn build_search_documents(
             )
             .bind(object_type_id)
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load shared property types: {error}"))?
         } else {
             sqlx::query_as::<_, SharedPropertyType>(
                 r#"SELECT id, name, display_name, description, property_type, required,
@@ -192,7 +247,8 @@ pub async fn build_search_documents(
                    ORDER BY created_at DESC"#,
             )
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load shared property types: {error}"))?
         };
 
         for shared_property_type in shared_property_types {
@@ -247,11 +303,13 @@ pub async fn build_search_documents(
             )
             .bind(object_type_id)
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load link types: {error}"))?
         } else {
             sqlx::query_as::<_, LinkType>("SELECT * FROM link_types ORDER BY created_at DESC")
                 .fetch_all(&state.db)
-                .await?
+                .await
+                .map_err(|error| format!("failed to load link types: {error}"))?
         };
 
         for link_type in link_types {
@@ -304,7 +362,8 @@ pub async fn build_search_documents(
             )
             .bind(object_type_id)
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load action types: {error}"))?
         } else {
             sqlx::query_as::<_, ActionTypeRow>(
                 r#"SELECT id, name, display_name, description, object_type_id, operation_kind, input_schema,
@@ -314,7 +373,8 @@ pub async fn build_search_documents(
                    ORDER BY created_at DESC"#,
             )
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load action types: {error}"))?
         };
 
         for action in action_rows {
@@ -346,31 +406,15 @@ pub async fn build_search_documents(
     }
 
     if kind_matches(kind_filter, "object_instance") {
-        let objects = if let Some(object_type_id) = object_type_filter {
-            sqlx::query_as::<_, ObjectInstance>(
-                r#"SELECT id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at
-                   FROM object_instances
-                   WHERE object_type_id = $1
-                   ORDER BY created_at DESC"#,
-            )
-            .bind(object_type_id)
-            .fetch_all(&state.db)
-            .await?
+        let target_object_type_ids = if let Some(object_type_id) = object_type_filter {
+            vec![object_type_id]
         } else {
-            sqlx::query_as::<_, ObjectInstance>(
-                r#"SELECT id, object_type_id, properties, created_by, organization_id, marking, created_at, updated_at
-                   FROM object_instances
-                   ORDER BY created_at DESC"#,
-            )
-            .fetch_all(&state.db)
-            .await?
+            object_type_map.keys().copied().collect::<Vec<_>>()
         };
+        let objects =
+            load_object_instances_for_search(state, claims, &target_object_type_ids).await?;
 
         for object in objects {
-            if ensure_object_access(claims, &object).is_err() {
-                continue;
-            }
-
             let Some(object_type) = object_type_map.get(&object.object_type_id) else {
                 continue;
             };
@@ -429,13 +473,15 @@ pub async fn build_search_documents(
             )
             .bind(object_type_id)
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load interface bindings: {error}"))?
         } else {
             sqlx::query_as::<_, ObjectTypeInterfaceBinding>(
                 "SELECT object_type_id, interface_id, created_at FROM object_type_interfaces",
             )
             .fetch_all(&state.db)
-            .await?
+            .await
+            .map_err(|error| format!("failed to load interface bindings: {error}"))?
         };
 
         for binding in bindings {

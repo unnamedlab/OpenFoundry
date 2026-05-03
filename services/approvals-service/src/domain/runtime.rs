@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-use crate::{AppState, models::execution::WorkflowRun};
+use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredActionProposal {
@@ -209,23 +209,22 @@ pub async fn apply_approval_proposal(
 }
 
 pub async fn fail_run(
-    state: &AppState,
-    run_id: Uuid,
-    context: &Value,
+    _state: &AppState,
+    execution_id: Uuid,
+    _context: &Value,
     error_message: String,
-) -> Result<WorkflowRun, String> {
-    sqlx::query_as::<_, WorkflowRun>(
-        r#"UPDATE workflow_runs
-           SET status = 'failed', context = $2, error_message = $3, finished_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(run_id)
-    .bind(context)
-    .bind(error_message)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|error| error.to_string())
+) -> Result<(), String> {
+    Err(format!(
+        "approval execution {execution_id} failure is authoritative in Temporal; legacy state update retired: {error_message}"
+    ))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ApprovalContinuationAck {
+    pub accepted: bool,
+    pub approval_id: Uuid,
+    #[serde(default)]
+    pub response: Value,
 }
 
 pub async fn continue_workflow_after_approval(
@@ -233,7 +232,7 @@ pub async fn continue_workflow_after_approval(
     approval: &crate::models::approval::WorkflowApproval,
     decision: &str,
     context: &Value,
-) -> Result<WorkflowRun, String> {
+) -> Result<ApprovalContinuationAck, String> {
     let endpoint = format!(
         "{}/internal/workflows/approvals/{}/continue",
         state.workflow_service_url.trim_end_matches('/'),
@@ -261,8 +260,16 @@ pub async fn continue_workflow_after_approval(
         .map_err(|error| format!("failed to read workflow continuation body: {error}"))?;
 
     if status.is_success() {
-        serde_json::from_str::<WorkflowRun>(&raw_body)
-            .map_err(|error| format!("invalid workflow continuation response: {error}"))
+        let response = if raw_body.trim().is_empty() {
+            json!({"status": status.as_u16()})
+        } else {
+            serde_json::from_str::<Value>(&raw_body).unwrap_or_else(|_| json!({"raw": raw_body}))
+        };
+        Ok(ApprovalContinuationAck {
+            accepted: true,
+            approval_id: approval.id,
+            response,
+        })
     } else {
         let payload = if raw_body.trim().is_empty() {
             Value::Null

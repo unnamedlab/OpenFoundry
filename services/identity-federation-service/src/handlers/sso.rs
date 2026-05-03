@@ -274,6 +274,7 @@ pub async fn complete_login(
         &state.db,
         &state.sessions,
         &state.jwt_config,
+        state.jwks.as_ref(),
         &user,
         vec![provider_auth_method],
     )

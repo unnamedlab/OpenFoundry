@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use prometheus::{
-    Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder,
-    histogram_opts,
+    CounterVec, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts, Registry,
+    TextEncoder, histogram_opts,
 };
 
 use crate::router::BackendId;
@@ -47,6 +47,17 @@ pub struct Metrics {
     pub topology_backpressure_ratio: GaugeVec,
     pub topology_restarts_total: IntCounterVec,
     pub dead_letter_total: IntCounterVec,
+    // Bloque P4 — stream-monitoring counters/gauges. The list is
+    // closed; new monitor kinds either reuse one of these or live in
+    // the in-process metrics endpoint summary.
+    pub records_ingested_total: IntCounterVec,
+    pub records_output_total: IntCounterVec,
+    pub utilization_pct: GaugeVec,
+    /// Bloque P6 — billable compute seconds per stream / topology.
+    /// Increments on each checkpoint commit and is also persisted in
+    /// `stream_compute_usage` so the `/usage` endpoint can surface a
+    /// historical view independent of the metrics retention window.
+    pub compute_seconds_total: CounterVec,
 }
 
 impl Metrics {
@@ -173,19 +184,90 @@ impl Metrics {
         )
         .expect("valid metric definition");
 
-        registry.register(Box::new(events_published_total.clone())).unwrap();
-        registry.register(Box::new(events_received_total.clone())).unwrap();
-        registry.register(Box::new(publish_latency_seconds.clone())).unwrap();
-        registry.register(Box::new(active_subscriptions.clone())).unwrap();
-        registry.register(Box::new(route_resolution_total.clone())).unwrap();
-        registry.register(Box::new(stream_rows_in_total.clone())).unwrap();
-        registry.register(Box::new(stream_rows_archived_total.clone())).unwrap();
+        // Bloque P4 — stream monitoring metrics.
+        let records_ingested_total = IntCounterVec::new(
+            Opts::new(
+                "streaming_records_ingested_total",
+                "Total records that landed in a stream's live view.",
+            ),
+            &["stream"],
+        )
+        .expect("valid metric definition");
+
+        let records_output_total = IntCounterVec::new(
+            Opts::new(
+                "streaming_records_output_total",
+                "Total records emitted by a streaming pipeline (per topology).",
+            ),
+            &["topology"],
+        )
+        .expect("valid metric definition");
+
+        let utilization_pct = GaugeVec::new(
+            Opts::new(
+                "streaming_utilization_pct",
+                "Streaming pipeline utilization (0..1) of the configured profile capacity.",
+            ),
+            &["topology"],
+        )
+        .expect("valid metric definition");
+
+        let compute_seconds_total = CounterVec::new(
+            Opts::new(
+                "streaming_compute_seconds_total",
+                "Foundry-parity billable compute seconds per stream / topology.",
+            ),
+            &["stream", "topology"],
+        )
+        .expect("valid metric definition");
+
+        registry
+            .register(Box::new(events_published_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(events_received_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(publish_latency_seconds.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(active_subscriptions.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(route_resolution_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(stream_rows_in_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(stream_rows_archived_total.clone()))
+            .unwrap();
         registry.register(Box::new(stream_lag_ms.clone())).unwrap();
-        registry.register(Box::new(topology_checkpoint_duration_seconds.clone())).unwrap();
-        registry.register(Box::new(topology_checkpoint_size_bytes.clone())).unwrap();
-        registry.register(Box::new(topology_backpressure_ratio.clone())).unwrap();
-        registry.register(Box::new(topology_restarts_total.clone())).unwrap();
-        registry.register(Box::new(dead_letter_total.clone())).unwrap();
+        registry
+            .register(Box::new(topology_checkpoint_duration_seconds.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(topology_checkpoint_size_bytes.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(topology_backpressure_ratio.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(topology_restarts_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(dead_letter_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(records_ingested_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(records_output_total.clone()))
+            .unwrap();
+        registry.register(Box::new(utilization_pct.clone())).unwrap();
+        registry
+            .register(Box::new(compute_seconds_total.clone()))
+            .unwrap();
 
         Self {
             registry,
@@ -202,7 +284,44 @@ impl Metrics {
             topology_backpressure_ratio,
             topology_restarts_total,
             dead_letter_total,
+            records_ingested_total,
+            records_output_total,
+            utilization_pct,
+            compute_seconds_total,
         }
+    }
+
+    /// Bloque P6 — record billable compute seconds for a checkpoint
+    /// commit. The same value is also persisted in
+    /// `stream_compute_usage` by the engine hook so the Usage tab
+    /// can serve a historical view independent of Prometheus
+    /// retention.
+    pub fn record_compute_seconds(&self, stream: &str, topology: &str, seconds: f64) {
+        self.compute_seconds_total
+            .with_label_values(&[stream, topology])
+            .inc_by(seconds.max(0.0));
+    }
+
+    /// Convenience: increment `streaming_records_ingested_total`.
+    pub fn record_ingest(&self, stream: &str, n: u64) {
+        self.records_ingested_total
+            .with_label_values(&[stream])
+            .inc_by(n);
+    }
+
+    /// Convenience: increment `streaming_records_output_total`.
+    pub fn record_output(&self, topology: &str, n: u64) {
+        self.records_output_total
+            .with_label_values(&[topology])
+            .inc_by(n);
+    }
+
+    /// Convenience: set `streaming_utilization_pct` for a topology
+    /// (value clamped to [0, 1]).
+    pub fn set_utilization(&self, topology: &str, ratio: f64) {
+        self.utilization_pct
+            .with_label_values(&[topology])
+            .set(ratio.clamp(0.0, 1.0));
     }
 
     /// Convenience: increment `streaming_stream_rows_in_total`.
@@ -278,7 +397,9 @@ impl Metrics {
 
     /// Convenience: record a route-resolution outcome.
     pub fn record_resolution(&self, result: &'static str) {
-        self.route_resolution_total.with_label_values(&[result]).inc();
+        self.route_resolution_total
+            .with_label_values(&[result])
+            .inc();
     }
 }
 

@@ -5,7 +5,7 @@
 //! 1. **Flight SQL gRPC** on `port` (default `50133`) — the primary edge
 //!    surface used by Tableau, Superset and any JDBC/ODBC client speaking
 //!    the Apache Arrow Flight SQL protocol. This replaces the Trino
-//!    coordinator that previously lived under `infra/k8s/trino/` (see
+//!    coordinator that previously lived under `infra/k8s/platform/manifests/trino/` (see
 //!    [ADR-0014]).
 //!
 //! 2. **HTTP side router** on `healthz_port` (default `50134`) — exposes

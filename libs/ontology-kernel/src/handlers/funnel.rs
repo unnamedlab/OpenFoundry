@@ -9,16 +9,26 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use chrono::{Duration, Utc};
+use chrono::{Duration, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+use storage_abstraction::repositories::{ObjectId, ReadConsistency};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     domain::{
         access::validate_marking,
+        definition_queries,
+        funnel_repository::{
+            self, CompleteRunInput, CreateRunInput, CreateSourceInput, HealthSourcesParams,
+            ListSourcesParams, UpdateSourceInput,
+        },
         schema::{load_effective_properties, validate_object_properties},
+    },
+    handlers::objects::{
+        ObjectInstance, append_object_revision, apply_object_write, find_object_id_by_property,
+        tenant_from_claims, value_as_store_text,
     },
     models::{
         funnel::{
@@ -26,11 +36,11 @@ use crate::{
             ListOntologyFunnelHealthQuery, ListOntologyFunnelRunsQuery,
             ListOntologyFunnelRunsResponse, ListOntologyFunnelSourcesQuery,
             ListOntologyFunnelSourcesResponse, OntologyFunnelHealthMetricsRow,
-            OntologyFunnelHealthResponse, OntologyFunnelPropertyMapping, OntologyFunnelRun,
-            OntologyFunnelSource, OntologyFunnelSourceHealth, OntologyFunnelSourceHealthResponse,
-            OntologyFunnelSourceRow, TriggerOntologyFunnelRunRequest,
-            UpdateOntologyFunnelSourceRequest, normalize_default_marking, normalize_funnel_status,
-            normalize_preview_limit, normalize_stale_after_hours,
+            OntologyFunnelHealthResponse, OntologyFunnelPropertyMapping, OntologyFunnelSource,
+            OntologyFunnelSourceHealth, OntologyFunnelSourceHealthResponse,
+            TriggerOntologyFunnelRunRequest, UpdateOntologyFunnelSourceRequest,
+            normalize_default_marking, normalize_funnel_status, normalize_preview_limit,
+            normalize_stale_after_hours,
         },
         object_type::ObjectType,
     },
@@ -133,95 +143,47 @@ fn issue_service_token(state: &AppState, claims: &Claims) -> Result<String, Stri
 }
 
 async fn object_type_exists(state: &AppState, object_type_id: Uuid) -> Result<bool, String> {
-    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM object_types WHERE id = $1)")
-        .bind(object_type_id)
-        .fetch_one(&state.db)
+    definition_queries::object_type_exists(&state.db, object_type_id)
         .await
         .map_err(|error| format!("failed to validate object type: {error}"))
 }
 
 async fn dataset_exists(state: &AppState, dataset_id: Uuid) -> Result<bool, String> {
-    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM datasets WHERE id = $1)")
-        .bind(dataset_id)
-        .fetch_one(&state.db)
+    funnel_repository::dataset_exists(&state.db, dataset_id)
         .await
         .map_err(|error| format!("failed to validate dataset: {error}"))
 }
 
 async fn pipeline_exists(state: &AppState, pipeline_id: Uuid) -> Result<bool, String> {
-    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM pipelines WHERE id = $1)")
-        .bind(pipeline_id)
-        .fetch_one(&state.db)
+    funnel_repository::pipeline_exists(&state.db, pipeline_id)
         .await
         .map_err(|error| format!("failed to validate pipeline: {error}"))
 }
 
 async fn load_source(state: &AppState, id: Uuid) -> Result<Option<OntologyFunnelSource>, String> {
-    sqlx::query_as::<_, OntologyFunnelSourceRow>(
-        r#"SELECT id, name, description, object_type_id, dataset_id, pipeline_id, dataset_branch,
-                  dataset_version, preview_limit, default_marking, status, property_mappings,
-                  trigger_context, owner_id, last_run_at, created_at, updated_at
-           FROM ontology_funnel_sources
-           WHERE id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|error| format!("failed to load ontology funnel source: {error}"))?
-    .map(OntologyFunnelSource::try_from)
-    .transpose()
-    .map_err(|error| format!("failed to decode ontology funnel source: {error}"))
+    funnel_repository::load_source(&state.db, id)
+        .await
+        .map_err(|error| format!("failed to load ontology funnel source: {error}"))
 }
 
 async fn load_object_type(
     state: &AppState,
     object_type_id: Uuid,
 ) -> Result<Option<ObjectType>, String> {
-    sqlx::query_as::<_, ObjectType>("SELECT * FROM object_types WHERE id = $1")
-        .bind(object_type_id)
-        .fetch_optional(&state.db)
+    definition_queries::load_object_type(&state.db, object_type_id)
         .await
         .map_err(|error| format!("failed to load object type: {error}"))
 }
 
 async fn load_funnel_health_metrics(
     state: &AppState,
+    claims: &Claims,
     source_id: Uuid,
 ) -> Result<OntologyFunnelHealthMetricsRow, String> {
-    sqlx::query_as::<_, OntologyFunnelHealthMetricsRow>(
-        r#"SELECT
-               COUNT(*)::bigint AS total_runs,
-               COUNT(*) FILTER (WHERE status IN ('completed', 'dry_run'))::bigint AS successful_runs,
-               COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed_runs,
-               COUNT(*) FILTER (WHERE status IN ('completed_with_errors', 'dry_run_with_errors'))::bigint AS warning_runs,
-               AVG(EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000)::double precision AS avg_duration_ms,
-               percentile_cont(0.95) WITHIN GROUP (
-                   ORDER BY EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000
-               )::double precision AS p95_duration_ms,
-               MAX((EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000)::bigint) AS max_duration_ms,
-               (
-                   SELECT latest.status
-                   FROM ontology_funnel_runs latest
-                   WHERE latest.source_id = $1
-                   ORDER BY latest.started_at DESC
-                   LIMIT 1
-               ) AS latest_run_status,
-               MAX(COALESCE(finished_at, started_at)) AS last_run_at,
-               MAX(finished_at) FILTER (WHERE status IN ('completed', 'dry_run')) AS last_success_at,
-               MAX(finished_at) FILTER (WHERE status = 'failed') AS last_failure_at,
-               MAX(finished_at) FILTER (WHERE status IN ('completed_with_errors', 'dry_run_with_errors')) AS last_warning_at,
-               COALESCE(SUM(rows_read), 0)::bigint AS rows_read,
-               COALESCE(SUM(inserted_count), 0)::bigint AS inserted_count,
-               COALESCE(SUM(updated_count), 0)::bigint AS updated_count,
-               COALESCE(SUM(skipped_count), 0)::bigint AS skipped_count,
-               COALESCE(SUM(error_count), 0)::bigint AS error_count
-           FROM ontology_funnel_runs
-           WHERE source_id = $1"#,
-    )
-    .bind(source_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|error| format!("failed to load ontology funnel health metrics: {error}"))
+    let tenant = tenant_from_claims(claims);
+    funnel_repository::load_health_metrics(state.stores.actions.as_ref(), &tenant, source_id)
+        .await
+        .map_err(|error| format!("failed to load ontology funnel health metrics: {error}"))
 }
 
 fn build_source_health(
@@ -476,81 +438,114 @@ fn primary_key_value(properties: &Value, primary_key_property: &str) -> Result<S
     let value = properties
         .get(primary_key_property)
         .ok_or_else(|| format!("missing primary key property '{primary_key_property}'"))?;
-    match value {
-        Value::Null => Err(format!(
-            "primary key property '{primary_key_property}' cannot be null"
-        )),
-        Value::String(value) => Ok(value.clone()),
-        other => serde_json::to_string(other)
-            .map_err(|error| format!("failed to serialize primary key property: {error}")),
-    }
+    value_as_store_text(value).map_err(|error| {
+        format!("failed to serialize primary key property '{primary_key_property}': {error}")
+    })
 }
 
 async fn find_existing_object_id(
     state: &AppState,
+    claims: &Claims,
     object_type_id: Uuid,
     primary_key_property: &str,
     primary_key_value: &str,
 ) -> Result<Option<Uuid>, String> {
-    sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT id
-           FROM object_instances
-           WHERE object_type_id = $1
-             AND properties ->> $2 = $3
-           ORDER BY updated_at DESC
-           LIMIT 1"#,
+    find_object_id_by_property(
+        state,
+        claims,
+        object_type_id,
+        primary_key_property,
+        primary_key_value,
+        ReadConsistency::Strong,
     )
-    .bind(object_type_id)
-    .bind(primary_key_property)
-    .bind(primary_key_value)
-    .fetch_optional(&state.db)
     .await
     .map_err(|error| format!("failed to look up existing object: {error}"))
 }
 
-async fn insert_object_instance(
+async fn upsert_object_instance(
     state: &AppState,
     claims: &Claims,
+    object_id: Option<Uuid>,
     object_type_id: Uuid,
     properties: &Value,
     marking: &str,
-) -> Result<(), String> {
-    sqlx::query(
-        r#"INSERT INTO object_instances (id, object_type_id, properties, created_by, organization_id, marking)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
-    )
-    .bind(Uuid::now_v7())
-    .bind(object_type_id)
-    .bind(properties)
-    .bind(claims.sub)
-    .bind(claims.org_id)
-    .bind(marking)
-    .execute(&state.db)
-    .await
-    .map_err(|error| format!("failed to insert object instance: {error}"))?;
-    Ok(())
-}
+) -> Result<&'static str, String> {
+    let now = Utc::now();
+    let (object, expected_version, operation) = if let Some(id) = object_id {
+        let existing = state
+            .stores
+            .objects
+            .get(
+                &tenant_from_claims(claims),
+                &ObjectId(id.to_string()),
+                ReadConsistency::Strong,
+            )
+            .await
+            .map_err(|error| format!("failed to load existing funnel object: {error}"))?
+            .ok_or_else(|| "existing funnel object was not found in object store".to_string())?;
+        (
+            ObjectInstance {
+                id,
+                object_type_id,
+                properties: properties.clone(),
+                created_by: existing
+                    .owner
+                    .as_ref()
+                    .and_then(|owner| Uuid::parse_str(&owner.0).ok())
+                    .unwrap_or(claims.sub),
+                organization_id: existing
+                    .organization_id
+                    .as_deref()
+                    .and_then(|raw| Uuid::parse_str(raw).ok())
+                    .or(claims.org_id),
+                marking: marking.to_string(),
+                created_at: Utc
+                    .timestamp_millis_opt(existing.created_at_ms.unwrap_or(existing.updated_at_ms))
+                    .single()
+                    .unwrap_or(now),
+                updated_at: now,
+            },
+            Some(existing.version),
+            "update",
+        )
+    } else {
+        (
+            ObjectInstance {
+                id: Uuid::now_v7(),
+                object_type_id,
+                properties: properties.clone(),
+                created_by: claims.sub,
+                organization_id: claims.org_id,
+                marking: marking.to_string(),
+                created_at: now,
+                updated_at: now,
+            },
+            None,
+            "insert",
+        )
+    };
 
-async fn update_object_instance(
-    state: &AppState,
-    object_id: Uuid,
-    properties: &Value,
-    marking: &str,
-) -> Result<(), String> {
-    sqlx::query(
-        r#"UPDATE object_instances
-           SET properties = $2,
-               marking = $3,
-               updated_at = NOW()
-           WHERE id = $1"#,
+    let outcome = apply_object_write(
+        state,
+        claims,
+        &object,
+        expected_version,
+        operation,
+        json!({
+            "source": "ontology_funnel",
+        }),
     )
-    .bind(object_id)
-    .bind(properties)
-    .bind(marking)
-    .execute(&state.db)
-    .await
-    .map_err(|error| format!("failed to update object instance: {error}"))?;
-    Ok(())
+    .await?;
+    append_object_revision(
+        state,
+        claims,
+        &object,
+        operation,
+        outcome.committed_version as i64,
+        None,
+    )
+    .await?;
+    Ok(operation)
 }
 
 async fn execute_source_run(
@@ -627,6 +622,7 @@ async fn execute_source_run(
 
         let existing_id = find_existing_object_id(
             state,
+            claims,
             source.object_type_id,
             &primary_key_property,
             &primary_key_value,
@@ -642,23 +638,19 @@ async fn execute_source_run(
             continue;
         }
 
-        match existing_id {
-            Some(object_id) => {
-                update_object_instance(state, object_id, &normalized, &source.default_marking)
-                    .await?;
-                updated_count += 1;
-            }
-            None => {
-                insert_object_instance(
-                    state,
-                    claims,
-                    source.object_type_id,
-                    &normalized,
-                    &source.default_marking,
-                )
-                .await?;
-                inserted_count += 1;
-            }
+        match upsert_object_instance(
+            state,
+            claims,
+            existing_id,
+            source.object_type_id,
+            &normalized,
+            &source.default_marking,
+        )
+        .await?
+        {
+            "update" => updated_count += 1,
+            "insert" => inserted_count += 1,
+            _ => skipped_count += 1,
         }
     }
 
@@ -708,57 +700,35 @@ pub async fn list_funnel_sources(
     let offset = (page - 1) * per_page;
     let status_filter = query.status.unwrap_or_default();
 
-    let rows = match sqlx::query_as::<_, OntologyFunnelSourceRow>(
-        r#"SELECT id, name, description, object_type_id, dataset_id, pipeline_id, dataset_branch,
-                  dataset_version, preview_limit, default_marking, status, property_mappings,
-                  trigger_context, owner_id, last_run_at, created_at, updated_at
-           FROM ontology_funnel_sources
-           WHERE ($1::uuid IS NULL OR object_type_id = $1)
-             AND ($2 = '' OR status = $2)
-             AND ($3::boolean OR owner_id = $4)
-           ORDER BY created_at DESC
-           OFFSET $5 LIMIT $6"#,
+    let data = match funnel_repository::list_sources(
+        &state.db,
+        ListSourcesParams {
+            object_type_id: query.object_type_id,
+            status_filter: &status_filter,
+            is_admin: claims.has_role("admin"),
+            actor_id: claims.sub,
+            offset,
+            limit: per_page,
+        },
     )
-    .bind(query.object_type_id)
-    .bind(&status_filter)
-    .bind(claims.has_role("admin"))
-    .bind(claims.sub)
-    .bind(offset)
-    .bind(per_page)
-    .fetch_all(&state.db)
     .await
     {
         Ok(rows) => rows,
         Err(error) => return db_error(format!("failed to list ontology funnel sources: {error}")),
     };
 
-    let total = match sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*)
-           FROM ontology_funnel_sources
-           WHERE ($1::uuid IS NULL OR object_type_id = $1)
-             AND ($2 = '' OR status = $2)
-             AND ($3::boolean OR owner_id = $4)"#,
+    let total = match funnel_repository::count_sources(
+        &state.db,
+        query.object_type_id,
+        &status_filter,
+        claims.has_role("admin"),
+        claims.sub,
     )
-    .bind(query.object_type_id)
-    .bind(&status_filter)
-    .bind(claims.has_role("admin"))
-    .bind(claims.sub)
-    .fetch_one(&state.db)
     .await
     {
         Ok(total) => total,
         Err(error) => return db_error(format!("failed to count ontology funnel sources: {error}")),
     };
-
-    let mut data = Vec::new();
-    for row in rows {
-        match OntologyFunnelSource::try_from(row) {
-            Ok(source) => data.push(source),
-            Err(error) => {
-                return db_error(format!("failed to decode ontology funnel source: {error}"));
-            }
-        }
-    }
 
     Json(ListOntologyFunnelSourcesResponse {
         data,
@@ -776,19 +746,14 @@ pub async fn get_funnel_health(
 ) -> impl IntoResponse {
     let stale_after_hours = normalize_stale_after_hours(query.stale_after_hours);
 
-    let rows = match sqlx::query_as::<_, OntologyFunnelSourceRow>(
-        r#"SELECT id, name, description, object_type_id, dataset_id, pipeline_id, dataset_branch,
-                  dataset_version, preview_limit, default_marking, status, property_mappings,
-                  trigger_context, owner_id, last_run_at, created_at, updated_at
-           FROM ontology_funnel_sources
-           WHERE ($1::uuid IS NULL OR object_type_id = $1)
-             AND ($2::boolean OR owner_id = $3)
-           ORDER BY created_at DESC"#,
+    let rows = match funnel_repository::list_sources_for_health(
+        &state.db,
+        HealthSourcesParams {
+            object_type_id: query.object_type_id,
+            is_admin: claims.has_role("admin"),
+            actor_id: claims.sub,
+        },
     )
-    .bind(query.object_type_id)
-    .bind(claims.has_role("admin"))
-    .bind(claims.sub)
-    .fetch_all(&state.db)
     .await
     {
         Ok(rows) => rows,
@@ -800,14 +765,8 @@ pub async fn get_funnel_health(
     };
 
     let mut sources = Vec::new();
-    for row in rows {
-        let source = match OntologyFunnelSource::try_from(row) {
-            Ok(source) => source,
-            Err(error) => {
-                return db_error(format!("failed to decode ontology funnel source: {error}"));
-            }
-        };
-        let metrics = match load_funnel_health_metrics(&state, source.id).await {
+    for source in rows {
+        let metrics = match load_funnel_health_metrics(&state, &claims, source.id).await {
             Ok(metrics) => metrics,
             Err(error) => return db_error(error),
         };
@@ -939,7 +898,7 @@ pub async fn get_funnel_source_health(
     }
 
     let stale_after_hours = normalize_stale_after_hours(query.stale_after_hours);
-    let metrics = match load_funnel_health_metrics(&state, source.id).await {
+    let metrics = match load_funnel_health_metrics(&state, &claims, source.id).await {
         Ok(metrics) => metrics,
         Err(error) => return db_error(error),
     };
@@ -987,44 +946,30 @@ pub async fn create_funnel_source(
         return invalid(error);
     }
 
-    let row = match sqlx::query_as::<_, OntologyFunnelSourceRow>(
-        r#"INSERT INTO ontology_funnel_sources (
-               id, name, description, object_type_id, dataset_id, pipeline_id, dataset_branch,
-               dataset_version, preview_limit, default_marking, status, property_mappings,
-               trigger_context, owner_id
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14)
-           RETURNING id, name, description, object_type_id, dataset_id, pipeline_id, dataset_branch,
-                     dataset_version, preview_limit, default_marking, status, property_mappings,
-                     trigger_context, owner_id, last_run_at, created_at, updated_at"#,
+    match funnel_repository::create_source(
+        &state.db,
+        CreateSourceInput {
+            id: Uuid::now_v7(),
+            name: body.name.trim().to_string(),
+            description: body.description.unwrap_or_default(),
+            object_type_id: body.object_type_id,
+            dataset_id: body.dataset_id,
+            pipeline_id: body.pipeline_id,
+            dataset_branch: body.dataset_branch,
+            dataset_version: body.dataset_version,
+            preview_limit,
+            default_marking,
+            status,
+            property_mappings: serde_json::to_value(body.property_mappings.unwrap_or_default())
+                .unwrap_or_else(|_| json!([])),
+            trigger_context: body.trigger_context.unwrap_or_else(|| json!({})),
+            owner_id: claims.sub,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(body.name.trim())
-    .bind(body.description.unwrap_or_default())
-    .bind(body.object_type_id)
-    .bind(body.dataset_id)
-    .bind(body.pipeline_id)
-    .bind(body.dataset_branch)
-    .bind(body.dataset_version)
-    .bind(preview_limit)
-    .bind(default_marking)
-    .bind(status)
-    .bind(
-        serde_json::to_value(body.property_mappings.unwrap_or_default())
-            .unwrap_or_else(|_| json!([])),
-    )
-    .bind(body.trigger_context.unwrap_or_else(|| json!({})))
-    .bind(claims.sub)
-    .fetch_one(&state.db)
     .await
     {
-        Ok(row) => row,
-        Err(error) => return db_error(format!("failed to create ontology funnel source: {error}")),
-    };
-
-    match OntologyFunnelSource::try_from(row) {
         Ok(source) => (StatusCode::CREATED, Json(source)).into_response(),
-        Err(error) => db_error(format!("failed to decode ontology funnel source: {error}")),
+        Err(error) => return db_error(format!("failed to create ontology funnel source: {error}")),
     }
 }
 
@@ -1084,49 +1029,30 @@ pub async fn update_funnel_source(
         return invalid(error);
     }
 
-    let row = match sqlx::query_as::<_, OntologyFunnelSourceRow>(
-        r#"UPDATE ontology_funnel_sources
-           SET name = COALESCE($2, name),
-               description = COALESCE($3, description),
-               pipeline_id = $4,
-               dataset_branch = $5,
-               dataset_version = $6,
-               preview_limit = $7,
-               default_marking = $8,
-               status = $9,
-               property_mappings = $10::jsonb,
-               trigger_context = $11::jsonb,
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, name, description, object_type_id, dataset_id, pipeline_id, dataset_branch,
-                     dataset_version, preview_limit, default_marking, status, property_mappings,
-                     trigger_context, owner_id, last_run_at, created_at, updated_at"#,
-    )
-    .bind(id)
-    .bind(body.name.map(|value| value.trim().to_string()))
-    .bind(body.description)
-    .bind(body.pipeline_id.unwrap_or(existing.pipeline_id))
-    .bind(body.dataset_branch.unwrap_or(existing.dataset_branch))
-    .bind(body.dataset_version.unwrap_or(existing.dataset_version))
-    .bind(preview_limit)
-    .bind(default_marking)
-    .bind(status)
-    .bind(
-        serde_json::to_value(body.property_mappings.unwrap_or(existing.property_mappings))
+    match funnel_repository::update_source(
+        &state.db,
+        UpdateSourceInput {
+            id,
+            name: body.name.map(|value| value.trim().to_string()),
+            description: body.description,
+            pipeline_id: body.pipeline_id.unwrap_or(existing.pipeline_id),
+            dataset_branch: body.dataset_branch.unwrap_or(existing.dataset_branch),
+            dataset_version: body.dataset_version.unwrap_or(existing.dataset_version),
+            preview_limit,
+            default_marking,
+            status,
+            property_mappings: serde_json::to_value(
+                body.property_mappings.unwrap_or(existing.property_mappings),
+            )
             .unwrap_or_else(|_| json!([])),
+            trigger_context: body.trigger_context.unwrap_or(existing.trigger_context),
+        },
     )
-    .bind(body.trigger_context.unwrap_or(existing.trigger_context))
-    .fetch_optional(&state.db)
     .await
     {
-        Ok(Some(row)) => row,
-        Ok(None) => return not_found("ontology funnel source not found"),
+        Ok(Some(source)) => Json(source).into_response(),
+        Ok(None) => not_found("ontology funnel source not found"),
         Err(error) => return db_error(format!("failed to update ontology funnel source: {error}")),
-    };
-
-    match OntologyFunnelSource::try_from(row) {
-        Ok(source) => Json(source).into_response(),
-        Err(error) => db_error(format!("failed to decode ontology funnel source: {error}")),
     }
 }
 
@@ -1145,13 +1071,9 @@ pub async fn delete_funnel_source(
         return forbidden(error);
     }
 
-    match sqlx::query("DELETE FROM ontology_funnel_sources WHERE id = $1")
-        .bind(id)
-        .execute(&state.db)
-        .await
-    {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
-        Ok(_) => not_found("ontology funnel source not found"),
+    match funnel_repository::delete_source(&state.db, id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => not_found("ontology funnel source not found"),
         Err(error) => db_error(format!("failed to delete ontology funnel source: {error}")),
     }
 }
@@ -1176,21 +1098,25 @@ pub async fn trigger_funnel_run(
     }
 
     let run_id = Uuid::now_v7();
-    if let Err(error) = sqlx::query(
-        r#"INSERT INTO ontology_funnel_runs (
-               id, source_id, object_type_id, dataset_id, pipeline_id, status, trigger_type, started_by, details
-           )
-           VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8::jsonb)"#,
+    let tenant = tenant_from_claims(&claims);
+    if let Err(error) = funnel_repository::create_run(
+        state.stores.actions.as_ref(),
+        tenant.clone(),
+        CreateRunInput {
+            id: run_id,
+            source_id: source.id,
+            object_type_id: source.object_type_id,
+            dataset_id: source.dataset_id,
+            pipeline_id: source.pipeline_id,
+            trigger_type: if body.dry_run {
+                "manual_dry_run".to_string()
+            } else {
+                "manual".to_string()
+            },
+            started_by: claims.sub,
+            details: json!({ "started": true }),
+        },
     )
-    .bind(run_id)
-    .bind(source.id)
-    .bind(source.object_type_id)
-    .bind(source.dataset_id)
-    .bind(source.pipeline_id)
-    .bind(if body.dry_run { "manual_dry_run" } else { "manual" })
-    .bind(claims.sub)
-    .bind(json!({ "started": true }))
-    .execute(&state.db)
     .await
     {
         return db_error(format!("failed to create ontology funnel run: {error}"));
@@ -1200,68 +1126,48 @@ pub async fn trigger_funnel_run(
     match outcome {
         Ok(outcome) => {
             let finished_at = chrono::Utc::now();
-            let _ = sqlx::query(
-                r#"UPDATE ontology_funnel_runs
-                   SET pipeline_run_id = $2,
-                       status = $3,
-                       rows_read = $4,
-                       inserted_count = $5,
-                       updated_count = $6,
-                       skipped_count = $7,
-                       error_count = $8,
-                       details = $9::jsonb,
-                       error_message = $10,
-                       finished_at = $11
-                   WHERE id = $1"#,
+            let _ = funnel_repository::complete_run(
+                state.stores.actions.as_ref(),
+                tenant.clone(),
+                claims.sub,
+                CompleteRunInput {
+                    id: run_id,
+                    source_id: source.id,
+                    pipeline_run_id: outcome.pipeline_run_id,
+                    status: outcome.status,
+                    rows_read: outcome.rows_read,
+                    inserted_count: outcome.inserted_count,
+                    updated_count: outcome.updated_count,
+                    skipped_count: outcome.skipped_count,
+                    error_count: outcome.error_count,
+                    details: outcome.details,
+                    error_message: outcome.error_message,
+                    finished_at,
+                },
             )
-            .bind(run_id)
-            .bind(outcome.pipeline_run_id)
-            .bind(&outcome.status)
-            .bind(outcome.rows_read)
-            .bind(outcome.inserted_count)
-            .bind(outcome.updated_count)
-            .bind(outcome.skipped_count)
-            .bind(outcome.error_count)
-            .bind(outcome.details)
-            .bind(outcome.error_message)
-            .bind(finished_at)
-            .execute(&state.db)
             .await;
-            let _ = sqlx::query(
-                r#"UPDATE ontology_funnel_sources
-                   SET last_run_at = $2, updated_at = NOW()
-                   WHERE id = $1"#,
-            )
-            .bind(source.id)
-            .bind(finished_at)
-            .execute(&state.db)
-            .await;
+            let _ = funnel_repository::mark_source_ran(&state.db, source.id, finished_at).await;
         }
         Err(error) => {
-            let _ = sqlx::query(
-                r#"UPDATE ontology_funnel_runs
-                   SET status = 'failed',
-                       error_message = $2,
-                       finished_at = NOW()
-                   WHERE id = $1"#,
+            let _ = funnel_repository::fail_run(
+                state.stores.actions.as_ref(),
+                tenant.clone(),
+                source.id,
+                run_id,
+                claims.sub,
+                &error,
             )
-            .bind(run_id)
-            .bind(&error)
-            .execute(&state.db)
             .await;
             return db_error(error);
         }
     }
 
-    match sqlx::query_as::<_, OntologyFunnelRun>(
-        r#"SELECT id, source_id, object_type_id, dataset_id, pipeline_id, pipeline_run_id, status,
-                  trigger_type, started_by, rows_read, inserted_count, updated_count, skipped_count,
-                  error_count, details, error_message, started_at, finished_at
-           FROM ontology_funnel_runs
-           WHERE id = $1"#,
+    match funnel_repository::load_run_for_source(
+        state.stores.actions.as_ref(),
+        &tenant,
+        source.id,
+        run_id,
     )
-    .bind(run_id)
-    .fetch_optional(&state.db)
     .await
     {
         Ok(Some(run)) => Json(run).into_response(),
@@ -1289,31 +1195,25 @@ pub async fn list_funnel_runs(
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
     let offset = (page - 1) * per_page;
+    let tenant = tenant_from_claims(&claims);
 
-    let total = match sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM ontology_funnel_runs WHERE source_id = $1",
-    )
-    .bind(id)
-    .fetch_one(&state.db)
-    .await
-    {
-        Ok(total) => total,
-        Err(error) => return db_error(format!("failed to count ontology funnel runs: {error}")),
-    };
+    let total =
+        match funnel_repository::count_runs_for_source(state.stores.actions.as_ref(), &tenant, id)
+            .await
+        {
+            Ok(total) => total,
+            Err(error) => {
+                return db_error(format!("failed to count ontology funnel runs: {error}"));
+            }
+        };
 
-    let data = match sqlx::query_as::<_, OntologyFunnelRun>(
-        r#"SELECT id, source_id, object_type_id, dataset_id, pipeline_id, pipeline_run_id, status,
-                  trigger_type, started_by, rows_read, inserted_count, updated_count, skipped_count,
-                  error_count, details, error_message, started_at, finished_at
-           FROM ontology_funnel_runs
-           WHERE source_id = $1
-           ORDER BY started_at DESC
-           OFFSET $2 LIMIT $3"#,
+    let data = match funnel_repository::list_runs_for_source(
+        state.stores.actions.as_ref(),
+        &tenant,
+        id,
+        offset,
+        per_page,
     )
-    .bind(id)
-    .bind(offset)
-    .bind(per_page)
-    .fetch_all(&state.db)
     .await
     {
         Ok(data) => data,
@@ -1344,16 +1244,13 @@ pub async fn get_funnel_run(
         return forbidden(error);
     }
 
-    match sqlx::query_as::<_, OntologyFunnelRun>(
-        r#"SELECT id, source_id, object_type_id, dataset_id, pipeline_id, pipeline_run_id, status,
-                  trigger_type, started_by, rows_read, inserted_count, updated_count, skipped_count,
-                  error_count, details, error_message, started_at, finished_at
-           FROM ontology_funnel_runs
-           WHERE source_id = $1 AND id = $2"#,
+    let tenant = tenant_from_claims(&claims);
+    match funnel_repository::load_run_for_source(
+        state.stores.actions.as_ref(),
+        &tenant,
+        source_id,
+        run_id,
     )
-    .bind(source_id)
-    .bind(run_id)
-    .fetch_optional(&state.db)
     .await
     {
         Ok(Some(run)) => Json(run).into_response(),

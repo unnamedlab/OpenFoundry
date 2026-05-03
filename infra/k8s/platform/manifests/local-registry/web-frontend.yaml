@@ -1,0 +1,91 @@
+# Dev-only frontend (apps/web) deployment for the lima k3s cluster.
+# Pulls from the in-cluster registry via the localhost:5001 mirror.
+#
+# Apply:   kubectl apply -f web-frontend.yaml
+# Reach:   http://192.168.105.3/  (any lima node IP works; traefik LB publishes on .2/.3/.4)
+#          The ingress matches any Host header so /etc/hosts is not required.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: openfoundry
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+    spec:
+      containers:
+        - name: web
+          image: localhost:5001/web:dev
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3000"
+            - name: NODE_ENV
+              value: production
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: openfoundry
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web
+  namespace: openfoundry
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80

@@ -21,7 +21,9 @@
     type PipelineValidationResponse,
   } from '$lib/api/pipelines';
   import PipelineCanvas from '$lib/components/pipeline/PipelineCanvas.svelte';
-  import NodePalette from '$lib/components/pipeline/NodePalette.svelte';
+  import NodePalette, {
+    type NodePaletteEntry
+  } from '$lib/components/pipeline/NodePalette.svelte';
   import NodeConfig from '$lib/components/pipeline/NodeConfig.svelte';
   import ScheduleConfig from '$lib/components/pipeline/ScheduleConfig.svelte';
   import RunHistory from '$lib/components/pipeline/RunHistory.svelte';
@@ -73,24 +75,25 @@
 
   $effect(() => { if (pipelineId) void load(); });
 
-  function genNodeId(transform: string): string {
-    const base = `${transform}_node`;
+  function genNodeId(seed: string): string {
+    const base = `${seed}_node`;
     const used = new Set(nodes.map((n) => n.id));
     let i = 1;
     while (used.has(`${base}_${i}`)) i += 1;
     return `${base}_${i}`;
   }
 
-  function addNode(transform: 'sql' | 'python' | 'llm' | 'wasm' | 'passthrough') {
-    const id = genNodeId(transform);
+  function addNode(entry: NodePaletteEntry) {
+    const seed = entry.kind ?? entry.transform_type;
+    const id = genNodeId(seed);
     const next: PipelineNode = {
       id,
-      label: id,
-      transform_type: transform,
-      config: {},
+      label: entry.label || id,
+      transform_type: entry.transform_type,
+      config: { ...(entry.defaultConfig ?? {}) },
       depends_on: [],
       input_dataset_ids: [],
-      output_dataset_id: null,
+      output_dataset_id: null
     };
     nodes = [...nodes, next];
     selectedNode = next;

@@ -9,56 +9,27 @@
 //! "Build dataset" (single output), "Build downstream" (descendants),
 //! "Schedules" (cron-driven runs delegated by `pipeline-schedule-service`).
 
-mod config;
-mod domain;
-mod handlers;
-mod models;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
-    Router,
-    middleware,
+    Router, middleware,
     routing::{get, post},
 };
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::postgres::PgPoolOptions;
 use storage_abstraction::StorageBackend;
 use tracing_subscriber::EnvFilter;
 
-use crate::config::AppConfig;
-
-/// Mirrors `pipeline_authoring_service::AppState`. Required because
-/// `domain::engine::runtime` (shimmed) references concrete fields by name.
-#[derive(Clone)]
-pub struct AppState {
-    pub db: PgPool,
-    pub jwt_config: JwtConfig,
-    pub http_client: reqwest::Client,
-    pub storage: Arc<dyn StorageBackend>,
-    pub data_dir: String,
-    pub dataset_service_url: String,
-    pub workflow_service_url: String,
-    pub ai_service_url: String,
-    pub storage_backend: String,
-    pub storage_bucket: String,
-    pub s3_endpoint: Option<String>,
-    pub s3_region: Option<String>,
-    pub s3_access_key: Option<String>,
-    pub s3_secret_key: Option<String>,
-    pub local_storage_root: Option<String>,
-    pub distributed_pipeline_workers: usize,
-    pub distributed_compute_poll_interval_ms: u64,
-    pub distributed_compute_timeout_secs: u64,
-}
+use pipeline_build_service::{AppState, config::AppConfig, domain, handlers};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("pipeline_build_service=info,tower_http=info")
-        }))
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("pipeline_build_service=info,tower_http=info")),
+        )
         .init();
 
     let app_config = AppConfig::from_env()?;
@@ -70,7 +41,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_config = JwtConfig::new(&app_config.jwt_secret).with_env_defaults();
     let http_client = reqwest::Client::new();
     let storage = build_storage(&app_config)?;
-
     let state = AppState {
         db,
         jwt_config: jwt_config.clone(),
@@ -90,12 +60,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         distributed_pipeline_workers: app_config.distributed_pipeline_workers,
         distributed_compute_poll_interval_ms: app_config.distributed_compute_poll_interval_ms,
         distributed_compute_timeout_secs: app_config.distributed_compute_timeout_secs,
+        lifecycle_ports: None,
     };
 
+    domain::metrics::init();
+
+    sqlx::migrate!("./migrations").run(&state.db).await?;
+
     let runs = Router::new()
-        // Per-pipeline run lifecycle (Foundry: "Build dataset" /
-        // "Build downstream" controls in Pipeline Builder, surfaced here
-        // because the Builds queue owns execution).
         .route(
             "/pipelines/{id}/runs",
             get(handlers::runs::list_runs).post(handlers::execute::trigger_run),
@@ -108,20 +80,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/pipelines/{id}/runs/{run_id}/retry",
             post(handlers::execute::retry_run),
         )
-        // Global Builds queue (Foundry "Builds" application). Filterable by
-        // status / trigger_type / pipeline_id, plus a 24h status summary
-        // and an abort path for in-flight runs.
         .route("/builds", get(handlers::builds::list_builds))
         .route("/builds/_summary", get(handlers::builds::queue_summary))
         .route(
             "/builds/{run_id}/abort",
             post(handlers::builds::abort_build),
         )
-        // Internal: scheduler dispatch (called by `pipeline-schedule-service`
-        // ticker AND exposed for ops manual dispatch).
         .route(
             "/pipelines/_scheduler/run-due",
             post(handlers::execute::run_due_scheduled_pipelines),
+        )
+        // P2 — dry-run-resolve. Pure simulation of compile_build_graph
+        // + branch_resolution; no locks, no transactions opened.
+        .route(
+            "/pipelines/{pipeline_rid}/dry-run-resolve",
+            post(handlers::dry_run::dry_run_resolve),
+        )
+        .layer(middleware::from_fn_with_state(
+            jwt_config.clone(),
+            auth_middleware::layer::auth_layer,
+        ));
+
+    let builds_v1 = Router::new()
+        .route(
+            "/builds",
+            post(handlers::builds_v1::create_build).get(handlers::builds_v1::list_builds_v1),
+        )
+        .route("/builds/{rid}", get(handlers::builds_v1::get_build))
+        .route(
+            "/builds/{rid}:abort",
+            post(handlers::builds_v1::abort_build_v1),
+        )
+        .route(
+            "/datasets/{rid}/builds",
+            get(handlers::builds_v1::list_dataset_builds),
+        )
+        .route(
+            "/jobs/{rid}/outputs",
+            get(handlers::builds_v1::get_job_outputs),
+        )
+        .route(
+            "/jobs/{rid}/input-resolutions",
+            get(handlers::builds_v1::get_job_input_resolutions),
+        )
+        .route(
+            "/job-specs/{kind}",
+            post(handlers::builds_v1::create_job_spec),
+        )
+        // P4 — live logs surface.
+        .route(
+            "/jobs/{rid}/logs",
+            get(handlers::job_logs::list_logs).post(handlers::job_logs::emit_log),
+        )
+        .route(
+            "/jobs/{rid}/logs/stream",
+            get(handlers::job_logs::stream_logs),
+        )
+        .route(
+            "/jobs/{rid}/logs/ws",
+            get(handlers::job_logs::ws_logs),
         )
         .layer(middleware::from_fn_with_state(
             jwt_config.clone(),
@@ -130,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .nest("/api/v1/data-integration", runs)
+        .nest("/v1", builds_v1)
         .route("/healthz", get(|| async { "ok" }))
         .with_state(state);
 
@@ -159,6 +177,8 @@ fn build_storage(cfg: &AppConfig) -> Result<Arc<dyn StorageBackend>, Box<dyn std
             .clone()
             .unwrap_or_else(|| cfg.data_dir.clone());
         std::fs::create_dir_all(&root).ok();
-        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(&root)?))
+        Ok(Arc::new(storage_abstraction::local::LocalStorage::new(
+            &root,
+        )?))
     }
 }

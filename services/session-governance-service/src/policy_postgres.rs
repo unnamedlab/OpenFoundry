@@ -4,7 +4,7 @@
 //! This module pins the cluster, schema and table names so handlers
 //! don't drift to ad-hoc identifiers. The actual SQL DDL is owned by
 //! the `pg-policy` bootstrap (see
-//! [`infra/k8s/cnpg/clusters/pg-policy.yaml`](../../../../infra/k8s/cnpg/clusters/pg-policy.yaml)
+//! [`infra/k8s/platform/manifests/cnpg/clusters/pg-policy.yaml`](../../../../infra/k8s/platform/manifests/cnpg/clusters/pg-policy.yaml)
 //! once S6.1 lands).
 
 /// Logical CNPG cluster name. Connection string is composed by Helm

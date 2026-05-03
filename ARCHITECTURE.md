@@ -2,7 +2,7 @@
 
 The canonical technical documentation for this repository now lives in [`docs/`](docs/).
 
-## Post-S8 service pyramid (≤ 30 services + 4 sinks, 5 Helm releases)
+## Post-S8 service pyramid (≤ 30 services + 3 sinks, 5 Helm releases)
 
 Stream S8 (cleanup & hardening) consolidates the original 97 service
 crates down to 30 ownership boundaries, packaged as five Helm
@@ -24,7 +24,7 @@ and the per-service status table in
    │  authorization-policy │  dataset-versioni │  ontology-query      │  agent-runtime        │
    │  tenancy-orgs         │  lineage          │  object-database     │  llm-catalog          │
    │                       │  pipeline-build   │  ontology-indexer*   │  retrieval-context    │
-   │                       │  sql-bi-gateway   │  outbox-relay*       │  ai-evaluation        │
+   │                       │  sql-bi-gateway   │                      │  ai-evaluation        │
    │                       │                   │                      │  ai-sink*             │
    └───────────────────────┴───────────────────┴──────────────────────┴───────────────────────┘
                                      │

@@ -219,11 +219,19 @@ export function listEvents(filters?: {
 	source_service?: string;
 	subject_id?: string;
 	classification?: string;
+	/**
+	 * Pre-applied resource RID filter — used by the per-resource
+	 * Activity panels (Media-set / Dataset detail pages) to scope the
+	 * global audit log to a single subject. Matches `event.resource_id`
+	 * exactly.
+	 */
+	resource_id?: string;
 }) {
 	const search = new URLSearchParams();
 	if (filters?.source_service) search.set('source_service', filters.source_service);
 	if (filters?.subject_id) search.set('subject_id', filters.subject_id);
 	if (filters?.classification) search.set('classification', filters.classification);
+	if (filters?.resource_id) search.set('resource_id', filters.resource_id);
 	const query = search.toString();
 	return api.get<EventListResponse>(`/audit/events${query ? `?${query}` : ''}`);
 }

@@ -1,0 +1,524 @@
+S5 Kafka offsets - 2026-05-03
+Status: BLOCKED - NO S5 KAFKA ENVIRONMENT AVAILABLE
+
+This file records the attempted execution on 2026-05-03 and the exact commands
+needed to close the Kafka traffic evidence in a real S5 environment.
+
+Do not mark this artifact PASS until the captured output proves that runtime
+services, not isolated fixtures, produced messages on:
+  - audit.events.v1
+  - lineage.events.v1
+  - ai.events.v1
+  - ontology.object.changed.v1
+  - ontology.action.applied.v1
+  - ontology.reindex.v1
+
+Required consumer groups:
+  - audit-sink
+  - lineage-service
+  - ai-sink
+  - ontology-indexer
+  - reindex
+
+## DLQ And Lag Verification Attempt - 2026-05-03T13:26:32+0200
+
+Requested verification:
+  - Consumer groups for all S5 consumers.
+  - Lag by partition for every group/topic assignment.
+  - DLQ counts for S5 event topics and platform outbox DLQ.
+  - Retry metrics for relevant runtime paths.
+  - Alerts relevant to lag, DLQ, decode errors, retry/backlog and WORM guardrails.
+
+Result:
+  BLOCKED. The current Kubernetes context is `default`, but it has no `kafka`,
+  `observability`, `monitoring`, `grafana`, `trino`, `lakekeeper`,
+  `of-apps-ops`, `of-data-engine`, `of-ml-aip` or `of-ontology` namespaces. It
+  also has no Strimzi Kafka CRDs, KafkaTopic CRDs or Prometheus Operator CRDs.
+  Therefore no real S5 consumer groups, per-partition lag, DLQ counts, retry
+  metrics or alert states could be queried.
+
+Current context command:
+
+  kubectl config current-context
+
+Exit code: 0
+
+Output:
+
+  default
+
+Expected namespace discovery command:
+
+  kubectl get ns kafka observability monitoring grafana trino lakekeeper of-apps-ops of-data-engine of-ml-aip of-ontology
+
+Exit code: 1
+
+Output:
+
+  Error from server (NotFound): namespaces "kafka" not found
+  Error from server (NotFound): namespaces "observability" not found
+  Error from server (NotFound): namespaces "monitoring" not found
+  Error from server (NotFound): namespaces "grafana" not found
+  Error from server (NotFound): namespaces "trino" not found
+  Error from server (NotFound): namespaces "lakekeeper" not found
+  Error from server (NotFound): namespaces "of-apps-ops" not found
+  Error from server (NotFound): namespaces "of-data-engine" not found
+  Error from server (NotFound): namespaces "of-ml-aip" not found
+  Error from server (NotFound): namespaces "of-ontology" not found
+
+Kafka CRD discovery command:
+
+  kubectl get kafkas -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "kafkas"
+
+KafkaTopic CRD discovery command:
+
+  kubectl get kafkatopics -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "kafkatopics"
+
+PrometheusRule CRD discovery command:
+
+  kubectl get prometheusrule -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "prometheusrule"
+
+ServiceMonitor CRD discovery command:
+
+  kubectl get servicemonitor -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "servicemonitor"
+
+PodMonitor CRD discovery command:
+
+  kubectl get podmonitor -A
+
+Exit code: 1
+
+Output:
+
+  error: the server doesn't have a resource type "podmonitor"
+
+Consumer group / per-partition lag:
+  NOT CAPTURED. Kafka is absent. The following command must be run in the real
+  S5 environment and must show rows with TOPIC, PARTITION, CURRENT-OFFSET,
+  LOG-END-OFFSET and LAG for each group.
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for group in audit-sink lineage-service ai-sink ontology-indexer reindex; do
+    echo "===== ${group} CONSUMER GROUP LAG BY PARTITION ====="
+    bin/kafka-consumer-groups.sh \
+      --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 \
+      --describe \
+      --group "${group}" || true
+  done
+  '
+
+Output:
+
+  BLOCKED - not executed here because namespace "kafka" is absent.
+
+DLQ counts:
+  NOT CAPTURED. Kafka is absent. The real S5 environment must prove log-end
+  offsets and message counts for known DLQs remain zero during the validation
+  window, or explain and triage every non-zero record.
+
+Known repo-backed DLQ:
+  - __dlq.outbox-pg-policy.v1
+
+Required S5 topic DLQ checks:
+  - audit.events.v1.dlq
+  - lineage.events.v1.dlq
+  - ai.events.v1.dlq
+  - ontology.object.changed.v1.dlq
+  - ontology.action.applied.v1.dlq
+  - ontology.reindex.v1.dlq
+  - __dlq.outbox-pg-policy.v1
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for topic in audit.events.v1.dlq lineage.events.v1.dlq ai.events.v1.dlq ontology.object.changed.v1.dlq ontology.action.applied.v1.dlq ontology.reindex.v1.dlq __dlq.outbox-pg-policy.v1; do
+    echo "===== ${topic} DLQ LOG-END ====="
+    bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+      --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 \
+      --topic "${topic}" \
+      --time -1 || true
+  done
+  '
+
+Output:
+
+  BLOCKED - not executed here because namespace "kafka" is absent.
+
+Retry and error metrics:
+  NOT CAPTURED. Prometheus/Grafana are absent. Repo search found these
+  repo-backed metric names relevant to S5 lag and processing:
+    - audit_sink_lag_seconds
+    - audit_sink_records_total
+    - audit_sink_batch_size_records
+    - audit_sink_commits_total
+    - ai_sink_lag_seconds
+    - ai_sink_records_total
+    - ai_sink_batch_size
+    - ai_sink_commits_total
+    - ontology_indexer_lag_seconds
+    - ontology_indexer_kafka_lag_records
+    - ontology_indexer_records_total{outcome="decode_error"}
+    - streaming_dead_letter_total
+
+  Repo search did not find lineage-service Prometheus metric constants for
+  lineage_service_records_total, lineage_service_commits_total or
+  lineage_service_lag_seconds. That remains a metric-instrumentation blocker
+  for full S5-OPS sign-off unless the deployed binary exposes equivalent
+  metrics.
+
+Prometheus queries to close retry/error/lag evidence in the required environment:
+
+  audit_sink_lag_seconds
+  increase(audit_sink_records_total[30m])
+  increase(audit_sink_commits_total[30m])
+  ai_sink_lag_seconds
+  increase(ai_sink_records_total[30m])
+  increase(ai_sink_commits_total[30m])
+  ontology_indexer_kafka_lag_records
+  histogram_quantile(0.99, sum by (le) (rate(ontology_indexer_lag_seconds_bucket[5m])))
+  sum by (topic) (rate(ontology_indexer_records_total{outcome="decode_error"}[5m]))
+  increase(streaming_dead_letter_total[30m])
+  max by (slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_name="debezium_outbox_pg_policy"})
+  sum by (connector) (kafka_connect_connector_task_status{state!="running"})
+  max(pg_class_pg_table_rows{relname="events", schemaname="outbox"})
+
+Relevant repo-backed alerts:
+  - DebeziumOutboxReplicationSlotLag
+  - DebeziumConnectTaskNotRunning
+  - OutboxTableNotDraining
+  - OntologyIndexerLagSLOBurn
+  - OntologyIndexerLagSLOPageRate
+  - OntologyIndexerDecodeErrors
+  - SparkApplicationTargetsWormNamespace
+
+Alert state:
+  NOT CAPTURED. PrometheusRule CRD is absent in this cluster.
+
+## Attempted Execution
+
+Kubernetes context command:
+
+  kubectl config current-context
+
+Output:
+
+  default
+
+Cluster info command:
+
+  kubectl cluster-info
+
+Output:
+
+  Kubernetes control plane is running at https://192.168.105.3:6443
+  CoreDNS is running at https://192.168.105.3:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+  Metrics-server is running at https://192.168.105.3:6443/api/v1/namespaces/kube-system/services/https:metrics-server:https/proxy
+
+Namespace discovery command:
+
+  kubectl get ns
+
+Output:
+
+  NAME                 STATUS   AGE
+  cert-manager         Active   3h53m
+  cnpg-system          Active   3h52m
+  default              Active   2d12h
+  k8ssandra-operator   Active   3h52m
+  kube-node-lease      Active   2d12h
+  kube-public          Active   2d12h
+  kube-system          Active   2d12h
+  openfoundry          Active   3h42m
+
+Strimzi Kafka CR discovery command:
+
+  kubectl get kafkas -A
+
+Output:
+
+  error: the server doesn't have a resource type "kafkas"
+
+KafkaTopic CR discovery command:
+
+  kubectl get kafkatopics -A
+
+Output:
+
+  error: the server doesn't have a resource type "kafkatopics"
+
+Deployment discovery command:
+
+  kubectl get deploy -A
+
+Output:
+
+  NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+  cert-manager         cert-manager                       1/1     1            1           3h54m
+  cert-manager         cert-manager-cainjector            1/1     1            1           3h54m
+  cert-manager         cert-manager-webhook               1/1     1            1           3h54m
+  cnpg-system          cnpg-cloudnative-pg                1/1     1            1           3h51m
+  k8ssandra-operator   k8ssandra-operator                 1/1     1            1           3h52m
+  k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           3h52m
+  kube-system          coredns                            1/1     1            1           2d12h
+  kube-system          local-path-provisioner             1/1     1            1           2d12h
+  kube-system          metrics-server                     1/1     1            1           2d12h
+  kube-system          traefik                            1/1     1            1           2d12h
+  openfoundry          authorization-policy-service       0/1     1            0           3h42m
+  openfoundry          edge-gateway-service               0/1     1            0           3h42m
+  openfoundry          identity-federation-service        0/1     1            0           3h42m
+  openfoundry          tenancy-organizations-service      0/1     1            0           3h42m
+
+Pod discovery command:
+
+  kubectl get pods -A
+
+Output:
+
+  NAMESPACE            NAME                                                READY   STATUS             RESTARTS   AGE
+  cert-manager         cert-manager-5957746d66-78td4                       1/1     Running            0          3h53m
+  cert-manager         cert-manager-cainjector-567c6b47ff-bmjrx            1/1     Running            0          3h53m
+  cert-manager         cert-manager-webhook-7cc5c588cb-zghvl               1/1     Running            0          3h53m
+  cnpg-system          cnpg-cloudnative-pg-69d56b476d-54t4n                1/1     Running            0          3h51m
+  k8ssandra-operator   k8ssandra-operator-545cbbffd5-75772                 1/1     Running            0          3h52m
+  k8ssandra-operator   k8ssandra-operator-cass-operator-69df588bbb-qt4fj   1/1     Running            0          3h52m
+  kube-system          coredns-c4dbffb5f-87n86                             1/1     Running            0          2d12h
+  kube-system          helm-install-traefik-crd-d55nb                      0/1     Completed          0          2d12h
+  kube-system          helm-install-traefik-qkfdk                          0/1     Completed          2          2d12h
+  kube-system          local-path-provisioner-5c4dc5d66d-zjn9d             1/1     Running            0          2d12h
+  kube-system          metrics-server-786d997795-kcflz                     1/1     Running            0          2d12h
+  kube-system          svclb-traefik-b1fda57e-8hrxj                        2/2     Running            0          2d12h
+  kube-system          svclb-traefik-b1fda57e-pp7ct                        2/2     Running            0          2d12h
+  kube-system          svclb-traefik-b1fda57e-wlrg8                        2/2     Running            0          2d12h
+  kube-system          traefik-9bcdbbd9-9nj82                              1/1     Running            0          2d12h
+  openfoundry          authorization-policy-service-6695c74b5d-qxmg2       0/1     ImagePullBackOff   0          3h42m
+  openfoundry          edge-gateway-service-66c58ff9fd-8vxhp               0/1     ImagePullBackOff   0          3h42m
+  openfoundry          identity-federation-service-64bf87f489-kqkzt        0/1     ImagePullBackOff   0          3h42m
+  openfoundry          tenancy-organizations-service-7f7d4cd587-q2gkf      0/1     ImagePullBackOff   0          3h42m
+
+Conclusion:
+
+  BLOCKED. This cluster has no Strimzi Kafka CRDs, no kafka namespace, no Kafka
+  bootstrap service, no S5 sink deployments, and the visible OpenFoundry runtime
+  services are not running. Real Kafka traffic cannot be produced or verified
+  from this environment.
+
+## Commands To Close In A Real S5 Environment
+
+Run every command below against the deployed S5 cluster. Paste real output into
+this file and change Status only after the checks prove runtime-produced
+messages and healthy consumer lag.
+
+### 1. Verify Runtime Producers And Consumers Are Deployed
+
+Command:
+
+  kubectl get deploy -A -o custom-columns='NAMESPACE:.metadata.namespace,DEPLOYMENT:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[*].image' | grep -E 'audit-sink|lineage-service|ai-sink|ontology-indexer|reindex|identity-federation-service|lineage-service|agent-runtime-service|prompt-workflow-service|ontology-actions-service|debezium'
+
+Required:
+
+  The producer services and sink/indexer consumers must be available. If traffic
+  is generated with a non-runtime Kafka producer, this artifact remains FAIL.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 2. Verify Topics Exist
+
+Command:
+
+  kubectl get kafkatopics -A | grep -E 'audit.events.v1|lineage.events.v1|ai.events.v1|ontology.object.changed.v1|ontology.action.applied.v1|ontology.reindex.v1'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 3. Capture Log-End Offsets Before Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for topic in audit.events.v1 lineage.events.v1 ai.events.v1 ontology.object.changed.v1 ontology.action.applied.v1 ontology.reindex.v1; do
+    echo "===== ${topic} LOG-END BEFORE ====="
+    bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic "${topic}" --time -1
+  done
+  '
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 4. Capture Consumer Groups Before Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for group in audit-sink lineage-service ai-sink ontology-indexer reindex; do
+    echo "===== ${group} BEFORE ====="
+    bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group "${group}" || true
+  done
+  '
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 5. Produce Synthetic-But-Real Runtime Traffic
+
+Use the same platform ingress paths that production clients use. Record the
+exact command, request id, tenant, authenticated principal and response ids.
+Do not use kafka-console-producer or direct writes to Iceberg for this gate.
+
+Commands used:
+
+  PASTE REAL RUNTIME COMMANDS HERE
+
+Expected runtime sources:
+
+  audit.events.v1:
+    Produced by runtime audit path, for example identity/auth/API calls that emit
+    audit envelopes through the platform event bus.
+
+  lineage.events.v1:
+    Produced by lineage-service runtime ingest or pipeline runtime activity that
+    emits OpenLineage events.
+
+  ai.events.v1:
+    Produced by agent-runtime-service or prompt-workflow-service runtime calls.
+
+  ontology.object.changed.v1:
+    Produced by ontology writeback/outbox after a real object mutation.
+
+  ontology.action.applied.v1:
+    Produced by runtime action application that mutates ontology objects.
+
+  ontology.reindex.v1:
+    Produced by the workers-go/reindex Temporal workflow after scanning
+    Cassandra ontology runtime data.
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+### 6. Capture Producer Service Logs Around The Run
+
+Command:
+
+  kubectl logs -A --since=30m --all-containers=true | grep -E 'audit.events.v1|lineage.events.v1|ai.events.v1|ontology.object.changed.v1|ontology.action.applied.v1|ontology.reindex.v1|event_id|correlation_id|trace_id|run_id|reindex'
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Logs must tie the produced Kafka events to runtime services and request ids.
+  Fixture-only logs or manually injected Kafka records do not satisfy S5-OPS.
+
+### 7. Capture Log-End Offsets After Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for topic in audit.events.v1 lineage.events.v1 ai.events.v1 ontology.object.changed.v1 ontology.action.applied.v1 ontology.reindex.v1; do
+    echo "===== ${topic} LOG-END AFTER ====="
+    bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list openfoundry-kafka-bootstrap.kafka.svc:9092 --topic "${topic}" --time -1
+  done
+  '
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Each topic relevant to the executed runtime path must show increased
+  log-end offsets. For topics not exercised in this run, mark them explicitly
+  as NOT EXERCISED and do not claim full S5 Kafka PASS.
+
+### 8. Capture Consumer Groups And Lag After Traffic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for group in audit-sink lineage-service ai-sink ontology-indexer reindex; do
+    echo "===== ${group} AFTER TRAFFIC ====="
+    bin/kafka-consumer-groups.sh --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 --describe --group "${group}" || true
+  done
+  '
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Consumer lag must return to the documented steady state. A missing group,
+  static offset, or persistent lag is FAIL unless explained as a deliberately
+  non-exercised topic, in which case full S5 Kafka PASS cannot be claimed.
+
+### 9. Capture Sample Metadata From Each Topic
+
+Command:
+
+  kubectl -n kafka exec openfoundry-kafka-0 -c kafka -- sh -lc '
+  for topic in audit.events.v1 lineage.events.v1 ai.events.v1 ontology.object.changed.v1 ontology.action.applied.v1 ontology.reindex.v1; do
+    echo "===== ${topic} SAMPLE METADATA ====="
+    bin/kafka-console-consumer.sh \
+      --bootstrap-server openfoundry-kafka-bootstrap.kafka.svc:9092 \
+      --topic "${topic}" \
+      --from-beginning \
+      --max-messages 5 \
+      --timeout-ms 15000 \
+      --property print.timestamp=true \
+      --property print.partition=true \
+      --property print.offset=true \
+      --property print.key=true \
+      --property print.headers=true || true
+  done
+  '
+
+Output:
+
+  PASTE REAL OUTPUT HERE
+
+Required:
+
+  Samples must contain metadata that can be linked back to runtime requests:
+  event_id, correlation_id/request id, producer/service identity where present,
+  trace_id/run_id for AI/lineage, and tenant/object identifiers for ontology.
+
+### 10. Final Operator Conclusion
+
+Conclusion:
+
+  BLOCKED. Replace with PASS or FAIL only after the real S5 environment output
+  is pasted above. PASS requires runtime-produced messages, advancing offsets,
+  known consumer groups, acceptable lag and sample metadata for the required
+  topics.

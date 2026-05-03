@@ -1,0 +1,192 @@
+---
+# Grafana dashboards for Cassandra.
+#
+# Two dashboards are shipped:
+#
+#   1. `cassandra-overview` — the community Apache Cassandra dashboard
+#      (Grafana ID 5408) imported as a sidecar-loaded ConfigMap. We
+#      keep a thin wrapper instead of vendoring the JSON inline so
+#      diffs stay reviewable; the sidecar fetches from grafana.com on
+#      first reconcile when `grafana_dashboard_url` is supported, or
+#      operators can paste the JSON in-place during install.
+#
+#   2. `cassandra-openfoundry` — custom panels for our SLOs and
+#      modelling guardrails (large partitions, tombstone scans,
+#      hints backlog, repair freshness). These panels mirror the
+#      PrometheusRule alerts in `servicemonitor.yaml`.
+#
+# Both ConfigMaps carry the `grafana_dashboard: "1"` label so the
+# Grafana sidecar in `kube-prometheus-stack` discovers them
+# cluster-wide.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cassandra-overview-dashboard
+  namespace: cassandra
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    # The sidecar honours this annotation in recent kube-prometheus-stack
+    # releases; otherwise paste the JSON from
+    # https://grafana.com/grafana/dashboards/5408 into `cassandra-overview.json`.
+    grafana-folder: "Cassandra"
+data:
+  cassandra-overview.json: |
+    {
+      "__inputs": [],
+      "title": "Apache Cassandra (community 5408)",
+      "uid": "cassandra-overview",
+      "schemaVersion": 38,
+      "version": 1,
+      "editable": false,
+      "panels": [],
+      "annotations": {
+        "list": [
+          {
+            "name": "Source",
+            "type": "dashboard",
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "enable": false,
+            "showIn": 0
+          }
+        ]
+      },
+      "templating": { "list": [] },
+      "time": { "from": "now-6h", "to": "now" },
+      "description": "Placeholder. Import dashboard 5408 from grafana.com and paste the JSON here, or use the Grafana operator to fetch it on reconcile."
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cassandra-openfoundry-dashboard
+  namespace: cassandra
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana-folder: "Cassandra"
+data:
+  cassandra-openfoundry.json: |
+    {
+      "title": "Cassandra — OpenFoundry SLOs",
+      "uid": "cassandra-openfoundry",
+      "schemaVersion": 38,
+      "version": 1,
+      "editable": false,
+      "tags": ["cassandra", "openfoundry", "slo"],
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "cluster",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"cassandra-mcac\"}, cluster)",
+            "refresh": 2
+          },
+          {
+            "name": "dc",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"cassandra-mcac\", cluster=\"$cluster\"}, dc)",
+            "refresh": 2,
+            "includeAll": true
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Read p99 latency by DC",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le, dc) (rate(mcac_table_read_latency_seconds_bucket{cluster=\"$cluster\"}[5m])))",
+              "legendFormat": "{{dc}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Write p99 latency by DC",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le, dc) (rate(mcac_table_write_latency_seconds_bucket{cluster=\"$cluster\"}[5m])))",
+              "legendFormat": "{{dc}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Largest partitions (top 20)",
+          "targets": [
+            {
+              "expr": "topk(20, max by (keyspace, table) (mcac_table_max_partition_size_bytes{cluster=\"$cluster\"}))",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "description": "Modelling rule (ADR-0020): partitions must stay under 100 MB. Anything in this table > 100 MB is a defect."
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Tombstones scanned per second",
+          "targets": [
+            {
+              "expr": "sum by (keyspace, table) (rate(mcac_table_tombstone_scanned_histogram_count{cluster=\"$cluster\"}[5m]))",
+              "legendFormat": "{{keyspace}}.{{table}}"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Pending compactions",
+          "targets": [
+            {
+              "expr": "max by (instance) (mcac_compaction_pending_tasks{cluster=\"$cluster\"})",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Hints in progress",
+          "targets": [
+            {
+              "expr": "max by (instance) (mcac_storage_total_hints_in_progress{cluster=\"$cluster\"})",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Days since last successful repair (max across keyspaces)",
+          "targets": [
+            {
+              "expr": "(time() - min(reaper_last_successful_repair_timestamp_seconds)) / 86400"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "d",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 7 },
+                  { "color": "red", "value": 10 }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }

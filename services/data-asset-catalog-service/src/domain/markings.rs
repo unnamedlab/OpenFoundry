@@ -177,7 +177,9 @@ impl MarkingResolver {
         let mut visiting = HashSet::new();
         let computed = self.compute_inner(dataset_rid, &mut visiting).await?;
         let arc = Arc::new(computed);
-        self.cache.insert(dataset_rid.to_string(), arc.clone()).await;
+        self.cache
+            .insert(dataset_rid.to_string(), arc.clone())
+            .await;
         Ok(arc)
     }
 
@@ -207,20 +209,19 @@ impl MarkingResolver {
 
         // 2. Walk one hop upstream and union *their* effective markings,
         //    rebranded as inherited from each immediate parent.
-        let parents = self
-            .lineage
-            .upstream(rid)
-            .await
-            .map_err(|source| MarkingResolveError::Lineage {
-                rid: rid.to_string(),
-                source,
-            })?;
+        let parents =
+            self.lineage
+                .upstream(rid)
+                .await
+                .map_err(|source| MarkingResolveError::Lineage {
+                    rid: rid.to_string(),
+                    source,
+                })?;
         for parent in parents {
             // Boxed recursion — async fn in trait without Box would
             // require `async-recursion`; the depth is bounded by the
             // lineage graph height (typically <20 in practice).
-            let parent_marks =
-                Box::pin(self.compute_inner(&parent, visiting)).await?;
+            let parent_marks = Box::pin(self.compute_inner(&parent, visiting)).await?;
             for marking in parent_marks {
                 // Re-tag with the immediate upstream we crossed (not
                 // the original `marking.source`); the closest hop is
@@ -277,7 +278,6 @@ fn dedupe(markings: Vec<EffectiveMarking>) -> Vec<EffectiveMarking> {
 // [`MarkingResolver::compute`].
 // ───────────────────────────────────────────────────────────────────────
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,7 +306,10 @@ mod tests {
         let mut edges = HashMap::new();
         edges.insert("ri.b".to_string(), vec!["ri.a".to_string()]);
         let client = InMemoryLineageClient { edges };
-        assert_eq!(client.upstream("ri.b").await.unwrap(), vec!["ri.a".to_string()]);
+        assert_eq!(
+            client.upstream("ri.b").await.unwrap(),
+            vec!["ri.a".to_string()]
+        );
         assert!(client.upstream("ri.unknown").await.unwrap().is_empty());
     }
 

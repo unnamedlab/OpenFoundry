@@ -60,6 +60,53 @@ impl KafkaPublisher {
     pub fn from_producer(inner: FutureProducer) -> Self {
         Self { inner }
     }
+
+    /// Build a publisher from the standard OpenFoundry Kafka env vars.
+    ///
+    /// Recognised variables:
+    ///
+    /// * `KAFKA_BOOTSTRAP_SERVERS` (required) — comma-separated `host:port` list.
+    /// * `KAFKA_SASL_USERNAME`, `KAFKA_CLIENT_ID` — service identity. Falls
+    ///   back to `service_name` when neither is set.
+    /// * `KAFKA_SASL_PASSWORD` — when set, switches to SCRAM-SHA-512 over
+    ///   SASL_SSL; when unset, the publisher runs against an unauthenticated
+    ///   broker (`PLAINTEXT`), matching the dev-cluster default.
+    /// * `KAFKA_SASL_MECHANISM`, `KAFKA_SECURITY_PROTOCOL` — explicit overrides
+    ///   for the two SASL fields above.
+    ///
+    /// Mirrors the env contract used by `data_bus_config_from_env` in the
+    /// `ontology-indexer`/`lineage-service`/`ai-sink` runtimes so every
+    /// service consumes the same secret-shape regardless of plane.
+    pub fn from_env(service_name: &str) -> Result<Self, PublishError> {
+        let brokers = std::env::var("KAFKA_BOOTSTRAP_SERVERS").map_err(|_| {
+            PublishError::InvalidRecord(
+                "KAFKA_BOOTSTRAP_SERVERS must be set to build KafkaPublisher::from_env".into(),
+            )
+        })?;
+        let service = non_empty_env("KAFKA_SASL_USERNAME")
+            .or_else(|| non_empty_env("KAFKA_CLIENT_ID"))
+            .unwrap_or_else(|| service_name.to_string());
+
+        let mut principal = match non_empty_env("KAFKA_SASL_PASSWORD") {
+            Some(password) => crate::config::ServicePrincipal::scram_sha_512(service, password),
+            None => crate::config::ServicePrincipal::insecure_dev(service),
+        };
+        if let Some(mechanism) = non_empty_env("KAFKA_SASL_MECHANISM") {
+            principal.mechanism = mechanism;
+        }
+        if let Some(protocol) = non_empty_env("KAFKA_SECURITY_PROTOCOL") {
+            principal.security_protocol = protocol;
+        }
+
+        Self::new(&crate::config::DataBusConfig::new(brokers, principal))
+    }
+}
+
+fn non_empty_env(key: &'static str) -> Option<String> {
+    std::env::var(key).ok().and_then(|v| {
+        let t = v.trim();
+        if t.is_empty() { None } else { Some(t.to_string()) }
+    })
 }
 
 #[async_trait]
@@ -72,7 +119,9 @@ impl DataPublisher for KafkaPublisher {
         lineage: &OpenLineageHeaders,
     ) -> Result<(), PublishError> {
         if topic.is_empty() {
-            return Err(PublishError::InvalidRecord("topic must not be empty".into()));
+            return Err(PublishError::InvalidRecord(
+                "topic must not be empty".into(),
+            ));
         }
 
         let headers = lineage.to_kafka_headers();
@@ -82,7 +131,11 @@ impl DataPublisher for KafkaPublisher {
         }
 
         // 30s upper bound for queueing+delivery.
-        match self.inner.send(record, Timeout::After(Duration::from_secs(30))).await {
+        match self
+            .inner
+            .send(record, Timeout::After(Duration::from_secs(30)))
+            .await
+        {
             Ok((partition, offset)) => {
                 tracing::debug!(
                     topic,

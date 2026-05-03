@@ -11,7 +11,7 @@ use crate::models::user::User;
 #[derive(Debug)]
 pub enum ApiKeyError {
     Database(sqlx::Error),
-    Token(auth_middleware::JwtError),
+    Token(auth_middleware::jwt::JwtError),
     InvalidExpiration,
 }
 
@@ -21,8 +21,8 @@ impl From<sqlx::Error> for ApiKeyError {
     }
 }
 
-impl From<auth_middleware::JwtError> for ApiKeyError {
-    fn from(value: auth_middleware::JwtError) -> Self {
+impl From<auth_middleware::jwt::JwtError> for ApiKeyError {
+    fn from(value: auth_middleware::jwt::JwtError) -> Self {
         Self::Token(value)
     }
 }

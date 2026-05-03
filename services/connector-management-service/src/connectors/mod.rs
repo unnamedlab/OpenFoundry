@@ -11,9 +11,9 @@ use arrow_schema::{DataType, Field, Schema};
 
 use crate::models::registration::{DiscoveredSource, VirtualTableQueryResponse};
 
+pub mod azure_blob;
 pub mod bigquery;
 mod catalog_bridge;
-pub mod azure_blob;
 pub mod csv;
 pub mod databricks;
 pub mod gcs;
@@ -123,8 +123,10 @@ pub fn materialize_arrow_stream(columns: &[String], rows: &[Value]) -> Result<Ve
         .collect();
     let schema = Arc::new(Schema::new(fields));
 
-    let mut column_data: Vec<Vec<Option<String>>> =
-        columns.iter().map(|_| Vec::with_capacity(rows.len())).collect();
+    let mut column_data: Vec<Vec<Option<String>>> = columns
+        .iter()
+        .map(|_| Vec::with_capacity(rows.len()))
+        .collect();
     for row in rows {
         for (idx, name) in columns.iter().enumerate() {
             let cell = match row.get(name) {
@@ -139,13 +141,12 @@ pub fn materialize_arrow_stream(columns: &[String], rows: &[Value]) -> Result<Ve
         .into_iter()
         .map(|values| Arc::new(StringArray::from(values)) as ArrayRef)
         .collect();
-    let batch =
-        RecordBatch::try_new(schema.clone(), arrays).map_err(|error| error.to_string())?;
+    let batch = RecordBatch::try_new(schema.clone(), arrays).map_err(|error| error.to_string())?;
 
     let mut buffer = Vec::with_capacity(4096);
     {
-        let mut writer = StreamWriter::try_new(&mut buffer, &schema)
-            .map_err(|error| error.to_string())?;
+        let mut writer =
+            StreamWriter::try_new(&mut buffer, &schema).map_err(|error| error.to_string())?;
         writer.write(&batch).map_err(|error| error.to_string())?;
         writer.finish().map_err(|error| error.to_string())?;
     }

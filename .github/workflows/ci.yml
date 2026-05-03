@@ -3,10 +3,10 @@ name: CI — Rust
 on:
   push:
     branches: [main]
-    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", ".github/bus-allowlist.yaml", "justfile"]
+    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", ".github/bus-allowlist.yaml", ".github/data-residency-allowlist.toml", "infra/k8s/platform/manifests/cnpg/clusters/**", "justfile"]
   pull_request:
     branches: [main]
-    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", ".github/bus-allowlist.yaml", "justfile"]
+    paths: ["libs/**", "services/**", "tools/**", "smoke/**", "Cargo.*", "proto/**", ".github/workflows/ci.yml", ".github/bus-allowlist.yaml", ".github/data-residency-allowlist.toml", "infra/k8s/platform/manifests/cnpg/clusters/**", "justfile"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,6 +68,75 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace
+      # P5 — Branching parity gate. Runs the testcontainers-backed
+      # `--include-ignored` suite for every service that owns part
+      # of the branch lifecycle. Mirrors the doc § "Branching" + the
+      # ADR-NNNN-branching-foundry-parity matrix.
+      - name: Branching parity tests (--include-ignored)
+        run: |
+          cargo test --include-ignored \
+            -p dataset-versioning-service \
+            -p pipeline-build-service \
+            -p pipeline-authoring-service \
+            -p global-branch-service
+      # P6 — Datasets parity (5/5) gate. Runs the testcontainers-backed
+      # health + API-conformance suite. Mirrors the doc § "Datasets" +
+      # § "Application reference" + ADR-0034.
+      - name: Datasets parity tests (--include-ignored)
+        run: |
+          cargo test --include-ignored \
+            -p dataset-quality-service
+      # D1.1.5 P5 — Builds parity gate. Runs the full lifecycle suite
+      # plus the runner integration tests against `wiremock` /
+      # testcontainers. Mirrors ADR-0035.
+      - name: Builds parity tests (--include-ignored)
+        run: |
+          cargo test --include-ignored \
+            -p pipeline-build-service
+      - name: Builds authoring tests
+        run: |
+          cargo test -p pipeline-authoring-service builds
+      - name: Coverage gate (datasets focus, 75%)
+        if: ${{ env.SKIP_COVERAGE != 'true' }}
+        env:
+          SKIP_COVERAGE: 'true'  # disabled until llvm-cov is installed in the runner image
+        run: |
+          if command -v cargo-llvm-cov >/dev/null 2>&1; then
+            cargo llvm-cov -p dataset-versioning-service --fail-under-lines 75
+            cargo llvm-cov -p pipeline-build-service --fail-under-lines 75
+          else
+            echo 'cargo-llvm-cov not installed; skipping (set SKIP_COVERAGE=false to enforce)'
+          fi
+
+  branching-e2e:
+    name: Branching E2E
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install web deps
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Branching specs
+        working-directory: apps/web
+        run: pnpm exec playwright test --grep 'branch'
+      # P6 — Datasets parity Playwright suite. Walks the QualityDashboard
+      # cards + the full 5×5 dataset journey (preview → schema → files →
+      # retention → lineage → history → permissions → details → health
+      # → metrics → compare).
+      - name: Dataset specs
+        working-directory: apps/web
+        run: pnpm exec playwright test --grep 'dataset'
 
   smoke:
     name: Smoke
@@ -256,3 +325,26 @@ jobs:
           python-version: "3.12"
       - name: Check service bus allowlist
         run: python3 tools/bus-lint/check_bus.py
+
+  data-residency:
+    name: Data residency (registry + strict sqlx allowlist)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check data residency registry and sqlx file/table allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+          fi
+          python3 tools/data-residency/check_residency.py --diff-base "$base_sha"

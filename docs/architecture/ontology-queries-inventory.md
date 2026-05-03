@@ -26,7 +26,7 @@
 > path — object reads, action writes, indexer ingest), `warm` (1–10 RPS,
 > typical CRUD admin and search), `cold` (<1 RPS, metadata management
 > and one-off jobs). Estimates derived from the existing OpenTelemetry
-> request distribution recorded in `infra/observability/dashboards/`
+> request distribution recorded in `infra/k8s/platform/observability/grafana-dashboards/`
 > and the operator runbooks under `infra/runbooks/`.
 >
 > **Consistency labels** — `strong` requires the latest committed write

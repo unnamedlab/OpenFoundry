@@ -144,7 +144,10 @@ pub fn validate_topic_samples(
     sample_messages: &[Value],
     connector_label: &str,
 ) -> Result<(), String> {
-    let Some(schema) = topic_metadata.get("schema").filter(|value| !value.is_null()) else {
+    let Some(schema) = topic_metadata
+        .get("schema")
+        .filter(|value| !value.is_null())
+    else {
         return Ok(());
     };
     let schema_type_str = schema
@@ -153,18 +156,14 @@ pub fn validate_topic_samples(
         .ok_or_else(|| format!("{connector_label} schema requires 'type'"))?;
     let schema_type: SchemaType = schema_type_str
         .parse()
-        .map_err(|error: schema_registry::SchemaError| {
-            format!("{connector_label} {error}")
-        })?;
+        .map_err(|error: schema_registry::SchemaError| format!("{connector_label} {error}"))?;
     let schema_text = schema
         .get("text")
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{connector_label} schema requires 'text'"))?;
     for (index, sample) in sample_messages.iter().enumerate() {
         schema_registry::validate_payload(schema_type, schema_text, sample).map_err(|error| {
-            format!(
-                "{connector_label} sample_messages[{index}] does not match schema: {error}"
-            )
+            format!("{connector_label} sample_messages[{index}] does not match schema: {error}")
         })?;
     }
     Ok(())

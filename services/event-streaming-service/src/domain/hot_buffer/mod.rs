@@ -19,6 +19,8 @@ use async_trait::async_trait;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::models::stream::StreamType;
+
 #[cfg(feature = "kafka-rdkafka")]
 pub mod kafka;
 pub mod nats;
@@ -53,11 +55,7 @@ pub trait HotBuffer: Send + Sync + std::fmt::Debug {
     ///   count.
     /// * For NATS, this is a no-op: subjects are created on the first
     ///   publish.
-    async fn ensure_topic(
-        &self,
-        stream_id: Uuid,
-        partitions: i32,
-    ) -> Result<(), HotBufferError>;
+    async fn ensure_topic(&self, stream_id: Uuid, partitions: i32) -> Result<(), HotBufferError>;
 
     /// Publish a single event payload.
     ///
@@ -69,6 +67,24 @@ pub trait HotBuffer: Send + Sync + std::fmt::Debug {
         key: Option<&str>,
         payload: &[u8],
     ) -> Result<(), HotBufferError>;
+
+    /// Apply a Foundry-parity stream type/compression to the producer
+    /// before subsequent `publish` calls.
+    ///
+    /// Default implementation is a no-op so backends that don't
+    /// expose tunables (NATS, noop) can ignore the call. The Kafka
+    /// backend overrides it to swap the underlying `FutureProducer`
+    /// for one configured with the requested `linger.ms` /
+    /// `batch.size` / `compression.type`.
+    async fn apply_stream_type(
+        &self,
+        stream_id: Uuid,
+        stream_type: StreamType,
+        compression: bool,
+    ) -> Result<(), HotBufferError> {
+        let _ = (stream_id, stream_type, compression);
+        Ok(())
+    }
 }
 
 /// Compose the conventional topic / subject name for a stream so every
@@ -90,11 +106,7 @@ impl HotBuffer for NoopHotBuffer {
         "noop"
     }
 
-    async fn ensure_topic(
-        &self,
-        stream_id: Uuid,
-        _partitions: i32,
-    ) -> Result<(), HotBufferError> {
+    async fn ensure_topic(&self, stream_id: Uuid, _partitions: i32) -> Result<(), HotBufferError> {
         tracing::debug!(stream_id = %stream_id, "noop hot buffer: ensure_topic");
         Ok(())
     }

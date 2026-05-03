@@ -43,11 +43,15 @@ workspace = true
 
 [dependencies.temporal-client]
 workspace = true
+features = ["grpc"]
 
 [dependencies.tokio]
 workspace = true
 
 [dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
 workspace = true
 
 [dependencies.uuid]
@@ -56,6 +60,9 @@ workspace = true
 [dev-dependencies.tokio]
 workspace = true
 features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.async-trait]
+workspace = true
 
 [lib]
 path = "src/lib.rs"

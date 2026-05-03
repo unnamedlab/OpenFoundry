@@ -3,8 +3,7 @@
 // Mirrors the structure of `workers-go/workflow-automation/main.go`
 // (S2.7). One binary, one task queue (`openfoundry.reindex`), the
 // workflow `OntologyReindex` defined in `workflows/`. Activities
-// are stubs until the Rust side wires the Cassandra scanner +
-// Kafka publisher.
+// scan Cassandra and publish to Kafka directly.
 package main
 
 import (
@@ -45,17 +44,18 @@ func main() {
 	w := worker.New(c, contract.TaskQueue, worker.Options{})
 
 	w.RegisterWorkflow(workflows.OntologyReindex)
-	w.RegisterActivity(&activities.Activities{})
+	w.RegisterActivity(activities.NewActivities(logger))
 
 	go serveMetrics(logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if err := w.Run(ctx); err != nil {
+	if err := w.Run(worker.InterruptCh()); err != nil {
 		logger.Error("worker run failed", "err", err)
 		os.Exit(1)
 	}
+	<-ctx.Done()
 }
 
 func getenv(key, fallback string) string {

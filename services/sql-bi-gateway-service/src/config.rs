@@ -35,10 +35,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub warehousing_flight_sql_url: Option<String>,
 
-    /// Optional Flight SQL endpoint that fronts the ClickHouse cluster.
-    #[serde(default)]
-    pub clickhouse_flight_sql_url: Option<String>,
-
     /// Optional Flight SQL endpoint that fronts the Vespa search backend.
     #[serde(default)]
     pub vespa_flight_sql_url: Option<String>,

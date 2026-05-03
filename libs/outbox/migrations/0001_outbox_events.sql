@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS outbox.events (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS outbox.heartbeat (
+    id text PRIMARY KEY,
+    last_seen_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Replica identity FULL keeps both INSERT and DELETE rows readable in
 -- the WAL even though we delete in the same transaction. Without this
 -- the DELETE record only carries the PK, which is enough for the

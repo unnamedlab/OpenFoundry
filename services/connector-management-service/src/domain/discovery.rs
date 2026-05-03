@@ -81,9 +81,7 @@ pub async fn discover_sources(
         // Iceberg REST catalog forwards their metadata pointers verbatim
         // (zero-copy). Per-store credential vending happens at LoadTable
         // time inside `handlers::credentials_vending`.
-        "azure_blob" | "adls" => {
-            connectors::azure_blob::discover_sources(&connection.config).await
-        }
+        "azure_blob" | "adls" => connectors::azure_blob::discover_sources(&connection.config).await,
         "onelake" => connectors::onelake::discover_sources(&connection.config).await,
         "gcs" | "google_cloud_storage" => {
             connectors::gcs::discover_sources(&connection.config).await

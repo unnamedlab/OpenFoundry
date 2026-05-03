@@ -6,8 +6,8 @@
 
 use http::{Request, Response};
 use http_body_util::BodyExt;
-use kube::client::Body;
 use kube::Client;
+use kube::client::Body;
 use tower_test::mock;
 
 use ingestion_replication_service::control_plane::{apply_resources, render_resources};
@@ -43,8 +43,7 @@ fn sample_spec() -> IngestJobSpec {
 
 #[tokio::test]
 async fn apply_resources_sends_ssa_patches_for_both_crds() {
-    let (mock_service, mut handle) =
-        mock::pair::<Request<Body>, Response<Body>>();
+    let (mock_service, mut handle) = mock::pair::<Request<Body>, Response<Body>>();
     // The mock service has a finite buffer; we discard the readiness checks.
     let client = Client::new(mock_service, "default");
 
@@ -64,7 +63,9 @@ async fn apply_resources_sends_ssa_patches_for_both_crds() {
     assert_eq!(kc_req.method().as_str(), "PATCH");
     let kc_uri = kc_req.uri().to_string();
     assert!(
-        kc_uri.contains("/apis/kafka.strimzi.io/v1beta2/namespaces/ingest/kafkaconnectors/users-debezium-pg"),
+        kc_uri.contains(
+            "/apis/kafka.strimzi.io/v1beta2/namespaces/ingest/kafkaconnectors/users-debezium-pg"
+        ),
         "unexpected kafka connector uri: {kc_uri}",
     );
     assert!(
@@ -84,8 +85,7 @@ async fn apply_resources_sends_ssa_patches_for_both_crds() {
         .await
         .expect("collect body")
         .to_bytes();
-    let body_value: serde_json::Value =
-        serde_json::from_slice(&body_bytes).expect("body is JSON");
+    let body_value: serde_json::Value = serde_json::from_slice(&body_bytes).expect("body is JSON");
     assert_eq!(body_value["kind"], "KafkaConnector");
     assert_eq!(
         body_value["spec"]["class"],
@@ -123,7 +123,10 @@ async fn apply_resources_sends_ssa_patches_for_both_crds() {
     let fl_body = fl_req.into_body().collect().await.unwrap().to_bytes();
     let fl_json: serde_json::Value = serde_json::from_slice(&fl_body).unwrap();
     assert_eq!(fl_json["kind"], "FlinkDeployment");
-    assert_eq!(fl_json["spec"]["image"], "apache/flink:1.18-scala_2.12-java11");
+    assert_eq!(
+        fl_json["spec"]["image"],
+        "apache/flink:1.18-scala_2.12-java11"
+    );
     let echo_flink = serde_json::json!({
         "apiVersion": "flink.apache.org/v1beta1",
         "kind": "FlinkDeployment",
@@ -146,8 +149,7 @@ async fn apply_resources_sends_ssa_patches_for_both_crds() {
 
 #[tokio::test]
 async fn apply_resources_skips_flink_when_no_iceberg_sink() {
-    let (mock_service, mut handle) =
-        mock::pair::<Request<Body>, Response<Body>>();
+    let (mock_service, mut handle) = mock::pair::<Request<Body>, Response<Body>>();
     let client = Client::new(mock_service, "default");
 
     let mut spec = sample_spec();
