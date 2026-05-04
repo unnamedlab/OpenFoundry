@@ -81,6 +81,9 @@ path = "libs/scheduling-cron"
 [workspace.dependencies.scheduling-linter]
 path = "libs/scheduling-linter"
 
+[workspace.dependencies.state-machine]
+path = "libs/state-machine"
+
 [workspace.dependencies.core-models]
 path = "libs/core-models"
 

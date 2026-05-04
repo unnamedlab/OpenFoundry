@@ -1,3 +1,4 @@
+pub mod automation_run;
 pub mod branching;
 pub mod lineage;
 pub mod temporal_adapter;
