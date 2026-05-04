@@ -1,30 +1,40 @@
 //! `automation-operations-service` library crate.
 //!
-//! Per Stream **S2.7** of
-//! `docs/architecture/migration-plan-cassandra-foundry-parity.md`,
-//! the operational control plane for automations (queues, retries,
-//! dependencies, per-object execution) migrates from a Postgres-row
-//! state machine to durable Temporal workflows on task queue
-//! `openfoundry.automation-ops`.
+//! Per FASE 6 of the Foundry-pattern migration plan
+//! (`docs/architecture/migration-plan-foundry-pattern-orchestration.md`),
+//! the operational control plane for automations is a **Postgres-
+//! backed saga substrate** — `libs/saga::SagaRunner` driving step
+//! graphs registered in [`crate::domain::dispatcher`], state
+//! persisted in `automation_operations.saga_state`, events
+//! published via `outbox.events` + Debezium onto the `saga.*.v1`
+//! Kafka topics declared in
+//! [`crate::topics`].
 //!
-//! - Workflow type: `AutomationOpsTask` (registered by
-//!   [`workers-go/automation-ops/`](../../workers-go/automation-ops/)).
-//! - Rust facade: [`temporal_client::AutomationOpsClient`].
-//! - Adapter: [`crate::domain::temporal_adapter::AutomationOpsAdapter`].
+//! HTTP `POST /api/v1/automations` writes the `saga_state` row + the
+//! `saga.step.requested.v1` outbox row in a single transaction; the
+//! saga consumer ([`crate::domain::saga_consumer`]) picks the event
+//! up and dispatches the matching step graph.
 //!
-//! Runtime HTTP handlers no longer read or write the legacy queue
-//! tables. Those tables are archived for cutover forensics only; live
-//! state is Temporal history.
+//! The Temporal adapter at
+//! [`crate::domain::temporal_adapter`] is dead code (no live writes
+//! ever go through it). It survives until FASE 8 / Tarea 8.3 retires
+//! `libs/temporal-client` workspace-wide.
 
 pub mod config;
 pub mod domain;
+pub mod event;
 pub mod handlers;
 pub mod models;
+pub mod topics;
 
-use crate::domain::temporal_adapter::AutomationOpsAdapter;
+use sqlx::PgPool;
 
-/// Minimal shared state for the Temporal-backed facade.
+/// Shared state injected into the axum router.
 #[derive(Clone)]
 pub struct AppState {
-    pub adapter: AutomationOpsAdapter,
+    /// Postgres pool against the bounded-context cluster (today
+    /// `automation-operations-pg`, post-FASE 9 `pg-runtime-config`).
+    /// Used by the HTTP handlers to write `saga_state` + outbox
+    /// rows in the same transaction.
+    pub db: PgPool,
 }

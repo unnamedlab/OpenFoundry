@@ -6,8 +6,11 @@ pub struct AppConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
-    #[serde(default)]
-    pub database_url: Option<String>,
+    /// Required after FASE 6 / Tarea 6.3. The saga handler INSERTs
+    /// into `automation_operations.saga_state` + `outbox.events`
+    /// in the same transaction; without a pool the service refuses
+    /// to start its write paths.
+    pub database_url: String,
     pub jwt_secret: String,
 }
 
