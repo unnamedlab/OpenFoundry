@@ -18,6 +18,11 @@ pub struct AppConfig {
     pub pipeline_service_url: String,
     #[serde(default = "default_nats_url")]
     pub nats_url: String,
+    /// Optional service bearer token for the
+    /// `/workflows/approvals/{id}/continue` HTTP proxy request to
+    /// `approvals-service` (FASE 7 / Tarea 7.3). Empty in dev.
+    #[serde(default)]
+    pub approvals_service_bearer_token: Option<String>,
 }
 
 fn default_host() -> String {

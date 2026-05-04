@@ -17,7 +17,6 @@ use event_bus_data::{
 };
 use idempotency::{IdempotencyStore, postgres::PgIdempotencyStore};
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use temporal_client::{Namespace, WorkflowClient};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::AppConfig;
@@ -30,13 +29,19 @@ use crate::domain::effect_dispatcher::EffectDispatcher;
 pub struct AppState {
     pub db: PgPool,
     pub http_client: reqwest::Client,
-    /// Used by `handlers::approvals` (Temporal `ApprovalsClient`) until
-    /// FASE 7 retires the approvals worker. Not used by any other
-    /// path after Tarea 5.3.
-    pub workflow_client: Arc<dyn WorkflowClient>,
-    pub temporal_namespace: Namespace,
     pub nats_url: String,
     pub pipeline_service_url: String,
+    /// `approvals-service` base URL. Used by
+    /// [`handlers::approvals::continue_after_approval`] to forward
+    /// the UI's "continue after approval" decision to the
+    /// authoritative state machine in
+    /// `audit_compliance.approval_requests`. Replaces the
+    /// pre-FASE-7 Temporal `ApprovalsClient` signal path.
+    pub approvals_service_url: String,
+    /// Optional service bearer token for the approvals proxy
+    /// request. Empty in dev (the in-cluster `approvals-service`
+    /// accepts unauthenticated peers when this is unset).
+    pub approvals_service_bearer_token: Option<String>,
 }
 
 #[tokio::main]
@@ -58,18 +63,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    // Temporal client kept for the approvals continuation route.
-    // FASE 7 will retire both this client and the route together.
-    let (workflow_client, temporal_namespace) =
-        temporal_client::runtime_workflow_client("workflow-automation-service").await?;
-
     let state = AppState {
         db: db.clone(),
         http_client: http_client.clone(),
-        workflow_client,
-        temporal_namespace,
         nats_url: app_config.nats_url.clone(),
         pipeline_service_url: app_config.pipeline_service_url.clone(),
+        approvals_service_url: app_config.approvals_service_url.clone(),
+        approvals_service_bearer_token: app_config.approvals_service_bearer_token.clone(),
     };
 
     let jwt_config = JwtConfig::new(&app_config.jwt_secret).with_env_defaults();

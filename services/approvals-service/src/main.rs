@@ -1,18 +1,19 @@
 //! `approvals-service` binary.
 //!
-//! Stream **S2.5** of the Cassandra/Foundry parity plan: durable
-//! approval state migrates to Temporal (`ApprovalRequestWorkflow`).
-//! New writes route through
-//! [`approvals_service::domain::temporal_adapter::ApprovalsAdapter`].
-//! This binary exposes Temporal-backed request and decision handlers;
-//! any SQL-backed read model is non-authoritative projection only.
+//! Boots the FASE 7 / Tarea 7.3 state-machine runtime: HTTP
+//! handlers persist the `audit_compliance.approval_requests` row +
+//! the matching `approval.*.v1` outbox event in a single Postgres
+//! transaction. The companion CronJob (Tarea 7.4) handles the
+//! `pending → expired` transition for rows past their deadline.
 
 mod config;
 mod domain;
+mod event;
 mod handlers;
 mod models;
+mod topics;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, time::Duration};
 
 use auth_middleware::jwt::JwtConfig;
 use axum::{
@@ -21,7 +22,6 @@ use axum::{
 };
 use config::AppConfig;
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use temporal_client::{Namespace, WorkflowClient};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
@@ -31,8 +31,9 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub workflow_service_url: String,
     pub ontology_service_url: String,
-    pub workflow_client: Arc<dyn WorkflowClient>,
-    pub temporal_namespace: Namespace,
+    pub audit_compliance_service_url: String,
+    pub audit_compliance_bearer_token: Option<String>,
+    pub approval_ttl_hours: u32,
 }
 
 #[tokio::main]
@@ -47,20 +48,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::from_env()?;
     let db = PgPoolOptions::new()
         .max_connections(10)
+        .acquire_timeout(Duration::from_secs(10))
         .connect(&config.database_url)
         .await?;
 
     let jwt_config = JwtConfig::new(&config.jwt_secret).with_env_defaults();
-    let (workflow_client, temporal_namespace) =
-        temporal_client::runtime_workflow_client("approvals-service").await?;
     let state = AppState {
         db,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?,
         jwt_config: jwt_config.clone(),
         workflow_service_url: config.workflow_service_url.clone(),
         ontology_service_url: config.ontology_service_url.clone(),
-        workflow_client,
-        temporal_namespace,
+        audit_compliance_service_url: config.audit_compliance_service_url.clone(),
+        audit_compliance_bearer_token: config.audit_compliance_bearer_token.clone(),
+        approval_ttl_hours: config.approval_ttl_hours,
     };
 
     let protected = Router::new()
@@ -69,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(handlers::approvals::list_approvals).post(handlers::approvals::create_approval),
         )
         .route(
-            "/approvals/:approval_id/decide",
+            "/approvals/{approval_id}/decide",
             post(handlers::approvals::decide_approval),
         )
         .layer(axum::middleware::from_fn_with_state(
