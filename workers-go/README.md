@@ -17,9 +17,14 @@ workers-go/
 ├── workflow-automation/      # business automations (S2.3)
 ├── pipeline/                 # pipeline runs + Temporal Schedules (S2.4)
 ├── approvals/                # approval workflows with signals (S2.5)
-├── automation-ops/           # automation-operations workflows (S2.7)
-└── reindex/                  # ontology reindex into search (S5)
+└── automation-ops/           # automation-operations workflows (S2.7)
 ```
+
+> The `reindex/` worker was removed in Tarea 4.3 (May 2026); it is now
+> [`services/reindex-coordinator-service`](../services/reindex-coordinator-service)
+> (Rust, Kafka-driven, Postgres-resumeable). Likewise, `pipeline/` was
+> superseded by [`services/pipeline-build-service`](../services/pipeline-build-service)
+> in Tarea 3.6.
 
 Each subdirectory is an independent Go module producing one binary
 that registers a single task queue's workflows + activities.
@@ -35,9 +40,7 @@ that registers a single task queue's workflows + activities.
   `workflow_types`. Same agreement rule.
 * **Activities never touch Cassandra/Postgres directly** — they call
   the Rust service that owns the data, which enforces Cedar
-  authorization and writes the audit event. The single exception is
-  [`reindex/`](./reindex), which is the platform's reindex tool and
-  reads Cassandra + publishes Kafka by design.
+  authorization and writes the audit event.
 * **Wire format: HTTP REST + JSON, bearer token, correlation
   header.** Activities call the owning service's REST surface
   (`POST /api/v1/...` documented in each service's OpenAPI). The

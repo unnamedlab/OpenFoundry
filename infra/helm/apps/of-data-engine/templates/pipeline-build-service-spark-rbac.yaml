@@ -1,0 +1,73 @@
+{{/*
+FASE 3 / Tarea 3.4 — RBAC for `pipeline-build-service` so it can
+create / read SparkApplication CRs.
+
+The service uses the kube client built by `kube::Client::try_default()`
+in `services/pipeline-build-service/src/main.rs`, which authenticates
+via the projected ServiceAccount token. Without this Role + RoleBinding
+the SparkApplication submission endpoints will respond with 403
+"sparkapplications.sparkoperator.k8s.io is forbidden" the moment the
+first `POST /api/v1/pipeline/builds/run` lands.
+
+Verbs follow the Tarea 3.4 spec
+(`docs/architecture/migration-plan-foundry-pattern-orchestration.md`,
+section "Failure modes"): create / get / list / watch are required;
+patch / delete are added so the service can re-submit (idempotent
+upsert) and tear down stuck CRs.
+
+Gating: the resources are emitted by default but can be disabled via
+`services.pipeline-build-service.spark.rbac.create=false` for the rare
+deployment that wires permissions through an external policy
+controller (e.g. Cedar / OPA gatekeeper that owns its own ClusterRole).
+*/}}
+{{- $svcName := "pipeline-build-service" -}}
+{{- $svc := index .Values.services $svcName | default dict -}}
+{{- $svcEnabled := true -}}
+{{- if hasKey $svc "enabled" -}}{{- $svcEnabled = $svc.enabled -}}{{- end -}}
+{{- if $svcEnabled }}
+{{- $sparkCfg := $svc.spark | default dict -}}
+{{- $rbacCfg := $sparkCfg.rbac | default dict -}}
+{{- $rbacCreate := true -}}
+{{- if hasKey $rbacCfg "create" -}}{{- $rbacCreate = $rbacCfg.create -}}{{- end -}}
+{{- if $rbacCreate }}
+{{- $namespace := $rbacCfg.namespace | default $sparkCfg.namespace | default "openfoundry-spark" -}}
+{{- $labels := include "of-shared.labels" (dict "root" $ "name" $svcName "release" .Values.release) -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $svcName }}-spark
+  namespace: {{ $namespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups:
+      - sparkoperator.k8s.io
+    resources:
+      - sparkapplications
+      - sparkapplications/status
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $svcName }}-spark
+  namespace: {{ $namespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $svcName }}-spark
+subjects:
+  - kind: ServiceAccount
+    name: {{ $svcName }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

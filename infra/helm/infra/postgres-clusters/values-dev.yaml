@@ -18,7 +18,7 @@ _dev: &dev
   resources:
     requests: { cpu: 200m, memory: 512Mi }
     limits:   { cpu: "1",  memory: 1Gi }
-  postgresql:
+  postgresql: &devPostgresql
     sharedBuffers: 256MB
     maxWalSize: 1GB
     workMem: 8MB
@@ -29,7 +29,13 @@ _dev: &dev
 
 # Tarea 4 enabled only pg-policy. Tareas 5/6/7 will parametrize the
 # remaining 3 templates and toggle these to *dev.
-pgPolicy:        *dev
+pgPolicy:
+  <<: *dev
+  walLevel: logical
+  postgresql:
+    <<: *devPostgresql
+    maxReplicationSlots: "8"
+    maxWalSenders: "10"
 pgSchemas:       *dev
 pgRuntimeConfig: *dev
 pgLakekeeper:    *dev

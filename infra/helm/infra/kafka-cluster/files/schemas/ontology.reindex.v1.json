@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.openfoundry.io/ontology.reindex.v1.json",
+  "title": "OntologyReindexRecord",
+  "description": "Wire format of one record published to the Kafka topic `ontology.reindex.v1`. Producer: services/reindex-coordinator-service (FASE 4 / Tarea 4.2 — Rust replacement for the legacy `workers-go/reindex` Temporal worker, removed in Tarea 4.3). Consumer: services/ontology-indexer, which materialises the record into the search backend (Vespa prod / OpenSearch dev). The shape MUST stay aligned with `ontology.object.changed.v1` so the indexer decodes both topics with the same code path (see services/ontology-indexer/src/lib.rs::ObjectChangedV1).",
+  "type": "object",
+  "required": ["tenant", "id", "type_id", "version", "payload"],
+  "additionalProperties": true,
+  "properties": {
+    "tenant": {
+      "description": "Tenant identifier the record belongs to. Used as the first half of the Kafka partition key (`<tenant>/<id>`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "id": {
+      "description": "Stable object identifier (UUID string in production, but typed as opaque string for forward compatibility).",
+      "type": "string",
+      "minLength": 1
+    },
+    "type_id": {
+      "description": "Ontology type identifier of the object.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "Monotonically increasing per-object revision number. Backends discard writes older than the currently indexed version (ADR-0028).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "description": "Full materialised object payload to index. Backends decide what to expose via their schema.",
+      "type": "object"
+    },
+    "embedding": {
+      "description": "Optional dense vector pass-through. The producer forwards whatever was in `objects_by_id.properties.embedding` verbatim; the indexer writes it to the registered `embedding` field when present.",
+      "type": ["array", "null"],
+      "items": { "type": "number" }
+    },
+    "deleted": {
+      "description": "Tombstone flag. The reindex producer always emits `false` (deleted rows are filtered out before publish), but the field is accepted for shape parity with `ontology.object.changed.v1`.",
+      "type": "boolean"
+    }
+  }
+}

@@ -23,6 +23,9 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
+[dependencies.jsonschema]
+workspace = true
+
 [dependencies.serde]
 workspace = true
 

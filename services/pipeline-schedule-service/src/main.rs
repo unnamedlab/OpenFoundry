@@ -1,33 +1,33 @@
 //! `pipeline-schedule-service` binary entry point.
 //!
-//! ## Status: post-S2.4 substrate (Temporal Schedules)
+//! ## Status: post-Tarea 3.5 substrate (cron-emitter)
 //!
-//! Per Stream **S2.4** of
-//! `docs/architecture/migration-plan-cassandra-foundry-parity.md` and
-//! ADR-0021, the in-process **tick loop** that polled
+//! Per Tarea 3.5 of
+//! `docs/architecture/migration-plan-foundry-pattern-orchestration.md`
+//! and ADR-0037, the in-process **tick loop** that polled
 //! `pipelines.next_run_at` / `workflow_definitions.next_run_at` and
-//! fired runs from this binary has been **removed**. Cron-driven and
-//! event-driven runs are now dispatched by **Temporal Schedules**
-//! through the typed [`temporal_client::PipelineScheduleClient`]
-//! facade in [`crate::domain::temporal_schedule`]. Temporal owns:
-//!   - exactly-once dispatch under N replicas (no row-locking races);
-//!   - durable cron evaluation (no in-process clock skew);
-//!   - HA failover (the schedule survives any worker restart).
+//! fired runs from this binary has been **removed**, *and* the prior
+//! Temporal-Schedules adapter that briefly owned cron dispatch in
+//! S2.4 has been replaced. Cron-driven runs are now dispatched by the
+//! **`schedules-tick`** Kubernetes `CronJob` (binary from
+//! `libs/event-scheduler`), which scans
+//! [`schedules.definitions`](crate::domain::cron_registrar) every
+//! minute and publishes one Kafka event per due row. The handlers in
+//! this service write the rows via
+//! [`crate::domain::cron_registrar::CronRegistrar`].
 //!
 //! What stays here:
 //!   - REST CRUD over schedule **definitions** (Postgres remains the
-//!     declarative source of truth, as called out in S2.4.b).
+//!     declarative source of truth).
 //!   - Backfill / preview helpers that compute windows for the UI.
 //!
 //! What does **not** stay here:
-//!   - `tokio::spawn`-based ticker (deleted, was 25 LOC in `main`).
-//!   - In-process pipeline executor (delegated to the worker
-//!     in `workers-go/pipeline/`, which registers the `PipelineRun`
-//!     workflow type and is what every Temporal Schedule fires).
-//!   - The legacy break-glass admin endpoints that polled
-//!     `next_run_at` from Postgres (removed once every persisted
-//!     schedule had been migrated to Temporal Schedules; cron
-//!     dispatch now belongs entirely to Temporal).
+//!   - `tokio::spawn`-based ticker (deleted).
+//!   - In-process pipeline executor (delegated to
+//!     `pipeline-build-service` consuming `pipeline.scheduled.v1`).
+//!   - The `temporal-client` adapter and the `/schedules/temporal`
+//!     break-glass endpoints (removed alongside ADR-0037 — cron
+//!     dispatch belongs to the `schedules-tick` CronJob now).
 
 mod config;
 mod domain;
@@ -46,10 +46,10 @@ use axum::{
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use storage_abstraction::StorageBackend;
-use temporal_client::PipelineScheduleClient;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::AppConfig;
+use crate::domain::cron_registrar::CronRegistrar;
 
 /// Shared state.
 ///
@@ -162,13 +162,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    // Temporal wiring. When `TEMPORAL_HOST_PORT` is present this is a
-    // gRPC client; otherwise the local dry-run client keeps smoke
-    // tests deterministic. The namespace is the one provisioned by
-    // `infra/k8s/platform/manifests/temporal/` (S2.1.b).
-    let (workflow_client, temporal_namespace) =
-        temporal_client::runtime_workflow_client("pipeline-schedule-service").await?;
-    let pipeline_schedule_client = PipelineScheduleClient::new(workflow_client, temporal_namespace);
+    // Tarea 3.5 — cron dispatch is owned by the `schedules-tick`
+    // K8s `CronJob` (binary from `libs/event-scheduler`). The
+    // service writes to `schedules.definitions` via the registrar,
+    // which the runner then drains every minute over Kafka.
+    let cron_registrar = CronRegistrar::new(db.clone());
 
     // P5 — AIP-assisted schedule generation. `LLM_CATALOG_URL` points
     // the production HTTP client at llm-catalog-service; tests inject
@@ -202,11 +200,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         distributed_compute_timeout_secs: app_config.distributed_compute_timeout_secs,
     };
 
-    // S2.4.a — the in-process tick loop has been removed. Temporal
-    // Schedules (created via `pipeline_schedule_client.create`) own
-    // exactly-once dispatch from now on. The legacy break-glass
-    // REST endpoints that polled `next_run_at` from Postgres have
-    // also been removed now that the migration is complete.
+    // S2.4.a / Tarea 3.5 — the in-process tick loop and Temporal
+    // Schedules adapter have both been removed. Cron dispatch is now
+    // owned by the `schedules-tick` K8s `CronJob` reading from
+    // `schedules.definitions` (see [`CronRegistrar`]).
 
     // Schedule + workflow surface. Auth is enforced by the layered middleware
     // (matches the `_user: AuthUser` extractors in every handler).
@@ -268,14 +265,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/schedules/preview", post(handlers::schedule::preview_windows))
         .route("/schedules/backfill", post(handlers::schedule::backfill_runs))
         .route(
-            "/schedules/temporal",
-            post(handlers::temporal_schedule::create_schedule),
-        )
-        .route(
-            "/schedules/temporal/{schedule_id}",
-            axum::routing::delete(handlers::temporal_schedule::delete_schedule),
-        )
-        .route(
             "/workflows/events/{event_name}",
             post(handlers::workflow::trigger_event),
         )
@@ -309,7 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .nest("/api/v1/data-integration", scheduler)
         .route("/healthz", get(|| async { "ok" }))
-        .layer(axum::Extension(pipeline_schedule_client))
+        .layer(axum::Extension(cron_registrar))
         .layer(axum::Extension(llm_client))
         .with_state(state);
 

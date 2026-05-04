@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use storage_abstraction::repositories::{IndexDoc, ObjectId, TenantId, TypeId};
 use thiserror::Error;
 
+pub mod schema;
+
 #[cfg(feature = "runtime")]
 pub mod runtime;
 

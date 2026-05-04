@@ -194,18 +194,11 @@ temporalWorkers:
           secretName: open-foundry-worker-secrets
           key: ontology-actions-bearer-token
           optional: true
-    pipeline-worker:
-      image:
-        repository: pipeline-worker
-      taskQueue: openfoundry.pipeline
-      env:
-        OF_PIPELINE_AUTHORING_URL: http://pipeline-authoring-service:8080
-        OF_PIPELINE_BUILD_URL: http://pipeline-build-service:8080
-      envSecrets:
-        OF_PIPELINE_BEARER_TOKEN:
-          secretName: open-foundry-worker-secrets
-          key: pipeline-bearer-token
-          optional: true
+    # `pipeline-worker` removed by Tarea 3.6: the Go/Temporal worker that
+    # owned the `openfoundry.pipeline` task queue has been replaced by the
+    # `pipeline-build-service` (which submits SparkApplication CRs) and the
+    # `schedules-tick` CronJob (which fires cron-driven runs). See ADR-0027
+    # and `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
     approvals-worker:
       image:
         repository: approvals-worker

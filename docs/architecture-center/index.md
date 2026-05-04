@@ -13,6 +13,8 @@ This section groups the repository-wide architecture pages that describe how Ope
 ## Architecture Decision Records
 
 - [ADR-0007 — Search engine choice (Vespa only, no OpenSearch)](/architecture/adr/ADR-0007-search-engine-choice)
+- [ADR-0037 — Foundry-pattern orchestration](/architecture/adr/ADR-0037-foundry-pattern-orchestration)
+- [ADR-0038 — Event contract and idempotency for Foundry-pattern orchestration](/architecture/adr/ADR-0038-event-contract-and-idempotency)
 
 ## Focus
 

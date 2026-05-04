@@ -198,21 +198,21 @@ Failure modes:
 - No tocar las secciones sobre Cassandra modeling, Vespa, Iceberg DR — esas siguen 100% válidas.
 ```
 
-### Tarea 0.4 — ADR-0028: contrato outbox + idempotencia
+### Tarea 0.4 — ADR-0038: contrato outbox + idempotencia
 
 ```text
 Context: Patrón Foundry depende fuertemente de outbox transaccional + Debezium + idempotencia
 en consumers. ADR-0022 ya cubre outbox; necesitamos un ADR específico que enuncie el contrato
 de event_id determinista + retry safety.
 
-Goal: ADR-0028 que documenta convenciones de eventos: schema, event_id determinista,
+Goal: ADR-0038 que documenta convenciones de eventos: schema, event_id determinista,
 idempotency key, dead-letter handling, retry policies.
 
 Steps:
-1. Crear `docs/architecture/adr/ADR-0028-event-contract-and-idempotency.md`.
+1. Crear `docs/architecture/adr/ADR-0038-event-contract-and-idempotency.md`.
 2. Contenido mínimo:
    - Status: Accepted
-   - Context: tras ADR-0027 todo workflow es event-driven; necesitamos contrato uniforme.
+   - Context: tras ADR-0037 todo workflow es event-driven; necesitamos contrato uniforme.
    - Decision:
      - Schema: cada evento usa Avro/JSON-Schema en Apicurio Registry.
      - Estructura común: `event_id`, `event_type`, `aggregate_id`, `aggregate_type`,
@@ -225,9 +225,9 @@ Steps:
      - Retry policy: in-app retries finitas (3-5) → DLQ → on-call review.
    - Consequences: positivas (cada consumer es seguro de retries), negativas (storage
      overhead de processed_events).
-3. Commit: `docs(adr): add ADR-0028 event contract and idempotency`
+3. Commit: `docs(adr): add ADR-0038 event contract and idempotency`
 
-Verification: `head -50 docs/architecture/adr/ADR-0028-event-contract-and-idempotency.md`
+Verification: `head -50 docs/architecture/adr/ADR-0038-event-contract-and-idempotency.md`
 muestra el documento completo.
 
 Failure modes: ninguno; documentación.
@@ -409,7 +409,7 @@ Failure modes:
 ### Tarea 1.4 — `libs/idempotency`: deduplication helper
 
 ```text
-Context: ADR-0028 exige idempotencia en todos los consumers. Helper común evita reimplementar.
+Context: ADR-0038 exige idempotencia en todos los consumers. Helper común evita reimplementar.
 
 Goal: crate `libs/idempotency/` con trait `IdempotencyStore` + impls Postgres y Cassandra.
 
@@ -653,6 +653,13 @@ Failure modes:
   Spark, documentar e investigar workaround. Probable: Workshop UI para queries vivos.
 ```
 
+**Status:** done — see [`docs/architecture/refactor/pipeline-worker-inventory.md`](refactor/pipeline-worker-inventory.md)
+for the full inventory (workflows, activities, HTTP endpoints, per-node
+transform dispatch, trigger surfaces, and the Temporal → Foundry-pattern
+migration table). Headline finding: `PipelineRun` uses no signals,
+queries, child workflows, timers, or `ContinueAsNew`, so no
+"Workshop-UI-for-live-queries" workaround is needed.
+
 ### Tarea 3.2 — Diseñar SparkApplication CRs templating
 
 ```text
@@ -709,6 +716,20 @@ Failure modes:
   Tarea 3.3 lo construye.
 ```
 
+**Status:** done — see
+[`infra/helm/infra/spark-jobs/templates/_pipeline-run-template.yaml`](../../infra/helm/infra/spark-jobs/templates/_pipeline-run-template.yaml)
+for the parameterised `SparkApplication` template (POSIX-style
+`${var}` placeholders, substituted at runtime by
+`pipeline-build-service`; the leading underscore makes Helm skip the
+file at install time so the chart still installs cleanly) and
+[`infra/helm/infra/spark-jobs/README-pipeline-run.md`](../../infra/helm/infra/spark-jobs/README-pipeline-run.md)
+for the placeholder reference, the render command (`envsubst`), and
+both the offline (Python YAML parse) and cluster-side
+(`kubectl --dry-run=client`) validation recipes. The retry policy and
+30-min start-to-close from `ExecutePipeline` are mapped 1:1 to
+`spec.restartPolicy` + `spec.timeToLiveSeconds`. WORM protection is
+inherited via `spec.driver.serviceAccount: spark-jobs-non-audit`.
+
 ### Tarea 3.3 — Construir imagen `pipeline-runner` (Spark + Iceberg + transforms)
 
 ```text
@@ -743,6 +764,24 @@ Failure modes:
 - Tamaño imagen: Spark base es ~600MB. Multi-stage build para reducir.
 - Iceberg version compatibility: Spark 3.5 + Iceberg 1.5+; pin específico.
 ```
+
+**Status:** done — see [`services/pipeline-runner/`](../../services/pipeline-runner/)
+([`README.md`](../../services/pipeline-runner/README.md)) for the
+multi-stage `Dockerfile` (jars stage → `eclipse-temurin:17-jdk` SBT
+builder → `apache/spark:3.5.4-scala2.12-java17-python3-ubuntu`
+runtime), the `build.sbt` (Scala 2.12, only `spark-sql % Provided` —
+zero third-party runtime deps), and `PipelineRunner.scala` (CLI parser,
+SparkSession bootstrap, HTTP fetch of the resolved transform spec from
+`pipeline-build-service` with a `--smoke` / 404-fallback that writes
+one row to the output Iceberg table so the SparkApplication CR
+template from 3.2 can be exercised end-to-end before 3.4 lands).
+Iceberg is pinned to `1.5.2` and Spark to `3.5.4`; bumping either
+requires a matching bump in `build.sbt` and the `Dockerfile`. Image
+size stays close to the apache/spark base — only the three pinned
+JARs are added to `/opt/spark/jars/`. The non-Rust skip list in
+[`tools/regenerate_service_dockerfiles.py`](../../tools/regenerate_service_dockerfiles.py)
+includes `pipeline-runner` so the existing Rust-Dockerfile
+regenerator leaves it untouched.
 
 ### Tarea 3.4 — Refactor `pipeline-build-service` para crear SparkApplication CRs
 
@@ -781,6 +820,38 @@ Failure modes:
   ['create','get','list','watch'] sobre sparkapplications.
 - Service quota: namespace puede tener LimitRange que rechaza pods con >X memoria. Ajustar.
 ```
+
+**Status:** done — implementation lives in
+[`services/pipeline-build-service/src/spark.rs`](../../services/pipeline-build-service/src/spark.rs)
+(template loaded via `include_str!` from the Tarea 3.2 chart, `${var}`
+substitution + YAML→JSON parse, `submit_pipeline_run` POSTs a
+`DynamicObject` against the `sparkoperator.k8s.io/v1beta2/sparkapplications`
+GVK, `get_pipeline_run_status` reads `.status.applicationState.state`
+and maps every Spark Operator state to {SUBMITTED, RUNNING, SUCCEEDED,
+FAILED, UNKNOWN}). The HTTP surface is in
+[`services/pipeline-build-service/src/handlers/spark_runs.rs`](../../services/pipeline-build-service/src/handlers/spark_runs.rs)
+(`POST /api/v1/pipeline/builds/run` + `GET /api/v1/pipeline/builds/{run_id}/status`),
+with state persisted in the new
+[`pipeline_run_submissions`](../../services/pipeline-build-service/migrations/20260504000080_pipeline_run_submissions.sql)
+table. `AppState` gains `kube_client: Option<kube::Client>` built via
+`kube::Client::try_default()` at boot — handlers respond with `503` when
+the client is unavailable (mirrors the existing `lifecycle_ports`
+pattern). RBAC for the SparkApplication CRD ships in
+[`infra/helm/apps/of-data-engine/templates/pipeline-build-service-spark-rbac.yaml`](../../infra/helm/apps/of-data-engine/templates/pipeline-build-service-spark-rbac.yaml)
+(`Role` with `create/get/list/watch/patch/delete` on
+`sparkapplications` + `sparkapplications/status` in the
+`openfoundry-spark` namespace, `RoleBinding` to the existing
+`pipeline-build-service` SA — gated by
+`services.pipeline-build-service.spark.rbac.create`, default `true`).
+Kube-client coverage lives in
+[`tests/spark_submit_kube_stub.rs`](../../services/pipeline-build-service/tests/spark_submit_kube_stub.rs)
+(`tower_test::mock` fake client, asserts the POST URI/body) plus 5
+unit tests in `src/spark.rs` for substitution, the 50-char composite
+name budget, status mapping, and placeholder leakage detection. The
+`temporal-client` dep was not present in `services/pipeline-build-service/Cargo.toml`
+to begin with (the service routes work through the workflow-service
+URL); no `temporal_*.rs` files existed under `domain/` either, so
+steps 2 + 3 of the task collapse to "nothing to remove".
 
 ### Tarea 3.5 — Refactor `pipeline-schedule-service` reemplazando temporal_schedule
 
@@ -943,6 +1014,10 @@ Failure modes:
 
 ### Tarea 4.3 — Eliminar `workers-go/reindex/`
 
+> **Status:** ✅ Completado. `workers-go/reindex/` removed; `workers-go/go.work` updated;
+> CI matrix (`go-workers.yml`) and `justfile go-tidy` already excluded `reindex`.
+> Replacement: `services/reindex-coordinator-service` (Tarea 4.2).
+
 ```text
 Mismo patrón que Tarea 3.6:
 - git rm -rf workers-go/reindex
@@ -953,6 +1028,27 @@ Mismo patrón que Tarea 3.6:
 ```
 
 ### Tarea 4.4 — Verificar consumer downstream (Vespa indexer)
+
+> **Status:** ✅ Completado.
+> - `services/ontology-indexer/schemas/ontology.reindex.v1.json` pins the
+>   wire format of records published to `ontology.reindex.v1`.
+> - `services/ontology-indexer` compiles the schema once at startup
+>   (`schema::ensure_compiled`, called from `runtime::run_with_metrics`)
+>   and validates every payload on the topic before decode; failures
+>   surface as the new `RecordOutcome::SchemaInvalid` metric label.
+> - Cross-service compatibility test
+>   (`services/reindex-coordinator-service/tests/reindex_v1_schema_compat.rs`)
+>   loads the consumer-owned schema and validates that
+>   `encode_batch_record` produces conformant records — both with and
+>   without the optional `embedding` field — so the producer cannot
+>   regress the contract silently.
+> - Helm chart `infra/helm/infra/kafka-cluster` registers the same
+>   schema artifact into Apicurio Registry on install/upgrade
+>   (`templates/apicurio-schemas-job.yaml`, gated by
+>   `apicurio.registerSchemas`) and pins compatibility to BACKWARD via
+>   the Apicurio Core API. Drift between the consumer copy and the
+>   chart copy is asserted by the
+>   `helm_chart_copy_is_in_sync_with_source` unit test.
 
 ```text
 Context: ontology-indexer consume `ontology.reindex.v1` y actualiza Vespa. Validar que
