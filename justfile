@@ -51,13 +51,6 @@ test-actions:
 test-cassandra:
     cargo test --workspace --features testing/it-cassandra -- --include-ignored
 
-# Run every Temporal-backed integration test across the workspace.
-# Crates opt in by exposing an `it-temporal` feature that turns on
-# `testing/it-temporal`. Requires Docker; each test boots an
-# ephemeral `temporalio/auto-setup:1.24` container.
-test-temporal:
-    cargo test --workspace --features testing/it-temporal -- --include-ignored
-
 # Boot a one-shot Cassandra 5 node on localhost:9042 for ad-hoc dev
 # work (cqlsh sessions, schema scratching). Foreground; Ctrl-C to
 # tear down. For a real multi-node dev cluster use the k8s manifests
@@ -108,30 +101,6 @@ run-gateway:
 # Run the OpenFoundry CLI
 of args='':
     cargo run -p of-cli -- {{args}}
-
-# ── Go workers (Temporal) ────────────────────────────────────
-
-# Build every Go worker under workers-go/. Uses the workspace go.work.
-go-build:
-    cd workers-go && go build ./...
-
-# Run go test across every module in workers-go/.
-go-test:
-    cd workers-go && go test ./...
-
-# Tidy go.sum across every module in workers-go/.
-# All Go workers retired by FASE 3-7 of the Foundry-pattern
-# migration (Tareas 3.6, 4.3, 5.4, 6.5, 7.5). Kept as a no-op
-# placeholder; FASE 9 cleanup removes workers-go/ entirely.
-go-tidy:
-    @echo "no Go workers remain; FASE 9 will remove workers-go/ entirely"
-
-# Run a single Temporal worker locally (foreground; Ctrl-C to stop).
-# Expects a running Temporal frontend on TEMPORAL_HOST_PORT
-# (default 127.0.0.1:7233 — boot one with
-# `docker run --rm -p 7233:7233 -p 8233:8233 temporalio/auto-setup:1.24`).
-go-worker name:
-    cd workers-go/{{name}} && go run .
 
 # ── Database ─────────────────────────────────────────────────
 
