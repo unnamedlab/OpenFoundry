@@ -124,6 +124,34 @@ migrations:
       name: pg-policy-app
       key: dsn
 
+# FASE 7 / Tarea 7.4 — `approvals-timeout-sweep` CronJob.
+# Drives the `pending → expired` transition on
+# `audit_compliance.approval_requests` rows past their `expires_at`.
+# Disabled by default; enable per-environment in
+# values-{dev,staging,prod}.yaml once the approvals-service image
+# carries the second binary.
+approvalsTimeoutSweep:
+  enabled: false
+  schedule: "*/5 * * * *"
+  logLevel: info
+  image:
+    repository: approvals-service
+    # Empty ⇒ inherit `global.imageTag`.
+    tag: ""
+  # When set, mounts DATABASE_URL from the named secret. Defaults
+  # to leaving DATABASE_URL unset, expecting the operator to wire
+  # it via `env`.
+  databaseUrlSecretName: ""
+  databaseUrlSecretKey: DATABASE_URL
+  env: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
 apollo:
   enabled: false
   schedule: "*/15 * * * *"

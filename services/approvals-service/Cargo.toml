@@ -26,6 +26,9 @@ workspace = true
 [dependencies.config]
 workspace = true
 
+[dependencies.anyhow]
+workspace = true
+
 [dependencies.async-trait]
 workspace = true
 
@@ -94,3 +97,13 @@ name = "approvals_service"
 path = "src/main.rs"
 name = "approvals-service"
 required-features = []
+
+# FASE 7 / Tarea 7.4 — `approvals-timeout-sweep` runs once and
+# exits, deployed as a Kubernetes `CronJob` (default schedule
+# every 5 min). Drives the `pending → expired` transition for
+# every row past its `expires_at` deadline and publishes
+# `approval.expired.v1` via the same outbox the synchronous
+# handlers use.
+[[bin]]
+path = "src/bin/approvals_timeout_sweep.rs"
+name = "approvals-timeout-sweep"

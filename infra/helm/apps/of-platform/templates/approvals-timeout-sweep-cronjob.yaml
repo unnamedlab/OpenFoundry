@@ -1,0 +1,96 @@
+{{- /*
+FASE 7 / Tarea 7.4 — `approvals-timeout-sweep` Kubernetes CronJob.
+
+Drives the `pending → expired` transition for every row in
+`audit_compliance.approval_requests` whose `expires_at` is past.
+Each invocation:
+
+  1. Connects to the same Postgres cluster as `approvals-service`
+     (DSN injected from the same secret).
+  2. Runs `state_machine::PgStore::<ApprovalRequest>::timeout_sweep`,
+     applies the `Expire` event, and INSERTs the matching
+     `approval.expired.v1` outbox row in one transaction per
+     approval.
+  3. Exits 0.
+
+Default schedule: every 5 minutes. Override with
+`approvalsTimeoutSweep.schedule`. Disable entirely (e.g. for
+local dev clusters with no Kafka) by setting
+`approvalsTimeoutSweep.enabled=false`.
+*/ -}}
+{{- if (.Values.approvalsTimeoutSweep.enabled | default false) }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: approvals-timeout-sweep
+  labels:
+    app.kubernetes.io/name: approvals-timeout-sweep
+    app.kubernetes.io/component: cronjob
+    app.kubernetes.io/part-of: approvals-service
+spec:
+  schedule: {{ (.Values.approvalsTimeoutSweep.schedule | default "*/5 * * * *") | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: approvals-timeout-sweep
+            app.kubernetes.io/component: cronjob
+            app.kubernetes.io/part-of: approvals-service
+        spec:
+          {{- with (.Values.global.imagePullSecrets | default (list)) }}
+          imagePullSecrets:
+            {{- range . }}
+            - name: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          restartPolicy: OnFailure
+          {{- with (.Values.global.podSecurityContext | default dict) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: approvals-timeout-sweep
+              # Image ships from the same approvals-service build —
+              # the binary `approvals-timeout-sweep` is packaged
+              # alongside `approvals-service` inside the same
+              # container (per services/approvals-service/Cargo.toml's
+              # second `[[bin]]` target).
+              {{- $registry := (.Values.global.imageRegistry | default "") }}
+              {{- $repository := (.Values.approvalsTimeoutSweep.image.repository | default "approvals-service") }}
+              {{- $tag := (.Values.approvalsTimeoutSweep.image.tag | default (.Values.global.imageTag | default "latest")) }}
+              {{- if $registry }}
+              image: {{ printf "%s/%s:%s" $registry $repository $tag | quote }}
+              {{- else }}
+              image: {{ printf "%s:%s" $repository $tag | quote }}
+              {{- end }}
+              imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+              command: ["/usr/local/bin/approvals-timeout-sweep"]
+              env:
+                - name: RUST_LOG
+                  value: {{ (.Values.approvalsTimeoutSweep.logLevel | default "info") | quote }}
+                {{- range $key, $value := (.Values.approvalsTimeoutSweep.env | default dict) }}
+                - name: {{ $key }}
+                  value: {{ $value | quote }}
+                {{- end }}
+                {{- if .Values.approvalsTimeoutSweep.databaseUrlSecretName }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.approvalsTimeoutSweep.databaseUrlSecretName }}
+                      key: {{ .Values.approvalsTimeoutSweep.databaseUrlSecretKey | default "DATABASE_URL" }}
+                {{- end }}
+              {{- with (.Values.global.containerSecurityContext | default dict) }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              resources:
+                {{- toYaml (.Values.approvalsTimeoutSweep.resources | default (dict
+                    "requests" (dict "cpu" "50m" "memory" "64Mi")
+                    "limits" (dict "cpu" "200m" "memory" "256Mi"))) | nindent 16 }}
+{{- end }}
