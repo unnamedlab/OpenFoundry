@@ -23,6 +23,10 @@
   - [ADR-0025](./ADR-0025-eliminate-custom-scheduler.md) — Eliminate the
     in-house scheduler. Replaced now by K8s `CronJob` → Kafka event, not by
     Temporal `ScheduleClient`.
+  - [ADR-0038](./ADR-0038-event-contract-and-idempotency.md) — Event contract
+    and idempotency for this orchestration model. Formalises the deterministic
+    `event_id`, consumer deduplication store and retry / DLQ rules referenced
+    by this ADR.
 - **Implementation plan:**
   [docs/architecture/migration-plan-foundry-pattern-orchestration.md](../migration-plan-foundry-pattern-orchestration.md).
 
@@ -115,7 +119,8 @@ Hard rules applied to every consumer/handler:
    (ADR-0011).
 3. **Idempotency is mandatory.** Every event carries `event_id` (UUID
    v5 over deterministic keys); consumers dedupe via per-schema
-   `processed_events` tables.
+   `processed_events` tables as specified in
+   [ADR-0038](./ADR-0038-event-contract-and-idempotency.md).
 4. **Saga choreography, not orchestration.** No central node directs
    the flow.
 5. **Compensations are explicit events.** A failure at step _n_

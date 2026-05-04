@@ -180,6 +180,8 @@ export default defineConfig({
             { text: "Capability map", link: "/architecture/capability-map" },
             { text: "ADR-0007 — Search engine choice", link: "/architecture/adr/ADR-0007-search-engine-choice" },
             { text: "ADR-0008 — Iceberg REST Catalog (Lakekeeper)", link: "/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper" },
+            { text: "ADR-0037 — Foundry-pattern orchestration", link: "/architecture/adr/ADR-0037-foundry-pattern-orchestration" },
+            { text: "ADR-0038 — Event contract and idempotency", link: "/architecture/adr/ADR-0038-event-contract-and-idempotency" },
           ],
         },
         {

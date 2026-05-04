@@ -198,21 +198,21 @@ Failure modes:
 - No tocar las secciones sobre Cassandra modeling, Vespa, Iceberg DR — esas siguen 100% válidas.
 ```
 
-### Tarea 0.4 — ADR-0028: contrato outbox + idempotencia
+### Tarea 0.4 — ADR-0038: contrato outbox + idempotencia
 
 ```text
 Context: Patrón Foundry depende fuertemente de outbox transaccional + Debezium + idempotencia
 en consumers. ADR-0022 ya cubre outbox; necesitamos un ADR específico que enuncie el contrato
 de event_id determinista + retry safety.
 
-Goal: ADR-0028 que documenta convenciones de eventos: schema, event_id determinista,
+Goal: ADR-0038 que documenta convenciones de eventos: schema, event_id determinista,
 idempotency key, dead-letter handling, retry policies.
 
 Steps:
-1. Crear `docs/architecture/adr/ADR-0028-event-contract-and-idempotency.md`.
+1. Crear `docs/architecture/adr/ADR-0038-event-contract-and-idempotency.md`.
 2. Contenido mínimo:
    - Status: Accepted
-   - Context: tras ADR-0027 todo workflow es event-driven; necesitamos contrato uniforme.
+   - Context: tras ADR-0037 todo workflow es event-driven; necesitamos contrato uniforme.
    - Decision:
      - Schema: cada evento usa Avro/JSON-Schema en Apicurio Registry.
      - Estructura común: `event_id`, `event_type`, `aggregate_id`, `aggregate_type`,
@@ -225,9 +225,9 @@ Steps:
      - Retry policy: in-app retries finitas (3-5) → DLQ → on-call review.
    - Consequences: positivas (cada consumer es seguro de retries), negativas (storage
      overhead de processed_events).
-3. Commit: `docs(adr): add ADR-0028 event contract and idempotency`
+3. Commit: `docs(adr): add ADR-0038 event contract and idempotency`
 
-Verification: `head -50 docs/architecture/adr/ADR-0028-event-contract-and-idempotency.md`
+Verification: `head -50 docs/architecture/adr/ADR-0038-event-contract-and-idempotency.md`
 muestra el documento completo.
 
 Failure modes: ninguno; documentación.
@@ -409,7 +409,7 @@ Failure modes:
 ### Tarea 1.4 — `libs/idempotency`: deduplication helper
 
 ```text
-Context: ADR-0028 exige idempotencia en todos los consumers. Helper común evita reimplementar.
+Context: ADR-0038 exige idempotencia en todos los consumers. Helper común evita reimplementar.
 
 Goal: crate `libs/idempotency/` con trait `IdempotencyStore` + impls Postgres y Cassandra.
 

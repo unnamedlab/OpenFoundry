@@ -17,6 +17,7 @@ follow.
 | [`ADR-0012-data-plane-slos.md`](./ADR-0012-data-plane-slos.md)                                                                            | Accepted | 2026-04-29 | Data-plane SLOs, SLIs and error budgets                                                |
 | [`ADR-0013-kafka-kraft-no-spof-policy.md`](./ADR-0013-kafka-kraft-no-spof-policy.md)                                                      | Accepted | 2026-04-30 | Kafka KRaft no-SPOF policy and upgrade procedure                                       |
 | [`ADR-0014-retire-trino-flight-sql-only.md`](./ADR-0014-retire-trino-flight-sql-only.md)                                                  | Accepted | 2026-04-30 | Retire Trino, single Flight SQL edge gateway                                           |
+| [`ADR-0038-event-contract-and-idempotency.md`](./ADR-0038-event-contract-and-idempotency.md)                                              | Accepted | 2026-05-04 | Event contract and idempotency for Foundry-pattern orchestration                       |
 
 ADR-0001 through ADR-0006 are historical placeholders and are intentionally
 not present in this repository: the data-plane consolidation effort that
@@ -62,8 +63,8 @@ disagrees, this README wins.
 
 ## Adding a new ADR
 
-1. Pick the next free four-digit number (currently **`ADR-0015`**) — never
-   reuse a previous number even if the ADR was retracted.
+1. Pick the next free four-digit number (currently **`ADR-0039`**) — never
+    reuse a previous number even if the ADR was retracted.
 2. Create `ADR-NNNN-short-kebab-title.md` in this directory.
 3. Use the standard heading layout already in place across `ADR-0007` …
    `ADR-0012`:
