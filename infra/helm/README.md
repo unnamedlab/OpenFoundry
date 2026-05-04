@@ -24,7 +24,6 @@ helm/
 │   ├── cassandra-cluster/  # K8ssandra Cluster CR + keyspaces Job
 │   ├── kafka-cluster/      # Strimzi Kafka + Topics + ACLs + Apicurio
 │   ├── ceph-cluster/       # Rook Ceph Cluster + ObjectStore + Bucket
-│   ├── temporal/           # upstream temporal chart + UI ingress
 │   ├── lakekeeper/         # upstream lakekeeper chart + region-B
 │   ├── debezium/           # KafkaConnect + outbox connectors
 │   ├── flink-jobs/         # FlinkDeployment + Iceberg maintenance
@@ -79,7 +78,7 @@ order between them:
 1. **Operators** — cert-manager, cnpg, k8ssandra-operator,
    strimzi-operator, rook-ceph-operator, flink-operator.
 2. **Infrastructure clusters / CRs** — postgres-clusters,
-   cassandra-cluster, kafka-cluster, ceph-cluster, temporal, lakekeeper,
+   cassandra-cluster, kafka-cluster, ceph-cluster, lakekeeper,
    debezium, flink-jobs, vespa, trino, spark-operator, spark-jobs, mimir,
    observability, local-registry.
 3. **Application** — of-platform first; then of-data-engine, of-ontology,
@@ -95,7 +94,7 @@ The dev profile keeps heavy releases off:
 | Release | dev | staging | prod |
 | --- | :---: | :---: | :---: |
 | Vespa, Trino, Spark, Mimir, Rook-Ceph, Flink | off | partial | on |
-| Cassandra, Kafka, Postgres, Temporal, Lakekeeper, Debezium | on | on | on |
+| Cassandra, Kafka, Postgres, Lakekeeper, Debezium | on | on | on |
 | local-registry | on | off | off |
 
 ## Adding a new release
@@ -114,7 +113,12 @@ The dev profile keeps heavy releases off:
 * `infra/k8s/platform/manifests/` — duplicate of root-level dirs.
 * `infra/k8s/helm/open-foundry/` — legacy umbrella chart (ADR-0031).
 * `infra/k8s/clickhouse/` — ClickHouse stack (no longer used).
-* Flux v2 `HelmRelease` for Temporal — replaced by an in-tree wrapper
-  chart that depends on the upstream `temporal/temporal` chart.
+* Flux v2 `HelmRelease` for Temporal — first replaced by an in-tree
+  wrapper chart, then retired entirely by FASE 9 / Tarea 9.1 of the
+  Foundry-pattern migration (ADR-0027). Pipelines run via
+  SparkApplication CRs; everything else uses Postgres state machines
+  + outbox + Kafka. The companion Cassandra keyspace cleanup
+  (`temporal_persistence`, `temporal_visibility`) is documented in
+  [`infra/runbooks/temporal.md`](../runbooks/temporal.md).
 * The split between `platform/helmfile.yaml.gotmpl` and
   `helm/helmfile.yaml.gotmpl` — collapsed into a single file.

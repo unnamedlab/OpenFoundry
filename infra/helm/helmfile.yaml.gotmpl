@@ -46,8 +46,6 @@ repositories:
     url: https://charts.rook.io/release
   - name: flink-operator
     url: https://downloads.apache.org/flink/flink-kubernetes-operator-1.13.0/
-  - name: temporal
-    url: https://go.temporal.io/helm-charts
   - name: lakekeeper
     url: https://lakekeeper.github.io/lakekeeper-charts
 
@@ -82,7 +80,6 @@ environments:
 {{- $postgresClustersInstalled := true -}}
 {{- $cassandraClusterInstalled := true -}}
 {{- $kafkaClusterInstalled     := true -}}
-{{- $temporalInstalled         := false -}}
 {{- $lakekeeperInstalled       := not $isDev -}}
 {{- /* observability ships PrometheusRule CRs — needs the Prometheus
        Operator CRDs to exist. Gate off in dev until kube-prometheus-stack
@@ -194,20 +191,14 @@ releases:
     values:
       - ./infra/ceph-cluster/values.yaml
 
-  - name: temporal
-    namespace: temporal
-    installed: {{ $temporalInstalled }}
-    chart: ./infra/temporal
-    # Schema-setup pre-install hook can take >5 min on a slow Cassandra
-    # cluster. Bump the install timeout and skip cleanup-on-fail so we
-    # can inspect a partial install state.
-    timeout: 1800
-    cleanupOnFail: false
-    needs:
-      - k8ssandra-operator/cassandra-cluster
-    values:
-      - ./infra/temporal/values.yaml
-      - ./infra/temporal/values-{{ $profile }}.yaml
+  # FASE 9 / Tarea 9.1 — the Temporal release was retired by
+  # ADR-0027 (Foundry-pattern orchestration). Pipelines run via
+  # SparkApplication CRs (FASE 3), reindex / workflow-automation /
+  # automation-ops / approvals each landed their own Postgres
+  # state machine + outbox + Kafka substrate. The Cassandra
+  # keyspaces `temporal_persistence` and `temporal_visibility`
+  # are dropped per the runbook at
+  # `infra/runbooks/temporal.md` (FASE 9 / Tarea 9.2).
 
   - name: lakekeeper
     namespace: lakekeeper
