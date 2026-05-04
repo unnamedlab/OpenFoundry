@@ -1,0 +1,43 @@
+[package]
+name = "saga"
+description = "Saga choreography helper for OpenFoundry — steps + compensations emitted via the transactional outbox (ADR-0037 / Tarea 1.2)"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+outbox = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+
+[features]
+default = []
+# Enables the heavy integration test that boots a Postgres testcontainer,
+# applies the saga + outbox migrations and exercises the full SagaRunner
+# round-trip. Off by default so `cargo test -p saga` stays a no-IO unit run.
+it-postgres = []
+
+[lib]
+path = "src/lib.rs"
+name = "saga"
+crate-type = ["lib"]

@@ -10298,6 +10298,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "saga"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "outbox",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "salsa20"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
