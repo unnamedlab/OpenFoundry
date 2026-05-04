@@ -1,3 +1,4 @@
+{{- if .Values.apicurio.enabled }}
 ---
 # Apicurio Registry (Apache-2.0) acts as the Schema Registry for Avro,
 # Protobuf and JSON Schema artifacts published to the Kafka data plane.
@@ -57,3 +58,4 @@ type: kubernetes.io/basic-auth
 stringData:
   username: apicurio
   password: change-me
+{{- end }}

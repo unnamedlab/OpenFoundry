@@ -1,1 +1,32 @@
-# Values for kafka-cluster. See templates/ for the resources rendered.
+# Strimzi Kafka cluster values.
+#
+# Defaults are prod-shaped per ADR-0013 (3 brokers, RF=3, ISR=2, KRaft).
+# Dev profile (values-dev.yaml) reduces to 1 broker, RF=1, ISR=1.
+#
+# Optional add-ons (topics, ACLs, NetworkPolicies, Apicurio Registry,
+# region-b mirror) are gated by flags so dev can run a minimal Kafka.
+
+kafka:
+  clusterName: openfoundry
+  version: "4.1.0"
+  metadataVersion: "4.1-IV1"
+  replicas: 3
+  roles: [controller, broker]
+  replicationFactor: 3
+  minInsyncReplicas: 2
+  numPartitions: 12
+  storageClass: ceph-rbd
+  storageSize: 200Gi
+  heapSize: 3072m
+  tlsListener: true
+  resources:
+    requests: { cpu: "1", memory: "4Gi" }
+    limits:   { cpu: "2", memory: "6Gi" }
+
+# Optional sub-resources.
+topics:           { enabled: true }
+acls:             { enabled: true }
+topicsDomainV1:   { enabled: true }
+networkPolicies:  { enabled: true }
+apicurio:         { enabled: true }
+regionB:          { enabled: false }

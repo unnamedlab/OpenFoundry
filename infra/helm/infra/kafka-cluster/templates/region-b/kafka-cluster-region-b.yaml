@@ -1,3 +1,4 @@
+{{- if .Values.regionB.enabled }}
 ---
 # S7.3 — Kafka cluster in region B (DR target).
 #
@@ -128,3 +129,4 @@ spec:
   entityOperator:
     topicOperator: {}
     userOperator: {}
+{{- end }}

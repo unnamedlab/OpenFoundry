@@ -81,8 +81,8 @@ environments:
 {{- $debeziumInstalled         := not $isDev -}}
 {{- $postgresClustersInstalled := true -}}
 {{- $cassandraClusterInstalled := true -}}
-{{- $kafkaClusterInstalled     := not $isDev -}}
-{{- $temporalInstalled         := not $isDev -}}
+{{- $kafkaClusterInstalled     := true -}}
+{{- $temporalInstalled         := false -}}
 {{- $lakekeeperInstalled       := not $isDev -}}
 {{- /* observability ships PrometheusRule CRs — needs the Prometheus
        Operator CRDs to exist. Gate off in dev until kube-prometheus-stack
@@ -183,6 +183,7 @@ releases:
       - kafka/strimzi-operator
     values:
       - ./infra/kafka-cluster/values.yaml
+      - ./infra/kafka-cluster/values-{{ $profile }}.yaml
 
   - name: ceph-cluster
     namespace: rook-ceph
@@ -197,6 +198,11 @@ releases:
     namespace: temporal
     installed: {{ $temporalInstalled }}
     chart: ./infra/temporal
+    # Schema-setup pre-install hook can take >5 min on a slow Cassandra
+    # cluster. Bump the install timeout and skip cleanup-on-fail so we
+    # can inspect a partial install state.
+    timeout: 1800
+    cleanupOnFail: false
     needs:
       - k8ssandra-operator/cassandra-cluster
     values:

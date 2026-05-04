@@ -474,3 +474,99 @@ export function listMediaSetTransactions(rid: string) {
   );
 }
 
+
+
+// ---------------------------------------------------------------------------
+// Access patterns + Usage (H5)
+// ---------------------------------------------------------------------------
+
+export type PersistencePolicy = 'RECOMPUTE' | 'PERSIST' | 'CACHE_TTL';
+
+export interface AccessPattern {
+  id: string;
+  media_set_rid: string;
+  kind: string;
+  params: Record<string, unknown>;
+  persistence: PersistencePolicy;
+  ttl_seconds: number;
+  created_at: string;
+  created_by: string;
+}
+
+export interface AccessPatternRunResponse {
+  pattern_id: string;
+  kind: string;
+  item_rid: string;
+  persistence: PersistencePolicy;
+  cache_hit: boolean;
+  compute_seconds: number;
+  output_mime_type: string;
+  output_storage_uri?: string;
+  output_bytes_base64?: string;
+  not_implemented_reason?: string;
+}
+
+export function listAccessPatterns(rid: string) {
+  return api.get<AccessPattern[]>(
+    `/media-sets/${encodeURIComponent(rid)}/access-patterns`,
+  );
+}
+
+export function registerAccessPattern(
+  rid: string,
+  body: {
+    kind: string;
+    params?: Record<string, unknown>;
+    persistence?: PersistencePolicy;
+    ttl_seconds?: number;
+  },
+) {
+  return api.post<AccessPattern>(
+    `/media-sets/${encodeURIComponent(rid)}/access-patterns`,
+    body,
+  );
+}
+
+export function runAccessPattern(patternId: string, itemRid: string) {
+  return api.get<AccessPatternRunResponse>(
+    `/access-patterns/${encodeURIComponent(patternId)}/run?item_rid=${encodeURIComponent(itemRid)}`,
+  );
+}
+
+// Usage / cost-meter feed for the Usage tab.
+export interface UsageBucketByKind {
+  kind: string;
+  invocations: number;
+  cache_hits: number;
+  compute_seconds: number;
+  input_bytes: number;
+}
+
+export interface UsageDailyPoint {
+  day: string; // ISO yyyy-mm-dd
+  kind: string;
+  compute_seconds: number;
+  input_bytes: number;
+}
+
+export interface UsageResponse {
+  since: string;
+  until: string;
+  total_compute_seconds: number;
+  total_input_bytes: number;
+  by_kind: UsageBucketByKind[];
+  by_day_kind: UsageDailyPoint[];
+}
+
+export function getMediaSetUsage(
+  rid: string,
+  params: { since?: string; until?: string } = {},
+) {
+  const query = new URLSearchParams();
+  if (params.since) query.set('since', params.since);
+  if (params.until) query.set('until', params.until);
+  const qs = query.toString();
+  return api.get<UsageResponse>(
+    `/media-sets/${encodeURIComponent(rid)}/usage${qs ? `?${qs}` : ''}`,
+  );
+}

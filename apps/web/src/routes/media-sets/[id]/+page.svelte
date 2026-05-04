@@ -35,12 +35,20 @@
   import MediaSetActivityPanel from '$lib/components/data/MediaSetActivityPanel.svelte';
   import MediaSetBranchPicker from '$lib/components/data/MediaSetBranchPicker.svelte';
   import MediaSetHistoryPanel from '$lib/components/data/MediaSetHistoryPanel.svelte';
+  import MediaSetUsagePanel from '$lib/components/data/MediaSetUsagePanel.svelte';
   import Glyph from '$lib/components/ui/Glyph.svelte';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import Tree from '$lib/components/ui/Tree.svelte';
   import { notifications as toasts } from '$stores/notifications';
 
-  type Tab = 'overview' | 'items' | 'schedules' | 'permissions' | 'activity' | 'history';
+  type Tab =
+    | 'overview'
+    | 'items'
+    | 'schedules'
+    | 'permissions'
+    | 'activity'
+    | 'history'
+    | 'usage';
 
   const PAGE_SIZE = 24;
 
@@ -109,7 +117,8 @@
     { key: 'schedules', label: 'Schedules' },
     { key: 'permissions', label: 'Permissions' },
     { key: 'activity', label: 'Activity' },
-    { key: 'history', label: 'History' }
+    { key: 'history', label: 'History' },
+    { key: 'usage', label: 'Usage' }
   ]);
 
   async function loadItems(reset = false) {
@@ -611,6 +620,10 @@
           void refreshBranches();
         }}
       />
+    {/if}
+  {:else if activeTab === 'usage'}
+    {#if mediaSet}
+      <MediaSetUsagePanel {mediaSet} />
     {/if}
   {/if}
 </div>

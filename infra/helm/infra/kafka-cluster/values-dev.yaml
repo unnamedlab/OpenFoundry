@@ -1,0 +1,24 @@
+# dev override for kafka-cluster: 1 broker KRaft combined, RF=1, ISR=1,
+# local-path storage, no TLS, no rack awareness, no topics/ACLs/Apicurio.
+# Topics will be created by KafkaTopic CRs added in later tasks once
+# we know which services actually consume them.
+
+kafka:
+  replicas: 1
+  replicationFactor: 1
+  minInsyncReplicas: 1
+  numPartitions: 3
+  storageClass: local-path
+  storageSize: 10Gi
+  heapSize: 1024m
+  tlsListener: false
+  resources:
+    requests: { cpu: "300m", memory: "1Gi" }
+    limits:   { cpu: "1",    memory: "2Gi" }
+
+topics:           { enabled: false }
+acls:             { enabled: false }
+topicsDomainV1:   { enabled: false }
+networkPolicies:  { enabled: false }
+apicurio:         { enabled: false }
+regionB:          { enabled: false }

@@ -1,3 +1,4 @@
+{{- if .Values.topics.enabled }}
 ---
 # Base data-plane topics for OpenFoundry. All topics use 12 partitions and
 # replication factor 3 (matching the cluster's `default.replication.factor`)
@@ -110,3 +111,4 @@ spec:
     cleanup.policy: delete
     retention.ms: "7776000000"       # 90d (compliance)
     compression.type: producer
+{{- end }}

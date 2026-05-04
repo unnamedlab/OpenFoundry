@@ -1,3 +1,4 @@
+{{- if .Values.acls.enabled }}
 ---
 # S4.2.b — Per-service ACLs for the versioned `<domain>.*.v1` topics.
 #
@@ -169,3 +170,4 @@ spec:
         operations: [Read, Describe]
       - resource: { type: group, name: ai-sink, patternType: literal }
         operations: [Read]
+{{- end }}

@@ -1,3 +1,4 @@
+{{- if .Values.topicsDomainV1.enabled }}
 ---
 # S4.2.a — Versioned domain topics owned by the outbox / EventRouter.
 #
@@ -140,3 +141,4 @@ spec:
     retention.ms: "604800000"        # 7d
     compression.type: producer
     segment.ms: "3600000"
+{{- end }}

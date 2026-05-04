@@ -1,3 +1,4 @@
+{{- if .Values.cassandraKeyspacesJob.enabled }}
 # Pre-create the Temporal keyspaces with the same replication shape as
 # the rest of the OpenFoundry application keyspaces (NetworkTopology
 # {dc1:3, dc2:3, dc3:3}). The Temporal Helm chart's schema-tool Job
@@ -67,3 +68,4 @@ spec:
               - { key: ca.crt,  path: ca.crt }
               - { key: tls.crt, path: tls.crt }
               - { key: tls.key, path: tls.key }
+{{- end }}

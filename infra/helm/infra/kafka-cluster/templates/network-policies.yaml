@@ -1,3 +1,4 @@
+{{- if .Values.networkPolicies.enabled }}
 ---
 # CiliumNetworkPolicy (cilium.io/v2) restricting which workloads can talk
 # to the Kafka brokers and to Apicurio Registry. This complements the
@@ -148,3 +149,4 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
+{{- end }}
