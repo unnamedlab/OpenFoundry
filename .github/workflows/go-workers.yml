@@ -29,7 +29,6 @@ jobs:
           # one worker doesn't bust the cache for the others.
           cache-dependency-path: |
             workers-go/approvals/go.sum
-            workers-go/automation-ops/go.sum
 
       - name: Verify go.work is in sync
         working-directory: workers-go
@@ -65,7 +64,6 @@ jobs:
       matrix:
         worker:
           - approvals
-          - automation-ops
     steps:
       - uses: actions/checkout@v6
       - name: Set up Docker Buildx

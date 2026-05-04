@@ -1992,6 +1992,13 @@ impl AutomationOpsClient {
     }
 }
 
+/// Legacy per-run input that used to be the Go workflow contract for
+/// `workflow_types::AUTOMATION_OPS_TASK`. The Go worker was retired
+/// by FASE 6 / Tarea 6.5 of the Foundry-pattern migration; this
+/// struct is kept around because `libs/temporal-client` still ships
+/// dead-code paths until the FASE 8 / Tarea 8.1 wholesale retirement.
+/// New code should publish to `saga.step.requested.v1` via
+/// `services/automation-operations-service` instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationOpsInput {
     pub task_id: Uuid,

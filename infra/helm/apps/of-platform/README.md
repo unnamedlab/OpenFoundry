@@ -6,7 +6,6 @@ standalone Kubernetes `Deployment` resources:
 | Deployment | Task queue | Metrics |
 |---|---|---|
 | `approvals-worker` | `openfoundry.approvals` | `:9090/metrics` |
-| `automation-ops-worker` | `openfoundry.automation-ops` | `:9090/metrics` |
 
 > **Note:** The `pipeline-worker` (task queue `openfoundry.pipeline`)
 > was removed by Tarea 3.6 of the Foundry-pattern migration. Pipeline
@@ -21,6 +20,17 @@ standalone Kubernetes `Deployment` resources:
 > `automate.condition.v1` from Kafka, dispatches the effect HTTP
 > call to `ontology-actions-service`, and publishes
 > `automate.outcome.v1` via the transactional outbox + Debezium.
+>
+> The `automation-ops-worker` (task queue
+> `openfoundry.automation-ops`) was removed by Tarea 6.5.
+> Saga-driven operations are now driven by the
+> `automation-operations-service` itself: it consumes
+> `saga.step.requested.v1` from Kafka, runs the matching step
+> graph through `libs/saga::SagaRunner`, and publishes
+> `saga.step.*.v1` lifecycle events via the transactional outbox.
+> Compensations execute LIFO inside the runner; the chaos test
+> at `services/automation-operations-service/tests/saga_chaos.rs`
+> validates the contract.
 
 Each worker gets `TEMPORAL_ADDRESS`, `TEMPORAL_HOST_PORT`,
 `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`, `METRICS_ADDR`, activity

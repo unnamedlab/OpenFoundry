@@ -14,17 +14,20 @@ workers-go/
 ├── README.md                 # this file
 ├── go.work                   # Go 1.23 workspace pinning the modules
 ├── go.work.sum               # Go workspace dependency hashes (generated)
-├── approvals/                # approval workflows with signals (S2.5)
-└── automation-ops/           # automation-operations workflows (S2.7)
+└── approvals/                # approval workflows with signals (S2.5)
 ```
 
 > The `reindex/` worker was removed in Tarea 4.3 (May 2026); it is now
 > [`services/reindex-coordinator-service`](../services/reindex-coordinator-service)
 > (Rust, Kafka-driven, Postgres-resumeable). Likewise, `pipeline/` was
 > superseded by [`services/pipeline-build-service`](../services/pipeline-build-service)
-> in Tarea 3.6, and `workflow-automation/` was superseded by
+> in Tarea 3.6, `workflow-automation/` was superseded by
 > [`services/workflow-automation-service`](../services/workflow-automation-service)
-> in Tarea 5.4 (Kafka condition consumer + outbox-driven outcomes).
+> in Tarea 5.4 (Kafka condition consumer + outbox-driven outcomes),
+> and `automation-ops/` was superseded by
+> [`services/automation-operations-service`](../services/automation-operations-service)
+> in Tarea 6.5 (Kafka saga consumer + libs/saga::SagaRunner with LIFO
+> compensation).
 
 Each subdirectory is an independent Go module producing one binary
 that registers a single task queue's workflows + activities.
@@ -104,6 +107,6 @@ documented in each module's `README.md`).
 
 Images and chart values live in
 [`infra/helm/apps/of-platform`](../infra/helm/apps/of-platform). The
-chart renders `approvals-worker` and `automation-ops-worker` as
-standalone Deployments with `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`,
-`TEMPORAL_TASK_QUEUE`, service-token secrets and `:9090/metrics`.
+chart renders `approvals-worker` as a standalone Deployment with
+`TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TASK_QUEUE`,
+service-token secrets and `:9090/metrics`.

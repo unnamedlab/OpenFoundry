@@ -208,17 +208,15 @@ temporalWorkers:
           secretName: open-foundry-worker-secrets
           key: audit-bearer-token
           optional: true
-    automation-ops-worker:
-      image:
-        repository: automation-ops-worker
-      taskQueue: openfoundry.automation-ops
-      env:
-        OF_AUTOMATION_OPS_URL: http://automation-operations-service:8080
-      envSecrets:
-        OF_AUTOMATION_OPS_BEARER_TOKEN:
-          secretName: open-foundry-worker-secrets
-          key: automation-ops-bearer-token
-          optional: true
+    # `automation-ops-worker` removed by Tarea 6.5: the
+    # Go/Temporal worker that owned the
+    # `openfoundry.automation-ops` task queue has been replaced by
+    # the `automation-operations-service` itself, which now
+    # consumes `saga.step.requested.v1` from Kafka, drives the
+    # matching step graph through `libs/saga::SagaRunner`, and
+    # publishes `saga.step.*.v1` events via the transactional
+    # outbox + Debezium. See ADR-0027 + ADR-0037 and FASE 6 of
+    # `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
 
 services:
   edge-gateway-service:
