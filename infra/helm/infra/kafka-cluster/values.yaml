@@ -77,9 +77,32 @@ topics:
     - name: automate.outcome.v1
       class: automate
       retentionMs: "1209600000"       # 14d (replay window for outcomes)
+    # approval.events.v1 — kept for legacy / broadcast feed (audit
+    # analytics pipelines that read the union of approval lifecycle
+    # events). The FASE 7 / Tarea 7.3 runtime publishes the typed
+    # `.v1` topics below; deprecation gate lives with the FASE 9
+    # cleanup of the legacy substrate.
     - name: approval.events.v1
       class: approval
       retentionMs: "2592000000"       # 30d (approval audit replay)
+    # FASE 7 / Tarea 7.2 — typed approval lifecycle topics.
+    # Wire-format payloads are pinned in
+    # `services/approvals-service/src/event.rs` (Tarea 7.3). The
+    # 30d retention matches `approval.events.v1` so audit consumers
+    # can replay the same window from either substrate during the
+    # cutover.
+    - name: approval.requested.v1
+      class: approval
+      retentionMs: "2592000000"
+    - name: approval.decided.v1
+      class: approval
+      retentionMs: "2592000000"
+    - name: approval.completed.v1
+      class: approval
+      retentionMs: "2592000000"
+    - name: approval.expired.v1
+      class: approval
+      retentionMs: "2592000000"
     - name: ontology.changes.v1
       class: ontology
     - name: ontology.reindex.v1
@@ -147,6 +170,10 @@ topics:
     - { name: __dlq.automate.condition.v1, class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.automate.outcome.v1,   class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.approval.events.v1,    class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.approval.requested.v1, class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.approval.decided.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.approval.completed.v1, class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.approval.expired.v1,   class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.ontology.changes.v1,   class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.ontology.reindex.v1,   class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.ontology.reindex.requested.v1, class: dlq, retentionMs: "1209600000" }
