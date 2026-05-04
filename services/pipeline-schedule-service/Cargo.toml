@@ -92,9 +92,8 @@ workspace = true
 [dependencies.storage-abstraction]
 workspace = true
 
-[dependencies.temporal-client]
+[dependencies.event-scheduler]
 workspace = true
-features = ["grpc"]
 
 [dependencies.thiserror]
 workspace = true
@@ -125,10 +124,14 @@ features = ["macros", "rt-multi-thread"]
 workspace = true
 
 [features]
-it-temporal = ["testing/it-temporal"]
 it-postgres = []
 
 [[bin]]
 path = "src/main.rs"
 name = "pipeline-schedule-service"
+required-features = []
+
+[[bin]]
+path = "src/bin/schedules-tick.rs"
+name = "schedules-tick"
 required-features = []
