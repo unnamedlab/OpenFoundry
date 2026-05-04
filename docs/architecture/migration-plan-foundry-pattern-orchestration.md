@@ -1014,6 +1014,10 @@ Failure modes:
 
 ### Tarea 4.3 — Eliminar `workers-go/reindex/`
 
+> **Status:** ✅ Completado. `workers-go/reindex/` removed; `workers-go/go.work` updated;
+> CI matrix (`go-workers.yml`) and `justfile go-tidy` already excluded `reindex`.
+> Replacement: `services/reindex-coordinator-service` (Tarea 4.2).
+
 ```text
 Mismo patrón que Tarea 3.6:
 - git rm -rf workers-go/reindex
