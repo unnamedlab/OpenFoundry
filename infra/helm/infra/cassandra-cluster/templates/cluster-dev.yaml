@@ -54,7 +54,12 @@ spec:
           limits:
             cpu: {{ .resources.limits.cpu | quote }}
             memory: {{ .resources.limits.memory }}
-        stargate: {}
+        # Stargate intentionally not declared. Per ADR-0020 services
+        # talk native CQL via `libs/cassandra-kernel`; an empty
+        # `stargate: {}` block triggers the operator to deploy a
+        # Stargate Pod that nothing consumes (and that crash-loops
+        # on small dev nodes). Adding this back requires a service
+        # that needs the REST/GraphQL gateway.
 
   {{- if .reaper.enabled }}
   reaper:

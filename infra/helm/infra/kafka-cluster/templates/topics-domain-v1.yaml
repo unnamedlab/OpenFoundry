@@ -16,7 +16,7 @@
 # which remain in place for backward compatibility during S4.5
 # consumer wiring. Once every consumer is on `*.v1`, the legacy
 # topics are decommissioned in S5.5.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: ontology.object.changed.v1
@@ -36,7 +36,7 @@ spec:
     compression.type: producer
     segment.ms: "3600000"
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: ontology.action.applied.v1
@@ -60,7 +60,7 @@ spec:
 # Iceberg sink (`audit-sink`, S4.5/S5.1) takes ownership of long-term
 # storage. Until the sink is live we cap retention at 1y; after the
 # sink is wired we lower it to the buffer window only.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: audit.events.v1
@@ -82,7 +82,7 @@ spec:
     compression.type: producer
     segment.ms: "86400000"
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: lineage.events.v1
@@ -102,7 +102,7 @@ spec:
     segment.ms: "3600000"
 ---
 # DLQ for the outbox connector. RF=3 + ISR=2.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: __dlq.outbox-pg-policy.v1
@@ -124,7 +124,7 @@ spec:
 # service`. Consumer: `ai-sink` (S5.3.b) materialising into
 # `of_ai.{prompts,responses,evaluations,traces}`. Retention is 7d:
 # Iceberg is the SoR, Kafka is just the buffer.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: ai.events.v1

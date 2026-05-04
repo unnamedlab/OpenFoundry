@@ -1,3 +1,4 @@
+{{- if .Values.kafkaAuth.enabled }}
 ---
 # S4.1.b / S4.2.b — KafkaUser used by the Debezium Connect cluster
 # defined in `kafka-connect.yaml`.
@@ -14,7 +15,7 @@
 # We deliberately do NOT grant cluster-wide CREATE — Strimzi's Topic
 # Operator owns topic creation via `KafkaTopic` CRs. Auto-create is
 # disabled at the broker level.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: debezium-connect-user
@@ -84,3 +85,4 @@ spec:
           name: debezium-
           patternType: prefix
         operations: [Write, Describe]
+{{- end }}

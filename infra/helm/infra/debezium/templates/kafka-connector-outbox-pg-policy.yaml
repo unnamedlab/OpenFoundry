@@ -12,7 +12,7 @@
 # Unpause:
 #   kubectl annotate kafkaconnector/outbox-pg-policy -n kafka \
 #     strimzi.io/pause-reconciliation="false" --overwrite
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnector
 metadata:
   name: outbox-pg-policy

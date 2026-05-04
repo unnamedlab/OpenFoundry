@@ -1,1 +1,11 @@
 # Values for debezium. See templates/ for the resources rendered.
+
+# Kafka authentication. In production we mount a Strimzi-issued TLS
+# user certificate and authorize via simple ACLs (the prod/staging
+# Kafka cluster has both `tlsListener: true` and `authorization.type:
+# simple`). In dev the Kafka cluster runs a single PLAINTEXT listener
+# on 9092 with no authorizer — set this to `false` to render the
+# Connect cluster pointed at 9092 with no `authentication`/`tls`
+# blocks and to skip the `KafkaUser` resource entirely.
+kafkaAuth:
+  enabled: true

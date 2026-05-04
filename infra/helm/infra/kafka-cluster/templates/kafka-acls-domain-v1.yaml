@@ -22,7 +22,7 @@
 #
 # All consumer ACLs are scoped to a literal `group` matching the
 # service name to keep blast radius bounded.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: ontology-indexer
@@ -44,7 +44,7 @@ spec:
       - resource: { type: group, name: ontology-indexer, patternType: literal }
         operations: [Read]
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: audit-sink
@@ -64,7 +64,7 @@ spec:
       - resource: { type: group, name: audit-sink, patternType: literal }
         operations: [Read]
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: lineage-service
@@ -91,7 +91,7 @@ spec:
       - resource: { type: transactionalId, name: lineage-service-, patternType: prefix }
         operations: [Write, Describe]
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: notification-alerting-service
@@ -118,7 +118,7 @@ spec:
 # publish to a separate `ai.events.v1` topic introduced in S5.3.a; the
 # ACL is pre-declared here so the topic CR can land later without ACL
 # drift.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: agent-runtime-service
@@ -141,7 +141,7 @@ spec:
 # `prompt-workflow-service` — second producer on `ai.events.v1`
 # (S5.3.a). Separate transactional-id prefix so Kafka can fence the
 # two producers independently.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: prompt-workflow-service
@@ -158,7 +158,7 @@ spec:
 ---
 # `ai-sink` — single consumer of `ai.events.v1`. Read-only on the
 # topic + Read on its consumer group (S5.3.b).
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: ai-sink

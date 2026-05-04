@@ -17,7 +17,7 @@
 #     same rack awareness on `topology.kubernetes.io/zone` — the cluster
 #     is structurally identical so an application failover does not need
 #     to learn a new contract.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: kafka
@@ -64,7 +64,7 @@ spec:
               strimzi.io/cluster: openfoundry-b
               strimzi.io/pool-name: kafka
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: openfoundry-b

@@ -40,7 +40,7 @@
 # normal load. Monitored via the JMX metrics scraped by the Strimzi
 # operator (`KafkaConnect.connector-metrics`) and the
 # `kafka_connect_mirror_source_connector_replication_latency_ms` gauge.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaMirrorMaker2
 metadata:
   name: of-mm2-a-to-b

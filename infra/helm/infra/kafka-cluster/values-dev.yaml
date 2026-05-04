@@ -17,7 +17,10 @@ kafka:
     limits:   { cpu: "1",    memory: "2Gi" }
 
 topics:           { enabled: true }
-acls:             { enabled: true }
+# Dev runs a single PLAINTEXT listener on 9092 with no authorizer
+# (`tlsListener: false` above). Simple ACLs require a broker-side
+# authorizer + tls listener and are turned on in staging/prod.
+acls:             { enabled: false }
 topicsDomainV1:   { enabled: false }
 networkPolicies:  { enabled: false }
 apicurio:         { enabled: false }

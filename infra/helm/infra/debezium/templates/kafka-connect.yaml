@@ -9,7 +9,7 @@
 # Internal Connect topics (`config`, `offset`, `status`) use RF=3
 # and are owned exclusively by this Connect cluster (see ACLs in
 # `kafka-user-debezium-connect.yaml`).
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
   name: debezium
@@ -20,8 +20,20 @@ metadata:
   annotations:
     strimzi.io/use-connector-resources: "true"
 spec:
-  replicas: 2
-  bootstrapServers: openfoundry-kafka-bootstrap.kafka.svc:9093
+  replicas: 1
+  bootstrapServers: openfoundry-kafka-bootstrap.kafka.svc:{{ if .Values.kafkaAuth.enabled }}9093{{ else }}9092{{ end }}
+  # Strimzi 1.0 promoted these from `spec.config` to first-class
+  # fields and made them required.
+  groupId: debezium-connect
+  configStorageTopic: __debezium-connect-configs
+  offsetStorageTopic: __debezium-connect-offsets
+  statusStorageTopic: __debezium-connect-status
+  # Pre-built upstream Debezium image. Includes the Postgres
+  # connector and JSON converters; the Apicurio Avro converter is
+  # the production path (added via a Strimzi `build:` block once
+  # Apicurio is deployed) but JSON is enough for dev.
+  image: quay.io/debezium/connect:2.7.0.Final
+  {{- if .Values.kafkaAuth.enabled }}
   authentication:
     type: tls
     certificateAndKey:
@@ -32,31 +44,18 @@ spec:
     trustedCertificates:
       - secretName: openfoundry-cluster-ca-cert
         certificate: ca.crt
+  {{- end }}
   config:
-    group.id: debezium-connect
-    # Each cluster's internal topics — RF 3, ISR 2 to match the data
-    # plane's durability budget.
-    config.storage.topic: __debezium-connect-configs
-    offset.storage.topic: __debezium-connect-offsets
-    status.storage.topic: __debezium-connect-status
-    config.storage.replication.factor: 3
-    offset.storage.replication.factor: 3
-    status.storage.replication.factor: 3
+    # Single-broker dev — RF and ISR cannot exceed broker count.
+    config.storage.replication.factor: 1
+    offset.storage.replication.factor: 1
+    status.storage.replication.factor: 1
     config.storage.partitions: 1
-    offset.storage.partitions: 50
+    offset.storage.partitions: 25
     status.storage.partitions: 5
-    # Use Apicurio's Avro converter — schema-registry-aware, OSS,
-    # Apache-2.0. We deliberately avoid Confluent's converter.
-    key.converter: io.apicurio.registry.utils.converter.AvroConverter
-    value.converter: io.apicurio.registry.utils.converter.AvroConverter
-    key.converter.apicurio.registry.url: http://apicurio-registry.apicurio:8080/apis/registry/v2
-    value.converter.apicurio.registry.url: http://apicurio-registry.apicurio:8080/apis/registry/v2
-    key.converter.apicurio.registry.auto-register: "true"
-    value.converter.apicurio.registry.auto-register: "true"
-    key.converter.apicurio.registry.find-latest: "true"
-    value.converter.apicurio.registry.find-latest: "true"
-    # Internal converters stay JSON without schemas — they only carry
-    # Connect's own state.
+    # Default JSON converters (Apicurio Avro is the prod-only path).
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
     key.converter.schemas.enable: "false"
     value.converter.schemas.enable: "false"
     # Producer hardening: full ISR ack, idempotence, deterministic
@@ -71,20 +70,6 @@ spec:
     consumer.fetch.min.bytes: "1"
     # Health & observability.
     metrics.recording.level: INFO
-  build:
-    output:
-      type: docker
-      image: registry.local/openfoundry/debezium-connect:2.7.0
-      pushSecret: registry-local-pull
-    plugins:
-      - name: debezium-connector-postgres
-        artifacts:
-          - type: tgz
-            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz
-      - name: apicurio-avro-converter
-        artifacts:
-          - type: tgz
-            url: https://repo1.maven.org/maven2/io/apicurio/apicurio-registry-distro-connect-converter/2.6.4.Final/apicurio-registry-distro-connect-converter-2.6.4.Final.tar.gz
   resources:
     requests:
       cpu: "1"

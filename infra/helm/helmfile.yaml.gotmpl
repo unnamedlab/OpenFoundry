@@ -218,6 +218,11 @@ releases:
       - {{ $ns }}/postgres-clusters
     values:
       - ./infra/debezium/values.yaml
+      {{- if $isDev }}
+      # Dev kafka cluster runs a single PLAINTEXT listener on 9092
+      # with no authorizer; mirror that here.
+      - kafkaAuth: { enabled: false }
+      {{- end }}
 
   - name: flink-jobs
     namespace: flink
