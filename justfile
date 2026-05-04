@@ -121,7 +121,6 @@ go-test:
 
 # Tidy go.sum across every module in workers-go/.
 go-tidy:
-    cd workers-go/workflow-automation && go mod tidy
     cd workers-go/approvals && go mod tidy
     cd workers-go/automation-ops && go mod tidy
 

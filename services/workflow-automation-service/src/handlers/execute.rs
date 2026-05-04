@@ -1,3 +1,21 @@
+//! HTTP execution handlers — every inbound producer path
+//! (`manual`, `webhook`, `lineage_build`, internal-triggered) lands
+//! here and publishes an `automate.condition.v1` event via the
+//! transactional outbox plus an `automation_runs` row in the same
+//! Postgres transaction. The condition consumer (see
+//! [`crate::domain::condition_consumer`]) picks the event up and
+//! drives the dispatch.
+//!
+//! FASE 5 / Tarea 5.3 deliverable. Replaces the legacy
+//! `TemporalAdapter::start_run` path; the adapter file is left in
+//! place because `handlers/approvals.rs` still uses
+//! `temporal_client::ApprovalsClient` until FASE 7 retires the
+//! Temporal-backed approvals worker. The HTTP routes themselves
+//! keep their old shapes so callers (UI, webhook senders,
+//! `pipeline-service::trigger_lineage_builds`,
+//! `pipeline-schedule-service::workflow_run_requested`) do not need
+//! to change.
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -5,18 +23,26 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::Utc;
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    domain::temporal_adapter::{StartRunRequest as TemporalStartRunRequest, TemporalAdapter},
+    domain::automation_run::AutomationRun,
+    domain::condition_consumer::AUTOMATION_RUNS_TABLE,
+    event::{AutomateConditionV1, derive_run_id, tenant_uuid_from_str},
     handlers::crud::load_workflow,
     models::{
-        execution::InternalLineageRunRequest, execution::InternalTriggeredRunRequest,
-        execution::StartRunRequest, execution::TriggerEventRequest, workflow::WorkflowDefinition,
+        execution::{
+            InternalLineageRunRequest, InternalTriggeredRunRequest, StartRunRequest,
+            TriggerEventRequest,
+        },
+        workflow::WorkflowDefinition,
     },
+    topics::AUTOMATE_CONDITION_V1,
 };
+use outbox::OutboxEvent;
+use state_machine::{PgStore, StateMachine};
 
 pub async fn start_manual_run(
     State(state): State<AppState>,
@@ -24,13 +50,7 @@ pub async fn start_manual_run(
     auth_middleware::layer::AuthUser(claims): auth_middleware::layer::AuthUser,
     Json(body): Json<StartRunRequest>,
 ) -> impl IntoResponse {
-    let Some(workflow) = (match load_workflow(&state, workflow_id).await {
-        Ok(workflow) => workflow,
-        Err(error) => {
-            tracing::error!("manual run lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
+    let Some(workflow) = load_or_404(&state, workflow_id).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
@@ -46,13 +66,7 @@ pub async fn trigger_webhook(
     headers: HeaderMap,
     Json(body): Json<TriggerEventRequest>,
 ) -> impl IntoResponse {
-    let Some(workflow) = (match load_workflow(&state, workflow_id).await {
-        Ok(workflow) => workflow,
-        Err(error) => {
-            tracing::error!("webhook lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
+    let Some(workflow) = load_or_404(&state, workflow_id).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
@@ -74,21 +88,14 @@ pub async fn trigger_webhook(
         }
     }
 
-    match dispatch_run(
-        &state,
-        &workflow,
-        "webhook",
-        None,
-        json!({
-            "trigger": {
-                "type": "webhook",
-                "workflow_id": workflow_id,
-            },
-            "payload": body.context,
-        }),
-    )
-    .await
-    {
+    let context = json!({
+        "trigger": {
+            "type": "webhook",
+            "workflow_id": workflow_id,
+        },
+        "payload": body.context,
+    });
+    match dispatch_run(&state, &workflow, "webhook", None, context).await {
         Ok(run) => (StatusCode::CREATED, Json(run)).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
     }
@@ -99,13 +106,7 @@ pub async fn start_internal_lineage_run(
     Path(workflow_id): Path<Uuid>,
     Json(body): Json<InternalLineageRunRequest>,
 ) -> impl IntoResponse {
-    let Some(workflow) = (match load_workflow(&state, workflow_id).await {
-        Ok(workflow) => workflow,
-        Err(error) => {
-            tracing::error!("internal lineage run lookup failed: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
+    let Some(workflow) = load_or_404(&state, workflow_id).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
@@ -162,45 +163,62 @@ pub async fn execute_internal_triggered_run(
     .await
 }
 
+/// Single funnel for every inbound producer. Inserts the
+/// `automation_runs` row at `state=Queued` and enqueues the
+/// `automate.condition.v1` outbox event in the same Postgres
+/// transaction. Tarea 5.3 invariant: row exists ⇔ Debezium has
+/// (or will have) the condition event.
 async fn dispatch_run(
     state: &AppState,
     workflow: &WorkflowDefinition,
     trigger_type: &str,
     started_by: Option<Uuid>,
-    context: serde_json::Value,
+    context: Value,
 ) -> Result<crate::models::execution::WorkflowRun, String> {
     if workflow.status != "active" && trigger_type != "manual" {
         return Err("workflow must be active for automatic execution".to_string());
     }
 
-    let run_id = Uuid::now_v7();
-    let adapter = TemporalAdapter::new(
-        state.workflow_client.clone(),
-        state.temporal_namespace.clone(),
-    );
-    let start_request = TemporalStartRunRequest {
-        run_id,
+    let correlation_id = Uuid::now_v7();
+    let run_id = derive_run_id(workflow.id, correlation_id);
+    let tenant_id_str = workflow_tenant_id(workflow);
+
+    let condition = AutomateConditionV1 {
         definition_id: workflow.id,
-        tenant_id: workflow_tenant_id(workflow),
+        tenant_id: tenant_id_str.clone(),
+        correlation_id,
         triggered_by: started_by
             .map(|value| value.to_string())
             .unwrap_or_else(|| "system".to_string()),
+        trigger_type: trigger_type.to_string(),
         trigger_payload: context.clone(),
     };
 
-    let handle = adapter
-        .start_run(&start_request, run_id)
-        .await
-        .map_err(|error| error.to_string())?;
+    let run = AutomationRun::new(
+        run_id,
+        tenant_uuid_from_str(&tenant_id_str),
+        workflow.id,
+        correlation_id,
+        None,
+    );
 
-    let _ = sqlx::query(
+    let mut tx = state.db.begin().await.map_err(|e| e.to_string())?;
+    insert_automation_run_in_tx(&mut tx, &run)
+        .await
+        .map_err(|e| e.to_string())?;
+    enqueue_condition_in_tx(&mut tx, run_id, &condition)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
         r#"UPDATE workflows
            SET last_triggered_at = NOW(), updated_at = NOW()
            WHERE id = $1"#,
     )
     .bind(workflow.id)
-    .execute(&state.db)
-    .await;
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(accepted_run(
         workflow.id,
@@ -208,8 +226,65 @@ async fn dispatch_run(
         trigger_type,
         started_by,
         context,
-        handle.run_id.0,
+        correlation_id,
     ))
+}
+
+async fn insert_automation_run_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run: &AutomationRun,
+) -> Result<(), sqlx::Error> {
+    let payload = serde_json::to_value(run).map_err(|err| sqlx::Error::Decode(Box::new(err)))?;
+    let state = AutomationRun::state_str(run.current_state());
+    let expires_at = StateMachine::expires_at(run);
+    sqlx::query(&format!(
+        "INSERT INTO {table} \
+         (id, state, state_data, version, expires_at, created_at, updated_at) \
+         VALUES ($1, $2, $3, 1, $4, now(), now()) \
+         ON CONFLICT (id) DO NOTHING",
+        table = AUTOMATION_RUNS_TABLE
+    ))
+    .bind(run.aggregate_id())
+    .bind(&state)
+    .bind(&payload)
+    .bind(expires_at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn enqueue_condition_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run_id: Uuid,
+    condition: &AutomateConditionV1,
+) -> Result<(), outbox::OutboxError> {
+    let payload = serde_json::to_value(condition)?;
+    let event_id = crate::event::derive_condition_event_id(
+        condition.definition_id,
+        condition.correlation_id,
+    );
+    let event = OutboxEvent::new(
+        event_id,
+        "automation_run",
+        run_id.to_string(),
+        AUTOMATE_CONDITION_V1,
+        payload,
+    )
+    .with_header("x-audit-correlation-id", condition.correlation_id.to_string())
+    .with_header("ol-job", format!("automation_run/{}", condition.tenant_id))
+    .with_header("ol-run-id", run_id.to_string())
+    .with_header("ol-producer", "workflow-automation-service");
+    outbox::enqueue(tx, event).await
+}
+
+async fn load_or_404(state: &AppState, workflow_id: Uuid) -> Option<WorkflowDefinition> {
+    match load_workflow(state, workflow_id).await {
+        Ok(workflow) => workflow,
+        Err(error) => {
+            tracing::error!("workflow lookup failed: {error}");
+            None
+        }
+    }
 }
 
 fn workflow_tenant_id(workflow: &WorkflowDefinition) -> String {
@@ -226,22 +301,35 @@ fn accepted_run(
     run_id: Uuid,
     trigger_type: &str,
     started_by: Option<Uuid>,
-    context: serde_json::Value,
-    temporal_run_id: String,
+    context: Value,
+    correlation_id: Uuid,
 ) -> crate::models::execution::WorkflowRun {
     crate::models::execution::WorkflowRun {
         id: run_id,
         workflow_id,
         trigger_type: trigger_type.to_string(),
+        // The row lands in `Queued` and the consumer flips to
+        // `Running` within milliseconds — surface `running` here so
+        // the UI does not have to special-case the brief Queued
+        // window. Operators with deeper visibility hit
+        // `automation_runs.state` directly for the precise value.
         status: "running".to_string(),
         started_by,
         current_step_id: None,
         context: json!({
             "input": context,
-            "temporal": {
-                "workflow_id": format!("workflow-automation:{run_id}"),
-                "run_id": temporal_run_id,
-                "authoritative": true,
+            "automate": {
+                "run_id": run_id,
+                "correlation_id": correlation_id,
+                "topic": AUTOMATE_CONDITION_V1,
+                // Compatibility shim: the legacy field name
+                // `temporal.authoritative` is what the UI
+                // currently pattern-matches on. We map it to
+                // `false` so the front-end falls back to reading
+                // the live row from `GET /workflows/{id}/runs`
+                // (Postgres-backed, single source of truth in the
+                // Foundry-pattern runtime).
+                "authoritative": false,
             }
         }),
         error_message: None,
@@ -255,10 +343,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepted_run_returns_api_compatible_temporal_state() {
+    fn accepted_run_returns_api_compatible_state() {
         let workflow_id = Uuid::now_v7();
         let run_id = Uuid::now_v7();
         let started_by = Uuid::now_v7();
+        let correlation_id = Uuid::now_v7();
 
         let run = accepted_run(
             workflow_id,
@@ -266,7 +355,7 @@ mod tests {
             "manual",
             Some(started_by),
             json!({"customer_id": "c-1"}),
-            "temporal-run-1".into(),
+            correlation_id,
         );
 
         assert_eq!(run.id, run_id);
@@ -274,11 +363,12 @@ mod tests {
         assert_eq!(run.status, "running");
         assert_eq!(run.started_by, Some(started_by));
         assert_eq!(run.context["input"]["customer_id"], "c-1");
+        assert_eq!(run.context["automate"]["run_id"], run_id.to_string());
         assert_eq!(
-            run.context["temporal"]["workflow_id"],
-            format!("workflow-automation:{run_id}")
+            run.context["automate"]["correlation_id"],
+            correlation_id.to_string()
         );
-        assert_eq!(run.context["temporal"]["run_id"], "temporal-run-1");
-        assert_eq!(run.context["temporal"]["authoritative"], true);
+        assert_eq!(run.context["automate"]["topic"], AUTOMATE_CONDITION_V1);
+        assert_eq!(run.context["automate"]["authoritative"], false);
     }
 }

@@ -27,6 +27,15 @@
 -- `definition_id`, `correlation_id`) so dashboards and operator
 -- queries do not have to crack open `state_data`.
 --
+-- The schema is created here with `CREATE SCHEMA IF NOT EXISTS` so
+-- this migration is portable across both topologies (the dedicated
+-- `workflow-automation-pg` cluster, where the schema does not exist
+-- a priori, AND `pg-runtime-config`, where the bootstrap already
+-- created it). The owning role differs per cluster — there is no
+-- AUTHORIZATION clause here on purpose; defaults are inherited
+-- from the cluster bootstrap.
+CREATE SCHEMA IF NOT EXISTS workflow_automation;
+
 -- Per the migration plan FASE 5 / Tarea 5.2, the allowed states are:
 --
 --     queued       — row created from a `automate.condition.v1`

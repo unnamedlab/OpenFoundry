@@ -14,8 +14,6 @@ workers-go/
 ├── README.md                 # this file
 ├── go.work                   # Go 1.23 workspace pinning the modules
 ├── go.work.sum               # Go workspace dependency hashes (generated)
-├── workflow-automation/      # business automations (S2.3)
-├── pipeline/                 # pipeline runs + Temporal Schedules (S2.4)
 ├── approvals/                # approval workflows with signals (S2.5)
 └── automation-ops/           # automation-operations workflows (S2.7)
 ```
@@ -24,7 +22,9 @@ workers-go/
 > [`services/reindex-coordinator-service`](../services/reindex-coordinator-service)
 > (Rust, Kafka-driven, Postgres-resumeable). Likewise, `pipeline/` was
 > superseded by [`services/pipeline-build-service`](../services/pipeline-build-service)
-> in Tarea 3.6.
+> in Tarea 3.6, and `workflow-automation/` was superseded by
+> [`services/workflow-automation-service`](../services/workflow-automation-service)
+> in Tarea 5.4 (Kafka condition consumer + outbox-driven outcomes).
 
 Each subdirectory is an independent Go module producing one binary
 that registers a single task queue's workflows + activities.
@@ -75,7 +75,7 @@ docker run --rm -p 7233:7233 -p 8233:8233 temporalio/temporal:1.7.0 \
   --search-attribute audit_correlation_id=Keyword
 
 # Run one worker.
-just go-worker workflow-automation
+just go-worker approvals
 ```
 
 ## Temporal E2E
@@ -85,7 +85,6 @@ The Rust integration tests can start their own
 modules with `go run .`.
 
 ```bash
-cargo test -p workflow-automation-service --features it-temporal --test temporal_e2e -- --test-threads=1
 cargo test -p pipeline-schedule-service --features it-temporal --test temporal_schedule_idempotency -- --test-threads=1
 ```
 
@@ -104,8 +103,7 @@ and `MaxConcurrentActivityExecutionSize` knobs (set via env vars,
 documented in each module's `README.md`).
 
 Images and chart values live in
-[`infra/k8s/helm/of-platform`](../infra/k8s/helm/of-platform). The
-chart renders `workflow-automation-worker`, `pipeline-worker`,
-`approvals-worker`, and `automation-ops-worker` as standalone
-Deployments with `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`,
+[`infra/helm/apps/of-platform`](../infra/helm/apps/of-platform). The
+chart renders `approvals-worker` and `automation-ops-worker` as
+standalone Deployments with `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`,
 `TEMPORAL_TASK_QUEUE`, service-token secrets and `:9090/metrics`.

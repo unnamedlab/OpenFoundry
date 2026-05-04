@@ -35,7 +35,20 @@ workspace = true
 [dependencies.event-bus-control]
 workspace = true
 
+[dependencies.event-bus-data]
+workspace = true
+
 [dependencies.futures]
+workspace = true
+
+[dependencies.idempotency]
+workspace = true
+features = ["postgres"]
+
+[dependencies.outbox]
+workspace = true
+
+[dependencies.prometheus]
 workspace = true
 
 [dependencies.reqwest]
@@ -79,11 +92,6 @@ workspace = true
 path = "src/main.rs"
 name = "workflow-automation-service"
 required-features = []
-
-[features]
-# Enables the Temporal end-to-end harness in `tests/temporal_e2e.rs`.
-# Activated transitively by `cargo test --features testing/it-temporal`.
-it-temporal = ["testing/it-temporal"]
 
 [dev-dependencies.testing]
 workspace = true

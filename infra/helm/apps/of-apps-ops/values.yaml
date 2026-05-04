@@ -172,10 +172,23 @@ services:
         memory: 512Mi
 
   workflow-automation-service:
+    # FASE 5 / Tarea 5.3 — the service now embeds the Foundry-pattern
+    # condition consumer + effect dispatcher. KAFKA_BOOTSTRAP_SERVERS
+    # is injected by the _shared helper template from
+    # `global.kafka.bootstrap`; the per-service env below configures
+    # the effect call to `ontology-actions-service`.
     replicas: 2
     ports:
       - name: http
         containerPort: 8080
+    env:
+      OF_ONTOLOGY_ACTIONS_URL: http://ontology-actions-service:8080
+      OF_OPENLINEAGE_NAMESPACE: openfoundry
+    envSecrets:
+      OF_ONTOLOGY_ACTIONS_BEARER_TOKEN:
+        secretName: open-foundry-worker-secrets
+        key: ontology-actions-bearer-token
+        optional: true
     resources:
       requests:
         cpu: 100m

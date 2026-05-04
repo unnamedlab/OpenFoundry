@@ -1749,10 +1749,13 @@ impl WorkflowAutomationClient {
     }
 }
 
-/// Per-run input expected by the Go workflow registered under
-/// [`workflow_types::AUTOMATION_RUN`]. Kept narrow on purpose — the
-/// shape is part of the cross-language contract and changes here
-/// **must** be mirrored in `workers-go/workflow-automation/`.
+/// Legacy per-run input that used to be the Go workflow contract for
+/// `workflow_types::AUTOMATION_RUN`. The Go worker was retired by
+/// FASE 5 / Tarea 5.4 of the Foundry-pattern migration; this struct
+/// is kept around because the wider crate still compiles unused code
+/// paths until the libs/temporal-client retirement (FASE 8 /
+/// Tarea 8.1). New code should publish to `automate.condition.v1`
+/// via `services/workflow-automation-service` instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationRunInput {
     pub run_id: Uuid,

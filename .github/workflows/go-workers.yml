@@ -28,7 +28,6 @@ jobs:
           # Cache key keyed off every module's go.sum so a tidy in
           # one worker doesn't bust the cache for the others.
           cache-dependency-path: |
-            workers-go/workflow-automation/go.sum
             workers-go/approvals/go.sum
             workers-go/automation-ops/go.sum
 
@@ -65,7 +64,6 @@ jobs:
       fail-fast: false
       matrix:
         worker:
-          - workflow-automation
           - approvals
           - automation-ops
     steps:

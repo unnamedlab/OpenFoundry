@@ -183,17 +183,15 @@ temporalWorkers:
     scrapeTimeout: 10s
     path: /metrics
   workers:
-    workflow-automation-worker:
-      image:
-        repository: workflow-automation-worker
-      taskQueue: openfoundry.workflow-automation
-      env:
-        OF_ONTOLOGY_ACTIONS_URL: http://ontology-actions-service:8080
-      envSecrets:
-        OF_ONTOLOGY_ACTIONS_BEARER_TOKEN:
-          secretName: open-foundry-worker-secrets
-          key: ontology-actions-bearer-token
-          optional: true
+    # `workflow-automation-worker` removed by Tarea 5.4: the
+    # Go/Temporal worker that owned the
+    # `openfoundry.workflow-automation` task queue has been
+    # replaced by the `workflow-automation-service` itself, which
+    # now consumes `automate.condition.v1` from Kafka, dispatches
+    # the effect HTTP call to `ontology-actions-service`, and
+    # publishes `automate.outcome.v1` via the transactional outbox.
+    # See ADR-0027 and FASE 5 of
+    # `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
     # `pipeline-worker` removed by Tarea 3.6: the Go/Temporal worker that
     # owned the `openfoundry.pipeline` task queue has been replaced by the
     # `pipeline-build-service` (which submits SparkApplication CRs) and the
