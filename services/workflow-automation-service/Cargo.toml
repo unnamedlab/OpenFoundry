@@ -69,14 +69,7 @@ workspace = true
 [dependencies.thiserror]
 workspace = true
 
-[dependencies.temporal-client]
-workspace = true
-features = ["grpc"]
-
 [dependencies.tokio]
-workspace = true
-
-[dependencies.tonic]
 workspace = true
 
 [dependencies.tracing]
