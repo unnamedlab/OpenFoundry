@@ -336,7 +336,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -376,7 +376,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "uuid",
 ]
@@ -385,6 +385,7 @@ dependencies = [
 name = "approvals-service"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "async-trait",
  "auth-middleware",
  "axum 0.8.9",
@@ -400,7 +401,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-machine",
- "temporal-client",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -688,10 +688,10 @@ dependencies = [
  "futures",
  "once_cell",
  "paste",
- "prost 0.13.5",
- "prost-types 0.13.5",
+ "prost",
+ "prost-types",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
 ]
 
 [[package]]
@@ -1028,7 +1028,7 @@ dependencies = [
  "sqlx",
  "testcontainers",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1160,7 +1160,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "temporal-client",
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
@@ -2728,7 +2727,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68578f196d2a33ff61b27fae256c3164f65e36382648e30666dde05b8cc9dfdf"
 dependencies = [
  "async-trait",
- "convert_case 0.6.0",
+ "convert_case",
  "json5",
  "nom 7.1.3",
  "pathdiff",
@@ -2769,7 +2768,7 @@ dependencies = [
  "object_store",
  "outbox",
  "prometheus",
- "prost 0.13.5",
+ "prost",
  "rand 0.8.6",
  "reqwest",
  "rumqttc",
@@ -2781,8 +2780,8 @@ dependencies = [
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
- "tonic-build 0.12.3",
+ "tonic",
+ "tonic-build",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -2852,15 +2851,6 @@ name = "convert_case"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
-name = "convert_case"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -4050,29 +4040,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "derive_more"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
-dependencies = [
- "derive_more-impl",
-]
-
-[[package]]
-name = "derive_more-impl"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
-dependencies = [
- "convert_case 0.10.0",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.117",
- "unicode-xid",
-]
-
-[[package]]
 name = "des"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4215,7 +4182,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "uuid",
 ]
@@ -4436,7 +4403,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4604,7 +4571,7 @@ dependencies = [
  "kube",
  "outbox",
  "prometheus",
- "prost 0.13.5",
+ "prost",
  "protoc-bin-vendored",
  "rdkafka",
  "regex",
@@ -4620,8 +4587,8 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "tonic 0.12.3",
- "tonic-build 0.12.3",
+ "tonic",
+ "tonic-build",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4721,7 +4688,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4967,17 +4934,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "futures-retry"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde5a672a61f96552aa5ed9fd9c81c3fbdae4be9b1e205d6eaf17c83705adc0f"
-dependencies = [
- "futures",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "futures-sink"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5064,10 +5020,18 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "geospatial-tiles"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -5169,7 +5133,7 @@ dependencies = [
  "testing",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower 0.5.3",
  "tower-http 0.6.8",
  "tracing",
@@ -5971,7 +5935,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -6082,8 +6046,8 @@ dependencies = [
  "http-body-util",
  "k8s-openapi",
  "kube",
- "prost 0.13.5",
- "prost-types 0.13.5",
+ "prost",
+ "prost-types",
  "reqwest",
  "schemars 0.8.22",
  "serde",
@@ -6095,8 +6059,8 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "tonic 0.12.3",
- "tonic-build 0.12.3",
+ "tonic",
+ "tonic-build",
  "tower 0.5.3",
  "tower-test",
  "tracing",
@@ -6845,7 +6809,7 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7044,7 +7008,7 @@ dependencies = [
  "sqlx",
  "storage-abstraction",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7073,7 +7037,7 @@ dependencies = [
  "testing",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower 0.5.3",
  "tower-http 0.6.8",
  "tracing",
@@ -7132,6 +7096,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "media-scanner"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "media-sets-service"
 version = "0.0.1"
 dependencies = [
@@ -7147,16 +7122,19 @@ dependencies = [
  "config",
  "core-models",
  "db-pool",
+ "geospatial-tiles",
  "http-body-util",
  "jsonwebtoken",
+ "marketplace-service",
+ "media-scanner",
  "moka",
  "observability",
  "once_cell",
  "opentelemetry",
  "outbox",
  "prometheus",
- "prost 0.13.5",
- "prost-types 0.13.5",
+ "prost",
+ "prost-types",
  "rdkafka",
  "reqwest",
  "serde",
@@ -7169,8 +7147,8 @@ dependencies = [
  "testing",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
- "tonic-build 0.12.3",
+ "tonic",
+ "tonic-build",
  "tower 0.5.3",
  "tower-http 0.6.8",
  "tracing",
@@ -7624,7 +7602,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7703,7 +7681,7 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7727,7 +7705,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7965,7 +7943,7 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower 0.5.3",
  "tower-http 0.6.8",
  "tracing",
@@ -8070,7 +8048,7 @@ dependencies = [
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower 0.5.3",
  "tower-http 0.6.8",
  "tracing",
@@ -8143,7 +8121,7 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
@@ -8174,7 +8152,7 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
@@ -8280,7 +8258,7 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
@@ -8625,43 +8603,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
-name = "pbjson"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8edd1efdd8ab23ba9cb9ace3d9987a72663d5d7c9f74fa00b51d6213645cf6c"
-dependencies = [
- "base64 0.22.1",
- "serde",
-]
-
-[[package]]
-name = "pbjson-build"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ed4d5c6ae95e08ac768883c8401cf0e8deb4e6e1d6a4e1fd3d2ec4f0ec63200"
-dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
- "prost 0.14.3",
- "prost-types 0.14.3",
-]
-
-[[package]]
-name = "pbjson-types"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a14e2757d877c0f607a82ce1b8560e224370f159d66c5d52eb55ea187ef0350e"
-dependencies = [
- "bytes",
- "chrono",
- "pbjson",
- "pbjson-build",
- "prost 0.14.3",
- "prost-build 0.14.3",
- "serde",
-]
-
-[[package]]
 name = "pbkdf2"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8756,17 +8697,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
 dependencies = [
  "fixedbitset 0.5.7",
- "indexmap 2.14.0",
-]
-
-[[package]]
-name = "petgraph"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
-dependencies = [
- "fixedbitset 0.5.7",
- "hashbrown 0.15.5",
  "indexmap 2.14.0",
 ]
 
@@ -8866,7 +8796,7 @@ dependencies = [
  "testing",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -8914,7 +8844,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "tonic 0.12.3",
+ "tonic",
  "tower-test",
  "tracing",
  "tracing-subscriber",
@@ -8957,7 +8887,7 @@ dependencies = [
  "testing",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -9199,7 +9129,7 @@ dependencies = [
  "sqlx",
  "storage-abstraction",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -9246,17 +9176,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
 dependencies = [
  "bytes",
- "prost-derive 0.13.5",
-]
-
-[[package]]
-name = "prost"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
-dependencies = [
- "bytes",
- "prost-derive 0.14.3",
+ "prost-derive",
 ]
 
 [[package]]
@@ -9272,29 +9192,8 @@ dependencies = [
  "once_cell",
  "petgraph 0.7.1",
  "prettyplease",
- "prost 0.13.5",
- "prost-types 0.13.5",
- "regex",
- "syn 2.0.117",
- "tempfile",
-]
-
-[[package]]
-name = "prost-build"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
-dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
- "log",
- "multimap",
- "petgraph 0.8.3",
- "prettyplease",
- "prost 0.14.3",
- "prost-types 0.14.3",
- "pulldown-cmark",
- "pulldown-cmark-to-cmark",
+ "prost",
+ "prost-types",
  "regex",
  "syn 2.0.117",
  "tempfile",
@@ -9314,27 +9213,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost-derive"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
-dependencies = [
- "anyhow",
- "itertools 0.14.0",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "prost-reflect"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b5edd582b62f5cde844716e66d92565d7faf7ab1445c8cebce6e00fba83ddb2"
 dependencies = [
  "once_cell",
- "prost 0.13.5",
- "prost-types 0.13.5",
+ "prost",
+ "prost-types",
 ]
 
 [[package]]
@@ -9343,62 +9229,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
- "prost 0.13.5",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
-dependencies = [
- "prost 0.14.3",
-]
-
-[[package]]
-name = "prost-wkt"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd3de5e9c9e84fcb5efa204b8e283d23e615a8bc8c777bf1d6622bb01dc61445"
-dependencies = [
- "chrono",
- "inventory",
- "prost 0.14.3",
- "serde",
- "serde_derive",
- "serde_json",
- "typetag",
-]
-
-[[package]]
-name = "prost-wkt-build"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe500dc80e757a75e1e8fb7290e448d62dfba3105ece1d058579cb00b58151cd"
-dependencies = [
- "heck 0.5.0",
- "prost 0.14.3",
- "prost-build 0.14.3",
- "prost-types 0.14.3",
- "quote",
-]
-
-[[package]]
-name = "prost-wkt-types"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13807eaa7e15833d06e899008371926201cdcd11d74b6d490f49130cdb3f415e"
-dependencies = [
- "chrono",
- "prost 0.14.3",
- "prost-build 0.14.3",
- "prost-types 0.14.3",
- "prost-wkt",
- "prost-wkt-build",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
+ "prost",
 ]
 
 [[package]]
@@ -9479,26 +9310,6 @@ checksum = "645dbe486e346d9b5de3ef16ede18c26e6c70ad97418f4874b8b1889d6e761ea"
 dependencies = [
  "ar_archive_writer",
  "cc",
-]
-
-[[package]]
-name = "pulldown-cmark"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c3a14896dfa883796f1cb410461aef38810ea05f2b2c33c5aded3649095fdad"
-dependencies = [
- "bitflags 2.11.1",
- "memchr",
- "unicase",
-]
-
-[[package]]
-name = "pulldown-cmark-to-cmark"
-version = "22.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50793def1b900256624a709439404384204a5dc3a6ec580281bfaac35e882e90"
-dependencies = [
- "pulldown-cmark",
 ]
 
 [[package]]
@@ -9585,11 +9396,11 @@ dependencies = [
  "async-trait",
  "datafusion",
  "futures",
- "prost 0.13.5",
+ "prost",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
 ]
 
@@ -10011,7 +9822,7 @@ dependencies = [
  "sqlx",
  "storage-abstraction",
  "tokio",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -11215,15 +11026,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "826167069c09b99d56f31e9ae5c99049e932a98c9dc2dac47645b08dbbf76ba7"
 
 [[package]]
-name = "slotmap"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
-dependencies = [
- "version_check",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11376,7 +11178,7 @@ dependencies = [
  "config",
  "datafusion",
  "futures",
- "prost 0.13.5",
+ "prost",
  "query-engine",
  "serde",
  "serde_json",
@@ -11384,7 +11186,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -11404,7 +11206,7 @@ dependencies = [
  "core-models",
  "datafusion",
  "futures",
- "prost 0.13.5",
+ "prost",
  "query-engine",
  "reqwest",
  "serde",
@@ -11412,7 +11214,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tokio-stream",
- "tonic 0.12.3",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -11912,91 +11714,6 @@ dependencies = [
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "temporal-client"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
- "temporalio-client",
- "temporalio-common",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "temporalio-client"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f3bc370bb9f1802f876fd7ba59e42b6321b9199401b24c75bb6c821ad82400e"
-dependencies = [
- "anyhow",
- "async-trait",
- "backoff",
- "base64 0.22.1",
- "bon",
- "bytes",
- "derive_more",
- "dyn-clone",
- "futures-retry",
- "futures-util",
- "http 1.4.0",
- "http-body-util",
- "hyper 1.9.0",
- "hyper-util",
- "parking_lot",
- "rand 0.9.4",
- "slotmap",
- "temporalio-common",
- "thiserror 2.0.18",
- "tokio",
- "tonic 0.14.5",
- "tower 0.5.3",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "temporalio-common"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e21d16c472b366b3a7867460587922cedd83ab9987ab1d4f3baed6c3223904b"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bon",
- "crc32fast",
- "derive_more",
- "erased-serde",
- "futures",
- "parking_lot",
- "pbjson",
- "pbjson-build",
- "pbjson-types",
- "prost 0.14.3",
- "prost-types 0.14.3",
- "prost-wkt",
- "prost-wkt-types",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tonic 0.14.5",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
- "url",
- "uuid",
 ]
 
 [[package]]
@@ -12510,44 +12227,13 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "prost 0.13.5",
+ "prost",
  "rustls-pemfile",
  "socket2 0.5.10",
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-stream",
  "tower 0.4.13",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tonic"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
-dependencies = [
- "async-trait",
- "axum 0.8.9",
- "base64 0.22.1",
- "bytes",
- "h2 0.4.13",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-body-util",
- "hyper 1.9.0",
- "hyper-timeout",
- "hyper-util",
- "percent-encoding",
- "pin-project",
- "rustls-native-certs 0.8.3",
- "socket2 0.6.3",
- "sync_wrapper",
- "tokio",
- "tokio-rustls 0.26.4",
- "tokio-stream",
- "tower 0.5.3",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -12561,49 +12247,10 @@ checksum = "9557ce109ea773b399c9b9e5dca39294110b74f1f342cb347a80d1fce8c26a11"
 dependencies = [
  "prettyplease",
  "proc-macro2",
- "prost-build 0.13.5",
- "prost-types 0.13.5",
+ "prost-build",
+ "prost-types",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "tonic-build"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1882ac3bf5ef12877d7ed57aad87e75154c11931c2ba7e6cde5e22d63522c734"
-dependencies = [
- "prettyplease",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "tonic-prost"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a55376a0bbaa4975a3f10d009ad763d8f4108f067c7c2e74f3001fb49778d309"
-dependencies = [
- "bytes",
- "prost 0.14.3",
- "tonic 0.14.5",
-]
-
-[[package]]
-name = "tonic-prost-build"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3144df636917574672e93d0f56d7edec49f90305749c668df5101751bb8f95a"
-dependencies = [
- "prettyplease",
- "proc-macro2",
- "prost-build 0.14.3",
- "prost-types 0.14.3",
- "quote",
- "syn 2.0.117",
- "tempfile",
- "tonic-build 0.14.5",
 ]
 
 [[package]]
@@ -12778,7 +12425,6 @@ dependencies = [
  "matchers",
  "nu-ansi-term",
  "once_cell",
- "parking_lot",
  "regex-automata",
  "serde",
  "serde_json",
@@ -13154,6 +12800,10 @@ dependencies = [
  "core-models",
  "csv",
  "event-bus-control",
+ "prometheus",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
  "reqwest",
  "serde",
  "serde_json",
@@ -13162,6 +12812,9 @@ dependencies = [
  "storage-abstraction",
  "thiserror 2.0.18",
  "tokio",
+ "tonic",
+ "tonic-build",
+ "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -14225,11 +13878,9 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-machine",
- "temporal-client",
  "testing",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "uuid",
