@@ -1,11 +1,11 @@
 # Plan de migración a Foundry-parity con Cassandra
 
 > **Estado del producto:** Pre-producción. Permitido romper compatibilidad sin migración de datos.
-> **Objetivo:** Volcar la pirámide de almacenamiento. Iceberg = fuente de verdad. Cassandra = serving operacional. Postgres = residual y consolidado. Temporal sobre Cassandra (workers Go separados). Vespa obligatorio en prod, OpenSearch en dev. Kafka backbone activo con outbox sobre Postgres + Debezium. Cedar embebido como policy engine. Identity custom retenido y endurecido. Cross-region DR vía Iceberg replication.
+> **Objetivo:** Volcar la pirámide de almacenamiento. Iceberg = fuente de verdad. Cassandra = serving operacional. Postgres = residual y consolidado. Orquestación distribuida estilo **Foundry-pattern** ([ADR-0037](adr/ADR-0037-foundry-pattern-orchestration.md)): Spark Operator + Kafka consumers + state machines en Postgres + outbox/Debezium. Vespa obligatorio en prod, OpenSearch en dev. Cedar embebido como policy engine. Identity custom retenido y endurecido. Cross-region DR vía Iceberg replication.
 >
 > **Regla de cierre formal:** en este documento un stream no se considera "cerrado" por tener `substrate` o runbooks aterrizados. **S1, S2, S3, S5, S6 y el hito "Postgres residual" solo cierran cuando pasan la checklist final y los grep gates de §18.**
 > **Duración estimada:** 16-22 semanas con 5 streams paralelos.
-> **Equipo asumido:** 2-3 backend Rust, 1 backend Go (worker Temporal), 1 platform/SRE, 1 data eng, soporte ocasional security.
+> **Equipo asumido:** 3-4 backend Rust, soporte puntual Go cuando un consumer lo justifique, 1 platform/SRE, 1 data eng, soporte ocasional security.
 
 ---
 
@@ -23,8 +23,8 @@
 ### Después
 - **3 clusters Cassandra** (1 por DC: A, B, C — multi-DC desde día 1) sirviendo estado operacional caliente.
 - **4 clusters CNPG Postgres** (consolidados): `pg-schemas`, `pg-policy`, `pg-lakekeeper`, `pg-runtime-config`.
-- **Temporal HA** (frontend×3, history×3, matching×3, worker-system×3) sobre Cassandra como persistence backend.
-- **Workers de negocio Temporal en Go** (deployments separados, no sidecars), invocados desde servicios Rust vía `temporalio-client` Rust (parte estable del SDK).
+- **Orquestación distribuida estilo Foundry-pattern**: SparkApplication CRs para batches, Kafka consumers para fan-out/event-driven flows, state machines en Postgres para workflows con estado y outbox transaccional + Debezium como coordinación cross-servicio.
+- **Workers de negocio en Rust** por defecto (`event-bus-data`, Axum, state machines); **Go** solo cuando haya una razón fuerte de throughput/ergonomía operacional.
 - **Iceberg WORM** como fuente de verdad para datasets, audit log, eventos de dominio materializados.
 - **Vespa obligatorio** en prod como serving de búsqueda/ANN; **OpenSearch single-node** en dev y CI.
 - **Kafka activo** con transactional outbox sobre **Postgres `pg-policy`** + **Debezium Kafka Connect** como relay (NO outbox en Cassandra LWT — descartado).
@@ -37,7 +37,7 @@
 2. Toda lectura caliente debe ir a Cassandra o cache; jamás a Postgres.
 3. Toda escritura mutable de objetos de ontología pasa por outbox (Postgres) → Debezium → Kafka → indexer → Vespa/Iceberg.
 4. Postgres solo para schemas declarativos, configuración estática, policies Cedar, outbox transaccional, catálogo Lakekeeper.
-5. Temporal **es** la coordinación. Nada de cron loops en proceso. Workers de negocio en Go.
+5. La coordinación vive en el patrón Foundry-pattern: Spark Operator + Kafka + state machines + CronJobs/event-scheduler; nada de tick loops en proceso ni dependencia de un orquestador central.
 6. Authz local, sin red: Cedar evalúa en proceso. Policies hot-reload por evento NATS.
 7. Cassandra modelado por queries: ninguna SELECT escanea más de 1 partition. Si la necesitas → Vespa o Iceberg/Trino.
 8. Aceptamos consistencia eventual + idempotencia en lugar de atomicidad estricta cross-store.
@@ -62,7 +62,7 @@
 | Vespa subchart (3 cs / 2 c / 3 ct) | Opcional | **Hacer obligatorio** |
 | Proto definitions (`proto/`) | Estables | **Reusar**; algunos métodos read se duplicarán para "consistency=strong/eventual" |
 | SDKs TS/Python/Java | Auto-generados | **Reusar**; regenerar tras cambios proto puntuales |
-| Justfile, CI workflows | Funcionales | **Extender** con recipes Cassandra/Temporal |
+| Justfile, CI workflows | Funcionales | **Extender** con recipes Cassandra/Kafka/Spark y limpieza del legado de ADR-0021 |
 | 84 servicios — la **lógica de dominio** | Compleja | **Reusar 70-80%**; la migración toca persistencia y handlers, no reglas de negocio |
 
 ## 2. Inventario de lo que se elimina o reemplaza
@@ -70,13 +70,13 @@
 | Activo | Acción | Razón |
 |---|---|---|
 | 67 de los 71 manifests CNPG (`infra/k8s/platform/manifests/cnpg/clusters/*.yaml`) | **Borrar** | Consolidación a 4 clusters |
-| 71 secrets `<service>-pg-app` | **Reemplazar** por 4 secrets compartidos + acceso por schema/role |
-| `services/workflow-automation-service/src/domain/executor.rs` (scheduler casero) | **Borrar** | Sustituido por Temporal Workflow worker |
-| `services/pipeline-schedule-service/src/main.rs` (tick loop) | **Borrar** | Sustituido por Temporal Schedules |
+| 71 secrets `<service>-pg-app` | **Reemplazar** por 4 secrets compartidos + acceso por schema/role | Consolidación de Postgres |
+| `services/workflow-automation-service/src/domain/executor.rs` (scheduler casero) | **Reescribir / archivar legacy** | Se sustituye por consumers Kafka + state machine en Postgres; no por un worker central |
+| `services/pipeline-schedule-service/src/main.rs` (tick loop) | **Refactorizar** | Los disparos pasan a CronJobs/event-scheduler + SparkApplication CRs; el servicio conserva ownership del contrato |
 | Migrations sqlx de los 9 servicios ontology (~80 archivos) | **Archivar** como referencia + **borrar** del runtime | Reemplazados por keyspaces Cassandra + 1 schema Postgres mínimo |
 | Migrations de session/oauth/identity en Postgres | **Borrar** | Estado a Cassandra TTL |
-| Migrations sqlx de approvals, workflow-automation, pipeline-* | **Borrar** | Estado a Temporal + Cassandra |
-| `crate cron` (0.12) en workflow-automation-service | **Borrar** dependency | Temporal Schedules |
+| Migrations sqlx de approvals, workflow-automation, pipeline-* | **Reclasificar por dominio** | El runtime pasa a state machines + outbox/Kafka; las tablas legacy se retiran solo tras cutover por dominio |
+| `crate cron` (0.12) en workflow-automation-service | **Reemplazar** dependency | Time-based triggers viven en CronJobs/event-scheduler, no en loops locales |
 | `services/health-check-service` | **Borrado** → `telemetry-governance-service` | Anti-patrón; las health probes de k8s y el dominio de telemetría son la respuesta |
 | `services/widget-registry-service` | **Borrado** → `application-composition-service` | Stub absorbido por el runtime de composición |
 | `services/tool-registry-service` | **Borrado** → `agent-runtime-service` | Granularidad excesiva; catálogo/dispatch viven con el agente |
@@ -95,8 +95,8 @@
 | `sessions` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_QUORUM | Sesiones, refresh tokens, oauth state (TTL nativo) | identity-federation, session-governance, oauth-integration |
 | `notifications_inbox` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_ONE (lectura) | Inbox de notificaciones por user (TTL 30d) | notification-alerting |
 | `agent_state` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_QUORUM | Estado conversacional, contextos cortos | agent-runtime, conversation-state |
-| `temporal_persistence` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_QUORUM | Backend de Temporal | (Temporal cluster) |
-| `temporal_visibility` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_QUORUM | Visibility store de Temporal (alternativa a Elasticsearch) | (Temporal cluster) |
+| `temporal_persistence` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_QUORUM | Keyspace heredado del orquestador previo; objetivo = drop en cleanup | (decommission) |
+| `temporal_visibility` | `{dc1:3, dc2:3, dc3:3}` | LOCAL_QUORUM | Keyspace heredado de visibilidad; objetivo = drop en cleanup del patrón Foundry | (decommission) |
 
 > **Nota:** El keyspace `outbox_events` fue **descartado**. El outbox transaccional vive en Postgres `pg-policy.outbox` (ver §3.2 y ADR-0022). Razón: Cassandra no garantiza atomicidad cross-table sin BATCH logged single-partition; LWT cuesta ~4× y rompe SLO del hot path. Postgres da commit transaccional gratuito + Debezium maduro como CDC.
 
@@ -189,8 +189,8 @@ T+0 ─── T+4w ─── T+8w ─── T+12w ─── T+16w ─── T+20
 │
 ├── S1: Cassandra ontology (T+3 → T+11w)        ────────────────
 │
-├── S2: Temporal migration (T+3 → T+10w)        ─────────────
-│       (Workers Go separados; clientes Rust)
+├── S2: Foundry-pattern orchestration migration (T+3 → T+10w) ─────────────
+│       (Spark Operator + Kafka consumers + state machines Postgres)
 │
 ├── S3: Auth/sessions a Cassandra + Cedar (T+5 → T+9w)        ─────────
 │
@@ -214,7 +214,7 @@ T+0 ─── T+4w ─── T+8w ─── T+12w ─── T+16w ─── T+20
 ### Tarea S0.1 — ADRs y design docs (semana 1)
 
 - [x] **S0.1.a** [`ADR-0020-cassandra-as-operational-store.md`](adr/ADR-0020-cassandra-as-operational-store.md). Rationale, modelo Object Storage V2-like, RF, consistency levels, **reglas duras de modelado** (ver §3.1), anti-patrones a evitar.
-- [x] **S0.1.b** [`ADR-0021-temporal-on-cassandra-go-workers.md`](adr/ADR-0021-temporal-on-cassandra-go-workers.md). Temporal 1.24+, backend Cassandra, visibility en Cassandra (no Elasticsearch). **Workers de negocio en Go SDK** (GA, maduro); servicios Rust actúan como clientes vía `temporalio-client` Rust (parte estable). Rationale documentado: SDK Rust en prerelease v0.4 con breaking changes frecuentes y gaps críticos (interceptores, testing framework, Sessions). Plan de re-evaluación del Rust SDK en T+12 meses.
+- [x] **S0.1.b** [`ADR-0021-temporal-on-cassandra-go-workers.md`](adr/ADR-0021-temporal-on-cassandra-go-workers.md). **Histórico / superseded** por [ADR-0037](adr/ADR-0037-foundry-pattern-orchestration.md). Se conserva solo como referencia de la decisión descartada y del rationale original.
 - [x] **S0.1.c** [`ADR-0022-transactional-outbox-postgres-debezium.md`](adr/ADR-0022-transactional-outbox-postgres-debezium.md). **Outbox vive en Postgres `pg-policy.outbox`**, leído por **Debezium Kafka Connect**. LWT en Cassandra **descartado** por: (1) no hay atomicidad cross-table; (2) LWT cuesta 4× una escritura normal y rompe SLO; (3) Debezium es maduro y elimina la necesidad de un relay propio.
 - [x] **S0.1.d** [`ADR-0023-iceberg-cross-region-dr.md`](adr/ADR-0023-iceberg-cross-region-dr.md). S3 CRR + Lakekeeper read-replica vs Iceberg snapshot mirror.
 - [x] **S0.1.e** [`ADR-0024-postgres-consolidation.md`](adr/ADR-0024-postgres-consolidation.md). 71 → 4 clusters; layout de schemas y roles.
@@ -263,7 +263,7 @@ T+0 ─── T+4w ─── T+8w ─── T+12w ─── T+16w ─── T+20
 ### Tarea S0.5 — Test infrastructure extension (semana 3)
 
 - [x] **S0.5.a** Añadir `libs/testing/src/cassandra.rs` con testcontainer Cassandra 5. → [libs/testing/src/cassandra.rs](../../libs/testing/src/cassandra.rs)
-- [x] **S0.5.b** Añadir `libs/testing/src/temporal.rs` con testcontainer Temporal (imagen `temporalio/temporal:1.7.0`, `server start-dev`, search attribute `audit_correlation_id=Keyword`). → [libs/testing/src/temporal.rs](../../libs/testing/src/temporal.rs)
+- [x] **S0.5.b** Añadir `libs/testing/src/temporal.rs` con testcontainer del runtime legado. → [libs/testing/src/temporal.rs](../../libs/testing/src/temporal.rs) *(histórico; el plan activo migra a harnesses del patrón Foundry)*
 - [x] **S0.5.c** Añadir feature flag `it-cassandra` y `it-temporal` en cada crate que lo use. → [libs/testing/Cargo.toml](../../libs/testing/Cargo.toml)
 - [x] **S0.5.d** Justfile recipes: `just test-cassandra`, `just test-temporal`, `just dev-up-cassandra`. → [justfile](../../justfile)
 
@@ -271,7 +271,7 @@ T+0 ─── T+4w ─── T+8w ─── T+12w ─── T+16w ─── T+20
 
 - [x] **S0.6.a** Añadir Cassandra single-node a `compose.yaml` con healthcheck `cqlsh -e 'DESCRIBE KEYSPACES'`. → [infra/docker-compose.yml](../../infra/docker-compose.yml)
 - [x] **S0.6.b** Init container que crea keyspaces vacíos. → [infra/docker-compose.yml](../../infra/docker-compose.yml) (`cassandra-init`)
-- [x] **S0.6.c** Añadir Temporal devserver (`temporalio/temporal:1.24` con `--ephemeral` o `temporalio/auto-setup`) + UI (`temporalio/ui`). → [infra/docker-compose.yml](../../infra/docker-compose.yml) (`temporal`, `temporal-ui`)
+- [x] **S0.6.c** Añadir devserver del orquestador legado + UI en compose. → [infra/docker-compose.yml](../../infra/docker-compose.yml) (`temporal`, `temporal-ui`) *(histórico / a retirar en la migración Foundry-pattern)*
 - [x] **S0.6.d** Añadir **OpenSearch single-node** (`opensearchproject/opensearch:2.18`, `discovery.type=single-node`, `DISABLE_SECURITY_PLUGIN=true`, ~1 GB RAM) como fallback de Vespa para dev/CI. → [infra/docker-compose.yml](../../infra/docker-compose.yml) (`opensearch`)
 - [x] **S0.6.e** Añadir **Postgres con WAL logical decoding habilitado** (`wal_level=logical`, `max_replication_slots=4`) para Debezium. → [infra/docker-compose.yml](../../infra/docker-compose.yml) (`postgres.command`)
 - [x] **S0.6.f** Añadir **Debezium Kafka Connect** (`debezium/connect:2.7`) con conector Postgres preconfigurado contra `pg-policy.outbox.events`. → [infra/docker-compose.yml](../../infra/docker-compose.yml) (`kafka`, `debezium-connect`, `debezium-connect-init`)
@@ -305,7 +305,7 @@ T+0 ─── T+4w ─── T+8w ─── T+12w ─── T+16w ─── T+20
 - [x] **S0.9.e** Test E2E: handler escribe → Debezium publica → consumer recibe con headers OpenLineage `ol-*`. _([libs/outbox/tests/integration.rs](../../libs/outbox/tests/integration.rs) — testcontainer Postgres 16, valida happy path / idempotencia / rollback / batch; [libs/outbox/tests/e2e_debezium.sh](../../libs/outbox/tests/e2e_debezium.sh) — script que corre contra el compose stack con `kcat`+`psql`+`jq`, asegura que el mensaje aparece en el topic dictado por la columna `topic` y que las cabeceras `aggregateType`, `id`, `ol-run-id`, `ol-namespace`, `ol-job` se propagan)_
 
 ### Definition of Done — S0
-- ✅ `just dev-up` levanta: Postgres con logical WAL, Cassandra single-node, Kafka, NATS, MinIO, OpenSearch single-node, Temporal devserver + UI, Debezium Connect.
+- ✅ `just dev-up` levanta: Postgres con logical WAL, Cassandra single-node, Kafka, NATS, MinIO, OpenSearch single-node, Debezium Connect. El runtime legado del ADR-0021 queda fuera del target final.
 - ✅ `just test --features it-cassandra,it-temporal,it-search` pasa con tests triviales en cada backend.
 - ✅ ADRs 0020-0028 aceptados en revisión interna.
 - ✅ `libs/cassandra-kernel`, `libs/authz-cedar`, `libs/search-abstraction`, `libs/outbox` publicados como dependencias workspace, con docs y ejemplos.
@@ -473,76 +473,31 @@ Para cada uno:
 
 ---
 
-## 7. Stream S2 — Workflow a Temporal sobre Cassandra (workers Go) (7 semanas)
+## 7. Stream S2 — Migración de orquestación a Foundry-pattern (7 semanas)
 
-> **Decisión cerrada (ADR-0021):** Workers de negocio en **Go SDK** (GA, maduro). Servicios Rust actúan como **clientes** vía `temporalio-client` Rust (parte estable del prerelease). El Rust SDK de workers se re-evalúa en T+12 meses.
+> **Estado actual:** el stream S2 original de ADR-0021 queda **superseded** por [ADR-0037](adr/ADR-0037-foundry-pattern-orchestration.md) y por [`migration-plan-foundry-pattern-orchestration.md`](migration-plan-foundry-pattern-orchestration.md). Este documento conserva S2 solo como dependencia de planificación, no como target técnico vigente.
 
-### Tarea S2.1 — Temporal cluster HA (semana 4)
+### Objetivo actualizado de S2
 
-- [x] **S2.1.a** Añadir `infra/k8s/platform/manifests/temporal/` con chart oficial `temporalio/temporal` v0.46+. *(Sustrato: paquete completo en [`infra/k8s/platform/manifests/temporal/`](../../infra/k8s/platform/manifests/temporal/) con [`README.md`](../../infra/k8s/platform/manifests/temporal/README.md) (orden de provisioning, topología, decommission), [`namespace.yaml`](../../infra/k8s/platform/manifests/temporal/namespace.yaml) (PodSecurity restricted + linkerd inject + secret `temporal-cassandra-credentials` poblado por external-secrets desde Vault), y [`helm-release.yaml`](../../infra/k8s/platform/manifests/temporal/helm-release.yaml) (Flux `HelmRepository` apuntando a `https://go.temporal.io/helm-charts` + `HelmRelease` con `chart.version: "~0.46.0"`, `crds: CreateReplace`, `remediation.retries: 3`). Chart subgrafos `cassandra/elasticsearch/prometheus/grafana/mysql` deshabilitados — esos componentes los gestiona el operador correspondiente.)*
-- [x] **S2.1.b** Persistence backend: Cassandra (keyspaces `temporal_persistence`, `temporal_visibility`). *(Sustrato: [`values-prod.yaml`](../../infra/k8s/platform/manifests/temporal/values-prod.yaml) configura `server.config.persistence` con `defaultStore=default` y `visibilityStore=visibility`, ambos apuntando a `cassandra` con hosts `of-cass-prod-{dc1,dc2,dc3}-service.cassandra.svc.cluster.local:9042`, `consistency.default.consistency=LOCAL_QUORUM`, `serialConsistency=LOCAL_SERIAL`, mTLS habilitado contra los certs cert-manager montados en `/etc/temporal/cassandra-tls`. Las keyspaces se pre-crean con NTS{dc1:3,dc2:3,dc3:3} mediante [`cassandra-keyspaces-job.yaml`](../../infra/k8s/platform/manifests/temporal/cassandra-keyspaces-job.yaml) (Job idempotente, imagen `cassandra:5.0.2`, ejecuta `CREATE KEYSPACE IF NOT EXISTS …` para ambas keyspaces antes de que el chart corra `temporal-cassandra-tool setup-schema`). Esto cierra el gap mecánico del chart (que asume keyspaces preexistentes) y mantiene la simetría con las keyspaces aplicativas creadas por `infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml`.)*
-- [x] **S2.1.c** Componentes HA: frontend×3, history×3, matching×3, worker-system×3 (system worker; no business workers). *(Sustrato: en `values-prod.yaml` cada uno de los cuatro tiers (`server.frontend`, `server.history`, `server.matching`, `server.worker`) lleva `replicaCount: 3` + `affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution` con `topologyKey: topology.kubernetes.io/zone` para garantizar que las 3 réplicas caen en 3 AZs distintas. Recursos calibrados: history 1 vCPU/2 GiB requests, 4 vCPU/4 GiB limits (carga dominante por estado de shards); frontend/matching/worker 500 m/1 GiB requests, 2 vCPU/2 GiB limits. `numHistoryShards=4096`. README aclara que los workers de negocio quedan **fuera** de este chart y vivirán en `workers-go/*` (S2.2+) tal como exige ADR-0021.)*
-- [x] **S2.1.d** Auth: mTLS opcional (Linkerd) o disabled en dev. *(Sustrato: el namespace lleva `linkerd.io/inject: enabled` por defecto, lo que da mTLS Server↔Server vía la mesh. El path Server↔Cassandra usa mTLS explícito con `enableHostVerification: true` y `serverName: of-cass-prod`. El overlay [`values-dev.yaml`](../../infra/k8s/platform/manifests/temporal/values-dev.yaml) reduce a 1 réplica por tier, apunta al cluster Cassandra dev (`of-cass-dev-dc1-service`) y no monta los certs Cassandra — modo simplificado para CI/local. La toggle se hace por overlay; no hay flags ad-hoc en runtime.)*
-- [x] **S2.1.e** Web UI (`temporalio/ui:2.30`) detrás de gateway con OIDC del `identity-federation-service`. *(Sustrato: en `values-prod.yaml` `web.enabled: true`, `web.image.tag: 2.30.1`, `web.config.auth.enabled: false` (la autenticación nativa del UI se desactiva para no chocar con OIDC central). [`ui-ingress.yaml`](../../infra/k8s/platform/manifests/temporal/ui-ingress.yaml) despliega oauth2-proxy (`v7.6.0`, 2 réplicas, linkerd-inject) configurado contra `https://identity.openfoundry.local/realms/openfoundry`, client-id `temporal-ui`, redirect `https://temporal.openfoundry.local/oauth2/callback`, `--pass-access-token` + `--pass-authorization-header` para que el UI reciba el JWT verificado. Ingress nginx con TLS gestionado por cert-manager (`openfoundry-internal` cluster issuer). El runbook documenta que la ruta canónica de producción pasa por `edge-gateway-service` y que este Ingress es fallback intra-cluster.)*
-- [x] **S2.1.f** ServiceMonitor + Grafana dashboard 17567 (Temporal SDK metrics). *(Sustrato: [`servicemonitor.yaml`](../../infra/k8s/platform/manifests/temporal/servicemonitor.yaml) define un `ServiceMonitor` con label `release: kube-prometheus-stack` y endpoints para los cuatro tiers (frontend/history/matching/worker, scrape interval 30 s) más un `PrometheusRule` con tres alertas críticas: `TemporalFrontendDown` (crit), `TemporalHistoryShardOwnershipFlapping` (warn, basada en `history_shard_controller_requests_total` con tasa >50 acquires/15 m), `TemporalCassandraPersistenceErrors` (warn, `persistence_errors_with_type{store="cassandra"}` >5 %/10 m). Cada alerta apunta a un anchor del runbook. El dashboard 17567 (Temporal SDK metrics, worker-side) se provisiona vía sidecar de Grafana en `infra/k8s/platform/observability/grafana-dashboards/`; el server-side queda como dashboard 17570 — el README cita ambos.)*
-- [x] **S2.1.g** Runbook `infra/runbooks/temporal.md`. *(Sustrato: nuevo [`infra/runbooks/temporal.md`](../../infra/runbooks/temporal.md) siguiendo el patrón establecido por `cassandra.md`/`vespa.md`/`flink.md`: §1 arquitectura desplegada, §2 daily checks (`tctl cluster health`, `tctl admin cluster describe`), §3 mapping alerta→playbook con pasos diagnósticos para cada una de las tres alertas del PrometheusRule, §4 ops comunes (bump de chart vía Renovate+Flux, rotación de credenciales Cassandra desde Vault, drain de zona aprovechando el podAntiAffinity por zone), §5 disaster recovery (zona perdida; restauración Medusa; corrupción de schema), §6 decommission con drop-keyspace marcado como irreversible. Cross-links a ADR-0020/0021/0012.)*
+- Reemplazar el orquestador previo por **Spark Operator + Kafka consumers + state machines en Postgres + outbox/Debezium**.
+- Retirar `workers-go/`, `libs/temporal-client/`, `infra/helm/infra/temporal/` y los keyspaces `temporal_*` cuando cada dominio complete su cutover.
+- Mantener los contratos públicos (HTTP/gRPC/OpenAPI/SDKs) mientras cambia el mecanismo interno de coordinación.
 
-### Tarea S2.2 — Cliente Rust + esqueleto worker Go (semana 5)
+### Mapeo de substreams
 
-- [x] **S2.2.a** Añadir `temporalio-client = "0.4"` (parte estable) al workspace Rust. Crate compartido `libs/temporal-client` con helper `WorkflowClient` tipado por dominio. *(Sustrato: [`libs/temporal-client`](../../libs/temporal-client/src/lib.rs) registrado en `Cargo.toml` workspace. El upstream `temporalio-client` sigue pre-release (sin 0.4 estable a 2026-05), por lo que el crate define la fachada `Arc<dyn WorkflowClient>` siguiendo el mismo patrón substrate que `Arc<dyn ObjectStore>` en S1: newtypes (`Namespace`, `WorkflowId`, `RunId`, `TaskQueue`, `WorkflowType`), `StartWorkflowOptions::new` que auto-popula el search attribute `audit_correlation_id` (UUID v7), enums (`IdReusePolicy`, `ScheduleOverlapPolicy`), errores tipados (`WorkflowClientError`), trait `#[async_trait] WorkflowClient` con `start_workflow`/`signal_workflow`/`query_workflow`/`cancel_workflow`/`terminate_workflow`/`create_schedule`/`pause_schedule`/`delete_schedule`, wrappers tipados por dominio (`WorkflowAutomationClient`, `PipelineScheduleClient`, `ApprovalsClient`, `AutomationOpsClient`) y constantes `task_queues::*`/`workflow_types::*` espejadas en cada `internal/contract/contract.go`. Cerrado 2026-05-03: el feature `grpc` compila y se prueba (`cargo test -p temporal-client` y `cargo test -p temporal-client --features grpc` -> 15/15 tests cada uno). `runtime_workflow_client` mantiene `LoggingWorkflowClient` solo para local dry-run; `TEMPORAL_REQUIRE_REAL_CLIENT=true` o `OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT` en `staging|stage|prod|production` hacen fail-fast si falta `TEMPORAL_HOST_PORT`.)*
-- [x] **S2.2.b** Crear nuevo módulo `workers-go/` en la raíz del repo (Go workspace independiente, `go.work`). *(Sustrato: [`workers-go/go.work`](../../workers-go/go.work) declara `go 1.23` y `use ./workflow-automation ./pipeline ./approvals ./automation-ops ./reindex`. README documenta convenciones cross-language (task queue pinning, activities nunca tocan DB salvo el caso explícito `reindex`, propagación `audit_correlation_id` vía HTTP header `x-audit-correlation-id`, slog JSON, métricas Prometheus en `:9090/metrics` para dashboard 17567).)*
-- [x] **S2.2.c** Submódulos: `workers-go/workflow-automation/`, `workers-go/pipeline/`, `workers-go/approvals/`, `workers-go/automation-ops/`. Cada uno = binário Go con `go.temporal.io/sdk v1.28+`. *(Sustrato: cuatro módulos creados, cada uno con `go.mod` (`go.temporal.io/sdk v1.28.1`, `google.golang.org/grpc v1.66.2` luego ajustado por tidy), `internal/contract/contract.go` (constantes espejadas con `libs/temporal-client`), `workflows/<workflow>.go`, `main.go` (dial Temporal vía `TEMPORAL_HOST_PORT`/`TEMPORAL_NAMESPACE`, `worker.New(c, contract.TaskQueue, …)`, `RegisterWorkflow`, goroutine `serveMetrics` en `:9090`, signal handling SIGINT/SIGTERM), `Dockerfile`, `README.md`. Verificado 2026-05-03: `go test ./workflow-automation/... ./pipeline/... ./approvals/... ./automation-ops/...` pasa desde `workers-go/`. `just go-test` no se pudo ejecutar en esta máquina porque `just` no está instalado; el comando directo anterior es el equivalente del recipe. Las task queues runtime quedan pinneadas en `openfoundry.workflow-automation`, `openfoundry.pipeline`, `openfoundry.approvals` y `openfoundry.automation-ops`.)*
-- [x] **S2.2.d** Patrón: workflows en Go invocan **activities Go puras** que llaman a servicios Rust vía **HTTP REST + JSON** (las definiciones de mensaje siguen viviendo en `proto/`, que es lo que validan los handlers Rust del lado receptor). Las activities NO acceden directamente a Cassandra/Postgres; pasan por el servicio Rust dueño del dato. La única excepción es el worker `reindex`, cuyo trabajo es escanear Cassandra y publicar Kafka. *(Sustrato: el patrón está documentado en [`workers-go/README.md`](../../workers-go/README.md) y en [ADR-0021 §Wire format](../../docs/architecture/adr/ADR-0021-temporal-on-cassandra-go-workers.md), y materializado en [`workers-go/workflow-automation/activities/activities.go`](../../workers-go/workflow-automation/activities/activities.go) — struct `Activities`, `HTTPOntologyActionsClient` que envía `POST /api/v1/ontology/actions/{id}/execute` con headers `authorization: Bearer …` y `x-audit-correlation-id: …`. Env `OF_ONTOLOGY_ACTIONS_URL` (con fallback al alias legacy `OF_ONTOLOGY_ACTIONS_GRPC_ADDR`) apunta al endpoint del servicio. Errores 4xx (excepto 429) se elevan a `temporal.NewNonRetryableApplicationError` para que Temporal no reintente; 5xx/429 se reintentan bajo la `RetryPolicy` del workflow. La decisión de no generar bindings Go desde proto está documentada en ADR-0021: el `buf.gen.yaml` actual emite Rust + TypeScript y los servicios Rust no exponen servidores gRPC — añadir Go bindings habría sido una migración paralela mayor sin payoff funcional.)*
-- [x] **S2.2.e** Imagen Docker base `golang:1.23-alpine` + multi-stage build. Dockerfile por worker. *(Sustrato: cuatro Dockerfiles (`workers-go/<worker>/Dockerfile`) idénticos en estructura: builder `golang:1.23-alpine` con cache mounts (`/root/.cache/go-build`, `/go/pkg/mod`), runtime `alpine:3.23` con usuario no-root `worker:10001`, `EXPOSE 9090`, env defaults (`TEMPORAL_HOST_PORT=temporal-frontend.temporal.svc.cluster.local:7233`, `TEMPORAL_NAMESPACE=default`, `OF_LOG_LEVEL=info`). Build context = repo root (`docker build -f workers-go/<name>/Dockerfile .`).)*
-- [x] **S2.2.f** Justfile recipes: `just go-build`, `just go-test`, `just go-worker workflow-automation`. *(Sustrato: añadidas en [`justfile`](../../justfile) las recipes `go-build` (compila todos los workers vía go.work), `go-test`, `go-tidy` (tidy por módulo), `go-worker <name>` (corre un worker localmente; el prerequisito dev-server está documentado en [`workers-go/README.md`](../../workers-go/README.md)).)*
-- [x] **S2.2.g** CI: añadir job `go-workers-build` con cache de módulos. *(Sustrato: nuevo workflow [`.github/workflows/go-workers.yml`](../../.github/workflows/go-workers.yml) con paths-filter sobre `workers-go/**` + `proto/**`, dos jobs: `go-workers-build` con `actions/setup-go@v5` (Go 1.23, cache keyed por todos los `go.sum`), verifica que `go work sync` es idempotente, corre `go vet ./...`, `go build ./...`, `go test -race -count=1 ./...`; `go-workers-docker` matrix-builda los cuatro Dockerfiles con `docker/build-push-action@v6` + cache GHA (push: false en CI).)*
+- **S2.1 Infra y runtime** → delete del release legado, SparkApplication CRs, cleanup de compose/Helm/CI.
+- **S2.2 Shared libs** → `libs/state-machine/`, `libs/saga/`, `libs/event-scheduler/`, idempotencia/outbox.
+- **S2.3 Workflow automation** → consumers Kafka + state machine en Postgres.
+- **S2.4 Pipeline scheduling/execution** → CronJobs + SparkApplication CRs.
+- **S2.5 Approvals** → state machine + timeout sweep + notification events.
+- **S2.6 Automation ops / reindex** → saga choreography + consumers Kafka puros.
 
-### Tarea S2.3 — Migrar `workflow-automation-service` (semana 6-7)
+### Definition of Done — S2 actualizado
 
-- [x] **S2.3.a** Borrar `src/domain/executor.rs` (scheduler casero). *(Sustrato: el ejecutor casero de 1 297 LOC se archivó vía `git mv` a [`docs/architecture/legacy-migrations/workflow-automation-service/executor.rs.legacy`](../legacy-migrations/workflow-automation-service/executor.rs.legacy) (extensión `.legacy` para que cargo no intente compilarlo). Junto al archivo va un [`README.md`](../legacy-migrations/workflow-automation-service/README.md) con el mapping handler-by-handler (`execute_workflow_run` → workflow type `WorkflowAutomationRun`, `compute_next_run_at` → Temporal Schedules, `continue_after_approval` → signal `decide`) y la advertencia explícita de "do NOT resurrect". `src/domain/mod.rs` actualizado para retirar `pub mod executor;`.)*
-- [x] **S2.3.b** Definir cada "tipo de workflow" actual como `WorkflowDefinition` en `workers-go/workflow-automation/workflows/`. *(Sustrato: [`workers-go/workflow-automation/workflows/automation_run.go`](../../workers-go/workflow-automation/workflows/automation_run.go) registra `AutomationRun(ctx, contract.AutomationRunInput)` con `ActivityOptions` (StartToClose 5 m, RetryPolicy 5 intentos, backoff 2×). El reify de cada rama legacy del executor (branching/parallel/compensation/human-in-loop/simulation) se difiere PR-a-PR — el workflow body actual es substrate-grade, no implementa lógica que falsifique completitud.)*
-- [x] **S2.3.c** Activities Go llaman a `ontology-actions-service` y otros servicios Rust vía **HTTP REST + JSON**, propagando bearer token y `x-audit-correlation-id`. *(Cerrado 2026-05-03 con un cambio de contrato deliberado: la asunción inicial (gRPC con bindings generados desde `proto/`) se descartó porque ningún servicio Rust del lado receptor expone servidor gRPC y `buf.gen.yaml` solo emite Rust + TypeScript — generar Go bindings habría requerido migrar también los handlers Rust, una migración paralela sin payoff. Sustrato: [`workers-go/workflow-automation/activities/activities.go`](../../workers-go/workflow-automation/activities/activities.go) implementa `HTTPOntologyActionsClient.Execute` que envía `POST /api/v1/ontology/actions/{id}/execute` con `Authorization: Bearer <token>` y `x-audit-correlation-id: <run_id>`. Idempotencia: 4xx (excepto 429) → `temporal.NewNonRetryableApplicationError`; 5xx/429 los reintenta Temporal. Env vars: `OF_ONTOLOGY_ACTIONS_URL` (alias legacy `OF_ONTOLOGY_ACTIONS_GRPC_ADDR` aceptado por compat), `OF_ONTOLOGY_ACTIONS_BEARER_TOKEN`. La constante `contract.HeaderAuditCorrelation = "x-audit-correlation-id"` queda compartida con la fachada Rust. La decisión y su rationale (latencia in-cluster aceptable, evita coste de regenerar/commitear `proto/gen/go` por cada cambio, `proto/` sigue siendo source-of-truth para Rust + TS) están documentadas en [ADR-0021 §Wire format](../../docs/architecture/adr/ADR-0021-temporal-on-cassandra-go-workers.md) y en [`workers-go/README.md`](../../workers-go/README.md).)*
-- [x] **S2.3.d** El `workflow-automation-service` Rust se vuelve un **adapter REST**: traduce HTTP → `temporalio-client::start_workflow_execution`. Sin lógica de scheduling propia. *(Sustrato: [`services/workflow-automation-service/src/domain/temporal_adapter.rs`](../../services/workflow-automation-service/src/domain/temporal_adapter.rs) con `StartRunRequest` (DTO REST), `to_workflow_input()` puro (testeable sin Temporal) y `TemporalAdapter::{start_run,cancel_run}` que wrap `WorkflowAutomationClient`. Doc-comment del módulo deja clavado el contrato: "el servicio no contiene lógica de ejecución; eso vive en `workers-go/workflow-automation/`". Cerrado 2026-05-03: `workflow_id` canonico `workflow-automation:{definition_id}:{run_id}`, cliente real bajo feature `grpc`, `workflow_run_projections` queda solo como read-side projection y `G-S2-PG` no encuentra `FROM/INTO/UPDATE workflow_runs` en runtime live. E2E real: `cargo test -p workflow-automation-service --features it-temporal --test temporal_e2e -- --test-threads=1` -> 1/1.)*
-- [x] **S2.3.e** Worker Go corre como **deployment separado** `workflow-automation-worker` (3 réplicas, escalable independientemente). *(Sustrato: la imagen Docker `workflow-automation-worker` es buildable (S2.2.e) y el Deployment live está en [`infra/k8s/helm/of-platform/templates/temporal-workers.yaml`](../../infra/k8s/helm/of-platform/templates/temporal-workers.yaml), gobernado por `temporalWorkers.workflowAutomation` en [`values.yaml`](../../infra/k8s/helm/of-platform/values.yaml). Render prod verificado 2026-05-03: `helm template of-platform infra/k8s/helm/of-platform -f infra/k8s/helm/of-platform/values-prod.yaml` incluye `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE=openfoundry-prod` y `TEMPORAL_TASK_QUEUE=openfoundry.workflow-automation` para el worker.)*
-- [x] **S2.3.f** Tests: testcontainer Temporal (`temporalio/temporal server start-dev`) + ejecutar workflow Go end-to-end. *(Cerrado 2026-05-03: [`services/workflow-automation-service/tests/temporal_e2e.rs`](../../services/workflow-automation-service/tests/temporal_e2e.rs) arranca `testing::temporal::boot_temporal`, lanza el worker real [`workers-go/workflow-automation`](../../workers-go/workflow-automation) con `testing::go_workers::GoWorker`, usa `GrpcWorkflowClient` contra el frontend efímero y espera el resultado real del workflow vía `workflow_result_json`. Comando local/CI: `cargo test -p workflow-automation-service --features it-temporal --test temporal_e2e -- --test-threads=1`.)*
-
-### Tarea S2.4 — Reemplazar `pipeline-schedule-service` (semana 7)
-
-- [x] **S2.4.a** Borrar tick loop. Sustituir por **Temporal Schedules** (cron-like nativo, HA, sin doble disparo, garantía exactly-once por scheduler). *(Sustrato: bloque `tokio::spawn` con `tokio::time::interval` borrado de [`services/pipeline-schedule-service/src/main.rs`](../../services/pipeline-schedule-service/src/main.rs); el doc-comment del módulo explica que el dispatch cron lo posee ahora Temporal Schedules. Los endpoints `/_scheduler/run-due` quedan como break-glass durante el cutover.)*
-- [x] **S2.4.b** API REST CRUD de schedules sigue igual en Rust; internamente delega en `temporalio-client::ScheduleClient`. *(Sustrato: [`services/pipeline-schedule-service/src/domain/temporal_schedule.rs`](../../services/pipeline-schedule-service/src/domain/temporal_schedule.rs) con `CreateTemporalScheduleRequest` + `to_run_input` puro + adapters `create_schedule`/`delete_schedule`. Handler delgado en [`services/pipeline-schedule-service/src/handlers/temporal_schedule.rs`](../../services/pipeline-schedule-service/src/handlers/temporal_schedule.rs) (rutas `POST /schedules/temporal` y `DELETE /schedules/temporal/{id}`) que extrae el cliente vía `axum::Extension` para no romper el contrato `AppState` consumido por los tests path-pulled de `engine::runtime`. Cerrado 2026-05-03: `temporal-client` compila con `--features grpc`, [`infra/k8s/helm/of-data-engine/templates/services.yaml`](../../infra/k8s/helm/of-data-engine/templates/services.yaml) inyecta `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE`, `TEMPORAL_REQUIRE_REAL_CLIENT=true` y `TEMPORAL_TASK_QUEUE_PIPELINE=openfoundry.pipeline`; render prod muestra `OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT=prod` y `TEMPORAL_NAMESPACE=openfoundry-prod`, por lo que no hay fallback silencioso a `LoggingWorkflowClient` en staging/prod.)*
-- [x] **S2.4.c** Worker Go en `workers-go/pipeline/` registra los workflows que los schedules disparan. *(Sustrato: ya cubierto en S2.2.c — [`workers-go/pipeline/main.go`](../../workers-go/pipeline/main.go) llama `w.RegisterWorkflow(workflows.PipelineRun)` sobre la task queue `openfoundry.pipeline`; `workflow_id` patrón `pipeline-run:scheduled:{schedule_id}` pinneado tanto en [`libs/temporal-client/src/lib.rs`](../../libs/temporal-client/src/lib.rs) como en `to_run_input`.)*
-- [x] **S2.4.d** Validar idempotencia con un test que arranque 2 réplicas del worker y verifique que cada job se registra una vez. *(Cerrado 2026-05-03: [`services/pipeline-schedule-service/tests/temporal_schedule_idempotency.rs`](../../services/pipeline-schedule-service/tests/temporal_schedule_idempotency.rs) arranca Temporal efímero, lanza dos procesos reales de [`workers-go/pipeline`](../../workers-go/pipeline), crea el mismo `schedule_id` desde dos instancias de `PipelineScheduleClient` sobre `GrpcWorkflowClient` y comprueba que la segunda creación se acepta como idempotente. Comando local/CI: `cargo test -p pipeline-schedule-service --features it-temporal --test temporal_schedule_idempotency -- --test-threads=1`.)*
-
-### Tarea S2.5 — `approvals-service` con Temporal Signals (semana 8)
-
-- [x] **S2.5.a** Workflow `ApprovalRequestWorkflow` con `signal` para aprobar/rechazar. *(Sustrato: ya implementado en S2.2.c y refinado ahora en [`workers-go/approvals/workflows/approval_request.go`](../../workers-go/approvals/workflows/approval_request.go) — `workflow.NewSelector` con receive del signal `decide` (constante en [`workers-go/approvals/internal/contract/contract.go`](../../workers-go/approvals/internal/contract/contract.go)) y future de timeout 24h. Resuelve `ApprovalResult{decision: "approved"|"rejected"|"expired"}`.)*
-- [x] **S2.5.b** State (request_id, approver_set, status) vive en Temporal (durable). *(Sustrato: input `ApprovalRequestInput` (request_id, tenant_id, subject, approver_set, action_payload) viaja como argumento del workflow -> la historia de eventos Temporal es la fuente de verdad objetivo. Adapter Rust en [`services/approvals-service/src/domain/temporal_adapter.rs`](../../services/approvals-service/src/domain/temporal_adapter.rs) (`ApprovalsAdapter::open_approval` -> `ApprovalsClient::open`; `decide_approval` -> `ApprovalsClient::decide` con signal `decide`). Cerrado 2026-05-03: [`infra/k8s/helm/of-platform/templates/services.yaml`](../../infra/k8s/helm/of-platform/templates/services.yaml) inyecta `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE`, `TEMPORAL_REQUIRE_REAL_CLIENT=true` y `TEMPORAL_TASK_QUEUE_APPROVALS=openfoundry.approvals` al `approvals-service`; render prod muestra `OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT=prod` y `TEMPORAL_NAMESPACE=openfoundry-prod`. `G-S2-PG` no encuentra `FROM/INTO/UPDATE workflow_approvals` en runtime live.)*
-- [x] **S2.5.c** Audit emitido vía activity → `audit-compliance-service`, que ancla la cadena hash y publica downstream a Kafka `audit.events` por outbox (ADR-0022). *(Cerrado 2026-05-03 con el mismo cambio de contrato que S2.3.c — HTTP REST en lugar de gRPC. Sustrato: [`workers-go/approvals/activities/activities.go`](../../workers-go/approvals/activities/activities.go) implementa `HTTPAuditClient.AppendEvent` que envía `POST /api/v1/audit/events` con bearer token, `x-audit-correlation-id`, y un body que incluye `source_service: "approvals-worker"`, `channel: "temporal"`, classification/severity derivadas del action y un blob `metadata` con `audit_correlation_id`/`occurred_at`/`approval_attributes`. Registrada en [`main.go`](../../workers-go/approvals/main.go) vía `w.RegisterActivity(activities.New())`. El workflow [`approval_request.go`](../../workers-go/approvals/workflows/approval_request.go) la ejecuta tras resolverse el selector con `ActivityOptions{StartToCloseTimeout: 30s, RetryPolicy{MaxAttempts: 3, BackoffCoeff: 2.0}}`. La publicación a Kafka `audit.events` la hace `audit-compliance-service` por outbox/Debezium — el activity solo es responsable del append HTTP. Env vars: `OF_AUDIT_COMPLIANCE_URL` (alias legacy `OF_AUDIT_GRPC_ADDR`), `OF_AUDIT_BEARER_TOKEN`.)*
-- [x] **S2.5.d** Sacar tablas Postgres `approvals.*` del runtime live. *(Sustrato: archivado en [`docs/architecture/legacy-migrations/approvals-service/README.md`](legacy-migrations/approvals-service/README.md) que documenta el gate de cutover (cero pendientes en `workflow_approvals`, todos los callers migrados al adapter, >=7 dias de audit-events solo Temporal). DROP staged en [`drop_workflow_approvals.sql.disabled`](legacy-migrations/approvals-service/drop_workflow_approvals.sql.disabled) — extension `.disabled` para que `sqlx migrate run` lo skipee. Cierre runtime 2026-05-03: el gate `G-S2-PG` devuelve 0 hits para `workflow_approvals` en `services/approvals-service/src`; las migraciones historicas y drops staged siguen fuera del gate hasta el decommission fisico.)*
-
-### Tarea S2.6 — `pipeline-build-service`, `pipeline-authoring-service` (semana 9)
-
-- [x] **S2.6.a** Build se vuelve activity dentro de `PipelineRunWorkflow`. *(Cerrado 2026-05-03 con el mismo cambio de contrato que S2.3.c — HTTP REST en lugar de gRPC. Sustrato: [`workers-go/pipeline/activities/activities.go`](../../workers-go/pipeline/activities/activities.go) registra `Activities.BuildPipeline` (compila la pipeline con `POST /api/v1/data-integration/pipelines/_compile` contra `pipeline-authoring-service`; si `Parameters` ya contiene un compile-request inline lo usa directamente, si no hace `GET /api/v1/data-integration/pipelines/{id}` primero) y `Activities.ExecutePipeline` (`POST /api/v1/data-integration/pipelines/{id}/runs` contra `pipeline-build-service` con `context.compiled_plan`, `context.tenant_id`, `context.audit_correlation_id` y `context.temporal_task_queue`). Ambas en [`main.go`](../../workers-go/pipeline/main.go) vía `w.RegisterActivity(activities.New())`. El workflow [`PipelineRun`](../../workers-go/pipeline/workflows/pipeline_run.go) ahora es un DAG real de 2 pasos: ejecuta `BuildPipeline` → forwarda `BuildResult.Plan` a `ExecutePipeline`. Errores en cualquier activity producen `PipelineRunResult{status: "failed"}` sin abortar el workflow (retry policy `MaxAttempts: 3, BackoffCoeff: 2.0, Initial: 1m → Max: 15m`). Idempotencia: 4xx (≠429) → no-retry vía `temporal.NewNonRetryableApplicationError`; 5xx/429 los reintenta Temporal. Env vars: `OF_PIPELINE_AUTHORING_URL` (alias legacy `OF_PIPELINE_BUILD_GRPC_ADDR`), `OF_PIPELINE_BUILD_URL` (alias legacy `OF_PIPELINE_EXEC_GRPC_ADDR`), `OF_PIPELINE_BEARER_TOKEN`.)*
-- [x] Authoring sigue siendo CRUD declarativo → Postgres `pg-schemas.pipeline_schema`. *(Sustrato: verificado en [`services/pipeline-authoring-service/src/main.rs`](../../services/pipeline-authoring-service/src/main.rs) y [`src/handlers/mod.rs`](../../services/pipeline-authoring-service/src/handlers/mod.rs) — el binary monta sólo `handlers::crud` y `handlers::compiler` (validate/compile/prune); los módulos `execute` y `runs` siguen declarados con `#[allow(dead_code)]` para que `pipeline-build-service` y `pipeline-schedule-service` los `#[path]`-incluyan, pero NO están enrutados en authoring. No se requiere refactor — la frontera ya respeta la regla "authoring = declarative CRUD".)*
-
-### Tarea S2.7 — `automation-operations-service` (semana 10)
-
-- [x] Migrar a Temporal Workflows. *(Sustrato: crate-lib en [`services/automation-operations-service/src/lib.rs`](../../services/automation-operations-service/src/lib.rs) con `[lib]` declarado en [`Cargo.toml`](../../services/automation-operations-service/Cargo.toml) (workspace dep `temporal-client` + dev-dep `tokio`). Adapter en [`src/domain/temporal_adapter.rs`](../../services/automation-operations-service/src/domain/temporal_adapter.rs): `AutomationOpsAdapter::enqueue(req)` delega en `temporal_client::AutomationOpsClient::start_task` con `workflow_id` patrón `automation-ops:{task_id}` y task queue `openfoundry.automation-ops`. Cerrado 2026-05-03: [`infra/k8s/helm/of-apps-ops/templates/services.yaml`](../../infra/k8s/helm/of-apps-ops/templates/services.yaml) inyecta `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE`, `TEMPORAL_REQUIRE_REAL_CLIENT=true` y `TEMPORAL_TASK_QUEUE_AUTOMATION_OPS=openfoundry.automation-ops`; render prod muestra `OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT=prod` y `TEMPORAL_NAMESPACE=openfoundry-prod`. Worker Go [`workers-go/automation-ops/`](../../workers-go/automation-ops/) registra `AutomationOpsTask` sobre la misma queue.)*
-- [x] Sacar tablas Postgres correspondientes del runtime live. *(Sustrato: archivado en [`docs/architecture/legacy-migrations/automation-operations-service/README.md`](legacy-migrations/automation-operations-service/README.md) que documenta el gate de cutover (cero pendientes en `automation_queues`, todos los callers migrados al adapter, >=7 dias Temporal-only). DROP staged en [`drop_automation_queues.sql.disabled`](legacy-migrations/automation-operations-service/drop_automation_queues.sql.disabled) — extension `.disabled` para que `sqlx migrate run` lo skipee. Cierre runtime 2026-05-03: `G-S2-PG` devuelve 0 hits para `automation_queues` y `automation_queue_runs` en `services/automation-operations-service/src`; las migraciones historicas quedan fuera del gate hasta el decommission fisico.)*
-
-### Definition of Done — S2
-> **Estado real (2026-05-03):** S2 cerrado para runtime desplegado. Los servicios Rust S2 reciben `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE`, `TEMPORAL_REQUIRE_REAL_CLIENT=true` y sus task queues por Helm; `runtime_workflow_client` falla startup en staging/prod si no hay Temporal real. Las migraciones historicas/DROP staged quedan fuera de este DoD y pertenecen al decommission fisico posterior.
-
-- [x] Temporal cluster HA, persistence Cassandra, UI, métricas y runbook existen.
-- [x] Fachada Rust `libs/temporal-client`, contratos de task queue y skeletons Go existen y compilan.
-- [x] `workflow-automation`, `pipeline-schedule`, `approvals`, `pipeline-build` y `automation-operations` usan adapters/workers Temporal reales en runtime desplegado; `LoggingWorkflowClient` queda restringido a local/dev dry-run.
-- [x] El grep gate `G-S2-GO` de §18 devuelve `0 hits` para stubs/TODOs en workers Go. *(Evidencia 2026-05-03: `rg -n 'ErrNotImplemented|TODO|substrate stub|_substrate|logging stub|implementation pending' workers-go/workflow-automation workers-go/pipeline workers-go/approvals workers-go/automation-ops -g '*.go'` -> 0 hits.)*
-- [x] El grep gate `G-S2-PG` de §18 devuelve `0 hits` para SQL runtime legacy (`workflow_runs`, `workflow_approvals`, `automation_queues`) en servicios Rust S2. *(Evidencia 2026-05-03: `rg -n 'FROM workflow_runs|INTO workflow_runs|UPDATE workflow_runs|FROM workflow_approvals|INTO workflow_approvals|UPDATE workflow_approvals|FROM automation_queues|INTO automation_queues|UPDATE automation_queues|FROM automation_queue_runs|INTO automation_queue_runs|UPDATE automation_queue_runs' services/workflow-automation-service/src services/approvals-service/src services/automation-operations-service/src -g '*.rs'` -> 0 hits.)*
-- [x] El grep gate `G-S2-E2E` de §18 devuelve `0 hits` para tests Temporal ignorados/bloqueados, y los E2E Temporal corren contra worker Go real. *(Evidencia 2026-05-03: `rg -n '#\[ignore|blocked on grpc backend|ErrNotImplemented substrate|LoggingWorkflowClient' services/workflow-automation-service/tests services/pipeline-schedule-service/tests -g '*.rs'` -> 0 hits.)*
-- [x] Business worker Deployments (`workflow-automation-worker`, `pipeline-worker`, `approvals-worker`, `automation-ops-worker`) están desplegados y procesan workflows reales con métricas. *(Evidencia 2026-05-03: `helm template of-platform infra/k8s/helm/of-platform -f infra/k8s/helm/of-platform/values-prod.yaml` renderiza los cuatro workers con `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE=openfoundry-prod` y `TEMPORAL_TASK_QUEUE` = `openfoundry.workflow-automation|openfoundry.pipeline|openfoundry.approvals|openfoundry.automation-ops`.)*
-- [x] Servicios Rust S2 reciben Temporal real por Helm. *(Evidencia 2026-05-03: `helm template of-platform ... -f values-prod.yaml` renderiza `approvals-service`; `helm template of-apps-ops ... -f values-prod.yaml` renderiza `workflow-automation-service` y `automation-operations-service`; `helm template of-data-engine ... -f values-prod.yaml` renderiza `pipeline-schedule-service`; todos con `OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT=prod`, `TEMPORAL_HOST_PORT`, `TEMPORAL_NAMESPACE=openfoundry-prod`, `TEMPORAL_REQUIRE_REAL_CLIENT=true` y task queue de dominio.)*
-- [x] Test de 1000 schedules concurrentes con 2 workers reales demuestra exactamente un disparo por schedule. *(Evidencia 2026-05-03: `cargo test -p pipeline-schedule-service --features it-temporal --test temporal_schedule_load -- --test-threads=1` -> 1/1; `cargo test -p pipeline-schedule-service --features it-temporal --test temporal_schedule_idempotency -- --test-threads=1` -> 1/1.)*
-- [x] Suite de cierre S2 ejecutada. *(Evidencia 2026-05-03: `cargo check -p workflow-automation-service -p pipeline-schedule-service -p approvals-service -p automation-operations-service` pasa; `cargo test -p temporal-client` pasa; `cargo test -p temporal-client --features grpc` pasa; `cargo test -p workflow-automation-service --features it-temporal --test temporal_e2e -- --test-threads=1` pasa; `go test ./workflow-automation/... ./pipeline/... ./approvals/... ./automation-ops/...` pasa. `just go-test` no se ejecuto porque `just` no esta instalado en esta maquina; se uso el comando Go equivalente.)*
+- [ ] No quedan dependencias runtime a `libs/temporal-client`, `workers-go/` ni `infra/helm/infra/temporal/`.
+- [ ] Los keyspaces `temporal_persistence` y `temporal_visibility` quedan eliminados del cluster.
+- [ ] Los tests E2E usan el patrón Foundry-pattern (Kafka/outbox/state machines/Spark) y no el runtime legado.
+- [ ] CI/justfile/runbooks/documentación dejan de mencionar el ADR-0021 salvo como referencia histórica superseded.
 
 ---
 
@@ -569,7 +524,7 @@ Para cada uno:
 - [x] **S3.2.b** Tabla `sessions.refresh_token((token_hash_prefix), token_hash, family_id, user_id, expires_at)` con TTL 30 d. Bucket = primeros 2 bytes del hash (256 buckets). *(Sustrato: DDL `REFRESH_TOKEN_DDL` en el mismo módulo — PK `((token_hash_prefix), token_hash)` + columnas `family_id, user_id, issued_at, expires_at, revoked_at, rotated_to`, `default_time_to_live = 2592000` (30 d), TWCS 7-day windows. Helper puro `token_hash_prefix(&[u8])` extrae los primeros 2 bytes hex (256 buckets). 2 unit tests cubren entrada normal + corta. La columna `rotated_to` alimenta directamente la lógica de family detection (S3.1.f).)*
 - [x] **S3.2.c** Tabla `sessions.oauth_state((day_bucket), state, redirect_uri, code_verifier)` con TTL 10 min. *(Sustrato: DDL `OAUTH_STATE_DDL` en el mismo módulo — PK `((day_bucket), state)` + `redirect_uri, code_verifier, client_id, issued_at`, `default_time_to_live = 600`, TWCS 1-hour windows. Las tres DDLs se aplican como `Migration{version: 1, name: "auth_runtime_session_tables"}` vía `cassandra_kernel::migrate::apply` desde `SessionsAdapter::migrate()`.)*
 - [x] **S3.2.d** Refactor `identity-federation-service`: handlers leen/escriben de Cassandra; JWKS keys en `pg-schemas.auth_schema.jwks_keys` (rotación rara, custody en Vault). *(Sustrato: nuevo crate-lib en [`services/identity-federation-service/src/lib.rs`](../../services/identity-federation-service/src/lib.rs) con `[lib]` declarado en [`Cargo.toml`](../../services/identity-federation-service/Cargo.toml) (deps `cassandra-kernel`, `authz-cedar`, `async-trait`, `thiserror`). El bin `main.rs` permanece vacío — el refactor handler-by-handler se difiere PR-a-PR (mismo patrón que approvals-service S2.5.b). Adapter `SessionsAdapter::new(Arc<Session>)` con método `migrate()` (idempotente) y `record_session()` (firma substrate, body lo rellena el PR de `handlers::login`). La frontera JWKS ↔ Cassandra queda explícita: `auth_runtime.*` en Cassandra, `pg-schemas.auth_schema.jwks_keys` en Postgres con custody Vault transit (S3.1.b).)*
-- [x] **S3.2.e** Borrar migrations sqlx legacy de sesiones. *(Sustrato: archivado en [`docs/architecture/legacy-migrations/identity-federation-service/README.md`](legacy-migrations/identity-federation-service/README.md) que documenta el gate de cutover (cero sesiones activas en `scoped_sessions`/`refresh_tokens`, callers migrados al adapter, JWKS rotación ejecutada al menos una vez con la key Vault, ≥7 días de telemetría Temporal-only audit, drill de failover S3.5 firmado). DROP staged en [`drop_session_tables.sql.disabled`](legacy-migrations/identity-federation-service/drop_session_tables.sql.disabled) — extensión `.disabled` para que `sqlx migrate run` lo skipee. Las migraciones originales en `services/identity-federation-service/migrations/` se mantienen para read-side mirror durante la transición; `pg-schemas.auth_schema.jwks_keys` no se toca.)*
+- [x] **S3.2.e** Borrar migrations sqlx legacy de sesiones. *(Sustrato: archivado en [`docs/architecture/legacy-migrations/identity-federation-service/README.md`](legacy-migrations/identity-federation-service/README.md) que documenta el gate de cutover (cero sesiones activas en `scoped_sessions`/`refresh_tokens`, callers migrados al adapter, JWKS rotación ejecutada al menos una vez con la key Vault, ≥7 días de telemetría runtime-legacy-only audit, drill de failover S3.5 firmado). DROP staged en [`drop_session_tables.sql.disabled`](legacy-migrations/identity-federation-service/drop_session_tables.sql.disabled) — extensión `.disabled` para que `sqlx migrate run` lo skipee. Las migraciones originales en `services/identity-federation-service/migrations/` se mantienen para read-side mirror durante la transición; `pg-schemas.auth_schema.jwks_keys` no se toca.)*
 
 ### Tarea S3.3 — `session-governance-service` (semana 7)
 
@@ -857,28 +812,32 @@ OpenFoundry/
 │   ├── ontology-definition-service/      (Postgres pg-schemas)
 │   ├── ontology-actions-service/         (Cassandra + outbox)
 │   ├── ontology-query-service/           (Cassandra + cache + Vespa)
-│   ├── ontology-indexer/                 (NUEVO; Kafka consumer → Vespa)
-│   ├── audit-sink/                       (NUEVO; Kafka consumer → Iceberg)
-│   ├── workflow-automation-service/      (Temporal adapter)
-│   ├── workflow-automation-worker/       (NUEVO; Temporal worker)
+│   ├── ontology-indexer/                 (Kafka consumer → Vespa)
+│   ├── audit-sink/                       (Kafka consumer → Iceberg)
+│   ├── workflow-automation-service/      (Kafka consumers + state machine Postgres)
+│   ├── pipeline-schedule-service/        (API + scheduling intent → Cron/Kafka/Spark)
+│   ├── approvals-service/                (state machine + timeout sweep)
+│   ├── automation-operations-service/    (saga choreography)
 │   ├── ...
 ├── libs/
 │   ├── core-models/                      (sin cambios)
 │   ├── auth-middleware/
 │   ├── cassandra-kernel/                 (NUEVO)
-│   ├── workflow-kernel/                  (NUEVO; Temporal helpers)
+│   ├── state-machine/                    (NUEVO)
+│   ├── saga/                             (NUEVO)
+│   ├── event-scheduler/                  (NUEVO)
 │   ├── ontology-kernel/                  (refactorizado: traits + Cassandra impl)
 │   ├── storage-abstraction/              (extendido; Iceberg + Cassandra repos)
 │   ├── event-bus-data/                   (activado)
 │   ├── event-bus-control/
 │   ├── audit-trail/                      (refactor: emite a Kafka)
-│   └── testing/                          (testcontainers Postgres + Cassandra + Temporal + Kafka)
+│   └── testing/                          (testcontainers Postgres + Cassandra + Kafka)
 ├── infra/
 │   └── k8s/
 │       ├── cassandra/                    (NUEVO; k8ssandra-operator + cluster)
-│       ├── temporal/                     (NUEVO)
-│       ├── trino/                        (NUEVO)
 │       ├── spark-operator/               (NUEVO)
+│       ├── sparkapplications/            (NUEVO; CRs de pipelines)
+│       ├── trino/                        (NUEVO)
 │       ├── cnpg/clusters/                (4 manifests)
 │       ├── strimzi/                      (existente; topics activos)
 │       ├── lakekeeper/                   (existente; + región B read-only)
@@ -896,12 +855,13 @@ OpenFoundry/
     └── architecture/
         ├── adr/
         │   ├── ADR-0020-cassandra-as-operational-store.md
-        │   ├── ADR-0021-temporal-on-cassandra.md
+        │   ├── ADR-0021-temporal-on-cassandra-go-workers.md   (superseded)
         │   ├── ADR-0022-transactional-outbox.md
         │   ├── ADR-0023-iceberg-cross-region-dr.md
         │   ├── ADR-0024-postgres-consolidation.md
         │   ├── ADR-0025-eliminate-custom-scheduler.md
-        │   └── ADR-0026-identity-stack.md
+        │   ├── ADR-0026-identity-stack.md
+        │   └── ADR-0037-foundry-pattern-orchestration.md
         ├── data-model-cassandra.md
         ├── ontology-queries-inventory.md
         └── legacy-migrations/            (archivo histórico)
@@ -915,7 +875,7 @@ OpenFoundry/
 |---|---|---|
 | Modelado Cassandra hace assumptions equivocadas (hot partition por tenant grande) | Crítica | Bucketing (`tenant_id, type_id, day_bucket`); load test con tenant skewed antes de migrar a prod |
 | LWT abuse (cada write con `IF version`) → throughput cae a 1/4 | Alta | Restringir LWT a casos genuinamente concurrentes (outbox claim, optimistic lock raro); resto = idempotency |
-| Temporal Rust SDK inmaduro | Alta | Plan B: workers en Go o Java SDK como sidecars; revisar madurez al inicio S2 |
+| Ejecución durable del patrón Foundry requiere más disciplina de idempotencia | Alta | state machines explícitas, outbox obligatorio, compensaciones modeladas y grep gates de cierre por dominio |
 | Lag Vespa indexer desincronizado en bursts | Media | Backpressure + autoscaling consumers + alerta de lag |
 | Outbox table crece sin control si relay cae | Media | TTL 7d + alerta si tail >1M filas |
 | Cassandra repair cross-DC consume red | Media | Reaper schedules off-peak; throttle |
@@ -930,7 +890,7 @@ OpenFoundry/
 
 1. **Cassandra vs ScyllaDB:** ya decidido **Cassandra** (request del usuario). Driver: `scylla` crate (nombre confuso, pero es el mejor driver Rust para CQL — soporta Cassandra y Scylla por igual).
 2. **Cassandra version:** **5.0** LTS (released 2024).
-3. **Temporal Rust SDK vs sidecars:** decidido en S2 (2026-05-03): servicios Rust usan la fachada `libs/temporal-client` con cliente real bajo feature `grpc`; workers de negocio viven en Go SDK como Deployments separados. No hay sidecars por servicio ni fallback logging/noop en staging/prod.
+3. **Orquestación Foundry-pattern:** decidido por ADR-0037. Los servicios usan Kafka/outbox/state machines/Spark; `libs/temporal-client`, `workers-go/` y el runtime legado quedan marcados para eliminación y no se aceptan sidecars por servicio como arquitectura objetivo.
 4. **Keycloak vs custom hardened:** decidido en S0.1.g / ADR-0026: `identity-federation-service` custom retained y endurecido; Keycloak descartado.
 5. **Búsqueda fallback dev:** Vespa pesado para laptop. Para `compose.yaml` dev: **OpenSearch single-node** o Meilisearch.
 6. **OpenFGA store backend:** Postgres `pg-policy` (operacionalmente más simple que MySQL recomendado por OpenFGA).
@@ -947,7 +907,7 @@ OpenFoundry/
 | P95 ontology read by-type (paginado) | Sin baseline aceptado; ver [`slo-evidence/2026-05-03`](slo-evidence/2026-05-03/summary.md) | <100 ms |
 | P99 write ontology + outbox | Sin baseline aceptado; ver [`slo-evidence/2026-05-03`](slo-evidence/2026-05-03/summary.md) | <50 ms |
 | Lag Vespa indexer | Sin baseline operativo aceptado; S5-OPS abierto | P99 <5 s |
-| Workflow scheduling exactly-once | No garantizado | Garantizado por Temporal |
+| Coordinación durable / exactly-once lógico | No garantizado | Garantizado por idempotencia + outbox + state machines + CronJobs/Spark/Kafka |
 | Multi-region failover RTO | No soportado | <30 min |
 | Multi-region RPO | No soportado | <5 min |
 | Helm releases | 1 monolítico | 5 separados |
@@ -964,9 +924,9 @@ OpenFoundry/
 | Gate / check | Comando ejecutado | Resultado | Evidencia | Owner |
 |---|---|---:|---|---|
 | G-S1 | `rg -n 'sqlx::query!?|sqlx::query_as!?|query!\(|query_as!\(' ...ontology hot-path...` | PASS | 0 hits. Tests locales: `cargo test -p ontology-kernel` -> PASS (58 unit + 10 integration-style local); `cargo test -p cassandra-kernel` -> PASS solo en tests no ignorados. | Ontology platform maintainers |
-| G-S2-GO | `rg -n 'ErrNotImplemented|TODO|substrate stub|_substrate|logging stub|implementation pending' workers-go/... -g '*.go'` | PASS | 0 hits. `go test ./...` PASS en `workflow-automation`, `pipeline`, `approvals`, `automation-ops` y `reindex`. | Workflow/Temporal maintainers |
-| G-S2-PG | `rg -n 'FROM workflow_runs|INTO workflow_runs|UPDATE workflow_runs|...automation_queue_runs' services/... -g '*.rs'` | PASS | 0 hits en runtime Rust S2. | Workflow/Temporal maintainers |
-| G-S2-E2E | `rg -n '#\[ignore|blocked on grpc backend|ErrNotImplemented substrate|LoggingWorkflowClient' services/.../tests -g '*.rs'` | PASS / TEST GAP | 0 hits. `cargo test -p workflow-automation-service --features it-temporal --test temporal_e2e -- --test-threads=1` -> PASS. `cargo test -p pipeline-schedule-service --features it-temporal --test temporal_schedule_idempotency -- --test-threads=1` -> PASS. Pero `cargo test -p pipeline-schedule-service` -> FAIL por compilacion del bin test. | Workflow/Temporal maintainers |
+| G-S2-GO | `rg -n 'ErrNotImplemented|TODO|substrate stub|_substrate|logging stub|implementation pending' workers-go/... -g '*.go'` | PASS | 0 hits. `go test ./...` PASS en `workflow-automation`, `pipeline`, `approvals`, `automation-ops` y `reindex`. | Workflow/Foundry-pattern maintainers |
+| G-S2-PG | `rg -n 'FROM workflow_runs|INTO workflow_runs|UPDATE workflow_runs|...automation_queue_runs' services/... -g '*.rs'` | PASS | 0 hits en runtime Rust S2. | Workflow/Foundry-pattern maintainers |
+| G-S2-E2E | `rg -n '#\[ignore|blocked on grpc backend|ErrNotImplemented substrate|LoggingWorkflowClient' services/.../tests -g '*.rs'` | PASS / TEST GAP | 0 hits. `cargo test -p workflow-automation-service --features it-temporal --test temporal_e2e -- --test-threads=1` -> PASS. `cargo test -p pipeline-schedule-service --features it-temporal --test temporal_schedule_idempotency -- --test-threads=1` -> PASS. Pero `cargo test -p pipeline-schedule-service` -> FAIL por compilacion del bin test. | Workflow/Foundry-pattern maintainers |
 | G-S3 | `rg -n 'NotWired|not_implemented|ErrNotImplemented|todo!|TODO' services/identity-federation-service/src services/session-governance-service/src services/oauth-integration-service/src` | PASS / TEST FAIL | 0 hits. `cargo test -p identity-federation-service` -> PASS; `cargo test -p oauth-integration-service` -> PASS; `cargo test -p session-governance-service` -> FAIL en `sessions_cassandra::tests::active_postgres_migrations_do_not_create_runtime_session_tables` por fixture no encontrado. | Identity maintainer + Security |
 | G-S5 | `rg -n 'NotWired|not_implemented|ErrNotImplemented|todo!|TODO' services/audit-sink/src ... workers-go/reindex` | PASS | 0 hits. Unitarios S5 PASS: `audit-sink`, `ai-sink`, `lineage-service`, `ontology-indexer --features runtime`, `event-bus-data`, `sql-bi-gateway-service trino`. | Data platform maintainers |
 | G-S5 guardrail WORM | `rg -n 'of_audit|rewrite|expire_snapshots' infra services workers-go ...` | PASS / REVIEWED | Hits son comentarios/guardrails y referencias de schema; no se observo `of_audit` como target de rewrite/expire. Mantener revision humana en cada cambio de jobs Spark/Flink. | Data platform maintainers |
@@ -1006,7 +966,7 @@ rg -n 'sqlx::query!?|sqlx::query_as!?|query!\(|query_as!\(' \
 
 Pasa cuando devuelve `0 hits` para runtime hot-path. Quedan fuera del gate los árboles archivados bajo `docs/architecture/legacy-migrations/**`, el servicio declarativo `ontology-definition-service` y el SQL de infraestructura/outbox que no pertenece al hot path ontology.
 
-### G-S2-GO — Workers Temporal Go sin stubs de negocio
+### G-S2-GO — Workers/consumers de orquestación sin stubs de negocio
 
 ```bash
 rg -n 'ErrNotImplemented|TODO|substrate stub|_substrate|logging stub|implementation pending' \
@@ -1017,9 +977,9 @@ rg -n 'ErrNotImplemented|TODO|substrate stub|_substrate|logging stub|implementat
   -g '*.go'
 ```
 
-Pasa cuando devuelve `0 hits` en código Go runtime. Los workers pueden conservar documentación histórica, pero ningún workflow/activity live puede devolver stubs, planes `_substrate`, logging-only side effects o `ErrNotImplemented`.
+Pasa cuando devuelve `0 hits` en código runtime de workers/consumers. Se permite documentación histórica, pero ningún componente live puede devolver stubs, planes `_substrate`, logging-only side effects o `ErrNotImplemented`.
 
-### G-S2-PG — Temporal sin runtime legacy Postgres
+### G-S2-PG — Orquestación distribuida sin runtime legacy Postgres
 
 ```bash
 rg -n 'FROM workflow_runs|INTO workflow_runs|UPDATE workflow_runs|FROM workflow_approvals|INTO workflow_approvals|UPDATE workflow_approvals|FROM automation_queues|INTO automation_queues|UPDATE automation_queues|FROM automation_queue_runs|INTO automation_queue_runs|UPDATE automation_queue_runs' \
@@ -1031,7 +991,7 @@ rg -n 'FROM workflow_runs|INTO workflow_runs|UPDATE workflow_runs|FROM workflow_
 
 Pasa cuando devuelve `0 hits` en código Rust runtime. Quedan fuera del gate migraciones archivadas, DROP staged y readme de cutover; no quedan fuera handlers live.
 
-### G-S2-E2E — Temporal E2E real, no ignorado
+### G-S2-E2E — E2E reales del patrón Foundry, no ignorados
 
 ```bash
 rg -n '#\[ignore|blocked on grpc backend|ErrNotImplemented substrate|LoggingWorkflowClient' \
@@ -1040,7 +1000,7 @@ rg -n '#\[ignore|blocked on grpc backend|ErrNotImplemented substrate|LoggingWork
   -g '*.rs'
 ```
 
-Pasa cuando devuelve `0 hits` y los E2E se ejecutan contra Temporal frontend + worker Go real. Mientras haya `#[ignore]` o el test dependa de `LoggingWorkflowClient`, S2 no cierra.
+Pasa cuando devuelve `0 hits` y los E2E se ejecutan contra Kafka/outbox/state machines/Spark reales. Mientras haya `#[ignore]` o el test dependa del runtime legado, S2 no cierra.
 
 ### G-S3 — Identity runtime sin stubs de cutover
 
@@ -1128,6 +1088,17 @@ Pasa cuando devuelve `0 hits` en código Rust live. Las migraciones históricas 
 3. **Día 4-5:** Tarea S0.1 (ADRs draft).
 4. **Semana 2:** Tarea S0.2 (cluster Cassandra dev local funcionando) + S0.3 (libs/cassandra-kernel scaffold).
 5. **Sprint review semana 3:** Demo `just dev-up-cassandra` + un test trivial de insert/get → si funciona, S1 arranca.
+
+---
+
+## 20. Migration to Foundry-pattern (ADR-0037)
+
+- **Status:** in progress.
+- **ADR:** [ADR-0037 — Foundry-pattern orchestration](adr/ADR-0037-foundry-pattern-orchestration.md).
+- **Plan dedicado:** [`docs/architecture/migration-plan-foundry-pattern-orchestration.md`](migration-plan-foundry-pattern-orchestration.md).
+- **Tareas pendientes:** **49** del plan dedicado (52 totales; 0.1, 0.2 y 0.3 ya ejecutadas).
+- **Alcance que sigue vigente en este plan:** Cassandra como store operacional, Iceberg como source of truth, Vespa/OpenSearch, outbox + Debezium, consolidación de Postgres, DR multi-región.
+- **Alcance superseded por ADR-0037:** cluster del orquestador previo, `workers-go/`, `libs/temporal-client`, keyspaces `temporal_*`, wiring Helm/Compose/CI asociado y cualquier referencia a workflows centralizados como solución objetivo.
 
 ---
 
