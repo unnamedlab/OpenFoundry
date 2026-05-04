@@ -84,6 +84,18 @@ topics:
       class: ontology
     - name: ontology.reindex.v1
       class: ontology
+    # FASE 4 / Tarea 4.2 — control-plane trigger and completion topics
+    # for `services/reindex-coordinator-service` (Rust replacement for
+    # the Go `workers-go/reindex` Temporal worker per ADR-0021/ADR-0038).
+    # `requested.v1` is the input event the coordinator consumes; the
+    # coordinator owns the resume cursor in `pg-runtime-config.reindex_jobs`,
+    # so the producer of `requested.v1` MUST NOT supply one.
+    # `completed.v1` is the terminal-status event published when a job
+    # transitions to `completed` / `failed` / `cancelled`.
+    - name: ontology.reindex.requested.v1
+      class: ontology
+    - name: ontology.reindex.completed.v1
+      class: ontology
     - name: saga.step.v1
       class: saga
       retentionMs: "1209600000"       # 14d (saga replay window)
@@ -101,6 +113,8 @@ topics:
     - { name: __dlq.approval.events.v1,    class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.ontology.changes.v1,   class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.ontology.reindex.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.ontology.reindex.requested.v1, class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.ontology.reindex.completed.v1, class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.saga.step.v1,          class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.pipeline.builds.v1,    class: dlq, retentionMs: "1209600000" }
 

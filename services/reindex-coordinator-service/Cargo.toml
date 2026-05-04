@@ -1,0 +1,121 @@
+[package]
+name = "reindex-coordinator-service"
+description = "Kafka-triggered Cassandra reindex coordinator (FASE 4 / Tarea 4.2 — Rust replacement for workers-go/reindex)"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+# ── Always-compiled pure logic ─────────────────────────────────────
+# Decoders, state-machine helpers and event-id derivation stay
+# compilable without librdkafka so CI can validate them on every
+# push without paying the cmake cost.
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.base64]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+# ── Runtime-only dependencies ──────────────────────────────────────
+# Pulled in by the `runtime` feature (and by the [[bin]] target,
+# which `required-features = ["runtime"]`). Mirrors the pattern from
+# `services/ontology-indexer/Cargo.toml`.
+
+[dependencies.tracing-subscriber]
+workspace = true
+optional = true
+
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
+[dependencies.cassandra-kernel]
+workspace = true
+optional = true
+
+[dependencies.bytes]
+workspace = true
+optional = true
+
+[dependencies.sqlx]
+workspace = true
+optional = true
+
+[dependencies.idempotency]
+workspace = true
+optional = true
+features = ["postgres"]
+
+[dependencies.prometheus]
+workspace = true
+optional = true
+
+# ── Integration test extras (declared as optional regular deps
+# because [dev-dependencies] cannot be optional) ───────────────────
+
+[dependencies.testcontainers]
+workspace = true
+optional = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread", "time"]
+
+[features]
+default = []
+# Production wiring: rdkafka subscriber + Postgres persistence +
+# Cassandra scan loop + Prometheus metrics. The pure-logic API in
+# `lib.rs` (state machine, event-id, decoders) compiles without it.
+runtime = [
+    "dep:event-bus-data",
+    "dep:cassandra-kernel",
+    "dep:bytes",
+    "dep:sqlx",
+    "dep:idempotency",
+    "dep:prometheus",
+    "dep:tracing-subscriber",
+]
+# Opt-in end-to-end test against real Cassandra + Kafka. Off by
+# default so plain `cargo test -p reindex-coordinator-service` stays
+# Docker- and network-free.
+it-e2e = ["runtime", "dep:testcontainers"]
+
+[lib]
+path = "src/lib.rs"
+name = "reindex_coordinator_service"
+crate-type = ["lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "reindex-coordinator-service"
+required-features = ["runtime"]

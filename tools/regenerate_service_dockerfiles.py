@@ -95,6 +95,16 @@ SERVICE_OVERRIDES: dict[str, dict[str, str]] = {
         "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
     },
+    # FASE 4 / Tarea 4.2: Kafka-triggered Cassandra reindex coordinator.
+    # Pulls rdkafka through `event-bus-data` under the `runtime` feature,
+    # plus the scylla driver through `cassandra-kernel`. Same native
+    # build deps as `ontology-indexer`.
+    "reindex-coordinator-service": {
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
+        "cargo_features": "runtime",
+    },
     # Pulls rdkafka transitively through libs/event-bus-data (no feature
     # flag — the dependency is unconditional), so it needs the same
     # native packages as the explicit Kafka services.
