@@ -66,6 +66,52 @@ data:
       END LOOP;
     END$$;
 
+    -- Shared transactional outbox for the policy cluster (ADR-0022).
+    -- Every bounded context in pg-policy writes into the same
+    -- `outbox.events` table so Debezium only needs one publication /
+    -- connector scoped to `outbox.events`.
+    CREATE SCHEMA IF NOT EXISTS outbox;
+    REVOKE ALL ON SCHEMA outbox FROM PUBLIC;
+
+    CREATE TABLE IF NOT EXISTS outbox.events (
+      event_id     UUID PRIMARY KEY,
+      aggregate    TEXT NOT NULL,
+      aggregate_id TEXT NOT NULL,
+      payload      JSONB NOT NULL,
+      headers      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      topic        TEXT NOT NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS outbox_events_created_at_idx
+      ON outbox.events (created_at);
+
+    CREATE TABLE IF NOT EXISTS outbox.heartbeat (
+      id           TEXT PRIMARY KEY,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- Keep full row images in the WAL even though producers delete the
+    -- outbox row in the same transaction (`libs/outbox::enqueue`).
+    ALTER TABLE outbox.events REPLICA IDENTITY FULL;
+
+    DO $$
+    DECLARE bc TEXT;
+    BEGIN
+      FOR bc IN SELECT unnest(ARRAY[
+        'identity_federation','oauth_integration','network_boundary','cipher',
+        'security_governance','sds','audit_compliance','retention_policy',
+        'lineage_deletion','checkpoints_purpose','telemetry_governance',
+        'code_security_scanning'
+      ]) LOOP
+        EXECUTE format('GRANT USAGE ON SCHEMA outbox TO svc_%I', bc);
+        EXECUTE format(
+          'GRANT INSERT, DELETE ON outbox.events TO svc_%I',
+          bc
+        );
+      END LOOP;
+    END$$;
+
     -- Dedicated Debezium CDC role — read-only on every policy schema,
     -- plus REPLICATION attribute to consume logical slots. The slot
     -- itself is created by the Debezium connector configuration.
@@ -88,4 +134,7 @@ data:
         );
       END LOOP;
     END$$;
+    GRANT USAGE ON SCHEMA outbox TO debezium_cdc;
+    GRANT SELECT ON outbox.events TO debezium_cdc;
+    GRANT SELECT, INSERT, UPDATE ON outbox.heartbeat TO debezium_cdc;
 {{- end }}
