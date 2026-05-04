@@ -1,3 +1,9 @@
+{{- /* Skip the PodMonitor when the Prometheus Operator CRDs are not
+       installed (e.g. dev profile, where `observabilityInstalled` is
+       false in `infra/helm/helmfile.yaml.gotmpl`). The chart still
+       applies cleanly; metrics scraping resumes once kube-prometheus
+       is present. */ -}}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
 ---
 # S4.1.f — PodMonitor for the Debezium Connect cluster.
 #
@@ -23,3 +29,4 @@ spec:
       path: /metrics
       interval: 30s
       scrapeTimeout: 25s
+{{- end }}
