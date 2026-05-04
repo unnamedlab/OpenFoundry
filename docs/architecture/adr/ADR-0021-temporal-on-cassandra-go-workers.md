@@ -1,7 +1,15 @@
 # ADR-0021: Temporal on Cassandra, with business workers in Go
 
-- **Status:** Accepted
+> **Superseded by [ADR-0037](./ADR-0037-foundry-pattern-orchestration.md) on 2026-05-04.**
+> The Temporal-on-Cassandra direction recorded below is replaced by a
+> distributed Foundry-pattern substrate (Spark Operator + Kafka +
+> Postgres state machines + transactional outbox / Debezium). The
+> migration is tracked in
+> [`docs/architecture/migration-plan-foundry-pattern-orchestration.md`](../migration-plan-foundry-pattern-orchestration.md).
+
+- **Status:** Superseded by [ADR-0037](./ADR-0037-foundry-pattern-orchestration.md)
 - **Date:** 2026-05-02
+- **Superseded:** 2026-05-04
 - **Deciders:** OpenFoundry platform architecture group
 - **Supersedes / supplements:**
   - The bespoke scheduler in
