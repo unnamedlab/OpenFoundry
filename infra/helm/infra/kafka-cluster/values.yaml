@@ -121,5 +121,28 @@ topics:
 acls:             { enabled: true }
 topicsDomainV1:   { enabled: true }
 networkPolicies:  { enabled: true }
-apicurio:         { enabled: true }
+apicurio:
+  enabled: true
+  # Tarea 4.4 — register the `ontology.reindex.v1` JSON Schema into
+  # Apicurio Registry on chart install/upgrade
+  # (templates/apicurio-schemas-job.yaml). Source of truth lives at
+  # services/ontology-indexer/schemas/ontology.reindex.v1.json and is
+  # mirrored to files/schemas/ here (drift-guarded by the
+  # `helm_chart_copy_is_in_sync_with_source` unit test in
+  # services/ontology-indexer).
+  registerSchemas: true
+  # Namespace where the schema-registration ConfigMap + Job are
+  # created. Defaults to the same `apicurio` namespace where the
+  # registry itself runs.
+  schemasNamespace: apicurio
+  # In-cluster URL for Apicurio Registry. Override if the registry
+  # is deployed under a different service name / namespace.
+  baseUrl: http://apicurio-registry.apicurio.svc:8080
+  # Image used by the registration Job. Pinned so chart upgrades do
+  # not silently change the registrar runtime.
+  registrarImage: curlimages/curl:8.10.1
+  # Compatibility rule pinned on the artifact via the Apicurio Core
+  # API. BACKWARD means newer producers must keep older consumers
+  # working — the right default for the indexer cut-over of Tarea 4.4.
+  reindexV1Compatibility: BACKWARD
 regionB:          { enabled: false }

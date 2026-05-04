@@ -91,6 +91,16 @@ optional = true
 workspace = true
 features = ["macros", "rt-multi-thread", "time"]
 
+# Cross-crate compatibility test (Tarea 4.4): re-uses the
+# `ontology.reindex.v1` JSON Schema authored by the downstream
+# consumer to assert that records produced here will pass the
+# consumer's startup validator.
+[dev-dependencies.jsonschema]
+workspace = true
+
+[dev-dependencies.serde_json]
+workspace = true
+
 [features]
 default = []
 # Production wiring: rdkafka subscriber + Postgres persistence +

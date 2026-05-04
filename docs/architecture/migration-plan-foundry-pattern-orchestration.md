@@ -1029,6 +1029,27 @@ Mismo patrón que Tarea 3.6:
 
 ### Tarea 4.4 — Verificar consumer downstream (Vespa indexer)
 
+> **Status:** ✅ Completado.
+> - `services/ontology-indexer/schemas/ontology.reindex.v1.json` pins the
+>   wire format of records published to `ontology.reindex.v1`.
+> - `services/ontology-indexer` compiles the schema once at startup
+>   (`schema::ensure_compiled`, called from `runtime::run_with_metrics`)
+>   and validates every payload on the topic before decode; failures
+>   surface as the new `RecordOutcome::SchemaInvalid` metric label.
+> - Cross-service compatibility test
+>   (`services/reindex-coordinator-service/tests/reindex_v1_schema_compat.rs`)
+>   loads the consumer-owned schema and validates that
+>   `encode_batch_record` produces conformant records — both with and
+>   without the optional `embedding` field — so the producer cannot
+>   regress the contract silently.
+> - Helm chart `infra/helm/infra/kafka-cluster` registers the same
+>   schema artifact into Apicurio Registry on install/upgrade
+>   (`templates/apicurio-schemas-job.yaml`, gated by
+>   `apicurio.registerSchemas`) and pins compatibility to BACKWARD via
+>   the Apicurio Core API. Drift between the consumer copy and the
+>   chart copy is asserted by the
+>   `helm_chart_copy_is_in_sync_with_source` unit test.
+
 ```text
 Context: ontology-indexer consume `ontology.reindex.v1` y actualiza Vespa. Validar que
 los nuevos batches del nuevo reindex-coordinator-service son compatibles con el formato
