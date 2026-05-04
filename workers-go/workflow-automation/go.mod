@@ -2,10 +2,7 @@ module github.com/open-foundry/open-foundry/workers-go/workflow-automation
 
 go 1.25.0
 
-require (
-	go.temporal.io/sdk v1.28.1
-	google.golang.org/grpc v1.80.0
-)
+require go.temporal.io/sdk v1.28.1
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -29,6 +26,7 @@ require (
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260427160629-7cedc36a6bc4 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260420184626-e10c466a9529 // indirect
+	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
