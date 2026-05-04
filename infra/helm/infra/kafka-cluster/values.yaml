@@ -24,7 +24,86 @@ kafka:
     limits:   { cpu: "2", memory: "6Gi" }
 
 # Optional sub-resources.
-topics:           { enabled: true }
+topics:
+  enabled: true
+  # Cluster-wide defaults applied to every entry in `topics.list` unless
+  # the entry overrides them. `replicas` and `minInsyncReplicas` default
+  # to the cluster's `kafka.replicationFactor` / `kafka.minInsyncReplicas`
+  # (so the same list works for dev=RF1/ISR1 and prod=RF3/ISR2).
+  defaults:
+    partitions: 6
+    cleanupPolicy: delete
+    retentionMs: "604800000"          # 7d
+    compressionType: producer
+    segmentMs: "3600000"               # 1h
+  # Single source of truth for the data-plane topics. Add new entries
+  # here; the loop in `templates/kafka-topics.yaml` renders one
+  # `KafkaTopic` CR per entry. `class` becomes the
+  # `openfoundry.io/topic-class` label.
+  list:
+    # ── Legacy topics ────────────────────────────────────────────────
+    # Preserved verbatim from the pre-refactor template; do not change
+    # without coordinating with downstream consumers.
+    - name: cdc.postgres
+      class: cdc
+      partitions: 12
+      cleanupPolicy: compact
+      retentionMs: "604800000"        # 7d backstop for tombstones
+      segmentMs: "3600000"
+    - name: dataset.changes
+      class: domain
+      partitions: 12
+      cleanupPolicy: compact
+      retentionMs: "1209600000"       # 14d
+    - name: lineage.events
+      class: lineage
+      partitions: 12
+      retentionMs: "2592000000"       # 30d
+    - name: model.inferences
+      class: ml
+      partitions: 12
+      retentionMs: "2592000000"       # 30d
+    - name: audit.events
+      class: audit
+      partitions: 12
+      retentionMs: "7776000000"       # 90d (compliance)
+
+    # ── Foundry-pattern topics (Tarea 2.3) ──────────────────────────
+    # Producers publish via the outbox / EventRouter SMT
+    # (see `infra/helm/infra/debezium/`). Naming follows ADR-0022
+    # (`<domain>.<entity>.v<N>`).
+    - name: automate.condition.v1
+      class: automate
+    - name: automate.outcome.v1
+      class: automate
+      retentionMs: "1209600000"       # 14d (replay window for outcomes)
+    - name: approval.events.v1
+      class: approval
+      retentionMs: "2592000000"       # 30d (approval audit replay)
+    - name: ontology.changes.v1
+      class: ontology
+    - name: ontology.reindex.v1
+      class: ontology
+    - name: saga.step.v1
+      class: saga
+      retentionMs: "1209600000"       # 14d (saga replay window)
+    - name: pipeline.builds.v1
+      class: pipeline
+      retentionMs: "1209600000"       # 14d
+    # Note: `audit.events.v1` lives in `topics-domain-v1.yaml` already;
+    # do not re-declare it here.
+
+    # ── DLQs — one per Foundry-pattern topic ────────────────────────
+    # 14d retention is long enough for triage; partition count tracks
+    # the source topic so a poisoned key keeps its ordering on the DLQ.
+    - { name: __dlq.automate.condition.v1, class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.automate.outcome.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.approval.events.v1,    class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.ontology.changes.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.ontology.reindex.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.step.v1,          class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.pipeline.builds.v1,    class: dlq, retentionMs: "1209600000" }
+
 acls:             { enabled: true }
 topicsDomainV1:   { enabled: true }
 networkPolicies:  { enabled: true }

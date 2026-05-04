@@ -16,8 +16,8 @@ kafka:
     requests: { cpu: "300m", memory: "1Gi" }
     limits:   { cpu: "1",    memory: "2Gi" }
 
-topics:           { enabled: false }
-acls:             { enabled: false }
+topics:           { enabled: true }
+acls:             { enabled: true }
 topicsDomainV1:   { enabled: false }
 networkPolicies:  { enabled: false }
 apicurio:         { enabled: false }
