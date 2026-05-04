@@ -653,6 +653,13 @@ Failure modes:
   Spark, documentar e investigar workaround. Probable: Workshop UI para queries vivos.
 ```
 
+**Status:** done — see [`docs/architecture/refactor/pipeline-worker-inventory.md`](refactor/pipeline-worker-inventory.md)
+for the full inventory (workflows, activities, HTTP endpoints, per-node
+transform dispatch, trigger surfaces, and the Temporal → Foundry-pattern
+migration table). Headline finding: `PipelineRun` uses no signals,
+queries, child workflows, timers, or `ContinueAsNew`, so no
+"Workshop-UI-for-live-queries" workaround is needed.
+
 ### Tarea 3.2 — Diseñar SparkApplication CRs templating
 
 ```text
