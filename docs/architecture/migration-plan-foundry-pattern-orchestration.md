@@ -765,6 +765,24 @@ Failure modes:
 - Iceberg version compatibility: Spark 3.5 + Iceberg 1.5+; pin específico.
 ```
 
+**Status:** done — see [`services/pipeline-runner/`](../../services/pipeline-runner/)
+([`README.md`](../../services/pipeline-runner/README.md)) for the
+multi-stage `Dockerfile` (jars stage → `eclipse-temurin:17-jdk` SBT
+builder → `apache/spark:3.5.4-scala2.12-java17-python3-ubuntu`
+runtime), the `build.sbt` (Scala 2.12, only `spark-sql % Provided` —
+zero third-party runtime deps), and `PipelineRunner.scala` (CLI parser,
+SparkSession bootstrap, HTTP fetch of the resolved transform spec from
+`pipeline-build-service` with a `--smoke` / 404-fallback that writes
+one row to the output Iceberg table so the SparkApplication CR
+template from 3.2 can be exercised end-to-end before 3.4 lands).
+Iceberg is pinned to `1.5.2` and Spark to `3.5.4`; bumping either
+requires a matching bump in `build.sbt` and the `Dockerfile`. Image
+size stays close to the apache/spark base — only the three pinned
+JARs are added to `/opt/spark/jars/`. The non-Rust skip list in
+[`tools/regenerate_service_dockerfiles.py`](../../tools/regenerate_service_dockerfiles.py)
+includes `pipeline-runner` so the existing Rust-Dockerfile
+regenerator leaves it untouched.
+
 ### Tarea 3.4 — Refactor `pipeline-build-service` para crear SparkApplication CRs
 
 ```text
