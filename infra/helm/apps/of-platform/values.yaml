@@ -218,12 +218,12 @@ temporalWorkers:
     # now consumes `automate.condition.v1` from Kafka, dispatches
     # the effect HTTP call to `ontology-actions-service`, and
     # publishes `automate.outcome.v1` via the transactional outbox.
-    # See ADR-0027 and FASE 5 of
+    # See ADR-0037 and FASE 5 of
     # `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
     # `pipeline-worker` removed by Tarea 3.6: the Go/Temporal worker that
     # owned the `openfoundry.pipeline` task queue has been replaced by the
     # `pipeline-build-service` (which submits SparkApplication CRs) and the
-    # `schedules-tick` CronJob (which fires cron-driven runs). See ADR-0027
+    # `schedules-tick` CronJob (which fires cron-driven runs). See ADR-0037
     # and `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
     # `approvals-worker` removed by Tarea 7.5: the Go/Temporal
     # worker that owned the `openfoundry.approvals` task queue has
@@ -244,7 +244,7 @@ temporalWorkers:
     # consumes `saga.step.requested.v1` from Kafka, drives the
     # matching step graph through `libs/saga::SagaRunner`, and
     # publishes `saga.step.*.v1` events via the transactional
-    # outbox + Debezium. See ADR-0027 + ADR-0037 and FASE 6 of
+    # outbox + Debezium. See ADR-0037 and FASE 6 of
     # `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
 
 services:

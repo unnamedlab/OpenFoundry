@@ -115,7 +115,7 @@ The dev profile keeps heavy releases off:
 * `infra/k8s/clickhouse/` — ClickHouse stack (no longer used).
 * Flux v2 `HelmRelease` for Temporal — first replaced by an in-tree
   wrapper chart, then retired entirely by FASE 9 / Tarea 9.1 of the
-  Foundry-pattern migration (ADR-0027). Pipelines run via
+  Foundry-pattern migration (ADR-0037). Pipelines run via
   SparkApplication CRs; everything else uses Postgres state machines
   + outbox + Kafka. The companion Cassandra keyspace cleanup
   (`temporal_persistence`, `temporal_visibility`) is documented in

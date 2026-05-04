@@ -13,6 +13,10 @@ modelling rules), see:
 
 - [ADR-0020](../../../docs/architecture/adr/ADR-0020-cassandra-as-operational-store.md)
 - [ADR-0021](../../../docs/architecture/adr/ADR-0021-temporal-on-cassandra-go-workers.md)
+  — historical only; superseded by [ADR-0037](../../../docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md).
+  The Temporal-on-Cassandra direction was retired in FASE 9 of the
+  Foundry-pattern migration; this cluster no longer hosts the
+  `temporal_persistence` / `temporal_visibility` keyspaces.
 - [docs/architecture/data-model-cassandra.md](../../../docs/architecture/data-model-cassandra.md)
 
 | Component                | License    | Role                                             |
@@ -126,6 +130,12 @@ SELECT cluster_name, listen_address, release_version FROM system.local;
 - [ADR-0020](../../../docs/architecture/adr/ADR-0020-cassandra-as-operational-store.md)
   — adoption decision, hard modelling rules.
 - [ADR-0021](../../../docs/architecture/adr/ADR-0021-temporal-on-cassandra-go-workers.md)
-  — Temporal shares this cluster for persistence and visibility.
+  — Superseded by [ADR-0037](../../../docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md).
+  Temporal used to share this cluster for `temporal_persistence`
+  and `temporal_visibility`; both keyspaces were dropped during the
+  FASE 9 cutover ([runbook](../../../infra/runbooks/temporal.md)).
+- [ADR-0037](../../../docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md)
+  — Foundry-pattern orchestration; the migration that retired
+  the Temporal direction recorded in ADR-0021.
 - [docs/architecture/data-model-cassandra.md](../../../docs/architecture/data-model-cassandra.md)
   — keyspace and table design.

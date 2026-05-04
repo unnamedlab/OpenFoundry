@@ -177,6 +177,13 @@ CASSANDRA_TEST_IMAGE=cassandra:5.0.2 \
 
 * ADR-0020 — Cassandra as operational store + 12 modelling rules.
 * ADR-0021 — Temporal on Cassandra (Go workers, Rust client).
+  *Superseded by ADR-0037 (Foundry-pattern orchestration). The
+  Temporal-backed direction was retired in FASE 9 of the
+  Foundry-pattern migration; this kernel still talks to Cassandra
+  for the ontology object store and other application
+  keyspaces, but the `temporal_*` keyspaces no longer exist on
+  the cluster.*
+* ADR-0037 — Foundry-pattern orchestration (the supersession).
 * `docs/architecture/data-model-cassandra.md` — full keyspace and
   table reference.
 * `infra/k8s/platform/manifests/cassandra/` — operator, cluster CRs, dashboards, runbook.
