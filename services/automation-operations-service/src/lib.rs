@@ -5,10 +5,11 @@
 //! the operational control plane for automations is a **Postgres-
 //! backed saga substrate** — `libs/saga::SagaRunner` driving step
 //! graphs registered in [`crate::domain::dispatcher`], state
-//! persisted in `automation_operations.saga_state`, events
-//! published via `outbox.events` + Debezium onto the `saga.*.v1`
-//! Kafka topics declared in
-//! [`crate::topics`].
+//! persisted in `saga.state` (per-database; the schema name is
+//! hard-coded by the runner — see the FASE 6 / Tarea 6.4 chaos test
+//! for the persistence contract), events published via
+//! `outbox.events` + Debezium onto the `saga.*.v1` Kafka topics
+//! declared in [`crate::topics`].
 //!
 //! HTTP `POST /api/v1/automations` writes the `saga_state` row + the
 //! `saga.step.requested.v1` outbox row in a single transaction; the

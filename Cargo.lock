@@ -1155,6 +1155,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "temporal-client",
+ "testcontainers",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -8073,11 +8074,9 @@ dependencies = [
 name = "ontology-functions-service"
 version = "0.0.1"
 dependencies = [
- "async-trait",
  "auth-middleware",
  "axum 0.8.9",
  "axum-extra",
- "bytes",
  "cassandra-kernel",
  "chrono",
  "config",

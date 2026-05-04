@@ -1,6 +1,6 @@
 //! HTTP handlers — every inbound producer (`POST /api/v1/automations`)
 //! lands here and publishes a `saga.step.requested.v1` event via the
-//! transactional outbox plus an `automation_operations.saga_state`
+//! transactional outbox plus an `saga.state`
 //! row in the same Postgres transaction. The saga consumer (see
 //! [`crate::domain::saga_consumer`]) picks the event up and drives
 //! the dispatch.
@@ -37,7 +37,7 @@ pub async fn list_items(State(state): State<AppState>) -> impl IntoResponse {
         (Uuid, String, String, Option<String>, chrono::DateTime<Utc>),
     >(
         "SELECT saga_id, name, status, current_step, updated_at \
-         FROM automation_operations.saga_state \
+         FROM saga.state \
          ORDER BY updated_at DESC LIMIT 100",
     )
     .fetch_all(&state.db)
@@ -134,7 +134,7 @@ pub async fn get_item(State(state): State<AppState>, Path(id): Path<Uuid>) -> im
     >(
         "SELECT saga_id, name, status, current_step, completed_steps, step_outputs, \
                 failed_step, created_at, updated_at \
-         FROM automation_operations.saga_state \
+         FROM saga.state \
          WHERE saga_id = $1",
     )
     .bind(id)
@@ -276,7 +276,7 @@ async fn dispatch_request(state: &AppState, request: &SagaStepRequestedV1) -> Re
     let mut tx = state.db.begin().await.map_err(|err| err.to_string())?;
 
     sqlx::query(
-        "INSERT INTO automation_operations.saga_state (saga_id, name) \
+        "INSERT INTO saga.state (saga_id, name) \
          VALUES ($1, $2) \
          ON CONFLICT (saga_id) DO NOTHING",
     )

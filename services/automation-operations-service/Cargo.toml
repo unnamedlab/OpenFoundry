@@ -86,6 +86,17 @@ features = ["macros", "rt-multi-thread"]
 [dev-dependencies.async-trait]
 workspace = true
 
+[dev-dependencies.testcontainers]
+workspace = true
+
+[features]
+default = []
+# Tarea 6.4 — chaos / integration tests against a Postgres
+# testcontainer (Docker required). Off by default so plain
+# `cargo test -p automation-operations-service` stays a no-IO
+# unit run; CI / nightly enables it explicitly.
+it-postgres = []
+
 [lib]
 path = "src/lib.rs"
 name = "automation_operations_service"

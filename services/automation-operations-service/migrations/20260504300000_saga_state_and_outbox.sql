@@ -5,12 +5,15 @@
 -- saga runtime needs (per ADR-0022 outbox + ADR-0037 saga
 -- choreography + ADR-0038 idempotency):
 --
---   * `automation_operations.saga_state` — per-bounded-context copy
---     of the `libs/saga` template
---     (`libs/saga/migrations/0001_saga_state.sql`). Backs
---     `state_machine::PgStore`-style optimistic-concurrency writes
---     done by `saga::SagaRunner`. Source of truth for
---     in-flight / terminal sagas owned by this service.
+--   * `saga.state` — verbatim copy of the `libs/saga` template
+--     (`libs/saga/migrations/0001_saga_state.sql`). Source of truth
+--     for in-flight / terminal sagas owned by this service. The
+--     schema name (`saga`) is fixed because `saga::SagaRunner`
+--     hard-codes it; per-bounded-context isolation is at the
+--     DATABASE level (each service has its own Postgres cluster, so
+--     each has its own `saga.state` table). Cross-DB joins go
+--     through the system-wide `audit_compliance.saga_audit_log`
+--     projection in `services/audit-compliance-service/migrations/`.
 --
 --   * `outbox.events` — transactional outbox (`libs/outbox`
 --     contract). The condition consumer (Tarea 6.3 deliverable) and
@@ -47,6 +50,11 @@
 
 CREATE SCHEMA IF NOT EXISTS automation_operations;
 
+-- The saga schema is owned by the libs/saga helper. Created here
+-- alongside the bounded-context schema so the service's role can
+-- write through it.
+CREATE SCHEMA IF NOT EXISTS saga;
+
 -- ──────────────────────────── Outbox table ────────────────────────────
 
 CREATE SCHEMA IF NOT EXISTS outbox;
@@ -73,18 +81,22 @@ CREATE INDEX IF NOT EXISTS outbox_events_created_at_idx
 -- ───────────────────────── Saga operational state ────────────────────
 
 -- One row per saga instance, owned by `saga::SagaRunner`.
--- Schema mirrors the template at
--- `libs/saga/migrations/0001_saga_state.sql` exactly — the only
--- difference is the schema name (`automation_operations` instead of
--- the helper crate's `saga`) so the bounded-context role does not
--- need cross-schema privileges.
+-- Verbatim copy of the template at
+-- `libs/saga/migrations/0001_saga_state.sql`. The schema name
+-- (`saga`) is hard-coded by `SagaRunner`'s SQL — see
+-- `libs/saga/src/lib.rs::SagaRunner::start` ("INSERT INTO
+-- saga.state ..."). Per-bounded-context isolation is achieved at
+-- the DATABASE level: each service has its own Postgres cluster
+-- and therefore its own `saga.state` table, so rows from
+-- `automation-operations-service` never collide with rows from
+-- `workflow-automation-service`.
 --
 -- Idempotency contract (per `libs/saga` README §Idempotency):
 -- re-running a saga with the same `saga_id` reads back
 -- `completed_steps` and short-circuits the already-finished prefix.
 -- Producer redeliveries that hit the same `saga_id` collapse onto
 -- the same row via `INSERT ... ON CONFLICT (saga_id) DO NOTHING`.
-CREATE TABLE IF NOT EXISTS automation_operations.saga_state (
+CREATE TABLE IF NOT EXISTS saga.state (
     saga_id          uuid PRIMARY KEY,
     -- Saga type — the dispatch key the runtime's step-graph
     -- registry uses. Free-form at the schema level; the consumer
@@ -119,14 +131,14 @@ CREATE TABLE IF NOT EXISTS automation_operations.saga_state (
 -- Operator query: "what is currently running for this tenant /
 -- saga type?". The most common dashboard cut.
 CREATE INDEX IF NOT EXISTS saga_state_status_idx
-    ON automation_operations.saga_state (status)
+    ON saga.state (status)
     WHERE status IN ('running');
 
 -- Restart-time recovery: every saga that crashed mid-step. The
 -- consumer's catch-up loop drives off this index instead of
 -- replaying Kafka.
 CREATE INDEX IF NOT EXISTS saga_state_running_with_step_idx
-    ON automation_operations.saga_state (saga_id)
+    ON saga.state (saga_id)
     WHERE status = 'running' AND current_step IS NOT NULL;
 
 -- ─────────────────────────── Idempotency table ────────────────────────
