@@ -435,7 +435,14 @@ each Go binary as its Rust replacement passes the test suite. The
 service-side code (Rust) does not change at all because it only ever
 talked to Temporal through `temporalio-client`.
 
-## Follow-ups
+## Follow-ups (historical — superseded)
+
+The follow-up tasks below were the implementation roadmap for the
+Temporal-on-Cassandra direction recorded in this ADR. **All of them
+are superseded** by the Foundry-pattern migration tracked in
+[ADR-0037](./ADR-0037-foundry-pattern-orchestration.md) and
+[`docs/architecture/migration-plan-foundry-pattern-orchestration.md`](../migration-plan-foundry-pattern-orchestration.md).
+Kept verbatim as audit trail; do not act on them.
 
 - Implement migration plan task **S2.1** (Temporal cluster HA on
   Cassandra).
@@ -446,3 +453,60 @@ talked to Temporal through `temporalio-client`.
 - Add a CI check that fails if any Rust crate adds a direct dependency
   on `temporalio-sdk` (the worker SDK) — only `temporalio-client` is
   permitted in Rust until this ADR is re-evaluated.
+
+## Migration log (FASE 0 → FASE 11)
+
+The retirement of this ADR landed across eleven phases of the
+Foundry-pattern migration plan
+([`docs/architecture/migration-plan-foundry-pattern-orchestration.md`](../migration-plan-foundry-pattern-orchestration.md)).
+Per-phase summary:
+
+| Phase | Surface | Outcome |
+|---|---|---|
+| FASE 0 | Decision capture (this Superseded banner; ADR-0037; ADR-0038 event/idempotency contract). | Done. |
+| FASE 1 | New Rust libraries: `libs/state-machine`, `libs/saga`, `libs/event-scheduler`, `libs/idempotency`, `libs/outbox`. | Done — every crate ships its own migration template + integration tests. |
+| FASE 2 | Outbox + Debezium contract validated end-to-end (`outbox.events` per bounded context, Debezium EventRouter SMT). | Done. |
+| FASE 3 | `pipeline-worker` (Go) → SparkApplication CRs submitted by `pipeline-build-service`; cron-driven runs fired by the `schedules-tick` CronJob from `libs/event-scheduler`. | Done — Tareas 3.1 → 3.7. |
+| FASE 4 | `reindex-worker` (Go) → `services/reindex-coordinator-service` (Kafka-driven, Postgres-resumable cursor in `pg-runtime-config.reindex_jobs`). | Done — Tareas 4.1 → 4.4. |
+| FASE 5 | `workflow-automation-worker` (Go) → `services/workflow-automation-service` self-contained (Kafka condition consumer + state machine `automation_runs` + outbox publishing `automate.outcome.v1`). | Done — Tareas 5.1 → 5.4. |
+| FASE 6 | `automation-ops-worker` (Go) → `services/automation-operations-service` (saga consumer + `libs/saga::SagaRunner` driving step graphs registered in `domain::dispatcher`, LIFO compensation validated by the chaos test under `tests/saga_chaos.rs`). | Done — Tareas 6.1 → 6.5. |
+| FASE 7 | `approvals-worker` (Go) → `services/approvals-service` (`audit_compliance.approval_requests` state machine) + `approvals-timeout-sweep` Kubernetes CronJob driving the `pending → expired` transition every 5 min. | Done — Tareas 7.1 → 7.5. |
+| FASE 8 | Workspace-wide Rust cleanup: delete every `temporal_adapter.rs`, drop every `[dependencies.temporal-client]` block, `git rm -rf libs/temporal-client/`. Cargo.lock collapses by ~440 lines. | Done — Tareas 8.1 → 8.3. |
+| FASE 9 | Infrastructure cleanup: `git rm -rf infra/helm/infra/temporal/` (chart wrapper + 1.2.0 dep tarball + UI ingress + ServiceMonitor); helmfile gating + `temporal` repo entry retired; Cassandra DROP runbook (irreversible — operator-driven); `workers-go/` deleted entirely (alongside `go-workers.yml` CI matrix and `libs/testing` Temporal harness); `docker-publish.yml` matrix rebuilt to list real services + `pipeline-runner`; new `integration-foundry-pattern.yml` running the libs/saga + libs/state-machine + libs/outbox + libs/idempotency + automation-operations chaos tests on every PR. | Done — Tareas 9.1 → 9.4. |
+| FASE 10 | Documentation: this Migration log; README sweep across services / libs / infra; canonical [`docs/architecture/foundry-pattern-orchestration.md`](../foundry-pattern-orchestration.md). | Done — Tareas 10.1 → 10.3. |
+| FASE 11 | End-to-end verification (smoke against a cluster with the cutover applied). | Pending. |
+
+### What stays after FASE 11
+
+- **Cassandra cluster.** Cassandra is *not* retired; only the
+  `temporal_persistence` and `temporal_visibility` keyspaces are
+  dropped (per the runbook at
+  [`infra/runbooks/temporal.md`](../../../infra/runbooks/temporal.md)).
+  The ontology object store + every other application keyspace
+  stays untouched.
+- **Postgres CNPG clusters.** Each consolidated CNPG cluster
+  (`pg-policy`, `pg-runtime-config`, `pg-schemas`, `pg-lakekeeper`)
+  keeps the bounded-context schemas it already had; the new tables
+  introduced by FASE 5/6/7 (`workflow_automation.automation_runs`,
+  `automation_operations.saga_state` (or per-DB `saga.state`),
+  `audit_compliance.approval_requests`, plus the per-cluster
+  `outbox.events` and `processed_events`) live alongside them.
+- **Per-service `temporal_adapter.rs` is gone everywhere.** No
+  Rust crate imports anything from the Temporal SDK after
+  FASE 8.
+
+### Why the supersession was clean
+
+The ADR-0021 design isolated Temporal behind two thin seams that
+turned out to be exactly the seams the migration needed:
+
+1. Every workflow body called out to a Rust REST handler — no
+   business logic ran in Go.
+2. Every Rust caller talked to Temporal through
+   `libs/temporal-client` — a single import surface.
+
+Replacing the substrate meant deleting those seams, not rewriting
+business logic. Every domain's effect call still lands on the same
+HTTP endpoint it landed on before; the only change is what
+*invokes* the call (a Kafka consumer + state-machine apply
+instead of a Temporal activity).
