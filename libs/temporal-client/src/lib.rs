@@ -1914,6 +1914,14 @@ impl ApprovalsClient {
     }
 }
 
+/// Legacy per-run input that used to be the Go workflow contract for
+/// `workflow_types::APPROVAL_REQUEST`. The Go worker was retired by
+/// FASE 7 / Tarea 7.5 of the Foundry-pattern migration; this struct
+/// is kept around because `libs/temporal-client` still ships
+/// dead-code paths until the FASE 8 / Tarea 8.1 wholesale retirement.
+/// New code should publish to
+/// `audit_compliance.approval_requests` via
+/// `services/approvals-service::POST /api/v1/approvals` instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalRequestInput {
     pub request_id: Uuid,

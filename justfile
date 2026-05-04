@@ -120,8 +120,11 @@ go-test:
     cd workers-go && go test ./...
 
 # Tidy go.sum across every module in workers-go/.
+# All Go workers retired by FASE 3-7 of the Foundry-pattern
+# migration (Tareas 3.6, 4.3, 5.4, 6.5, 7.5). Kept as a no-op
+# placeholder; FASE 9 cleanup removes workers-go/ entirely.
 go-tidy:
-    cd workers-go/approvals && go mod tidy
+    @echo "no Go workers remain; FASE 9 will remove workers-go/ entirely"
 
 # Run a single Temporal worker locally (foreground; Ctrl-C to stop).
 # Expects a running Temporal frontend on TEMPORAL_HOST_PORT

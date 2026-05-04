@@ -225,17 +225,18 @@ temporalWorkers:
     # `pipeline-build-service` (which submits SparkApplication CRs) and the
     # `schedules-tick` CronJob (which fires cron-driven runs). See ADR-0027
     # and `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
-    approvals-worker:
-      image:
-        repository: approvals-worker
-      taskQueue: openfoundry.approvals
-      env:
-        OF_AUDIT_COMPLIANCE_URL: http://audit-compliance-service:8080
-      envSecrets:
-        OF_AUDIT_BEARER_TOKEN:
-          secretName: open-foundry-worker-secrets
-          key: audit-bearer-token
-          optional: true
+    # `approvals-worker` removed by Tarea 7.5: the Go/Temporal
+    # worker that owned the `openfoundry.approvals` task queue has
+    # been replaced by `approvals-service` itself (state machine in
+    # `audit_compliance.approval_requests` driven by
+    # `libs/state-machine::PgStore`) plus the
+    # `approvals-timeout-sweep` CronJob defined in
+    # `templates/approvals-timeout-sweep-cronjob.yaml`. The audit
+    # event emission previously done by the worker activity is now
+    # a synchronous HTTP POST inside the decide handler; a future
+    # FASE 9 task collapses it into a Kafka consumer of
+    # `approval.completed.v1`. See FASE 7 of
+    # `docs/architecture/migration-plan-foundry-pattern-orchestration.md`.
     # `automation-ops-worker` removed by Tarea 6.5: the
     # Go/Temporal worker that owned the
     # `openfoundry.automation-ops` task queue has been replaced by

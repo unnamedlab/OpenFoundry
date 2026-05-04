@@ -1,5 +1,14 @@
 go 1.25.0
 
-use (
-	./approvals
-)
+// All Go workers have been retired by FASE 3-7 of the Foundry-
+// pattern migration (see
+// `docs/architecture/migration-plan-foundry-pattern-orchestration.md`).
+// This workspace file is kept until FASE 9 / Tarea 9.x cleans up
+// the workers-go directory in full.
+//
+// Previously-listed modules (now removed):
+//   - ./pipeline           — Tarea 3.6 (replaced by services/pipeline-build-service)
+//   - ./reindex            — Tarea 4.3 (replaced by services/reindex-coordinator-service)
+//   - ./workflow-automation — Tarea 5.4 (replaced by services/workflow-automation-service)
+//   - ./automation-ops     — Tarea 6.5 (replaced by services/automation-operations-service)
+//   - ./approvals          — Tarea 7.5 (replaced by services/approvals-service)
