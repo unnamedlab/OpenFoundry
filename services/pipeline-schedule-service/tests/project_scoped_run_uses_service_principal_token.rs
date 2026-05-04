@@ -19,7 +19,7 @@ use pipeline_schedule_service::domain::build_client::{
     BuildAttemptOutcome, BuildServiceClient, CreateBuildPayload, RunAsPrincipal,
 };
 use pipeline_schedule_service::domain::dispatcher::{
-    Dispatcher, DispatcherConfig, DispatchTrigger,
+    DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::run_store::RunOutcome;
 use pipeline_schedule_service::domain::{schedule_store, service_principal_store};

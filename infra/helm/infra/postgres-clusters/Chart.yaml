@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgres-clusters
+description: Four CNPG Postgres Cluster CRs + bootstrap-SQL ConfigMaps + connection poolers
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

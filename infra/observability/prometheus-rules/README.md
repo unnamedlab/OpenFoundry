@@ -10,7 +10,6 @@ lives next door under `../grafana-dashboards/`).
 | File | Component | Source code under `infra/k8s/` |
 |---|---|---|
 | `kafka.yaml`      | Strimzi-managed Apache Kafka     | `strimzi/`        |
-| `clickhouse.yaml` | ClickHouse + ClickHouse Keeper   | `clickhouse/`     |
 | `vespa.yaml`      | Vespa.ai search                  | `vespa/`, `helm/open-foundry/charts/vespa/` |
 | `lakekeeper.yaml` | Lakekeeper (Iceberg REST catalog)| `lakekeeper/`     |
 | `cnpg.yaml`       | CloudNativePG                    | `cnpg/`           |

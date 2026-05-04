@@ -84,7 +84,10 @@ async fn patch_retention_down_immediately_expires_in_window_items() {
             .fetch_one(&h.pool)
             .await
             .unwrap();
-    assert!(still_live.0.is_none(), "item should still be live before PATCH");
+    assert!(
+        still_live.0.is_none(),
+        "item should still be live before PATCH"
+    );
 
     // 3. Reduce retention to 1h. Handler runs the reaper synchronously.
     let resp = h

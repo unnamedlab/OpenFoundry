@@ -1,0 +1,88 @@
+{{- if .Values.dev.enabled }}
+{{- with .Values.dev }}
+---
+# Apache Cassandra cluster for `dev` / `ci` environments (per ADR-0020).
+#
+# In dev (lima k3s), defaults render a 1-node single-rack cluster with
+# 2 GiB heap on local-path storage — all heavy features (Reaper, Medusa,
+# Stargate, multi-rack) are disabled. Production sizing lives in
+# cluster-prod.yaml. The superuser Secret is created out-of-band by the
+# operator (see Tarea 8); no Secret is rendered here.
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: of-cass-dev
+  namespace: {{ $.Release.Namespace }}
+spec:
+  cassandra:
+    serverVersion: "5.0.2"
+    serverType: cassandra
+    superuserSecretRef:
+      name: of-cass-dev-superuser
+    storageConfig:
+      cassandraDataVolumeClaimSpec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .storageClass }}
+        resources:
+          requests:
+            storage: {{ .storageSize }}
+    config:
+      jvmOptions:
+        heap_initial_size: {{ .heapSize }}
+        heap_max_size: {{ .heapSize }}
+        gc: G1GC
+      cassandraYaml:
+        num_tokens: 16
+        allocate_tokens_for_local_replication_factor: {{ .size }}
+        endpoint_snitch: GossipingPropertyFileSnitch
+        client_encryption_options:
+          enabled: false
+        server_encryption_options:
+          internode_encryption: none
+        tombstone_warn_threshold: 1000
+        tombstone_failure_threshold: 100000
+    networking:
+      hostNetwork: false
+    datacenters:
+      - metadata:
+          name: dc1
+        size: {{ .size }}
+        resources:
+          requests:
+            cpu: {{ .resources.requests.cpu | quote }}
+            memory: {{ .resources.requests.memory }}
+          limits:
+            cpu: {{ .resources.limits.cpu | quote }}
+            memory: {{ .resources.limits.memory }}
+        stargate: {}
+
+  {{- if .reaper.enabled }}
+  reaper:
+    deploymentMode: PER_DC
+    keyspace: reaper_db
+    autoScheduling:
+      enabled: true
+    resources:
+      requests: { cpu: "200m", memory: 512Mi }
+      limits:   { cpu: "1",    memory: 1Gi }
+  {{- end }}
+
+  {{- if .medusa.enabled }}
+  medusa:
+    storageProperties:
+      storageProvider: s3_compatible
+      bucketName: cassandra-backups-dev
+      prefix: of-cass-dev
+      storageSecretRef:
+        name: medusa-bucket-credentials
+      host: rook-ceph-rgw-rgw-data.rook-ceph.svc
+      port: 80
+      secure: false
+      maxBackupAge: 14
+      maxBackupCount: 14
+    resources:
+      requests: { cpu: "100m", memory: 256Mi }
+      limits:   { cpu: "500m", memory: 512Mi }
+  {{- end }}
+{{- end }}
+{{- end }}

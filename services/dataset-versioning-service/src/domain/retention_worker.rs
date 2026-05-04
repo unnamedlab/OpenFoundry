@@ -67,9 +67,15 @@ fn eligible_gauge(
 }
 
 async fn load_active_rows(pool: &PgPool) -> Result<Vec<RetentionRow>, sqlx::Error> {
-    let raw: Vec<(Uuid, Option<Uuid>, String, Option<i32>, DateTime<Utc>, Option<DateTime<Utc>>)> =
-        sqlx::query_as(
-            r#"SELECT b.id,
+    let raw: Vec<(
+        Uuid,
+        Option<Uuid>,
+        String,
+        Option<i32>,
+        DateTime<Utc>,
+        Option<DateTime<Utc>>,
+    )> = sqlx::query_as(
+        r#"SELECT b.id,
                       b.parent_branch_id,
                       b.retention_policy,
                       b.retention_ttl_days,
@@ -77,9 +83,9 @@ async fn load_active_rows(pool: &PgPool) -> Result<Vec<RetentionRow>, sqlx::Erro
                       b.archived_at
                  FROM dataset_branches b
                 WHERE b.deleted_at IS NULL"#,
-        )
-        .fetch_all(pool)
-        .await?;
+    )
+    .fetch_all(pool)
+    .await?;
 
     let with_open_tx: std::collections::HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>(
         r#"SELECT DISTINCT branch_id FROM dataset_transactions WHERE status = 'OPEN'"#,
@@ -91,16 +97,18 @@ async fn load_active_rows(pool: &PgPool) -> Result<Vec<RetentionRow>, sqlx::Erro
 
     Ok(raw
         .into_iter()
-        .map(|(id, parent, policy, ttl, last_activity_at, archived_at)| RetentionRow {
-            id,
-            parent_branch_id: parent,
-            policy: RetentionPolicy::parse(&policy).unwrap_or(RetentionPolicy::Inherited),
-            ttl_days: ttl,
-            last_activity_at,
-            has_open_transaction: with_open_tx.contains(&id),
-            is_root: parent.is_none(),
-            archived_at,
-        })
+        .map(
+            |(id, parent, policy, ttl, last_activity_at, archived_at)| RetentionRow {
+                id,
+                parent_branch_id: parent,
+                policy: RetentionPolicy::parse(&policy).unwrap_or(RetentionPolicy::Inherited),
+                ttl_days: ttl,
+                last_activity_at,
+                has_open_transaction: with_open_tx.contains(&id),
+                is_root: parent.is_none(),
+                archived_at,
+            },
+        )
         .collect())
 }
 
@@ -148,13 +156,14 @@ pub async fn archive_branch(
         return Ok(false);
     }
 
-    let (branch_rid, dataset_rid, parent_branch_id, head_id) = sqlx::query_as::<_, (String, String, Option<Uuid>, Option<Uuid>)>(
-        r#"SELECT rid, dataset_rid, parent_branch_id, head_transaction_id
+    let (branch_rid, dataset_rid, parent_branch_id, head_id) =
+        sqlx::query_as::<_, (String, String, Option<Uuid>, Option<Uuid>)>(
+            r#"SELECT rid, dataset_rid, parent_branch_id, head_transaction_id
              FROM dataset_branches WHERE id = $1"#,
-    )
-    .bind(row.id)
-    .fetch_one(&mut *tx)
-    .await?;
+        )
+        .bind(row.id)
+        .fetch_one(&mut *tx)
+        .await?;
 
     let envelope = BranchEnvelope::new(
         branch_events::EVT_ARCHIVED,

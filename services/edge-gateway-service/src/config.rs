@@ -81,8 +81,8 @@ pub struct GatewayConfig {
     pub app_builder_service_url: String,
     #[serde(default = "default_application_curation_service_url")]
     pub application_curation_service_url: String,
-    #[serde(default = "default_widget_registry_service_url")]
-    pub widget_registry_service_url: String,
+    #[serde(default = "default_application_composition_service_url")]
+    pub application_composition_service_url: String,
     #[serde(default = "default_ml_service_url")]
     pub ml_service_url: String,
     #[serde(default = "default_ml_experiments_service_url")]
@@ -109,8 +109,6 @@ pub struct GatewayConfig {
     pub retrieval_context_service_url: String,
     #[serde(default = "default_conversation_state_service_url")]
     pub conversation_state_service_url: String,
-    #[serde(default = "default_tool_registry_service_url")]
-    pub tool_registry_service_url: String,
     #[serde(default = "default_ai_evaluation_service_url")]
     pub ai_evaluation_service_url: String,
     #[serde(default = "default_document_reporting_service_url")]
@@ -264,8 +262,8 @@ fn default_app_builder_url() -> String {
 fn default_application_curation_service_url() -> String {
     "http://localhost:50101".to_string()
 }
-fn default_widget_registry_service_url() -> String {
-    "http://localhost:50077".to_string()
+fn default_application_composition_service_url() -> String {
+    "http://localhost:50140".to_string()
 }
 fn default_ml_service_url() -> String {
     "http://localhost:50085".to_string()
@@ -305,9 +303,6 @@ fn default_retrieval_context_service_url() -> String {
 }
 fn default_conversation_state_service_url() -> String {
     "http://localhost:50099".to_string()
-}
-fn default_tool_registry_service_url() -> String {
-    "http://localhost:50100".to_string()
 }
 fn default_ai_evaluation_service_url() -> String {
     "http://localhost:50075".to_string()

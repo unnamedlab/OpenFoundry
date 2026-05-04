@@ -53,6 +53,8 @@ async fn create_schedule_is_idempotent_with_two_go_workers() {
         namespace: harness.namespace.clone(),
         identity: "pipeline-schedule-service-e2e".to_string(),
         api_key: None,
+        require_real_client: false,
+        deployment_environment: None,
     })
     .await
     .expect("Temporal gRPC client");

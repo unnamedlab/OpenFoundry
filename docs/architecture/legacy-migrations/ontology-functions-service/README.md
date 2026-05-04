@@ -20,7 +20,8 @@ Currently has **no sqlx migrations** — all storage today comes via
     `(tenant_id, package_id), bucket_hour, run_id` with TTL aligned
     to the metrics retention policy. Follow-up adds the CQL DDL.
 * **Tool dispatch contract**: function packages exposed to the LLM
-  agent runtime go through `services/tool-registry-service` (P52);
-  this service stays as the runtime owner.
+  agent runtime go through `services/agent-runtime-service`; the
+  retired `tool-registry-service` contract was absorbed there in S8.1.b.
+  This service stays as the ontology runtime owner.
 
 Substrate-only shell; per-handler migration is a follow-up.

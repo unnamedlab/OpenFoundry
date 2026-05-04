@@ -420,13 +420,16 @@ Operational validation status:
 
 Metrics instrumentation status:
 
-  BLOCKING GAP FOR FULL E2E SIGN-OFF. The code exposes runtime tracing for
-  committed lineage batches, but `rg` found no lineage-specific Prometheus
-  metrics such as `lineage_service_lag_seconds`, `lineage_service_records_total`
-  or `lineage_service_commits_total` in `services/lineage-service/src`.
-  Kafka consumer-group lag can still be measured via Kafka, but sink-owned
-  metrics/commit counters need instrumentation before the "metrics/lag" portion
-  can be fully closed from service metrics.
+  RESOLVED IN CODE, NOT DEPLOYED HERE. `services/lineage-service/src/runtime.rs`
+  now registers and records lineage-specific Prometheus metrics:
+    - lineage_service_lag_seconds
+    - lineage_service_records_total
+    - lineage_service_batch_size_records
+    - lineage_service_commits_total
+
+  The metrics endpoint is also wired in `main.rs` for Kafka-to-Iceberg mode.
+  Full E2E sign-off still requires deploying this binary and scraping the
+  metrics during real lineage.events.v1 traffic.
 
 ## Attempted Environment Validation For lineage-service
 
@@ -507,9 +510,14 @@ Metrics check command:
 
 Relevant output:
 
-  No lineage-service sink metrics were found in `services/lineage-service/src`.
-  The only related hits are KEDA/Prometheus config for sql-bi-gateway and
-  ontology-indexer rules. This blocks service-metric sign-off for lineage.
+  services/lineage-service/src/runtime.rs:58:    pub const SINK_LAG_SECONDS: &str = "lineage_service_lag_seconds";
+  services/lineage-service/src/runtime.rs:59:    pub const SINK_RECORDS_TOTAL: &str = "lineage_service_records_total";
+  services/lineage-service/src/runtime.rs:60:    pub const SINK_BATCH_SIZE: &str = "lineage_service_batch_size_records";
+  services/lineage-service/src/runtime.rs:61:    pub const SINK_COMMITS_TOTAL: &str = "lineage_service_commits_total";
+  services/lineage-service/src/runtime.rs:119:            .expect("register lineage_service_lag_seconds");
+  services/lineage-service/src/runtime.rs:122:            .expect("register lineage_service_records_total");
+  services/lineage-service/src/runtime.rs:125:            .expect("register lineage_service_batch_size_records");
+  services/lineage-service/src/runtime.rs:128:            .expect("register lineage_service_commits_total");
 
 ## Expected Schema And Partition For of_lineage.*
 
@@ -772,15 +780,12 @@ Output:
 
   PASTE REAL OUTPUT HERE
 
-Service metrics blocker:
+Service metrics deployment check:
 
-  Instrument lineage-service with sink metrics before claiming service-metric
-  PASS. Suggested minimum metrics:
-    - lineage_service_lag_seconds
-    - lineage_service_records_total
-    - lineage_service_batch_size_records
-    - lineage_service_commits_total{outcome="ok|fail"}
-    - lineage_service_decode_errors_total
+  Instrumentation is present in code. Runtime PASS requires the deployed
+  lineage-service binary to expose non-zero lineage_service_records_total and
+  lineage_service_commits_total after real traffic, with no failed append
+  growth.
 
 Prometheus query command after instrumentation:
 
@@ -857,17 +862,15 @@ Operational validation status:
 
 Metrics instrumentation status:
 
-  PARTIAL / BLOCKING FOR FULL METRIC SIGN-OFF. The runtime pins metric names:
+  RESOLVED IN CODE, NOT DEPLOYED HERE. The runtime registers and records:
     - ai_sink_lag_seconds
     - ai_sink_records_total
     - ai_sink_batch_size
     - ai_sink_commits_total
 
-  However, this validation only found metric-name constants and tracing in
-  `services/ai-sink/src/runtime.rs`; it did not find concrete Prometheus counter
-  or histogram registration/increment calls. Kafka consumer-group lag can still
-  be measured externally, but service metric sign-off requires confirming these
-  metrics are emitted in the deployed binary.
+  Kafka offsets are still committed only after all target Iceberg appends for
+  the message succeed. Full E2E sign-off still requires deploying this binary
+  and scraping the metrics during real ai.events.v1 traffic.
 
 ## Attempted Environment Validation For ai-sink
 
@@ -1217,8 +1220,8 @@ Prometheus query command:
 Required:
 
   outcome="ok" or equivalent success label must increase after the run; failures
-  must not increase. If metrics are absent, this remains BLOCKED until the
-  deployed binary emits them.
+  must not increase. This remains BLOCKED in the current context until the
+  updated binary is deployed and scraped during real runtime traffic.
 
 Output:
 

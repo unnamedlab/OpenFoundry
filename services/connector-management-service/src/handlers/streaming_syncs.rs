@@ -37,10 +37,30 @@ pub fn streaming_source_contracts() -> Vec<StreamingSourceContract> {
             description: "Pull records from a Kafka topic via consumer-group offsets.",
             requires_agent: false,
             config_fields: vec![
-                F { name: "bootstrap_servers", kind: "string", required: true, description: "Comma-separated host:port list." },
-                F { name: "topic", kind: "string", required: true, description: "Topic the sync subscribes to." },
-                F { name: "consumer_group", kind: "string", required: true, description: "Kafka consumer group id." },
-                F { name: "auto_offset_reset", kind: "string", required: false, description: "earliest / latest." },
+                F {
+                    name: "bootstrap_servers",
+                    kind: "string",
+                    required: true,
+                    description: "Comma-separated host:port list.",
+                },
+                F {
+                    name: "topic",
+                    kind: "string",
+                    required: true,
+                    description: "Topic the sync subscribes to.",
+                },
+                F {
+                    name: "consumer_group",
+                    kind: "string",
+                    required: true,
+                    description: "Kafka consumer group id.",
+                },
+                F {
+                    name: "auto_offset_reset",
+                    kind: "string",
+                    required: false,
+                    description: "earliest / latest.",
+                },
             ],
         },
         StreamingSourceContract {
@@ -49,10 +69,30 @@ pub fn streaming_source_contracts() -> Vec<StreamingSourceContract> {
             description: "Pull records from a Kinesis stream shard.",
             requires_agent: false,
             config_fields: vec![
-                F { name: "stream_name", kind: "string", required: true, description: "Kinesis stream name." },
-                F { name: "region", kind: "string", required: true, description: "AWS region." },
-                F { name: "shard_iterator_type", kind: "string", required: false, description: "LATEST / TRIM_HORIZON." },
-                F { name: "max_records_per_shard", kind: "int", required: false, description: "Soft cap per pull." },
+                F {
+                    name: "stream_name",
+                    kind: "string",
+                    required: true,
+                    description: "Kinesis stream name.",
+                },
+                F {
+                    name: "region",
+                    kind: "string",
+                    required: true,
+                    description: "AWS region.",
+                },
+                F {
+                    name: "shard_iterator_type",
+                    kind: "string",
+                    required: false,
+                    description: "LATEST / TRIM_HORIZON.",
+                },
+                F {
+                    name: "max_records_per_shard",
+                    kind: "int",
+                    required: false,
+                    description: "Soft cap per pull.",
+                },
             ],
         },
         StreamingSourceContract {
@@ -61,10 +101,30 @@ pub fn streaming_source_contracts() -> Vec<StreamingSourceContract> {
             description: "Long-poll an SQS queue with explicit per-message ack.",
             requires_agent: false,
             config_fields: vec![
-                F { name: "queue_url", kind: "string", required: true, description: "Full queue URL." },
-                F { name: "region", kind: "string", required: true, description: "AWS region." },
-                F { name: "wait_time_seconds", kind: "int", required: false, description: "Long-poll seconds (0..=20)." },
-                F { name: "visibility_timeout_seconds", kind: "int", required: false, description: "Per-message visibility timeout." },
+                F {
+                    name: "queue_url",
+                    kind: "string",
+                    required: true,
+                    description: "Full queue URL.",
+                },
+                F {
+                    name: "region",
+                    kind: "string",
+                    required: true,
+                    description: "AWS region.",
+                },
+                F {
+                    name: "wait_time_seconds",
+                    kind: "int",
+                    required: false,
+                    description: "Long-poll seconds (0..=20).",
+                },
+                F {
+                    name: "visibility_timeout_seconds",
+                    kind: "int",
+                    required: false,
+                    description: "Per-message visibility timeout.",
+                },
             ],
         },
         StreamingSourceContract {
@@ -73,10 +133,30 @@ pub fn streaming_source_contracts() -> Vec<StreamingSourceContract> {
             description: "REST-based pull + ack against a subscription.",
             requires_agent: false,
             config_fields: vec![
-                F { name: "project_id", kind: "string", required: true, description: "GCP project id." },
-                F { name: "subscription_id", kind: "string", required: true, description: "Subscription id." },
-                F { name: "max_messages", kind: "int", required: false, description: "Soft cap per pull." },
-                F { name: "ack_deadline_seconds", kind: "int", required: false, description: "Per-pull ack-deadline override." },
+                F {
+                    name: "project_id",
+                    kind: "string",
+                    required: true,
+                    description: "GCP project id.",
+                },
+                F {
+                    name: "subscription_id",
+                    kind: "string",
+                    required: true,
+                    description: "Subscription id.",
+                },
+                F {
+                    name: "max_messages",
+                    kind: "int",
+                    required: false,
+                    description: "Soft cap per pull.",
+                },
+                F {
+                    name: "ack_deadline_seconds",
+                    kind: "int",
+                    required: false,
+                    description: "Per-pull ack-deadline override.",
+                },
             ],
         },
         StreamingSourceContract {
@@ -85,10 +165,30 @@ pub fn streaming_source_contracts() -> Vec<StreamingSourceContract> {
             description: "Poll the PI Web API for observation deltas.",
             requires_agent: false,
             config_fields: vec![
-                F { name: "base_url", kind: "string", required: true, description: "PI Web API base URL." },
-                F { name: "event_stream_web_id", kind: "string", required: true, description: "WebID of the event stream." },
-                F { name: "poll_interval_ms", kind: "int", required: false, description: "Polling cadence." },
-                F { name: "auth_header", kind: "secret", required: false, description: "Authorization header (Bearer / Basic)." },
+                F {
+                    name: "base_url",
+                    kind: "string",
+                    required: true,
+                    description: "PI Web API base URL.",
+                },
+                F {
+                    name: "event_stream_web_id",
+                    kind: "string",
+                    required: true,
+                    description: "WebID of the event stream.",
+                },
+                F {
+                    name: "poll_interval_ms",
+                    kind: "int",
+                    required: false,
+                    description: "Polling cadence.",
+                },
+                F {
+                    name: "auth_header",
+                    kind: "secret",
+                    required: false,
+                    description: "Authorization header (Bearer / Basic).",
+                },
             ],
         },
         StreamingSourceContract {
@@ -97,9 +197,24 @@ pub fn streaming_source_contracts() -> Vec<StreamingSourceContract> {
             description: "Generic webhook hook for sources without a dedicated connector (ActiveMQ, Amazon SNS, IBM MQ, RabbitMQ, MQTT, Solace …).",
             requires_agent: true,
             config_fields: vec![
-                F { name: "agent_label", kind: "string", required: true, description: "Free-form label for the catalogue." },
-                F { name: "agent_token", kind: "secret", required: true, description: "Bearer token the agent uses to push records." },
-                F { name: "protocol", kind: "string", required: true, description: "activemq | rabbitmq | mqtt | sns | ibm_mq | solace." },
+                F {
+                    name: "agent_label",
+                    kind: "string",
+                    required: true,
+                    description: "Free-form label for the catalogue.",
+                },
+                F {
+                    name: "agent_token",
+                    kind: "secret",
+                    required: true,
+                    description: "Bearer token the agent uses to push records.",
+                },
+                F {
+                    name: "protocol",
+                    kind: "string",
+                    required: true,
+                    description: "activemq | rabbitmq | mqtt | sns | ibm_mq | solace.",
+                },
             ],
         },
     ]

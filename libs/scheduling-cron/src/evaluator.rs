@@ -201,8 +201,8 @@ fn last_day_of_month(year: i32, month: u32) -> u32 {
     } else {
         (year, month + 1)
     };
-    let first_of_next = NaiveDate::from_ymd_opt(next_year, next_month, 1)
-        .expect("month boundary is always valid");
+    let first_of_next =
+        NaiveDate::from_ymd_opt(next_year, next_month, 1).expect("month boundary is always valid");
     let last_of_this = first_of_next - chrono::Duration::days(1);
     last_of_this.day()
 }
@@ -290,10 +290,7 @@ impl NaiveExt for NaiveDateTime {
             let date = self.date() + chrono::Duration::days(1);
             return Some(date.and_time(NaiveTime::from_hms_opt(0, 0, 0)?));
         }
-        Some(
-            self.date()
-                .and_time(NaiveTime::from_hms_opt(h + 1, 0, 0)?),
-        )
+        Some(self.date().and_time(NaiveTime::from_hms_opt(h + 1, 0, 0)?))
     }
 
     fn with_minute_advance_one(self) -> Option<NaiveDateTime> {
@@ -302,10 +299,7 @@ impl NaiveExt for NaiveDateTime {
             return self.with_hour_advance_one();
         }
         let h = chrono::Timelike::hour(&self);
-        Some(
-            self.date()
-                .and_time(NaiveTime::from_hms_opt(h, m + 1, 0)?),
-        )
+        Some(self.date().and_time(NaiveTime::from_hms_opt(h, m + 1, 0)?))
     }
 }
 

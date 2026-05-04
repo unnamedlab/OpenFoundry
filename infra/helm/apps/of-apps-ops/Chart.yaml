@@ -1,0 +1,14 @@
+apiVersion: v2
+name: of-apps-ops
+description: |
+  OpenFoundry applications + operations release. Owns application
+  composition, notebook runtime, exploratory analysis, solution
+  design, workflow, notifications, audit, telemetry, federation,
+  code repo, SDK gen and entity resolution.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: of-shared
+    version: 0.1.0
+    repository: file://../../_shared

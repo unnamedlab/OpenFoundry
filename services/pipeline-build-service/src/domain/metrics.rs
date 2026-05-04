@@ -15,8 +15,8 @@
 use once_cell::sync::Lazy;
 use prometheus::{
     Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-    register_histogram, register_histogram_vec, register_int_counter,
-    register_int_counter_vec, register_int_gauge, register_int_gauge_vec,
+    register_histogram, register_histogram_vec, register_int_counter, register_int_counter_vec,
+    register_int_gauge, register_int_gauge_vec,
 };
 
 use crate::domain::logs::LogLevel;
@@ -64,9 +64,7 @@ pub static BUILD_LOCK_ACQUISITION_DURATION_SECONDS: Lazy<Histogram> = Lazy::new(
             "build_lock_acquisition_duration_seconds",
             "Wall-clock seconds spent opening output transactions and persisting build_input_locks",
         )
-        .buckets(vec![
-            0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
-        ])
+        .buckets(vec![0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,])
     )
     .expect("register build_lock_acquisition_duration_seconds")
 });
@@ -97,17 +95,11 @@ pub static BUILD_RESOLUTIONS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 /// Stable label set used by [`record_build_resolution`]. Kept here so
 /// every emitter agrees on the vocabulary and `init()` can pre-touch
 /// each variant.
-pub const BUILD_RESOLUTION_OUTCOMES: &[&str] = &[
-    "ok",
-    "missing_spec",
-    "incompatible_ancestry",
-    "cycle",
-];
+pub const BUILD_RESOLUTION_OUTCOMES: &[&str] =
+    &["ok", "missing_spec", "incompatible_ancestry", "cycle"];
 
 pub fn record_build_resolution(outcome: &str) {
-    BUILD_RESOLUTIONS_TOTAL
-        .with_label_values(&[outcome])
-        .inc();
+    BUILD_RESOLUTIONS_TOTAL.with_label_values(&[outcome]).inc();
 }
 
 /// Pre-touch every label combination so dashboards render even before
@@ -129,9 +121,7 @@ pub fn init() {
 }
 
 pub fn record_build_state(state: BuildState) {
-    BUILD_STATE_TOTAL
-        .with_label_values(&[state.as_str()])
-        .inc();
+    BUILD_STATE_TOTAL.with_label_values(&[state.as_str()]).inc();
 }
 
 pub fn set_jobs_in_state(state: JobState, value: i64) {
@@ -185,9 +175,7 @@ pub static BUILD_EXECUTION_DURATION_SECONDS: Lazy<Histogram> = Lazy::new(|| {
             "build_execution_duration_seconds",
             "Wall-clock seconds spent driving jobs to terminal state",
         )
-        .buckets(vec![
-            0.05, 0.25, 1.0, 5.0, 15.0, 60.0, 300.0, 900.0, 3600.0,
-        ])
+        .buckets(vec![0.05, 0.25, 1.0, 5.0, 15.0, 60.0, 300.0, 900.0, 3600.0,])
     )
     .expect("register build_execution_duration_seconds")
 });

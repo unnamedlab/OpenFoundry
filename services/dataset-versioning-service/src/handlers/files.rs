@@ -138,7 +138,10 @@ fn parse_physical_uri(uri: &str) -> PhysicalLocation {
             None => (format!("hdfs:{rest}"), String::new()),
         }
     } else if let Some(rest) = uri.strip_prefix("local://") {
-        ("local".to_string(), rest.trim_start_matches('/').to_string())
+        (
+            "local".to_string(),
+            rest.trim_start_matches('/').to_string(),
+        )
     } else {
         ("local".to_string(), uri.trim_start_matches('/').to_string())
     };
@@ -412,8 +415,7 @@ pub async fn download_file(
         .map_err(|e| internal(e.to_string()))?;
     response.headers_mut().insert(
         header::LOCATION,
-        HeaderValue::from_str(signed.url.as_str())
-            .map_err(|e| internal(e.to_string()))?,
+        HeaderValue::from_str(signed.url.as_str()).map_err(|e| internal(e.to_string()))?,
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -596,7 +598,10 @@ pub async fn local_presign_proxy(
     Path(key): Path<String>,
     Query(q): Query<LocalProxyQuery>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    if !state.backing_fs.verify_local_signature(&key, q.expires, &q.sig) {
+    if !state
+        .backing_fs
+        .verify_local_signature(&key, q.expires, &q.sig)
+    {
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({ "error": "invalid or expired signature" })),

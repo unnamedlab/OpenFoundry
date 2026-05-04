@@ -11,9 +11,7 @@ use dataset_versioning_service::{
 };
 use sqlx::PgPool;
 use storage_abstraction::backend::StorageBackend;
-use storage_abstraction::backing_fs::{
-    BackingFileSystem, LocalBackingFs, LocalBackingFsConfig,
-};
+use storage_abstraction::backing_fs::{BackingFileSystem, LocalBackingFs, LocalBackingFsConfig};
 use storage_abstraction::local::LocalStorage;
 use tempfile::TempDir;
 use testcontainers::{ContainerAsync, GenericImage};

@@ -1,0 +1,171 @@
+---
+# S4.2.b — Per-service ACLs for the versioned `<domain>.*.v1` topics.
+#
+# Contract: each service can only WRITE to its own prefix. Read paths
+# are scoped to the consumers that need them (indexer, audit-sink,
+# lineage-sink, notification-alerting).
+#
+# Identity model:
+#   * Each service has a TLS `KafkaUser` with a literal-name
+#     authentication identity matching its in-cluster service
+#     account.
+#   * ACLs are defined per `KafkaUser`. Strimzi's Entity Operator
+#     reconciles them as Kafka-native ACLs on the brokers.
+#
+# This file is additive to `infra/helm/infra/debezium/templates/kafka-user-debezium-connect.yaml`
+# (which already covers Debezium's own writes). It pins the **read
+# side** plus per-service writes for services that will publish
+# directly (without going through the outbox — e.g. workers that emit
+# `ai.events.*` from Temporal activities, see S5.3.a).
+#
+# All consumer ACLs are scoped to a literal `group` matching the
+# service name to keep blast radius bounded.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: ontology-indexer
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/service: ontology-indexer
+    openfoundry.io/kafka-role: consumer
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: ontology.object.changed.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: topic, name: ontology.action.applied.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: group, name: ontology-indexer, patternType: literal }
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: audit-sink
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/service: audit-sink
+    openfoundry.io/kafka-role: consumer
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: audit.events.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: group, name: audit-sink, patternType: literal }
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: lineage-service
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/service: lineage-service
+    openfoundry.io/kafka-role: producer-consumer
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      # Reads its own topic to materialize Iceberg.
+      - resource: { type: topic, name: lineage.events.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: group, name: lineage-service, patternType: literal }
+        operations: [Read]
+      # Direct producers (e.g. `lineage-service` ingest API) write
+      # events for jobs that didn't go through the outbox.
+      - resource: { type: topic, name: lineage.events.v1, patternType: literal }
+        operations: [Write]
+      - resource: { type: transactionalId, name: lineage-service-, patternType: prefix }
+        operations: [Write, Describe]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: notification-alerting-service
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/service: notification-alerting-service
+    openfoundry.io/kafka-role: consumer
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: ontology.object.changed.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: topic, name: ontology.action.applied.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: group, name: notification-alerting-service, patternType: literal }
+        operations: [Read]
+---
+# AI/agent workers emit directly (not via outbox) — Temporal activity
+# already deduplicates through workflow history. They publish to a
+# separate `ai.events.v1` topic introduced in S5.3.a; the ACL is
+# pre-declared here so the topic CR can land later without ACL drift.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: agent-runtime-service
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openfoundry
+    openfoundry.io/service: agent-runtime-service
+    openfoundry.io/kafka-role: producer
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: ai.events.v1, patternType: literal }
+        operations: [Write, Describe]
+      - resource: { type: transactionalId, name: agent-runtime-, patternType: prefix }
+        operations: [Write, Describe]
+---
+# `prompt-workflow-service` — second producer on `ai.events.v1`
+# (S5.3.a). Separate transactional-id prefix so Kafka can fence the
+# two producers independently.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: prompt-workflow-service
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: ai.events.v1, patternType: literal }
+        operations: [Write, Describe]
+      - resource: { type: transactionalId, name: prompt-workflow-, patternType: prefix }
+        operations: [Write, Describe]
+---
+# `ai-sink` — single consumer of `ai.events.v1`. Read-only on the
+# topic + Read on its consumer group (S5.3.b).
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: ai-sink
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: ai.events.v1, patternType: literal }
+        operations: [Read, Describe]
+      - resource: { type: group, name: ai-sink, patternType: literal }
+        operations: [Read]

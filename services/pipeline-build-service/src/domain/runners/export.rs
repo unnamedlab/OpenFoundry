@@ -97,13 +97,7 @@ impl JobRunner for ExportJobRunner {
             "EXPORT runner pushing to external destination"
         );
 
-        let resp = match self
-            .http
-            .post(&cfg.endpoint)
-            .json(&manifest)
-            .send()
-            .await
-        {
+        let resp = match self.http.post(&cfg.endpoint).json(&manifest).send().await {
             Ok(r) => r,
             Err(err) => {
                 return JobOutcome::Failed {

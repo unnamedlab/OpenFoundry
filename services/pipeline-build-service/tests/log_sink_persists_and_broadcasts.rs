@@ -14,7 +14,7 @@ use pipeline_build_service::domain::logs::{
     BroadcastLogSink, CompositeLogSink, LogEntry, LogLevel, LogSink, PostgresLogSink,
 };
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires docker"]
@@ -25,7 +25,10 @@ async fn composite_sink_persists_and_broadcasts() {
     specs.add(job_spec("ri.spec.s", vec!["raw.in"], vec!["mid.out"]));
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
     let build_branch: BranchName = "master".parse().unwrap();
     let outputs = vec!["mid.out".to_string()];
@@ -47,13 +50,11 @@ async fn composite_sink_persists_and_broadcasts() {
     .await
     .expect("resolution");
 
-    let job_rid: String = sqlx::query_scalar(
-        "SELECT rid FROM jobs WHERE build_id = $1",
-    )
-    .bind(resolved.build_id)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let job_rid: String = sqlx::query_scalar("SELECT rid FROM jobs WHERE build_id = $1")
+        .bind(resolved.build_id)
+        .fetch_one(&harness.pool)
+        .await
+        .unwrap();
 
     let postgres_sink: Arc<dyn LogSink> = Arc::new(PostgresLogSink::new(harness.pool.clone()));
     let broadcaster = Arc::new(BroadcastLogSink::new());
@@ -84,13 +85,12 @@ async fn composite_sink_persists_and_broadcasts() {
     assert!(received.sequence > 0);
 
     // Persisted row exists with same sequence.
-    let row: (i64, String, String) = sqlx::query_as(
-        "SELECT sequence, level, message FROM job_logs WHERE message = $1",
-    )
-    .bind("hello")
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let row: (i64, String, String) =
+        sqlx::query_as("SELECT sequence, level, message FROM job_logs WHERE message = $1")
+            .bind("hello")
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
     assert_eq!(row.0, received.sequence);
     assert_eq!(row.1, "INFO");
     assert_eq!(row.2, "hello");

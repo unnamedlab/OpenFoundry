@@ -1,9 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrimaryItem {
     pub id: Uuid,
     pub payload: serde_json::Value,
@@ -15,7 +14,7 @@ pub struct CreatePrimaryRequest {
     pub payload: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecondaryItem {
     pub id: Uuid,
     pub parent_id: Uuid,

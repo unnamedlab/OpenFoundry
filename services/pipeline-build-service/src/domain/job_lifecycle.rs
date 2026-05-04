@@ -60,11 +60,10 @@ pub async fn transition_job_in_tx<'c>(
     to: JobState,
     reason: Option<&str>,
 ) -> Result<JobState, JobLifecycleError> {
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT state FROM jobs WHERE id = $1 FOR UPDATE")
-            .bind(job_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let row: Option<(String,)> = sqlx::query_as("SELECT state FROM jobs WHERE id = $1 FOR UPDATE")
+        .bind(job_id)
+        .fetch_optional(&mut **tx)
+        .await?;
 
     let from = match row {
         Some((state_str,)) => state_str.parse::<JobState>()?,

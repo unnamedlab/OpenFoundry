@@ -72,6 +72,12 @@
 		activeStates = new Set(
 			states ? (states.split(',').filter((s) => ALL_STATES.includes(s as BuildState)) as BuildState[]) : []
 		);
+		// CommandPalette deep-link: `/builds?run=1` opens the modal
+		// directly so the operator can submit a fresh build without
+		// clicking the header button.
+		if (sp.get('run') === '1') {
+			showRunModal = true;
+		}
 	}
 
 	async function reload() {

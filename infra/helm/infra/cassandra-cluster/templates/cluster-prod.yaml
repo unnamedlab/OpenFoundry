@@ -1,0 +1,357 @@
+{{- if .Values.prod.enabled }}
+---
+# Apache Cassandra cluster for production.
+#
+# Topology rationale (per ADR-0020 and ADR-0021):
+#   * Three datacenters, each with 3 nodes across 3 racks (mapped to
+#     Kubernetes failure zones via GossipingPropertyFileSnitch).
+#   * NetworkTopologyStrategy with RF=3 per DC. Default consistency is
+#     LOCAL_QUORUM on both reads and writes, so a single zone outage in
+#     one DC keeps the cluster fully serving while two healthy nodes
+#     per DC remain.
+#   * No quorum read/write spans a DC: cross-DC traffic is replication
+#     only. This caps cross-region latency cost and matches the SLO
+#     budget in ADR-0012.
+#   * Single PV per pod on `ceph-rbd-fast` (NVMe-backed CephBlockPool
+#     `rbd-fast`, see infra/helm/infra/ceph-cluster/templates/cluster.yaml). Ceph already
+#     replicates 3x with zone failure domain; a second PV per pod
+#     would only add IOPS contention.
+#   * Reaper runs PER_DC with sub-range parallelism, weekly per
+#     keyspace. Medusa backs up to a Ceph S3 bucket per DC, retention
+#     30 days.
+#   * Stargate disabled. Services use the `scylla` Rust crate over CQL
+#     directly.
+#   * mTLS between nodes and between client and node.
+#
+# Capacity sizing (per pod, baseline; adjust per environment):
+#   * 8 vCPU request / 12 vCPU limit
+#   * 32 GiB heap (G1GC), 48 GiB pod memory limit
+#   * 2 TiB data volume
+#   * 16 vnodes per node, allocate_tokens_for_local_replication_factor=3
+#
+# Keyspaces and tables defined per
+# docs/architecture/data-model-cassandra.md. Application keyspaces are
+# created by the post-install Job (`keyspaces-job.yaml`); the operator
+# only owns system keyspaces.
+
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: of-cass-prod
+  namespace: cassandra
+spec:
+  cassandra:
+    serverVersion: "5.0.2"
+    serverType: cassandra
+    superuserSecretRef:
+      name: of-cass-prod-superuser
+
+    storageConfig:
+      cassandraDataVolumeClaimSpec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ceph-rbd-fast
+        resources:
+          requests:
+            storage: 2Ti
+
+    config:
+      jvmOptions:
+        heap_initial_size: 32G
+        heap_max_size: 32G
+        heap_size_young_generation: 4G
+        gc: G1GC
+        additional-jvm-opts:
+          # Make distributed system tables shape-aware of the 4-DC
+          # layout (3 in region A + 1 in region B, see S7.2.a) from
+          # the very first boot.
+          - "-Dcassandra.system_distributed_replication_dc_names=dc1,dc2,dc3,dc-b1"
+          - "-Dcassandra.system_distributed_replication_per_dc=3"
+          # JMX exporter for Prometheus is wired via the
+          # k8ssandra-operator default sidecar; no extra opts needed.
+      cassandraYaml:
+        num_tokens: 16
+        allocate_tokens_for_local_replication_factor: 3
+        endpoint_snitch: GossipingPropertyFileSnitch
+        # Hinted handoff helps recover from short-lived node loss
+        # without forcing repair to do all the work.
+        hinted_handoff_enabled: true
+        max_hint_window_in_ms: 10800000   # 3h
+        # Tuning aligned with the modelling rules in ADR-0020.
+        tombstone_warn_threshold: 1000
+        tombstone_failure_threshold: 100000
+        # Strict guard: never allow ALLOW FILTERING / cross-partition
+        # scans in production. CI lints reject them at build time;
+        # this is the runtime backstop.
+        read_request_timeout_in_ms: 5000
+        range_request_timeout_in_ms: 10000
+        write_request_timeout_in_ms: 2000
+        counter_write_request_timeout_in_ms: 5000
+        cas_contention_timeout_in_ms: 1000
+        truncate_request_timeout_in_ms: 60000
+        # Compaction concurrency sized for NVMe.
+        concurrent_compactors: 4
+        compaction_throughput_mb_per_sec: 256
+        # Streaming caps so a node replacement does not saturate the
+        # cluster.
+        stream_throughput_outbound_megabits_per_sec: 400
+        inter_dc_stream_throughput_outbound_megabits_per_sec: 200
+
+      # mTLS between nodes (always) and between clients and nodes
+      # (optional in production overlays, but enabled here as the
+      # default secure posture).
+      jvmServerOptions: {}
+
+    networking:
+      hostNetwork: false
+
+    # Three datacenters. Each DC declares 3 racks; cass-operator maps
+    # racks to zones via topology labels at the StatefulSet level.
+    datacenters:
+      - metadata:
+          name: dc1
+        size: 3
+        racks:
+          - name: rack1
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-a
+          - name: rack2
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-b
+          - name: rack3
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-c
+        resources:
+          requests:
+            cpu: "8"
+            memory: 48Gi
+          limits:
+            cpu: "12"
+            memory: 48Gi
+
+      - metadata:
+          name: dc2
+        size: 3
+        racks:
+          - name: rack1
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-d
+          - name: rack2
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-e
+          - name: rack3
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-f
+        resources:
+          requests:
+            cpu: "8"
+            memory: 48Gi
+          limits:
+            cpu: "12"
+            memory: 48Gi
+
+      - metadata:
+          name: dc3
+        size: 3
+        racks:
+          - name: rack1
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-g
+          - name: rack2
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-h
+          - name: rack3
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: zone-i
+        resources:
+          requests:
+            cpu: "8"
+            memory: 48Gi
+          limits:
+            cpu: "12"
+            memory: 48Gi
+
+      # ── Region B datacenter (S7.2.a) ────────────────────────────────
+      # The plan named this DC "DC2 in region B" assuming a single-DC
+      # baseline; the production cluster already has dc1/dc2/dc3 in
+      # region A (zones a-i, ADR-0021), so the region-B datacenter is
+      # added as `dc-b1` to avoid renaming live DCs. Functionally this
+      # is the "second region" the plan referred to.
+      #
+      # `k8sContext: region-b` tells k8ssandra-operator to schedule
+      # this StatefulSet against the secondary Kubernetes cluster
+      # registered in the operator's `clientConfigs` (see
+      # `values-k8ssandra-operator.yaml`). The operator handles seed
+      # discovery and gossip across regions automatically when the two
+      # k8s clusters are registered as a single multi-cluster control
+      # plane.
+      - metadata:
+          name: dc-b1
+        k8sContext: region-b
+        size: 3
+        racks:
+          - name: rack1
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: region-b-zone-a
+          - name: rack2
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: region-b-zone-b
+          - name: rack3
+            nodeAffinityLabels:
+              topology.kubernetes.io/zone: region-b-zone-c
+        resources:
+          requests:
+            cpu: "8"
+            memory: 48Gi
+          limits:
+            cpu: "12"
+            memory: 48Gi
+        # Throttle hints/streaming on the cross-region link.
+        config:
+          cassandraYaml:
+            inter_dc_stream_throughput_outbound_megabits_per_sec: 100
+            hinted_handoff_throttle_in_kb: 4096
+
+    # mTLS for client connections. Client certs are minted by
+    # cert-manager via the platform's internal CA.
+    clientEncryptionStores:
+      keystoreSecretRef:
+        name: of-cass-prod-client-keystore
+      truststoreSecretRef:
+        name: of-cass-prod-client-truststore
+    serverEncryptionStores:
+      keystoreSecretRef:
+        name: of-cass-prod-server-keystore
+      truststoreSecretRef:
+        name: of-cass-prod-server-truststore
+
+  # Reaper: scheduled anti-entropy repairs per DC. Sub-range
+  # parallelism keeps repair work bounded and aligns with TWCS / LCS
+  # compaction windows.
+  reaper:
+    deploymentMode: PER_DC
+    keyspace: reaper_db
+    autoScheduling:
+      enabled: true
+      initialDelayPeriod: PT1H
+      periodBetweenPolls: PT15M
+      timeBeforeFirstSchedule: PT1H
+      scheduleSpreadPeriod: PT12H
+      excludedKeyspaces:
+        - system
+        - system_auth
+        - system_schema
+        - system_distributed
+        - system_traces
+    resources:
+      requests:
+        cpu: "500m"
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+
+  # Medusa: per-DC backups to a Ceph S3 bucket. Bucket per DC keeps
+  # backup blast radius contained and lets us restore one DC at a time
+  # if we ever need to.
+  medusa:
+    storageProperties:
+      storageProvider: s3_compatible
+      bucketName: cassandra-backups-prod
+      prefix: of-cass-prod
+      storageSecretRef:
+        name: medusa-bucket-credentials
+      host: rook-ceph-rgw-rgw-data.rook-ceph.svc
+      port: 80
+      secure: false
+      maxBackupAge: 30   # days
+      maxBackupCount: 30
+      # Concurrent multipart for large SSTables.
+      concurrentTransfers: 4
+      multiPartUploadThreshold: 104857600   # 100 MiB
+    # Scheduled full backup nightly + differential every 6h.
+    # Schedules are managed by separate MedusaBackupSchedule CRs
+    # so they can be edited without rolling the cluster.
+    resources:
+      requests:
+        cpu: "500m"
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+
+---
+# Nightly full backup, all DCs.
+apiVersion: medusa.k8ssandra.io/v1alpha1
+kind: MedusaBackupSchedule
+metadata:
+  name: of-cass-prod-nightly-full
+  namespace: cassandra
+spec:
+  backupSpec:
+    cassandraDatacenter: dc1
+    backupType: full
+  cronSchedule: "0 2 * * *"
+  disabled: false
+---
+apiVersion: medusa.k8ssandra.io/v1alpha1
+kind: MedusaBackupSchedule
+metadata:
+  name: of-cass-prod-nightly-full-dc2
+  namespace: cassandra
+spec:
+  backupSpec:
+    cassandraDatacenter: dc2
+    backupType: full
+  cronSchedule: "30 2 * * *"
+  disabled: false
+---
+apiVersion: medusa.k8ssandra.io/v1alpha1
+kind: MedusaBackupSchedule
+metadata:
+  name: of-cass-prod-nightly-full-dc3
+  namespace: cassandra
+spec:
+  backupSpec:
+    cassandraDatacenter: dc3
+    backupType: full
+  cronSchedule: "0 3 * * *"
+  disabled: false
+---
+# Differential every 6h, all DCs.
+apiVersion: medusa.k8ssandra.io/v1alpha1
+kind: MedusaBackupSchedule
+metadata:
+  name: of-cass-prod-differential-dc1
+  namespace: cassandra
+spec:
+  backupSpec:
+    cassandraDatacenter: dc1
+    backupType: differential
+  cronSchedule: "0 */6 * * *"
+  disabled: false
+---
+apiVersion: medusa.k8ssandra.io/v1alpha1
+kind: MedusaBackupSchedule
+metadata:
+  name: of-cass-prod-differential-dc2
+  namespace: cassandra
+spec:
+  backupSpec:
+    cassandraDatacenter: dc2
+    backupType: differential
+  cronSchedule: "10 */6 * * *"
+  disabled: false
+---
+apiVersion: medusa.k8ssandra.io/v1alpha1
+kind: MedusaBackupSchedule
+metadata:
+  name: of-cass-prod-differential-dc3
+  namespace: cassandra
+spec:
+  backupSpec:
+    cassandraDatacenter: dc3
+    backupType: differential
+  cronSchedule: "20 */6 * * *"
+  disabled: false
+{{- end }}

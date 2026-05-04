@@ -25,8 +25,8 @@ use crate::{
     handlers::{ServiceResult, bad_request, db_error, internal_error, not_found},
     models::dataset_product::{
         CreateDatasetProductRequest, DatasetProduct, DatasetProductBootstrap,
-        DatasetProductInstall, DatasetProductInstallRow, DatasetProductManifest,
-        DatasetProductRow, InstallDatasetProductRequest,
+        DatasetProductInstall, DatasetProductInstallRow, DatasetProductManifest, DatasetProductRow,
+        InstallDatasetProductRequest,
     },
 };
 
@@ -53,7 +53,11 @@ pub async fn create_from_dataset(
     let manifest = DatasetProductManifest {
         entity: "dataset".into(),
         version: req.version.clone(),
-        schema: if req.include_schema { req.schema.clone() } else { None },
+        schema: if req.include_schema {
+            req.schema.clone()
+        } else {
+            None
+        },
         retention: if req.include_retention {
             req.retention.clone()
         } else {
@@ -114,9 +118,7 @@ pub async fn create_from_dataset(
     .await
     .map_err(|cause| db_error(&cause))?;
 
-    Ok(Json(
-        DatasetProduct::try_from(row).map_err(internal_error)?,
-    ))
+    Ok(Json(DatasetProduct::try_from(row).map_err(internal_error)?))
 }
 
 pub async fn install_dataset_product(
@@ -209,9 +211,7 @@ pub async fn get_dataset_product(
     .map_err(|cause| db_error(&cause))?
     .ok_or_else(|| not_found("dataset product not found"))?;
 
-    Ok(Json(
-        DatasetProduct::try_from(row).map_err(internal_error)?,
-    ))
+    Ok(Json(DatasetProduct::try_from(row).map_err(internal_error)?))
 }
 
 /// Sentinel use of UTC so the import doesn't drift to dead-code in

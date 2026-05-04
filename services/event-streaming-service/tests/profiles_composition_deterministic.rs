@@ -50,14 +50,8 @@ fn profiles_composition_is_stable_under_input_permutation() {
         json!({"taskmanager.network.memory.fraction": "0.2"}),
     );
 
-    let r1 = compose_effective_config(
-        "p",
-        &[(a.clone(), 1), (b.clone(), 2), (c.clone(), 3)],
-    );
-    let r2 = compose_effective_config(
-        "p",
-        &[(c.clone(), 3), (a.clone(), 1), (b.clone(), 2)],
-    );
+    let r1 = compose_effective_config("p", &[(a.clone(), 1), (b.clone(), 2), (c.clone(), 3)]);
+    let r2 = compose_effective_config("p", &[(c.clone(), 3), (a.clone(), 1), (b.clone(), 2)]);
     assert_eq!(r1.config, r2.config);
     // Source map must agree too — that's what the UI shows in the
     // Advanced panel.
@@ -127,8 +121,7 @@ fn profiles_non_overlapping_keys_compose_into_a_union() {
         ProfileCategory::Network,
         json!({"taskmanager.network.memory.fraction": "0.2"}),
     );
-    let r: EffectiveFlinkConfig =
-        compose_effective_config("p", &[(mem, 1), (net, 2)]);
+    let r: EffectiveFlinkConfig = compose_effective_config("p", &[(mem, 1), (net, 2)]);
     assert_eq!(r.config.as_object().unwrap().len(), 2);
     assert!(r.warnings.is_empty(), "no overlap → no warnings");
 }

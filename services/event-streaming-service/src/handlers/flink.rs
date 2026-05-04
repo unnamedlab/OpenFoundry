@@ -1,8 +1,8 @@
 //! REST handlers for the Flink runtime (Bloque D).
 
-use axum::{Json, extract::Path};
 #[cfg(not(feature = "flink-runtime"))]
 use axum::http::StatusCode;
+use axum::{Json, extract::Path};
 use serde_json::Value;
 use uuid::Uuid;
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use pipeline_schedule_service::domain::build_client::BuildAttemptOutcome;
 use pipeline_schedule_service::domain::dispatcher::{
-    AutoPauseConfig, Dispatcher, DispatcherConfig, DispatchTrigger,
+    AutoPauseConfig, DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::trigger::AUTO_PAUSED_REASON;
 use pipeline_schedule_service::domain::{schedule_store, trigger::Schedule};
@@ -44,7 +44,9 @@ async fn auto_pause_fires_after_threshold_consecutive_failures() {
     for _ in 0..3 {
         // Re-fetch so the dispatcher sees the latest active_run_id /
         // paused state (the row mutates as runs land).
-        schedule = schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+        schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
+            .await
+            .unwrap();
         let report = dispatcher
             .dispatch(
                 &schedule,
@@ -60,7 +62,10 @@ async fn auto_pause_fires_after_threshold_consecutive_failures() {
     let paused: Schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
         .await
         .unwrap();
-    assert!(paused.paused, "schedule should be auto-paused after 3 fails");
+    assert!(
+        paused.paused,
+        "schedule should be auto-paused after 3 fails"
+    );
     assert_eq!(paused.paused_reason.as_deref(), Some(AUTO_PAUSED_REASON));
 
     // The notification client got a single auto-paused alert.

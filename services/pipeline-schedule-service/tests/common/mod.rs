@@ -21,8 +21,7 @@ use pipeline_schedule_service::domain::notification_client::{AutoPausedAlert, No
 use sqlx::PgPool;
 use testing::containers::boot_postgres;
 
-const P1_MIGRATION: &str =
-    include_str!("../../migrations/20260504000080_schedules_init.sql");
+const P1_MIGRATION: &str = include_str!("../../migrations/20260504000080_schedules_init.sql");
 const P2_MIGRATION: &str = include_str!("../../migrations/20260504000081_schedule_runs.sql");
 const P3_MIGRATION: &str = include_str!("../../migrations/20260504000082_schedule_scope.sql");
 

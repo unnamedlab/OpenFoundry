@@ -1,0 +1,20 @@
+image:
+  repository: localhost:5001/web
+  tag: dev
+  pullPolicy: Always
+
+replicas: 1
+
+service:
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: traefik
+  # Empty host = match any Host header. Set "openfoundry.local" or similar in prod.
+  host: ""
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits:   { cpu: 500m, memory: 512Mi }

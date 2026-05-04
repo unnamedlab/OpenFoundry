@@ -10,7 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
-use rdkafka::message::Message;
+use rdkafka::message::{Message, Timestamp};
 use rdkafka::{Offset, TopicPartitionList};
 use thiserror::Error;
 
@@ -38,6 +38,7 @@ pub struct DataMessage {
     topic: String,
     partition: i32,
     offset: i64,
+    timestamp_millis: Option<i64>,
     key: Option<Vec<u8>>,
     payload: Option<Vec<u8>>,
     lineage: Option<OpenLineageHeaders>,
@@ -52,6 +53,9 @@ impl DataMessage {
     }
     pub fn offset(&self) -> i64 {
         self.offset
+    }
+    pub fn timestamp_millis(&self) -> Option<i64> {
+        self.timestamp_millis
     }
     pub fn key(&self) -> Option<&[u8]> {
         self.key.as_deref()
@@ -81,6 +85,7 @@ impl std::fmt::Debug for DataMessage {
             .field("topic", &self.topic)
             .field("partition", &self.partition)
             .field("offset", &self.offset)
+            .field("timestamp_millis", &self.timestamp_millis)
             .field("key_len", &self.key.as_ref().map(|k| k.len()))
             .field("payload_len", &self.payload.as_ref().map(|p| p.len()))
             .field("lineage", &self.lineage)
@@ -143,6 +148,10 @@ impl DataSubscriber for KafkaSubscriber {
             topic: msg.topic().to_string(),
             partition: msg.partition(),
             offset: msg.offset(),
+            timestamp_millis: match msg.timestamp() {
+                Timestamp::NotAvailable => None,
+                Timestamp::CreateTime(value) | Timestamp::LogAppendTime(value) => Some(value),
+            },
             key: msg.key().map(|k| k.to_vec()),
             payload: msg.payload().map(|p| p.to_vec()),
             lineage,

@@ -11,8 +11,7 @@
 //! proxy publishes successfully against a real broker.
 
 use event_streaming_service::handlers::push_proxy::{
-    ERR_PUSH_MISSING_TOKEN, ERR_PUSH_RATE_LIMITED, ERR_PUSH_SCHEMA, ERR_PUSH_VIEW_RETIRED,
-    PushBody,
+    ERR_PUSH_MISSING_TOKEN, ERR_PUSH_RATE_LIMITED, ERR_PUSH_SCHEMA, ERR_PUSH_VIEW_RETIRED, PushBody,
 };
 use serde_json::json;
 
@@ -138,13 +137,10 @@ mod with_redpanda {
         let stream_id = Uuid::now_v7();
         // Pre-create the topic with 1 partition; the push proxy
         // exercises `publish` against this topic.
-        tokio::time::timeout(
-            Duration::from_secs(20),
-            buffer.ensure_topic(stream_id, 1),
-        )
-        .await
-        .expect("ensure_topic must not time out")
-        .expect("ensure_topic must succeed");
+        tokio::time::timeout(Duration::from_secs(20), buffer.ensure_topic(stream_id, 1))
+            .await
+            .expect("ensure_topic must not time out")
+            .expect("ensure_topic must succeed");
 
         // Validated record (schema match) → publish must succeed.
         let payload = serde_json::to_vec(&json!({

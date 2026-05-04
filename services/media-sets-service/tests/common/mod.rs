@@ -87,9 +87,8 @@ pub async fn spawn_with_connector(connector_service_url: Option<String>) -> Harn
         .expect("apply media-sets-service migrations");
 
     let dir = tempfile::tempdir().expect("temp storage root");
-    let backend: Arc<dyn StorageBackend> = Arc::new(
-        LocalStorage::new(dir.path().to_str().unwrap()).expect("local storage"),
-    );
+    let backend: Arc<dyn StorageBackend> =
+        Arc::new(LocalStorage::new(dir.path().to_str().unwrap()).expect("local storage"));
     let storage: Arc<dyn MediaStorage> = Arc::new(BackendMediaStorage::new(
         backend,
         "media".to_string(),

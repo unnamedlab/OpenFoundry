@@ -8,8 +8,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use pipeline_schedule_service::domain::trigger::{
-    CronFlavor as TriggerCronFlavor, Schedule, ScheduleTarget, ScheduleTargetKind,
-    SyncRunTarget, TimeTrigger, Trigger, TriggerKind,
+    CronFlavor as TriggerCronFlavor, Schedule, ScheduleTarget, ScheduleTargetKind, SyncRunTarget,
+    TimeTrigger, Trigger, TriggerKind,
 };
 use pipeline_schedule_service::domain::trigger_engine::next_fire_for_schedule;
 use uuid::Uuid;

@@ -32,9 +32,7 @@ use authz_cedar::AuthzEngine;
 use authz_cedar::axum::{principal_entity_from_claims, uid};
 use cedar_policy::{Context, Entities, Entity, EntityUid, RestrictedExpression};
 use chrono::Utc;
-use jsonwebtoken::{
-    DecodingKey, EncodingKey, Header, Validation, decode, encode, Algorithm,
-};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::error::MediaError;
@@ -192,7 +190,10 @@ pub fn build_media_set_entity(set: &MediaSet, tenant: &str) -> Entity {
         .map(|m| RestrictedExpression::new_entity_uid(uid("Marking", &m.to_ascii_lowercase())))
         .collect();
     let attrs = [
-        ("rid".into(), RestrictedExpression::new_string(set.rid.clone())),
+        (
+            "rid".into(),
+            RestrictedExpression::new_string(set.rid.clone()),
+        ),
         (
             "tenant".into(),
             RestrictedExpression::new_string(tenant.to_string()),
@@ -205,11 +206,11 @@ pub fn build_media_set_entity(set: &MediaSet, tenant: &str) -> Entity {
             "transaction_policy".into(),
             RestrictedExpression::new_string(set.transaction_policy.clone()),
         ),
-        ("virtual".into(), RestrictedExpression::new_bool(set.virtual_)),
         (
-            "markings".into(),
-            RestrictedExpression::new_set(markings),
+            "virtual".into(),
+            RestrictedExpression::new_bool(set.virtual_),
         ),
+        ("markings".into(), RestrictedExpression::new_set(markings)),
     ]
     .into_iter()
     .collect();
@@ -263,10 +264,7 @@ pub fn build_media_item_entity(item: &MediaItem, parent_set: &MediaSet, tenant: 
             "size_bytes".into(),
             RestrictedExpression::new_long(item.size_bytes),
         ),
-        (
-            "markings".into(),
-            RestrictedExpression::new_set(markings),
-        ),
+        ("markings".into(), RestrictedExpression::new_set(markings)),
     ]
     .into_iter()
     .collect();
@@ -356,16 +354,19 @@ pub async fn check_media_set(
 ) -> Result<(), MediaError> {
     let principal = principal_entity_from_claims(claims);
     let principal_uid = principal.uid();
-    let tenant = claims
-        .org_id
-        .map(|o| o.to_string())
-        .unwrap_or_default();
+    let tenant = claims.org_id.map(|o| o.to_string()).unwrap_or_default();
     let resource = build_media_set_entity(set, &tenant);
     let resource_uid = resource.uid();
     let clearances = caller_clearances(claims);
     let entities = entities_for_set(principal, resource, &set.markings, &clearances)?;
     let outcome = engine
-        .authorize(principal_uid, action, resource_uid, Context::empty(), &entities)
+        .authorize(
+            principal_uid,
+            action,
+            resource_uid,
+            Context::empty(),
+            &entities,
+        )
         .await
         .map_err(|e| MediaError::Authz(e.to_string()))?;
     if outcome.is_allow() {
@@ -393,10 +394,7 @@ pub async fn check_media_item(
 
     let principal = principal_entity_from_claims(claims);
     let principal_uid = principal.uid();
-    let tenant = claims
-        .org_id
-        .map(|o| o.to_string())
-        .unwrap_or_default();
+    let tenant = claims.org_id.map(|o| o.to_string()).unwrap_or_default();
     let set_entity = build_media_set_entity(parent_set, &tenant);
     let item_entity = build_media_item_entity(item, parent_set, &tenant);
     let item_uid = item_entity.uid();
@@ -429,10 +427,7 @@ fn forbidden_with_missing(
     if claims.has_role("admin") {
         return MediaError::Forbidden("denied by policy".into());
     }
-    let owned: HashSet<String> = clearances
-        .iter()
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
+    let owned: HashSet<String> = clearances.iter().map(|c| c.to_ascii_lowercase()).collect();
     let mut missing: Vec<String> = required
         .iter()
         .map(|r| r.to_ascii_lowercase())
@@ -516,8 +511,12 @@ pub fn verify_presign_claim(
     validation.validate_exp = true;
     validation.leeway = 5;
     validation.required_spec_claims.clear();
-    let data = decode::<PresignClaim>(token, &DecodingKey::from_secret(presign_secret), &validation)
-        .map_err(|e| MediaError::Forbidden(format!("invalid presign claim: {e}")))?;
+    let data = decode::<PresignClaim>(
+        token,
+        &DecodingKey::from_secret(presign_secret),
+        &validation,
+    )
+    .map_err(|e| MediaError::Forbidden(format!("invalid presign claim: {e}")))?;
     if data.claims.item_rid != expected_item_rid {
         return Err(MediaError::Forbidden(format!(
             "presign claim targets `{}`, not `{}`",

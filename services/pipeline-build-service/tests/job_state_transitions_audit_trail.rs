@@ -11,7 +11,7 @@ use pipeline_build_service::domain::build_resolution::{
 use pipeline_build_service::domain::job_lifecycle::transition_job;
 use pipeline_build_service::models::job::JobState;
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test]
 #[ignore = "requires docker"]
@@ -22,7 +22,10 @@ async fn job_state_transitions_audit_trail_complete() {
     specs.add(job_spec("ri.spec.s1", vec!["raw.a"], vec!["mid.b"]));
     versioning.add_branch(
         "raw.a",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -44,20 +47,40 @@ async fn job_state_transitions_audit_trail_complete() {
     )
     .await
     .expect("resolution succeeds");
-    let (job_id,): (uuid::Uuid,) =
-        sqlx::query_as("SELECT id FROM jobs WHERE build_id = $1")
-            .bind(resolved.build_id)
-            .fetch_one(&harness.pool)
-            .await
-            .unwrap();
+    let (job_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM jobs WHERE build_id = $1")
+        .bind(resolved.build_id)
+        .fetch_one(&harness.pool)
+        .await
+        .unwrap();
 
     // Drive the job through the canonical happy path.
-    transition_job(&harness.pool, job_id, Some(JobState::Waiting), JobState::RunPending, Some("dispatched"))
-        .await.unwrap();
-    transition_job(&harness.pool, job_id, Some(JobState::RunPending), JobState::Running, None)
-        .await.unwrap();
-    transition_job(&harness.pool, job_id, Some(JobState::Running), JobState::Completed, Some("ok"))
-        .await.unwrap();
+    transition_job(
+        &harness.pool,
+        job_id,
+        Some(JobState::Waiting),
+        JobState::RunPending,
+        Some("dispatched"),
+    )
+    .await
+    .unwrap();
+    transition_job(
+        &harness.pool,
+        job_id,
+        Some(JobState::RunPending),
+        JobState::Running,
+        None,
+    )
+    .await
+    .unwrap();
+    transition_job(
+        &harness.pool,
+        job_id,
+        Some(JobState::Running),
+        JobState::Completed,
+        Some("ok"),
+    )
+    .await
+    .unwrap();
 
     // The audit table should show: initial NULL → WAITING (from
     // resolve_build), plus the three transitions above.

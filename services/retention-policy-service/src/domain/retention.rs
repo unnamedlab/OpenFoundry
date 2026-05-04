@@ -275,7 +275,11 @@ fn pick_effective(resolved: &ResolvedPolicies) -> (Option<RetentionPolicy>, Vec<
         // adding (level << 24) so retention_days dominates within a level
         // but specificity breaks ties with the same retention_days.
         let bias = (level as i32) << 24;
-        (legal_hold_score, policy.retention_days + bias, policy.created_at)
+        (
+            legal_hold_score,
+            policy.retention_days + bias,
+            policy.created_at,
+        )
     }
 
     let mut candidates: Vec<(u8, &RetentionPolicy)> = Vec::new();
@@ -371,8 +375,7 @@ pub async fn run_preview(
     let policies: Vec<RetentionPolicy> = applicable_policies_in_order(resolved);
 
     let txns = load_transactions(db, dataset_id).await?;
-    let mut transactions: Vec<RetentionPreviewTransaction> =
-        Vec::with_capacity(txns.len());
+    let mut transactions: Vec<RetentionPreviewTransaction> = Vec::with_capacity(txns.len());
     let mut would_delete_count = 0usize;
     let mut purged_txn_ids: Vec<Uuid> = Vec::new();
     let mut purge_policy_for_txn: std::collections::HashMap<Uuid, (Uuid, String, String)> =
@@ -424,8 +427,7 @@ pub async fn run_preview(
     } else {
         let mut from_committed =
             load_files_from_dataset_files(db, dataset_id, &purged_txn_ids).await?;
-        let from_staged =
-            load_files_from_staging(db, &purged_txn_ids, &transactions).await?;
+        let from_staged = load_files_from_staging(db, &purged_txn_ids, &transactions).await?;
         from_committed.extend(from_staged);
         from_committed
     };
@@ -509,9 +511,7 @@ async fn lookup_dataset_id(db: &sqlx::PgPool, rid: &str) -> Result<Option<Uuid>,
         .await;
     match result {
         Ok(row) => Ok(row),
-        Err(sqlx::Error::Database(db_err))
-            if db_err.message().contains("does not exist") =>
-        {
+        Err(sqlx::Error::Database(db_err)) if db_err.message().contains("does not exist") => {
             Ok(None)
         }
         Err(other) => Err(other.to_string()),
@@ -533,9 +533,7 @@ async fn load_transactions(
     .await;
     match result {
         Ok(rows) => Ok(rows),
-        Err(sqlx::Error::Database(db_err))
-            if db_err.message().contains("does not exist") =>
-        {
+        Err(sqlx::Error::Database(db_err)) if db_err.message().contains("does not exist") => {
             Ok(Vec::new())
         }
         Err(other) => Err(other.to_string()),
@@ -560,9 +558,7 @@ async fn load_files_from_dataset_files(
     .await;
     match result {
         Ok(rows) => Ok(rows),
-        Err(sqlx::Error::Database(db_err))
-            if db_err.message().contains("does not exist") =>
-        {
+        Err(sqlx::Error::Database(db_err)) if db_err.message().contains("does not exist") => {
             Ok(Vec::new())
         }
         Err(other) => Err(other.to_string()),
@@ -609,9 +605,7 @@ async fn load_files_from_staging(
     .await;
     match result {
         Ok(rows) => Ok(rows),
-        Err(sqlx::Error::Database(db_err))
-            if db_err.message().contains("does not exist") =>
-        {
+        Err(sqlx::Error::Database(db_err)) if db_err.message().contains("does not exist") => {
             Ok(Vec::new())
         }
         Err(other) => Err(other.to_string()),

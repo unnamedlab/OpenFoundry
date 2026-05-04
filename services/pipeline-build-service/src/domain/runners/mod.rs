@@ -115,10 +115,7 @@ impl JobRunner for DispatchingRunner {
 ///   * Analytical   — exactly one output (object set materialised
 ///     into a dataset).
 ///   * Export       — outputs MAY be empty (data leaves Foundry).
-pub fn validate_logic_kind(
-    logic_kind: &str,
-    output_count: usize,
-) -> Result<(), String> {
+pub fn validate_logic_kind(logic_kind: &str, output_count: usize) -> Result<(), String> {
     match logic_kind {
         logic_kinds::SYNC => {
             if output_count == 0 {

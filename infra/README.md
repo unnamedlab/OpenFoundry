@@ -1,52 +1,61 @@
-# OpenFoundry Infrastructure Profiles
+# OpenFoundry — `infra/`
 
-This directory contains the deployment artifacts used to run OpenFoundry locally, in Kubernetes, and through Terraform-based infrastructure workflows.
+Single-source-of-truth for everything that runs OpenFoundry: Kubernetes
+via Helm, Docker Compose for local dev, runbooks, scripts, Terraform.
 
-## Deployment modes
+## Layout
 
-> **S8.6 update** — the bash bundle scripts under `k8s/helm/bin/` were
-> removed on 2026-05-03 and replaced by a single declarative
-> [`helmfile.yaml.gotmpl`](k8s/helm/helmfile.yaml.gotmpl). Kubernetes
-> delivery now has a platform layer plus the five release-aligned app
-> charts; see
-> [`k8s/helm/MIGRATION.md`](k8s/helm/MIGRATION.md) and
-> [ADR-0031](../docs/architecture/adr/ADR-0031-helm-chart-split-five-releases.md).
->
-> ```bash
-> cd infra/k8s/platform && helmfile -e prod apply
-> cd infra/k8s/helm && helmfile -e prod apply
-> ```
-
-- `docker-compose.yml`: local control-plane dependencies plus optional `app` profile for `auth-service`, `gateway`, `web`, and an `nginx` edge proxy, with image overrides such as `OPENFOUNDRY_POSTGRES_IMAGE` for mirrored or air-gapped registries.
-- `local/`: support files mounted by Compose (`postgres-init/`, `nginx/`).
-- `k8s/platform/observability/`: platform-owned Prometheus rules, Grafana dashboards, and monitor CRs.
-- `k8s/helm/profiles/values-multicloud.yaml`: multi-cloud SaaS topology with workload identity and Apollo-driven gated fleet sync.
-- `k8s/helm/profiles/values-airgap.yaml`: air-gapped / sovereign deployment posture with private registry mirroring and public-egress shutdown.
-- `k8s/helm/profiles/values-sovereign-eu.yaml`: EU-only residency profile with ingress allowlists, node residency labels, and egress fencing.
-- `k8s/helm/profiles/values-apollo.yaml`: autonomous CI/CD profile that reconciles rollout fleets through the existing platform APIs.
-
-## Render examples
-
-```bash
-cd infra/k8s/helm && helmfile -e multicloud template > /tmp/openfoundry-multicloud.yaml
+```
+infra/
+├── helm/             ← Kubernetes via Helm — single entry point
+│   ├── helmfile.yaml.gotmpl   # one command: `helmfile -e dev apply`
+│   ├── apps/                  # OpenFoundry application charts
+│   ├── operators/             # third-party operators (cnpg, strimzi, …)
+│   ├── infra/                 # third-party infra clusters / CRs
+│   ├── _shared/               # shared library chart (templates only)
+│   ├── profiles/              # cross-release values overlays
+│   └── docs/                  # DSN contract, migration notes
+│
+├── compose/          ← Docker Compose dev environment (alternative to k8s)
+│
+├── observability/    ← Prometheus rules + Grafana dashboards (consumed by helm/)
+│
+├── runbooks/         ← Operational playbooks (Markdown)
+│
+├── scripts/          ← One-off helper scripts (backups, dev-stack, smoke tests)
+│
+├── terraform/        ← Cloud infra (DNS, Ceph, CDN). Orthogonal to k8s.
+│
+└── test-tools/       ← Load benchmarks + chaos experiments
 ```
 
-```bash
-cd infra/k8s/helm && helmfile -e airgap template > /tmp/openfoundry-airgap.yaml
+## Quick reference
+
+| I want to … | Where to look |
+| --- | --- |
+| Deploy everything to k8s | `cd infra/helm && helmfile -e dev apply` |
+| Run with Docker Compose | `cd infra/compose && docker compose up` |
+| Add a new OpenFoundry service | `infra/helm/apps/of-<release>/` |
+| Add a new third-party operator | `infra/helm/operators/<name>/` |
+| Add a new third-party cluster CR | `infra/helm/infra/<name>/` |
+| Find a Postgres DSN convention | `infra/helm/docs/DATABASE_URL.md` |
+| Investigate a runtime incident | `infra/runbooks/` |
+| Understand observability rules | `infra/observability/` |
+
+## Helm: install order (enforced by `needs:` in the helmfile)
+
+```
+Layer 1 — operators/   (cert-manager, cnpg, k8ssandra, strimzi, rook, flink)
+Layer 2 — infra/       (postgres clusters, cassandra cluster, kafka cluster,
+                        ceph cluster, temporal, lakekeeper, debezium,
+                        flink-jobs, vespa, trino, spark-{operator,jobs}, mimir,
+                        observability, local-registry)
+Layer 3 — apps/        (of-platform, then of-data-engine | of-ontology |
+                        of-ml-aip | of-apps-ops, then of-web)
 ```
 
-## Terraform
+`helmfile -e dev apply` runs every layer in order; profile gates skip
+heavy releases on the dev profile (Vespa, Trino, Spark, Mimir, Rook,
+Flink stay disabled).
 
-`infra/terraform/providers/openfoundry/` now models deployment cells, air-gap bundles, geo-fence policies and Apollo rollouts in addition to repository, audit and Nexus resources.
-
-## Runbooks
-
-- `runbooks/disaster-recovery.md`: ordered DR recovery procedure for Compose and Kubernetes
-- `runbooks/upgrade-playbook.md`: canary, promotion and rollback checklist
-
-## Backup scripts
-
-- `scripts/postgres_backup.sh`
-- `scripts/postgres_restore.sh`
-- `scripts/minio_backup.sh`
-- `scripts/minio_restore.sh`
+No Flux. No ArgoCD. Plain Helm + Helmfile.

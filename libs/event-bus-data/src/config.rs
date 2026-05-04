@@ -68,6 +68,8 @@ pub struct DataBusConfig {
     pub principal: ServicePrincipal,
     /// Producer/consumer request timeout in milliseconds.
     pub request_timeout_ms: u32,
+    /// Producer compression codec. `None` leaves librdkafka's default.
+    pub compression_type: Option<String>,
 }
 
 impl DataBusConfig {
@@ -76,7 +78,18 @@ impl DataBusConfig {
             bootstrap_servers: bootstrap_servers.into(),
             principal,
             request_timeout_ms: 30_000,
+            compression_type: Some("zstd".to_string()),
         }
+    }
+
+    pub fn with_compression_type(mut self, compression_type: impl Into<String>) -> Self {
+        self.compression_type = Some(compression_type.into());
+        self
+    }
+
+    pub fn without_compression(mut self) -> Self {
+        self.compression_type = None;
+        self
     }
 
     /// Build a producer-side `ClientConfig` with auto-create disabled and
@@ -87,7 +100,9 @@ impl DataBusConfig {
         cfg.set("allow.auto.create.topics", "false");
         cfg.set("enable.idempotence", "true");
         cfg.set("acks", "all");
-        cfg.set("compression.type", "zstd");
+        if let Some(compression_type) = &self.compression_type {
+            cfg.set("compression.type", compression_type);
+        }
         cfg.set("request.timeout.ms", self.request_timeout_ms.to_string());
         // librdkafka's idempotent producer requires bounded in-flight requests.
         cfg.set("max.in.flight.requests.per.connection", "5");
@@ -126,6 +141,7 @@ mod tests {
         assert_eq!(cfg.get("allow.auto.create.topics"), Some("false"));
         assert_eq!(cfg.get("enable.idempotence"), Some("true"));
         assert_eq!(cfg.get("acks"), Some("all"));
+        assert_eq!(cfg.get("compression.type"), Some("zstd"));
         assert_eq!(cfg.get("client.id"), Some("orders-svc"));
         assert_eq!(cfg.get("sasl.mechanism"), Some("SCRAM-SHA-512"));
     }
@@ -149,5 +165,13 @@ mod tests {
             .producer_config();
         assert_eq!(cfg.get("security.protocol"), Some("PLAINTEXT"));
         assert_eq!(cfg.get("sasl.mechanism"), None);
+    }
+
+    #[test]
+    fn producer_config_can_leave_compression_unset() {
+        let cfg = DataBusConfig::new("localhost:9092", ServicePrincipal::insecure_dev("svc"))
+            .without_compression()
+            .producer_config();
+        assert_eq!(cfg.get("compression.type"), None);
     }
 }

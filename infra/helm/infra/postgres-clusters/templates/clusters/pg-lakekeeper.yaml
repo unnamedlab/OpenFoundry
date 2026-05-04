@@ -1,0 +1,93 @@
+{{- if .Values.pgLakekeeper.enabled }}
+{{- with .Values.pgLakekeeper }}
+---
+# S6.1.b — `pg-lakekeeper` dedicated CNPG cluster.
+#
+# Backs the Lakekeeper Iceberg REST catalog. Single-tenant — Lakekeeper
+# owns the entire `lakekeeper` database; no schema multi-tenancy. Sized
+# small because the Iceberg catalog stores only metadata pointers
+# (snapshots, manifests, table locations); table data lives on object
+# storage (Ceph RGW in prod, MinIO/local in dev).
+#
+# Connectivity (Lakekeeper REST catalog opens a small fixed pool — no
+# PgBouncer Pooler is rendered for this cluster):
+#   * pg-lakekeeper-rw.openfoundry.svc.cluster.local:5432/lakekeeper
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-lakekeeper
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-lakekeeper
+    app.kubernetes.io/component: postgres
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: lakekeeper-catalog
+spec:
+  instances: {{ .instances }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: {{ .enableSuperuserAccess }}
+
+  minSyncReplicas: {{ .syncReplicas }}
+  maxSyncReplicas: {{ .syncReplicas }}
+
+  postgresql:
+    parameters:
+      synchronous_commit: {{ if gt (int .syncReplicas) 0 }}"on"{{ else }}"local"{{ end }}
+      wal_level: {{ .walLevel | quote }}
+      max_wal_size: {{ .postgresql.maxWalSize | quote }}
+      shared_buffers: {{ .postgresql.sharedBuffers | quote }}
+      work_mem: {{ .postgresql.workMem | quote }}
+      effective_cache_size: {{ .postgresql.effectiveCacheSize | quote }}
+      max_connections: {{ .postgresql.maxConnections | quote }}
+
+  bootstrap:
+    initdb:
+      database: lakekeeper
+      owner: lakekeeper
+      secret:
+        name: pg-lakekeeper-app
+
+  storage:
+    size: {{ .storageSize }}
+    storageClass: {{ .storageClass }}
+
+  walStorage:
+    size: {{ .walStorageSize }}
+    storageClass: {{ .storageClass }}
+
+  resources:
+    {{- toYaml .resources | nindent 4 }}
+
+  affinity:
+    topologyKey: kubernetes.io/hostname
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+
+  monitoring:
+    enablePodMonitor: false
+
+  {{- if .backupEnabled }}
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/pg-lakekeeper"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:
+          name: pg-lakekeeper-backup
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: pg-lakekeeper-backup
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+        maxParallel: 4
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+        jobs: 2
+  {{- end }}
+{{- end }}
+{{- end }}

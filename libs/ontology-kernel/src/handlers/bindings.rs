@@ -10,7 +10,7 @@
 //! [`crate::handlers::funnel`] implementation but is declarative: the binding
 //! itself stores the mapping rather than running a pipeline.
 //!
-//! # TODO
+//! # Future work
 //! The dataset is currently fetched via the `dataset-service` HTTP preview
 //! endpoint (same path used by the funnel). Future work will swap this for an
 //! Apache Arrow Flight SQL client against `sql-warehousing-service` to support

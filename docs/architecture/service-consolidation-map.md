@@ -1,18 +1,25 @@
-# Service consolidation map — 97 → 30 binaries
+# Service consolidation map — 95 service directories → 33 ownership boundaries
 
 > Companion to [ADR-0030](adr/ADR-0030-service-consolidation-30-targets.md).
 > Tracks per-service status of the consolidation work declared in
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
+>
+> Audit date: 2026-05-03. The live repository has **95 directories** under
+> `services/`. S8 is now measured as ownership/deployment consolidation, not
+> as physical reduction of the source tree to 30 directories. The three retired
+> stubs `health-check-service`, `tool-registry-service` and
+> `widget-registry-service` are documented below the current map and must not
+> appear in Helm or compose runtime surfaces.
 
 ## Status legend
 
 | Symbol | Meaning |
 | ------ | ------- |
-| `keep` | Stays as a top-level service in the ≤ 30 target. |
+| `keep` | Stays as a top-level ownership boundary in the current target. |
 | `merge → X` | Pending: routes/storage/types still owned by the legacy crate; will be merged into `X`. |
 | `merged → X` | Done: legacy crate removed; `X` is the runtime owner. |
 | `delete` | Service domain is fully owned elsewhere; legacy crate scheduled for deletion. |
-| `sink` | Kafka consumer / relay; not counted toward the 30-service target. |
+| `sink` | Kafka consumer / relay; counted separately from ownership boundaries. |
 
 ## Map
 
@@ -54,7 +61,6 @@
 | `federation-product-exchange-service` | `federation-product-exchange-service` | keep | absorbs `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` |
 | `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `global-branch-service` | `code-repository-review-service` | merge → `code-repository-review-service` | |
-| `health-check-service` | `telemetry-governance-service` | delete (S8.1.a) → merged into `telemetry-governance-service` | |
 | `identity-federation-service` | `identity-federation-service` | keep | absorbs `oauth-integration-service` (auth side), `session-governance-service` |
 | `ingestion-replication-service` | `ingestion-replication-service` | keep | |
 | `knowledge-index-service` | `retrieval-context-service` | merge → `retrieval-context-service` | |
@@ -65,6 +71,7 @@
 | `marketplace-catalog-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `marketplace-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `mcp-orchestration-service` | `ai-evaluation-service` | merge → `ai-evaluation-service` | |
+| `media-sets-service` | `media-sets-service` | keep | Foundry media sets runtime; owns media set transactions, item metadata and presigned object-store access. |
 | `ml-experiments-service` | `model-catalog-service` | merge → `model-catalog-service` | |
 | `model-adapter-service` | `model-catalog-service` | merge → `model-catalog-service` | |
 | `model-catalog-service` | `model-catalog-service` | keep | |
@@ -110,22 +117,32 @@
 | `telemetry-governance-service` | `telemetry-governance-service` | keep | absorbs monitoring rules, health checks, execution observability |
 | `tenancy-organizations-service` | `tenancy-organizations-service` | keep | |
 | `time-series-data-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
-| `tool-registry-service` | `agent-runtime-service` | delete (S8.1.b) → merged into `agent-runtime-service` | |
 | `virtual-table-service` | `connector-management-service` | merge → `connector-management-service` | |
-| `widget-registry-service` | `application-composition-service` | delete (S8.1.b) → merged into `application-composition-service` | |
 | `workflow-automation-service` | `workflow-automation-service` | keep | absorbs automation-operations, approvals |
 | `workflow-trace-service` | `lineage-service` | merge → `lineage-service` | |
+
+## Retired service directories
+
+These services were present in older S8 planning artifacts but are no longer
+directories under `services/` and must not be rendered by Helm or compose:
+
+| Retired service | Runtime owner | Closure |
+| --------------- | ------------- | ------- |
+| `health-check-service` | `telemetry-governance-service` | S8.1.a / S8.6.c |
+| `tool-registry-service` | `agent-runtime-service` | S8.1.b |
+| `widget-registry-service` | `application-composition-service` | S8.1.b / S8.6.b |
 
 ## Summary by status
 
 | Status | Count |
 | ------ | ----- |
-| keep | 30 |
-| merge → X (pending) | 60 |
-| delete (S8.1.a / S8.1.b explicit) | 3 |
-| sink (out of count) | 3 |
-| **Total current** | **97** |
-| **Target** | **30 + 3 sinks** |
+| keep / ownership boundary | 33 |
+| merge → X (pending) | 56 |
+| delete scheduled for active legacy dirs | 3 |
+| sink | 3 |
+| **Total current service directories** | **95** |
+| **Retired service directories tracked for references** | **3** |
+| **Current target metric** | **33 ownership boundaries + 3 sinks across 5 Helm releases** |
 
 ## Execution sequence
 
@@ -133,8 +150,8 @@ Each merge is its own PR. The recommended ordering minimises rebase
 churn:
 
 1. **Sinks-and-leaves first** — services with zero downstream
-   consumers (e.g. `tool-registry-service`, `widget-registry-service`,
-   `health-check-service`) drain to their parents.
+   consumers drain to their parents. The three S8.1 retired stubs listed
+   above have already drained and must stay absent from runtime manifests.
 2. **Same-keyspace clusters** next — merges where source and target
    already share a Cassandra keyspace or Postgres schema (no data
    migration), e.g. ontology-actions absorbing

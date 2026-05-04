@@ -433,7 +433,11 @@ mod tests {
             },
             client,
         );
-        let rec = connector.pull(&PullOptions::default()).await.unwrap().remove(0);
+        let rec = connector
+            .pull(&PullOptions::default())
+            .await
+            .unwrap()
+            .remove(0);
         connector.ack(&rec).await.unwrap();
         let acked = connector.client.acked.lock().unwrap().clone();
         assert_eq!(acked, vec!["ack-1".to_string()]);

@@ -54,7 +54,10 @@ fn nested_compound_walks_every_leaf_with_correct_path() {
         time("0 9 * * *"),
         or_(vec![
             ev(EventType::DataUpdated, "ri.x"),
-            and_(vec![time("0 12 * * *"), ev(EventType::JobSucceeded, "ri.y")]),
+            and_(vec![
+                time("0 12 * * *"),
+                ev(EventType::JobSucceeded, "ri.y"),
+            ]),
         ]),
     ]);
     let leaves: Vec<_> = trig.walk_leaves().into_iter().map(|(p, _)| p).collect();
@@ -100,10 +103,10 @@ fn or_compound_with_two_time_triggers_returns_earliest_fire() {
         auto_pause_exempt: false,
         pending_re_run: false,
         active_run_id: None,
-            scope_kind: pipeline_schedule_service::domain::trigger::ScheduleScopeKind::User,
-            project_scope_rids: vec![],
-            run_as_user_id: None,
-            service_principal_id: None,
+        scope_kind: pipeline_schedule_service::domain::trigger::ScheduleScopeKind::User,
+        project_scope_rids: vec![],
+        run_as_user_id: None,
+        service_principal_id: None,
     };
     let after = Utc.with_ymd_and_hms(2026, 4, 27, 10, 30, 0).unwrap();
     let v = next_fire_for_schedule(&schedule, after).unwrap().unwrap();
@@ -143,10 +146,10 @@ fn and_compound_with_two_time_triggers_returns_max_per_doc_warning() {
         auto_pause_exempt: false,
         pending_re_run: false,
         active_run_id: None,
-            scope_kind: pipeline_schedule_service::domain::trigger::ScheduleScopeKind::User,
-            project_scope_rids: vec![],
-            run_as_user_id: None,
-            service_principal_id: None,
+        scope_kind: pipeline_schedule_service::domain::trigger::ScheduleScopeKind::User,
+        project_scope_rids: vec![],
+        run_as_user_id: None,
+        service_principal_id: None,
     };
     let after = Utc.with_ymd_and_hms(2026, 4, 27, 0, 0, 0).unwrap();
     let v = next_fire_for_schedule(&schedule, after).unwrap().unwrap();

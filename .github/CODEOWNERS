@@ -187,7 +187,6 @@
 /services/notebook-runtime-service/                     @open-foundry/ai-platform
 /services/prompt-workflow-service/                      @open-foundry/ai-platform
 /services/retrieval-context-service/                    @open-foundry/ai-platform
-/services/tool-registry-service/                        @open-foundry/ai-platform
 /services/document-intelligence-service/                @open-foundry/ai-platform
 /services/knowledge-index-service/                      @open-foundry/ai-platform
 
@@ -239,7 +238,6 @@
 /services/marketplace-service/                          @open-foundry/developer-platform
 /services/product-distribution-service/                 @open-foundry/developer-platform
 /services/sdk-generation-service/                       @open-foundry/developer-platform @open-foundry/architecture-council
-/services/widget-registry-service/                      @open-foundry/developer-platform @open-foundry/frontend-team
 
 # --- Security / governance / identity ---
 /services/audit-compliance-service/                     @open-foundry/security-team
@@ -262,7 +260,6 @@
 /services/edge-gateway-service/                         @open-foundry/platform-runtime
 /services/event-streaming-service/                      @open-foundry/platform-runtime
 /services/execution-observability-service/              @open-foundry/observability-team @open-foundry/platform-runtime
-/services/health-check-service/                         @open-foundry/platform-runtime
 /services/managed-workspace-service/                    @open-foundry/platform-runtime
 /services/monitoring-rules-service/                     @open-foundry/observability-team
 /services/tenancy-organizations-service/                @open-foundry/platform-runtime @open-foundry/security-team

@@ -40,11 +40,7 @@ pub fn input_signature(views: &[ResolvedInputView]) -> String {
         // spec.
         sorted.insert(
             view.dataset_rid.as_str(),
-            (
-                view.branch.as_str().to_string(),
-                None,
-                vec![],
-            ),
+            (view.branch.as_str().to_string(), None, vec![]),
         );
     }
     let mut hasher = Sha256::new();
@@ -86,9 +82,7 @@ pub enum StalenessOutcome {
         previous_output_content_hash: Option<String>,
     },
     /// At least one signature changed — execute.
-    Stale {
-        reason: StaleReason,
-    },
+    Stale { reason: StaleReason },
     /// No prior COMPLETED job for this `(JobSpec, build_branch)` —
     /// always execute.
     NoPriorBuild,
@@ -238,15 +232,21 @@ mod tests {
         };
         assert!(matches!(
             compare_signatures("CHANGED", "hash-i", &prev),
-            StalenessOutcome::Stale { reason: StaleReason::LogicChanged }
+            StalenessOutcome::Stale {
+                reason: StaleReason::LogicChanged
+            }
         ));
         assert!(matches!(
             compare_signatures("hash-l", "CHANGED", &prev),
-            StalenessOutcome::Stale { reason: StaleReason::InputsChanged }
+            StalenessOutcome::Stale {
+                reason: StaleReason::InputsChanged
+            }
         ));
         assert!(matches!(
             compare_signatures("X", "Y", &prev),
-            StalenessOutcome::Stale { reason: StaleReason::BothChanged }
+            StalenessOutcome::Stale {
+                reason: StaleReason::BothChanged
+            }
         ));
     }
 
@@ -260,7 +260,9 @@ mod tests {
         };
         assert!(matches!(
             compare_signatures("hash-l", "hash-i", &prev),
-            StalenessOutcome::Stale { reason: StaleReason::PriorBuildNotComparable }
+            StalenessOutcome::Stale {
+                reason: StaleReason::PriorBuildNotComparable
+            }
         ));
     }
 }

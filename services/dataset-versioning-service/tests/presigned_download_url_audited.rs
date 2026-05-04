@@ -103,7 +103,10 @@ async fn download_returns_302_to_signed_url_with_expires_and_sig() {
         .expect("expires query param")
         .parse()
         .unwrap();
-    assert!(expires_at > chrono::Utc::now().timestamp(), "ttl must be future");
+    assert!(
+        expires_at > chrono::Utc::now().timestamp(),
+        "ttl must be future"
+    );
     let sig = q.get("sig").expect("sig query param");
     assert!(!sig.is_empty(), "signature must be non-empty");
 
@@ -165,7 +168,11 @@ async fn upload_url_endpoint_returns_signed_put_for_open_transaction() {
         ))
         .unwrap();
     let resp = h.router.clone().oneshot(req).await.expect("router");
-    assert!(resp.status().is_success(), "upload-url ok: {}", resp.status());
+    assert!(
+        resp.status().is_success(),
+        "upload-url ok: {}",
+        resp.status()
+    );
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["method"], "PUT");

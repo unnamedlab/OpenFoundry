@@ -108,10 +108,46 @@ pub fn build_router(state: AppState) -> Router {
             "/items/{rid}/markings",
             axum::routing::patch(handlers::items::patch_item_markings),
         )
+        // ── Access patterns + usage (H5) ───────────────────────────
+        .route(
+            "/media-sets/{rid}/access-patterns",
+            post(handlers::access_patterns::register_access_pattern)
+                .get(handlers::access_patterns::list_access_patterns),
+        )
+        .route(
+            "/access-patterns/{id}/run",
+            get(handlers::access_patterns::run_access_pattern),
+        )
+        .route(
+            "/items/{rid}/access-patterns/{kind}/url",
+            get(handlers::access_patterns::item_access_pattern_shortcut),
+        )
+        .route(
+            "/media-sets/{rid}/usage",
+            get(handlers::usage::get_usage),
+        )
+        // ── Branches (H4) ──────────────────────────────────────────
+        .route(
+            "/media-sets/{rid}/branches",
+            post(handlers::branches::create_branch).get(handlers::branches::list_branches),
+        )
+        .route(
+            "/media-sets/{rid}/branches/{name}",
+            delete(handlers::branches::delete_branch),
+        )
+        .route(
+            "/media-sets/{rid}/branches/{name}/reset",
+            post(handlers::branches::reset_branch),
+        )
+        .route(
+            "/media-sets/{rid}/branches/{name}/merge",
+            post(handlers::branches::merge_branch),
+        )
         // ── Transactions ────────────────────────────────────────────
         .route(
             "/media-sets/{rid}/transactions",
-            post(handlers::transactions::open_transaction),
+            post(handlers::transactions::open_transaction)
+                .get(handlers::transactions::list_transactions),
         )
         .route(
             "/transactions/{rid}/commit",

@@ -135,7 +135,9 @@ pub enum BuildResolutionError {
     CycleDetected { cycle_path: Vec<String> },
     #[error("input dataset {dataset_rid} not found")]
     InputNotFound { dataset_rid: String },
-    #[error("input dataset {dataset_rid} has no branch matching build='{build_branch}' (chain: {chain:?})")]
+    #[error(
+        "input dataset {dataset_rid} has no branch matching build='{build_branch}' (chain: {chain:?})"
+    )]
     InputBranchMissing {
         dataset_rid: String,
         build_branch: String,
@@ -174,10 +176,7 @@ pub struct ClientError(pub String);
 
 #[async_trait]
 pub trait DatasetVersioningClient: Send + Sync {
-    async fn list_branches(
-        &self,
-        dataset_rid: &str,
-    ) -> Result<Vec<BranchSnapshot>, ClientError>;
+    async fn list_branches(&self, dataset_rid: &str) -> Result<Vec<BranchSnapshot>, ClientError>;
 
     async fn open_transaction(
         &self,
@@ -240,10 +239,7 @@ pub fn detect_cycles(specs: &[JobSpec]) -> Result<(), BuildResolutionError> {
                         cycle_path: vec![spec.rid.clone(), spec.rid.clone()],
                     });
                 }
-                graph
-                    .entry(spec.rid.as_str())
-                    .or_default()
-                    .push(upstream);
+                graph.entry(spec.rid.as_str()).or_default().push(upstream);
                 *indegree.entry(upstream).or_insert(0) += 1;
             }
         }
@@ -285,7 +281,9 @@ fn find_cycle_path(
 ) -> Option<Vec<String>> {
     let mut visited: HashSet<&str> = HashSet::new();
     let mut stack: Vec<&str> = Vec::new();
-    let start = indegree.iter().find_map(|(k, v)| if *v > 0 { Some(*k) } else { None })?;
+    let start = indegree
+        .iter()
+        .find_map(|(k, v)| if *v > 0 { Some(*k) } else { None })?;
     fn dfs<'a>(
         node: &'a str,
         graph: &'a HashMap<&'a str, Vec<&'a str>>,
@@ -392,18 +390,15 @@ pub async fn validate_inputs(
                 .iter()
                 .filter_map(|s| s.parse::<BranchName>().ok())
                 .collect();
-            let branches: Vec<BranchName> =
-                snapshots.iter().map(|s| s.name.clone()).collect();
+            let branches: Vec<BranchName> = snapshots.iter().map(|s| s.name.clone()).collect();
 
             let outcome = resolve_input_dataset(build_branch, &chain, &branches).map_err(
                 |err| match err {
-                    ResolveError::NoMatch { .. } => {
-                        BuildResolutionError::InputBranchMissing {
-                            dataset_rid: input.dataset_rid.clone(),
-                            build_branch: build_branch.as_str().to_string(),
-                            chain: input.fallback_chain.clone(),
-                        }
-                    }
+                    ResolveError::NoMatch { .. } => BuildResolutionError::InputBranchMissing {
+                        dataset_rid: input.dataset_rid.clone(),
+                        build_branch: build_branch.as_str().to_string(),
+                        chain: input.fallback_chain.clone(),
+                    },
                     ResolveError::IncompatibleAncestry { .. } => {
                         // P2 — surface upgrades to the existing
                         // `InputBranchMissing` shape so callers don't have
@@ -693,13 +688,11 @@ pub async fn resolve_build(
     // upstream build is still producing one of our inputs. We commit
     // the QUEUED state so the caller can poll.
     if has_upstream_in_progress(pool, &specs, build_id).await? {
-        sqlx::query(
-            "UPDATE builds SET state = $1 WHERE id = $2",
-        )
-        .bind(BuildState::Queued.as_str())
-        .bind(build_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE builds SET state = $1 WHERE id = $2")
+            .bind(BuildState::Queued.as_str())
+            .bind(build_id)
+            .execute(&mut *tx)
+            .await?;
         crate::domain::build_events::enqueue(
             &mut tx,
             crate::domain::build_events::BuildEvent::Queued,
@@ -737,8 +730,14 @@ pub async fn resolve_build(
 
     // Step d — acquire locks (open output transactions + persist).
     let lock_timer = metrics::BUILD_LOCK_ACQUISITION_DURATION_SECONDS.start_timer();
-    let opened = acquire_locks(&mut tx, build_id, &specs, args.build_branch.as_str(), versioning)
-        .await?;
+    let opened = acquire_locks(
+        &mut tx,
+        build_id,
+        &specs,
+        args.build_branch.as_str(),
+        versioning,
+    )
+    .await?;
     drop(lock_timer);
 
     // Persist one Job row per JobSpec in WAITING. The dependency edges
@@ -770,8 +769,8 @@ pub async fn resolve_build(
                 errors: view_outcome.errors,
             });
         }
-        let view_resolutions_json =
-            serde_json::to_value(&view_outcome.resolutions).unwrap_or_else(|_| serde_json::json!([]));
+        let view_resolutions_json = serde_json::to_value(&view_outcome.resolutions)
+            .unwrap_or_else(|_| serde_json::json!([]));
 
         let job_id = Uuid::now_v7();
         spec_to_job.insert(spec.rid.as_str(), job_id);
@@ -811,9 +810,7 @@ pub async fn resolve_build(
         // has been written; partial commits are detectable via the
         // PRIMARY KEY (job_id, output_dataset_rid).
         for output in &spec.output_dataset_rids {
-            if let Some(opened_txn) =
-                opened.iter().find(|o| &o.dataset_rid == output)
-            {
+            if let Some(opened_txn) = opened.iter().find(|o| &o.dataset_rid == output) {
                 sqlx::query(
                     r#"INSERT INTO job_outputs
                           (job_id, output_dataset_rid, transaction_rid, committed)

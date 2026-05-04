@@ -1,15 +1,13 @@
 //! `ontology-timeseries-analytics-service` binary entry point — substrate-only.
 //!
-//! ## Status: shell binary, no domain handlers wired
+//! ## Status: shell binary, migrated handlers not mounted
 //!
 //! Per `docs/architecture/legacy-migrations/ontology-timeseries-analytics-service/README.md`
-//! both legacy tables (`ontology_timeseries_dashboards`,
-//! `ontology_timeseries_queries`) are declarative and move whole to
-//! `pg-schemas.ontology_schema`; the **runtime** time-series data
-//! lives in `time-series-data-service` (P29) and is read through that
-//! service. There is therefore no Cassandra component for this
-//! bounded context and no kernel handlers in
-//! `libs/ontology-kernel/src/handlers/` to mount here.
+//! saved dashboards/queries are declarative and are represented behind
+//! `DefinitionStore`; the **runtime** time-series data lives in
+//! `time-series-data-service` (P29) and is read through that service.
+//! The local handler module is kept gate-clean and covered by unit tests,
+//! but routes are not mounted until the exploratory consolidation lands.
 //!
 //! ## Consolidation status
 //!
@@ -21,15 +19,25 @@
 //! still produces a live process for orchestrators that probe it.
 
 mod config;
-#[allow(dead_code)] // Models retained for the future merge into exploratory.
+#[allow(dead_code)]
+mod handlers;
+#[allow(dead_code)]
 mod models;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{Router, routing::get};
 use core_models::{health::HealthStatus, observability};
+use storage_abstraction::repositories::{DefinitionStore, TenantId};
 
 use crate::config::AppConfig;
+
+#[allow(dead_code)]
+#[derive(Clone)]
+pub(crate) struct AppState {
+    pub definitions: Arc<dyn DefinitionStore>,
+    pub tenant: TenantId,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

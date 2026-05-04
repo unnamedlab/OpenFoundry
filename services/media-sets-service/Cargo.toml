@@ -24,6 +24,31 @@ features = ["outbox"]
 [dependencies.outbox]
 workspace = true
 
+[dependencies.observability]
+workspace = true
+
+[dependencies.moka]
+workspace = true
+
+[dependencies.sha2]
+version = "0.10"
+
+# ── Optional Kafka roundtrip test dependencies (gated by `kafka-it`).
+# Cargo cannot make `[dev-dependencies]` optional, so we declare these
+# as regular optional `[dependencies]`. The `kafka-it` feature pulls
+# them in only when explicitly enabled — `cargo build` of the service
+# binary in the default profile does not pay the librdkafka CMake
+# build cost.
+[dependencies.audit-sink]
+path = "../audit-sink"
+optional = true
+
+[dependencies.rdkafka]
+version = "0.36"
+default-features = false
+features = ["cmake-build", "ssl", "sasl", "tokio"]
+optional = true
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -113,8 +138,15 @@ version = "1"
 [build-dependencies.tonic-build]
 workspace = true
 
+[features]
+default = []
+# Opt-in flag for tests that boot a Redpanda container via
+# testcontainers. Off by default so `cargo test` stays Docker-free.
+kafka-it = ["dep:rdkafka", "dep:audit-sink"]
+
 [dev-dependencies]
 tempfile = "3"
+
 
 [dev-dependencies.wiremock]
 workspace = true

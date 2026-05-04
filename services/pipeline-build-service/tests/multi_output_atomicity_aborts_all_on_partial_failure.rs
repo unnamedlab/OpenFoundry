@@ -12,17 +12,15 @@ use core_models::dataset::transaction::BranchName;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pipeline_build_service::domain::build_executor::{
-    execute_build, ExecuteBuildArgs,
-};
+use pipeline_build_service::domain::build_executor::{ExecuteBuildArgs, execute_build};
 use pipeline_build_service::domain::build_resolution::{
-    BranchSnapshot, JobSpec, InputSpec, ResolveBuildArgs, resolve_build,
+    BranchSnapshot, InputSpec, JobSpec, ResolveBuildArgs, resolve_build,
 };
 use pipeline_build_service::models::build::BuildState;
 
 use crate::common::{
-    arc_output, arc_runner, MockDatasetClient, MockJobRunner, MockJobSpecRepo,
-    MockOutputClient, RunnerScript, spawn,
+    MockDatasetClient, MockJobRunner, MockJobSpecRepo, MockOutputClient, RunnerScript, arc_output,
+    arc_runner, spawn,
 };
 
 fn multi_output_spec() -> JobSpec {
@@ -52,7 +50,10 @@ async fn multi_output_atomicity_aborts_all_on_partial_failure() {
     specs.add(multi_output_spec());
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -80,7 +81,8 @@ async fn multi_output_atomicity_aborts_all_on_partial_failure() {
     let output_client = MockOutputClient::default();
     output_client.fail_commit_for("out.beta");
     let arc_output_client: Arc<MockOutputClient> = Arc::new(output_client);
-    let arc_output = arc_output_client.clone() as Arc<dyn pipeline_build_service::domain::build_executor::OutputTransactionClient>;
+    let arc_output = arc_output_client.clone()
+        as Arc<dyn pipeline_build_service::domain::build_executor::OutputTransactionClient>;
 
     let outcome = execute_build(
         &harness.pool,
@@ -100,7 +102,10 @@ async fn multi_output_atomicity_aborts_all_on_partial_failure() {
     .expect("execute_build");
 
     assert_eq!(outcome.final_state, BuildState::Failed);
-    assert_eq!(outcome.failed, 1, "the multi-output job fails on partial commit");
+    assert_eq!(
+        outcome.failed, 1,
+        "the multi-output job fails on partial commit"
+    );
 
     // Both outputs must be `aborted = TRUE` (multi-output atomicity).
     let outputs_state: Vec<(String, bool, bool)> = sqlx::query_as(

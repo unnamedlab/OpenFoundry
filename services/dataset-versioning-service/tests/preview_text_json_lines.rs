@@ -63,7 +63,10 @@ async fn preview_text_json_lines_auto_detects_and_infers() {
     assert_eq!(body["text_sub_format"], "json_lines");
 
     let columns = body["columns"].as_array().expect("columns");
-    let names: Vec<&str> = columns.iter().map(|c| c["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = columns
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
     assert!(
         names.contains(&"id") && names.contains(&"name") && names.contains(&"score"),
         "inferred columns must include id, name, score: {body}"

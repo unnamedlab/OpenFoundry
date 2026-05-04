@@ -1,0 +1,76 @@
+# Dev / CI overlay for the Temporal chart. Targets the in-cluster
+# Cassandra dev profile (`infra/helm/infra/cassandra-cluster/templates/cluster-dev.yaml`,
+# single DC, 3 nodes, RF=3). mTLS disabled to keep the local
+# bootstrap simple; production uses values-prod.yaml.
+
+server:
+  image:
+    repository: temporalio/server
+    tag: 1.24.2
+  replicaCount: 1
+
+  config:
+    logLevel: debug
+    numHistoryShards: 512
+
+    persistence:
+      defaultStore: default
+      visibilityStore: visibility
+      datastores:
+        default:
+          cassandra:
+            hosts:
+              - of-cass-dev-dc1-service.cassandra.svc.cluster.local
+            port: 9042
+            keyspace: temporal_persistence
+            user: { secretKeyRef: { name: temporal-cassandra-credentials, key: username } }
+            password: { secretKeyRef: { name: temporal-cassandra-credentials, key: password } }
+            consistency:
+              default:
+                consistency: LOCAL_QUORUM
+                serialConsistency: LOCAL_SERIAL
+            maxConns: 5
+        visibility:
+          cassandra:
+            hosts:
+              - of-cass-dev-dc1-service.cassandra.svc.cluster.local
+            port: 9042
+            keyspace: temporal_visibility
+            user: { secretKeyRef: { name: temporal-cassandra-credentials, key: username } }
+            password: { secretKeyRef: { name: temporal-cassandra-credentials, key: password } }
+            consistency:
+              default:
+                consistency: LOCAL_QUORUM
+                serialConsistency: LOCAL_SERIAL
+            maxConns: 5
+
+  frontend: { replicaCount: 1 }
+  history:  { replicaCount: 1 }
+  matching: { replicaCount: 1 }
+  worker:   { replicaCount: 1 }
+
+  metrics:
+    serviceMonitor:
+      enabled: false
+    prometheus:
+      timerType: histogram
+
+cassandra: { enabled: false }
+elasticsearch: { enabled: false }
+prometheus: { enabled: false }
+grafana: { enabled: false }
+mysql: { enabled: false }
+
+schema:
+  setup:  { enabled: true }
+  update: { enabled: true }
+
+web:
+  enabled: true
+  image:
+    repository: temporalio/ui
+    tag: 2.30.1
+  replicaCount: 1
+  config:
+    auth:
+      enabled: false

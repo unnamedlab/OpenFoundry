@@ -8,7 +8,7 @@ use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires docker"]
@@ -19,7 +19,10 @@ async fn list_builds_returns_descending_by_created_at_with_limit() {
     specs.add(job_spec("ri.spec.s", vec!["raw.in"], vec!["mid.out"]));
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -54,12 +57,11 @@ async fn list_builds_returns_descending_by_created_at_with_limit() {
     }
 
     // Most recent first.
-    let rows: Vec<(uuid::Uuid, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
-        "SELECT id, created_at FROM builds ORDER BY created_at DESC LIMIT 100",
-    )
-    .fetch_all(&harness.pool)
-    .await
-    .unwrap();
+    let rows: Vec<(uuid::Uuid, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as("SELECT id, created_at FROM builds ORDER BY created_at DESC LIMIT 100")
+            .fetch_all(&harness.pool)
+            .await
+            .unwrap();
 
     let pos: Vec<usize> = ids
         .iter()

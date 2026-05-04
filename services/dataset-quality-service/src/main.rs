@@ -19,9 +19,8 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                EnvFilter::new("dataset_quality_service=info,tower_http=info")
-            }),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("dataset_quality_service=info,tower_http=info")),
         )
         .init();
 

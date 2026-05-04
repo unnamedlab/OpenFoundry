@@ -8,11 +8,70 @@ The service exposes both REST (Axum) and gRPC (Tonic) on the same
 process. Contracts live in `proto/media_set/`. Bytes ride on an
 S3-compatible backend through `libs/storage-abstraction`.
 
-## End-to-end flow (source → media set → pipeline → output)
+## End-to-end flow (source → media set → pipeline → ontology → workshop)
 
-The full life-cycle for a Foundry-style media workflow spans four
-services. `media-sets-service` only owns the middle two; the others are
-linked here so a reader can chase the contracts without grepping.
+The Foundry-style media workflow spans six services. `media-sets-service`
+owns the middle slice (the source-of-truth tables for sets / items /
+transactions); every neighbour is linked here so a reader can chase the
+contracts without grepping. The audit + Cedar planes are drawn over
+the data plane because **every** mutation in the data plane crosses
+both: the Cedar engine gates the request before it lands, and the
+Postgres outbox publishes the canonical
+[`audit_trail::events::AuditEvent`](../../libs/audit-trail/src/events.rs)
+to `audit.events.v1` after the SQL commit (ADR-0022).
+
+```mermaid
+flowchart LR
+  subgraph DataPlane["Data plane"]
+    direction LR
+    Source[("External source\n(S3 / ABFS / …)")]
+    Connector["connector-management-service\n(media_set_syncs)"]
+    Media["media-sets-service\n(media_sets / media_items / transactions)"]
+    Pipeline["pipeline-authoring-service\n(MediaSetInput → MediaTransform →\nMediaSetOutput / ConvertToTableRows)"]
+    Dataset[("data-asset-catalog-service\n(derived dataset)")]
+    Ontology["ontology-actions-service\n(action types · IsValidMediaReference ·\nConstructDelegatedMediaGid)"]
+    Workshop[("apps/web Workshop\nMedia preview widget")]
+
+    Source -->|enumerate + classify| Connector
+    Connector -->|POST /upload-url\nor /virtual-items| Media
+    Media -->|presigned download| Pipeline
+    Pipeline -->|writeback / dataset rows| Dataset
+    Pipeline -->|media references| Ontology
+    Ontology -->|delegatedMediaGid| Workshop
+    Media -->|presigned read\n(JWT-signed claim)| Workshop
+  end
+
+  subgraph AuthzPlane["Authz plane (H3)"]
+    direction TB
+    Cedar["authz-cedar engine\n(MediaSet / MediaItem entities,\n6 actions, granular markings)"]
+  end
+
+  subgraph AuditPlane["Audit plane (H3, ADR-0022)"]
+    direction TB
+    Outbox["pg-policy.outbox.events\n(per-handler INSERT in same tx)"]
+    Debezium["Strimzi Debezium\nKafkaConnect cluster"]
+    Topic[/"audit.events.v1"/]
+    Sink["audit-sink\n(Iceberg of_audit.events)"]
+  end
+
+  Connector -.gate.-> Cedar
+  Media -.gate.-> Cedar
+  Pipeline -.gate.-> Cedar
+  Ontology -.gate.-> Cedar
+
+  Connector -.audit.-> Outbox
+  Media ==>|emit per mutation| Outbox
+  Pipeline -.audit.-> Outbox
+  Ontology -.audit.-> Outbox
+
+  Outbox --> Debezium --> Topic --> Sink
+
+  classDef ours fill:#0f766e,stroke:#0f766e,color:#fff;
+  class Media ours;
+```
+
+The text-only ASCII version that pre-dates the diagram lives below for
+operators who read this file in environments that don't render mermaid:
 
 ```
                                                ┌──────────────────────────────┐
@@ -225,5 +284,46 @@ migrations/
   0001_media_sets.sql
   0002_media_items.sql
   0003_retention.sql
+  0004_item_markings.sql   # H3 — granular per-item Cedar override.
+  0005_outbox.sql          # H3 closure — outbox.events for ADR-0022.
 tests/                 # Integration tests (testcontainers Postgres).
+  common/                  # Shared `Harness` (mint_token, spawn, …).
+  integration/             # H3 closure full-lifecycle journey.
+    main.rs                # `cargo test --test integration` entry point.
+    full_lifecycle.rs      # create → open tx → 50-item upload → commit
+                           # → marking override → retention 7d → 403
+                           # preview → audit assertion → abort path
+                           # → virtual item register/resolve.
 ```
+
+## Test coverage (H3 closure)
+
+The `services/media-sets-service` crate is gated at **≥70% line
+coverage** in CI via [`cargo llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov)
+(`.github/workflows/ci.yml` → "Coverage gate (media-sets-service, 70%)").
+
+Run locally:
+
+```sh
+cargo install cargo-llvm-cov
+cargo llvm-cov -p media-sets-service --tests --fail-under-lines 70
+```
+
+### Documented exceptions
+
+The 70% gate is computed across `src/` after the following lines are
+acknowledged as not worth instrumenting in this service's CI window:
+
+| Module                        | Why it is skipped                                                                                                                |
+|-------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| `src/main.rs`                 | Process bootstrap (env parsing, listener bind, reaper spawn). Exercised by the smoke job, not by `cargo test`.                   |
+| `src/grpc.rs`                 | Tonic adapter that delegates to the same `*_op` functions the REST handlers call. The Rust integration tests cover the ops.     |
+| `src/proto.rs`                | `tonic::include_proto!` re-export — generated code, no executable branches.                                                       |
+| `src/handlers/health.rs`      | `/healthz` returns 200, `/metrics` serialises the Prometheus registry. Smoke job verifies both round-trip end-to-end.            |
+| `src/domain/storage.rs`       | The `MediaStorage` trait surface. The `LocalStorage` impl in `libs/storage-abstraction` has its own coverage; production S3 is exercised in `services/connector-management-service/tests/s3_minio.rs`. |
+
+If the gate fails, the first thing to check is whether a new public
+endpoint slipped in without a matching `tests/integration/*.rs` step;
+the H3 lifecycle test
+([`full_lifecycle.rs`](tests/integration/full_lifecycle.rs)) is
+intentionally a single big journey so additions land in one place.

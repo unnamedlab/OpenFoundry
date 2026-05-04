@@ -14,8 +14,8 @@
 //!                       [`crate::models::topology::JoinDefinition`]
 //!   * `sink` nodes    → `CREATE TABLE ... INSERT INTO`
 //!
-//! Anything fancier (CEP MATCH_RECOGNIZE, async lookups, etc.) lives
-//! behind a `-- TODO:` comment in the rendered SQL so the operator can
+//! Anything fancier (CEP MATCH_RECOGNIZE, async lookups, etc.) is
+//! emitted as an explicit unsupported-shape warning so the operator can
 //! hand-edit if needed. Producing actually-executable SQL for every
 //! topology is out of scope for the MVP.
 //!
@@ -151,11 +151,11 @@ pub fn render_flink_sql(
 
     if topology.cep_definition.is_some() {
         warnings.push(
-            "CEP pattern translation is not implemented yet; emitted as a TODO comment".to_string(),
+            "CEP pattern translation is unsupported by the current Flink SQL renderer".to_string(),
         );
         writeln!(
             script,
-            "-- TODO: translate CEP definition to MATCH_RECOGNIZE"
+            "-- CEP definition is not translated by this renderer; use a supported graph shape"
         )
         .ok();
         writeln!(script).ok();

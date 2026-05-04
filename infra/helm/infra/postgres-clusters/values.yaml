@@ -1,0 +1,103 @@
+# Values for the four consolidated CNPG Cluster CRs.
+#
+# Defaults are prod-shaped (3 instances, sync replicas, ceph-rbd storage,
+# Barman → Ceph S3 backups). Each cluster also exposes a `dev` toggle
+# elsewhere (e.g. profiles/values-dev.yaml) so that:
+#   - local lima clusters provision a single instance with local-path PVC
+#   - backups + sync replicas are skipped
+#   - Postgres tuning fits a 1 GiB pod
+#
+# Each top-level key (pgSchemas, pgPolicy, pgRuntimeConfig, pgLakekeeper)
+# follows the same shape; values override the chart template defaults.
+#
+# `regionB.enabled` controls whether the cross-region read replica
+# clusters are rendered (off in dev/single-region).
+
+regionB:
+  enabled: false
+
+pgPolicy:
+  enabled: true
+  instances: 3
+  syncReplicas: 1
+  walLevel: logical
+  storageClass: ceph-rbd
+  storageSize: 200Gi
+  walStorageSize: 50Gi
+  enableSuperuserAccess: false
+  backupEnabled: true
+  resources:
+    requests: { cpu: "2", memory: 8Gi }
+    limits:   { cpu: "8", memory: 32Gi }
+  postgresql:
+    sharedBuffers: 2GB
+    maxWalSize: 8GB
+    workMem: 32MB
+    effectiveCacheSize: 8GB
+    maxConnections: "400"
+    maxReplicationSlots: "8"
+    maxWalSenders: "10"
+
+pgSchemas:
+  enabled: true
+  instances: 3
+  syncReplicas: 1
+  walLevel: replica
+  storageClass: ceph-rbd
+  storageSize: 100Gi
+  walStorageSize: 30Gi
+  enableSuperuserAccess: false
+  backupEnabled: true
+  resources:
+    requests: { cpu: "2", memory: 8Gi }
+    limits:   { cpu: "8", memory: 32Gi }
+  postgresql:
+    sharedBuffers: 1GB
+    maxWalSize: 4GB
+    workMem: 32MB
+    effectiveCacheSize: 4GB
+    maxConnections: "400"
+    maxReplicationSlots: "4"
+    maxWalSenders: "6"
+
+pgRuntimeConfig:
+  enabled: true
+  instances: 3
+  syncReplicas: 1
+  walLevel: replica
+  storageClass: ceph-rbd
+  storageSize: 100Gi
+  walStorageSize: 30Gi
+  enableSuperuserAccess: false
+  backupEnabled: true
+  resources:
+    requests: { cpu: "2", memory: 8Gi }
+    limits:   { cpu: "8", memory: 32Gi }
+  postgresql:
+    sharedBuffers: 1GB
+    maxWalSize: 4GB
+    workMem: 32MB
+    effectiveCacheSize: 4GB
+    maxConnections: "400"
+    maxReplicationSlots: "4"
+    maxWalSenders: "6"
+
+pgLakekeeper:
+  enabled: true
+  instances: 3
+  syncReplicas: 1
+  walLevel: replica
+  storageClass: ceph-rbd
+  storageSize: 50Gi
+  walStorageSize: 20Gi
+  enableSuperuserAccess: false
+  backupEnabled: true
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits:   { cpu: "4", memory: 8Gi }
+  postgresql:
+    sharedBuffers: 512MB
+    maxWalSize: 2GB
+    workMem: 16MB
+    effectiveCacheSize: 2GB
+    maxConnections: "200"

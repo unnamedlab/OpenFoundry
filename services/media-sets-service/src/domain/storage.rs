@@ -13,7 +13,9 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use storage_abstraction::backend::StorageBackend;
-use storage_abstraction::signed_urls::{SignedUrlConfig, presigned_download_url, presigned_upload_url};
+use storage_abstraction::signed_urls::{
+    SignedUrlConfig, presigned_download_url, presigned_upload_url,
+};
 
 use crate::domain::error::{MediaError, MediaResult};
 use crate::domain::path::MediaItemKey;
@@ -42,7 +44,11 @@ pub trait MediaStorage: Send + Sync + 'static {
     ) -> MediaResult<PresignedUrl>;
 
     /// Generate a presigned URL the client can `GET` bytes from.
-    async fn presign_download(&self, key: &MediaItemKey, ttl: Duration) -> MediaResult<PresignedUrl>;
+    async fn presign_download(
+        &self,
+        key: &MediaItemKey,
+        ttl: Duration,
+    ) -> MediaResult<PresignedUrl>;
 
     /// Best-effort byte deletion. Failures are logged but never block
     /// the caller — the metadata row is the source of truth.
@@ -68,7 +74,11 @@ pub struct BackendMediaStorage {
 }
 
 impl BackendMediaStorage {
-    pub fn new(backend: Arc<dyn StorageBackend>, bucket: impl Into<String>, endpoint: impl Into<String>) -> Self {
+    pub fn new(
+        backend: Arc<dyn StorageBackend>,
+        bucket: impl Into<String>,
+        endpoint: impl Into<String>,
+    ) -> Self {
         Self {
             backend,
             bucket: bucket.into(),
@@ -77,13 +87,18 @@ impl BackendMediaStorage {
     }
 
     /// Compose the URL handed back to clients. We delegate to
-    /// `storage_abstraction::signed_urls::presigned_*_url` first; today
-    /// the upstream stub returns an empty string (the real S3 signer is
-    /// pending), so we synthesise a deterministic URL that is good
-    /// enough for dev / tests and that swaps in cleanly once the
-    /// upstream integration lands.
-    fn build_url(&self, op: SignedOp, key: &MediaItemKey, ttl: Duration) -> (String, DateTime<Utc>) {
-        let cfg = SignedUrlConfig { expiry_secs: ttl.as_secs() };
+    /// `storage_abstraction::signed_urls::presigned_*_url` first; when
+    /// the backend reports that native signing is unsupported, we
+    /// synthesize a deterministic URL for dev / tests.
+    fn build_url(
+        &self,
+        op: SignedOp,
+        key: &MediaItemKey,
+        ttl: Duration,
+    ) -> (String, DateTime<Utc>) {
+        let cfg = SignedUrlConfig {
+            expiry_secs: ttl.as_secs(),
+        };
         let object_key = key.object_key();
         let upstream = match op {
             SignedOp::Upload => presigned_upload_url(&self.bucket, &object_key, &cfg),
@@ -91,22 +106,14 @@ impl BackendMediaStorage {
         };
 
         let expires_at = expires_at_for(ttl);
-        let url = upstream
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| {
-                let base = if self.endpoint.is_empty() {
-                    format!("local://{}", self.bucket)
-                } else {
-                    format!("{}/{}", self.endpoint.trim_end_matches('/'), self.bucket)
-                };
-                format!(
-                    "{}/{}?expires={}",
-                    base,
-                    object_key,
-                    expires_at.timestamp()
-                )
-            });
+        let url = upstream.ok().filter(|s| !s.is_empty()).unwrap_or_else(|| {
+            let base = if self.endpoint.is_empty() {
+                format!("local://{}", self.bucket)
+            } else {
+                format!("{}/{}", self.endpoint.trim_end_matches('/'), self.bucket)
+            };
+            format!("{}/{}?expires={}", base, object_key, expires_at.timestamp())
+        });
 
         (url, expires_at)
     }
@@ -142,10 +149,18 @@ impl MediaStorage for BackendMediaStorage {
         if !mime_type.is_empty() {
             headers.push(("Content-Type".to_string(), mime_type.to_string()));
         }
-        Ok(PresignedUrl { url, expires_at, headers })
+        Ok(PresignedUrl {
+            url,
+            expires_at,
+            headers,
+        })
     }
 
-    async fn presign_download(&self, key: &MediaItemKey, ttl: Duration) -> MediaResult<PresignedUrl> {
+    async fn presign_download(
+        &self,
+        key: &MediaItemKey,
+        ttl: Duration,
+    ) -> MediaResult<PresignedUrl> {
         let (url, expires_at) = self.build_url(SignedOp::Download, key, ttl);
         Ok(PresignedUrl {
             url,

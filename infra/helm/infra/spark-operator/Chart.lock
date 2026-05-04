@@ -1,0 +1,6 @@
+dependencies:
+- name: spark-operator
+  repository: file://./upstream-chart
+  version: 2.0.2
+digest: sha256:932a336b941fd55c15ef10e7895bd16432c80d13bdd71d3a70ec383a0aaa7ea7
+generated: "2026-05-04T00:20:54.0121+02:00"

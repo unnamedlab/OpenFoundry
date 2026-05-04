@@ -99,10 +99,7 @@ pub async fn create_view(
     }
 }
 
-pub async fn get_view(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+pub async fn get_view(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match sqlx::query_as::<_, MonitoringView>(
         "SELECT id, name, description, project_rid, created_by, created_at, updated_at
            FROM monitoring_views WHERE id = $1",

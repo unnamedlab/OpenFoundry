@@ -71,7 +71,9 @@ async fn expanding_retention_never_restores_already_expired_items() {
         .unwrap();
 
     // 3. Trigger the inline reaper.
-    patch_retention_op(&h.state, &set.rid, 3600, &common::test_ctx()).await.expect("reap");
+    patch_retention_op(&h.state, &set.rid, 3600, &common::test_ctx())
+        .await
+        .expect("reap");
     let after_reap = get_item_op(&h.state, &item.rid).await.expect("get item");
     let first_deleted_at = after_reap
         .deleted_at
@@ -82,7 +84,9 @@ async fn expanding_retention_never_restores_already_expired_items() {
     patch_retention_op(&h.state, &set.rid, 30 * 86_400, &common::test_ctx())
         .await
         .expect("expand to 30d");
-    let after_expand = get_item_op(&h.state, &item.rid).await.expect("get after expand");
+    let after_expand = get_item_op(&h.state, &item.rid)
+        .await
+        .expect("get after expand");
     let still_deleted = after_expand
         .deleted_at
         .expect("expansion must not restore expired items");
@@ -95,9 +99,12 @@ async fn expanding_retention_never_restores_already_expired_items() {
     patch_retention_op(&h.state, &set.rid, 0, &common::test_ctx())
         .await
         .expect("forever");
-    let after_forever = get_item_op(&h.state, &item.rid).await.expect("get after forever");
+    let after_forever = get_item_op(&h.state, &item.rid)
+        .await
+        .expect("get after forever");
     assert_eq!(
-        after_forever.deleted_at, Some(first_deleted_at),
+        after_forever.deleted_at,
+        Some(first_deleted_at),
         "switching to forever must not resurrect previously-expired items"
     );
 }

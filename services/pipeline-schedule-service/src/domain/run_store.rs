@@ -112,13 +112,11 @@ pub async fn finish_run(
     run_id: Uuid,
     finished_at: DateTime<Utc>,
 ) -> Result<(), RunStoreError> {
-    sqlx::query(
-        "UPDATE schedule_runs SET finished_at = $1 WHERE id = $2 AND finished_at IS NULL",
-    )
-    .bind(finished_at)
-    .bind(run_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE schedule_runs SET finished_at = $1 WHERE id = $2 AND finished_at IS NULL")
+        .bind(finished_at)
+        .bind(run_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -134,7 +132,11 @@ pub async fn list_for_schedule(
     schedule_id: Uuid,
     filter: ListRunsFilter,
 ) -> Result<Vec<ScheduleRun>, RunStoreError> {
-    let limit = if filter.limit <= 0 { 50 } else { filter.limit.min(500) };
+    let limit = if filter.limit <= 0 {
+        50
+    } else {
+        filter.limit.min(500)
+    };
     let offset = filter.offset.max(0);
     let rows = sqlx::query(
         r#"SELECT id, rid, schedule_id, outcome, build_rid, failure_reason,

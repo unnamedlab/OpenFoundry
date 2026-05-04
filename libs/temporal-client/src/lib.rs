@@ -37,6 +37,10 @@
 //!   name passed to `runtime_workflow_client`.
 //! * `TEMPORAL_API_KEY`: optional bearer-style API key supported by
 //!   the SDK connection options.
+//! * `TEMPORAL_REQUIRE_REAL_CLIENT`: when true, startup fails if
+//!   `TEMPORAL_HOST_PORT` is missing. Helm sets this for deployed
+//!   S2 Rust services so staging/prod cannot silently fall back to
+//!   the logging client.
 //! * `TEMPORAL_TASK_QUEUE`: global task queue override, useful for
 //!   isolated E2E namespaces.
 //! * `TEMPORAL_TASK_QUEUE_WORKFLOW_AUTOMATION`,
@@ -68,9 +72,6 @@ use uuid::Uuid;
 
 #[cfg(feature = "grpc")]
 use std::collections::HashMap;
-#[cfg(feature = "grpc")]
-use std::time::SystemTime;
-
 #[cfg(feature = "grpc")]
 use temporalio_client::{
     Client as TemporalSdkClient, ClientOptions as TemporalSdkClientOptions,
@@ -106,8 +107,7 @@ use temporalio_common::{
         },
         taskqueue::v1::TaskQueue as TemporalTaskQueue,
         workflow::v1::{
-            NewWorkflowExecutionInfo,
-            WorkflowExecutionInfo as TemporalWorkflowExecutionInfoProto,
+            NewWorkflowExecutionInfo, WorkflowExecutionInfo as TemporalWorkflowExecutionInfoProto,
         },
         workflowservice::v1::{
             CreateScheduleRequest, DescribeScheduleRequest, ListWorkflowExecutionsRequest,
@@ -428,6 +428,8 @@ pub struct RuntimeClientConfig {
     pub namespace: String,
     pub identity: String,
     pub api_key: Option<String>,
+    pub require_real_client: bool,
+    pub deployment_environment: Option<String>,
 }
 
 impl RuntimeClientConfig {
@@ -437,11 +439,21 @@ impl RuntimeClientConfig {
             namespace: env_non_empty("TEMPORAL_NAMESPACE").unwrap_or_else(|| "default".to_string()),
             identity: env_non_empty("TEMPORAL_IDENTITY").unwrap_or_else(|| identity.into()),
             api_key: env_non_empty("TEMPORAL_API_KEY"),
+            require_real_client: env_flag("TEMPORAL_REQUIRE_REAL_CLIENT"),
+            deployment_environment: env_non_empty("OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT"),
         }
     }
 
     pub fn uses_temporal(&self) -> bool {
         self.host_port.is_some()
+    }
+
+    pub fn requires_temporal(&self) -> bool {
+        self.require_real_client
+            || self
+                .deployment_environment
+                .as_deref()
+                .is_some_and(environment_requires_temporal)
     }
 }
 
@@ -516,9 +528,17 @@ pub async fn runtime_workflow_client(
         }
     }
 
+    if cfg.requires_temporal() {
+        return Err(WorkflowClientError::Invalid(
+            "TEMPORAL_HOST_PORT is required when TEMPORAL_REQUIRE_REAL_CLIENT=true or \
+             OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT is staging/prod"
+                .into(),
+        ));
+    }
+
     tracing::info!(
         temporal_namespace = %namespace,
-        "Temporal frontend not configured; using logging workflow client"
+        "Temporal frontend not configured; using logging workflow client for local dry-run"
     );
     Ok((Arc::new(LoggingWorkflowClient), namespace))
 }
@@ -528,6 +548,22 @@ fn env_non_empty(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn env_flag(key: &str) -> bool {
+    env_non_empty(key).is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "required"
+        )
+    })
+}
+
+fn environment_requires_temporal(environment: &str) -> bool {
+    matches!(
+        environment.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production" | "staging" | "stage"
+    )
 }
 
 fn task_queue_from_env(domain_key: &str, default: &str) -> TaskQueue {
@@ -1494,6 +1530,63 @@ fn map_status(
 }
 
 #[cfg(feature = "grpc")]
+fn workflow_execution_summary_from_proto(
+    info: TemporalWorkflowExecutionInfoProto,
+) -> WorkflowExecutionSummary {
+    let (workflow_id, run_id) = match info.execution {
+        Some(execution) => (execution.workflow_id, execution.run_id),
+        None => (String::new(), String::new()),
+    };
+    let workflow_type = info.r#type.map(|value| value.name).unwrap_or_default();
+
+    WorkflowExecutionSummary {
+        workflow_id: WorkflowId(workflow_id),
+        run_id: RunId(run_id),
+        workflow_type: WorkflowType(workflow_type),
+        task_queue: TaskQueue(info.task_queue),
+        status: workflow_status_from_proto(info.status),
+        start_time: info.start_time.and_then(|value| {
+            DateTime::<Utc>::from_timestamp(value.seconds, value.nanos.try_into().ok()?)
+        }),
+        close_time: info.close_time.and_then(|value| {
+            DateTime::<Utc>::from_timestamp(value.seconds, value.nanos.try_into().ok()?)
+        }),
+        history_length: info.history_length,
+    }
+}
+
+#[cfg(feature = "grpc")]
+fn workflow_status_from_proto(status: i32) -> WorkflowExecutionStatus {
+    match status {
+        value if value == TemporalWorkflowExecutionStatus::Running as i32 => {
+            WorkflowExecutionStatus::Running
+        }
+        value if value == TemporalWorkflowExecutionStatus::Completed as i32 => {
+            WorkflowExecutionStatus::Completed
+        }
+        value if value == TemporalWorkflowExecutionStatus::Failed as i32 => {
+            WorkflowExecutionStatus::Failed
+        }
+        value if value == TemporalWorkflowExecutionStatus::Canceled as i32 => {
+            WorkflowExecutionStatus::Canceled
+        }
+        value if value == TemporalWorkflowExecutionStatus::Terminated as i32 => {
+            WorkflowExecutionStatus::Terminated
+        }
+        value if value == TemporalWorkflowExecutionStatus::ContinuedAsNew as i32 => {
+            WorkflowExecutionStatus::ContinuedAsNew
+        }
+        value if value == TemporalWorkflowExecutionStatus::TimedOut as i32 => {
+            WorkflowExecutionStatus::TimedOut
+        }
+        value if value == TemporalWorkflowExecutionStatus::Paused as i32 => {
+            WorkflowExecutionStatus::Paused
+        }
+        _ => WorkflowExecutionStatus::Unknown,
+    }
+}
+
+#[cfg(feature = "grpc")]
 fn map_id_reuse_policy(value: IdReusePolicy) -> TemporalWorkflowIdReusePolicy {
     match value {
         IdReusePolicy::AllowDuplicate => TemporalWorkflowIdReusePolicy::AllowDuplicate,
@@ -1593,9 +1686,10 @@ impl WorkflowAutomationClient {
         input: AutomationRunInput,
         audit_correlation_id: Uuid,
     ) -> Result<WorkflowHandle> {
+        let workflow_id = Self::workflow_id(input.definition_id, run_id);
         let mut options = StartWorkflowOptions::new(
             self.namespace.clone(),
-            WorkflowId(format!("workflow-automation:{run_id}")),
+            workflow_id,
             WorkflowType(workflow_types::AUTOMATION_RUN.to_string()),
             self.task_queue.clone(),
             serde_json::to_value(input).map_err(|e| WorkflowClientError::Invalid(e.to_string()))?,
@@ -1605,11 +1699,53 @@ impl WorkflowAutomationClient {
         self.inner.start_workflow(options).await
     }
 
-    pub async fn cancel_run(&self, run_id: Uuid, reason: &str) -> Result<()> {
-        let workflow_id = WorkflowId(format!("workflow-automation:{run_id}"));
+    pub async fn cancel_run(&self, definition_id: Uuid, run_id: Uuid, reason: &str) -> Result<()> {
+        let workflow_id = Self::workflow_id(definition_id, run_id);
         self.inner
             .cancel_workflow(&self.namespace, &workflow_id, None, reason)
             .await
+    }
+
+    pub async fn list_runs(
+        &self,
+        definition_id: Uuid,
+        page_size: i32,
+        next_page_token: Option<&str>,
+    ) -> Result<WorkflowListPage> {
+        let query = format!(
+            "WorkflowType = '{}' AND WorkflowId STARTS_WITH 'workflow-automation:{definition_id}:'",
+            workflow_types::AUTOMATION_RUN
+        );
+        self.inner
+            .list_workflows(&self.namespace, &query, page_size, next_page_token)
+            .await
+    }
+
+    pub async fn query_run_state(
+        &self,
+        definition_id: Uuid,
+        run_id: Uuid,
+        query_type: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let workflow_id = Self::workflow_id(definition_id, run_id);
+        self.inner
+            .query_workflow(&self.namespace, &workflow_id, None, query_type, input)
+            .await
+    }
+
+    pub fn workflow_id(definition_id: Uuid, run_id: Uuid) -> WorkflowId {
+        WorkflowId(format!("workflow-automation:{definition_id}:{run_id}"))
+    }
+
+    pub fn parse_workflow_id(raw: &str) -> Option<(Uuid, Uuid)> {
+        let mut parts = raw.split(':');
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some("workflow-automation"), Some(definition_id), Some(run_id), None) => {
+                Some((definition_id.parse().ok()?, run_id.parse().ok()?))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -2046,7 +2182,12 @@ mod tests {
         let definition_id = Uuid::now_v7();
         let run_id = Uuid::now_v7();
         client
-            .query_run_state(definition_id, run_id, "current_state", serde_json::json!({}))
+            .query_run_state(
+                definition_id,
+                run_id,
+                "current_state",
+                serde_json::json!({}),
+            )
             .await
             .expect("query_run_state");
         let queries = recorder.queries.lock().expect("queries lock");
@@ -2094,8 +2235,11 @@ mod tests {
             namespace: "default".into(),
             identity: "svc".into(),
             api_key: None,
+            require_real_client: false,
+            deployment_environment: None,
         };
         assert!(!cfg.uses_temporal());
+        assert!(!cfg.requires_temporal());
     }
 
     #[test]
@@ -2105,8 +2249,48 @@ mod tests {
             namespace: "default".into(),
             identity: "svc".into(),
             api_key: None,
+            require_real_client: false,
+            deployment_environment: None,
         };
         assert!(cfg.uses_temporal());
+    }
+
+    #[test]
+    fn runtime_client_config_requires_temporal_for_explicit_guardrail() {
+        let cfg = RuntimeClientConfig {
+            host_port: None,
+            namespace: "default".into(),
+            identity: "svc".into(),
+            api_key: None,
+            require_real_client: true,
+            deployment_environment: None,
+        };
+        assert!(cfg.requires_temporal());
+    }
+
+    #[test]
+    fn runtime_client_config_requires_temporal_for_staging_and_prod() {
+        for environment in ["staging", "stage", "prod", "production"] {
+            let cfg = RuntimeClientConfig {
+                host_port: None,
+                namespace: "default".into(),
+                identity: "svc".into(),
+                api_key: None,
+                require_real_client: false,
+                deployment_environment: Some(environment.into()),
+            };
+            assert!(cfg.requires_temporal(), "{environment}");
+        }
+
+        let cfg = RuntimeClientConfig {
+            host_port: None,
+            namespace: "default".into(),
+            identity: "svc".into(),
+            api_key: None,
+            require_real_client: false,
+            deployment_environment: Some("dev".into()),
+        };
+        assert!(!cfg.requires_temporal());
     }
 
     #[test]

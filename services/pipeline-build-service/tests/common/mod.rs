@@ -71,10 +71,7 @@ impl MockDatasetClient {
 
 #[async_trait]
 impl DatasetVersioningClient for MockDatasetClient {
-    async fn list_branches(
-        &self,
-        dataset_rid: &str,
-    ) -> Result<Vec<BranchSnapshot>, ClientError> {
+    async fn list_branches(&self, dataset_rid: &str) -> Result<Vec<BranchSnapshot>, ClientError> {
         Ok(self
             .branches
             .lock()
@@ -96,7 +93,10 @@ impl DatasetVersioningClient for MockDatasetClient {
         }
         let mut counter = self.txn_counter.lock().unwrap();
         *counter += 1;
-        Ok(format!("ri.foundry.main.transaction.{}-{}", dataset_rid, counter))
+        Ok(format!(
+            "ri.foundry.main.transaction.{}-{}",
+            dataset_rid, counter
+        ))
     }
 
     async fn view_schema(
@@ -152,13 +152,17 @@ pub struct RunnerScript {
 impl RunnerScript {
     pub fn ok(hash: &str) -> Self {
         Self {
-            outcome: JobOutcome::Completed { output_content_hash: hash.to_string() },
+            outcome: JobOutcome::Completed {
+                output_content_hash: hash.to_string(),
+            },
             sleep: Duration::from_millis(0),
         }
     }
     pub fn fail(reason: &str) -> Self {
         Self {
-            outcome: JobOutcome::Failed { reason: reason.to_string() },
+            outcome: JobOutcome::Failed {
+                reason: reason.to_string(),
+            },
             sleep: Duration::from_millis(0),
         }
     }
@@ -187,13 +191,9 @@ impl MockJobRunner {
 impl JobRunner for MockJobRunner {
     async fn run(&self, ctx: &JobContext) -> JobOutcome {
         self.started.lock().unwrap().push(ctx.job_spec.rid.clone());
-        let script = self
-            .scripts
-            .lock()
-            .unwrap()
-            .get(&ctx.job_spec.rid)
-            .cloned();
-        let script = script.unwrap_or_else(|| RunnerScript::ok(&format!("default-{}", ctx.job_spec.rid)));
+        let script = self.scripts.lock().unwrap().get(&ctx.job_spec.rid).cloned();
+        let script =
+            script.unwrap_or_else(|| RunnerScript::ok(&format!("default-{}", ctx.job_spec.rid)));
         if !script.sleep.is_zero() {
             tokio::time::sleep(script.sleep).await;
         }
@@ -218,7 +218,11 @@ impl MockOutputClient {
 
 #[async_trait]
 impl OutputTransactionClient for MockOutputClient {
-    async fn commit(&self, dataset_rid: &str, transaction_rid: &str) -> Result<(), OutputClientError> {
+    async fn commit(
+        &self,
+        dataset_rid: &str,
+        transaction_rid: &str,
+    ) -> Result<(), OutputClientError> {
         if let Some(target) = self.fail_commit_for.lock().unwrap().as_ref() {
             if target == dataset_rid {
                 return Err(OutputClientError("simulated commit failure".into()));
@@ -230,7 +234,11 @@ impl OutputTransactionClient for MockOutputClient {
             .push((dataset_rid.to_string(), transaction_rid.to_string()));
         Ok(())
     }
-    async fn abort(&self, dataset_rid: &str, transaction_rid: &str) -> Result<(), OutputClientError> {
+    async fn abort(
+        &self,
+        dataset_rid: &str,
+        transaction_rid: &str,
+    ) -> Result<(), OutputClientError> {
         self.aborts
             .lock()
             .unwrap()
@@ -246,11 +254,7 @@ pub fn arc_output(client: MockOutputClient) -> Arc<dyn OutputTransactionClient> 
     Arc::new(client)
 }
 
-pub fn job_spec(
-    rid: &str,
-    inputs: Vec<&str>,
-    outputs: Vec<&str>,
-) -> JobSpec {
+pub fn job_spec(rid: &str, inputs: Vec<&str>, outputs: Vec<&str>) -> JobSpec {
     use pipeline_build_service::domain::build_resolution::InputSpec;
     JobSpec {
         rid: rid.to_string(),

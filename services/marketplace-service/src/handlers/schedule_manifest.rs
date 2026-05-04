@@ -14,9 +14,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::models::schedule_manifest::{
-    AddScheduleManifestRequest, RidMapping, ScheduleManifest,
-};
+use crate::models::schedule_manifest::{AddScheduleManifestRequest, RidMapping, ScheduleManifest};
 
 #[derive(Debug, Deserialize)]
 pub struct InstallSchedulesBody {

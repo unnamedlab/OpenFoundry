@@ -60,11 +60,8 @@ async fn create_child(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn ancestry_endpoint_walks_up_to_root() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.ancestry",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.ancestry").await;
 
     create_child(&h.router, &h.token, dataset_id, "develop", "master").await;
     create_child(&h.router, &h.token, dataset_id, "feature", "develop").await;
@@ -92,7 +89,10 @@ async fn ancestry_endpoint_walks_up_to_root() {
     let last = chain.last().expect("at least one ancestor");
     assert_eq!(last["is_root"], json!(true), "last must be root");
     assert!(
-        last["rid"].as_str().unwrap_or("").starts_with("ri.foundry.main.branch."),
+        last["rid"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("ri.foundry.main.branch."),
         "rid must follow the foundry shape, got {:?}",
         last["rid"]
     );

@@ -43,11 +43,9 @@ async fn req(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn child_branch_can_be_created_while_parent_has_open_tx() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.open-tx-allows-child",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.open-tx-allows-child")
+            .await;
 
     // 1) Commit a SNAPSHOT so master has a HEAD pointer.
     let (open_status, open_body) = req(
@@ -81,7 +79,10 @@ async fn child_branch_can_be_created_while_parent_has_open_tx() {
         Some(json!({ "type": "APPEND", "providence": {} })),
     )
     .await;
-    assert!(second_status.is_success(), "second open: {second_status} {second_body}");
+    assert!(
+        second_status.is_success(),
+        "second open: {second_status} {second_body}"
+    );
     let open_txn_id = Uuid::parse_str(second_body["id"].as_str().unwrap()).unwrap();
 
     // 3) Creating a child branch from master must succeed and the

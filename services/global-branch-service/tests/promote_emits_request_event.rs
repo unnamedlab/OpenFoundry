@@ -42,10 +42,7 @@ async fn promote_writes_outbox_event_and_returns_event_id() {
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(
-        body["topic"],
-        "foundry.global.branch.promote.requested.v1"
-    );
+    assert_eq!(body["topic"], "foundry.global.branch.promote.requested.v1");
     let event_id = body["event_id"].as_str().expect("event_id");
     assert!(Uuid::parse_str(event_id).is_ok());
 

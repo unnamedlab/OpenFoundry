@@ -7,7 +7,7 @@
 //! is the deterministic part of that contract.
 
 use chrono::Utc;
-use event_streaming_service::models::window::{key_prefix_for, WindowDefinition};
+use event_streaming_service::models::window::{WindowDefinition, key_prefix_for};
 use serde_json::json;
 use uuid::Uuid;
 

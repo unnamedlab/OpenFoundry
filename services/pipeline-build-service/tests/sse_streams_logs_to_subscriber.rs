@@ -16,9 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use pipeline_build_service::domain::logs::{
-    BroadcastLogSink, LogEntry, LogLevel, LogSink,
-};
+use pipeline_build_service::domain::logs::{BroadcastLogSink, LogEntry, LogLevel, LogSink};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn broadcast_subscriber_receives_emitted_entries() {
@@ -92,5 +90,8 @@ async fn subscribers_filter_by_job_rid() {
 
     // B's subscriber must NOT see A's entry.
     let b = tokio::time::timeout(Duration::from_millis(200), rx_b.recv()).await;
-    assert!(b.is_err(), "subscriber B should not have received A's entry");
+    assert!(
+        b.is_err(),
+        "subscriber B should not have received A's entry"
+    );
 }

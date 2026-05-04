@@ -14,7 +14,7 @@ use pipeline_build_service::models::build::{Build, BuildEnvelope};
 use pipeline_build_service::models::job::Job;
 use sha2::{Digest, Sha256};
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 fn etag(value: &serde_json::Value) -> String {
     let canonical = serde_json::to_string(value).unwrap();
@@ -40,7 +40,10 @@ async fn build_envelope_serialisation_yields_stable_etag() {
     specs.add(job_spec("ri.spec.e", vec!["raw.in"], vec!["mid.out"]));
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
     let build_branch: BranchName = "master".parse().unwrap();
     let outputs = vec!["mid.out".to_string()];
@@ -67,13 +70,17 @@ async fn build_envelope_serialisation_yields_stable_etag() {
         .fetch_one(&harness.pool)
         .await
         .unwrap();
-    let jobs: Vec<Job> = sqlx::query_as("SELECT * FROM jobs WHERE build_id = $1 ORDER BY created_at")
-        .bind(resolved.build_id)
-        .fetch_all(&harness.pool)
-        .await
-        .unwrap();
+    let jobs: Vec<Job> =
+        sqlx::query_as("SELECT * FROM jobs WHERE build_id = $1 ORDER BY created_at")
+            .bind(resolved.build_id)
+            .fetch_all(&harness.pool)
+            .await
+            .unwrap();
 
-    let env1 = BuildEnvelope { build: build.clone(), jobs: jobs.clone() };
+    let env1 = BuildEnvelope {
+        build: build.clone(),
+        jobs: jobs.clone(),
+    };
     let env2 = BuildEnvelope { build, jobs };
 
     let etag1 = etag(&serde_json::to_value(&env1).unwrap());

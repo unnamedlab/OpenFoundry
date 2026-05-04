@@ -15,11 +15,8 @@ use uuid::Uuid;
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn ttl_eligible_branch_is_archived_and_event_emitted() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.retention-ttl",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.retention-ttl").await;
 
     let master_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM dataset_branches WHERE dataset_id = $1 AND name = 'master'",
@@ -51,17 +48,20 @@ async fn ttl_eligible_branch_is_archived_and_event_emitted() {
     assert_eq!(archived, 1, "feature should be archived in this tick");
 
     // The branch row carries archived_at + grace_until.
-    let (archived_at, grace_until) = sqlx::query_as::<_, (Option<chrono::DateTime<Utc>>, Option<chrono::DateTime<Utc>>)>(
-        "SELECT archived_at, archive_grace_until FROM dataset_branches WHERE id = $1",
-    )
-    .bind(feature_id)
-    .fetch_one(&h.pool)
-    .await
-    .expect("read archived_at");
+    let (archived_at, grace_until) =
+        sqlx::query_as::<_, (Option<chrono::DateTime<Utc>>, Option<chrono::DateTime<Utc>>)>(
+            "SELECT archived_at, archive_grace_until FROM dataset_branches WHERE id = $1",
+        )
+        .bind(feature_id)
+        .fetch_one(&h.pool)
+        .await
+        .expect("read archived_at");
     assert!(archived_at.is_some(), "archived_at must be set");
     assert!(grace_until.is_some(), "archive_grace_until must be set");
 
     // A second tick is a no-op — the branch is already archived.
-    let again = retention_worker::run_once(&h.pool).await.expect("idempotent");
+    let again = retention_worker::run_once(&h.pool)
+        .await
+        .expect("idempotent");
     assert_eq!(again, 0);
 }

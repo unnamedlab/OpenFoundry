@@ -1,0 +1,21 @@
+# Values applied to upstream chart jetstack/cert-manager.
+installCRDs: true
+
+# HA at pod level: 2 replicas of each cert-manager component, spread across
+# nodes by hostname. `whenUnsatisfiable: ScheduleAnyway` keeps the second
+# replica schedulable when the cluster only has one node available.
+replicaCount: 2
+
+webhook:
+  replicaCount: 2
+
+cainjector:
+  replicaCount: 2
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/instance: cert-manager

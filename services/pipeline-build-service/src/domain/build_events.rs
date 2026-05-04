@@ -58,9 +58,15 @@ pub async fn enqueue<P: Serialize>(
             return;
         }
     };
-    let event_id = Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, format!("{}|{event:?}|{build_id}|{}",
-        TOPIC,
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()).as_bytes());
+    let event_id = Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_OID,
+        format!(
+            "{}|{event:?}|{build_id}|{}",
+            TOPIC,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        )
+        .as_bytes(),
+    );
     let oe = outbox::OutboxEvent::new(
         event_id,
         "build",

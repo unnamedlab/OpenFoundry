@@ -1,0 +1,82 @@
+---
+# S4.1.f — Alerts that gate the Debezium connector health.
+#
+# Two non-negotiable alerts:
+#   1. Replication-slot lag > 100 MB → outbox is not draining
+#      (Connect down, broker down, or upstream consumers stalled).
+#   2. Any task `state != RUNNING` → connector is degraded.
+#
+# A third alert flags the application-layer outbox queue depth as a
+# safety net: under steady state the table is empty (INSERT+DELETE
+# in the same tx). Any non-trivial backlog means handlers are still
+# enqueuing but Debezium is not emitting.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: debezium-connect
+  namespace: kafka
+  labels:
+    openfoundry.io/component: debezium-connect
+    role: alert-rules
+spec:
+  groups:
+    - name: debezium-connect.rules
+      rules:
+        # 1. Postgres replication slot lag.
+        - alert: DebeziumOutboxReplicationSlotLag
+          expr: |
+            max by (slot_name) (
+              cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_name="debezium_outbox_pg_policy"}
+            ) > 1.048576e+08
+          for: 10m
+          labels:
+            severity: critical
+            component: debezium-connect
+            stream: s4
+          annotations:
+            summary: "Outbox replication slot lag > 100 MB"
+            description: |
+              Debezium's logical replication slot
+              `debezium_outbox_pg_policy` is more than 100 MB behind
+              the current WAL LSN. Either Kafka Connect is down,
+              brokers are unreachable, or downstream consumers are
+              stalled. Investigate before WAL retention forces a
+              slot drop.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/infra/helm/infra/debezium/templates/README.md
+
+        # 2. Connector / task state.
+        - alert: DebeziumConnectTaskNotRunning
+          expr: |
+            sum by (connector) (
+              kafka_connect_connector_task_status{state!="running"}
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: debezium-connect
+            stream: s4
+          annotations:
+            summary: "Debezium task not RUNNING"
+            description: |
+              At least one task on connector {{ $labels.connector }}
+              is not in state `RUNNING`. Check the connector status
+              endpoint and DLQ topic `__dlq.outbox-pg-policy.v1`.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/infra/helm/infra/debezium/templates/README.md
+
+        # 3. Application-side outbox depth (safety net).
+        - alert: OutboxTableNotDraining
+          expr: |
+            max(pg_class_pg_table_rows{relname="events", schemaname="outbox"}) > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: debezium-connect
+            stream: s4
+          annotations:
+            summary: "outbox.events row count > 100 (should be ~0 in steady state)"
+            description: |
+              In steady state `outbox.events` is empty because
+              `outbox::enqueue` does INSERT+DELETE in the same
+              transaction. A persistent backlog means handlers are
+              committing but Debezium is not draining the WAL.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/infra/helm/infra/debezium/templates/README.md

@@ -31,7 +31,10 @@ use crate::models::topology::TopologyDefinition;
 /// the topology carries the runtime's translation. When either side
 /// asks for EXACTLY_ONCE the Flink job must run with EXACTLY_ONCE.
 pub fn effective_exactly_once(topology: &TopologyDefinition, streams: &[StreamDefinition]) -> bool {
-    if topology.consistency_guarantee.eq_ignore_ascii_case("exactly-once") {
+    if topology
+        .consistency_guarantee
+        .eq_ignore_ascii_case("exactly-once")
+    {
         return true;
     }
     streams

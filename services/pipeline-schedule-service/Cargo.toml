@@ -105,6 +105,9 @@ workspace = true
 [dependencies.tonic]
 workspace = true
 
+[dependencies.prometheus]
+workspace = true
+
 [dependencies.tracing]
 workspace = true
 

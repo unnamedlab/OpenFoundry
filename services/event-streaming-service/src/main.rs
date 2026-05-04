@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics = Arc::new(Metrics::new());
 
     // ---- Hot buffer (Kafka if compiled in + bootstrap servers, else NATS) -----
-    let hot_buffer = build_hot_buffer(&cfg).await;
+    let hot_buffer = build_hot_buffer(&cfg).await?;
     tracing::info!(backend = hot_buffer.id(), "hot buffer ready");
 
     // ---- Runtime store (hot events + offsets/checkpoints + cold archive index) -
@@ -451,7 +451,9 @@ async fn healthz() -> (StatusCode, &'static str) {
 ///    facade) or fall back to `nats://nats:4222`.
 /// 3. If both attempts fail (no NATS reachable), drop down to
 ///    [`NoopHotBuffer`] so the REST control plane still boots.
-async fn build_hot_buffer(cfg: &AppConfig) -> Arc<dyn HotBuffer> {
+async fn build_hot_buffer(
+    cfg: &AppConfig,
+) -> Result<Arc<dyn HotBuffer>, Box<dyn std::error::Error>> {
     #[cfg(not(feature = "kafka-rdkafka"))]
     let _ = cfg;
     #[cfg(feature = "kafka-rdkafka")]
@@ -463,7 +465,7 @@ async fn build_hot_buffer(cfg: &AppConfig) -> Arc<dyn HotBuffer> {
             .unwrap_or(false)
         {
             match KafkaHotBuffer::from_env("event-streaming-service") {
-                Ok(buffer) => return Arc::new(buffer),
+                Ok(buffer) => return Ok(Arc::new(buffer)),
                 Err(err) => tracing::warn!(
                     error = %err,
                     "kafka hot buffer unavailable; falling back to NATS"
@@ -474,14 +476,23 @@ async fn build_hot_buffer(cfg: &AppConfig) -> Arc<dyn HotBuffer> {
 
     let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://nats:4222".to_string());
     match NatsHotBuffer::connect(&nats_url).await {
-        Ok(buffer) => Arc::new(buffer),
+        Ok(buffer) => Ok(Arc::new(buffer)),
         Err(err) => {
+            if requires_real_runtime_backends() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!(
+                        "NATS/Kafka hot buffer is required in staging/prod; NATS_URL={nats_url}: {err}"
+                    ),
+                )
+                .into());
+            }
             tracing::warn!(
                 error = %err,
                 url = %nats_url,
                 "NATS hot buffer unavailable; falling back to noop"
             );
-            Arc::new(NoopHotBuffer)
+            Ok(Arc::new(NoopHotBuffer))
         }
     }
 }
@@ -507,12 +518,48 @@ async fn build_runtime_store(
         runtime.migrate().await?;
         tracing::info!("runtime store Cassandra metadata enabled");
         Some(runtime)
+    } else if requires_real_runtime_backends() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "CASSANDRA_CONTACT_POINTS is required for event-streaming runtime durability in staging/prod",
+        )
+        .into());
     } else {
         tracing::info!("runtime store Cassandra metadata disabled; using memory-only durability");
         None
     };
 
     Ok(Arc::new(HybridRuntimeStore::new(cassandra)))
+}
+
+fn requires_real_runtime_backends() -> bool {
+    env_flag("EVENT_STREAMING_REQUIRE_REAL_BACKENDS")
+        || env_non_empty("OPENFOUNDRY_DEPLOYMENT_ENVIRONMENT")
+            .as_deref()
+            .is_some_and(is_staging_or_prod)
+}
+
+fn env_non_empty(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_flag(key: &str) -> bool {
+    env_non_empty(key).is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on" | "required"
+        )
+    })
+}
+
+fn is_staging_or_prod(environment: &str) -> bool {
+    matches!(
+        environment.trim().to_ascii_lowercase().as_str(),
+        "staging" | "stage" | "prod" | "production"
+    )
 }
 
 /// Build a real Kafka backend when the `kafka-rdkafka` Cargo feature is

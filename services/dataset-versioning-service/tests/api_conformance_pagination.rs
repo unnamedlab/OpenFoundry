@@ -66,11 +66,17 @@ async fn list_transactions_returns_page_envelope_and_walks_cursor() {
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
 
-    assert!(body["data"].is_array(), "response must carry `data` array: {body}");
+    assert!(
+        body["data"].is_array(),
+        "response must carry `data` array: {body}"
+    );
     let page1 = body["data"].as_array().unwrap();
     assert_eq!(page1.len(), 3, "limit=3 ⇒ 3 rows");
     assert_eq!(body["has_more"], true);
-    assert!(body["next_cursor"].is_string(), "has_more=true ⇒ cursor present");
+    assert!(
+        body["next_cursor"].is_string(),
+        "has_more=true ⇒ cursor present"
+    );
     let cursor = body["next_cursor"].as_str().unwrap().to_string();
 
     // Page 2: feed back next_cursor → next 3 rows, still has_more.
@@ -115,7 +121,10 @@ async fn list_transactions_returns_page_envelope_and_walks_cursor() {
         assert!(!id1.contains(x), "page 2 must not repeat ids from page 1");
     }
     for x in &id3 {
-        assert!(!id2.contains(x) && !id1.contains(x), "page 3 must not repeat");
+        assert!(
+            !id2.contains(x) && !id1.contains(x),
+            "page 3 must not repeat"
+        );
     }
 }
 
@@ -135,6 +144,9 @@ async fn list_branches_returns_page_envelope() {
     let resp = h.router.clone().oneshot(req).await.expect("router");
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(body["data"].is_array(), "branches list must use Page envelope: {body}");
+    assert!(
+        body["data"].is_array(),
+        "branches list must use Page envelope: {body}"
+    );
     assert_eq!(body["has_more"], false, "single branch ⇒ has_more=false");
 }

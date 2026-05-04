@@ -246,7 +246,10 @@ mod tests {
     fn page_emits_next_cursor_only_when_more_pages_remain() {
         let p = Page::<i32>::from_slice(vec![1, 2, 3], 0, 3, true);
         assert!(p.has_more);
-        assert_eq!(decode_offset_cursor(p.next_cursor.as_ref().unwrap()), Some(3));
+        assert_eq!(
+            decode_offset_cursor(p.next_cursor.as_ref().unwrap()),
+            Some(3)
+        );
         let last = Page::<i32>::from_slice(vec![10], 90, 3, false);
         assert!(last.next_cursor.is_none());
         assert!(!last.has_more);
@@ -269,10 +272,7 @@ mod tests {
     #[test]
     fn if_none_match_matches_quoted_etag_and_wildcard() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            header::IF_NONE_MATCH,
-            HeaderValue::from_static("\"abc\""),
-        );
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"abc\""));
         assert!(if_none_match_matches(&headers, "\"abc\""));
         assert!(!if_none_match_matches(&headers, "\"def\""));
         let mut wild = HeaderMap::new();

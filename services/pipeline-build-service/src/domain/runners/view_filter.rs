@@ -83,8 +83,12 @@ mod tests {
     #[test]
     fn view_filter_round_trips_through_serde() {
         let cases = vec![
-            ViewFilter::AtTimestamp { value: "2026-04-01T00:00:00Z".into() },
-            ViewFilter::AtTransaction { transaction_rid: "ri.txn.1".into() },
+            ViewFilter::AtTimestamp {
+                value: "2026-04-01T00:00:00Z".into(),
+            },
+            ViewFilter::AtTransaction {
+                transaction_rid: "ri.txn.1".into(),
+            },
             ViewFilter::Range {
                 from_transaction: "ri.txn.0".into(),
                 to_transaction: "ri.txn.5".into(),

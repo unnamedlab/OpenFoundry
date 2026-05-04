@@ -270,10 +270,7 @@ fn parse_day_of_week(raw: &str) -> Result<DayOfWeek, CronError> {
     }
 
     // `<weekday>L` form, e.g. `2L`, `MONL`.
-    if let Some(prefix) = raw
-        .strip_suffix('L')
-        .or_else(|| raw.strip_suffix('l'))
-    {
+    if let Some(prefix) = raw.strip_suffix('L').or_else(|| raw.strip_suffix('l')) {
         let weekday = parse_int_or_alias(prefix, "day-of-week", 0, 7, aliases)?;
         let weekday = normalise_weekday(weekday);
         return Ok(DayOfWeek::LastWeekdayOfMonth { weekday });
@@ -312,11 +309,7 @@ fn parse_day_of_week(raw: &str) -> Result<DayOfWeek, CronError> {
 }
 
 fn normalise_weekday(value: u32) -> u32 {
-    if value == 7 {
-        0
-    } else {
-        value
-    }
+    if value == 7 { 0 } else { value }
 }
 
 fn normalise_weekday_set(set: ValueSet) -> ValueSet {

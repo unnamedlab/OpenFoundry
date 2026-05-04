@@ -13,11 +13,12 @@ use std::time::Duration;
 use auth_middleware::jwt::JwtConfig;
 use authz_cedar::{AuthzEngine, PolicyStore, audit::TracingAuditSink};
 use db_pool::DualPool;
-use media_sets_service::{
-    AppState, BackendMediaStorage, MediaStorage, build_router, config::AppConfig, grpc::build_server,
-};
 use media_sets_service::domain::cedar::default_policy_records;
 use media_sets_service::domain::retention;
+use media_sets_service::{
+    AppState, BackendMediaStorage, MediaStorage, build_router, config::AppConfig,
+    grpc::build_server,
+};
 use storage_abstraction::backend::StorageBackend;
 use storage_abstraction::local::LocalStorage;
 use tracing_subscriber::EnvFilter;
@@ -25,11 +26,9 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                EnvFilter::new("media_sets_service=info,tower_http=info,tonic=info")
-            }),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new("media_sets_service=info,tower_http=info,tonic=info")
+        }))
         .init();
 
     let cfg = AppConfig::from_env()?;

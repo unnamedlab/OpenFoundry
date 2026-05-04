@@ -8,7 +8,8 @@
 //!   3. A `FlinkSessionJob` is intentionally skipped — `mode: native`
 //!      runs the job inside the same FlinkDeployment, which is the
 //!      shape used by `infra/k8s/platform/manifests/flink/flinkdeployment-cdc-iceberg.yaml`
-//!      in production. The `FlinkSessionJob` path is left as a TODO.
+//!      in production. `FlinkSessionJob` is intentionally out of scope
+//!      for this deployer.
 //!
 //! Both resources are upserted via SSA (`Patch::Apply`) so the
 //! deployer is idempotent.
@@ -70,7 +71,15 @@ pub async fn deploy_topology(
         .map_err(|e| DeployerError::Kube(e.to_string()))?;
 
     apply_sql_configmap(&client, &namespace, &deployment_name, &sql.script).await?;
-    apply_flink_deployment(&client, cfg, &namespace, &deployment_name, topology, streams).await?;
+    apply_flink_deployment(
+        &client,
+        cfg,
+        &namespace,
+        &deployment_name,
+        topology,
+        streams,
+    )
+    .await?;
 
     sqlx::query(
         "UPDATE streaming_topologies
@@ -337,8 +346,7 @@ mod tests {
             state_bucket_uri: "s3://bucket/flink".into(),
         };
         let topology = sample_topology();
-        let manifest =
-            render_flink_deployment_manifest(&cfg, "flink", "topo-demo", &topology, &[]);
+        let manifest = render_flink_deployment_manifest(&cfg, "flink", "topo-demo", &topology, &[]);
         assert_eq!(manifest["kind"], Value::String("FlinkDeployment".into()));
         assert_eq!(
             manifest["metadata"]["labels"]["openfoundry.io/topology-id"],

@@ -217,9 +217,10 @@ impl MediaTransformKind {
         match self {
             // OCR / transcription / embedding emit text or vectors that
             // belong in tabular data, not media items.
-            Self::ExtractTextOcr | Self::TranscribeAudio | Self::GenerateEmbedding | Self::ExtractLayoutAware => {
-                MediaNodeOutput::DatasetRows
-            }
+            Self::ExtractTextOcr
+            | Self::TranscribeAudio
+            | Self::GenerateEmbedding
+            | Self::ExtractLayoutAware => MediaNodeOutput::DatasetRows,
             // Pixel + page-render transforms produce derived media.
             Self::Resize | Self::Rotate | Self::Crop | Self::RenderPdfPage => {
                 MediaNodeOutput::MediaItems
@@ -259,22 +260,20 @@ impl MediaTransformKind {
 pub fn validate_media_node(transform_type: &str, config: &Value) -> Vec<String> {
     let mut errors = Vec::new();
     match transform_type {
-        MEDIA_SET_INPUT => {
-            match serde_json::from_value::<MediaSetInputConfig>(config.clone()) {
-                Ok(cfg) => {
-                    if !cfg.media_set_rid.starts_with("ri.foundry.main.media_set.") {
-                        errors.push(format!(
-                            "media_set_input.media_set_rid `{}` is not a Foundry media-set RID",
-                            cfg.media_set_rid
-                        ));
-                    }
-                    if cfg.branch.trim().is_empty() {
-                        errors.push("media_set_input.branch must not be empty".into());
-                    }
+        MEDIA_SET_INPUT => match serde_json::from_value::<MediaSetInputConfig>(config.clone()) {
+            Ok(cfg) => {
+                if !cfg.media_set_rid.starts_with("ri.foundry.main.media_set.") {
+                    errors.push(format!(
+                        "media_set_input.media_set_rid `{}` is not a Foundry media-set RID",
+                        cfg.media_set_rid
+                    ));
                 }
-                Err(err) => errors.push(format!("media_set_input config: {err}")),
+                if cfg.branch.trim().is_empty() {
+                    errors.push("media_set_input.branch must not be empty".into());
+                }
             }
-        }
+            Err(err) => errors.push(format!("media_set_input config: {err}")),
+        },
         MEDIA_SET_OUTPUT => {
             match serde_json::from_value::<MediaSetOutputConfig>(config.clone()) {
                 Ok(cfg) => {
@@ -289,7 +288,9 @@ pub fn validate_media_node(transform_type: &str, config: &Value) -> Vec<String> 
                     }
                     if let Some(spec) = &cfg.create_if_missing {
                         if spec.project_rid.trim().is_empty() {
-                            errors.push("media_set_output.create_if_missing.project_rid required".into());
+                            errors.push(
+                                "media_set_output.create_if_missing.project_rid required".into(),
+                            );
                         }
                         if spec.name.trim().is_empty() {
                             errors.push("media_set_output.create_if_missing.name required".into());
@@ -297,7 +298,9 @@ pub fn validate_media_node(transform_type: &str, config: &Value) -> Vec<String> 
                     }
                     if let (Some(WriteMode::Replace), Some(TransactionPolicyDto::Transactionless)) = (
                         cfg.write_mode,
-                        cfg.create_if_missing.as_ref().and_then(|s| s.transaction_policy),
+                        cfg.create_if_missing
+                            .as_ref()
+                            .and_then(|s| s.transaction_policy),
                     ) {
                         // Foundry: TRANSACTIONLESS sets only support
                         // `modify` (see *Advanced media set settings*).
@@ -311,26 +314,27 @@ pub fn validate_media_node(transform_type: &str, config: &Value) -> Vec<String> 
                 Err(err) => errors.push(format!("media_set_output config: {err}")),
             }
         }
-        MEDIA_TRANSFORM => {
-            match serde_json::from_value::<MediaTransformConfig>(config.clone()) {
-                Ok(cfg) => {
-                    let params = cfg.params.as_object();
-                    for required in cfg.kind.required_params() {
-                        if !params.map(|p| p.contains_key(*required)).unwrap_or(false) {
-                            errors.push(format!(
-                                "media_transform.{:?}.params is missing required key `{}`",
-                                cfg.kind, required
-                            ));
-                        }
+        MEDIA_TRANSFORM => match serde_json::from_value::<MediaTransformConfig>(config.clone()) {
+            Ok(cfg) => {
+                let params = cfg.params.as_object();
+                for required in cfg.kind.required_params() {
+                    if !params.map(|p| p.contains_key(*required)).unwrap_or(false) {
+                        errors.push(format!(
+                            "media_transform.{:?}.params is missing required key `{}`",
+                            cfg.kind, required
+                        ));
                     }
                 }
-                Err(err) => errors.push(format!("media_transform config: {err}")),
             }
-        }
+            Err(err) => errors.push(format!("media_transform config: {err}")),
+        },
         CONVERT_MEDIA_SET_TO_TABLE_ROWS => {
             match serde_json::from_value::<ConvertMediaSetToTableRowsConfig>(config.clone()) {
                 Ok(cfg) => {
-                    if !cfg.source_media_set_rid.starts_with("ri.foundry.main.media_set.") {
+                    if !cfg
+                        .source_media_set_rid
+                        .starts_with("ri.foundry.main.media_set.")
+                    {
                         errors.push(format!(
                             "convert_media_set_to_table_rows.source_media_set_rid `{}` is not a \
                              Foundry media-set RID",
@@ -338,15 +342,16 @@ pub fn validate_media_node(transform_type: &str, config: &Value) -> Vec<String> 
                         ));
                     }
                 }
-                Err(err) => {
-                    errors.push(format!("convert_media_set_to_table_rows config: {err}"))
-                }
+                Err(err) => errors.push(format!("convert_media_set_to_table_rows config: {err}")),
             }
         }
         GET_MEDIA_REFERENCES => {
             match serde_json::from_value::<GetMediaReferencesConfig>(config.clone()) {
                 Ok(cfg) => {
-                    if !cfg.target_media_set_rid.starts_with("ri.foundry.main.media_set.") {
+                    if !cfg
+                        .target_media_set_rid
+                        .starts_with("ri.foundry.main.media_set.")
+                    {
                         errors.push(format!(
                             "get_media_references.target_media_set_rid `{}` is not a Foundry \
                              media-set RID",
@@ -490,7 +495,10 @@ mod tests {
             MEDIA_TRANSFORM,
             &json!({ "kind": "resize", "params": { "width": 256 } }),
         );
-        assert!(missing_height.iter().any(|e| e.contains("`height`")), "{missing_height:?}");
+        assert!(
+            missing_height.iter().any(|e| e.contains("`height`")),
+            "{missing_height:?}"
+        );
 
         let ok = validate_media_node(
             MEDIA_TRANSFORM,

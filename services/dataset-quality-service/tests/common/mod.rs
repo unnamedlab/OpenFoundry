@@ -111,14 +111,12 @@ pub async fn seed_dataset_with_committed_at(
     .await
     .expect("seed committed txn");
 
-    sqlx::query(
-        "UPDATE dataset_branches SET head_transaction_id = $1 WHERE id = $2",
-    )
-    .bind(txn_id)
-    .bind(branch_id)
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE dataset_branches SET head_transaction_id = $1 WHERE id = $2")
+        .bind(txn_id)
+        .bind(branch_id)
+        .execute(pool)
+        .await
+        .unwrap();
 
     id
 }

@@ -15,8 +15,9 @@ use axum::{
     response::IntoResponse,
 };
 use scheduling_linter::{
-    Action, InventoryRun, InventorySchedule, RuleId, SweepInput, SweepReport, run_sweep,
+    Action, InventoryRun, InventorySchedule, RuleId, SweepInput, SweepReport,
     model::{InventoryTrigger, InventoryUser, TriggerCronFlavor},
+    run_sweep,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -92,14 +93,11 @@ pub async fn apply(
     let mut applied = Vec::with_capacity(actions.len());
     for action in actions {
         let result = match action.action {
-            Action::Pause => schedule_store::set_paused(
-                &state.db,
-                &action.schedule_rid,
-                true,
-                Some("LINTER"),
-            )
-            .await
-            .map(|_| "paused"),
+            Action::Pause => {
+                schedule_store::set_paused(&state.db, &action.schedule_rid, true, Some("LINTER"))
+                    .await
+                    .map(|_| "paused")
+            }
             Action::Delete => schedule_store::delete(&state.db, &action.schedule_rid)
                 .await
                 .map(|_| "deleted"),
@@ -155,8 +153,7 @@ async fn build_inventory(
         let scope_kind: String = row.try_get("scope_kind").map_err(|e| e.to_string())?;
         let trigger_json: serde_json::Value =
             row.try_get("trigger_json").map_err(|e| e.to_string())?;
-        let trigger: Trigger =
-            serde_json::from_value(trigger_json).map_err(|e| e.to_string())?;
+        let trigger: Trigger = serde_json::from_value(trigger_json).map_err(|e| e.to_string())?;
         let recent_runs = run_store::list_for_schedule(
             &state.db,
             schedule_id,
@@ -213,11 +210,7 @@ fn project_trigger(trigger: &Trigger) -> InventoryTrigger {
             branch_filter: e.branch_filter.clone(),
         },
         TriggerKind::Compound(c) => InventoryTrigger::Compound {
-            children: c
-                .components
-                .iter()
-                .map(project_trigger)
-                .collect(),
+            children: c.components.iter().map(project_trigger).collect(),
         },
     }
 }
@@ -242,4 +235,3 @@ pub fn inventory_with_owners(
         })
         .collect()
 }
-

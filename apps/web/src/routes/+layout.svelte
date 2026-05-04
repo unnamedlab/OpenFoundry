@@ -7,6 +7,7 @@
   import TopBar from '$components/layout/TopBar.svelte';
   import CopilotPanel from '$components/ai/CopilotPanel.svelte';
   import OntologySearch from '$components/ontology/OntologySearch.svelte';
+  import CommandPalette from '$components/ui/CommandPalette.svelte';
   import { initializeLocale, restoreLocale } from '$lib/i18n/store';
 
   let { children, data } = $props();
@@ -43,4 +44,10 @@
   </div>
   <CopilotPanel />
   <OntologySearch />
+  <!--
+    D1.1.5 closure — Ctrl+K command palette. Surfaces the Builds
+    application commands (`Open builds`, `Run build`,
+    `View build {rid}`) without hijacking any existing keybinding.
+  -->
+  <CommandPalette />
 {/if}

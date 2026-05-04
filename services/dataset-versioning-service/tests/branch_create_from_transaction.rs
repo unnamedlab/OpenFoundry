@@ -67,7 +67,10 @@ async fn open_commit(
         Some(json!({})),
     )
     .await;
-    assert!(commit_status.is_success(), "commit: {commit_status} {commit_body}");
+    assert!(
+        commit_status.is_success(),
+        "commit: {commit_status} {commit_body}"
+    );
     txn_id
 }
 
@@ -75,11 +78,8 @@ async fn open_commit(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn child_branch_from_committed_transaction_points_at_it() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.branch-from-tx",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.branch-from-tx").await;
 
     let _t1 = open_commit(&h.router, &h.token, dataset_id, "master", "SNAPSHOT").await;
     let t2 = open_commit(&h.router, &h.token, dataset_id, "master", "APPEND").await;
@@ -98,7 +98,9 @@ async fn child_branch_from_committed_transaction_points_at_it() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "create: {status} {body}");
     assert_eq!(
-        body["head_transaction_id"].as_str().and_then(|s| Uuid::parse_str(s).ok()),
+        body["head_transaction_id"]
+            .as_str()
+            .and_then(|s| Uuid::parse_str(s).ok()),
         Some(t2),
         "head must equal the source transaction"
     );

@@ -1,10 +1,42 @@
 # Hot-partition runbook (S1.8.d)
 
+> Owner: ontology-query-service maintainers + Cassandra/SRE on-call.
+> Last evidence attempt: 2026-05-03.
+> Current result: BLOCKED; no accepted S1 benchmark run is attached.
+
 Durante (y al cierre de) cada run de `bench-ontology` se inspeccionan
 las particiones más calientes de los keyspaces tocados por la mezcla:
 `ontology_objects`, `ontology_indexes` y `actions_log`. Este runbook
 documenta las métricas que importan, los thresholds operativos y las
 acciones correctivas si una tabla se sale del rango.
+
+## Último intento de ejecución
+
+| Campo | Valor |
+|---|---|
+| Fecha | 2026-05-03 |
+| Owner | ontology-query-service maintainers + Cassandra/SRE on-call |
+| Entorno | Kubernetes context `default` |
+| Evidencia | [`docs/architecture/slo-evidence/2026-05-03/summary.md`](../../../docs/architecture/slo-evidence/2026-05-03/summary.md) |
+| Resultado | BLOCKED; no hay snapshot `nodetool tablestats` aceptado |
+
+Comandos y resultados:
+
+```bash
+kubectl get cassandradatacenters -A
+kubectl get statefulset -A
+```
+
+Resultado:
+
+```text
+No resources found.
+No resources found.
+```
+
+Sin un `CassandraDatacenter` o StatefulSet de Cassandra no se puede
+ejecutar `nodetool tablestats`, `toppartitions` ni `tablehistograms`.
+Este intento no aprueba la evidencia de hot partitions de S1.
 
 ## Flujo
 

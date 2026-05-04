@@ -45,6 +45,53 @@ export type TransactionPolicy = 'TRANSACTIONLESS' | 'TRANSACTIONAL';
 
 export type TransactionState = 'OPEN' | 'COMMITTED' | 'ABORTED';
 
+/** Foundry write modes (`Incremental media sets.md`). `REPLACE` is
+ *  rejected on transactionless sets server-side with HTTP 422. */
+export type WriteMode = 'MODIFY' | 'REPLACE';
+
+/** Per-path resolution policy for `POST .../branches/{name}/merge`. */
+export type MergeResolution = 'LATEST_WINS' | 'FAIL_ON_CONFLICT';
+
+export interface MediaSetBranch {
+  media_set_rid: string;
+  branch_name: string;
+  /** Stable Foundry RID derived server-side from `(set_rid, name)`. */
+  branch_rid: string;
+  parent_branch_rid: string | null;
+  head_transaction_rid: string | null;
+  created_at: string;
+  created_by: string;
+}
+
+/** History row surfaced by `GET /media-sets/{rid}/transactions`. */
+export interface MediaSetTransactionHistoryEntry {
+  rid: string;
+  media_set_rid: string;
+  branch: string;
+  state: TransactionState;
+  write_mode: WriteMode;
+  opened_at: string;
+  closed_at: string | null;
+  opened_by: string;
+  items_added: number;
+  items_modified: number;
+  items_deleted: number;
+}
+
+export interface MergeBranchResponse {
+  source_branch: string;
+  target_branch: string;
+  resolution: MergeResolution;
+  paths_copied: number;
+  paths_overwritten: number;
+  paths_skipped: number;
+}
+
+export interface ResetBranchResponse {
+  branch: MediaSetBranch;
+  items_soft_deleted: number;
+}
+
 export interface MediaSet {
   rid: string;
   project_rid: string;
@@ -371,3 +418,59 @@ function putWithProgress(
     xhr.send(file);
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// Branches (H4)
+// ---------------------------------------------------------------------------
+
+export function listMediaSetBranches(rid: string) {
+  return api.get<MediaSetBranch[]>(`/media-sets/${encodeURIComponent(rid)}/branches`);
+}
+
+export function createMediaSetBranch(
+  rid: string,
+  body: { name: string; from_branch?: string; from_transaction_rid?: string },
+) {
+  return api.post<MediaSetBranch>(
+    `/media-sets/${encodeURIComponent(rid)}/branches`,
+    body,
+  );
+}
+
+export function deleteMediaSetBranch(rid: string, branchName: string) {
+  return api.delete<void>(
+    `/media-sets/${encodeURIComponent(rid)}/branches/${encodeURIComponent(branchName)}`,
+  );
+}
+
+/** TRANSACTIONAL only — server returns 422
+ *  `MEDIA_SET_TRANSACTIONLESS_REJECTS_RESET` otherwise. */
+export function resetMediaSetBranch(rid: string, branchName: string) {
+  return api.post<ResetBranchResponse>(
+    `/media-sets/${encodeURIComponent(rid)}/branches/${encodeURIComponent(branchName)}/reset`,
+    {},
+  );
+}
+
+export function mergeMediaSetBranch(
+  rid: string,
+  sourceBranch: string,
+  body: { target_branch: string; resolution?: MergeResolution },
+) {
+  return api.post<MergeBranchResponse>(
+    `/media-sets/${encodeURIComponent(rid)}/branches/${encodeURIComponent(sourceBranch)}/merge`,
+    body,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Transactions history (H4 — feeds the History tab)
+// ---------------------------------------------------------------------------
+
+export function listMediaSetTransactions(rid: string) {
+  return api.get<MediaSetTransactionHistoryEntry[]>(
+    `/media-sets/${encodeURIComponent(rid)}/transactions`,
+  );
+}
+

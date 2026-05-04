@@ -155,7 +155,8 @@ impl BuildServiceClient for HttpBuildServiceClient {
         req: &CreateBuildPayload,
         principal: &RunAsPrincipal,
     ) -> BuildAttemptOutcome {
-        self.create_build_inner(req, Some(principal.as_authorization_header())).await
+        self.create_build_inner(req, Some(principal.as_authorization_header()))
+            .await
     }
 }
 
@@ -165,10 +166,7 @@ impl HttpBuildServiceClient {
         req: &CreateBuildPayload,
         principal_header: Option<String>,
     ) -> BuildAttemptOutcome {
-        let url = format!(
-            "{}/v1/builds",
-            self.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/v1/builds", self.base_url.trim_end_matches('/'));
         let mut request = self.inner.post(&url).json(req);
         // Per-call principal overrides the static auth header so the
         // schedule dispatcher can hand the build-service the schedule's
@@ -263,6 +261,9 @@ mod tests {
         let payload = CreateBuildPayload::from_target(&target, vec!["ri.dataset.x".into()]);
         assert_eq!(payload.trigger_kind.as_deref(), Some("SCHEDULED"));
         assert_eq!(payload.abort_policy.as_deref(), Some("DEPENDENT_ONLY"));
-        assert_eq!(payload.output_dataset_rids, vec!["ri.dataset.x".to_string()]);
+        assert_eq!(
+            payload.output_dataset_rids,
+            vec!["ri.dataset.x".to_string()]
+        );
     }
 }

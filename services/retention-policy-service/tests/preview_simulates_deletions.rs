@@ -65,9 +65,8 @@ async fn seed_committed_transaction_with_file(
         "ABORTED" => "aborted_at",
         _ => "committed_at",
     };
-    let sql = format!(
-        "UPDATE dataset_transactions SET status = $2, {column} = NOW() WHERE id = $1"
-    );
+    let sql =
+        format!("UPDATE dataset_transactions SET status = $2, {column} = NOW() WHERE id = $1");
     sqlx::query(&sql)
         .bind(txn_id)
         .bind(final_status)
@@ -158,13 +157,18 @@ async fn preview_marks_aborted_transactions_for_deletion_via_system_policy() {
     assert_eq!(body["summary"]["transactions_would_delete"], 1);
     // The file from the ABORTED txn shows up in the purge file list.
     let files = body["files"].as_array().unwrap();
-    assert_eq!(files.len(), 1, "only the aborted txn's file is purged: {body}");
+    assert_eq!(
+        files.len(),
+        1,
+        "only the aborted txn's file is purged: {body}"
+    );
     assert_eq!(files[0]["size_bytes"], 4096);
 
     // Effective policy at as_of=now is the system policy (most
     // restrictive: retention_days=0).
     assert_eq!(
-        body["effective_policy"]["name"], "DELETE_ABORTED_TRANSACTIONS"
+        body["effective_policy"]["name"],
+        "DELETE_ABORTED_TRANSACTIONS"
     );
 }
 

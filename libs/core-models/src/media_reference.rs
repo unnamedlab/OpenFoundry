@@ -163,7 +163,8 @@ mod tests {
     #[test]
     fn media_reference_uses_camel_case_keys() {
         let mr = MediaReference::new("ms", "mi", "master", MediaSetSchema::Audio);
-        let value: serde_json::Value = serde_json::from_str(&mr.to_foundry_json().unwrap()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&mr.to_foundry_json().unwrap()).unwrap();
         assert_eq!(
             value,
             serde_json::json!({

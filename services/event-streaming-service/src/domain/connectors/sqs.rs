@@ -167,7 +167,9 @@ impl<C: SqsClient + 'static> StreamingSourceConnector for SqsConnector<C> {
             .get("receipt_handle")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ConnectorError::Decode("missing receipt_handle".into()))?;
-        self.client.delete_message(&self.config.queue_url, handle).await
+        self.client
+            .delete_message(&self.config.queue_url, handle)
+            .await
     }
 
     async fn health(&self) -> ConnectorHealth {

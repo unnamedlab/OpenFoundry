@@ -8,15 +8,20 @@
 //! intentionally narrower.
 
 pub mod domain {
+    pub mod aip;
+    pub mod aip_http_client;
     pub mod build_client;
     pub mod dispatcher;
     pub mod event_listener;
+    pub mod metrics;
     pub mod notification_client;
+    pub mod outbox_events;
     pub mod run_store;
     pub mod schedule_store;
     pub mod service_principal_store;
     pub mod temporal_schedule;
     pub mod trigger;
     pub mod trigger_engine;
+    pub mod troubleshoot;
     pub mod version_store;
 }

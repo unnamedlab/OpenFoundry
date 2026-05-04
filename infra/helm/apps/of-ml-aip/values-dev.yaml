@@ -1,0 +1,7 @@
+global:
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
+
+services:
+  ai-sink:
+    replicas: 1

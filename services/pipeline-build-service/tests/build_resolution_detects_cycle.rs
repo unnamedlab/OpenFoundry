@@ -9,7 +9,7 @@ use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, BuildResolutionError, ResolveBuildArgs, resolve_build,
 };
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test]
 #[ignore = "requires docker"]
@@ -22,11 +22,17 @@ async fn build_resolution_detects_cycle_returns_cycle_path() {
     specs.add(job_spec("ri.spec.s2", vec!["b"], vec!["a"]));
     versioning.add_branch(
         "a",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
     versioning.add_branch(
         "b",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();

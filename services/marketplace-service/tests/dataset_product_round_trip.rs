@@ -101,8 +101,7 @@ async fn publish_then_install_preserves_manifest_across_tenants() {
     assert_eq!(product["manifest"]["entity"], "dataset");
     assert_eq!(product["manifest"]["bootstrap"]["mode"], "schema-only");
     assert_eq!(
-        product["manifest"]["schema"]["file_format"],
-        "PARQUET",
+        product["manifest"]["schema"]["file_format"], "PARQUET",
         "schema fragment captured"
     );
     let retention = product["manifest"]["retention"].as_array().unwrap();
@@ -131,10 +130,7 @@ async fn publish_then_install_preserves_manifest_across_tenants() {
 
     assert_eq!(install["product_id"], product_id);
     assert_eq!(install["target_dataset_rid"], target_rid);
-    assert_eq!(
-        install["target_project_id"],
-        target_project_id.to_string()
-    );
+    assert_eq!(install["target_project_id"], target_project_id.to_string());
     assert_eq!(install["bootstrap_mode"], "schema-only");
     assert_eq!(install["status"], "pending");
 

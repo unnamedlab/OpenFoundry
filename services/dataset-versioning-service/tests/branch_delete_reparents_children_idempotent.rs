@@ -61,11 +61,9 @@ async fn create_child(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn delete_branch_three_times_keeps_ancestry_intact() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.delete-idempotent",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.delete-idempotent")
+            .await;
 
     let _b = create_child(&h.router, &h.token, dataset_id, "B", "master").await;
     let _c1 = create_child(&h.router, &h.token, dataset_id, "C1", "B").await;
@@ -114,6 +112,9 @@ async fn delete_branch_three_times_keeps_ancestry_intact() {
         .await;
         assert_eq!(s, StatusCode::OK, "child {child_name}: {s} {b}");
         let parent_id = b["parent_branch_id"].as_str();
-        assert!(parent_id.is_some(), "child {child_name} must keep a parent (=master)");
+        assert!(
+            parent_id.is_some(),
+            "child {child_name} must keep a parent (=master)"
+        );
     }
 }

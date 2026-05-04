@@ -39,8 +39,6 @@ the rest are now shipped as JSON.
 |---|---|---|---|---|
 | Kafka (Strimzi)   | *Strimzi Kafka Exporter Overview*               | **[721][gc-721]**   | Prometheus | Pairs with `kafka.yaml`; covers ISR, under-replicated, consumer lag. |
 | Kafka (Strimzi)   | *Strimzi Operator Overview*                     | **[14842][gc-14842]** | Prometheus | Cluster Operator + KafkaRoller view. |
-| ClickHouse        | *ClickHouse — Quick overview*                   | **[14192][gc-14192]** | Prometheus | Built against the ClickHouse `/metrics` endpoint. |
-| ClickHouse        | *ClickHouse Keeper*                             | **[20783][gc-20783]** | Prometheus | Pairs with `clickhouse.yaml` Keeper rules. |
 | Vespa             | *Vespa Detailed Monitoring Dashboard*           | **[18308][gc-18308]** | Prometheus | Vespa-team-maintained dashboard for the metrics-proxy consumer used by `infra/k8s/helm/open-foundry/charts/vespa/templates/servicemonitor.yaml`. |
 | CloudNativePG     | *CloudNativePG*                                 | **[20417][gc-20417]** | Prometheus | The dashboard published in the cnpg upstream repository. |
 | Apache Flink      | *Flink Dashboard*                               | **[14911][gc-14911]** | Prometheus | Job uptime, checkpoints, savepoints — pairs with `flink.yaml`. |
@@ -66,7 +64,6 @@ flowing.
 | Flight SQL — point query SLO         | `dp-slo-flightsql` | §2.1 | [`dp-slo-flightsql.json`](./dp-slo-flightsql.json) |
 | DataFusion / Iceberg scan SLO        | `dp-slo-datafusion`| §2.2 | [`dp-slo-datafusion.json`](./dp-slo-datafusion.json) |
 | Kafka producer ack SLO               | `dp-slo-kafka`     | §2.3 | [`dp-slo-kafka.json`](./dp-slo-kafka.json) |
-| ClickHouse dashboard query SLO       | `dp-slo-clickhouse`| §2.4 | [`dp-slo-clickhouse.json`](./dp-slo-clickhouse.json) |
 | Vespa hybrid query SLO               | `dp-slo-vespa`     | §2.5 | [`dp-slo-vespa.json`](./dp-slo-vespa.json) |
 | NATS control event SLO               | `dp-slo-nats`      | §2.6 | [`dp-slo-nats.json`](./dp-slo-nats.json) |
 

@@ -21,9 +21,7 @@ fn every_output_transaction_lands_on_build_branch() {
     let build_branch = b("feature");
     // Three outputs, every transaction targets the build branch.
     for _ in ["dataset.A", "dataset.B", "dataset.C"] {
-        assert!(
-            assert_transaction_targets_build_branch(&build_branch, &build_branch).is_ok()
-        );
+        assert!(assert_transaction_targets_build_branch(&build_branch, &build_branch).is_ok());
     }
 }
 

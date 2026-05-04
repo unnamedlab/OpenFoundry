@@ -1,5 +1,8 @@
 # S3.1.j — Pen-test runbook: `identity-federation-service`
 
+> Owner: security architect + identity-federation-service maintainers.
+> Last evidence attempt: 2026-05-03.
+> Current result: BLOCKED; not signed off for S3 closure.
 > Gate: must complete with **zero criticals** and **zero highs**
 > before Stream S3 closes, but this sign-off alone does **not** close
 > S3; the stream still requires gate `G-S3` in the migration plan.
@@ -82,8 +85,48 @@ Closure of S3 requires **zero criticals + zero highs** signed off
 by the security architect **and** the rest of the final gates in
 `migration-plan-cassandra-foundry-parity.md` §18.
 
+## Latest Execution Attempt
+
+| Field | Value |
+|---|---|
+| Date | 2026-05-03 |
+| Owner | security architect + identity-federation-service maintainers |
+| Environment | Kubernetes context `default` |
+| Evidence pack | [`docs/architecture/slo-evidence/2026-05-03/summary.md`](../slo-evidence/2026-05-03/summary.md) |
+| Result | BLOCKED; no pen-test was executed |
+
+Commands and results:
+
+```bash
+kubectl get deploy -A
+```
+
+Result summary:
+
+```text
+openfoundry/identity-federation-service  0/1
+openfoundry/edge-gateway-service         0/1
+```
+
+```bash
+kubectl api-resources
+```
+
+Result summary:
+
+```text
+No Strimzi Kafka resources and no Prometheus Operator resources are
+available in this context.
+```
+
+The runbook requires a reachable identity stack, Kafka topic
+`audit.identity.v1`, Vault Transit, Redis and ZAP/OAuth/WebAuthn test
+traffic. Those prerequisites are absent or unavailable here, so this
+attempt cannot be used as a security sign-off.
+
 ## Sign-off
 
-- [ ] Security architect: ___
-- [ ] Identity service maintainer: ___
-- [ ] Date: ___
+- Security architect: NOT SIGNED
+- Identity service maintainer: NOT SIGNED
+- Date: 2026-05-03
+- Outcome: BLOCKED, not approved for S3 closure

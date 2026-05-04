@@ -5,8 +5,8 @@
 //! `dataset_versioning_service::models::schema::validate_schema`.
 
 use dataset_versioning_service::models::schema::{
-    CsvOptions, CustomMetadata, DatasetSchema, Field, FieldType, FileFormat,
-    SchemaValidationError, validate_schema,
+    CsvOptions, CustomMetadata, DatasetSchema, Field, FieldType, FileFormat, SchemaValidationError,
+    validate_schema,
 };
 
 fn primitive(name: &str, ft: FieldType) -> Field {

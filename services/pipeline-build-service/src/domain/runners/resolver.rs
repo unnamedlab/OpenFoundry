@@ -194,18 +194,13 @@ async fn resolve_one(
             .map_err(|e| format!("incremental lookup failed: {e}"))?;
 
             let from_txn = match lower_bound {
-                Some((value,)) => {
-                    serde_json::from_value::<Vec<ResolvedViewFilter>>(value)
-                        .ok()
-                        .and_then(|arr| {
-                            arr.into_iter()
-                                .find(|r| r.dataset_rid == input.dataset_rid)
-                                .and_then(|r| {
-                                    r.range_to_transaction_rid
-                                        .or(r.resolved_transaction_rid)
-                                })
-                        })
-                }
+                Some((value,)) => serde_json::from_value::<Vec<ResolvedViewFilter>>(value)
+                    .ok()
+                    .and_then(|arr| {
+                        arr.into_iter()
+                            .find(|r| r.dataset_rid == input.dataset_rid)
+                            .and_then(|r| r.range_to_transaction_rid.or(r.resolved_transaction_rid))
+                    }),
                 None => None,
             };
 

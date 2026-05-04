@@ -86,9 +86,7 @@ async fn rollup(
 
 fn defaults(query: &UsageQuery) -> (DateTime<Utc>, DateTime<Utc>) {
     let to = query.to.unwrap_or_else(Utc::now);
-    let from = query
-        .from
-        .unwrap_or_else(|| to - chrono::Duration::days(7));
+    let from = query.from.unwrap_or_else(|| to - chrono::Duration::days(7));
     (from, to)
 }
 
@@ -99,12 +97,11 @@ pub async fn get_stream_usage(
     Query(query): Query<UsageQuery>,
 ) -> ServiceResult<UsageResponse> {
     // Confirm the stream exists for a sane 404.
-    let exists: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM streaming_streams WHERE id = $1")
-            .bind(stream_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|c| db_error(&c))?;
+    let exists: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM streaming_streams WHERE id = $1")
+        .bind(stream_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|c| db_error(&c))?;
     if exists.is_none() {
         return Err(not_found("stream not found"));
     }

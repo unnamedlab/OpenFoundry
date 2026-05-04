@@ -1,0 +1,16 @@
+search:
+  backend: vespa
+
+global:
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
+
+vespa:
+  enabled: false
+
+services:
+  ontology-indexer:
+    replicas: 2
+    env:
+      SEARCH_BACKEND: vespa
+      SEARCH_ENDPOINT: http://of-ontology-vespa:8080

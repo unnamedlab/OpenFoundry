@@ -22,83 +22,134 @@ fn next(expr: &str, after: DateTime<Utc>) -> DateTime<Utc> {
 #[test]
 fn ex_30_9_every_monday_jumps_to_next_monday() {
     // 2026-04-26 is a Sunday. Monday at 09:30 UTC is the next fire.
-    assert_eq!(next("30 9 * * 1", ut(2026, 4, 26, 12, 0)), ut(2026, 4, 27, 9, 30));
+    assert_eq!(
+        next("30 9 * * 1", ut(2026, 4, 26, 12, 0)),
+        ut(2026, 4, 27, 9, 30)
+    );
 }
 
 #[test]
 fn ex_30_17_every_monday_in_february() {
     // After Jan 2026, the first Monday in February at 17:30 is Feb 2nd.
-    assert_eq!(next("30 17 * 2 1", ut(2026, 1, 1, 0, 0)), ut(2026, 2, 2, 17, 30));
+    assert_eq!(
+        next("30 17 * 2 1", ut(2026, 1, 1, 0, 0)),
+        ut(2026, 2, 2, 17, 30)
+    );
 }
 
 #[test]
 fn ex_every_hour_9_to_17_on_the_10th() {
     // 2026-04-09 23:59 — next match is 2026-04-10 09:00.
-    assert_eq!(next("0 9-17 10 * *", ut(2026, 4, 9, 23, 59)), ut(2026, 4, 10, 9, 0));
+    assert_eq!(
+        next("0 9-17 10 * *", ut(2026, 4, 9, 23, 59)),
+        ut(2026, 4, 10, 9, 0)
+    );
 }
 
 #[test]
 fn ex_every_hour_9_to_17_on_the_10th_continues() {
     // After 09:00, next fire is 10:00 on the same day.
-    assert_eq!(next("0 9-17 10 * *", ut(2026, 4, 10, 9, 0)), ut(2026, 4, 10, 10, 0));
+    assert_eq!(
+        next("0 9-17 10 * *", ut(2026, 4, 10, 9, 0)),
+        ut(2026, 4, 10, 10, 0)
+    );
 }
 
 #[test]
 fn ex_every_two_hours_9_to_17_on_10th() {
     // 0 9-17/2 10 * * → 9, 11, 13, 15, 17.
-    assert_eq!(next("0 9-17/2 10 * *", ut(2026, 4, 10, 9, 0)), ut(2026, 4, 10, 11, 0));
-    assert_eq!(next("0 9-17/2 10 * *", ut(2026, 4, 10, 16, 0)), ut(2026, 4, 10, 17, 0));
+    assert_eq!(
+        next("0 9-17/2 10 * *", ut(2026, 4, 10, 9, 0)),
+        ut(2026, 4, 10, 11, 0)
+    );
+    assert_eq!(
+        next("0 9-17/2 10 * *", ut(2026, 4, 10, 16, 0)),
+        ut(2026, 4, 10, 17, 0)
+    );
 }
 
 #[test]
 fn ex_9_or_17_on_10th() {
-    assert_eq!(next("0 9,17 10 * *", ut(2026, 4, 10, 0, 0)), ut(2026, 4, 10, 9, 0));
-    assert_eq!(next("0 9,17 10 * *", ut(2026, 4, 10, 9, 0)), ut(2026, 4, 10, 17, 0));
+    assert_eq!(
+        next("0 9,17 10 * *", ut(2026, 4, 10, 0, 0)),
+        ut(2026, 4, 10, 9, 0)
+    );
+    assert_eq!(
+        next("0 9,17 10 * *", ut(2026, 4, 10, 9, 0)),
+        ut(2026, 4, 10, 17, 0)
+    );
 }
 
 #[test]
 fn ex_every_5min_9_to_17_on_15th_march() {
-    assert_eq!(next("0/5 9-17 15 3 *", ut(2026, 3, 15, 9, 4)), ut(2026, 3, 15, 9, 5));
+    assert_eq!(
+        next("0/5 9-17 15 3 *", ut(2026, 3, 15, 9, 4)),
+        ut(2026, 3, 15, 9, 5)
+    );
     // Last fire of the day is 17:55.
-    assert_eq!(next("0/5 9-17 15 3 *", ut(2026, 3, 15, 17, 50)), ut(2026, 3, 15, 17, 55));
+    assert_eq!(
+        next("0/5 9-17 15 3 *", ut(2026, 3, 15, 17, 50)),
+        ut(2026, 3, 15, 17, 55)
+    );
 }
 
 #[test]
 fn ex_every_5min_9_or_17_on_15th_march() {
     // 0/5 9,17 15 3 * — fires every 5 min during the 9 am hour and 5 pm hour.
-    assert_eq!(next("0/5 9,17 15 3 *", ut(2026, 3, 15, 9, 55)), ut(2026, 3, 15, 17, 0));
-    assert_eq!(next("0/5 9,17 15 3 *", ut(2026, 3, 15, 17, 55)), ut(2027, 3, 15, 9, 0));
+    assert_eq!(
+        next("0/5 9,17 15 3 *", ut(2026, 3, 15, 9, 55)),
+        ut(2026, 3, 15, 17, 0)
+    );
+    assert_eq!(
+        next("0/5 9,17 15 3 *", ut(2026, 3, 15, 17, 55)),
+        ut(2027, 3, 15, 9, 0)
+    );
 }
 
 // ---- L (last) --------------------------------------------------------------
 
 #[test]
 fn ex_last_day_of_january() {
-    assert_eq!(next("0 9 L * *", ut(2026, 1, 1, 0, 0)), ut(2026, 1, 31, 9, 0));
+    assert_eq!(
+        next("0 9 L * *", ut(2026, 1, 1, 0, 0)),
+        ut(2026, 1, 31, 9, 0)
+    );
 }
 
 #[test]
 fn ex_last_day_of_february_non_leap() {
     // 2026 is not a leap year, so February has 28 days.
-    assert_eq!(next("0 9 L 2 *", ut(2026, 1, 1, 0, 0)), ut(2026, 2, 28, 9, 0));
+    assert_eq!(
+        next("0 9 L 2 *", ut(2026, 1, 1, 0, 0)),
+        ut(2026, 2, 28, 9, 0)
+    );
 }
 
 #[test]
 fn ex_last_day_of_february_leap() {
     // 2028 is a leap year, so the L should land on the 29th.
-    assert_eq!(next("0 9 L 2 *", ut(2028, 1, 1, 0, 0)), ut(2028, 2, 29, 9, 0));
+    assert_eq!(
+        next("0 9 L 2 *", ut(2028, 1, 1, 0, 0)),
+        ut(2028, 2, 29, 9, 0)
+    );
 }
 
 #[test]
 fn ex_l_dow_means_saturday() {
     // 2026-04-30 is a Thursday. Next Saturday is May 2.
-    assert_eq!(next("0 9 * * L", ut(2026, 4, 30, 0, 0)), ut(2026, 5, 2, 9, 0));
+    assert_eq!(
+        next("0 9 * * L", ut(2026, 4, 30, 0, 0)),
+        ut(2026, 5, 2, 9, 0)
+    );
 }
 
 #[test]
 fn ex_2l_means_last_tuesday_of_month() {
     // Last Tuesday of April 2026 is April 28.
-    assert_eq!(next("0 9 * * 2L", ut(2026, 4, 1, 0, 0)), ut(2026, 4, 28, 9, 0));
+    assert_eq!(
+        next("0 9 * * 2L", ut(2026, 4, 1, 0, 0)),
+        ut(2026, 4, 28, 9, 0)
+    );
 }
 
 // ---- # (Nth occurrence) ----------------------------------------------------
@@ -106,12 +157,18 @@ fn ex_2l_means_last_tuesday_of_month() {
 #[test]
 fn ex_3hash1_first_wednesday_of_april() {
     // First Wednesday of April 2026 is April 1 (a Wednesday).
-    assert_eq!(next("0 9 * 4 3#1", ut(2026, 1, 1, 0, 0)), ut(2026, 4, 1, 9, 0));
+    assert_eq!(
+        next("0 9 * 4 3#1", ut(2026, 1, 1, 0, 0)),
+        ut(2026, 4, 1, 9, 0)
+    );
 }
 
 #[test]
 fn ex_3hash1_skips_to_next_year_after_first_wednesday() {
-    assert_eq!(next("0 9 * 4 3#1", ut(2026, 4, 2, 0, 0)), ut(2027, 4, 7, 9, 0));
+    assert_eq!(
+        next("0 9 * 4 3#1", ut(2026, 4, 2, 0, 0)),
+        ut(2027, 4, 7, 9, 0)
+    );
 }
 
 // ---- DOM/DOW = either-match Vixie semantics --------------------------------

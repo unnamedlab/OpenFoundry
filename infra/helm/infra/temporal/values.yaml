@@ -1,0 +1,4 @@
+# Default Temporal values. Profile overlays in values-{dev,prod}.yaml are
+# layered on top via helmfile. The `temporal:` key matches the upstream
+# chart's name (a dependency of this wrapper).
+temporal: {}

@@ -18,9 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
-use pipeline_build_service::domain::build_executor::{
-    execute_build, ExecuteBuildArgs, JobOutcome,
-};
+use pipeline_build_service::domain::build_executor::{ExecuteBuildArgs, JobOutcome, execute_build};
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
@@ -30,8 +28,8 @@ use pipeline_build_service::domain::logs::{
 use pipeline_build_service::models::build::BuildState;
 
 use crate::common::{
-    arc_output, arc_runner, job_spec, MockDatasetClient, MockJobRunner, MockJobSpecRepo,
-    MockOutputClient, RunnerScript, spawn,
+    MockDatasetClient, MockJobRunner, MockJobSpecRepo, MockOutputClient, RunnerScript, arc_output,
+    arc_runner, job_spec, spawn,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -47,15 +45,25 @@ async fn builds_full_journey_p1_through_p4() {
     specs.add(job_spec("ri.spec.c", vec!["raw.y"], vec!["out.c"]));
     versioning.add_branch(
         "raw.x",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
     versioning.add_branch(
         "raw.y",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
-    let outputs = vec!["mid.a".to_string(), "out.b".to_string(), "out.c".to_string()];
+    let outputs = vec![
+        "mid.a".to_string(),
+        "out.b".to_string(),
+        "out.c".to_string(),
+    ];
 
     // ── 1. resolve_build ──────────────────────────────────────────
     let resolved = resolve_build(
@@ -153,8 +161,7 @@ async fn builds_full_journey_p1_through_p4() {
     .fetch_one(&harness.pool)
     .await
     .unwrap();
-    let postgres_sink: Arc<dyn LogSink> =
-        Arc::new(PostgresLogSink::new(harness.pool.clone()));
+    let postgres_sink: Arc<dyn LogSink> = Arc::new(PostgresLogSink::new(harness.pool.clone()));
     let broadcaster = Arc::new(BroadcastLogSink::new());
     let composite = CompositeLogSink::new(postgres_sink, broadcaster);
     let seq = composite
@@ -171,13 +178,12 @@ async fn builds_full_journey_p1_through_p4() {
     assert!(seq > 0);
 
     // Round-trip via REST history.
-    let row: (String, String) = sqlx::query_as(
-        "SELECT level, message FROM job_logs WHERE sequence = $1",
-    )
-    .bind(seq)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let row: (String, String) =
+        sqlx::query_as("SELECT level, message FROM job_logs WHERE sequence = $1")
+            .bind(seq)
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
     assert_eq!(row.0, "INFO");
     assert!(row.1.contains("full-journey"));
 

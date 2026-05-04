@@ -1,0 +1,622 @@
+release: of-apps-ops
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+image:
+  registry: ghcr.io/openfoundry
+  tag: "0.1.0"
+
+global:
+  imagePullPolicy: IfNotPresent
+  imageRegistry: ""
+  imagePullSecrets: []
+  existingSecret: open-foundry-env
+  publicWebOrigin: https://openfoundry.example.com
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+  podAnnotations: {}
+  podSecurityContext:
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    readOnlyRootFilesystem: false
+  terminationGracePeriodSeconds: 30
+  topologySpreadConstraints:
+    enabled: true
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  networkPolicy:
+    enabled: true
+    allowSameNamespaceTraffic: true
+    additionalEgressCidrs: []
+  platformProfile:
+    enabled: true
+    configMapName: openfoundry-platform-profile
+  probes:
+    readiness:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 8
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 6
+    liveness:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 3
+      failureThreshold: 3
+  deploymentFabric:
+    cloud: kubernetes
+    environment: shared
+    cell: core
+    region: global
+    multiCloud:
+      enabled: false
+      activeProvider: ""
+      workloadIdentity:
+        awsRoleArn: ""
+        gcpServiceAccount: ""
+        azureClientId: ""
+      providers: []
+    airGap:
+      enabled: false
+      privateRegistry: ""
+      releaseBundle: ""
+      disablePublicEgress: false
+      mirrorRegistries: []
+      allowedEgressCidrs: []
+    geoRestrictions:
+      enabled: false
+      allowedCountries: []
+      allowedIngressCidrs: []
+      allowedEgressCidrs: []
+      ingressAnnotations: {}
+      requiredNodeLabels: {}
+      residencyLabel: ""
+  cassandra:
+    localDc: dc1
+  kafka:
+    bootstrap: ""
+    topicPrefix: ""
+
+migrations:
+  pg-schemas:
+    enabled: true
+    dsnSecret:
+      name: pg-schemas-app
+      key: dsn
+  pg-policy:
+    enabled: true
+    dsnSecret:
+      name: pg-policy-app
+      key: dsn
+  pg-lakekeeper:
+    enabled: false
+    dsnSecret:
+      name: pg-lakekeeper-app
+      key: dsn
+
+temporal:
+  # Frontend gRPC address consumed by Rust S2 services via TEMPORAL_HOST_PORT.
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  namespace: openfoundry-default
+
+services:
+  application-composition-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  notebook-runtime-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  ontology-exploratory-analysis-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  solution-design-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  workflow-automation-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  notification-alerting-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  audit-compliance-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  audit-sink:
+    replicas: 2
+    ports:
+      - name: metrics
+        containerPort: 9090
+        servicePort: 9090
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    serviceAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    probes:
+      readiness:
+        path: /health
+        port: metrics
+      liveness:
+        path: /health
+        port: metrics
+    env:
+      ICEBERG_CATALOG_URL: http://lakekeeper.lakekeeper.svc:8181
+      ICEBERG_WAREHOUSE: openfoundry-iceberg
+      METRICS_ADDR: 0.0.0.0:9090
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  telemetry-governance-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  federation-product-exchange-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  code-repository-review-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  sdk-generation-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  entity-resolution-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # ── Apps & Ops services completed (S8.6 — full coverage) ──────────
+  app-builder-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  application-curation-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  automation-operations-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  code-security-scanning-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  compute-modules-control-plane-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  compute-modules-runtime-service:
+    replicas: 3
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  custom-endpoints-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  developer-console-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  document-intelligence-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  document-reporting-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  execution-observability-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  geospatial-intelligence-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  managed-workspace-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  marketplace-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  marketplace-catalog-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  monitoring-rules-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  nexus-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  product-distribution-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  report-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  scenario-simulation-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  sds-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  spreadsheet-computation-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  tabular-analysis-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  workflow-trace-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi

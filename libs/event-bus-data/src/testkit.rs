@@ -4,6 +4,7 @@
 //! test gets its own isolated cluster. Requires Docker on the host and is
 //! intended for CI only.
 
+use std::net::TcpListener;
 use std::time::Duration;
 
 use rdkafka::ClientConfig;
@@ -27,31 +28,47 @@ impl EphemeralKafka {
     /// disabled at the broker level so tests must provision topics
     /// explicitly via [`EphemeralKafka::create_topic`].
     pub async fn start() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let image = GenericImage::new("apache/kafka", "3.7.0")
-            .with_exposed_port(ContainerPort::Tcp(9092))
+        let host_port = free_local_port()?;
+        let advertised_listeners = format!("PLAINTEXT://127.0.0.1:{host_port}");
+        let image = GenericImage::new("apache/kafka", "3.7.1")
             .with_wait_for(WaitFor::message_on_stdout("Kafka Server started"))
-            .with_env_var("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false")
-            // KRaft single-node defaults are baked into the image; we only
-            // need to publish the listener address so the host can reach it.
+            .with_mapped_port(host_port, ContainerPort::Tcp(9092))
+            .with_env_var("KAFKA_NODE_ID", "1")
+            .with_env_var("KAFKA_PROCESS_ROLES", "broker,controller")
             .with_env_var(
-                "KAFKA_ADVERTISED_LISTENERS",
-                "PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093",
-            );
+                "KAFKA_LISTENERS",
+                "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093",
+            )
+            .with_env_var("KAFKA_ADVERTISED_LISTENERS", advertised_listeners)
+            .with_env_var("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER")
+            // KRaft requires every listener name, including CONTROLLER, in the protocol map.
+            .with_env_var(
+                "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
+                "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT",
+            )
+            .with_env_var("KAFKA_CONTROLLER_QUORUM_VOTERS", "1@127.0.0.1:9093")
+            .with_env_var("KAFKA_INTER_BROKER_LISTENER_NAME", "PLAINTEXT")
+            .with_env_var("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1")
+            .with_env_var("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1")
+            .with_env_var("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
+            .with_env_var("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false")
+            .with_env_var("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0");
         let container = image.start().await?;
-        let host_port = container.get_host_port_ipv4(9092).await?;
         Ok(Self {
             _container: container,
-            bootstrap_servers: format!("localhost:{host_port}"),
+            bootstrap_servers: format!("127.0.0.1:{host_port}"),
         })
     }
 
     /// Build a [`DataBusConfig`] pointed at this broker using a PLAINTEXT
     /// dev principal.
     pub fn config_for(&self, service: &str) -> DataBusConfig {
+        // Local librdkafka test builds may omit libzstd; compression is not part of the flow contract.
         DataBusConfig::new(
             &self.bootstrap_servers,
             ServicePrincipal::insecure_dev(service),
         )
+        .without_compression()
     }
 
     /// Provision a topic via the AdminClient. Required because broker-level
@@ -72,4 +89,12 @@ impl EphemeralKafka {
         }
         Ok(())
     }
+}
+
+fn free_local_port() -> std::io::Result<u16> {
+    TcpListener::bind(("127.0.0.1", 0)).and_then(|listener| {
+        let port = listener.local_addr()?.port();
+        drop(listener);
+        Ok(port)
+    })
 }

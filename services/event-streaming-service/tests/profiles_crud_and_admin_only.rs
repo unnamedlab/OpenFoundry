@@ -8,8 +8,7 @@
 //! widen the surface.
 
 use event_streaming_service::handlers::profiles::{
-    ERR_PROFILE_INVALID_KEY, ERR_PROFILE_NOT_IMPORTED,
-    ERR_PROFILE_RESTRICTED_REQUIRES_ADMIN,
+    ERR_PROFILE_INVALID_KEY, ERR_PROFILE_NOT_IMPORTED, ERR_PROFILE_RESTRICTED_REQUIRES_ADMIN,
 };
 use event_streaming_service::models::profile::{
     CreateProfileRequest, FLINK_CONFIG_KEY_WHITELIST, ProfileCategory, ProfileSizeClass,
@@ -40,7 +39,10 @@ fn profiles_create_request_round_trips() {
     }))
     .unwrap();
     assert_eq!(req.name, "Custom");
-    assert!(matches!(req.category, ProfileCategory::TaskmanagerResources));
+    assert!(matches!(
+        req.category,
+        ProfileCategory::TaskmanagerResources
+    ));
     assert!(matches!(req.size_class, ProfileSizeClass::Medium));
     // `restricted` defaults to None so the handler can apply the
     // LARGE-defaults-to-restricted rule.

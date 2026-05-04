@@ -60,7 +60,10 @@ fn node_palette_media_transform_lists_every_kind() {
         "extract_layout_aware",
     ];
     for kind in expected {
-        assert!(kinds.contains(kind), "media_transform missing kind `{kind}`");
+        assert!(
+            kinds.contains(kind),
+            "media_transform missing kind `{kind}`"
+        );
     }
 }
 
@@ -87,7 +90,8 @@ fn media_set_input_rejects_non_rid() {
         &json!({ "media_set_rid": "not-a-rid", "branch": "main" }),
     );
     assert!(
-        errs.iter().any(|e| e.contains("not a Foundry media-set RID")),
+        errs.iter()
+            .any(|e| e.contains("not a Foundry media-set RID")),
         "{errs:?}"
     );
 }
@@ -150,14 +154,54 @@ fn media_set_output_rejects_replace_on_transactionless_target() {
 #[test]
 fn media_transform_validates_required_params_per_kind() {
     let cases: &[(&str, Value, bool, &str)] = &[
-        ("resize w/o height", json!({ "kind": "resize", "params": { "width": 256 } }), false, "`height`"),
-        ("resize ok", json!({ "kind": "resize", "params": { "width": 256, "height": 256 } }), true, ""),
-        ("rotate w/o degrees", json!({ "kind": "rotate", "params": {} }), false, "`degrees`"),
-        ("crop missing keys", json!({ "kind": "crop", "params": { "x": 0, "y": 0 } }), false, "`width`"),
-        ("transcribe ok (no params)", json!({ "kind": "transcribe_audio", "params": {} }), true, ""),
-        ("ocr ok (no params)", json!({ "kind": "extract_text_ocr" }), true, ""),
-        ("render_pdf_page ok", json!({ "kind": "render_pdf_page", "params": { "page": 3 } }), true, ""),
-        ("render_pdf_page w/o page", json!({ "kind": "render_pdf_page", "params": {} }), false, "`page`"),
+        (
+            "resize w/o height",
+            json!({ "kind": "resize", "params": { "width": 256 } }),
+            false,
+            "`height`",
+        ),
+        (
+            "resize ok",
+            json!({ "kind": "resize", "params": { "width": 256, "height": 256 } }),
+            true,
+            "",
+        ),
+        (
+            "rotate w/o degrees",
+            json!({ "kind": "rotate", "params": {} }),
+            false,
+            "`degrees`",
+        ),
+        (
+            "crop missing keys",
+            json!({ "kind": "crop", "params": { "x": 0, "y": 0 } }),
+            false,
+            "`width`",
+        ),
+        (
+            "transcribe ok (no params)",
+            json!({ "kind": "transcribe_audio", "params": {} }),
+            true,
+            "",
+        ),
+        (
+            "ocr ok (no params)",
+            json!({ "kind": "extract_text_ocr" }),
+            true,
+            "",
+        ),
+        (
+            "render_pdf_page ok",
+            json!({ "kind": "render_pdf_page", "params": { "page": 3 } }),
+            true,
+            "",
+        ),
+        (
+            "render_pdf_page w/o page",
+            json!({ "kind": "render_pdf_page", "params": {} }),
+            false,
+            "`page`",
+        ),
     ];
     for (name, cfg, should_pass, expected_substring) in cases {
         let errs = media_nodes::validate_media_node(MEDIA_TRANSFORM, cfg);
@@ -179,7 +223,8 @@ fn convert_media_set_to_table_rows_validates_source_rid() {
         &json!({ "source_media_set_rid": "garbage" }),
     );
     assert!(
-        bad.iter().any(|e| e.contains("not a Foundry media-set RID")),
+        bad.iter()
+            .any(|e| e.contains("not a Foundry media-set RID")),
         "{bad:?}"
     );
 
@@ -204,7 +249,8 @@ fn get_media_references_validates_target_rid() {
         }),
     );
     assert!(
-        bad.iter().any(|e| e.contains("not a Foundry media-set RID")),
+        bad.iter()
+            .any(|e| e.contains("not a Foundry media-set RID")),
         "{bad:?}"
     );
 
@@ -281,8 +327,5 @@ fn construct_delegated_media_gid_rejects_invalid_inputs_at_validate_time() {
             "schema":         "IMAGE"
         }),
     );
-    assert!(
-        errs.iter().any(|e| e.contains("media_set_rid")),
-        "{errs:?}"
-    );
+    assert!(errs.iter().any(|e| e.contains("media_set_rid")), "{errs:?}");
 }

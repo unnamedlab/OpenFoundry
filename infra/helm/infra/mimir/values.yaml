@@ -1,0 +1,1 @@
+# Override upstream chart values via the 'mimir-distributed:' top-level key.

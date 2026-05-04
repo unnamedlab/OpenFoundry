@@ -66,17 +66,18 @@ async fn first_incremental_build_has_no_lower_bound() {
     .await
     .expect("first resolution");
 
-    let entries: Value = sqlx::query_scalar(
-        "SELECT input_view_resolutions FROM jobs WHERE build_id = $1",
-    )
-    .bind(resolved.build_id)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let entries: Value =
+        sqlx::query_scalar("SELECT input_view_resolutions FROM jobs WHERE build_id = $1")
+            .bind(resolved.build_id)
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
     let entry = &entries.as_array().unwrap()[0];
     assert_eq!(entry["filter"]["kind"], "INCREMENTAL_SINCE_LAST_BUILD");
-    assert!(entry.get("range_from_transaction_rid").is_none(),
-            "no prior build, no lower bound: {entry}");
+    assert!(
+        entry.get("range_from_transaction_rid").is_none(),
+        "no prior build, no lower bound: {entry}"
+    );
     assert_eq!(
         entry["note"].as_str().unwrap_or(""),
         "incremental: no prior build, runner will read full view"
@@ -121,12 +122,11 @@ async fn second_incremental_build_inherits_lower_bound_from_prior_completed_job(
     // Mark the first job COMPLETED with a synthetic upper bound so
     // the second resolver's incremental lookup has a lower bound to
     // pick up.
-    let job_id: (uuid::Uuid,) =
-        sqlx::query_as("SELECT id FROM jobs WHERE build_id = $1")
-            .bind(first.build_id)
-            .fetch_one(&harness.pool)
-            .await
-            .unwrap();
+    let job_id: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM jobs WHERE build_id = $1")
+        .bind(first.build_id)
+        .fetch_one(&harness.pool)
+        .await
+        .unwrap();
     let synthetic = serde_json::json!([{
         "dataset_rid": "ri.in.inc",
         "branch": "master",
@@ -172,13 +172,12 @@ async fn second_incremental_build_inherits_lower_bound_from_prior_completed_job(
     .await
     .expect("second resolution");
 
-    let entries: Value = sqlx::query_scalar(
-        "SELECT input_view_resolutions FROM jobs WHERE build_id = $1",
-    )
-    .bind(second.build_id)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let entries: Value =
+        sqlx::query_scalar("SELECT input_view_resolutions FROM jobs WHERE build_id = $1")
+            .bind(second.build_id)
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
     let entry = &entries.as_array().unwrap()[0];
     assert_eq!(
         entry["range_from_transaction_rid"].as_str(),

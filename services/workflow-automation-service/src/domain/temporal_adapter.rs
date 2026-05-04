@@ -266,10 +266,8 @@ mod tests {
             .start_run(&req, Uuid::now_v7())
             .await
             .expect("recording client must succeed");
-        let expected_workflow_id = format!(
-            "workflow-automation:{}:{}",
-            req.definition_id, req.run_id
-        );
+        let expected_workflow_id =
+            format!("workflow-automation:{}:{}", req.definition_id, req.run_id);
         assert_eq!(handle.workflow_id.0, expected_workflow_id);
 
         let starts = recorder.starts.lock().expect("starts mutex");
@@ -316,7 +314,12 @@ mod tests {
         let definition_id = Uuid::now_v7();
         let run_id = Uuid::now_v7();
         let value = adapter
-            .query_run_state(definition_id, run_id, "current_state", serde_json::json!({}))
+            .query_run_state(
+                definition_id,
+                run_id,
+                "current_state",
+                serde_json::json!({}),
+            )
             .await
             .expect("query_run_state");
         assert_eq!(value["current_step_id"], "step-1");

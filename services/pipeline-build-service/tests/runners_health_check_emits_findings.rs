@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use pipeline_build_service::domain::build_executor::{JobContext, JobOutcome, JobRunner};
 use pipeline_build_service::domain::build_resolution::JobSpec;
-use pipeline_build_service::domain::runners::{logic_kinds, HealthCheckJobRunner};
+use pipeline_build_service::domain::runners::{HealthCheckJobRunner, logic_kinds};
 use serde_json::json;
 use uuid::Uuid;
 use wiremock::matchers::{body_partial_json, method, path};
@@ -55,7 +55,9 @@ async fn health_check_runner_posts_finding_to_quality_service() {
     };
     let outcome = runner.run(&ctx).await;
     match outcome {
-        JobOutcome::Completed { output_content_hash } => {
+        JobOutcome::Completed {
+            output_content_hash,
+        } => {
             assert!(
                 output_content_hash.contains("RowCountNonzero")
                     && output_content_hash.contains("true"),
@@ -96,7 +98,10 @@ async fn health_check_runner_rejects_target_mismatch() {
     let outcome = runner.run(&ctx).await;
     match outcome {
         JobOutcome::Failed { reason } => {
-            assert!(reason.contains("not present in JobSpec outputs"), "{reason}");
+            assert!(
+                reason.contains("not present in JobSpec outputs"),
+                "{reason}"
+            );
         }
         other => panic!("expected Failed, got {other:?}"),
     }

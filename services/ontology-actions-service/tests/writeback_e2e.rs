@@ -130,11 +130,11 @@ async fn writeback_applies_1000_actions_concurrently() {
     assert_eq!(count_row.0 as usize, TOTAL);
 
     // Outbox is empty in steady state — INSERT+DELETE collapsed in WAL.
-    let outbox_count: (i64,) = sqlx::query_as("SELECT count(*) FROM outbox.events")
-        .fetch_one(&pg_pool)
+    let outbox_row = sqlx::Executor::fetch_one(&pg_pool, "SELECT count(*) FROM outbox.events")
         .await
         .expect("outbox count");
-    assert_eq!(outbox_count.0, 0);
+    let outbox_count: i64 = sqlx::Row::try_get(&outbox_row, 0).expect("outbox count column");
+    assert_eq!(outbox_count, 0);
 
     // -- 4. Idempotent retry path --------------------------------------
     // Replay the *same* call for one id; helper must detect the LWT

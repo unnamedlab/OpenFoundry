@@ -1,0 +1,38 @@
+# Cassandra cluster values.
+#
+# Two K8ssandraCluster CRs ship in this chart:
+#   - dev:  templates/cluster-dev.yaml  (single-DC, knobs below)
+#   - prod: templates/cluster-prod.yaml (multi-DC, fixed sizing)
+#
+# The `dev` cluster is parametric so the same chart serves a 1-node
+# laptop install and a 3-node CI install. The `prod` cluster is
+# enabled only on the prod profile (see helmfile.yaml.gotmpl).
+
+dev:
+  enabled: true
+  size: 3                  # nodes per DC
+  heapSize: 4G
+  storageClass: ceph-rbd-fast
+  storageSize: 100Gi
+  resources:
+    requests: { cpu: "1500m", memory: "6Gi" }
+    limits:   { cpu: "2",     memory: "6Gi" }
+  reaper:
+    enabled: true
+  medusa:
+    enabled: true
+
+prod:
+  enabled: false           # toggled on by profiles/values-prod.yaml
+
+# Application keyspaces job (see templates/keyspaces-job.yaml).
+keyspaces:
+  enabled: true
+  clusterName: of-cass-prod
+  replicationFactor: 3
+  dcs: [dc1, dc2, dc3, dc-b1]
+
+# ServiceMonitor + Grafana dashboards under templates/files/. Disabled
+# unless Prometheus Operator CRDs are installed (off in dev).
+observability:
+  enabled: false

@@ -69,6 +69,8 @@ async fn one_thousand_schedules_never_double_fire_with_two_workers() {
         namespace: harness.namespace.clone(),
         identity: "pipeline-schedule-service-load".to_string(),
         api_key: None,
+        require_real_client: false,
+        deployment_environment: None,
     })
     .await
     .expect("Temporal gRPC client");
@@ -139,10 +141,7 @@ async fn one_thousand_schedules_never_double_fire_with_two_workers() {
         .buffer_unordered(DESCRIBE_CONCURRENCY)
         .collect()
         .await;
-    eprintln!(
-        "describe completed in {:?}",
-        describe_started.elapsed()
-    );
+    eprintln!("describe completed in {:?}", describe_started.elapsed());
 
     let max_actions = action_counts.iter().map(|(_, n)| *n).max().unwrap_or(0);
     let total_actions: i64 = action_counts.iter().map(|(_, n)| *n).sum();

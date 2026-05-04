@@ -42,6 +42,13 @@ pub fn new_media_item_rid() -> String {
     format!("{}{}", MEDIA_ITEM_RID_PREFIX, Uuid::now_v7())
 }
 
+/// Convert the legacy empty-string `transaction_rid` placeholder into
+/// `None` at the bind site so the FK added in `0006_branching.sql`
+/// fires only when there is a real transaction to point at.
+fn bind_transaction_rid(value: &str) -> Option<&str> {
+    if value.is_empty() { None } else { Some(value) }
+}
+
 /// Effective markings the Cedar engine evaluates against for `item`:
 /// the parent set's markings unioned with the item's per-item override
 /// (granular Foundry contract). Surfaced into audit envelopes so SIEM
@@ -78,12 +85,9 @@ pub async fn presigned_upload_op(
     let branch = req.branch.clone().unwrap_or_else(|| "main".to_string());
     let transaction_rid = match set.transaction_policy.as_str() {
         "TRANSACTIONAL" => {
-            let txn = req
-                .transaction_rid
-                .clone()
-                .ok_or_else(|| MediaError::BadRequest(
-                    "transactional media set requires a transaction_rid".into(),
-                ))?;
+            let txn = req.transaction_rid.clone().ok_or_else(|| {
+                MediaError::BadRequest("transactional media set requires a transaction_rid".into())
+            })?;
             // Ensure the named transaction exists, is on the right branch
             // and is still OPEN — otherwise the upload would land in a
             // sealed batch.
@@ -94,7 +98,8 @@ pub async fn presigned_upload_op(
             .bind(media_set_rid)
             .fetch_optional(state.db.reader())
             .await?;
-            let (txn_branch, txn_state) = row.ok_or_else(|| MediaError::TransactionNotFound(txn.clone()))?;
+            let (txn_branch, txn_state) =
+                row.ok_or_else(|| MediaError::TransactionNotFound(txn.clone()))?;
             if txn_branch != branch {
                 return Err(MediaError::BadRequest(format!(
                     "transaction `{txn}` is on branch `{txn_branch}`, not `{branch}`"
@@ -102,6 +107,28 @@ pub async fn presigned_upload_op(
             }
             if txn_state != "OPEN" {
                 return Err(MediaError::TransactionTerminal(txn, txn_state));
+            }
+            // Foundry per-transaction cap (Advanced media set
+            // settings.md → "A maximum of 10,000 items can be
+            // written in a single transaction"). We count live items
+            // in the current transaction (deleted_at IS NULL is the
+            // canonical "alive" predicate; rows soft-deleted by
+            // path-dedup do NOT count toward the cap because they
+            // would have been replaced anyway).
+            let already: (i64,) = sqlx::query_as(
+                r#"SELECT COUNT(*)
+                     FROM media_items
+                    WHERE transaction_rid = $1
+                      AND deleted_at IS NULL"#,
+            )
+            .bind(&txn)
+            .fetch_one(state.db.reader())
+            .await?;
+            if already.0 >= crate::handlers::transactions::MAX_ITEMS_PER_TRANSACTION {
+                return Err(MediaError::TransactionTooLarge(
+                    txn,
+                    crate::handlers::transactions::MAX_ITEMS_PER_TRANSACTION,
+                ));
             }
             req.transaction_rid.unwrap_or_default()
         }
@@ -152,19 +179,26 @@ pub async fn presigned_upload_op(
         deduplicated_from: dedup,
     };
     let row: MediaItem = sqlx::query_as(
+        // `branch_rid` resolved via subquery so the FK to
+        // `media_set_branches` is always consistent with `branch`
+        // (no Rust-side md5 hashing duplicates the generated column
+        // contract from `0006_branching.sql`).
         r#"INSERT INTO media_items
-              (rid, media_set_rid, branch, transaction_rid, path, mime_type,
-               size_bytes, sha256, metadata, storage_uri, deduplicated_from,
-               retention_seconds)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING rid, media_set_rid, branch, transaction_rid, path, mime_type,
+              (rid, media_set_rid, branch, branch_rid, transaction_rid, path,
+               mime_type, size_bytes, sha256, metadata, storage_uri,
+               deduplicated_from, retention_seconds)
+           VALUES ($1, $2, $3,
+                   (SELECT branch_rid FROM media_set_branches
+                     WHERE media_set_rid = $2 AND branch_name = $3),
+                   $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING rid, media_set_rid, branch, COALESCE(transaction_rid, '') AS transaction_rid, path, mime_type,
                   size_bytes, sha256, metadata, storage_uri, deduplicated_from,
                   deleted_at, created_at, markings"#,
     )
     .bind(&new_item.rid)
     .bind(&new_item.media_set_rid)
     .bind(&new_item.branch)
-    .bind(&new_item.transaction_rid)
+    .bind(bind_transaction_rid(&new_item.transaction_rid))
     .bind(&new_item.path)
     .bind(&new_item.mime_type)
     .bind(new_item.size_bytes)
@@ -199,7 +233,10 @@ pub async fn presigned_upload_op(
     tx.commit().await?;
 
     let ttl = Duration::from_secs(req.expires_in_seconds.unwrap_or(state.presign_ttl_seconds));
-    let url = state.storage.presign_upload(&key, &row.mime_type, ttl).await?;
+    let url = state
+        .storage
+        .presign_upload(&key, &row.mime_type, ttl)
+        .await?;
 
     MEDIA_SET_UPLOADS_TOTAL.inc();
     if row.size_bytes > 0 {
@@ -274,21 +311,15 @@ async fn resolve_virtual_download_url(
 ) -> MediaResult<PresignedUrl> {
     use chrono::{TimeZone, Utc};
 
-    let base = state
-        .connector_service_url
-        .as_deref()
-        .ok_or_else(|| {
-            MediaError::UpstreamUnavailable(
-                "connector-management-service is not configured; cannot resolve virtual \
+    let base = state.connector_service_url.as_deref().ok_or_else(|| {
+        MediaError::UpstreamUnavailable(
+            "connector-management-service is not configured; cannot resolve virtual \
                  source endpoint"
-                    .into(),
-            )
-        })?;
+                .into(),
+        )
+    })?;
     let source_rid = set.source_rid.as_deref().ok_or_else(|| {
-        MediaError::BadRequest(format!(
-            "virtual media set `{}` has no source_rid",
-            set.rid
-        ))
+        MediaError::BadRequest(format!("virtual media set `{}` has no source_rid", set.rid))
     })?;
 
     let url = format!(
@@ -296,12 +327,8 @@ async fn resolve_virtual_download_url(
         base.trim_end_matches('/'),
         urlencoding::encode_path(source_rid)
     );
-    let resp = state
-        .http
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| {
+    let resp =
+        state.http.get(&url).send().await.map_err(|e| {
             MediaError::UpstreamUnavailable(format!("connector lookup transport: {e}"))
         })?;
     if !resp.status().is_success() {
@@ -415,12 +442,18 @@ pub async fn register_virtual_item_op(
     let mut tx = state.db.writer().begin().await?;
     let dedup = soft_delete_previous_at_path(&mut tx, media_set_rid, &branch, &item_path).await?;
     let row: MediaItem = sqlx::query_as(
+        // Same `branch_rid` subquery pattern as `presigned_upload_op`
+        // — virtual items live on a branch too, so the FK to
+        // `media_set_branches` must be populated on insert.
         r#"INSERT INTO media_items
-              (rid, media_set_rid, branch, transaction_rid, path, mime_type,
-               size_bytes, sha256, metadata, storage_uri, deduplicated_from,
-               retention_seconds)
-           VALUES ($1, $2, $3, '', $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
-        RETURNING rid, media_set_rid, branch, transaction_rid, path, mime_type,
+              (rid, media_set_rid, branch, branch_rid, transaction_rid, path,
+               mime_type, size_bytes, sha256, metadata, storage_uri,
+               deduplicated_from, retention_seconds)
+           VALUES ($1, $2, $3,
+                   (SELECT branch_rid FROM media_set_branches
+                     WHERE media_set_rid = $2 AND branch_name = $3),
+                   NULL, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+        RETURNING rid, media_set_rid, branch, COALESCE(transaction_rid, '') AS transaction_rid, path, mime_type,
                   size_bytes, sha256, metadata, storage_uri, deduplicated_from,
                   deleted_at, created_at, markings"#,
     )
@@ -457,7 +490,7 @@ pub async fn register_virtual_item_op(
 
 pub async fn get_item_op(state: &AppState, rid: &str) -> MediaResult<MediaItem> {
     let row: Option<MediaItem> = sqlx::query_as(
-        r#"SELECT rid, media_set_rid, branch, transaction_rid, path, mime_type,
+        r#"SELECT rid, media_set_rid, branch, COALESCE(transaction_rid, '') AS transaction_rid, path, mime_type,
                   size_bytes, sha256, metadata, storage_uri, deduplicated_from,
                   deleted_at, created_at, markings
              FROM media_items WHERE rid = $1"#,
@@ -478,7 +511,7 @@ pub async fn list_items_op(
 ) -> MediaResult<Vec<MediaItem>> {
     let limit = limit.clamp(1, 500);
     let rows: Vec<MediaItem> = sqlx::query_as(
-        r#"SELECT rid, media_set_rid, branch, transaction_rid, path, mime_type,
+        r#"SELECT rid, media_set_rid, branch, COALESCE(transaction_rid, '') AS transaction_rid, path, mime_type,
                   size_bytes, sha256, metadata, storage_uri, deduplicated_from,
                   deleted_at, created_at, markings
              FROM media_items
@@ -500,11 +533,7 @@ pub async fn list_items_op(
     Ok(rows)
 }
 
-pub async fn delete_item_op(
-    state: &AppState,
-    rid: &str,
-    ctx: &AuditContext,
-) -> MediaResult<()> {
+pub async fn delete_item_op(state: &AppState, rid: &str, ctx: &AuditContext) -> MediaResult<()> {
     let item = get_item_op(state, rid).await?;
     let parent = get_media_set_op(state, &item.media_set_rid).await?;
     let mut tx = state.db.writer().begin().await?;
@@ -744,7 +773,7 @@ pub async fn patch_item_markings_op(
         r#"UPDATE media_items
               SET markings = $2
             WHERE rid = $1
-        RETURNING rid, media_set_rid, branch, transaction_rid, path, mime_type,
+        RETURNING rid, media_set_rid, branch, COALESCE(transaction_rid, '') AS transaction_rid, path, mime_type,
                   size_bytes, sha256, metadata, storage_uri, deduplicated_from,
                   deleted_at, created_at, markings"#,
     )
@@ -786,8 +815,13 @@ pub async fn patch_item_markings(
     // PATCH /media-sets/{rid}/markings.
     check_media_set(&state.engine, &user.0, action_manage(), &parent).await?;
     let ctx = from_request(&user.0, &headers);
-    let previous: Vec<String> = item.markings.iter().map(|m| m.to_ascii_lowercase()).collect();
-    let updated = patch_item_markings_op(&state, &rid, previous, body.markings, &parent, &ctx).await?;
+    let previous: Vec<String> = item
+        .markings
+        .iter()
+        .map(|m| m.to_ascii_lowercase())
+        .collect();
+    let updated =
+        patch_item_markings_op(&state, &rid, previous, body.markings, &parent, &ctx).await?;
     Ok(Json(updated))
 }
 

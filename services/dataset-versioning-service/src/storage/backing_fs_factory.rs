@@ -7,11 +7,11 @@
 
 use std::sync::Arc;
 
+use storage_abstraction::backing_fs::hdfs::HdfsBackingFsConfig;
 use storage_abstraction::backing_fs::{
     BackingFileSystem, HdfsBackingFs, LocalBackingFs, LocalBackingFsConfig, S3BackingFs,
     S3BackingFsConfig,
 };
-use storage_abstraction::backing_fs::hdfs::HdfsBackingFsConfig;
 use storage_abstraction::local::LocalStorage;
 
 use crate::config::BackingFsConfig;
@@ -44,9 +44,7 @@ pub fn build_backing_fs(
     }
 }
 
-fn build_local(
-    cfg: &BackingFsConfig,
-) -> Result<Arc<dyn BackingFileSystem>, BackingFsFactoryError> {
+fn build_local(cfg: &BackingFsConfig) -> Result<Arc<dyn BackingFileSystem>, BackingFsFactoryError> {
     // Make sure the local root exists; LocalFileSystem otherwise refuses
     // to bind. In production this directory is created by the
     // installer / Helm chart, so we only mkdir best-effort.
@@ -66,9 +64,7 @@ fn build_local(
     Ok(arc_dyn(fs))
 }
 
-fn build_s3(
-    cfg: &BackingFsConfig,
-) -> Result<Arc<dyn BackingFileSystem>, BackingFsFactoryError> {
+fn build_s3(cfg: &BackingFsConfig) -> Result<Arc<dyn BackingFileSystem>, BackingFsFactoryError> {
     if cfg.bucket.is_empty()
         || cfg.region.is_empty()
         || cfg.access_key.is_empty()
@@ -88,9 +84,7 @@ fn build_s3(
     Ok(arc_dyn(fs))
 }
 
-fn build_hdfs(
-    cfg: &BackingFsConfig,
-) -> Result<Arc<dyn BackingFileSystem>, BackingFsFactoryError> {
+fn build_hdfs(cfg: &BackingFsConfig) -> Result<Arc<dyn BackingFileSystem>, BackingFsFactoryError> {
     if cfg.hdfs_namenode.is_empty() {
         return Err(BackingFsFactoryError::MissingHdfsSettings);
     }
@@ -116,10 +110,7 @@ mod tests {
         c
     }
 
-    fn assert_err<E: std::fmt::Debug, T>(
-        result: Result<T, E>,
-        check: impl Fn(&E) -> bool,
-    ) -> E {
+    fn assert_err<E: std::fmt::Debug, T>(result: Result<T, E>, check: impl Fn(&E) -> bool) -> E {
         match result {
             Ok(_) => panic!("expected error, got Ok"),
             Err(e) => {

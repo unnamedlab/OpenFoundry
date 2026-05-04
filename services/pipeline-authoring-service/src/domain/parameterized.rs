@@ -256,7 +256,11 @@ mod tests {
         }
     }
 
-    fn deployment_with_key(parent: &ParameterizedPipeline, key: &str, recorded: &str) -> PipelineDeployment {
+    fn deployment_with_key(
+        parent: &ParameterizedPipeline,
+        key: &str,
+        recorded: &str,
+    ) -> PipelineDeployment {
         let mut parameter_values = Map::new();
         parameter_values.insert("region".into(), json!(recorded));
         parameter_values.insert("limit".into(), json!(1000));

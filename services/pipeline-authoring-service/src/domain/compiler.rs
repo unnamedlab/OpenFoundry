@@ -67,10 +67,9 @@ pub fn validate_definition(
 
         // Per-kind validation for media-typed nodes (P1.4).
         if crate::domain::media_nodes::is_media_transform_type(&node.transform_type) {
-            for issue in crate::domain::media_nodes::validate_media_node(
-                &node.transform_type,
-                &node.config,
-            ) {
+            for issue in
+                crate::domain::media_nodes::validate_media_node(&node.transform_type, &node.config)
+            {
                 errors.push(format!("pipeline node '{}': {issue}", node.id));
             }
         }

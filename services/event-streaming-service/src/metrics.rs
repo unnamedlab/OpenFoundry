@@ -264,7 +264,9 @@ impl Metrics {
         registry
             .register(Box::new(records_output_total.clone()))
             .unwrap();
-        registry.register(Box::new(utilization_pct.clone())).unwrap();
+        registry
+            .register(Box::new(utilization_pct.clone()))
+            .unwrap();
         registry
             .register(Box::new(compute_seconds_total.clone()))
             .unwrap();

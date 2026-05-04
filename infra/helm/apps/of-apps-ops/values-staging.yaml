@@ -1,0 +1,19 @@
+global:
+  deploymentFabric:
+    environment: staging
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
+
+temporal:
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  namespace: openfoundry-staging
+
+services:
+  audit-sink:
+    replicas: 1
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80

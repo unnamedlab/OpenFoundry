@@ -11,8 +11,29 @@ pub enum MediaError {
     MediaItemNotFound(String),
     #[error("transaction `{0}` not found")]
     TransactionNotFound(String),
+    #[error("branch `{0}` not found")]
+    BranchNotFound(String),
     #[error("media set `{0}` is transactionless; transactions are not allowed")]
     Transactionless(String),
+    /// Per `Advanced media set settings.md`: "Transactionless media set
+    /// branches cannot be reset to an empty view." Mapped to 422.
+    #[error("media set `{0}` is transactionless; branch reset is not allowed")]
+    TransactionlessRejectsReset(String),
+    /// Per `Incremental media sets.md`: "Transactionless media sets
+    /// use the `modify` write mode and cannot use the `replace` write
+    /// mode." Mapped to 422.
+    #[error("media set `{0}` is transactionless; REPLACE write mode is not allowed")]
+    TransactionlessRejectsReplace(String),
+    /// Per `Advanced media set settings.md`: "A maximum of 10,000
+    /// items can be written in a single transaction." Mapped to 422
+    /// with code `MEDIA_SET_TRANSACTION_TOO_LARGE`.
+    #[error("transaction `{0}` already holds the maximum {1} items")]
+    TransactionTooLarge(String, i64),
+    /// Returned by `merge_branch_op` when `FAIL_ON_CONFLICT` was
+    /// requested and at least one path is live on both branches.
+    /// Mapped to HTTP 409 with the conflict surface in the body.
+    #[error("merge conflict on {} paths", .0.len())]
+    MergeConflict(Vec<String>),
     #[error("transaction `{0}` is already in terminal state `{1}`")]
     TransactionTerminal(String, String),
     #[error("invalid request: {0}")]

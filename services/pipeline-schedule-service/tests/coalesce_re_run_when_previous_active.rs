@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use pipeline_schedule_service::domain::build_client::BuildAttemptOutcome;
 use pipeline_schedule_service::domain::dispatcher::{
-    Dispatcher, DispatcherConfig, DispatchTrigger,
+    DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::{schedule_store, trigger::Schedule};
 
@@ -53,7 +53,9 @@ async fn second_dispatch_is_coalesced_into_pending_re_run() {
         .await
         .unwrap();
     let first_run = first.run.expect("first run row");
-    schedule = schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+    schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
+        .await
+        .unwrap();
     assert!(schedule.active_run_id.is_some());
 
     // Second dispatch while the first is still active.
@@ -67,10 +69,15 @@ async fn second_dispatch_is_coalesced_into_pending_re_run() {
         .await
         .unwrap();
     assert!(second.coalesced, "second dispatch must coalesce");
-    assert!(second.run.is_none(), "no run row inserted for the coalesced trigger");
+    assert!(
+        second.run.is_none(),
+        "no run row inserted for the coalesced trigger"
+    );
 
     // pending_re_run flag is set, build-service was NOT called twice.
-    let mid: Schedule = schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+    let mid: Schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
+        .await
+        .unwrap();
     assert!(mid.pending_re_run);
     assert_eq!(build.recorded_calls().len(), 1);
 
@@ -80,7 +87,13 @@ async fn second_dispatch_is_coalesced_into_pending_re_run() {
         .on_run_finished(schedule.id, first_run.id)
         .await
         .unwrap();
-    let after: Schedule = schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+    let after: Schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
+        .await
+        .unwrap();
     assert!(!after.pending_re_run, "pending flag cleared after flush");
-    assert_eq!(build.recorded_calls().len(), 2, "second build-service call drove by flush");
+    assert_eq!(
+        build.recorded_calls().len(),
+        2,
+        "second build-service call drove by flush"
+    );
 }

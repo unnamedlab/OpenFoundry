@@ -156,9 +156,14 @@ mod tests {
 
     #[test]
     fn envelope_serialises_with_required_fields() {
-        let env = BranchEnvelope::new(EVT_CREATED, "ri.foundry.main.branch.x", "ri.foundry.main.dataset.y", "user:1")
-            .with_parent_rid(Some("ri.foundry.main.branch.parent".into()))
-            .with_extras(json!({"source_kind":"child_from_branch"}));
+        let env = BranchEnvelope::new(
+            EVT_CREATED,
+            "ri.foundry.main.branch.x",
+            "ri.foundry.main.dataset.y",
+            "user:1",
+        )
+        .with_parent_rid(Some("ri.foundry.main.branch.parent".into()))
+        .with_extras(json!({"source_kind":"child_from_branch"}));
         let payload = env.into_payload();
         assert_eq!(payload["event_type"], "dataset.branch.created.v1");
         assert_eq!(payload["dataset_rid"], "ri.foundry.main.dataset.y");

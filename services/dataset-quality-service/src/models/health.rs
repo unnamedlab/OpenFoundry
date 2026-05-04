@@ -49,8 +49,9 @@ pub struct DatasetHealth {
 impl TryFrom<DatasetHealthRow> for DatasetHealth {
     type Error = String;
     fn try_from(row: DatasetHealthRow) -> Result<Self, Self::Error> {
-        let null_pct: BTreeMap<String, f64> = serde_json::from_value(row.null_pct_by_column.clone())
-            .map_err(|e| format!("null_pct_by_column decode: {e}"))?;
+        let null_pct: BTreeMap<String, f64> =
+            serde_json::from_value(row.null_pct_by_column.clone())
+                .map_err(|e| format!("null_pct_by_column decode: {e}"))?;
         let txn_failure: f64 = row.txn_failure_rate_24h;
         Ok(Self {
             dataset_rid: row.dataset_rid,

@@ -188,7 +188,11 @@ impl<C: AvevaPiClient + 'static> StreamingSourceConnector for AvevaPiConnector<C
                     newest = Some(o.timestamp);
                 }
                 SourceRecord {
-                    source_id: format!("{}:{}", self.config.event_stream_web_id, o.timestamp.timestamp_nanos_opt().unwrap_or(0)),
+                    source_id: format!(
+                        "{}:{}",
+                        self.config.event_stream_web_id,
+                        o.timestamp.timestamp_nanos_opt().unwrap_or(0)
+                    ),
                     partition_key: Some(self.config.event_stream_web_id.clone()),
                     payload: serde_json::json!({
                         "timestamp": o.timestamp,

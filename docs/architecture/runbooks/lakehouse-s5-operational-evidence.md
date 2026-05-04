@@ -1,6 +1,8 @@
 # S5 — Lakehouse Operational Evidence
 
 > Owner: data platform maintainers + SRE on-call.
+> Last evidence attempt: 2026-05-03.
+> Current result: BLOCKED; not signed off for S5-OPS closure.
 > Gate: this evidence pack must be executed and signed off before
 > Stream S5 closes. Passing `G-S5` only proves that the checked runtime
 > tree has no explicit stubs; it does not prove that Kafka, Iceberg,
@@ -70,13 +72,45 @@ It must contain:
   retries or checkpoint authority.
 - Two maintainers sign off the run.
 
+## Latest Execution Attempt
+
+| Field | Value |
+|---|---|
+| Date | 2026-05-03 |
+| Owner | data platform maintainers + SRE on-call |
+| Environment | Kubernetes context `default` |
+| Evidence pack | [`docs/architecture/lakehouse-evidence/2026-05-03/summary.md`](../lakehouse-evidence/2026-05-03/summary.md) |
+| Closure cross-check | [`docs/architecture/slo-evidence/2026-05-03/summary.md`](../slo-evidence/2026-05-03/summary.md) |
+| Result | BLOCKED; S5-OPS is not approved |
+
+Commands and results:
+
+```bash
+kubectl get ns kafka observability monitoring grafana trino lakekeeper of-apps-ops of-data-engine of-ml-aip of-ontology
+kubectl get deploy -A
+kubectl api-resources
+```
+
+Result summary:
+
+```text
+Kafka, Trino, Lakekeeper, observability, Spark and S5 service
+namespaces are absent in this context. Strimzi Kafka, Prometheus
+Operator and SparkApplication resources are also absent.
+```
+
+The 2026-05-03 lakehouse evidence directory contains real command
+output, but every operational artifact is BLOCKED rather than PASS.
+It cannot close Kafka lag, Iceberg write latency, Trino query latency,
+restart recovery or WORM negative-test obligations.
+
 ## Sign-off
 
-- [ ] Data platform maintainer: ___
-- [ ] SRE on-call: ___
-- [ ] Date: ___
-- [ ] Environment: ___
-- [ ] Outcome: PASS / FAIL — ___
+- Data platform maintainer: NOT SIGNED
+- SRE on-call: NOT SIGNED
+- Date: 2026-05-03
+- Environment: Kubernetes context `default`
+- Outcome: BLOCKED, not approved for S5-OPS closure
 
 > Failures block S5 closure. Re-run after remediation; even on PASS,
 > S5 remains open until the final checklist in

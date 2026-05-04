@@ -1,0 +1,13 @@
+apiVersion: v2
+name: mimir
+description: |
+  Grafana Mimir distributed Prometheus-compatible TSDB.
+  Bundles the OpenFoundry-vendored mimir-distributed chart at
+  ./upstream-chart/.
+type: application
+version: 0.1.0
+appVersion: "2.13.0"
+dependencies:
+  - name: mimir-distributed
+    version: ">= 0.0.0"
+    repository: "file://./upstream-chart"

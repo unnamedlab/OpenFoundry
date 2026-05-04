@@ -19,7 +19,10 @@ fn deserialises_exactly_once_for_pipeline_consistency() {
         "stream_type": "HIGH_THROUGHPUT"
     });
     let req: UpdateStreamConfigRequest = serde_json::from_value(payload).unwrap();
-    assert_eq!(req.pipeline_consistency, Some(StreamConsistency::ExactlyOnce));
+    assert_eq!(
+        req.pipeline_consistency,
+        Some(StreamConsistency::ExactlyOnce)
+    );
     assert_eq!(req.stream_type, Some(StreamType::HighThroughput));
 }
 
@@ -47,7 +50,10 @@ fn stream_type_text_round_trip_matches_proto_enum() {
         (StreamType::Standard, "STANDARD"),
         (StreamType::HighThroughput, "HIGH_THROUGHPUT"),
         (StreamType::Compressed, "COMPRESSED"),
-        (StreamType::HighThroughputCompressed, "HIGH_THROUGHPUT_COMPRESSED"),
+        (
+            StreamType::HighThroughputCompressed,
+            "HIGH_THROUGHPUT_COMPRESSED",
+        ),
     ] {
         assert_eq!(variant.as_str(), text);
         assert_eq!(StreamType::from_str(text).unwrap(), variant);

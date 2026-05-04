@@ -171,7 +171,12 @@ mod tests {
         Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
     }
 
-    fn row(id: u128, parent: Option<u128>, policy: RetentionPolicy, ttl: Option<i32>) -> RetentionRow {
+    fn row(
+        id: u128,
+        parent: Option<u128>,
+        policy: RetentionPolicy,
+        ttl: Option<i32>,
+    ) -> RetentionRow {
         RetentionRow {
             id: Uuid::from_u128(id),
             parent_branch_id: parent.map(Uuid::from_u128),

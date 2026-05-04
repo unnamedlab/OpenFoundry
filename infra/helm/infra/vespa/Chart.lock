@@ -1,0 +1,6 @@
+dependencies:
+- name: vespa
+  repository: file://./upstream-chart
+  version: 0.1.0
+digest: sha256:674ee68ce1c49fafb3d628667ce7ef97ea22f2b8fb91718870e868d55c1d90f5
+generated: "2026-05-04T00:20:34.951207+02:00"

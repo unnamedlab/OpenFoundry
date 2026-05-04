@@ -1,0 +1,6 @@
+dependencies:
+- name: mimir-distributed
+  repository: file://./upstream-chart
+  version: 5.4.1
+digest: sha256:de9dea5aa99ca7422f1a73af9ed5882c43c0a7381f20fd78b2bbfd10b259191d
+generated: "2026-05-04T00:20:54.583141+02:00"

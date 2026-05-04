@@ -1,0 +1,112 @@
+{{- if .Values.prod.enabled }}
+---
+# S7.2.c — Cross-DC full repair driven by Reaper.
+#
+# Why a Job and not a CronJob:
+#   * Bootstrap-only — runs once after `dc-b1` joins the cluster (S7.2.a)
+#     to materialise the new replicas with consistent data. Steady-state
+#     anti-entropy already runs through the Reaper auto-scheduler
+#     declared in `cluster-prod.yaml` (`reaper.autoScheduling.enabled:
+#     true`, weekly per keyspace, sub-range parallelism).
+#   * Helm `post-install,post-upgrade` hook with weight 20 so it runs
+#     AFTER the keyspaces bootstrap (`keyspaces-job.yaml`, weight 10)
+#     but before any application chart that depends on the new replicas
+#     being warm.
+#
+# What it does, per keyspace owned by OpenFoundry:
+#   1. Triggers a full repair scoped to `dc-b1` (parallelism: PARALLEL,
+#      segments: 64, intensity: 0.6 — Reaper defaults tuned for cross-DC
+#      links per ADR-0021).
+#   2. Polls the Reaper REST API until the run finishes or times out
+#      (`MAX_WAIT_SECONDS=14400` = 4h; bump for very large keyspaces).
+#   3. Exits non-zero if any segment fails, so the Helm release fails
+#      visibly instead of silently leaving region B inconsistent.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: of-cass-prod-cross-dc-repair
+  namespace: cassandra
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cassandra-cross-dc-repair
+        app.kubernetes.io/part-of: openfoundry
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reaper-trigger
+          image: cassandra:5.0.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: REAPER_URL
+              value: "http://of-cass-prod-reaper.cassandra.svc:8080"
+            - name: CLUSTER_NAME
+              value: "of-cass-prod"
+            - name: TARGET_DC
+              value: "dc-b1"
+            - name: KEYSPACES
+              value: "ontology_objects,ontology_indexes,actions_log,auth_runtime,notifications_inbox,agent_state"
+            - name: MAX_WAIT_SECONDS
+              value: "14400"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -o pipefail
+              for KS in $(echo "${KEYSPACES}" | tr ',' ' '); do
+                echo "repair: triggering ${KS} on ${TARGET_DC}"
+                RUN_ID=$(curl -fsS -X POST \
+                    "${REAPER_URL}/repair_run?clusterName=${CLUSTER_NAME}&keyspace=${KS}&owner=helm-bootstrap&datacenters=${TARGET_DC}&segmentCount=64&parallelism=PARALLEL&intensity=0.6&repairType=FULL" \
+                    | sed -E 's/.*"id":"([^"]+)".*/\1/')
+                if [ -z "${RUN_ID}" ]; then
+                  echo "repair: FAIL — could not create run for ${KS}"
+                  exit 1
+                fi
+                curl -fsS -X PUT "${REAPER_URL}/repair_run/${RUN_ID}/state/RUNNING" >/dev/null
+                echo "repair: ${KS} run_id=${RUN_ID} started"
+
+                START=$(date -u +%s)
+                while :; do
+                  STATE=$(curl -fsS "${REAPER_URL}/repair_run/${RUN_ID}" \
+                      | sed -E 's/.*"state":"([^"]+)".*/\1/')
+                  case "${STATE}" in
+                    DONE)
+                      echo "repair: ${KS} DONE"
+                      break ;;
+                    ERROR|ABORTED)
+                      echo "repair: ${KS} ${STATE} — see Reaper UI"
+                      exit 1 ;;
+                  esac
+                  NOW=$(date -u +%s)
+                  if [ $((NOW - START)) -ge "${MAX_WAIT_SECONDS}" ]; then
+                    echo "repair: ${KS} timed out after ${MAX_WAIT_SECONDS}s"
+                    exit 1
+                  fi
+                  sleep 30
+                done
+              done
+              echo "repair: all keyspaces consistent on ${TARGET_DC}"
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use pipeline_schedule_service::domain::build_client::BuildAttemptOutcome;
 use pipeline_schedule_service::domain::dispatcher::{
-    AutoPauseConfig, Dispatcher, DispatcherConfig, DispatchTrigger,
+    AutoPauseConfig, DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::{schedule_store, trigger::Schedule};
 
@@ -47,7 +47,9 @@ async fn auto_pause_skipped_when_schedule_is_exempt() {
 
     // Drive enough failures to clear the threshold.
     for _ in 0..3 {
-        schedule = schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+        schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
+            .await
+            .unwrap();
         let report = dispatcher
             .dispatch(
                 &schedule,
@@ -60,11 +62,16 @@ async fn auto_pause_skipped_when_schedule_is_exempt() {
         assert!(!report.auto_paused);
     }
 
-    let final_state: Schedule =
-        schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+    let final_state: Schedule = schedule_store::get_by_rid(&pool, &schedule.rid)
+        .await
+        .unwrap();
     assert!(
         !final_state.paused,
         "exempt schedule must not be auto-paused"
     );
-    assert_eq!(notify.alert_count(), 0, "no alert should fire for exempt schedules");
+    assert_eq!(
+        notify.alert_count(),
+        0,
+        "no alert should fire for exempt schedules"
+    );
 }

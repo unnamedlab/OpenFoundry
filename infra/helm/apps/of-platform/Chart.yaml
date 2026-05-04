@@ -1,0 +1,13 @@
+apiVersion: v2
+name: of-platform
+description: |
+  OpenFoundry platform release. Owns the edge gateway, identity,
+  authorization and tenancy services. Provides the shared Gateway,
+  ConfigMaps and Secrets consumed by the other four releases.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: of-shared
+    version: 0.1.0
+    repository: file://../../_shared

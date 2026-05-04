@@ -1,15 +1,12 @@
 //! `ontology-exploratory-analysis-service` binary entry point — substrate-only.
 //!
-//! ## Status: shell binary, no domain handlers wired
+//! ## Status: shell binary, migrated handlers not mounted
 //!
 //! Per `docs/architecture/legacy-migrations/ontology-exploratory-analysis-service/README.md`
-//! the per-handler migration to `Arc<dyn ObjectStore>` + the
-//! Cassandra-backed writeback queue is a follow-up
-//! (mirrors the S1.4.b / S1.5.f deferrals for funnel and functions).
-//! No handlers for this bounded context exist in
-//! `libs/ontology-kernel/src/handlers/` yet, so this binary cannot
-//! "wire kernel handlers" the way `ontology-funnel-service` /
-//! `ontology-functions-service` / `ontology-security-service` do.
+//! the local handlers now route saved views/maps through `DefinitionStore`
+//! and writeback proposals through `ActionLogStore`. The binary still only
+//! mounts substrate probes until the service-consolidation merge promotes
+//! these routes to the public surface.
 //!
 //! ## Consolidation status
 //!
@@ -23,21 +20,32 @@
 //! `/health` and `/readiness` so `cargo run -p ontology-exploratory-analysis-service`
 //! still produces a live process for orchestrators that probe it.
 //!
-//! Schema split (S1.7): `exploratory_views` / `exploratory_maps` go to
-//! `pg-schemas.ontology_schema`; `writeback_proposals` becomes a
-//! Cassandra `actions_log` queue routed through
-//! `ontology-actions-service`'s writeback helper.
+//! Schema split (S1.7): `exploratory_views` / `exploratory_maps` are
+//! declarative `DefinitionStore` rows; `writeback_proposals` is represented
+//! as a Cassandra-compatible `actions_log` append via `ActionLogStore`.
 
 mod config;
-#[allow(dead_code)] // Models used by the future handler migration.
+#[allow(dead_code)]
+mod handlers;
+#[allow(dead_code)]
 mod models;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{Router, routing::get};
 use core_models::{health::HealthStatus, observability};
+use storage_abstraction::repositories::{ActionLogStore, DefinitionStore, TenantId};
 
 use crate::config::AppConfig;
+
+#[allow(dead_code)]
+#[derive(Clone)]
+pub(crate) struct AppState {
+    pub definitions: Arc<dyn DefinitionStore>,
+    pub actions: Arc<dyn ActionLogStore>,
+    pub tenant: TenantId,
+    pub subject: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

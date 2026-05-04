@@ -1,0 +1,94 @@
+{{- if .Values.pgRuntimeConfig.enabled }}
+{{- with .Values.pgRuntimeConfig }}
+---
+# S6.1.b — `pg-runtime-config` workhorse CNPG cluster.
+#
+# Hosts runtime/operational state for the bulk of services that do not
+# fit `pg-schemas` (definitions/catalogs) or `pg-policy` (security/audit).
+# Includes session/scheduler/observability/SQL/notebook/control-plane
+# state — 23 schemas; see `pg-runtime-config-bootstrap-sql` ConfigMap.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-runtime-config
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-runtime-config
+    app.kubernetes.io/component: postgres
+    openfoundry.io/managed-by: cnpg
+    openfoundry.io/cluster-role: runtime-config
+spec:
+  instances: {{ .instances }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: {{ .enableSuperuserAccess }}
+
+  minSyncReplicas: {{ .syncReplicas }}
+  maxSyncReplicas: {{ .syncReplicas }}
+
+  postgresql:
+    parameters:
+      synchronous_commit: {{ if gt (int .syncReplicas) 0 }}"on"{{ else }}"local"{{ end }}
+      wal_level: {{ .walLevel | quote }}
+      max_replication_slots: {{ .postgresql.maxReplicationSlots | quote }}
+      max_wal_senders: {{ .postgresql.maxWalSenders | quote }}
+      max_wal_size: {{ .postgresql.maxWalSize | quote }}
+      shared_buffers: {{ .postgresql.sharedBuffers | quote }}
+      work_mem: {{ .postgresql.workMem | quote }}
+      effective_cache_size: {{ .postgresql.effectiveCacheSize | quote }}
+      max_connections: {{ .postgresql.maxConnections | quote }}
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: pg-runtime-config-app
+      postInitApplicationSQLRefs:
+        configMapRefs:
+          - name: pg-runtime-config-bootstrap-sql
+            key: bootstrap.sql
+
+  storage:
+    size: {{ .storageSize }}
+    storageClass: {{ .storageClass }}
+
+  walStorage:
+    size: {{ .walStorageSize }}
+    storageClass: {{ .storageClass }}
+
+  resources:
+    {{- toYaml .resources | nindent 4 }}
+
+  affinity:
+    topologyKey: kubernetes.io/hostname
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+
+  monitoring:
+    enablePodMonitor: false
+
+  {{- if .backupEnabled }}
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://openfoundry-pg-backups/pg-runtime-config"
+      endpointURL: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+      s3Credentials:
+        accessKeyId:
+          name: pg-runtime-config-backup
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: pg-runtime-config-backup
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+        maxParallel: 4
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+        jobs: 2
+  {{- end }}
+{{- end }}
+{{- end }}

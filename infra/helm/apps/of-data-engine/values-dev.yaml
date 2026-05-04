@@ -1,0 +1,27 @@
+global:
+  deploymentFabric:
+    environment: dev
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
+
+temporal:
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  namespace: openfoundry-dev
+
+services:
+  sql-bi-gateway-service:
+    replicas: 1
+    env:
+      DISTRIBUTED_QUERY_WORKERS: "2"
+      RUST_LOG: info
+      TRINO_FLIGHT_SQL_URL: http://trino-flight-sql-proxy.trino.svc:50133
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+      keda:
+        enabled: false
+  pipeline-build-service:
+    replicas: 1

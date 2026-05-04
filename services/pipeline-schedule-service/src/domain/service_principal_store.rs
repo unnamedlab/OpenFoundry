@@ -73,10 +73,7 @@ pub async fn create(
     Ok(from_row(&row)?)
 }
 
-pub async fn get_by_id(
-    pool: &PgPool,
-    id: Uuid,
-) -> Result<ServicePrincipal, ServicePrincipalError> {
+pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<ServicePrincipal, ServicePrincipalError> {
     let row = sqlx::query(
         r#"SELECT id, rid, display_name, project_scope_rids,
                   clearances, created_by, created_at, revoked_at
@@ -93,10 +90,12 @@ pub async fn get_by_id(
 }
 
 pub async fn revoke(pool: &PgPool, id: Uuid) -> Result<(), ServicePrincipalError> {
-    sqlx::query("UPDATE service_principals SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE service_principals SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

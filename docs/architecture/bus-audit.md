@@ -127,9 +127,9 @@ control. **0 migraciones de Kafka → NATS necesarias.**
 
 ### 3.1. Servicios sin dependencia de bus (no listados arriba)
 
-Los 60 servicios restantes en `services/*` (p. ej. `agent-runtime-service`,
+Los servicios restantes en `services/*` (p. ej. `agent-runtime-service`,
 `ai-application-generation-service`, `cipher-service`,
-`edge-gateway-service`, `tool-registry-service`, etc.) no declaran hoy
+`edge-gateway-service`, etc.) no declaran hoy
 dependencia sobre `event-bus-control` ni `event-bus-data`. Quedan fuera del
 alcance de esta auditoría. Si en el futuro publican o consumen eventos,
 deberán añadirse simultáneamente a `Cargo.toml` y a

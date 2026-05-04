@@ -70,8 +70,10 @@ fn explicit_forever_on_child_overrides_parent_ttl() {
     let master = row(1, None, RetentionPolicy::TtlDays, Some(1));
     let mut feature = row(2, Some(1), RetentionPolicy::Forever, None);
     feature.last_activity_at = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-    let index: HashMap<Uuid, RetentionRow> =
-        vec![master, feature.clone()].into_iter().map(|r| (r.id, r)).collect();
+    let index: HashMap<Uuid, RetentionRow> = vec![master, feature.clone()]
+        .into_iter()
+        .map(|r| (r.id, r))
+        .collect();
     let eff = resolve_effective_retention(&feature, &index);
     assert_eq!(eff.policy, RetentionPolicy::Forever);
     let _ = EffectiveRetention::default_forever();

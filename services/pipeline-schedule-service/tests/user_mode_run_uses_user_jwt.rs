@@ -15,7 +15,7 @@ use pipeline_schedule_service::domain::build_client::{
     BuildAttemptOutcome, BuildServiceClient, CreateBuildPayload, RunAsPrincipal,
 };
 use pipeline_schedule_service::domain::dispatcher::{
-    Dispatcher, DispatcherConfig, DispatchTrigger,
+    DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use uuid::Uuid;
 
@@ -103,5 +103,8 @@ async fn cron_dispatch_in_user_mode_does_not_attach_principal() {
 
     let captured = build.captured.lock().unwrap();
     assert_eq!(captured.len(), 1);
-    assert!(captured[0].is_none(), "Cron USER dispatch must omit per-call principal");
+    assert!(
+        captured[0].is_none(),
+        "Cron USER dispatch must omit per-call principal"
+    );
 }

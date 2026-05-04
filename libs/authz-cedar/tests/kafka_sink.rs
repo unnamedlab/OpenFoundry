@@ -50,12 +50,15 @@ impl DataPublisher for CapturingPublisher {
         payload: &[u8],
         lineage: &OpenLineageHeaders,
     ) -> Result<(), PublishError> {
-        self.records.lock().expect("publisher mutex").push(CapturedRecord {
-            topic: topic.to_string(),
-            key: key.map(|k| k.to_vec()),
-            payload: payload.to_vec(),
-            headers: lineage.clone(),
-        });
+        self.records
+            .lock()
+            .expect("publisher mutex")
+            .push(CapturedRecord {
+                topic: topic.to_string(),
+                key: key.map(|k| k.to_vec()),
+                payload: payload.to_vec(),
+                headers: lineage.clone(),
+            });
         Ok(())
     }
 
@@ -86,7 +89,7 @@ async fn engine_with_capturing_sink() -> (AuthzEngine, CapturingPublisher) {
 
     let publisher = CapturingPublisher::default();
     let sink = KafkaAuthzAuditSink::for_default_topic(
-        Arc::new(publisher.clone()) as Arc<dyn DataPublisher>,
+        Arc::new(publisher.clone()) as Arc<dyn DataPublisher>
     );
     let engine = AuthzEngine::new(store, Arc::new(sink));
     (engine, publisher)
@@ -124,7 +127,11 @@ async fn authorize_emits_exactly_one_kafka_record_with_expected_shape() {
     assert!(outcome.is_allow(), "permissive policy should allow read");
 
     let captured = drain_detached_emit(&publisher).await;
-    assert_eq!(captured.len(), 1, "one and only one audit record per decision");
+    assert_eq!(
+        captured.len(),
+        1,
+        "one and only one audit record per decision"
+    );
 
     let rec = &captured[0];
     assert_eq!(rec.topic, KAFKA_AUDIT_TOPIC);
@@ -151,8 +158,14 @@ async fn authorize_emits_exactly_one_kafka_record_with_expected_shape() {
     // the decision timestamp surfaced in the payload.
     assert_eq!(rec.headers.namespace, "of://authz");
     assert_eq!(rec.headers.job_name, "authz.decide");
-    assert!(!rec.headers.run_id.is_empty(), "run_id acts as correlation id");
+    assert!(
+        !rec.headers.run_id.is_empty(),
+        "run_id acts as correlation id"
+    );
     let payload_ts = payload["timestamp"].as_str().expect("timestamp string");
     let header_ts = rec.headers.event_time.to_rfc3339();
-    assert_eq!(payload_ts, header_ts, "event_time mirrors the decision timestamp");
+    assert_eq!(
+        payload_ts, header_ts,
+        "event_time mirrors the decision timestamp"
+    );
 }

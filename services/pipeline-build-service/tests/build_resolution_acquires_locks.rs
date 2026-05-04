@@ -9,7 +9,7 @@ use pipeline_build_service::domain::build_resolution::{
 };
 use pipeline_build_service::models::build::BuildState;
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test]
 #[ignore = "requires docker"]
@@ -20,7 +20,10 @@ async fn build_resolution_acquires_locks_via_open_transaction() {
     specs.add(job_spec("ri.spec.s1", vec!["raw.a"], vec!["mid.b"]));
     versioning.add_branch(
         "raw.a",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -57,12 +60,11 @@ async fn build_resolution_acquires_locks_via_open_transaction() {
     assert!(lock.1.starts_with("ri.foundry.main.transaction."));
 
     // Job row + WAITING audit transition.
-    let job_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM jobs WHERE build_id = $1")
-            .bind(resolved.build_id)
-            .fetch_one(&harness.pool)
-            .await
-            .unwrap();
+    let job_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM jobs WHERE build_id = $1")
+        .bind(resolved.build_id)
+        .fetch_one(&harness.pool)
+        .await
+        .unwrap();
     assert_eq!(job_count.0, 1);
     let transition_count: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM job_state_transitions t JOIN jobs j ON j.id = t.job_id WHERE j.build_id = $1",
@@ -71,5 +73,8 @@ async fn build_resolution_acquires_locks_via_open_transaction() {
     .fetch_one(&harness.pool)
     .await
     .unwrap();
-    assert_eq!(transition_count.0, 1, "exactly one initial WAITING transition logged");
+    assert_eq!(
+        transition_count.0, 1,
+        "exactly one initial WAITING transition logged"
+    );
 }

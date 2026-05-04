@@ -1,9 +1,43 @@
 # Iteration playbook (S1.8.e) — qué tocar si el SLO no cumple
 
+> Owner: ontology-query-service maintainers + platform performance owner.
+> Last evidence attempt: 2026-05-03.
+> Current result: BLOCKED; no accepted S1 latency/throughput run is attached.
+
 Si el run de `bench-ontology` cierra con thresholds rojos, este
 runbook ordena las palancas de mitigación de **menor a mayor coste**.
 Aplicar una a la vez, re-correr el bench, y solo escalar a la
 siguiente si la métrica fallida persiste.
+
+## Último intento de ejecución
+
+| Campo | Valor |
+|---|---|
+| Fecha | 2026-05-03 |
+| Owner | ontology-query-service maintainers + platform performance owner |
+| Entorno | Kubernetes context `default` |
+| Evidencia | [`docs/architecture/slo-evidence/2026-05-03/summary.md`](../../../docs/architecture/slo-evidence/2026-05-03/summary.md) |
+| Resultado | BLOCKED; no hay run k6 aceptado |
+
+Comandos y resultados:
+
+```bash
+command -v k6
+kubectl get cassandradatacenters -A
+kubectl get deploy -A
+```
+
+Resultado resumido:
+
+```text
+k6 is not installed locally.
+No CassandraDatacenter resources found.
+OpenFoundry identity/gateway services are 0/1 in this context.
+```
+
+Sin k6, Cassandra y servicios S1 listos no se puede recoger p50/p95/p99,
+throughput, dropped iterations ni error rate. Este intento no aprueba
+la evidencia ADR-0012.
 
 ## Síntoma → palanca
 
@@ -52,10 +86,9 @@ siguiente si la métrica fallida persiste.
    % sostenido, escalar HPA y re-correr. La meta de RPS asume 3
    réplicas en t-shirt `m5.large`-equivalente.
 3. **Saturación NIC entre k6 y read service** — si el k6 se ejecuta
-   fuera del cluster, mover a un pod del cluster con
-   `kind: PodSpec.tolerations` para apuntar al mismo nodo del read
-   service (`benchmarks/ontology/k8s/k6-job.yaml` — TBD si se decide
-   correr in-cluster por defecto).
+   fuera del cluster, mover a un pod del cluster usando el camino
+   in-cluster documentado en
+   [`benchmarks/ontology/README.md`](../README.md#running-against-a-live-cluster).
 
 ### Error rate > 0.1 %
 

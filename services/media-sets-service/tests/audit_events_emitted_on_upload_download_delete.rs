@@ -145,10 +145,7 @@ async fn upload_download_and_delete_emit_canonical_audit_events() {
     assert_eq!(upload.resource_rid, item.rid);
     assert_eq!(upload.project_rid, set.project_rid);
     assert!(
-        upload
-            .categories
-            .iter()
-            .any(|c| c == "dataImport"),
+        upload.categories.iter().any(|c| c == "dataImport"),
         "uploads map to dataImport (Foundry audit category)"
     );
     // The wire-format crate consumed by audit-sink decodes the same
@@ -156,7 +153,10 @@ async fn upload_download_and_delete_emit_canonical_audit_events() {
     let raw = serde_json::to_vec(upload).expect("serialise envelope");
     let decoded: AuditEnvelope = serde_json::from_slice(&raw).expect("audit-sink-style decode");
     assert_eq!(decoded.kind, "media_item.uploaded");
-    assert_eq!(decoded.payload["path"], serde_json::json!("audit/sample.png"));
+    assert_eq!(
+        decoded.payload["path"],
+        serde_json::json!("audit/sample.png")
+    );
 
     // ── Download ─────────────────────────────────────────────────
     let _ = presigned_download_op(&h.state, &item.rid, Some(60), &common::test_ctx())

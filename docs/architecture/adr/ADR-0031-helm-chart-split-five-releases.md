@@ -11,8 +11,9 @@
 
 Before the split, every OpenFoundry service was a sub-chart of a single
 umbrella release now removed from the repo.
-A Helm release of that chart spans 97 Deployments + Services + HPAs +
-PDBs + NetworkPolicies. In production this means:
+The legacy shape bundled the service fleet into one all-or-nothing
+release with dozens of Deployments + Services + HPAs + PDBs +
+NetworkPolicies. In production this means:
 
 * `helm upgrade` is an all-or-nothing transaction. A bad change to one
   service's NetworkPolicy can roll back unrelated services.
@@ -35,7 +36,7 @@ share an oncall rotation, a release cadence and a blast radius.
 | Release | Services (post-S8.1) | Oncall |
 | --- | --- | --- |
 | `of-platform` | `edge-gateway-service`, `identity-federation-service`, `authorization-policy-service`, `tenancy-organizations-service` | platform |
-| `of-data-engine` | `connector-management-service`, `ingestion-replication-service`, `dataset-versioning-service`, `lineage-service`, `pipeline-build-service`, `sql-bi-gateway-service` | data-engineering |
+| `of-data-engine` | `connector-management-service`, `ingestion-replication-service`, `dataset-versioning-service`, `media-sets-service`, `lineage-service`, `pipeline-build-service`, `sql-bi-gateway-service` | data-engineering |
 | `of-ontology` | `ontology-definition-service`, `ontology-actions-service`, `ontology-query-service`, `object-database-service`, `ontology-indexer` (sink) | ontology |
 | `of-ml-aip` | `model-catalog-service`, `model-deployment-service`, `agent-runtime-service`, `llm-catalog-service`, `retrieval-context-service`, `ai-evaluation-service`, `ai-sink` (sink) | ai |
 | `of-apps-ops` | `application-composition-service`, `notebook-runtime-service`, `ontology-exploratory-analysis-service`, `solution-design-service`, `workflow-automation-service`, `notification-alerting-service`, `audit-compliance-service`, `audit-sink` (sink), `telemetry-governance-service`, `federation-product-exchange-service`, `code-repository-review-service`, `sdk-generation-service`, `entity-resolution-service` | apps + ops |
@@ -145,5 +146,5 @@ entrypoint is now [`infra/k8s/helm/bin/upgrade-split-releases.sh`](../../../infr
 ## References
 
 * [ADR-0011 — Control vs data bus contract](ADR-0011-control-vs-data-bus-contract.md)
-* [ADR-0030 — Service consolidation 97 → 30](ADR-0030-service-consolidation-30-targets.md)
+* [ADR-0030 — Service consolidation to ownership boundaries](ADR-0030-service-consolidation-30-targets.md)
 * [`infra/k8s/helm/MIGRATION.md`](../../../infra/k8s/helm/MIGRATION.md)

@@ -36,6 +36,8 @@ async fn e2e_workflow_execute_through_go_worker() {
         namespace: harness.namespace.clone(),
         identity: "workflow-automation-service-e2e".to_string(),
         api_key: None,
+        require_real_client: false,
+        deployment_environment: None,
     })
     .await
     .expect("Temporal gRPC client");

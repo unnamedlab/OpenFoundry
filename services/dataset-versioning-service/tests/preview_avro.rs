@@ -87,7 +87,10 @@ async fn preview_avro_infers_columns_and_values_from_writer_schema() {
     assert_eq!(body["file_format"], "AVRO");
 
     let columns = body["columns"].as_array().expect("columns");
-    let names: Vec<&str> = columns.iter().map(|c| c["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = columns
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
     assert_eq!(
         names,
         vec!["id", "name", "ok"],
@@ -99,7 +102,11 @@ async fn preview_avro_infers_columns_and_values_from_writer_schema() {
     assert_eq!(rows[0]["id"], 1);
     assert_eq!(rows[0]["name"], "alice");
     assert_eq!(rows[0]["ok"], true);
-    assert_eq!(rows[2]["ok"], Value::Null, "Avro null union round-trips: {body}");
+    assert_eq!(
+        rows[2]["ok"],
+        Value::Null,
+        "Avro null union round-trips: {body}"
+    );
 
     // Schema row was empty → reader fell back to inference; the UI
     // banner should fire.

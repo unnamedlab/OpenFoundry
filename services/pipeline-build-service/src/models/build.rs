@@ -104,10 +104,8 @@ pub enum AbortPolicy {
 }
 
 impl AbortPolicy {
-    pub const ALL: &'static [AbortPolicy] = &[
-        AbortPolicy::DependentOnly,
-        AbortPolicy::AllNonDependent,
-    ];
+    pub const ALL: &'static [AbortPolicy] =
+        &[AbortPolicy::DependentOnly, AbortPolicy::AllNonDependent];
 
     pub fn as_str(&self) -> &'static str {
         match self {

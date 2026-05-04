@@ -8,6 +8,7 @@
 mod config;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::{Router, routing::get};
 use config::AppConfig;
@@ -52,6 +53,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match RuntimeMode::from_env() {
         RuntimeMode::KafkaToIceberg => {
             let config = lineage_service::runtime::RuntimeConfig::from_env()?;
+            let metrics = Arc::new(lineage_service::runtime::RuntimeMetrics::new());
+            let metrics_addr = lineage_service::runtime::metrics_addr_from_env(9090)?;
+            {
+                let metrics = Arc::clone(&metrics);
+                tokio::spawn(async move {
+                    if let Err(error) =
+                        lineage_service::runtime::serve_metrics(metrics, metrics_addr).await
+                    {
+                        tracing::error!(%error, "lineage-service metrics endpoint stopped");
+                    }
+                });
+            }
             let subscriber = event_bus_data::KafkaSubscriber::new(
                 &config.data_bus,
                 lineage_service::kafka_to_iceberg::CONSUMER_GROUP,
@@ -63,7 +76,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 namespace = lineage_service::kafka_to_iceberg::iceberg_target::NAMESPACE,
                 "starting lineage-service Kafka -> Iceberg runtime"
             );
-            lineage_service::runtime::run(subscriber, tables, config.batch_policy).await?;
+            lineage_service::runtime::run_with_metrics(
+                subscriber,
+                tables,
+                config.batch_policy,
+                Some(metrics),
+            )
+            .await?;
         }
         RuntimeMode::HttpHealth => {
             let config = AppConfig::from_env()?;

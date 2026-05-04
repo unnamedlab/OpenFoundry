@@ -51,7 +51,10 @@ fn reversed_chain_is_rejected_with_incompatible_ancestry() {
             target_chain,
             ancestry,
         } => {
-            assert_eq!(dataset_rid.as_str(), "ri.foundry.main.dataset.00000000-0000-0000-0000-000000000002");
+            assert_eq!(
+                dataset_rid.as_str(),
+                "ri.foundry.main.dataset.00000000-0000-0000-0000-000000000002"
+            );
             assert_eq!(build_branch, b("feature"));
             assert_eq!(target_chain, vec![b("master"), b("develop")]);
             assert_eq!(ancestry, vec![b("feature"), b("develop"), b("master")]);

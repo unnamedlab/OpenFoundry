@@ -13,9 +13,7 @@ mod common;
 
 use chrono::Utc;
 use pipeline_schedule_service::domain::trigger::EventType;
-use pipeline_schedule_service::domain::trigger_engine::{
-    ObservedEvent, PgTriggerEvaluator,
-};
+use pipeline_schedule_service::domain::trigger_engine::{ObservedEvent, PgTriggerEvaluator};
 use pipeline_schedule_service::domain::{schedule_store, trigger::MANUAL_PAUSED_REASON};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -68,7 +66,9 @@ async fn pause_clears_all_event_observations() {
     assert_eq!(count_after, 0, "pause must wipe every event observation");
 
     // The schedule row itself records why it was paused.
-    let updated = schedule_store::get_by_rid(&pool, &schedule.rid).await.unwrap();
+    let updated = schedule_store::get_by_rid(&pool, &schedule.rid)
+        .await
+        .unwrap();
     assert!(updated.paused);
     assert_eq!(updated.paused_reason.as_deref(), Some(MANUAL_PAUSED_REASON));
     assert!(updated.paused_at.is_some());

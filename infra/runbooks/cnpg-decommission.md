@@ -2,6 +2,13 @@
 
 > S6.5 of the Cassandra/Foundry parity migration plan.
 >
+> Owner: database platform owner + SRE on-call.
+>
+> Last evidence attempt: 2026-05-03.
+>
+> Current result: BLOCKED; not signed off for final Postgres residual
+> closure.
+>
 > **State at time of writing**: the legacy 65 per-service `Cluster`
 > manifests under `infra/k8s/platform/manifests/cnpg/clusters/<bc>-pg.yaml` were already
 > deleted from Git in S6.1.a. The cluster CRs and their PVCs may still
@@ -13,6 +20,36 @@
 > milestone stays open until the final gates in
 > `docs/architecture/migration-plan-cassandra-foundry-parity.md` §18
 > are green.
+
+## Latest Execution Attempt
+
+| Field | Value |
+|---|---|
+| Date | 2026-05-03 |
+| Owner | database platform owner + SRE on-call |
+| Environment | Kubernetes context `default` |
+| Evidence pack | [`docs/architecture/slo-evidence/2026-05-03/summary.md`](../../docs/architecture/slo-evidence/2026-05-03/summary.md) |
+| Result | BLOCKED; no decommission sign-off approved |
+
+Commands and results:
+
+```sh
+kubectl get clusters.postgresql.cnpg.io -A
+kubectl get statefulset -A
+```
+
+Result:
+
+```text
+No resources found.
+No resources found.
+```
+
+This does not prove that the target environment contains exactly the
+four consolidated clusters, nor that legacy CNPG CRs/PVCs were safely
+reaped. It only proves the current local context has no CNPG clusters
+to inspect. Final closure still requires running this playbook in the
+environment where the legacy clusters existed.
 
 ## Pre-flight
 

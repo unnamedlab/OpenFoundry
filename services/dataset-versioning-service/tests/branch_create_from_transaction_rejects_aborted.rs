@@ -41,11 +41,8 @@ async fn req(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn rejects_branch_creation_from_aborted_transaction() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.from-aborted-tx",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.from-aborted-tx").await;
 
     let (open_status, open_body) = req(
         &h.router,

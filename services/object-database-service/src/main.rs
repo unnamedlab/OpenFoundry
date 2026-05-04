@@ -17,7 +17,7 @@ use axum::{
 };
 use cassandra_kernel::{
     ClusterConfig, Migration, SessionBuilder, migrate,
-    repos::{CassandraLinkStore, CassandraObjectStore},
+    repos::{CassandraLinkStore, CassandraObjectStore, CassandraSchemaStore},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,6 +39,7 @@ const ONTOLOGY_OBJECTS_MIGRATIONS: &[Migration] = &[Migration {
         include_str!("../cql/ontology_objects/002_objects_by_type.cql"),
         include_str!("../cql/ontology_objects/003_objects_by_owner.cql"),
         include_str!("../cql/ontology_objects/004_objects_by_marking.cql"),
+        include_str!("../cql/ontology_objects/005_schemas_by_type.cql"),
     ],
 }];
 
@@ -232,6 +233,8 @@ async fn build_state(cfg: &AppConfig) -> Result<ObjectDatabaseState, Box<dyn std
 
     let object_store = CassandraObjectStore::new(session.clone());
     object_store.warm_up().await?;
+    let schema_store = CassandraSchemaStore::new(session.clone());
+    schema_store.warm_up().await?;
     let link_store = CassandraLinkStore::new(session);
     link_store.warm_up().await?;
 

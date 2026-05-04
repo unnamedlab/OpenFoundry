@@ -1,0 +1,57 @@
+{{- $release := .Values.release -}}
+{{- $temporal := .Values.temporal | default dict -}}
+{{- $temporalRustServices := dict
+  "workflow-automation-service" (dict "envKey" "TEMPORAL_TASK_QUEUE_WORKFLOW_AUTOMATION" "taskQueue" "openfoundry.workflow-automation")
+  "automation-operations-service" (dict "envKey" "TEMPORAL_TASK_QUEUE_AUTOMATION_OPS" "taskQueue" "openfoundry.automation-ops")
+-}}
+{{- range $name, $svc := .Values.services }}
+{{- if not (hasKey $svc "enabled") }}{{- $_ := set $svc "enabled" true -}}{{- end }}
+{{- if $svc.enabled }}
+{{- if hasKey $temporalRustServices $name }}
+{{- $queue := get $temporalRustServices $name -}}
+{{- $serviceEnv := dict -}}
+{{- if kindIs "map" ($svc.env | default dict) }}{{- $serviceEnv = ($svc.env | default dict) }}{{- end -}}
+{{- $temporalEnv := dict
+    "TEMPORAL_HOST_PORT" ($temporal.address | default "temporal-frontend.temporal.svc.cluster.local:7233")
+    "TEMPORAL_NAMESPACE" ($temporal.namespace | default "default")
+    "TEMPORAL_REQUIRE_REAL_CLIENT" "true"
+-}}
+{{- $_ := set $temporalEnv (get $queue "envKey") (get $queue "taskQueue") -}}
+{{- $_ := set $svc "env" (mergeOverwrite (dict) $temporalEnv $serviceEnv) -}}
+{{- end }}
+---
+{{- $ctx := dict
+    "root" $
+    "name" $name
+    "release" $release
+    "image" (include "of-shared.image" (dict "root" $ "name" $name "service" $svc))
+    "service" $svc
+}}
+{{ include "of-shared.serviceaccount" (dict "root" $ "name" $name "release" $release "annotations" (default dict $svc.serviceAccountAnnotations)) }}
+---
+{{ include "of-shared.deployment" $ctx }}
+---
+{{ include "of-shared.service" $ctx }}
+---
+{{ include "of-shared.networkpolicy" (merge $ctx (dict "allowFrom" (list))) }}
+{{- if $svc.autoscaling }}
+{{- if $svc.autoscaling.enabled }}
+---
+{{ include "of-shared.hpa" (dict "root" $ "name" $name "release" $release "autoscaling" $svc.autoscaling) }}
+{{- if and $svc.autoscaling.keda $svc.autoscaling.keda.enabled }}
+---
+{{ include "of-shared.scaledobject" (dict "root" $ "name" $name "release" $release "autoscaling" $svc.autoscaling) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $globalPdb := ($.Values.global.podDisruptionBudget | default dict) -}}
+{{- $pdb := $svc.pdb | default (dict) -}}
+{{- if not (hasKey $pdb "enabled") }}
+  {{- $_ := set $pdb "enabled" ($globalPdb.enabled | default false) -}}
+{{- end }}
+{{- if and $pdb $pdb.enabled }}
+---
+{{ include "of-shared.pdb" (dict "root" $ "name" $name "release" $release "pdb" (mergeOverwrite (dict) $globalPdb $pdb)) }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,22 @@
+# dev override for cassandra-cluster: 1 node, 2G heap, local-path storage,
+# no Reaper / Medusa. Application keyspaces job uses RF=1.
+
+dev:
+  enabled: true
+  size: 1
+  heapSize: 1G                   # smaller heap → faster boot in lima
+  storageClass: local-path
+  storageSize: 20Gi
+  resources:
+    requests: { cpu: "1",    memory: "2Gi" }
+    limits:   { cpu: "2",    memory: "3Gi" }
+  reaper:
+    enabled: false
+  medusa:
+    enabled: false
+
+keyspaces:
+  enabled: true
+  clusterName: of-cass-dev
+  replicationFactor: 1
+  dcs: [dc1]

@@ -57,6 +57,9 @@ SERVICE_OVERRIDES: dict[str, dict[str, str]] = {
         "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
     },
+    "media-sets-service": {
+        "extra_build_apk": "protobuf-dev",
+    },
     "ontology-indexer": {
         "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
         "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",

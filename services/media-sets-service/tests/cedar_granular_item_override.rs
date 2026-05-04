@@ -19,12 +19,8 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use http_body_util::BodyExt;
-use media_sets_service::handlers::items::{
-    patch_item_markings_op, presigned_upload_op,
-};
-use media_sets_service::handlers::media_sets::{
-    create_media_set_op, patch_markings_op,
-};
+use media_sets_service::handlers::items::{patch_item_markings_op, presigned_upload_op};
+use media_sets_service::handlers::media_sets::{create_media_set_op, patch_markings_op};
 use media_sets_service::models::{
     CreateMediaSetRequest, MediaSetSchema, PresignedUploadRequest, TransactionPolicy,
 };
@@ -136,7 +132,11 @@ async fn item_marked_secret_is_hidden_when_caller_only_has_pii_clearance() {
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let listed: Value = serde_json::from_slice(&body).unwrap();
     let items = listed.as_array().unwrap();
-    assert_eq!(items.len(), 1, "expected granular override to hide secret item");
+    assert_eq!(
+        items.len(),
+        1,
+        "expected granular override to hide secret item"
+    );
     assert_eq!(items[0]["rid"].as_str(), Some(public_item.rid.as_str()));
 
     // ── 2. Direct fetch of the SECRET item is forbidden ───────────

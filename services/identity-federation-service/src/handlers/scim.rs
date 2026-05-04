@@ -12,8 +12,8 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::cedar_authz::{
-    AdminAuthzGuard, ScimDeprovisionUser, ScimGroupResource, ScimProvisionGroup,
-    ScimProvisionUser, ScimUserResource,
+    AdminAuthzGuard, ScimDeprovisionUser, ScimGroupResource, ScimProvisionGroup, ScimProvisionUser,
+    ScimUserResource,
 };
 use crate::hardening::scim::{
     ROUTE_GROUPS, ROUTE_USERS, SCHEMA_GROUP, SCHEMA_OPENFOUNDRY_USER_EXTENSION, SCHEMA_PATCH_OP,

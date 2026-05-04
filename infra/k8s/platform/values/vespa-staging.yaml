@@ -1,4 +1,0 @@
-metrics:
-  serviceMonitor:
-    enabled: true
-    interval: 30s

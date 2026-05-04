@@ -59,7 +59,7 @@ mod handlers {
 
     pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
         let db_ready = match state.db.as_ref() {
-            Some(pool) => matches!(sqlx::query("SELECT 1").execute(pool).await, Ok(_)),
+            Some(pool) => pool.acquire().await.is_ok(),
             None => false,
         };
         let body = serde_json::json!({

@@ -11,7 +11,7 @@ use pipeline_build_service::domain::build_resolution::{
 use pipeline_build_service::models::build::BuildState;
 use uuid::Uuid;
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test]
 #[ignore = "requires docker"]
@@ -25,7 +25,10 @@ async fn build_queued_when_upstream_in_progress() {
     specs.add(job_spec("ri.spec.s1", vec!["raw.a"], vec!["mid.b"]));
     versioning.add_branch(
         "raw.a",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     // Plant an upstream build that has a lock on `raw.a`.

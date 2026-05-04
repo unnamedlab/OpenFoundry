@@ -11,7 +11,7 @@ use pipeline_build_service::domain::build_resolution::{
 };
 use pipeline_build_service::domain::logs::{LogEntry, LogLevel, LogSink, PostgresLogSink};
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires docker"]
@@ -22,7 +22,10 @@ async fn rest_history_only_returns_entries_at_or_after_from_sequence() {
     specs.add(job_spec("ri.spec.s", vec!["raw.in"], vec!["mid.out"]));
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
     let build_branch: BranchName = "master".parse().unwrap();
     let outputs = vec!["mid.out".to_string()];

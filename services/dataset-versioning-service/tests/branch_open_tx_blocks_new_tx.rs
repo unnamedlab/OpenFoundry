@@ -45,11 +45,9 @@ async fn req(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn second_open_on_branch_with_open_tx_returns_conflict_with_rid() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.open-blocks-second",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.open-blocks-second")
+            .await;
 
     let (first_status, first_body) = req(
         &h.router,
@@ -73,7 +71,11 @@ async fn second_open_on_branch_with_open_tx_returns_conflict_with_rid() {
         Some(json!({ "type": "APPEND", "providence": {} })),
     )
     .await;
-    assert_eq!(second_status, StatusCode::CONFLICT, "expected 409, got {second_status} {second_body}");
+    assert_eq!(
+        second_status,
+        StatusCode::CONFLICT,
+        "expected 409, got {second_status} {second_body}"
+    );
     assert_eq!(second_body["error"], "BRANCH_HAS_OPEN_TRANSACTION");
     assert_eq!(
         second_body["open_transaction_id"]

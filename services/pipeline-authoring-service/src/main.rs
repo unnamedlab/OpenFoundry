@@ -58,6 +58,51 @@ pub struct AppState {
     pub distributed_compute_timeout_secs: u64,
 }
 
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Arc;
+
+    use sqlx::postgres::PgPoolOptions;
+    use storage_abstraction::local::LocalStorage;
+    use uuid::Uuid;
+
+    use crate::AppState;
+
+    pub(crate) fn pipeline_runtime_app_state() -> AppState {
+        let storage_root = std::env::temp_dir().join(format!(
+            "openfoundry-pipeline-runtime-tests-{}",
+            Uuid::now_v7()
+        ));
+        let storage_root_str = storage_root.to_string_lossy().to_string();
+        std::fs::create_dir_all(&storage_root).expect("test storage directory should exist");
+
+        AppState {
+            db: PgPoolOptions::new()
+                .connect_lazy("postgres://postgres:postgres@localhost/openfoundry")
+                .expect("lazy pool should build"),
+            jwt_config: auth_middleware::jwt::JwtConfig::generate().with_env_defaults(),
+            http_client: reqwest::Client::new(),
+            storage: Arc::new(
+                LocalStorage::new(&storage_root_str).expect("local storage should initialize"),
+            ),
+            data_dir: storage_root_str.clone(),
+            dataset_service_url: "http://dataset.local".to_string(),
+            workflow_service_url: "http://workflow.local".to_string(),
+            ai_service_url: "http://ai.local".to_string(),
+            storage_backend: "s3".to_string(),
+            storage_bucket: "datasets".to_string(),
+            s3_endpoint: Some("http://minio.local".to_string()),
+            s3_region: Some("us-east-1".to_string()),
+            s3_access_key: None,
+            s3_secret_key: None,
+            local_storage_root: Some(storage_root_str),
+            distributed_pipeline_workers: 1,
+            distributed_compute_poll_interval_ms: 5_000,
+            distributed_compute_timeout_secs: 900,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()

@@ -1,0 +1,3 @@
+# Values applied to upstream chart flink-operator/flink-kubernetes-operator.
+webhook:
+  create: true

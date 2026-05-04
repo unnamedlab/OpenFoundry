@@ -1,9 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExploratoryView {
     pub id: Uuid,
     pub slug: String,
@@ -24,7 +23,7 @@ pub struct CreateViewRequest {
     pub layout: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExploratoryMap {
     pub id: Uuid,
     pub view_id: Option<Uuid>,
@@ -50,7 +49,7 @@ pub struct WritebackProposalRequest {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WritebackProposal {
     pub id: Uuid,
     pub object_type: String,

@@ -19,11 +19,8 @@ use tower::ServiceExt;
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn two_commits_with_different_schemas_land_in_separate_view_rows() {
     let h = common::spawn().await;
-    let id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.schema-per-view",
-    )
-    .await;
+    let id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.schema-per-view").await;
 
     let schema_v1 = json!({
         "fields": [

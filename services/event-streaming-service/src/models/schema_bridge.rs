@@ -156,7 +156,9 @@ pub fn avro_to_schema(value: &Value) -> Result<Schema, BridgeError> {
         .as_object()
         .ok_or_else(|| BridgeError::Malformed("expected object".into()))?;
     if obj.get("type").and_then(|t| t.as_str()) != Some("record") {
-        return Err(BridgeError::Malformed("top-level schema must be record".into()));
+        return Err(BridgeError::Malformed(
+            "top-level schema must be record".into(),
+        ));
     }
     let raw_fields = obj
         .get("fields")
@@ -198,9 +200,7 @@ fn field_from_avro(value: &Value) -> Result<SchemaField, BridgeError> {
 fn parse_field_type(raw: &Value) -> Result<(FieldType, bool), BridgeError> {
     if let Some(arr) = raw.as_array() {
         // `["null", T]` nullable encoding.
-        let has_null = arr
-            .iter()
-            .any(|v| v.as_str() == Some("null"));
+        let has_null = arr.iter().any(|v| v.as_str() == Some("null"));
         let other = arr
             .iter()
             .find(|v| v.as_str() != Some("null"))
@@ -238,10 +238,7 @@ fn parse_field_type(raw: &Value) -> Result<(FieldType, bool), BridgeError> {
                 .and_then(|v| v.as_u64())
                 .ok_or_else(|| BridgeError::Malformed("decimal missing precision".into()))?
                 as u8;
-            let scale = obj
-                .get("scale")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u8;
+            let scale = obj.get("scale").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
             FieldType::Decimal { precision, scale }
         }
         ("array", _) => {
@@ -439,7 +436,10 @@ mod tests {
         );
         assert!(matches!(
             parsed.fields[7].field_type,
-            FieldType::Decimal { precision: 18, scale: 6 }
+            FieldType::Decimal {
+                precision: 18,
+                scale: 6
+            }
         ));
         assert!(matches!(parsed.fields[10].field_type, FieldType::Date));
         assert!(matches!(parsed.fields[11].field_type, FieldType::Timestamp));
@@ -447,7 +447,10 @@ mod tests {
             parsed.fields[12].field_type,
             FieldType::Array { .. }
         ));
-        assert!(matches!(parsed.fields[13].field_type, FieldType::Map { .. }));
+        assert!(matches!(
+            parsed.fields[13].field_type,
+            FieldType::Map { .. }
+        ));
         assert!(matches!(
             parsed.fields[14].field_type,
             FieldType::Struct { .. }

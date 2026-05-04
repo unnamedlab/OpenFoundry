@@ -10,13 +10,11 @@ use core_models::dataset::transaction::BranchName;
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
-use pipeline_build_service::domain::job_lifecycle::{
-    JobLifecycleError, transition_job,
-};
+use pipeline_build_service::domain::job_lifecycle::{JobLifecycleError, transition_job};
 use pipeline_build_service::models::build::BuildState;
 use pipeline_build_service::models::job::JobState;
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test]
 #[ignore = "requires docker"]
@@ -27,7 +25,10 @@ async fn build_locks_released_on_abort_or_finish() {
     specs.add(job_spec("ri.spec.s1", vec!["raw.a"], vec!["mid.b"]));
     versioning.add_branch(
         "raw.a",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -67,15 +68,33 @@ async fn build_locks_released_on_abort_or_finish() {
         .fetch_one(&harness.pool)
         .await
         .unwrap();
-    transition_job(&harness.pool, job_id.0, Some(JobState::Waiting), JobState::RunPending, None)
-        .await
-        .expect("WAITING → RUN_PENDING");
-    transition_job(&harness.pool, job_id.0, Some(JobState::RunPending), JobState::Running, None)
-        .await
-        .expect("RUN_PENDING → RUNNING");
-    transition_job(&harness.pool, job_id.0, Some(JobState::Running), JobState::Completed, None)
-        .await
-        .expect("RUNNING → COMPLETED");
+    transition_job(
+        &harness.pool,
+        job_id.0,
+        Some(JobState::Waiting),
+        JobState::RunPending,
+        None,
+    )
+    .await
+    .expect("WAITING → RUN_PENDING");
+    transition_job(
+        &harness.pool,
+        job_id.0,
+        Some(JobState::RunPending),
+        JobState::Running,
+        None,
+    )
+    .await
+    .expect("RUN_PENDING → RUNNING");
+    transition_job(
+        &harness.pool,
+        job_id.0,
+        Some(JobState::Running),
+        JobState::Completed,
+        None,
+    )
+    .await
+    .expect("RUNNING → COMPLETED");
 
     // Mark the build COMPLETED + drop locks (mirroring what
     // dataset-versioning-service does on transaction commit).

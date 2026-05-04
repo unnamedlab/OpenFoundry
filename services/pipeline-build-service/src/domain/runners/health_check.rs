@@ -147,19 +147,35 @@ fn evaluate_check(
     // query-engine call.
     match cfg.check_kind {
         HealthCheckKind::RowCountNonzero => CheckEvaluation {
-            passed: cfg.params.get("expect_passed").and_then(|v| v.as_bool()).unwrap_or(true),
+            passed: cfg
+                .params
+                .get("expect_passed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             message: "row count check".into(),
         },
         HealthCheckKind::SchemaDrift => CheckEvaluation {
-            passed: cfg.params.get("expect_passed").and_then(|v| v.as_bool()).unwrap_or(true),
+            passed: cfg
+                .params
+                .get("expect_passed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             message: "schema drift check".into(),
         },
         HealthCheckKind::FreshnessSla => CheckEvaluation {
-            passed: cfg.params.get("expect_passed").and_then(|v| v.as_bool()).unwrap_or(true),
+            passed: cfg
+                .params
+                .get("expect_passed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             message: "freshness SLA check".into(),
         },
         HealthCheckKind::CustomSql => CheckEvaluation {
-            passed: cfg.params.get("expect_passed").and_then(|v| v.as_bool()).unwrap_or(true),
+            passed: cfg
+                .params
+                .get("expect_passed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             message: "custom SQL check".into(),
         },
     }

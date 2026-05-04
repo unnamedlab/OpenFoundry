@@ -48,8 +48,7 @@ use crate::{
             AUTO_PAUSED_REASON, MANUAL_PAUSED_REASON, Schedule, ScheduleTarget, ScheduleTargetKind,
             Trigger,
         },
-        trigger_engine,
-        version_store,
+        trigger_engine, version_store,
     },
 };
 
@@ -403,7 +402,9 @@ pub async fn pause_schedule(
     Path(rid): Path<String>,
     Json(body): Json<PauseScheduleBody>,
 ) -> impl IntoResponse {
-    let reason = body.reason.unwrap_or_else(|| MANUAL_PAUSED_REASON.to_string());
+    let reason = body
+        .reason
+        .unwrap_or_else(|| MANUAL_PAUSED_REASON.to_string());
     let updated =
         match schedule_store::set_paused(&state.db, &rid, true, Some(reason.as_str())).await {
             Ok(s) => s,
@@ -481,7 +482,12 @@ pub async fn resume_schedule(
         }
     }
 
-    audit_event("schedule.resumed", &claims.sub, &updated.rid, "manual resume");
+    audit_event(
+        "schedule.resumed",
+        &claims.sub,
+        &updated.rid,
+        "manual resume",
+    );
     Json(schedule_view(&updated)).into_response()
 }
 
@@ -647,7 +653,10 @@ pub async fn version_diff(
     let from = match version_store::get_version(&state.db, schedule.id, params.from).await {
         Ok(v) => v,
         Err(version_store::VersionError::NotFound(_, _)) => {
-            return (StatusCode::NOT_FOUND, Json(json!({ "error": "from version not found" })))
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "from version not found" })),
+            )
                 .into_response();
         }
         Err(e) => {
@@ -661,7 +670,10 @@ pub async fn version_diff(
     let to = match version_store::get_version(&state.db, schedule.id, params.to).await {
         Ok(v) => v,
         Err(version_store::VersionError::NotFound(_, _)) => {
-            return (StatusCode::NOT_FOUND, Json(json!({ "error": "to version not found" })))
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "to version not found" })),
+            )
                 .into_response();
         }
         Err(e) => {
@@ -771,13 +783,8 @@ pub async fn convert_to_project_scope(
         }
     };
 
-    match schedule_store::convert_to_project_scope(
-        &state.db,
-        &rid,
-        body.project_scope_rids,
-        sp.id,
-    )
-    .await
+    match schedule_store::convert_to_project_scope(&state.db, &rid, body.project_scope_rids, sp.id)
+        .await
     {
         Ok(updated) => {
             audit_event(

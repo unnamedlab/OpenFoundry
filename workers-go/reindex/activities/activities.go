@@ -316,7 +316,6 @@ func newKafkaClient() (*kgo.Client, error) {
 		kgo.SeedBrokers(brokers...),
 		kgo.ClientID(getenv("KAFKA_CLIENT_ID", "workers-go-reindex")),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
-		kgo.AllowAutoTopicCreation(),
 	}
 
 	securityProtocol := strings.ToUpper(strings.TrimSpace(os.Getenv("KAFKA_SECURITY_PROTOCOL")))

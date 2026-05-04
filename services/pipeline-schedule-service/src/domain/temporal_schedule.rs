@@ -119,9 +119,10 @@ fn plan_for_trigger(trigger: &Trigger) -> DispatchPlan {
             // A compound that is *all* time triggers under OR can also
             // be expressed as multiple cron clauses on one Temporal
             // schedule; everything else falls through to ad-hoc.
-            let all_time = c.components.iter().all(|child| {
-                matches!(child.kind, TriggerKind::Time(_))
-            });
+            let all_time = c
+                .components
+                .iter()
+                .all(|child| matches!(child.kind, TriggerKind::Time(_)));
             let is_or = matches!(c.op, crate::domain::trigger::CompoundOp::Or);
             if all_time && is_or {
                 let mut crons = Vec::new();

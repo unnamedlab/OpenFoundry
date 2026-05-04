@@ -179,7 +179,12 @@ impl LineageEvent {
         if let Some(parent) = self.parent_run_id {
             run.insert(
                 "facets".to_string(),
-                merge_run_facets(&self.run_facets, parent, &self.job_namespace, &self.job_name),
+                merge_run_facets(
+                    &self.run_facets,
+                    parent,
+                    &self.job_namespace,
+                    &self.job_name,
+                ),
             );
         } else if !self.run_facets.is_empty() {
             run.insert("facets".to_string(), Value::Object(self.run_facets.clone()));
@@ -226,10 +231,7 @@ impl LineageEvent {
 /// `ol-job`, plus `ol-parent-run-id` when present) so consumers can
 /// filter without deserialising the payload, mirroring the pattern
 /// documented in [`crate`].
-pub async fn enqueue(
-    tx: &mut Transaction<'_, Postgres>,
-    event: LineageEvent,
-) -> OutboxResult<()> {
+pub async fn enqueue(tx: &mut Transaction<'_, Postgres>, event: LineageEvent) -> OutboxResult<()> {
     let event_id = event.derive_event_id();
     let payload = event.to_payload();
     let mut outbox_event = OutboxEvent::new(

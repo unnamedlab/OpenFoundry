@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use pipeline_build_service::domain::build_executor::{JobContext, JobOutcome, JobRunner};
 use pipeline_build_service::domain::build_resolution::JobSpec;
-use pipeline_build_service::domain::runners::{logic_kinds, SyncJobRunner};
+use pipeline_build_service::domain::runners::{SyncJobRunner, logic_kinds};
 use serde_json::json;
 use uuid::Uuid;
 use wiremock::matchers::{method, path};
@@ -18,7 +18,9 @@ async fn sync_runner_calls_connector_service_run_endpoint() {
     let ingest_id = Uuid::now_v7();
 
     Mock::given(method("POST"))
-        .and(path(format!("/api/v1/data-integration/syncs/{sync_id}/run")))
+        .and(path(format!(
+            "/api/v1/data-integration/syncs/{sync_id}/run"
+        )))
         .respond_with(
             ResponseTemplate::new(202).set_body_json(json!({ "ingest_job_id": ingest_id })),
         )
@@ -52,7 +54,9 @@ async fn sync_runner_calls_connector_service_run_endpoint() {
     };
     let outcome = runner.run(&ctx).await;
     match outcome {
-        JobOutcome::Completed { output_content_hash } => {
+        JobOutcome::Completed {
+            output_content_hash,
+        } => {
             assert!(output_content_hash.starts_with("sync:"));
             assert!(output_content_hash.contains(&ingest_id.to_string()));
         }
@@ -65,7 +69,9 @@ async fn sync_runner_fails_on_connector_error() {
     let mock = MockServer::start().await;
     let sync_id = Uuid::now_v7();
     Mock::given(method("POST"))
-        .and(path(format!("/api/v1/data-integration/syncs/{sync_id}/run")))
+        .and(path(format!(
+            "/api/v1/data-integration/syncs/{sync_id}/run"
+        )))
         .respond_with(ResponseTemplate::new(502).set_body_string("source unreachable"))
         .mount(&mock)
         .await;

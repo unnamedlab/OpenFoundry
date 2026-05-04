@@ -3,14 +3,20 @@
 //! Behind the `runtime` feature so the pure decoder in [`crate`]
 //! stays compilable without `librdkafka`.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use chrono::Utc;
 use event_bus_data::{
     CommitError, DataBusConfig, DataMessage, DataSubscriber, ServicePrincipal, SubscribeError,
 };
+use prometheus::{
+    Encoder, HistogramVec, IntCounterVec, Opts, Registry, TextEncoder, histogram_opts,
+};
 use search_abstraction::{RepoError, SearchBackend};
 use thiserror::Error;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{IndexAction, decode_object_changed, topics};
 
@@ -39,12 +45,29 @@ pub enum RecordOutcome {
     EmptyPayload,
 }
 
+impl RecordOutcome {
+    fn as_metric_label(self) -> &'static str {
+        match self {
+            RecordOutcome::Indexed => "indexed",
+            RecordOutcome::Deleted => "deleted",
+            RecordOutcome::DecodeError => "decode_error",
+            RecordOutcome::EmptyPayload => "empty_payload",
+        }
+    }
+}
+
 /// Errors that should keep the record uncommitted so Kafka can redeliver it
 /// after the process restarts or the consumer group rebalances.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
     #[error("required environment variable {0} is not set")]
     MissingEnv(&'static str),
+    #[error("invalid environment variable {key}={value:?}: {reason}")]
+    InvalidEnv {
+        key: &'static str,
+        value: String,
+        reason: &'static str,
+    },
     #[error("kafka subscribe/receive failed: {0}")]
     Subscribe(#[from] SubscribeError),
     #[error("kafka offset commit failed: {0}")]
@@ -92,6 +115,17 @@ pub async fn run<S>(subscriber: S, backend: Arc<dyn SearchBackend>) -> Result<()
 where
     S: DataSubscriber,
 {
+    run_with_metrics(subscriber, backend, None).await
+}
+
+pub async fn run_with_metrics<S>(
+    subscriber: S,
+    backend: Arc<dyn SearchBackend>,
+    metrics: Option<Arc<RuntimeMetrics>>,
+) -> Result<(), RuntimeError>
+where
+    S: DataSubscriber,
+{
     subscriber.subscribe(SUBSCRIBE_TOPICS)?;
     tracing::info!(
         group = CONSUMER_GROUP,
@@ -103,6 +137,9 @@ where
         let message = subscriber.recv().await?;
         let outcome = process_message(backend.as_ref(), &message).await?;
         subscriber.commit(&message)?;
+        if let Some(metrics) = metrics.as_deref() {
+            metrics.record_processed(&message, outcome);
+        }
         tracing::debug!(
             topic = message.topic(),
             partition = message.partition(),
@@ -188,6 +225,143 @@ pub mod metrics {
     pub const INDEXER_KAFKA_LAG: &str = "ontology_indexer_kafka_lag_records";
 }
 
+#[derive(Clone)]
+pub struct RuntimeMetrics {
+    registry: Arc<Registry>,
+    indexer_lag_seconds: HistogramVec,
+    indexer_records_total: IntCounterVec,
+}
+
+impl Default for RuntimeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuntimeMetrics {
+    pub fn new() -> Self {
+        let registry = Arc::new(Registry::new());
+        let indexer_lag_seconds = HistogramVec::new(
+            histogram_opts!(
+                metrics::INDEXER_LAG_SECONDS,
+                "Seconds between Kafka record timestamp and successful search backend commit.",
+                vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+            ),
+            &["topic", "outcome"],
+        )
+        .expect("valid ontology_indexer_lag_seconds metric");
+        let indexer_records_total = IntCounterVec::new(
+            Opts::new(
+                metrics::INDEXER_RECORDS_TOTAL,
+                "Ontology indexer records committed by topic and outcome.",
+            ),
+            &["topic", "outcome"],
+        )
+        .expect("valid ontology_indexer_records_total metric");
+
+        registry
+            .register(Box::new(indexer_lag_seconds.clone()))
+            .expect("register ontology_indexer_lag_seconds");
+        registry
+            .register(Box::new(indexer_records_total.clone()))
+            .expect("register ontology_indexer_records_total");
+
+        let metrics = Self {
+            registry,
+            indexer_lag_seconds,
+            indexer_records_total,
+        };
+        metrics.prime();
+        metrics
+    }
+
+    fn prime(&self) {
+        for topic in SUBSCRIBE_TOPICS {
+            for outcome in [
+                RecordOutcome::Indexed,
+                RecordOutcome::Deleted,
+                RecordOutcome::DecodeError,
+                RecordOutcome::EmptyPayload,
+            ] {
+                let labels = &[*topic, outcome.as_metric_label()];
+                self.indexer_records_total.with_label_values(labels);
+                self.indexer_lag_seconds.with_label_values(labels);
+            }
+        }
+    }
+
+    fn record_processed(&self, message: &DataMessage, outcome: RecordOutcome) {
+        let outcome_label = outcome.as_metric_label();
+        self.indexer_records_total
+            .with_label_values(&[message.topic(), outcome_label])
+            .inc();
+        if let Some(timestamp_millis) = message.timestamp_millis() {
+            let now_millis = Utc::now().timestamp_millis();
+            let lag_seconds = (now_millis.saturating_sub(timestamp_millis).max(0) as f64) / 1_000.0;
+            self.indexer_lag_seconds
+                .with_label_values(&[message.topic(), outcome_label])
+                .observe(lag_seconds);
+        }
+    }
+
+    pub fn render(&self) -> Result<String, prometheus::Error> {
+        let mut buf = Vec::new();
+        TextEncoder::new().encode(&self.registry.gather(), &mut buf)?;
+        Ok(String::from_utf8(buf).unwrap_or_default())
+    }
+}
+
+pub fn metrics_addr_from_env(default_port: u16) -> Result<SocketAddr, RuntimeError> {
+    let value = std::env::var("METRICS_ADDR").unwrap_or_else(|_| format!("0.0.0.0:{default_port}"));
+    value
+        .parse::<SocketAddr>()
+        .map_err(|_| RuntimeError::InvalidEnv {
+            key: "METRICS_ADDR",
+            value,
+            reason: "expected socket address, for example 0.0.0.0:9090",
+        })
+}
+
+pub async fn serve_metrics(metrics: Arc<RuntimeMetrics>, addr: SocketAddr) -> std::io::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        let metrics = Arc::clone(&metrics);
+        tokio::spawn(async move {
+            let mut buf = [0_u8; 1024];
+            let read =
+                tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(&mut buf))
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..read]);
+            let path = request.split_whitespace().nth(1).unwrap_or("/");
+            let (status, content_type, body) = match path {
+                "/health" | "/healthz" => ("200 OK", "text/plain; charset=utf-8", "ok\n".into()),
+                "/metrics" => match metrics.render() {
+                    Ok(body) => ("200 OK", "text/plain; version=0.0.4", body),
+                    Err(error) => (
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        format!("failed to render metrics: {error}\n"),
+                    ),
+                },
+                _ => (
+                    "404 Not Found",
+                    "text/plain; charset=utf-8",
+                    "not found\n".into(),
+                ),
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +372,13 @@ mod tests {
         assert!(SUBSCRIBE_TOPICS.contains(&"ontology.object.changed.v1"));
         assert!(SUBSCRIBE_TOPICS.contains(&"ontology.action.applied.v1"));
         assert!(SUBSCRIBE_TOPICS.contains(&"ontology.reindex.v1"));
+    }
+
+    #[test]
+    fn runtime_metrics_render_prometheus_text() {
+        let metrics = RuntimeMetrics::new();
+        let body = metrics.render().unwrap();
+        assert!(body.contains(metrics::INDEXER_RECORDS_TOTAL));
+        assert!(body.contains(metrics::INDEXER_LAG_SECONDS));
     }
 }

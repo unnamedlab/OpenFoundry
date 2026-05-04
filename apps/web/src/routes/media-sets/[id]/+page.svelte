@@ -17,18 +17,24 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import {
+    createMediaSetBranch,
     deleteItem,
     deleteMediaSet,
+    deleteMediaSetBranch,
     getDownloadUrl,
     getMediaSet,
     listItems,
+    listMediaSetBranches,
     type MediaItem,
-    type MediaSet
+    type MediaSet,
+    type MediaSetBranch
   } from '$lib/api/mediaSets';
   import MediaPermissionsPanel from '$lib/components/data/MediaPermissionsPanel.svelte';
   import MediaPreview from '$lib/components/data/MediaPreview.svelte';
   import MediaSchemaIcon from '$lib/components/data/MediaSchemaIcon.svelte';
   import MediaSetActivityPanel from '$lib/components/data/MediaSetActivityPanel.svelte';
+  import MediaSetBranchPicker from '$lib/components/data/MediaSetBranchPicker.svelte';
+  import MediaSetHistoryPanel from '$lib/components/data/MediaSetHistoryPanel.svelte';
   import Glyph from '$lib/components/ui/Glyph.svelte';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import Tree from '$lib/components/ui/Tree.svelte';
@@ -46,6 +52,25 @@
 
   let activeTab = $state<Tab>('overview');
 
+  // ── Branches (H4) ──────────────────────────────────────────────
+  let branches = $state<MediaSetBranch[]>([]);
+  let activeBranch = $state<string>('main');
+  let branchBusy = $state(false);
+
+  async function refreshBranches() {
+    if (!mediaSetRid) return;
+    try {
+      branches = await listMediaSetBranches(mediaSetRid);
+      if (!branches.some((b) => b.branch_name === activeBranch)) {
+        activeBranch = 'main';
+      }
+    } catch (cause) {
+      toasts.error(
+        cause instanceof Error ? cause.message : 'Failed to load branches',
+      );
+    }
+  }
+
   // ── Items tab state ────────────────────────────────────────────
   let items = $state<MediaItem[]>([]);
   let itemsLoading = $state(false);
@@ -58,6 +83,7 @@
     const rid = mediaSetRid;
     setLoading = true;
     setError = '';
+    void refreshBranches();
     void getMediaSet(rid)
       .then((set) => {
         mediaSet = set;
@@ -92,7 +118,7 @@
     itemsError = '';
     try {
       const next = await listItems(mediaSetRid, {
-        branch: 'main',
+        branch: activeBranch,
         limit: PAGE_SIZE,
         cursor: reset ? undefined : (nextCursor ?? undefined)
       });
@@ -261,14 +287,73 @@
       {/if}
     </div>
     {#if mediaSet}
-      <button
-        type="button"
-        class="rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:hover:bg-rose-950/30"
-        data-testid="media-set-detail-delete"
-        onclick={handleDeleteSet}
-      >
-        Delete media set
-      </button>
+      <div class="flex items-center gap-2">
+        <MediaSetBranchPicker
+          {branches}
+          currentBranch={activeBranch}
+          busy={branchBusy}
+          onSwitch={(name) => {
+            activeBranch = name;
+            // Reset items state so the next visit to the Items tab
+            // refetches from the new branch.
+            items = [];
+            nextCursor = null;
+            hasMore = false;
+            selectedItem = null;
+          }}
+          onCreate={async ({ name, from_branch }) => {
+            branchBusy = true;
+            try {
+              const created = await createMediaSetBranch(mediaSetRid, {
+                name,
+                from_branch,
+              });
+              await refreshBranches();
+              activeBranch = created.branch_name;
+              toasts.success(`Branch '${created.branch_name}' created`);
+            } catch (cause) {
+              toasts.error(
+                cause instanceof Error
+                  ? cause.message
+                  : 'Failed to create branch',
+              );
+            } finally {
+              branchBusy = false;
+            }
+          }}
+          onDelete={async (name) => {
+            if (
+              !confirm(
+                `Delete branch "${name}"? Items on this branch will be soft-deleted.`,
+              )
+            )
+              return;
+            branchBusy = true;
+            try {
+              await deleteMediaSetBranch(mediaSetRid, name);
+              await refreshBranches();
+              if (activeBranch === name) activeBranch = 'main';
+              toasts.info(`Branch '${name}' deleted`);
+            } catch (cause) {
+              toasts.error(
+                cause instanceof Error
+                  ? cause.message
+                  : 'Failed to delete branch',
+              );
+            } finally {
+              branchBusy = false;
+            }
+          }}
+        />
+        <button
+          type="button"
+          class="rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:hover:bg-rose-950/30"
+          data-testid="media-set-detail-delete"
+          onclick={handleDeleteSet}
+        >
+          Delete media set
+        </button>
+      </div>
     {/if}
   </div>
 
@@ -518,12 +603,15 @@
       <MediaSetActivityPanel {mediaSet} />
     {/if}
   {:else if activeTab === 'history'}
-    <div
-      class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500 dark:border-gray-700 dark:bg-gray-900"
-      data-testid="tab-history-placeholder"
-    >
-      Branch + transaction history lands in H4.
-    </div>
+    {#if mediaSet}
+      <MediaSetHistoryPanel
+        mediaSet={mediaSet}
+        onBranchCreated={(name) => {
+          activeBranch = name;
+          void refreshBranches();
+        }}
+      />
+    {/if}
   {/if}
 </div>
 

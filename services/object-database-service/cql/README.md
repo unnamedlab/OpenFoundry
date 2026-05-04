@@ -13,6 +13,7 @@ This directory holds the **per-table CQL DDL** that
 >     002_objects_by_type.cql
 >     003_objects_by_owner.cql
 >     004_objects_by_marking.cql
+>     005_schemas_by_type.cql
 >   ontology_indexes/
 >     000_keyspace.cql
 >     001_links_outgoing.cql

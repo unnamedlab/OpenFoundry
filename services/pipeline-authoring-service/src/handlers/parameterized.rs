@@ -28,8 +28,8 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::domain::parameterized::{
-    self, DispatchError, PipelineDeployment, TriggerKind,
-    assert_deployment_key_consistent, assert_manual_dispatch,
+    self, DispatchError, PipelineDeployment, TriggerKind, assert_deployment_key_consistent,
+    assert_manual_dispatch,
 };
 
 #[derive(Debug, Deserialize)]
@@ -184,11 +184,7 @@ pub async fn run_deployment(
         }
     };
     if let Err(e) = assert_manual_dispatch(trigger) {
-        return (
-            StatusCode::CONFLICT,
-            Json(json!({"error": e.to_string()})),
-        )
-            .into_response();
+        return (StatusCode::CONFLICT, Json(json!({"error": e.to_string()}))).into_response();
     }
 
     // Load the deployment + pipeline so we can stamp the deployment_key

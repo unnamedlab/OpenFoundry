@@ -281,11 +281,9 @@ pub async fn push_records(
             tracing::warn!(error = %cause, "push proxy: payload reserialise failed");
             crate::handlers::internal_error("payload re-serialise failed")
         })?;
-        let key_ref = key.as_deref().or_else(|| {
-            value
-                .get("id")
-                .and_then(|v| v.as_str())
-        });
+        let key_ref = key
+            .as_deref()
+            .or_else(|| value.get("id").and_then(|v| v.as_str()));
         if let Err(cause) = state
             .hot_buffer
             .publish(stream_id, key_ref, &payload_bytes)

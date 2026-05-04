@@ -233,9 +233,7 @@ pub fn init() {
 
 /// Sample DB-derived gauges. Cheap query, but not free — call from
 /// branch / transaction lifecycle hooks rather than every request.
-pub async fn refresh_branch_gauges(
-    pool: &sqlx::PgPool,
-) -> Result<(), sqlx::Error> {
+pub async fn refresh_branch_gauges(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     let with_open_tx: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(DISTINCT t.branch_id)
              FROM dataset_transactions t

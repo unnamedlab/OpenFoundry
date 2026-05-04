@@ -67,6 +67,9 @@ workspace = true
 workspace = true
 features = ["abi3-py311"]
 
+[dependencies.prometheus]
+workspace = true
+
 [dependencies.query-engine]
 workspace = true
 

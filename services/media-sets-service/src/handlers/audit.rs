@@ -18,8 +18,8 @@
 //!   to one row.
 //! * `correlation_id` — `X-Correlation-Id` (OpenLineage `ol-run-id`).
 
-use auth_middleware::Claims;
 use audit_trail::events::AuditContext;
+use auth_middleware::Claims;
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
@@ -96,7 +96,10 @@ mod tests {
     #[test]
     fn xff_first_hop_wins_over_real_ip() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", HeaderValue::from_static("10.0.0.5, 1.2.3.4"));
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("10.0.0.5, 1.2.3.4"),
+        );
         headers.insert("x-real-ip", HeaderValue::from_static("10.99.99.99"));
         assert_eq!(client_ip(&headers).as_deref(), Some("10.0.0.5"));
     }
@@ -113,7 +116,10 @@ mod tests {
         let claims = fake_claims("00000000-0000-7000-8000-000000000001");
         let headers = HeaderMap::new();
         let ctx = from_request(&claims, &headers);
-        assert!(ctx.request_id.is_some(), "should mint a UUID when header is absent");
+        assert!(
+            ctx.request_id.is_some(),
+            "should mint a UUID when header is absent"
+        );
         assert_eq!(ctx.source_service.as_deref(), Some(SERVICE_NAME));
     }
 

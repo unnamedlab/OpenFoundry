@@ -36,7 +36,7 @@ use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use crate::domain::build_resolution::{JobSpec, ResolvedInputView};
-use crate::domain::job_lifecycle::{transition_job_in_tx, JobLifecycleError};
+use crate::domain::job_lifecycle::{JobLifecycleError, transition_job_in_tx};
 use crate::domain::metrics;
 use crate::domain::staleness::{self, StalenessOutcome};
 use crate::models::build::{AbortPolicy, BuildState};
@@ -64,14 +64,10 @@ pub fn parallelism_from_env() -> usize {
 pub enum JobOutcome {
     /// Logic ran end-to-end. The executor will commit every output
     /// transaction atomically and mark the job COMPLETED.
-    Completed {
-        output_content_hash: String,
-    },
+    Completed { output_content_hash: String },
     /// Logic raised an error. The executor will abort every output
     /// transaction (multi-output atomicity) and mark the job FAILED.
-    Failed {
-        reason: String,
-    },
+    Failed { reason: String },
 }
 
 #[derive(Clone)]
@@ -132,10 +128,18 @@ pub struct OutputClientError(pub String);
 pub trait OutputTransactionClient: Send + Sync {
     /// Commit the open transaction on `dataset_rid`. Foundry: this is
     /// what flips the dataset's HEAD to the new view.
-    async fn commit(&self, dataset_rid: &str, transaction_rid: &str) -> Result<(), OutputClientError>;
+    async fn commit(
+        &self,
+        dataset_rid: &str,
+        transaction_rid: &str,
+    ) -> Result<(), OutputClientError>;
     /// Abort an open transaction. Called during cascade aborts and
     /// multi-output rollback.
-    async fn abort(&self, dataset_rid: &str, transaction_rid: &str) -> Result<(), OutputClientError>;
+    async fn abort(
+        &self,
+        dataset_rid: &str,
+        transaction_rid: &str,
+    ) -> Result<(), OutputClientError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,13 +252,11 @@ pub async fn execute_build(
     .await?;
 
     let final_state = compute_final_state(pool, args.build_id).await?;
-    sqlx::query(
-        "UPDATE builds SET state = $1, finished_at = NOW() WHERE id = $2",
-    )
-    .bind(final_state.as_str())
-    .bind(args.build_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE builds SET state = $1, finished_at = NOW() WHERE id = $2")
+        .bind(final_state.as_str())
+        .bind(args.build_id)
+        .execute(pool)
+        .await?;
     metrics::record_build_state(final_state);
     {
         let mut tx = pool.begin().await?;
@@ -367,12 +369,11 @@ async fn load_plan(
     build_id: Uuid,
     specs: &[JobSpec],
 ) -> Result<ExecutionPlan, BuildExecutionError> {
-    let job_rows: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, job_spec_rid FROM jobs WHERE build_id = $1",
-    )
-    .bind(build_id)
-    .fetch_all(pool)
-    .await?;
+    let job_rows: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, job_spec_rid FROM jobs WHERE build_id = $1")
+            .bind(build_id)
+            .fetch_all(pool)
+            .await?;
 
     let mut job_to_spec = HashMap::new();
     let mut spec_to_job = HashMap::new();
@@ -398,10 +399,8 @@ async fn load_plan(
         dependents.entry(depends_on).or_default().push(job_id);
     }
 
-    let specs: HashMap<String, JobSpec> = specs
-        .iter()
-        .map(|s| (s.rid.clone(), s.clone()))
-        .collect();
+    let specs: HashMap<String, JobSpec> =
+        specs.iter().map(|s| (s.rid.clone(), s.clone())).collect();
 
     Ok(ExecutionPlan {
         job_to_spec,
@@ -534,7 +533,14 @@ async fn orchestrate(
                 completed_jobs.insert(job_id);
                 outcome.completed += 1;
                 outcome.stale_skipped += 1;
-                publish_state_event(state_tx.as_ref(), &plan, job_id, JobState::Completed, true, None);
+                publish_state_event(
+                    state_tx.as_ref(),
+                    &plan,
+                    job_id,
+                    JobState::Completed,
+                    true,
+                    None,
+                );
                 emit_job_state_changed(
                     pool,
                     job_id,
@@ -549,7 +555,14 @@ async fn orchestrate(
             (JobOutcome::Completed { .. }, false) => {
                 completed_jobs.insert(job_id);
                 outcome.completed += 1;
-                publish_state_event(state_tx.as_ref(), &plan, job_id, JobState::Completed, false, None);
+                publish_state_event(
+                    state_tx.as_ref(),
+                    &plan,
+                    job_id,
+                    JobState::Completed,
+                    false,
+                    None,
+                );
                 emit_job_state_changed(
                     pool,
                     job_id,
@@ -587,8 +600,14 @@ async fn orchestrate(
                 let cascade = compute_cascade(plan, job_id, abort_policy, &completed_jobs);
                 for cancel in cascade.dependents {
                     if remaining.contains(&cancel) || in_flight.contains(&cancel) {
-                        cascade_abort_job(pool, cancel, "dependency failed", state_tx.as_ref(), plan)
-                            .await?;
+                        cascade_abort_job(
+                            pool,
+                            cancel,
+                            "dependency failed",
+                            state_tx.as_ref(),
+                            plan,
+                        )
+                        .await?;
                         remaining.remove(&cancel);
                         aborted_jobs.insert(cancel);
                         outcome.aborted += 1;
@@ -634,13 +653,11 @@ async fn drive_single_job(
     // Persist the input signature on the job row regardless of
     // outcome — staleness compares against it on subsequent builds.
     let input_signature = staleness::input_signature(&inputs);
-    let _ = sqlx::query(
-        "UPDATE jobs SET input_signature = $1 WHERE id = $2",
-    )
-    .bind(&input_signature)
-    .bind(job_id)
-    .execute(pool)
-    .await;
+    let _ = sqlx::query("UPDATE jobs SET input_signature = $1 WHERE id = $2")
+        .bind(&input_signature)
+        .bind(job_id)
+        .execute(pool)
+        .await;
 
     // Step 1 — staleness short-circuit. If `force_build = true` we
     // always execute (Foundry doc § Staleness).
@@ -689,7 +706,15 @@ async fn drive_single_job(
     // Step 2 — drive the canonical lifecycle: WAITING → RUN_PENDING
     // → RUNNING. Errors at this stage abort the job before the
     // runner sees it.
-    if let Err(err) = transition(pool, job_id, Some(JobState::Waiting), JobState::RunPending, "dispatching").await {
+    if let Err(err) = transition(
+        pool,
+        job_id,
+        Some(JobState::Waiting),
+        JobState::RunPending,
+        "dispatching",
+    )
+    .await
+    {
         tracing::error!(error = %err, %job_id, "WAITING → RUN_PENDING failed");
         return (
             job_id,
@@ -699,9 +724,24 @@ async fn drive_single_job(
             false,
         );
     }
-    publish_state_event_internal(state_tx, job_id, spec.rid.clone(), JobState::RunPending, false, None);
+    publish_state_event_internal(
+        state_tx,
+        job_id,
+        spec.rid.clone(),
+        JobState::RunPending,
+        false,
+        None,
+    );
 
-    if let Err(err) = transition(pool, job_id, Some(JobState::RunPending), JobState::Running, "running").await {
+    if let Err(err) = transition(
+        pool,
+        job_id,
+        Some(JobState::RunPending),
+        JobState::Running,
+        "running",
+    )
+    .await
+    {
         tracing::error!(error = %err, %job_id, "RUN_PENDING → RUNNING failed");
         return (
             job_id,
@@ -711,7 +751,14 @@ async fn drive_single_job(
             false,
         );
     }
-    publish_state_event_internal(state_tx, job_id, spec.rid.clone(), JobState::Running, false, None);
+    publish_state_event_internal(
+        state_tx,
+        job_id,
+        spec.rid.clone(),
+        JobState::Running,
+        false,
+        None,
+    );
 
     let ctx = JobContext {
         build_id: Uuid::nil(),
@@ -725,7 +772,9 @@ async fn drive_single_job(
     let outcome = runner.run(&ctx).await;
 
     match &outcome {
-        JobOutcome::Completed { output_content_hash } => {
+        JobOutcome::Completed {
+            output_content_hash,
+        } => {
             // Multi-output atomicity: commit each output transaction;
             // if any commit fails, abort the rest.
             let outputs = sqlx::query_as::<_, (String, String)>(
@@ -765,30 +814,40 @@ async fn drive_single_job(
                 .execute(pool)
                 .await;
                 let reason = format!("multi-output commit failed: {}", commit_errors.join("; "));
-                let _ = transition(pool, job_id, Some(JobState::Running), JobState::Failed, &reason).await;
+                let _ = transition(
+                    pool,
+                    job_id,
+                    Some(JobState::Running),
+                    JobState::Failed,
+                    &reason,
+                )
+                .await;
                 let _ = sqlx::query("UPDATE jobs SET failure_reason = $1 WHERE id = $2")
                     .bind(&reason)
                     .bind(job_id)
                     .execute(pool)
                     .await;
-                publish_state_event_internal(state_tx, job_id, spec.rid.clone(), JobState::Failed, false, Some(reason.clone()));
+                publish_state_event_internal(
+                    state_tx,
+                    job_id,
+                    spec.rid.clone(),
+                    JobState::Failed,
+                    false,
+                    Some(reason.clone()),
+                );
                 return (job_id, JobOutcome::Failed { reason }, false);
             }
 
             // All outputs committed — flip rows + the job state.
-            let _ = sqlx::query(
-                "UPDATE job_outputs SET committed = TRUE WHERE job_id = $1",
-            )
-            .bind(job_id)
-            .execute(pool)
-            .await;
-            let _ = sqlx::query(
-                "UPDATE jobs SET output_content_hash = $1 WHERE id = $2",
-            )
-            .bind(output_content_hash)
-            .bind(job_id)
-            .execute(pool)
-            .await;
+            let _ = sqlx::query("UPDATE job_outputs SET committed = TRUE WHERE job_id = $1")
+                .bind(job_id)
+                .execute(pool)
+                .await;
+            let _ = sqlx::query("UPDATE jobs SET output_content_hash = $1 WHERE id = $2")
+                .bind(output_content_hash)
+                .bind(job_id)
+                .execute(pool)
+                .await;
             let _ = transition(
                 pool,
                 job_id,
@@ -797,7 +856,14 @@ async fn drive_single_job(
                 "all outputs committed",
             )
             .await;
-            publish_state_event_internal(state_tx, job_id, spec.rid.clone(), JobState::Completed, false, None);
+            publish_state_event_internal(
+                state_tx,
+                job_id,
+                spec.rid.clone(),
+                JobState::Completed,
+                false,
+                None,
+            );
             (job_id, outcome, false)
         }
         JobOutcome::Failed { reason } => {
@@ -823,8 +889,22 @@ async fn drive_single_job(
                 .bind(job_id)
                 .execute(pool)
                 .await;
-            let _ = transition(pool, job_id, Some(JobState::Running), JobState::Failed, reason).await;
-            publish_state_event_internal(state_tx, job_id, spec.rid.clone(), JobState::Failed, false, Some(reason.clone()));
+            let _ = transition(
+                pool,
+                job_id,
+                Some(JobState::Running),
+                JobState::Failed,
+                reason,
+            )
+            .await;
+            publish_state_event_internal(
+                state_tx,
+                job_id,
+                spec.rid.clone(),
+                JobState::Failed,
+                false,
+                Some(reason.clone()),
+            );
             (job_id, outcome, false)
         }
     }
@@ -869,10 +949,22 @@ async fn mark_stale_skipped(
     .await?;
 
     let mut tx = pool.begin().await?;
-    transition_job_in_tx(&mut tx, job_id, Some(JobState::Waiting), JobState::RunPending, Some("stale-skip dispatch"))
-        .await?;
-    transition_job_in_tx(&mut tx, job_id, Some(JobState::RunPending), JobState::Running, Some("stale-skip"))
-        .await?;
+    transition_job_in_tx(
+        &mut tx,
+        job_id,
+        Some(JobState::Waiting),
+        JobState::RunPending,
+        Some("stale-skip dispatch"),
+    )
+    .await?;
+    transition_job_in_tx(
+        &mut tx,
+        job_id,
+        Some(JobState::RunPending),
+        JobState::Running,
+        Some("stale-skip"),
+    )
+    .await?;
     transition_job_in_tx(
         &mut tx,
         job_id,
@@ -931,10 +1023,7 @@ fn compute_cascade(
         // completed becomes an independent victim.
         let dependent_set: HashSet<Uuid> = cascade.dependents.iter().copied().collect();
         for &job in plan.job_to_spec.keys() {
-            if job == failed
-                || dependent_set.contains(&job)
-                || completed.contains(&job)
-            {
+            if job == failed || dependent_set.contains(&job) || completed.contains(&job) {
                 continue;
             }
             cascade.independents.push(job);
@@ -973,12 +1062,24 @@ async fn cascade_abort_job(
     let mut tx = pool.begin().await?;
     match from {
         JobState::Waiting => {
-            transition_job_in_tx(&mut tx, job_id, Some(JobState::Waiting), JobState::Aborted, Some(reason))
-                .await?;
+            transition_job_in_tx(
+                &mut tx,
+                job_id,
+                Some(JobState::Waiting),
+                JobState::Aborted,
+                Some(reason),
+            )
+            .await?;
         }
         JobState::RunPending | JobState::Running => {
-            transition_job_in_tx(&mut tx, job_id, Some(from), JobState::AbortPending, Some(reason))
-                .await?;
+            transition_job_in_tx(
+                &mut tx,
+                job_id,
+                Some(from),
+                JobState::AbortPending,
+                Some(reason),
+            )
+            .await?;
             transition_job_in_tx(
                 &mut tx,
                 job_id,
@@ -995,19 +1096,27 @@ async fn cascade_abort_job(
         .bind(job_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query(
-        "UPDATE job_outputs SET aborted = TRUE WHERE job_id = $1 AND committed = FALSE",
-    )
-    .bind(job_id)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("UPDATE job_outputs SET aborted = TRUE WHERE job_id = $1 AND committed = FALSE")
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     let spec_rid = plan.job_to_spec.get(&job_id).cloned().unwrap_or_default();
-    publish_state_event_internal(state_tx, job_id, spec_rid, JobState::Aborted, false, Some(reason.to_string()));
+    publish_state_event_internal(
+        state_tx,
+        job_id,
+        spec_rid,
+        JobState::Aborted,
+        false,
+        Some(reason.to_string()),
+    );
     Ok(())
 }
 
-async fn compute_final_state(pool: &PgPool, build_id: Uuid) -> Result<BuildState, BuildExecutionError> {
+async fn compute_final_state(
+    pool: &PgPool,
+    build_id: Uuid,
+) -> Result<BuildState, BuildExecutionError> {
     let counts: (i64, i64, i64, i64) = sqlx::query_as(
         r#"SELECT
               COUNT(*) FILTER (WHERE state = 'COMPLETED') AS completed,
@@ -1038,7 +1147,14 @@ fn publish_state_event(
     failure_reason: Option<String>,
 ) {
     let spec_rid = plan.job_to_spec.get(&job_id).cloned().unwrap_or_default();
-    publish_state_event_internal(state_tx, job_id, spec_rid, state, stale_skipped, failure_reason);
+    publish_state_event_internal(
+        state_tx,
+        job_id,
+        spec_rid,
+        state,
+        stale_skipped,
+        failure_reason,
+    );
 }
 
 fn publish_state_event_internal(
@@ -1081,13 +1197,12 @@ async fn emit_job_state_changed(
     };
     // Pull the build_id so the outbox `aggregate_id` is the build,
     // not the job.
-    let build_id: Option<(Uuid,)> =
-        sqlx::query_as("SELECT build_id FROM jobs WHERE id = $1")
-            .bind(job_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .ok()
-            .flatten();
+    let build_id: Option<(Uuid,)> = sqlx::query_as("SELECT build_id FROM jobs WHERE id = $1")
+        .bind(job_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .ok()
+        .flatten();
     let Some((build_id,)) = build_id else {
         let _ = tx.commit().await;
         return;
@@ -1184,7 +1299,10 @@ mod tests {
         let mut want = vec![b, c];
         want.sort();
         assert_eq!(sorted, want);
-        assert!(cascade.independents.is_empty(), "DEPENDENT_ONLY does not touch independents");
+        assert!(
+            cascade.independents.is_empty(),
+            "DEPENDENT_ONLY does not touch independents"
+        );
     }
 
     #[test]
@@ -1203,10 +1321,12 @@ mod tests {
 
         let a = plan.spec_to_job["a"];
         let b = plan.spec_to_job["b"];
-        let cascade =
-            compute_cascade(&plan, a, AbortPolicy::AllNonDependent, &HashSet::new());
+        let cascade = compute_cascade(&plan, a, AbortPolicy::AllNonDependent, &HashSet::new());
         assert!(cascade.dependents.contains(&b));
-        assert!(cascade.independents.contains(&d), "ALL_NON_DEPENDENT pulls in d");
+        assert!(
+            cascade.independents.contains(&d),
+            "ALL_NON_DEPENDENT pulls in d"
+        );
     }
 
     #[test]
@@ -1223,8 +1343,7 @@ mod tests {
 
         let mut completed = HashSet::new();
         completed.insert(d);
-        let cascade =
-            compute_cascade(&plan, a, AbortPolicy::AllNonDependent, &completed);
+        let cascade = compute_cascade(&plan, a, AbortPolicy::AllNonDependent, &completed);
         assert!(!cascade.independents.contains(&d));
     }
 }

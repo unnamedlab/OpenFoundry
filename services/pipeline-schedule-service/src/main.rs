@@ -53,12 +53,11 @@ use crate::config::AppConfig;
 
 /// Shared state.
 ///
-/// **Field set frozen** — the path-pulled `engine::runtime` tests
-/// from `pipeline-authoring-service` construct this struct
-/// positionally, so adding fields here would break that test target.
-/// The Temporal client is therefore injected as an Axum `Extension`
-/// instead of as a state field; see [`Extension<PipelineScheduleClient>`]
-/// extractors in [`crate::handlers::temporal_schedule`].
+/// The path-pulled `engine::runtime` tests from
+/// `pipeline-authoring-service` use this crate's local
+/// `test_support::pipeline_runtime_app_state`, so this state shape can
+/// keep the scheduler-only runtime fields without forcing the authoring
+/// service to grow matching fields.
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -81,6 +80,55 @@ pub struct AppState {
     pub distributed_pipeline_workers: usize,
     pub distributed_compute_poll_interval_ms: u64,
     pub distributed_compute_timeout_secs: u64,
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Arc;
+
+    use sqlx::postgres::PgPoolOptions;
+    use storage_abstraction::local::LocalStorage;
+    use uuid::Uuid;
+
+    use crate::{AppState, domain};
+
+    pub(crate) fn pipeline_runtime_app_state() -> AppState {
+        let storage_root = std::env::temp_dir().join(format!(
+            "openfoundry-pipeline-runtime-tests-{}",
+            Uuid::now_v7()
+        ));
+        let storage_root_str = storage_root.to_string_lossy().to_string();
+        std::fs::create_dir_all(&storage_root).expect("test storage directory should exist");
+
+        AppState {
+            db: PgPoolOptions::new()
+                .connect_lazy("postgres://postgres:postgres@localhost/openfoundry")
+                .expect("lazy pool should build"),
+            lineage_runtime: Arc::new(domain::lineage::LineageRuntimeStore::Memory(
+                domain::lineage::MemoryLineageRuntimeStore::new(),
+            )),
+            jwt_config: auth_middleware::jwt::JwtConfig::generate().with_env_defaults(),
+            http_client: reqwest::Client::new(),
+            storage: Arc::new(
+                LocalStorage::new(&storage_root_str).expect("local storage should initialize"),
+            ),
+            nats_url: "nats://localhost:4222".to_string(),
+            data_dir: storage_root_str.clone(),
+            dataset_service_url: "http://dataset.local".to_string(),
+            workflow_service_url: "http://workflow.local".to_string(),
+            ai_service_url: "http://ai.local".to_string(),
+            storage_backend: "s3".to_string(),
+            storage_bucket: "datasets".to_string(),
+            s3_endpoint: Some("http://minio.local".to_string()),
+            s3_region: Some("us-east-1".to_string()),
+            s3_access_key: None,
+            s3_secret_key: None,
+            local_storage_root: Some(storage_root_str),
+            distributed_pipeline_workers: 1,
+            distributed_compute_poll_interval_ms: 5_000,
+            distributed_compute_timeout_secs: 900,
+        }
+    }
 }
 
 #[tokio::main]
@@ -121,6 +169,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (workflow_client, temporal_namespace) =
         temporal_client::runtime_workflow_client("pipeline-schedule-service").await?;
     let pipeline_schedule_client = PipelineScheduleClient::new(workflow_client, temporal_namespace);
+
+    // P5 — AIP-assisted schedule generation. `LLM_CATALOG_URL` points
+    // the production HTTP client at llm-catalog-service; tests inject
+    // their own `Arc<dyn LlmClient>` via the `Extension` layer.
+    let llm_url = std::env::var("LLM_CATALOG_URL")
+        .unwrap_or_else(|_| "http://llm-catalog:50000".to_string());
+    let llm_client: std::sync::Arc<dyn domain::aip::LlmClient> = std::sync::Arc::new(
+        domain::aip_http_client::HttpLlmClient::new(llm_url, reqwest::Client::new()),
+    );
 
     let state = AppState {
         db,
@@ -231,6 +288,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/v1/scheduling-linter/sweep:apply",
             post(handlers::linter::apply),
         )
+        // ---- P5 — AIP + troubleshooting ---------------------------------
+        .route(
+            "/v1/schedules/aip:generate",
+            post(handlers::aip::generate),
+        )
+        .route(
+            "/v1/schedules/aip:explain",
+            post(handlers::aip::explain),
+        )
+        .route(
+            "/v1/schedules/{rid}/troubleshoot",
+            get(handlers::troubleshoot::get_report),
+        )
         .layer(middleware::from_fn_with_state(
             jwt_config.clone(),
             auth_middleware::layer::auth_layer,
@@ -240,6 +310,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/v1/data-integration", scheduler)
         .route("/healthz", get(|| async { "ok" }))
         .layer(axum::Extension(pipeline_schedule_client))
+        .layer(axum::Extension(llm_client))
         .with_state(state);
 
     let addr: SocketAddr = format!("{}:{}", app_config.host, app_config.port).parse()?;

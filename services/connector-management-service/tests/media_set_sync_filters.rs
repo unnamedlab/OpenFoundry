@@ -37,24 +37,36 @@ fn file(path: &str, size: u64, mime: &str) -> SourceFile {
 fn config_validates_target_rid_and_glob_and_cron() {
     let bad_rid = MediaSetSyncConfig {
         target_media_set_rid: "not-a-rid".into(),
-        ..cfg(MediaSetSyncFilters::default(), MediaSetSyncKind::MediaSetSync)
+        ..cfg(
+            MediaSetSyncFilters::default(),
+            MediaSetSyncKind::MediaSetSync,
+        )
     };
     let errs = bad_rid.validate();
-    assert!(errs.iter().any(|e| e.contains("target_media_set_rid")), "{errs:?}");
+    assert!(
+        errs.iter().any(|e| e.contains("target_media_set_rid")),
+        "{errs:?}"
+    );
 
     let bad_glob = MediaSetSyncConfig {
         filters: MediaSetSyncFilters {
             path_glob: Some("[unclosed".into()),
             ..Default::default()
         },
-        ..cfg(MediaSetSyncFilters::default(), MediaSetSyncKind::MediaSetSync)
+        ..cfg(
+            MediaSetSyncFilters::default(),
+            MediaSetSyncKind::MediaSetSync,
+        )
     };
     let errs = bad_glob.validate();
     assert!(errs.iter().any(|e| e.contains("path_glob")), "{errs:?}");
 
     let bad_cron = MediaSetSyncConfig {
         schedule_cron: Some("not a cron".into()),
-        ..cfg(MediaSetSyncFilters::default(), MediaSetSyncKind::MediaSetSync)
+        ..cfg(
+            MediaSetSyncFilters::default(),
+            MediaSetSyncKind::MediaSetSync,
+        )
     };
     let errs = bad_cron.validate();
     assert!(errs.iter().any(|e| e.contains("schedule_cron")), "{errs:?}");
@@ -64,10 +76,16 @@ fn config_validates_target_rid_and_glob_and_cron() {
             file_size_limit: Some(0),
             ..Default::default()
         },
-        ..cfg(MediaSetSyncFilters::default(), MediaSetSyncKind::MediaSetSync)
+        ..cfg(
+            MediaSetSyncFilters::default(),
+            MediaSetSyncKind::MediaSetSync,
+        )
     };
     let errs = zero_limit.validate();
-    assert!(errs.iter().any(|e| e.contains("file_size_limit")), "{errs:?}");
+    assert!(
+        errs.iter().any(|e| e.contains("file_size_limit")),
+        "{errs:?}"
+    );
 
     let ok = cfg(
         MediaSetSyncFilters {
@@ -96,12 +114,24 @@ fn exclude_already_synced_skips_known_paths() {
     let allowed = vec!["image/png".to_string()];
 
     assert_eq!(
-        decide(&cfg, &file("logo.png", 1, "image/png"), &already, &allowed, matcher.as_ref()),
+        decide(
+            &cfg,
+            &file("logo.png", 1, "image/png"),
+            &already,
+            &allowed,
+            matcher.as_ref()
+        ),
         SyncDecision::Skip,
         "already-synced file should be skipped"
     );
     assert_eq!(
-        decide(&cfg, &file("new.png", 1, "image/png"), &already, &allowed, matcher.as_ref()),
+        decide(
+            &cfg,
+            &file("new.png", 1, "image/png"),
+            &already,
+            &allowed,
+            matcher.as_ref()
+        ),
         SyncDecision::Accept,
         "fresh file should be accepted"
     );
@@ -119,11 +149,23 @@ fn path_glob_filters_by_pattern() {
     let matcher = cfg.matcher().unwrap();
 
     assert_eq!(
-        decide(&cfg, &file("a/b/c.png", 1, "image/png"), &HashSet::new(), &[], matcher.as_ref()),
+        decide(
+            &cfg,
+            &file("a/b/c.png", 1, "image/png"),
+            &HashSet::new(),
+            &[],
+            matcher.as_ref()
+        ),
         SyncDecision::Accept
     );
     assert_eq!(
-        decide(&cfg, &file("a/b/c.jpg", 1, "image/jpeg"), &HashSet::new(), &[], matcher.as_ref()),
+        decide(
+            &cfg,
+            &file("a/b/c.jpg", 1, "image/jpeg"),
+            &HashSet::new(),
+            &[],
+            matcher.as_ref()
+        ),
         SyncDecision::Skip,
         "jpg should miss the **/*.png glob"
     );
@@ -141,12 +183,24 @@ fn file_size_limit_skips_oversize_files() {
     let matcher = cfg.matcher().unwrap();
 
     assert_eq!(
-        decide(&cfg, &file("ok.png", 1024, "image/png"), &HashSet::new(), &[], matcher.as_ref()),
+        decide(
+            &cfg,
+            &file("ok.png", 1024, "image/png"),
+            &HashSet::new(),
+            &[],
+            matcher.as_ref()
+        ),
         SyncDecision::Accept,
         "exactly at the limit is allowed"
     );
     assert_eq!(
-        decide(&cfg, &file("oversize.png", 1025, "image/png"), &HashSet::new(), &[], matcher.as_ref()),
+        decide(
+            &cfg,
+            &file("oversize.png", 1025, "image/png"),
+            &HashSet::new(),
+            &[],
+            matcher.as_ref()
+        ),
         SyncDecision::Skip
     );
 }
@@ -217,12 +271,12 @@ fn classify_batch_aggregates_decisions_into_stats() {
     let allowed = vec!["image/png".to_string(), "image/jpeg".to_string()];
 
     let files = vec![
-        file("logo.png", 1, "image/png"),                 // skipped: already synced
-        file("hero.jpg", 1024, "image/jpeg"),             // accepted
-        file("docs/big.png", 9_000_000, "image/png"),     // skipped: oversize
-        file("data/clip.mp4", 1024, "video/mp4"),         // schema mismatch: glob ok, MIME not allowed
+        file("logo.png", 1, "image/png"),     // skipped: already synced
+        file("hero.jpg", 1024, "image/jpeg"), // accepted
+        file("docs/big.png", 9_000_000, "image/png"), // skipped: oversize
+        file("data/clip.mp4", 1024, "video/mp4"), // schema mismatch: glob ok, MIME not allowed
         file("docs/manual.pdf", 1024, "application/pdf"), // skipped: glob mismatch
-        file("ok.png", 2048, "image/png"),                // accepted
+        file("ok.png", 2048, "image/png"),    // accepted
     ];
 
     let (per_file, stats) = classify_batch(&cfg, &files, &already, &allowed).unwrap();

@@ -1,0 +1,2 @@
+# Values applied to upstream chart rook-release/rook-ceph.
+enableDiscoveryDaemon: false

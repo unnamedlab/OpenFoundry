@@ -41,8 +41,7 @@ pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         .route(
             "/v1/global-branches",
-            get(global_handlers::list_global_branches)
-                .post(global_handlers::create_global_branch),
+            get(global_handlers::list_global_branches).post(global_handlers::create_global_branch),
         )
         .route(
             "/v1/global-branches/{id}",

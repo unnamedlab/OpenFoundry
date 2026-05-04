@@ -308,7 +308,10 @@ impl<C: KinesisClient + 'static> StreamingSourceConnector for KinesisConnector<C
         };
         let resp = self
             .client
-            .get_records(&iterator, opts.batch_size.min(self.config.max_records_per_shard))
+            .get_records(
+                &iterator,
+                opts.batch_size.min(self.config.max_records_per_shard),
+            )
             .await?;
         self.set_iterator(resp.next_shard_iterator.clone());
         if let Ok(mut last) = self.last_pull.lock() {

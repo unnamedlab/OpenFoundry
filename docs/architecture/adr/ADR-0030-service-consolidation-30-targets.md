@@ -1,8 +1,8 @@
-# ADR-0030 — Service consolidation from 97 to ≤ 30
+# ADR-0030 — Service consolidation to ownership boundaries
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted (target architecture; physical deletions tracked per service in S8.1.x execution PRs) |
+| Status | Accepted, amended 2026-05-03 after live repo audit |
 | Date | 2026-05-02 |
 | Stream | S8.1 (cleanup & hardening) |
 | Supersedes / amends | The 85-service taxonomy in [`microservicios-derivados-desde-foundry-docs.md`](../../microservicios-derivados-desde-foundry-docs.md) and the prompt program in [`prompts-migracion-hasta-85-microservicios.md`](../../prompts-migracion-hasta-85-microservicios.md). |
@@ -11,15 +11,20 @@
 ## Context
 
 The 85-bounded-context map produced one Rust crate per documented
-domain. After Streams S1–S7, `services/` holds **97 directories**
-(85 documented + 3 code-first exceptions + 9 macro/sink/legacy). The
-audit found this granularity:
+domain. Older S8 drafts treated this as a physical reduction target
+from 97 crates to no more than 30 binaries. A live audit on
+2026-05-03 found **95 directories** under `services/`: the retired
+`health-check-service`, `tool-registry-service` and
+`widget-registry-service` are gone, while `media-sets-service` is a
+real current service and must be tracked. The audit still found this
+granularity:
 
 * **inflates Cargo build time** (each service is a workspace member
   with its own deps tree),
 * **duplicates infrastructure boilerplate** (DI, telemetry, health
-  endpoints repeated 97×),
-* **fragments oncall** (no human can hold context on 97 services),
+  endpoints repeated across 95 current directories),
+* **fragments oncall** (no human can hold context on 95 service
+  directories),
 * **and offers little operational independence** in practice — most
   services share the same deploy cadence and the same blast radius
   (single Cassandra keyspace, single Postgres pool).
@@ -32,9 +37,13 @@ single deployables.
 
 ## Decision
 
-Consolidate `services/` to **≤ 30 binaries** organised in **5 Helm
-releases** (see ADR-0031). Each binary is the runtime owner of one or
-more bounded contexts that share:
+Consolidate ownership and release operations, not the source tree
+itself, into **33 ownership boundaries + 3 sinks** organised in **5
+Helm releases** (see ADR-0031). The repository may keep more service
+directories while a merge is pending; those directories are tracked in
+[`service-consolidation-map.md`](../service-consolidation-map.md) as
+`merge → X` or `delete`. Each ownership boundary is the runtime owner
+of one or more bounded contexts that share:
 
 1. the same primary storage technology and keyspace/database,
 2. the same transactional boundary (one DB transaction per request),
@@ -45,7 +54,7 @@ at the **module** level (one Rust module per bounded context inside
 the same crate), preserving ownership clarity in the source tree
 without the runtime cost of a separate process.
 
-## Target topology (≤ 30 services)
+## Target topology (33 ownership boundaries + 3 sinks)
 
 The full mapping lives in
 [`docs/architecture/service-consolidation-map.md`](../service-consolidation-map.md);
@@ -66,7 +75,13 @@ the headline groupings are:
 | `audit-compliance-service` | `sds-service`, `retention-policy-service`, `lineage-deletion-service` |
 | `telemetry-governance-service` | `monitoring-rules-service`, `health-check-service` (S8.1.a), `execution-observability-service` |
 
-### Data engineering plane (5 services)
+### Edge plane (1 service)
+
+| Target service | Absorbs |
+| --- | --- |
+| `edge-gateway-service` | (unchanged; route fan-in) |
+
+### Data engineering plane (6 services)
 
 | Target service | Absorbs |
 | --- | --- |
@@ -74,6 +89,7 @@ the headline groupings are:
 | `ingestion-replication-service` | `cdc-metadata-service`, `event-streaming-service` |
 | `dataset-versioning-service` | `data-asset-catalog-service`, `dataset-quality-service` |
 | `lineage-service` | `workflow-trace-service` |
+| `media-sets-service` | (unchanged; media set transactions and object-store access) |
 | `pipeline-build-service` | `pipeline-authoring-service`, `pipeline-schedule-service`, `compute-modules-control-plane-service`, `compute-modules-runtime-service` |
 
 Within this merge boundary, `dataset-versioning-service` is the only
@@ -93,13 +109,12 @@ Postgres runtime tables.
 | `object-database-service` | (unchanged; Cassandra) |
 | `ontology-indexer` | (sink; unchanged) |
 
-### Models & ML plane (3 services)
+### Models & ML plane (2 services)
 
 | Target service | Absorbs |
 | --- | --- |
 | `model-catalog-service` | `model-adapter-service`, `ml-experiments-service`, `model-lifecycle-service` |
 | `model-deployment-service` | `model-serving-service`, `model-evaluation-service`, `model-inference-history-service` |
-| `tool-registry-service` (S8.1.b — DELETED, merged into `agent-runtime-service`) | — |
 
 ### AIP plane (4 services)
 
@@ -150,11 +165,12 @@ scaled, paused and restarted without touching the owning service.
 There is no `outbox-relay`: the transactional outbox is relayed by
 Debezium Kafka Connect per ADR-0022.
 
-### Result: 30 service binaries + 3 sinks = 33 deployables, 30 ownership boundaries.
+### Result: 33 ownership boundaries + 3 sinks across five Helm releases.
 
-The "≤ 30" target in the migration plan refers to ownership
-boundaries; sinks are infrastructure adapters and are excluded from
-the count.
+The old physical-service target phrase is superseded. The live metric is:
+95 service directories in the repo, 33 target ownership boundaries, and
+3 Kafka sink binaries. Physical crate deletion remains an execution
+detail for the `merge → X` rows in the consolidation map.
 
 ## S8.1.a — Why `health-check-service` goes away
 
@@ -178,14 +194,16 @@ and duplicated the Prometheus scrape target.
 
 ### Positive
 
-* **Build time**: `cargo build --workspace` drops to
-  ~ 1/3 (97 → ~ 30 binaries; many shared deps deduplicated).
-* **Operational footprint**: ~ 40% fewer Pods, ~ 65% fewer Services
-  in Kubernetes.
+* **Build-time clarity**: ownership boundaries are explicit, and
+  future physical crate merges can reduce duplicate dependency trees
+  without changing the architecture again.
+* **Operational footprint**: five release families replace the old
+  one-bucket topology. Pod count only drops when individual `merge → X`
+  rows are disabled or physically merged.
 * **Helm release surface**: 5 releases (ADR-0031) instead of one
-  monolith with 97 sub-charts.
-* **Oncall load**: 5 release-aligned oncall rotations vs 97 service
-  oncall rotations.
+  monolith with per-service release sprawl.
+* **Oncall load**: 5 release-aligned rotations, with 33 documented
+  ownership boundaries instead of an unbounded per-directory model.
 
 ### Negative
 
@@ -202,7 +220,7 @@ and duplicated the Prometheus scrape target.
 * **Loss of microservice purity**: an architectural constituency may
   argue this is "deconstructing the monolith back into a monolith".
   Counter-argument: ADR-0011 still partitions control vs data, and
-  the 30-service target is not a single binary — it is the Goldilocks
+  the 33-boundary target is not a single binary — it is the Goldilocks
   point between deploy independence and oncall sustainability.
 
 ## Execution
@@ -210,7 +228,7 @@ and duplicated the Prometheus scrape target.
 Per-service deletion is sequenced by the existing
 [`prompts-migracion-hasta-85-microservicios.md`](../../prompts-migracion-hasta-85-microservicios.md)
 program (Phase 9 R-prompts), with this ADR replacing the 85-service
-target with the 30-service target. Each merger is a separate PR with:
+target with the 33-boundary target. Each merger is a separate PR with:
 
 1. The bounded-context Rust module moved into the parent crate.
 2. Routes re-registered in the parent's `axum::Router`.

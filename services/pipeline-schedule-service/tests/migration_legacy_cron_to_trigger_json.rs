@@ -15,8 +15,7 @@ use sqlx::PgPool;
 use testing::containers::boot_postgres;
 use uuid::Uuid;
 
-const SCHEDULE_MIGRATION: &str =
-    include_str!("../migrations/20260504000080_schedules_init.sql");
+const SCHEDULE_MIGRATION: &str = include_str!("../migrations/20260504000080_schedules_init.sql");
 
 const LEGACY_WORKFLOWS_DDL: &str = "
 CREATE TABLE IF NOT EXISTS workflows (

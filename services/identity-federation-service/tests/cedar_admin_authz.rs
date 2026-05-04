@@ -56,10 +56,7 @@ fn build_user(
         ));
     }
     if let Some(age) = mfa_age_secs {
-        attrs.push((
-            "mfa_age_secs".into(),
-            RestrictedExpression::new_long(age),
-        ));
+        attrs.push(("mfa_age_secs".into(), RestrictedExpression::new_long(age)));
     }
 
     let mut parents: HashSet<EntityUid> = HashSet::new();
@@ -89,12 +86,8 @@ fn build_user(
             .push(Entity::new(r_uid, r_attrs, HashSet::new()).expect("role attrs are valid"));
     }
 
-    let user = Entity::new(
-        user_uid.clone(),
-        attrs.into_iter().collect(),
-        parents,
-    )
-    .expect("user attrs are valid");
+    let user = Entity::new(user_uid.clone(), attrs.into_iter().collect(), parents)
+        .expect("user attrs are valid");
 
     (user, parent_entities, user_uid)
 }
@@ -113,8 +106,7 @@ fn jwks_resource() -> (Entity, EntityUid) {
     ]
     .into_iter()
     .collect();
-    let entity = Entity::new(r_uid.clone(), attrs, HashSet::new())
-        .expect("jwks attrs are valid");
+    let entity = Entity::new(r_uid.clone(), attrs, HashSet::new()).expect("jwks attrs are valid");
     (entity, r_uid)
 }
 
@@ -126,16 +118,14 @@ fn scim_user_resource() -> (Entity, EntityUid) {
     )]
     .into_iter()
     .collect();
-    let entity = Entity::new(r_uid.clone(), attrs, HashSet::new())
-        .expect("scim user attrs are valid");
+    let entity =
+        Entity::new(r_uid.clone(), attrs, HashSet::new()).expect("scim user attrs are valid");
     (entity, r_uid)
 }
 
 #[tokio::test]
 async fn rotate_jwks_allowed_for_group_member_with_recent_mfa() {
-    let engine = cedar_authz::bootstrap_engine()
-        .await
-        .expect("engine boots");
+    let engine = cedar_authz::bootstrap_engine().await.expect("engine boots");
 
     let (user, mut parent_entities, principal_uid) = build_user(
         "00000000-0000-0000-0000-000000000001",
@@ -173,9 +163,7 @@ async fn rotate_jwks_allowed_for_group_member_with_recent_mfa() {
 
 #[tokio::test]
 async fn scim_provision_user_denied_for_human_principal() {
-    let engine = cedar_authz::bootstrap_engine()
-        .await
-        .expect("engine boots");
+    let engine = cedar_authz::bootstrap_engine().await.expect("engine boots");
 
     // Human principal — even with the `scim_writer` role, the explicit
     // `forbid` clause must fire and block provisioning.
@@ -215,9 +203,7 @@ async fn scim_provision_user_denied_for_human_principal() {
 
 #[tokio::test]
 async fn rotate_jwks_denied_without_identity_key_rotators_membership() {
-    let engine = cedar_authz::bootstrap_engine()
-        .await
-        .expect("engine boots");
+    let engine = cedar_authz::bootstrap_engine().await.expect("engine boots");
 
     // No groups, MFA fresh — but rotate policy requires explicit
     // membership in `Group::"IdentityKeyRotators"`. Without it, no

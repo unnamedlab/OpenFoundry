@@ -138,8 +138,40 @@ forward migration that reverses the change.
   CI runners without docker would fail; run it locally with:
 
   ```bash
-  cargo test -p cassandra-kernel -- --ignored
+  cargo test -p cassandra-kernel --test integration -- --ignored --test-threads=1
   ```
+
+The default image is `cassandra:5.0.2` to match the Cassandra version
+pinned in the platform manifests. For local reliability, pre-pull it
+before running the ignored integration test:
+
+```bash
+docker pull cassandra:5.0.2
+docker image inspect cassandra:5.0.2
+cargo test -p cassandra-kernel
+cargo test -p cassandra-kernel --test integration -- --ignored --test-threads=1
+```
+
+The test remains a real Cassandra test, but the image and waits are
+configurable:
+
+* `CASSANDRA_TEST_IMAGE` — defaults to `cassandra:5.0.2`. Set this to
+  an internal mirror, for example
+  `CASSANDRA_TEST_IMAGE=registry.internal/openfoundry/cassandra:5.0.2`,
+  when Docker Hub is slow or unavailable.
+* `CASSANDRA_TEST_START_TIMEOUT_SECS` — defaults to `240` and covers
+  Docker/testcontainers startup.
+* `CASSANDRA_TEST_CONNECT_TIMEOUT_SECS` — defaults to `90` and covers
+  the post-start CQL session retry loop.
+
+For offline or air-gapped machines, load the same image first:
+
+```bash
+docker save cassandra:5.0.2 -o cassandra-5.0.2.tar
+docker load -i cassandra-5.0.2.tar
+CASSANDRA_TEST_IMAGE=cassandra:5.0.2 \
+  cargo test -p cassandra-kernel --test integration -- --ignored --test-threads=1
+```
 
 ## Related
 

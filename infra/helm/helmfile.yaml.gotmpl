@@ -1,0 +1,372 @@
+# OpenFoundry — single Helmfile entrypoint.
+#
+# Layered orchestration:
+#   1. operators/   third-party operators from upstream charts
+#   2. infra/       third-party infrastructure CRs/clusters (Postgres, Cassandra,
+#                   Kafka, Ceph, Temporal, Lakekeeper, Vespa, Trino, …)
+#   3. apps/        OpenFoundry application charts (of-platform, of-data-engine,
+#                   of-ontology, of-ml-aip, of-apps-ops, of-web)
+#
+# `needs:` enforces the install order: every chart in layer N waits for every
+# chart in layer N-1.
+#
+# Usage:
+#   cd infra/helm
+#   helmfile -e dev    apply     # install/upgrade everything
+#   helmfile -e prod   apply
+#   helmfile -e dev    template  # render manifests, no cluster
+#   helmfile -e dev    diff
+#   helmfile -e dev    destroy
+#
+# Environment variables:
+#   HELM_NAMESPACE       app namespace                    (default: openfoundry)
+#   HELM_KUBECONTEXT     kube context override            (optional)
+
+helmDefaults:
+  createNamespace: true
+  wait: false
+  timeout: 900
+  atomic: false
+  cleanupOnFail: true
+  historyMax: 10
+  {{- with env "HELM_KUBECONTEXT" }}
+  kubeContext: {{ . | quote }}
+  {{- end }}
+
+repositories:
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: cnpg
+    url: https://cloudnative-pg.github.io/charts
+  - name: k8ssandra
+    url: https://helm.k8ssandra.io/stable
+  - name: strimzi
+    url: https://strimzi.io/charts
+  - name: rook-release
+    url: https://charts.rook.io/release
+  - name: flink-operator
+    url: https://downloads.apache.org/flink/flink-kubernetes-operator-1.13.0/
+  - name: temporal
+    url: https://go.temporal.io/helm-charts
+  - name: lakekeeper
+    url: https://lakekeeper.github.io/lakekeeper-charts
+
+environments:
+  default:   { values: [{ profile: dev     }] }
+  dev:       { values: [{ profile: dev     }] }
+  staging:   { values: [{ profile: staging }] }
+  prod:      { values: [{ profile: prod    }] }
+  airgap:        { values: [{ profile: prod, posture: airgap        }] }
+  multicloud:    { values: [{ profile: prod, posture: multicloud    }] }
+  sovereign-eu:  { values: [{ profile: prod, posture: sovereign-eu  }] }
+  apollo:        { values: [{ profile: prod, posture: apollo        }] }
+
+---
+{{- $ns := env "HELM_NAMESPACE" | default "openfoundry" -}}
+{{- $profile := .Environment.Values | get "profile" "dev" -}}
+{{- $posture := .Environment.Values | get "posture" "" -}}
+
+{{- /* Profile gates.
+       In dev (lima k3s, ~18 GiB RAM total) we skip every heavyweight
+       stateful cluster: 4 Postgres clusters, Cassandra multi-rack, the
+       Strimzi Kafka cluster, Temporal and friends would not fit. They
+       still install in staging/prod where the cluster has the budget. */ -}}
+{{- $isDev := eq $profile "dev" -}}
+{{- $vespaInstalled            := not $isDev -}}
+{{- $trinoInstalled            := eq $profile "prod" -}}
+{{- $sparkInstalled            := eq $profile "prod" -}}
+{{- $mimirInstalled            := eq $profile "prod" -}}
+{{- $rookInstalled             := eq $profile "prod" -}}
+{{- $flinkInstalled            := eq $profile "prod" -}}
+{{- $debeziumInstalled         := not $isDev -}}
+{{- $postgresClustersInstalled := true -}}
+{{- $cassandraClusterInstalled := true -}}
+{{- $kafkaClusterInstalled     := not $isDev -}}
+{{- $temporalInstalled         := not $isDev -}}
+{{- $lakekeeperInstalled       := not $isDev -}}
+{{- /* observability ships PrometheusRule CRs — needs the Prometheus
+       Operator CRDs to exist. Gate off in dev until kube-prometheus-stack
+       is added as a dependency. */ -}}
+{{- $observabilityInstalled    := not $isDev -}}
+
+releases:
+  # ───────────────────────────────────────────────────────────────────
+  # Layer 1 — Operators (installed straight from upstream charts)
+  # ───────────────────────────────────────────────────────────────────
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    version: "v1.20.2"
+    values:
+      - ./operators/cert-manager/values.yaml
+
+  - name: cnpg
+    namespace: cnpg-system
+    chart: cnpg/cloudnative-pg
+    version: "0.28.0"
+    values:
+      - ./operators/cnpg/values.yaml
+
+  - name: k8ssandra-operator
+    namespace: k8ssandra-operator
+    chart: k8ssandra/k8ssandra-operator
+    version: "1.32.0"
+    needs:
+      - cert-manager/cert-manager
+    values:
+      - ./operators/k8ssandra/values.yaml
+
+  - name: strimzi-operator
+    namespace: kafka
+    # Strimzi is only needed when we install the Kafka cluster CR
+    # (kafka-cluster release). Kept gated together to save dev resources.
+    installed: {{ $kafkaClusterInstalled }}
+    chart: strimzi/strimzi-kafka-operator
+    # Pin to 1.0.0 (current stable). Older 0.45.x ships an outdated
+    # fabric8 client that fails on the `emulationMajor` field added by
+    # Kubernetes 1.32+ — the cluster cannot be detected and the operator
+    # crashloops on startup.
+    version: "1.0.0"
+    values:
+      - ./operators/strimzi/values.yaml
+
+  - name: rook-ceph-operator
+    namespace: rook-ceph
+    installed: {{ $rookInstalled }}
+    chart: rook-release/rook-ceph
+    version: "v1.16.4"
+    values:
+      - ./operators/rook-ceph/values.yaml
+
+  - name: flink-operator
+    namespace: flink
+    installed: {{ $flinkInstalled }}
+    chart: flink-operator/flink-kubernetes-operator
+    version: "1.13.0"
+    needs:
+      - cert-manager/cert-manager
+    values:
+      - ./operators/flink/values.yaml
+
+  # ───────────────────────────────────────────────────────────────────
+  # Layer 2 — Infrastructure CRs / clusters
+  # ───────────────────────────────────────────────────────────────────
+  - name: postgres-clusters
+    namespace: {{ $ns }}
+    installed: {{ $postgresClustersInstalled }}
+    chart: ./infra/postgres-clusters
+    needs:
+      - cnpg-system/cnpg
+    values:
+      - ./infra/postgres-clusters/values.yaml
+      - ./infra/postgres-clusters/values-{{ $profile }}.yaml
+
+  - name: cassandra-cluster
+    # The k8ssandra-operator only watches K8ssandraClusters in its own
+    # namespace (`WATCH_NAMESPACE` is fixed via fieldRef on the operator
+    # Deployment). Deploy the Cluster CR alongside the operator so it
+    # gets reconciled.
+    namespace: k8ssandra-operator
+    installed: {{ $cassandraClusterInstalled }}
+    chart: ./infra/cassandra-cluster
+    needs:
+      - k8ssandra-operator/k8ssandra-operator
+    values:
+      - ./infra/cassandra-cluster/values.yaml
+      - ./infra/cassandra-cluster/values-{{ $profile }}.yaml
+
+  - name: kafka-cluster
+    namespace: kafka
+    installed: {{ $kafkaClusterInstalled }}
+    chart: ./infra/kafka-cluster
+    needs:
+      - kafka/strimzi-operator
+    values:
+      - ./infra/kafka-cluster/values.yaml
+
+  - name: ceph-cluster
+    namespace: rook-ceph
+    installed: {{ $rookInstalled }}
+    chart: ./infra/ceph-cluster
+    needs:
+      - rook-ceph/rook-ceph-operator
+    values:
+      - ./infra/ceph-cluster/values.yaml
+
+  - name: temporal
+    namespace: temporal
+    installed: {{ $temporalInstalled }}
+    chart: ./infra/temporal
+    needs:
+      - k8ssandra-operator/cassandra-cluster
+    values:
+      - ./infra/temporal/values.yaml
+      - ./infra/temporal/values-{{ $profile }}.yaml
+
+  - name: lakekeeper
+    namespace: lakekeeper
+    installed: {{ $lakekeeperInstalled }}
+    chart: ./infra/lakekeeper
+    needs:
+      - {{ $ns }}/postgres-clusters
+    values:
+      - ./infra/lakekeeper/values.yaml
+
+  - name: debezium
+    namespace: kafka
+    installed: {{ $debeziumInstalled }}
+    chart: ./infra/debezium
+    needs:
+      - kafka/kafka-cluster
+      - {{ $ns }}/postgres-clusters
+    values:
+      - ./infra/debezium/values.yaml
+
+  - name: flink-jobs
+    namespace: flink
+    installed: {{ $flinkInstalled }}
+    chart: ./infra/flink-jobs
+    needs:
+      - flink/flink-operator
+      - lakekeeper/lakekeeper
+    values:
+      - ./infra/flink-jobs/values.yaml
+
+  - name: vespa
+    namespace: {{ $ns }}
+    installed: {{ $vespaInstalled }}
+    chart: ./infra/vespa
+    values:
+      - ./infra/vespa/values.yaml
+
+  - name: trino
+    namespace: trino
+    installed: {{ $trinoInstalled }}
+    chart: ./infra/trino
+    values:
+      - ./infra/trino/values.yaml
+
+  - name: spark-operator
+    namespace: spark-operator
+    installed: {{ $sparkInstalled }}
+    chart: ./infra/spark-operator
+    values:
+      - ./infra/spark-operator/values.yaml
+
+  - name: spark-jobs
+    namespace: spark-operator
+    installed: {{ $sparkInstalled }}
+    chart: ./infra/spark-jobs
+    needs:
+      - spark-operator/spark-operator
+    values:
+      - ./infra/spark-jobs/values.yaml
+
+  - name: mimir
+    namespace: observability
+    installed: {{ $mimirInstalled }}
+    chart: ./infra/mimir
+    values:
+      - ./infra/mimir/values.yaml
+
+  - name: observability
+    namespace: {{ $ns }}
+    installed: {{ $observabilityInstalled }}
+    chart: ./infra/observability
+    values:
+      - ./infra/observability/values.yaml
+
+  - name: local-registry
+    namespace: registry
+    installed: {{ eq $profile "dev" }}
+    chart: ./infra/local-registry
+    values:
+      - ./infra/local-registry/values.yaml
+
+  # ───────────────────────────────────────────────────────────────────
+  # Layer 3 — OpenFoundry application charts
+  # ───────────────────────────────────────────────────────────────────
+  # of-platform must be installed first: it owns the shared Ingress and
+  # the platform-profile ConfigMap that the other releases reference.
+  - name: of-platform
+    namespace: {{ $ns }}
+    chart: ./apps/of-platform
+    skipDeps: true
+    needs:
+      {{- if $postgresClustersInstalled }}
+      - {{ $ns }}/postgres-clusters
+      {{- end }}
+      {{- if $cassandraClusterInstalled }}
+      - k8ssandra-operator/cassandra-cluster
+      {{- end }}
+    values:
+      - ./apps/of-platform/values.yaml
+      - ./profiles/values-{{ $profile }}.yaml
+      {{- if $posture }}
+      - ./profiles/values-{{ $posture }}.yaml
+      {{- end }}
+      - ./apps/of-platform/values-{{ $profile }}.yaml
+
+  - name: of-data-engine
+    namespace: {{ $ns }}
+    chart: ./apps/of-data-engine
+    skipDeps: true
+    needs:
+      - {{ $ns }}/of-platform
+    values:
+      - ./apps/of-data-engine/values.yaml
+      - ./profiles/values-{{ $profile }}.yaml
+      {{- if $posture }}
+      - ./profiles/values-{{ $posture }}.yaml
+      {{- end }}
+      - ./apps/of-data-engine/values-{{ $profile }}.yaml
+
+  - name: of-ontology
+    namespace: {{ $ns }}
+    chart: ./apps/of-ontology
+    skipDeps: true
+    needs:
+      - {{ $ns }}/of-platform
+    values:
+      - ./apps/of-ontology/values.yaml
+      - ./profiles/values-{{ $profile }}.yaml
+      {{- if $posture }}
+      - ./profiles/values-{{ $posture }}.yaml
+      {{- end }}
+      - ./apps/of-ontology/values-{{ $profile }}.yaml
+
+  - name: of-ml-aip
+    namespace: {{ $ns }}
+    chart: ./apps/of-ml-aip
+    skipDeps: true
+    needs:
+      - {{ $ns }}/of-platform
+    values:
+      - ./apps/of-ml-aip/values.yaml
+      - ./profiles/values-{{ $profile }}.yaml
+      {{- if $posture }}
+      - ./profiles/values-{{ $posture }}.yaml
+      {{- end }}
+      - ./apps/of-ml-aip/values-{{ $profile }}.yaml
+
+  - name: of-apps-ops
+    namespace: {{ $ns }}
+    chart: ./apps/of-apps-ops
+    skipDeps: true
+    needs:
+      - {{ $ns }}/of-platform
+    values:
+      - ./apps/of-apps-ops/values.yaml
+      - ./profiles/values-{{ $profile }}.yaml
+      {{- if $posture }}
+      - ./profiles/values-{{ $posture }}.yaml
+      {{- end }}
+      - ./apps/of-apps-ops/values-{{ $profile }}.yaml
+
+  - name: of-web
+    namespace: {{ $ns }}
+    chart: ./apps/of-web
+    needs:
+      - {{ $ns }}/of-platform
+    values:
+      - ./apps/of-web/values.yaml

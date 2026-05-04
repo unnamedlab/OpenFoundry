@@ -70,17 +70,16 @@ pub async fn preview_view(
     Query(params): Query<PreviewQuery>,
 ) -> Result<Json<PreviewPage>, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    let view_id = Uuid::parse_str(&view_id_str)
-        .map_err(|_| bad_request("view_id is not a valid UUID"))?;
+    let view_id =
+        Uuid::parse_str(&view_id_str).map_err(|_| bad_request("view_id is not a valid UUID"))?;
 
     // Sanity: the view must belong to this dataset.
-    let view_dataset = sqlx::query_scalar::<_, Uuid>(
-        "SELECT dataset_id FROM dataset_views WHERE id = $1",
-    )
-    .bind(view_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?;
+    let view_dataset =
+        sqlx::query_scalar::<_, Uuid>("SELECT dataset_id FROM dataset_views WHERE id = $1")
+            .bind(view_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(internal)?;
     match view_dataset {
         Some(ds) if ds == dataset_id => {}
         Some(_) => return Err(bad_request("view_id does not belong to this dataset")),
@@ -107,10 +106,16 @@ pub async fn preview_view(
         csv: params.csv,
     };
 
-    let page =
-        read_view_preview(&state.db, state.storage.clone(), view_id, limit, offset, overrides)
-            .await
-            .map_err(map_preview_error)?;
+    let page = read_view_preview(
+        &state.db,
+        state.storage.clone(),
+        view_id,
+        limit,
+        offset,
+        overrides,
+    )
+    .await
+    .map_err(map_preview_error)?;
 
     Ok(Json(page))
 }

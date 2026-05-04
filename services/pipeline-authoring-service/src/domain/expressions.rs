@@ -103,7 +103,8 @@ pub fn validate(kind: MediaExpressionKind, args: &Value) -> Vec<String> {
                         ));
                     }
                     if a.branch.trim().is_empty() {
-                        errors.push("construct_delegated_media_gid.branch must not be empty".into());
+                        errors
+                            .push("construct_delegated_media_gid.branch must not be empty".into());
                     }
                 }
                 Err(err) => errors.push(format!("construct_delegated_media_gid: {err}")),

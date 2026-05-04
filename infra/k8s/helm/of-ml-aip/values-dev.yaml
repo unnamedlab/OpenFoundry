@@ -1,3 +1,0 @@
-services:
-  ai-sink:
-    replicas: 1

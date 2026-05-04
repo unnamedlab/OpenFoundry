@@ -4,8 +4,8 @@
 //! service in `crate::grpc` can re-use the same SQL without duplicating
 //! it (and so unit tests can hit the operations directly).
 
-use auth_middleware::Claims;
 use audit_trail::events::{AuditContext, AuditEvent, emit as emit_audit};
+use auth_middleware::Claims;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -16,9 +16,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::domain::cedar::{
-    action_delete_set, action_manage, action_view, check_media_set,
-};
+use crate::domain::cedar::{action_delete_set, action_manage, action_view, check_media_set};
 use crate::domain::error::{MediaError, MediaResult};
 use crate::handlers::audit::from_request;
 use crate::models::{CreateMediaSetRequest, MediaSet, MediaSetSchema};
@@ -46,7 +44,9 @@ pub async fn create_media_set_op(
         return Err(MediaError::BadRequest("name must not be empty".into()));
     }
     if req.project_rid.trim().is_empty() {
-        return Err(MediaError::BadRequest("project_rid must not be empty".into()));
+        return Err(MediaError::BadRequest(
+            "project_rid must not be empty".into(),
+        ));
     }
     if req.virtual_ && req.source_rid.as_deref().unwrap_or_default().is_empty() {
         return Err(MediaError::BadRequest(
@@ -84,15 +84,18 @@ pub async fn create_media_set_op(
     .await?;
 
     // Boot the implicit `main` branch so transactions / items can be
-    // attached without the caller having to call a separate API. Advanced
-    // branch operations (reparent, fork-from-transaction) are deferred
-    // to H4.
+    // attached without the caller having to call a separate API. Per
+    // H4 (`0006_branching.sql`), `main` is always a root branch
+    // (`parent_branch_rid IS NULL`) and starts with no head pointer.
     sqlx::query(
-        r#"INSERT INTO media_set_branches (media_set_rid, branch_name, parent_branch)
-           VALUES ($1, 'main', NULL)
+        r#"INSERT INTO media_set_branches
+              (media_set_rid, branch_name, parent_branch_rid,
+               head_transaction_rid, created_by)
+           VALUES ($1, 'main', NULL, NULL, $2)
            ON CONFLICT DO NOTHING"#,
     )
     .bind(&row.rid)
+    .bind(created_by)
     .execute(&mut *tx)
     .await?;
 
@@ -187,7 +190,7 @@ pub async fn delete_media_set_op(
 /// until the transaction is sealed; a too-aggressive window would let
 /// the reaper delete bytes mid-flight.
 ///
-/// TODO(H?): wire this against the published platform SLO once
+/// Follow-up H?: wire this against the published platform SLO once
 /// `services/sds-service` defines `media-set.retention.min_seconds`.
 /// Until then we apply a conservative 60-second floor purely as a
 /// guardrail.
@@ -274,9 +277,7 @@ pub async fn require_media_set(state: &AppState, rid: &str) -> MediaResult<Media
 }
 
 pub fn schema_for(set: &MediaSet) -> MediaSetSchema {
-    set.schema
-        .parse()
-        .unwrap_or(MediaSetSchema::Document)
+    set.schema.parse().unwrap_or(MediaSetSchema::Document)
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +307,13 @@ pub async fn list_media_sets(
     _user: auth_middleware::layer::AuthUser,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<MediaSet>>, MediaErrorResponse> {
-    let rows = list_media_sets_op(&state, q.project_rid.as_deref(), q.limit.unwrap_or(50), q.offset.unwrap_or(0)).await?;
+    let rows = list_media_sets_op(
+        &state,
+        q.project_rid.as_deref(),
+        q.limit.unwrap_or(50),
+        q.offset.unwrap_or(0),
+    )
+    .await?;
     Ok(Json(rows))
 }
 
@@ -484,7 +491,7 @@ pub async fn preview_markings(
         current_markings: current,
         added,
         removed,
-        // TODO(H4): cross-reference the user catalog to estimate how
+        // Follow-up H4: cross-reference the user catalog to estimate how
         // many active sessions will lose access. The Cedar engine
         // already enforces the new envelope at request time, so this
         // is a UX hint, not a gate.
@@ -495,7 +502,10 @@ pub async fn preview_markings(
 /// Re-export so the gRPC service (and tests) can grab the canonical
 /// list without depending on the HTTP handler module structure.
 pub fn current_set_markings(set: &MediaSet) -> Vec<String> {
-    set.markings.iter().map(|m| m.to_ascii_lowercase()).collect()
+    set.markings
+        .iter()
+        .map(|m| m.to_ascii_lowercase())
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -520,9 +530,23 @@ impl IntoResponse for MediaErrorResponse {
         let (status, msg) = match &self.0 {
             MediaError::MediaSetNotFound(_)
             | MediaError::MediaItemNotFound(_)
-            | MediaError::TransactionNotFound(_) => (StatusCode::NOT_FOUND, self.0.to_string()),
+            | MediaError::TransactionNotFound(_)
+            | MediaError::BranchNotFound(_) => (StatusCode::NOT_FOUND, self.0.to_string()),
             MediaError::Transactionless(_) | MediaError::TransactionTerminal(_, _) => {
                 (StatusCode::CONFLICT, self.0.to_string())
+            }
+            MediaError::TransactionlessRejectsReset(_)
+            | MediaError::TransactionlessRejectsReplace(_)
+            | MediaError::TransactionTooLarge(_, _) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, self.0.to_string())
+            }
+            MediaError::MergeConflict(paths) => {
+                let body = serde_json::json!({
+                    "error": "merge conflict",
+                    "code": "MEDIA_SET_BRANCH_MERGE_CONFLICT",
+                    "conflict_paths": paths,
+                });
+                return (StatusCode::CONFLICT, Json(body)).into_response();
             }
             MediaError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.0.to_string()),
             MediaError::Forbidden(msg) => {
@@ -531,7 +555,10 @@ impl IntoResponse for MediaErrorResponse {
             }
             MediaError::Authz(msg) => {
                 tracing::error!(error = %msg, "authz internal error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "authz internal error".into())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "authz internal error".into(),
+                )
             }
             MediaError::Storage(msg) => {
                 tracing::warn!(error = %msg, "storage backend error");
@@ -543,13 +570,36 @@ impl IntoResponse for MediaErrorResponse {
             }
             MediaError::Database(err) => {
                 tracing::error!(error = %err, "database error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "database error".to_string(),
+                )
             }
             MediaError::Outbox(err) => {
                 tracing::error!(error = %err, "audit outbox error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "audit outbox error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "audit outbox error".to_string(),
+                )
             }
         };
-        (status, Json(serde_json::json!({ "error": msg }))).into_response()
+        // Stable error codes for the H4 invariants the front-end and
+        // pipelines branch on. `null` for variants that don't have a
+        // dedicated code yet — clients fall back to the HTTP status.
+        let code = match &self.0 {
+            MediaError::TransactionTooLarge(_, _) => Some("MEDIA_SET_TRANSACTION_TOO_LARGE"),
+            MediaError::TransactionlessRejectsReset(_) => {
+                Some("MEDIA_SET_TRANSACTIONLESS_REJECTS_RESET")
+            }
+            MediaError::TransactionlessRejectsReplace(_) => {
+                Some("MEDIA_SET_TRANSACTIONLESS_REJECTS_REPLACE")
+            }
+            _ => None,
+        };
+        let body = match code {
+            Some(c) => serde_json::json!({ "error": msg, "code": c }),
+            None => serde_json::json!({ "error": msg }),
+        };
+        (status, Json(body)).into_response()
     }
 }

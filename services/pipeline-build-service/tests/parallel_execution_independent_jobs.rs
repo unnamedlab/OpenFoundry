@@ -8,17 +8,15 @@ use core_models::dataset::transaction::BranchName;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use pipeline_build_service::domain::build_executor::{
-    execute_build, ExecuteBuildArgs,
-};
+use pipeline_build_service::domain::build_executor::{ExecuteBuildArgs, execute_build};
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
 use pipeline_build_service::models::build::BuildState;
 
 use crate::common::{
-    arc_output, arc_runner, job_spec, MockDatasetClient, MockJobRunner, MockJobSpecRepo,
-    MockOutputClient, RunnerScript, spawn,
+    MockDatasetClient, MockJobRunner, MockJobSpecRepo, MockOutputClient, RunnerScript, arc_output,
+    arc_runner, job_spec, spawn,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -31,10 +29,17 @@ async fn parallel_execution_independent_jobs() {
     // dependencies between them — should fan out to 3 parallel slots.
     for letter in ["a", "b", "c"] {
         let input = format!("raw.{letter}");
-        specs.add(job_spec(&format!("ri.spec.{letter}"), vec![&input], vec![&format!("out.{letter}")]));
+        specs.add(job_spec(
+            &format!("ri.spec.{letter}"),
+            vec![&input],
+            vec![&format!("out.{letter}")],
+        ));
         versioning.add_branch(
             &input,
-            BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+            BranchSnapshot {
+                name: "master".parse().unwrap(),
+                head_transaction_rid: None,
+            },
         );
     }
 

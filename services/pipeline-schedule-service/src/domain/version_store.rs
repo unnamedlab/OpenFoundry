@@ -51,7 +51,10 @@ pub async fn list_versions(
     .bind(offset)
     .fetch_all(pool)
     .await?;
-    Ok(rows.iter().map(version_from_row).collect::<Result<_, _>>()?)
+    Ok(rows
+        .iter()
+        .map(version_from_row)
+        .collect::<Result<_, _>>()?)
 }
 
 pub async fn get_version(

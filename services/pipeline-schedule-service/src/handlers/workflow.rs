@@ -24,4 +24,3 @@ pub async fn trigger_event(
             .into_response(),
     }
 }
-

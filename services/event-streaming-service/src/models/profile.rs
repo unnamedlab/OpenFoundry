@@ -250,7 +250,9 @@ pub const FLINK_CONFIG_KEY_WHITELIST: &[&str] = &[
 /// Validate that every key in `config` is a member of the whitelist.
 pub fn validate_config_keys(config: &Value) -> Result<(), Vec<String>> {
     let Some(map) = config.as_object() else {
-        return Err(vec!["profile config_json must be a JSON object".to_string()]);
+        return Err(vec![
+            "profile config_json must be a JSON object".to_string(),
+        ]);
     };
     let mut errors = Vec::new();
     for key in map.keys() {
@@ -284,10 +286,8 @@ pub fn compose_effective_config(
     pipeline_rid: &str,
     profiles: &[(StreamingProfile, i64)],
 ) -> EffectiveFlinkConfig {
-    let mut sorted: Vec<(&StreamingProfile, i64)> = profiles
-        .iter()
-        .map(|(p, order)| (p, *order))
-        .collect();
+    let mut sorted: Vec<(&StreamingProfile, i64)> =
+        profiles.iter().map(|(p, order)| (p, *order)).collect();
     sorted.sort_by(|(a, oa), (b, ob)| {
         a.category
             .specificity()
@@ -328,11 +328,7 @@ mod tests {
     use chrono::Utc;
     use serde_json::json;
 
-    fn profile(
-        name: &str,
-        category: ProfileCategory,
-        config: Value,
-    ) -> StreamingProfile {
+    fn profile(name: &str, category: ProfileCategory, config: Value) -> StreamingProfile {
         StreamingProfile {
             id: Uuid::now_v7(),
             name: name.to_string(),
@@ -366,7 +362,11 @@ mod tests {
 
     #[test]
     fn composition_is_deterministic_across_runs() {
-        let a = profile("a", ProfileCategory::Parallelism, json!({"parallelism.default": "4"}));
+        let a = profile(
+            "a",
+            ProfileCategory::Parallelism,
+            json!({"parallelism.default": "4"}),
+        );
         let b = profile(
             "b",
             ProfileCategory::TaskmanagerResources,
@@ -394,10 +394,7 @@ mod tests {
         // Advanced has lowest specificity (highest number) so it runs
         // last and wins. Parallelism is more specific so it runs
         // first; the later Advanced write overwrites it.
-        let res = compose_effective_config(
-            "p",
-            &[(advanced.clone(), 1), (parallelism.clone(), 2)],
-        );
+        let res = compose_effective_config("p", &[(advanced.clone(), 1), (parallelism.clone(), 2)]);
         assert_eq!(
             res.config["parallelism.default"],
             Value::String("16".into())
@@ -419,9 +416,6 @@ mod tests {
         );
         // Higher attached_order wins.
         let res = compose_effective_config("p", &[(p1.clone(), 1), (p2.clone(), 2)]);
-        assert_eq!(
-            res.config["parallelism.default"],
-            Value::String("8".into())
-        );
+        assert_eq!(res.config["parallelism.default"], Value::String("8".into()));
     }
 }

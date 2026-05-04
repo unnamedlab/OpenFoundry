@@ -67,21 +67,12 @@ async fn rejects_branch_creation_on_input_only_dataset() {
 
     // Branching B (an output) is allowed.
     assert!(
-        assert_input_dataset_not_branched(
-            "ri.foundry.main.build.42",
-            &graph,
-            &[rid("B")],
-        )
-        .is_ok()
+        assert_input_dataset_not_branched("ri.foundry.main.build.42", &graph, &[rid("B")],).is_ok()
     );
 
     // Branching A (input-only) must fail.
-    let err = assert_input_dataset_not_branched(
-        "ri.foundry.main.build.42",
-        &graph,
-        &[rid("A")],
-    )
-    .expect_err("must reject branching on input-only dataset");
+    let err = assert_input_dataset_not_branched("ri.foundry.main.build.42", &graph, &[rid("A")])
+        .expect_err("must reject branching on input-only dataset");
     match err {
         GuaranteeError::InputDatasetBranched {
             build_id,

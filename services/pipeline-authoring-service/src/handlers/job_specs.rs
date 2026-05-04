@@ -74,8 +74,8 @@ pub async fn publish_job_spec(
     }
 
     let hash = content_hash(&body.job_spec_json, &inputs);
-    let inputs_json = serde_json::to_value(&inputs)
-        .map_err(|e| internal(&format!("encode inputs: {e}")))?;
+    let inputs_json =
+        serde_json::to_value(&inputs).map_err(|e| internal(&format!("encode inputs: {e}")))?;
 
     // Look for an existing row at the unique key. Three branches:
     //  1) None: insert a brand-new row (version = 1, new_version = true).

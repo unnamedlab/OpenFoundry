@@ -16,13 +16,9 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use http_body_util::BodyExt;
-use media_sets_service::domain::cedar::{
-    PRESIGN_CLAIM_DEFAULT_TTL_SECS, verify_presign_claim,
-};
+use media_sets_service::domain::cedar::{PRESIGN_CLAIM_DEFAULT_TTL_SECS, verify_presign_claim};
 use media_sets_service::handlers::items::presigned_upload_op;
-use media_sets_service::handlers::media_sets::{
-    create_media_set_op, patch_markings_op,
-};
+use media_sets_service::handlers::media_sets::{create_media_set_op, patch_markings_op};
 use media_sets_service::models::{
     CreateMediaSetRequest, MediaSetSchema, PresignedUploadRequest, TransactionPolicy,
 };
@@ -148,7 +144,10 @@ async fn download_url_blocked_without_clearance_and_carries_short_lived_claim_ot
         claim.exp - claim.iat
     );
     assert!(
-        claim.markings.iter().any(|m| m.eq_ignore_ascii_case("secret")),
+        claim
+            .markings
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case("secret")),
         "claim must snapshot the item's effective markings: {:?}",
         claim.markings
     );

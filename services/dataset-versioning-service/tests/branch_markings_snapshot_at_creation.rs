@@ -82,7 +82,9 @@ async fn child_inherits_parent_markings_at_creation_time() {
     // GET /markings projects effective + inherited correctly.
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/v1/datasets/{dataset_id}/branches/feature/markings"))
+        .uri(format!(
+            "/v1/datasets/{dataset_id}/branches/feature/markings"
+        ))
         .header("authorization", format!("Bearer {}", h.token))
         .body(Body::empty())
         .unwrap();
@@ -99,11 +101,9 @@ async fn child_inherits_parent_markings_at_creation_time() {
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn marking_added_to_parent_after_child_creation_does_not_propagate() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.markings-snap-late",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.markings-snap-late")
+            .await;
     let master_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM dataset_branches WHERE dataset_id = $1 AND name = 'master'",
     )
@@ -182,7 +182,9 @@ async fn marking_added_to_parent_after_child_creation_does_not_propagate() {
     // markings on the feature branch.
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/v1/datasets/{dataset_id}/branches/feature/markings"))
+        .uri(format!(
+            "/v1/datasets/{dataset_id}/branches/feature/markings"
+        ))
         .header("authorization", format!("Bearer {}", h.token))
         .body(Body::empty())
         .unwrap();

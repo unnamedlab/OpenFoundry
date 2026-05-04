@@ -23,6 +23,7 @@ use crate::handlers::media_sets::{
     create_media_set_op, delete_media_set_op, get_media_set_op, list_media_sets_op,
 };
 use crate::handlers::transactions::{close_transaction_op, open_transaction_op};
+use crate::models::WriteMode;
 use audit_trail::events::AuditContext;
 
 /// Context for audit emissions originating from the gRPC surface. The
@@ -125,7 +126,9 @@ impl MediaSetService for MediaSetGrpcService {
         request: Request<pb::DeleteMediaSetRequest>,
     ) -> Result<Response<pb::DeleteMediaSetResponse>, Status> {
         let rid = request.into_inner().rid;
-        let row = get_media_set_op(&self.state, &rid).await.map_err(to_status)?;
+        let row = get_media_set_op(&self.state, &rid)
+            .await
+            .map_err(to_status)?;
         delete_media_set_op(&self.state, &rid, &row, &grpc_ctx())
             .await
             .map_err(to_status)?;
@@ -137,8 +140,24 @@ impl MediaSetService for MediaSetGrpcService {
         request: Request<pb::OpenTransactionRequest>,
     ) -> Result<Response<pb::Transaction>, Status> {
         let r = request.into_inner();
-        let branch = if r.branch.is_empty() { "main".into() } else { r.branch };
-        let row = open_transaction_op(&self.state, &r.media_set_rid, &branch, "grpc", &grpc_ctx())
+        let branch = if r.branch.is_empty() {
+            "main".into()
+        } else {
+            r.branch
+        };
+        // gRPC `OpenTransaction` does not yet expose a write_mode
+        // field on the proto contract — default to MODIFY which is
+        // the safe Foundry default and the only mode the existing
+        // batch test fleet exercises. REPLACE remains reachable from
+        // the REST surface.
+        let row = open_transaction_op(
+            &self.state,
+            &r.media_set_rid,
+            &branch,
+            "grpc",
+            WriteMode::Modify,
+            &grpc_ctx(),
+        )
             .await
             .map_err(to_status)?;
         Ok(Response::new(transaction_to_proto(&row)))
@@ -179,7 +198,11 @@ impl MediaSetService for MediaSetGrpcService {
         request: Request<pb::ListMediaItemsRequest>,
     ) -> Result<Response<pb::ListMediaItemsResponse>, Status> {
         let r = request.into_inner();
-        let branch = if r.branch.is_empty() { "main".into() } else { r.branch };
+        let branch = if r.branch.is_empty() {
+            "main".into()
+        } else {
+            r.branch
+        };
         let (page, per_page) = page_args(r.pagination.as_ref());
         let rows = list_items_op(
             &self.state,
@@ -230,7 +253,11 @@ impl MediaSetService for MediaSetGrpcService {
         let req = PresignedUploadRequest {
             path: r.path,
             mime_type: r.mime_type,
-            branch: Some(if r.branch.is_empty() { "main".into() } else { r.branch }),
+            branch: Some(if r.branch.is_empty() {
+                "main".into()
+            } else {
+                r.branch
+            }),
             transaction_rid: Some(r.transaction_rid).filter(|s| !s.is_empty()),
             sha256: None,
             size_bytes: None,
@@ -402,22 +429,33 @@ fn to_status(err: MediaError) -> Status {
     match err {
         MediaError::MediaSetNotFound(rid)
         | MediaError::MediaItemNotFound(rid)
-        | MediaError::TransactionNotFound(rid) => Status::not_found(rid),
+        | MediaError::TransactionNotFound(rid)
+        | MediaError::BranchNotFound(rid) => Status::not_found(rid),
         MediaError::Transactionless(rid) => Status::failed_precondition(format!(
             "media set `{rid}` is transactionless; transactions are not allowed"
         )),
-        MediaError::TransactionTerminal(rid, st) => Status::failed_precondition(format!(
-            "transaction `{rid}` is in terminal state `{st}`"
+        MediaError::TransactionlessRejectsReset(rid) => Status::failed_precondition(format!(
+            "media set `{rid}` is transactionless; reset is not allowed"
         )),
+        MediaError::TransactionlessRejectsReplace(rid) => Status::failed_precondition(format!(
+            "media set `{rid}` is transactionless; REPLACE write mode is not allowed"
+        )),
+        MediaError::TransactionTooLarge(rid, cap) => Status::resource_exhausted(format!(
+            "transaction `{rid}` already holds the maximum {cap} items"
+        )),
+        MediaError::MergeConflict(paths) => {
+            Status::aborted(format!("merge conflict on {} paths", paths.len()))
+        }
+        MediaError::TransactionTerminal(rid, st) => {
+            Status::failed_precondition(format!("transaction `{rid}` is in terminal state `{st}`"))
+        }
         MediaError::BadRequest(msg) => Status::invalid_argument(msg),
         MediaError::Forbidden(msg) => Status::permission_denied(msg),
         MediaError::Authz(msg) => {
             tracing::error!(error = %msg, "grpc authz error");
             Status::internal("authz error")
         }
-        MediaError::Storage(msg) | MediaError::UpstreamUnavailable(msg) => {
-            Status::unavailable(msg)
-        }
+        MediaError::Storage(msg) | MediaError::UpstreamUnavailable(msg) => Status::unavailable(msg),
         MediaError::Database(err) => {
             tracing::error!(error = %err, "grpc database error");
             Status::internal("database error")

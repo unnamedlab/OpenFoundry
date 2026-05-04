@@ -8,15 +8,64 @@ not a passing S5 evidence pack. Do not mark PASS until every artifact contains
 output captured from a real deployed environment and the sign-off section has
 two maintainers.
 
+Update 2026-05-03T19:49:49Z: runtime code and Helm gaps found during this
+run were remediated in the repo, but the connected Kubernetes context still
+does not contain the S5 data-plane dependencies required for an operational
+PASS.
+
 ## Run Metadata
 
-Operator:
+Owner: data platform maintainers + SRE on-call
+Operator: Codex local automation, on behalf of the repo owner
 Environment: local Kubernetes context `default`
 Kubernetes context: default
-Git SHA:
-Start time UTC:
-End time UTC:
+Git SHA: 9d0072167f0e7caa417a977726998968ee999be7
+Start time UTC: 2026-05-03T19:49:49Z
+End time UTC: 2026-05-03T19:54:59Z
 Outcome: BLOCKED - missing S5 runtime environment
+
+Sign-off status: NOT SIGNED. This pack is not approved for S5-OPS
+closure.
+
+## Code/Helm Remediation Captured In This Run
+
+Implemented and verified before this evidence update:
+
+- `audit-sink`, `lineage-service`, `ai-sink` and `ontology-indexer` now expose
+  `/health` and `/metrics` on `METRICS_ADDR` with service-specific Prometheus
+  counters/histograms.
+- `lineage-service` now emits `lineage_service_records_total`,
+  `lineage_service_commits_total`, `lineage_service_batch_size_records` and
+  `lineage_service_lag_seconds`.
+- `ai-sink` and `audit-sink` record append success/failure metrics immediately
+  after Iceberg append attempts. Kafka offsets are still committed only after
+  successful appends.
+- `ontology-indexer` records committed Kafka records by topic/outcome and uses
+  Kafka record timestamps for `ontology_indexer_lag_seconds` when present.
+- Helm values now expose metrics ports for S5 consumers and set
+  `TRINO_FLIGHT_SQL_URL` for `sql-bi-gateway-service`.
+- `workers-go/reindex` no longer enables Kafka topic auto-creation on its
+  producer client.
+
+Verification commands:
+
+```text
+cargo test -p audit-sink --features runtime                  PASS
+cargo test -p ai-sink --features runtime                     PASS
+cargo test -p lineage-service                                PASS
+cargo test -p ontology-indexer --features runtime            PASS
+cargo test -p event-bus-data                                 PASS
+cargo test -p sql-bi-gateway-service trino                   PASS
+GOCACHE=/private/tmp/openfoundry-go-cache go test ./...      PASS
+helm template of-apps-ops infra/k8s/helm/of-apps-ops -f infra/k8s/helm/of-apps-ops/values-prod.yaml       PASS
+helm template of-data-engine infra/k8s/helm/of-data-engine -f infra/k8s/helm/of-data-engine/values-prod.yaml PASS
+helm template of-ml-aip infra/k8s/helm/of-ml-aip -f infra/k8s/helm/of-ml-aip/values-prod.yaml             PASS
+helm template of-ontology infra/k8s/helm/of-ontology -f infra/k8s/helm/of-ontology/values-prod.yaml       PASS
+rg -n 'NotWired|not_implemented|ErrNotImplemented|todo!|TODO' \
+  services/audit-sink/src services/lineage-service/src \
+  services/ai-sink/src services/ontology-indexer/src \
+  services/sql-bi-gateway-service/src workers-go/reindex     PASS (0 hits)
+```
 
 ## Audit-Sink E2E Validation
 
@@ -78,14 +127,11 @@ Result:
   Trino/Lakekeeper query path. Real lineage.events.v1 traffic cannot be
   produced, consumed, appended or queried here.
 
-Additional blocker:
+Metric status:
 
-  lineage-service currently has Kafka lag available via consumer-group tooling,
-  but no lineage-specific Prometheus sink metrics were found in
-  `services/lineage-service/src`. Full metric sign-off requires adding service
-  metrics such as `lineage_service_records_total`,
-  `lineage_service_commits_total`, `lineage_service_lag_seconds` and
-  decode/error counters.
+  RESOLVED IN CODE, NOT DEPLOYED HERE. `lineage-service` now exposes
+  lineage-specific Prometheus sink metrics. Runtime sign-off still requires
+  deploying the updated binary and scraping it during real traffic.
 
 ## AI-Sink E2E Validation
 
@@ -126,13 +172,11 @@ Result:
   producer deployment. Real ai.events.v1 traffic cannot be produced, consumed,
   appended or queried here.
 
-Additional blocker:
+Metric status:
 
-  `ai-sink` pins metric names (`ai_sink_records_total`,
-  `ai_sink_commits_total`, `ai_sink_lag_seconds`, `ai_sink_batch_size`), but
-  this validation found only constants/tracing in the runtime. Full metric
-  sign-off requires confirming the deployed binary actually emits those
-  Prometheus metrics.
+  RESOLVED IN CODE, NOT DEPLOYED HERE. `ai-sink` now registers and renders the
+  pinned metric names. Runtime sign-off still requires deploying the updated
+  binary and scraping it during real traffic.
 
 ## Metrics-Long E2E Validation
 
@@ -190,9 +234,9 @@ Formal router result:
 Runtime result:
 
   BLOCKED. The current cluster has no `sql-bi-gateway-service` deployment, no
-  `trino` namespace and no Lakekeeper/Trino runtime. Current Helm values also do
-  not set `TRINO_FLIGHT_SQL_URL` for `sql-bi-gateway-service`, so even a deployed
-  gateway would reject `trino.*` queries until the endpoint is configured.
+  `trino` namespace and no Lakekeeper/Trino runtime. Helm values now set
+  `TRINO_FLIGHT_SQL_URL`, but the configured endpoint cannot be exercised in
+  this Kubernetes context because the Trino Flight SQL proxy is absent.
 
 Captured commands, SQL and close-out steps are in:
 
@@ -233,20 +277,22 @@ Output:
 
 ```text
 NAMESPACE            NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
-cert-manager         cert-manager                       1/1     1            1           3h56m
-cert-manager         cert-manager-cainjector            1/1     1            1           3h56m
-cert-manager         cert-manager-webhook               1/1     1            1           3h56m
-cnpg-system          cnpg-cloudnative-pg                1/1     1            1           3h53m
-k8ssandra-operator   k8ssandra-operator                 1/1     1            1           3h55m
-k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           3h55m
-kube-system          coredns                            1/1     1            1           2d12h
-kube-system          local-path-provisioner             1/1     1            1           2d12h
-kube-system          metrics-server                     1/1     1            1           2d12h
-kube-system          traefik                            1/1     1            1           2d12h
-openfoundry          authorization-policy-service       0/1     1            0           3h45m
-openfoundry          edge-gateway-service               0/1     1            0           3h45m
-openfoundry          identity-federation-service        0/1     1            0           3h45m
-openfoundry          tenancy-organizations-service      0/1     1            0           3h45m
+cert-manager         cert-manager                       1/1     1            1           12h
+cert-manager         cert-manager-cainjector            1/1     1            1           12h
+cert-manager         cert-manager-webhook               1/1     1            1           12h
+cnpg-system          cnpg-cloudnative-pg                1/1     1            1           12h
+k8ssandra-operator   k8ssandra-operator                 1/1     1            1           12h
+k8ssandra-operator   k8ssandra-operator-cass-operator   1/1     1            1           12h
+kube-system          coredns                            1/1     1            1           2d21h
+kube-system          local-path-provisioner             1/1     1            1           2d21h
+kube-system          metrics-server                     1/1     1            1           2d21h
+kube-system          traefik                            1/1     1            1           2d21h
+openfoundry          authorization-policy-service       0/1     1            0           12h
+openfoundry          edge-gateway-service               0/1     1            0           12h
+openfoundry          identity-federation-service        0/1     1            0           12h
+openfoundry          tenancy-organizations-service      0/1     1            0           12h
+openfoundry          web                                1/1     1            1           175m
+registry             registry                           1/1     1            1           4h57m
 ```
 
 Kafka CR command:

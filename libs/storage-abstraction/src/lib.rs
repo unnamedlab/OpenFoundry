@@ -11,9 +11,9 @@ pub mod s3;
 pub mod signed_urls;
 
 pub use backing_fs::{
-    BackingFileSystem, BackingFsError, BackingFsResult, DatasetFileEntry, FsId,
-    HdfsBackingFs, LocalBackingFs, LocalBackingFsConfig, PhysicalLocation, PresignedUrl,
-    PutOpts, S3BackingFs, S3BackingFsConfig,
+    BackingFileSystem, BackingFsError, BackingFsResult, DatasetFileEntry, FsId, HdfsBackingFs,
+    LocalBackingFs, LocalBackingFsConfig, PhysicalLocation, PresignedUrl, PutOpts, S3BackingFs,
+    S3BackingFsConfig,
 };
 
 pub use backend::{ObjectMeta, StorageBackend, StorageError, StorageResult};

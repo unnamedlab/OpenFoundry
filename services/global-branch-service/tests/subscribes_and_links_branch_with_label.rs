@@ -44,7 +44,9 @@ async fn dataset_branch_created_with_label_creates_link() {
         "labels": { "global_branch": global.rid },
     });
 
-    let port = PostgresSubscriber { pool: h.pool.clone() };
+    let port = PostgresSubscriber {
+        pool: h.pool.clone(),
+    };
     port.handle(&event).await.expect("handle");
 
     // 3. Link row landed.
@@ -65,8 +67,14 @@ async fn dataset_branch_created_with_label_creates_link() {
     .await
     .unwrap();
     assert_eq!(row.get::<String, _>("resource_type"), "dataset");
-    assert_eq!(row.get::<String, _>("resource_rid"), "ri.foundry.main.dataset.foo");
-    assert_eq!(row.get::<String, _>("branch_rid"), "ri.foundry.main.branch.42");
+    assert_eq!(
+        row.get::<String, _>("resource_rid"),
+        "ri.foundry.main.dataset.foo"
+    );
+    assert_eq!(
+        row.get::<String, _>("branch_rid"),
+        "ri.foundry.main.branch.42"
+    );
     assert_eq!(row.get::<String, _>("status"), "in_sync");
 
     // 4. An archived event flips the link status.

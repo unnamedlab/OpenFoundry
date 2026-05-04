@@ -41,7 +41,9 @@ pub enum CompileError {
     /// distinct from `MissingJobSpec` so the build queue can tell the
     /// caller "your code repo conflicts with another publisher" rather
     /// than "no spec found".
-    #[error("output dataset {dataset_rid} is produced by multiple JobSpecs ({first_rid}, {second_rid})")]
+    #[error(
+        "output dataset {dataset_rid} is produced by multiple JobSpecs ({first_rid}, {second_rid})"
+    )]
     AmbiguousOutput {
         dataset_rid: String,
         first_rid: String,
@@ -160,9 +162,7 @@ fn topological_order(
     for spec in specs.values() {
         indegree.entry(spec.rid.clone()).or_insert(0);
         adjacency.entry(spec.rid.clone()).or_default();
-        let upstreams = upstream_per_node
-            .entry(spec.rid.clone())
-            .or_default();
+        let upstreams = upstream_per_node.entry(spec.rid.clone()).or_default();
         for input in &spec.inputs {
             if let Some(producer_rid) = producers.get(&input.dataset_rid) {
                 if producer_rid != &spec.rid {
@@ -342,10 +342,9 @@ mod tests {
         let mut repo = InMemoryJobSpecRepo::new();
         repo.insert(spec("spec/B/master", "p1", "master", &["A"], &["B"]));
 
-        let graph =
-            compile_build_graph("p1", "feature", &["B".into()], &["master".into()], &repo)
-                .await
-                .expect("compile");
+        let graph = compile_build_graph("p1", "feature", &["B".into()], &["master".into()], &repo)
+            .await
+            .expect("compile");
         assert_eq!(graph.nodes[0].job_spec.rid, "spec/B/master");
     }
 
@@ -382,15 +381,9 @@ mod tests {
         repo.insert(spec("spec/B", "p1", "master", &["C"], &["B"]))
             .insert(spec("spec/C", "p1", "master", &["B"], &["C"]));
 
-        let err = compile_build_graph(
-            "p1",
-            "master",
-            &["B".into(), "C".into()],
-            &[],
-            &repo,
-        )
-        .await
-        .expect_err("cycle");
+        let err = compile_build_graph("p1", "master", &["B".into(), "C".into()], &[], &repo)
+            .await
+            .expect_err("cycle");
         assert!(matches!(err, CompileError::Cycle { .. }));
     }
 

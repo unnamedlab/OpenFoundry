@@ -449,38 +449,37 @@ pub async fn create_branch(
     // doc § "Branch security" / "Best practices and technical
     // details").
     let snapshot_markings = match parent_branch_id {
-        Some(parent_id) => {
-            sqlx::query_scalar::<_, Uuid>(
-                r#"INSERT INTO branch_markings_snapshot (branch_id, marking_id, source, set_by)
+        Some(parent_id) => sqlx::query_scalar::<_, Uuid>(
+            r#"INSERT INTO branch_markings_snapshot (branch_id, marking_id, source, set_by)
                    SELECT $1, marking_id, 'PARENT', $2
                      FROM branch_markings_snapshot
                     WHERE branch_id = $3
                    ON CONFLICT (branch_id, marking_id) DO NOTHING
                    RETURNING marking_id"#,
-            )
-            .bind(row.id)
-            .bind(user.0.sub)
-            .bind(parent_id)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default()
-        }
+        )
+        .bind(row.id)
+        .bind(user.0.sub)
+        .bind(parent_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default(),
         None => Vec::new(),
     };
 
     {
         use crate::domain::branch_events::{BranchEnvelope, EVT_CREATED, emit};
         let mut tx = state.db.begin().await.map_err(internal)?;
-        let envelope = BranchEnvelope::new(EVT_CREATED, &row.rid, &dataset_rid, &user.0.sub.to_string())
-            .with_parent_rid(parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")))
-            .with_head(initial_head.map(|id| format!("ri.foundry.main.transaction.{id}")))
-            .with_fallback(fallback_chain.clone())
-            .with_markings(snapshot_markings.clone())
-            .with_extras(json!({
-                "source_kind": kind.audit_label(),
-                "created_from_transaction_rid": created_from_txn
-                    .map(|id| format!("ri.foundry.main.transaction.{id}")),
-            }));
+        let envelope =
+            BranchEnvelope::new(EVT_CREATED, &row.rid, &dataset_rid, &user.0.sub.to_string())
+                .with_parent_rid(parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")))
+                .with_head(initial_head.map(|id| format!("ri.foundry.main.transaction.{id}")))
+                .with_fallback(fallback_chain.clone())
+                .with_markings(snapshot_markings.clone())
+                .with_extras(json!({
+                    "source_kind": kind.audit_label(),
+                    "created_from_transaction_rid": created_from_txn
+                        .map(|id| format!("ri.foundry.main.transaction.{id}")),
+                }));
         emit(&mut tx, &envelope)
             .await
             .map_err(|e| internal(e.to_string()))?;
@@ -524,7 +523,7 @@ async fn resolve_branch_source(
         Option<Uuid>, // parent_branch_id
         Option<Uuid>, // initial_head_transaction_id
         Option<Uuid>, // created_from_transaction_id
-        Vec<String>, // default fallback chain
+        Vec<String>,  // default fallback chain
     ),
     (StatusCode, Json<Value>),
 > {
@@ -844,9 +843,18 @@ pub async fn delete_branch(
             .await
             .map_err(internal)?;
         let mut tx = state.db.begin().await.map_err(internal)?;
-        let envelope = BranchEnvelope::new(EVT_DELETED, &target.rid, &dataset_rid, &user.0.sub.to_string())
-            .with_parent_rid(target.parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")))
-            .with_extras(json!({ "reparented_children": reparented }));
+        let envelope = BranchEnvelope::new(
+            EVT_DELETED,
+            &target.rid,
+            &dataset_rid,
+            &user.0.sub.to_string(),
+        )
+        .with_parent_rid(
+            target
+                .parent_branch_id
+                .map(|id| format!("ri.foundry.main.branch.{id}")),
+        )
+        .with_extras(json!({ "reparented_children": reparented }));
         emit(&mut tx, &envelope)
             .await
             .map_err(|e| internal(e.to_string()))?;
@@ -957,13 +965,21 @@ pub async fn branch_action(
             .await
             .map_err(internal)?;
         let mut tx = state.db.begin().await.map_err(internal)?;
-        let envelope = BranchEnvelope::new(EVT_REPARENTED, &row.rid, &dataset_rid, &user.0.sub.to_string())
-            .with_parent_rid(new_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")))
-            .with_head(row.head_transaction_id.map(|id| format!("ri.foundry.main.transaction.{id}")))
-            .with_extras(json!({
-                "from_parent_rid": from_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")),
-                "to_parent_rid": new_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")),
-            }));
+        let envelope = BranchEnvelope::new(
+            EVT_REPARENTED,
+            &row.rid,
+            &dataset_rid,
+            &user.0.sub.to_string(),
+        )
+        .with_parent_rid(new_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")))
+        .with_head(
+            row.head_transaction_id
+                .map(|id| format!("ri.foundry.main.transaction.{id}")),
+        )
+        .with_extras(json!({
+            "from_parent_rid": from_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")),
+            "to_parent_rid": new_parent_id.map(|id| format!("ri.foundry.main.branch.{id}")),
+        }));
         emit(&mut tx, &envelope)
             .await
             .map_err(|e| internal(e.to_string()))?;
@@ -1108,8 +1124,7 @@ pub async fn start_transaction(
                 .open_transaction_for_branch(target.id)
                 .await
                 .map_err(internal)?;
-            let open_txn_rid =
-                open_txn_id.map(|id| format!("ri.foundry.main.transaction.{id}"));
+            let open_txn_rid = open_txn_id.map(|id| format!("ri.foundry.main.transaction.{id}"));
             return Err((
                 StatusCode::CONFLICT,
                 Json(json!({

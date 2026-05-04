@@ -25,9 +25,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::{
-    build_client::{
-        BuildAttemptOutcome, BuildServiceClient, CreateBuildPayload, RunAsPrincipal,
-    },
+    build_client::{BuildAttemptOutcome, BuildServiceClient, CreateBuildPayload, RunAsPrincipal},
     notification_client::{AutoPausedAlert, NotificationClient},
     run_store::{self, InsertRun, RunOutcome, ScheduleRun},
     schedule_store,
@@ -342,17 +340,16 @@ impl Dispatcher {
             return Ok(false);
         }
 
-        let updated = schedule_store::set_paused(
-            &self.pool,
-            &schedule.rid,
-            true,
-            Some(AUTO_PAUSED_REASON),
-        )
-        .await?;
+        let updated =
+            schedule_store::set_paused(&self.pool, &schedule.rid, true, Some(AUTO_PAUSED_REASON))
+                .await?;
 
         // Pull the failed run rids + last reason for the alert.
         let (last_reason, run_rids) = self.last_failed_summary(schedule.id, threshold).await?;
-        let link = self.config.schedule_link_template.replace("{rid}", &updated.rid);
+        let link = self
+            .config
+            .schedule_link_template
+            .replace("{rid}", &updated.rid);
         self.notifications
             .send_auto_paused(AutoPausedAlert {
                 user_id: parse_uuid_owner(&updated.created_by),

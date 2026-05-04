@@ -108,9 +108,7 @@ pub enum InventoryTrigger {
     },
     /// Compound triggers fan out into individual leaves. The linter
     /// recurses into them via the [`InventoryTrigger::leaves`] helper.
-    Compound {
-        children: Vec<InventoryTrigger>,
-    },
+    Compound { children: Vec<InventoryTrigger> },
 }
 
 #[derive(Debug, Clone, Copy)]

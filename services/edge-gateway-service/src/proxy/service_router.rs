@@ -271,7 +271,7 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/ai/conversations") {
         &config.conversation_state_service_url
     } else if path.starts_with("/api/v1/ai/tools") {
-        &config.tool_registry_service_url
+        &config.ai_service_url
     } else if path.starts_with("/api/v1/ai") {
         &config.ai_service_url
     } else if path.starts_with("/api/v1/entity-resolution") || path.starts_with("/api/v1/fusion") {
@@ -301,7 +301,7 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/audit") {
         &config.audit_compliance_service_url
     } else if path.starts_with("/api/v1/widgets") {
-        &config.widget_registry_service_url
+        &config.application_composition_service_url
     } else if path.starts_with("/api/v1/apps/public/")
         || path == "/api/v1/apps/templates"
         || path == "/api/v1/apps/from-template"

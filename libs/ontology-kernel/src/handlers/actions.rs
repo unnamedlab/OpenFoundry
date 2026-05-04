@@ -5450,12 +5450,9 @@ mod tests {
 
     #[test]
     fn writeback_outbox_event_ids_are_deterministic() {
-        let first =
-            writeback::derive_event_id("tenant-a", "object", "object-1", 7);
-        let retry =
-            writeback::derive_event_id("tenant-a", "object", "object-1", 7);
-        let next_version =
-            writeback::derive_event_id("tenant-a", "object", "object-1", 8);
+        let first = writeback::derive_event_id("tenant-a", "object", "object-1", 7);
+        let retry = writeback::derive_event_id("tenant-a", "object", "object-1", 7);
+        let next_version = writeback::derive_event_id("tenant-a", "object", "object-1", 8);
 
         assert_eq!(first, retry);
         assert_ne!(first, next_version);

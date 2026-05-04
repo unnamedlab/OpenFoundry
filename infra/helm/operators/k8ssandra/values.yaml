@@ -1,0 +1,12 @@
+# Values for the upstream k8ssandra/k8ssandra-operator chart.
+#
+# HA at pod level: 2 replicas. cass-operator subchart inherits the
+# same. `cass-operator.clusterScoped: true` lets cass-operator manage
+# CassandraDatacenter CRs in any namespace (the K8ssandraCluster CRs
+# we deploy live in `cassandra/`, not in `k8ssandra-operator/`).
+
+replicaCount: 2
+
+cass-operator:
+  replicaCount: 2
+  clusterScoped: true

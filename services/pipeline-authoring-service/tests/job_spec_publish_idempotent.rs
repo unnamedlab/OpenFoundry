@@ -54,7 +54,11 @@ async fn publish_is_idempotent_on_content_hash_and_bumps_on_change() {
         "hash-A",
     )
     .await;
-    assert_eq!(row2.get::<Uuid, _>("id"), id1, "row identity must be stable");
+    assert_eq!(
+        row2.get::<Uuid, _>("id"),
+        id1,
+        "row identity must be stable"
+    );
     assert_eq!(row2.get::<i32, _>("version"), 1, "version must not bump");
 
     // Only one row across all republishes.
@@ -80,7 +84,11 @@ async fn publish_is_idempotent_on_content_hash_and_bumps_on_change() {
         "hash-B",
     )
     .await;
-    assert_eq!(row3.get::<Uuid, _>("id"), id1, "row identity must persist across version bumps");
+    assert_eq!(
+        row3.get::<Uuid, _>("id"),
+        id1,
+        "row identity must persist across version bumps"
+    );
     assert_eq!(row3.get::<i32, _>("version"), 2);
     assert_eq!(row3.get::<String, _>("content_hash"), "hash-B");
 }

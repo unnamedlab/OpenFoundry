@@ -310,19 +310,45 @@ impl AuditEvent {
     /// actively alter the historical clearance evaluation.
     pub fn markings_at_event(&self) -> &[String] {
         match self {
-            Self::MediaSetCreated { markings_at_event, .. }
-            | Self::MediaSetDeleted { markings_at_event, .. }
-            | Self::MediaSetMarkingsChanged { markings_at_event, .. }
-            | Self::MediaSetRetentionChanged { markings_at_event, .. }
-            | Self::MediaSetTransactionOpened { markings_at_event, .. }
-            | Self::MediaSetTransactionCommitted { markings_at_event, .. }
-            | Self::MediaSetTransactionAborted { markings_at_event, .. }
-            | Self::MediaSetAccessPatternInvoked { markings_at_event, .. }
-            | Self::MediaItemUploaded { markings_at_event, .. }
-            | Self::MediaItemDownloaded { markings_at_event, .. }
-            | Self::MediaItemDeleted { markings_at_event, .. }
-            | Self::MediaItemMarkingOverridden { markings_at_event, .. }
-            | Self::VirtualMediaItemRegistered { markings_at_event, .. } => markings_at_event,
+            Self::MediaSetCreated {
+                markings_at_event, ..
+            }
+            | Self::MediaSetDeleted {
+                markings_at_event, ..
+            }
+            | Self::MediaSetMarkingsChanged {
+                markings_at_event, ..
+            }
+            | Self::MediaSetRetentionChanged {
+                markings_at_event, ..
+            }
+            | Self::MediaSetTransactionOpened {
+                markings_at_event, ..
+            }
+            | Self::MediaSetTransactionCommitted {
+                markings_at_event, ..
+            }
+            | Self::MediaSetTransactionAborted {
+                markings_at_event, ..
+            }
+            | Self::MediaSetAccessPatternInvoked {
+                markings_at_event, ..
+            }
+            | Self::MediaItemUploaded {
+                markings_at_event, ..
+            }
+            | Self::MediaItemDownloaded {
+                markings_at_event, ..
+            }
+            | Self::MediaItemDeleted {
+                markings_at_event, ..
+            }
+            | Self::MediaItemMarkingOverridden {
+                markings_at_event, ..
+            }
+            | Self::VirtualMediaItemRegistered {
+                markings_at_event, ..
+            } => markings_at_event,
         }
     }
 }
@@ -440,8 +466,8 @@ impl AuditEnvelope {
         let resource_rid = event.resource_rid().to_string();
         let project_rid = event.project_rid().to_string();
         let markings_at_event = event.markings_at_event().to_vec();
-        let payload = serde_json::to_value(event)
-            .expect("AuditEvent variants are infallibly serializable");
+        let payload =
+            serde_json::to_value(event).expect("AuditEvent variants are infallibly serializable");
 
         let identity_seed = ctx
             .request_id
@@ -496,8 +522,8 @@ pub mod publisher {
     /// Debezium a stable Kafka partition key per resource so events for
     /// the same media set arrive in order on the consumer side.
     pub fn to_outbox_event(envelope: &AuditEnvelope) -> OutboxEvent {
-        let payload = serde_json::to_value(envelope)
-            .expect("AuditEnvelope is infallibly serializable");
+        let payload =
+            serde_json::to_value(envelope).expect("AuditEnvelope is infallibly serializable");
         let mut event = OutboxEvent::new(
             envelope.event_id,
             "audit_event",
@@ -578,7 +604,10 @@ mod tests {
     fn variant_kind_matches_serde_tag() {
         let event = sample_set_created();
         let payload = serde_json::to_value(&event).unwrap();
-        assert_eq!(payload.get("kind").and_then(|v| v.as_str()), Some("media_set.created"));
+        assert_eq!(
+            payload.get("kind").and_then(|v| v.as_str()),
+            Some("media_set.created")
+        );
         assert_eq!(event.kind(), "media_set.created");
     }
 
@@ -602,10 +631,16 @@ mod tests {
         assert_eq!(envelope.ip.as_deref(), Some("10.0.0.5"));
         assert_eq!(envelope.request_id.as_deref(), Some("req-42"));
         assert_eq!(envelope.latency_ms, Some(17));
-        assert_eq!(envelope.source_service.as_deref(), Some("media-sets-service"));
+        assert_eq!(
+            envelope.source_service.as_deref(),
+            Some("media-sets-service")
+        );
         assert_eq!(envelope.categories, vec!["dataCreate"]);
         // payload is the full discriminated union body
-        assert_eq!(envelope.payload.get("kind"), Some(&json!("media_set.created")));
+        assert_eq!(
+            envelope.payload.get("kind"),
+            Some(&json!("media_set.created"))
+        );
         assert_eq!(envelope.payload.get("name"), Some(&json!("fixture")));
     }
 
@@ -632,11 +667,7 @@ mod tests {
         let now = Utc::now();
         // Falls back to the resource_rid as the identity seed.
         let envelope = AuditEnvelope::build(&event, &bare, now);
-        let expected = derive_event_id(
-            event.kind(),
-            event.resource_rid(),
-            event.resource_rid(),
-        );
+        let expected = derive_event_id(event.kind(), event.resource_rid(), event.resource_rid());
         assert_eq!(envelope.event_id, expected);
     }
 

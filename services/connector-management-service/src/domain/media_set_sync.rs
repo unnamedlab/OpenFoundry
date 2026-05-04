@@ -209,7 +209,13 @@ pub fn classify_batch(
     let mut stats = SyncStats::default();
     let mut out = Vec::with_capacity(files.len());
     for file in files {
-        let decision = decide(cfg, file, already_synced, allowed_mime_types, matcher.as_ref());
+        let decision = decide(
+            cfg,
+            file,
+            already_synced,
+            allowed_mime_types,
+            matcher.as_ref(),
+        );
         match decision {
             SyncDecision::Accept => stats.accepted += 1,
             SyncDecision::Skip => stats.skipped += 1,

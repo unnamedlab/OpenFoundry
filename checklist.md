@@ -101,7 +101,7 @@ Palantir Foundry es una plataforma de operaciones de datos de nivel empresarial 
 > the full E2E journey.
 
 > **D1.1.5 Builds parity (5/5) ✅** — full Foundry builds lifecycle, see
-> [ADR-0035](docs/architecture/adr/ADR-0035-builds-foundry-parity.md). Closes
+> [ADR-0036](docs/architecture/adr/ADR-0036-builds-foundry-parity.md). Closes
 > P1 BuildState/JobState lifecycle + resolver (cycle detection + build
 > locks + queueing on input contention), P2 parallel JoinSet executor
 > with multi-output atomicity + abort_policy cascade + staleness /

@@ -21,11 +21,7 @@ pub fn apply_sch001(input: &SweepInput) -> Vec<Finding> {
     input
         .schedules
         .iter()
-        .filter(|s| {
-            s.recent_runs
-                .iter()
-                .all(|r| r.triggered_at < cutoff)
-        })
+        .filter(|s| s.recent_runs.iter().all(|r| r.triggered_at < cutoff))
         .map(|s| Finding {
             id: Uuid::now_v7(),
             rule_id: RuleId::Sch001InactiveLastNinety,
@@ -188,7 +184,11 @@ pub fn apply_sch007(input: &SweepInput) -> Vec<Finding> {
     let mut findings = Vec::new();
     for s in &input.schedules {
         for leaf in s.trigger.leaves() {
-            if let InventoryTrigger::Event { branch_filter, target_rid } = leaf {
+            if let InventoryTrigger::Event {
+                branch_filter,
+                target_rid,
+            } = leaf
+            {
                 if branch_filter.is_empty() {
                     findings.push(Finding {
                         id: Uuid::now_v7(),
@@ -266,7 +266,10 @@ mod tests {
         }
     }
 
-    fn input_at(now: chrono::DateTime<chrono::Utc>, schedules: Vec<InventorySchedule>) -> SweepInput {
+    fn input_at(
+        now: chrono::DateTime<chrono::Utc>,
+        schedules: Vec<InventorySchedule>,
+    ) -> SweepInput {
         SweepInput {
             schedules,
             now,

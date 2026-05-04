@@ -1,0 +1,6 @@
+apiVersion: v2
+name: local-registry
+description: Dev-only in-cluster Docker registry for k3s/lima setups
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

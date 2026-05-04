@@ -286,7 +286,8 @@ mod tests {
     #[test]
     fn governance_role_or_admin_passes_gate() {
         assert!(
-            enforce_session_governor(&claims_with_roles(vec![SESSION_GOVERNOR_ROLE.into()])).is_ok()
+            enforce_session_governor(&claims_with_roles(vec![SESSION_GOVERNOR_ROLE.into()]))
+                .is_ok()
         );
         assert!(enforce_session_governor(&claims_with_roles(vec!["admin".into()])).is_ok());
     }

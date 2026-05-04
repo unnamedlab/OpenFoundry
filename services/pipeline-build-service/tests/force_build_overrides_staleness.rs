@@ -7,17 +7,15 @@ mod common;
 use core_models::dataset::transaction::BranchName;
 use std::collections::HashMap;
 
-use pipeline_build_service::domain::build_executor::{
-    execute_build, ExecuteBuildArgs,
-};
+use pipeline_build_service::domain::build_executor::{ExecuteBuildArgs, execute_build};
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
 use pipeline_build_service::models::build::BuildState;
 
 use crate::common::{
-    arc_output, arc_runner, job_spec, MockDatasetClient, MockJobRunner, MockJobSpecRepo,
-    MockOutputClient, RunnerScript, spawn,
+    MockDatasetClient, MockJobRunner, MockJobSpecRepo, MockOutputClient, RunnerScript, arc_output,
+    arc_runner, job_spec, spawn,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -29,7 +27,10 @@ async fn force_build_overrides_staleness() {
     specs.add(job_spec("ri.spec.f", vec!["raw.in"], vec!["out.f"]));
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -106,15 +107,21 @@ async fn force_build_overrides_staleness() {
     .expect("force build");
 
     assert_eq!(outcome.final_state, BuildState::Completed);
-    assert_eq!(outcome.stale_skipped, 0, "force_build skips the staleness check");
+    assert_eq!(
+        outcome.stale_skipped, 0,
+        "force_build skips the staleness check"
+    );
 
-    let job: (bool, Option<String>) = sqlx::query_as(
-        "SELECT stale_skipped, output_content_hash FROM jobs WHERE build_id = $1",
-    )
-    .bind(r2.build_id)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let job: (bool, Option<String>) =
+        sqlx::query_as("SELECT stale_skipped, output_content_hash FROM jobs WHERE build_id = $1")
+            .bind(r2.build_id)
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
     assert!(!job.0, "stale_skipped is false on force build");
-    assert_eq!(job.1.as_deref(), Some("hash-2"), "force build wrote a fresh hash");
+    assert_eq!(
+        job.1.as_deref(),
+        Some("hash-2"),
+        "force build wrote a fresh hash"
+    );
 }

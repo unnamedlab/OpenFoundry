@@ -107,10 +107,7 @@ pub async fn create(pool: &PgPool, req: CreateSchedule) -> Result<Schedule, Stor
 
 pub async fn get_by_rid(pool: &PgPool, rid: &str) -> Result<Schedule, StoreError> {
     let sql = format!("SELECT {SCHEDULE_COLUMNS} FROM schedules WHERE rid = $1");
-    let row = sqlx::query(&sql)
-        .bind(rid)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(&sql).bind(rid).fetch_optional(pool).await?;
     match row {
         Some(r) => schedule_from_row(&r),
         None => Err(StoreError::NotFound(rid.to_string())),
@@ -119,10 +116,7 @@ pub async fn get_by_rid(pool: &PgPool, rid: &str) -> Result<Schedule, StoreError
 
 pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<Schedule, StoreError> {
     let sql = format!("SELECT {SCHEDULE_COLUMNS} FROM schedules WHERE id = $1");
-    let row = sqlx::query(&sql)
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(&sql).bind(id).fetch_optional(pool).await?;
     match row {
         Some(r) => schedule_from_row(&r),
         None => Err(StoreError::NotFound(id.to_string())),
@@ -130,7 +124,11 @@ pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<Schedule, StoreError> 
 }
 
 pub async fn list(pool: &PgPool, filter: ListFilter) -> Result<Vec<Schedule>, StoreError> {
-    let limit = if filter.limit <= 0 { 50 } else { filter.limit.min(500) };
+    let limit = if filter.limit <= 0 {
+        50
+    } else {
+        filter.limit.min(500)
+    };
     let offset = filter.offset.max(0);
     let q_pattern = filter.query.as_deref().map(|s| format!("%{s}%"));
     let sql = format!(
@@ -237,13 +235,13 @@ pub async fn mark_run(pool: &PgPool, rid: &str, run_at: DateTime<Utc>) -> Result
 fn schedule_from_row(row: &PgRow) -> Result<Schedule, StoreError> {
     let trigger_json: JsonValue = row.try_get("trigger_json")?;
     let target_json: JsonValue = row.try_get("target_json")?;
-    let trigger: Trigger = serde_json::from_value(trigger_json).map_err(StoreError::InvalidTrigger)?;
+    let trigger: Trigger =
+        serde_json::from_value(trigger_json).map_err(StoreError::InvalidTrigger)?;
     let target: ScheduleTarget =
         serde_json::from_value(target_json).map_err(StoreError::InvalidTarget)?;
 
     let scope_kind_str: String = row.try_get("scope_kind")?;
-    let scope_kind = ScheduleScopeKind::parse(&scope_kind_str)
-        .unwrap_or(ScheduleScopeKind::User);
+    let scope_kind = ScheduleScopeKind::parse(&scope_kind_str).unwrap_or(ScheduleScopeKind::User);
 
     Ok(Schedule {
         id: row.try_get("id")?,

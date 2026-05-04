@@ -39,15 +39,15 @@ pub struct AnalyticalJobRunner;
 #[async_trait]
 impl JobRunner for AnalyticalJobRunner {
     async fn run(&self, ctx: &JobContext) -> JobOutcome {
-        let cfg: AnalyticalConfig =
-            match serde_json::from_value(ctx.job_spec.logic_payload.clone()) {
-                Ok(c) => c,
-                Err(err) => {
-                    return JobOutcome::Failed {
-                        reason: format!("invalid ANALYTICAL payload: {err}"),
-                    };
-                }
-            };
+        let cfg: AnalyticalConfig = match serde_json::from_value(ctx.job_spec.logic_payload.clone())
+        {
+            Ok(c) => c,
+            Err(err) => {
+                return JobOutcome::Failed {
+                    reason: format!("invalid ANALYTICAL payload: {err}"),
+                };
+            }
+        };
 
         if ctx.job_spec.output_dataset_rids.len() != 1 {
             return JobOutcome::Failed {

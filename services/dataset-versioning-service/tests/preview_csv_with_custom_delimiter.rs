@@ -20,11 +20,8 @@ const FIXTURE: &str = "id|name|amount\n1|alice|10.5\n2|bob|22.0\n";
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn preview_text_csv_uses_custom_delimiter() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.preview-csv",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.preview-csv").await;
 
     // Seed: write the fixture through the LocalStorage backend, create a
     // committed transaction, materialise a view, and persist a TEXT
@@ -80,7 +77,10 @@ async fn preview_text_csv_uses_custom_delimiter() {
     assert_eq!(body["text_sub_format"], "csv");
 
     let columns = body["columns"].as_array().expect("columns");
-    let names: Vec<&str> = columns.iter().map(|c| c["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = columns
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
     assert_eq!(
         names,
         vec!["id", "name", "amount"],
@@ -137,7 +137,11 @@ async fn preview_csv_delimiter_override_via_query_param() {
     let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     let columns = body["columns"].as_array().unwrap();
-    assert_eq!(columns.len(), 3, "delimiter override yields 3 columns: {body}");
+    assert_eq!(
+        columns.len(),
+        3,
+        "delimiter override yields 3 columns: {body}"
+    );
     assert_eq!(body["schema_inferred"], true);
 }
 

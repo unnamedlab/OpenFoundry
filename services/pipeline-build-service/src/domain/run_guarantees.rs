@@ -66,11 +66,7 @@ pub fn assert_input_dataset_not_branched(
     graph: &JobGraph,
     branched_datasets: &[DatasetRid],
 ) -> Result<(), GuaranteeError> {
-    let outputs: BTreeSet<&str> = graph
-        .producers
-        .keys()
-        .map(|s| s.as_str())
-        .collect();
+    let outputs: BTreeSet<&str> = graph.producers.keys().map(|s| s.as_str()).collect();
     for dataset in branched_datasets {
         if !outputs.contains(dataset.as_str()) {
             return Err(GuaranteeError::InputDatasetBranched {
@@ -86,7 +82,7 @@ pub fn assert_input_dataset_not_branched(
 mod tests {
     use super::*;
     use crate::domain::build_resolution::{InputSpec, JobSpec};
-    use crate::domain::job_graph::{JobGraphNode, JobGraph};
+    use crate::domain::job_graph::{JobGraph, JobGraphNode};
     use std::collections::BTreeMap;
 
     fn rid(s: &str) -> DatasetRid {
@@ -99,16 +95,17 @@ mod tests {
 
     #[test]
     fn transaction_on_build_branch_passes() {
-        assert!(
-            assert_transaction_targets_build_branch(&b("feature"), &b("feature")).is_ok()
-        );
+        assert!(assert_transaction_targets_build_branch(&b("feature"), &b("feature")).is_ok());
     }
 
     #[test]
     fn transaction_on_other_branch_fails() {
         let err = assert_transaction_targets_build_branch(&b("feature"), &b("master"))
             .expect_err("must fail");
-        assert!(matches!(err, GuaranteeError::TransactionOnWrongBranch { .. }));
+        assert!(matches!(
+            err,
+            GuaranteeError::TransactionOnWrongBranch { .. }
+        ));
     }
 
     fn graph_with_outputs(outputs: &[&str]) -> JobGraph {
@@ -141,20 +138,14 @@ mod tests {
     #[test]
     fn branching_an_output_dataset_is_allowed() {
         let graph = graph_with_outputs(&["B", "C"]);
-        assert!(
-            assert_input_dataset_not_branched("build/1", &graph, &[rid("B")]).is_ok()
-        );
+        assert!(assert_input_dataset_not_branched("build/1", &graph, &[rid("B")]).is_ok());
     }
 
     #[test]
     fn branching_an_input_only_dataset_is_rejected() {
         let graph = graph_with_outputs(&["B", "C"]);
-        let err = assert_input_dataset_not_branched(
-            "build/1",
-            &graph,
-            &[rid("00000000-INPUT")],
-        )
-        .expect_err("must fail");
+        let err = assert_input_dataset_not_branched("build/1", &graph, &[rid("00000000-INPUT")])
+            .expect_err("must fail");
         assert!(matches!(err, GuaranteeError::InputDatasetBranched { .. }));
     }
 }

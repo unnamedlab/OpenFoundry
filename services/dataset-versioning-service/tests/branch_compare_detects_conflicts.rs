@@ -17,12 +17,13 @@ async fn open_commit_with_file(
 ) -> Uuid {
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/v1/datasets/{dataset_id}/branches/{branch}/transactions"))
+        .uri(format!(
+            "/v1/datasets/{dataset_id}/branches/{branch}/transactions"
+        ))
         .header("authorization", format!("Bearer {}", h.token))
         .header("content-type", "application/json")
         .body(Body::from(
-            serde_json::to_vec(&json!({"type": "SNAPSHOT", "providence": {}}))
-                .unwrap(),
+            serde_json::to_vec(&json!({"type": "SNAPSHOT", "providence": {}})).unwrap(),
         ))
         .unwrap();
     let resp = h.router.clone().oneshot(req).await.expect("router");
@@ -62,7 +63,8 @@ async fn open_commit_with_file(
 async fn overlapping_writes_on_two_branches_show_up_as_conflicts() {
     let h = common::spawn().await;
     let dataset_id =
-        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.compare-conflicts").await;
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.compare-conflicts")
+            .await;
 
     // Create two siblings off master, then commit overlapping
     // writes on each.

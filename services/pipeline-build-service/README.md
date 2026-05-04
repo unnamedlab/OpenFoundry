@@ -156,7 +156,7 @@ Notable suites:
 | Outbox `foundry.build.events.v1` | `domain::build_events` | ✅ |
 | Prometheus metrics | `domain::metrics` (`build_state_total`, `build_duration_seconds`, `build_jobs_total{state,kind}`, `build_logs_emitted_total`, `live_log_subscribers`, `build_queue_depth`) | ✅ |
 
-Decisions captured in [ADR-0035 Builds: Foundry parity](../../docs/architecture/adr/ADR-0035-builds-foundry-parity.md):
+Decisions captured in [ADR-0036 Builds: Foundry parity](../../docs/architecture/adr/ADR-0036-builds-foundry-parity.md):
 
 1. Builds queue on input contention (BUILD_QUEUED).
 2. The 10-second live-log delay is intentional (Foundry-doc parity).
@@ -164,4 +164,13 @@ Decisions captured in [ADR-0035 Builds: Foundry parity](../../docs/architecture/
 4. Failure cascade defaults to `DEPENDENT_ONLY`.
 5. Multi-output atomicity is an executor invariant — partial commit
    marks the job FAILED and aborts the rest.
+
+### Cross-app deep-links (D1.1.5 5/5)
+
+| Component | Mount point | Purpose |
+| --- | --- | --- |
+| [`StateBadge.svelte`](../../apps/web/src/lib/components/builds/StateBadge.svelte) | Reused across `/builds`, dataset detail, dataset-builds block | Pulsing colour-coded BuildState/JobState pill |
+| [`DatasetBuildsBlock.svelte`](../../apps/web/src/lib/components/builds/DatasetBuildsBlock.svelte) | Drop into `routes/datasets/[id]/+page.svelte` (Quality dashboard or sidebar) | "Recent builds touching this dataset" list with deep-link to `/builds/{rid}` |
+| [`CommandPalette.svelte`](../../apps/web/src/lib/components/ui/CommandPalette.svelte) | Mounted in `routes/+layout.svelte` | `Ctrl+K` palette with **Open builds** / **Run build** / **View build {rid}** commands |
+| `Sidebar.svelte` "Builds" entry | Primary nav | Direct link to `/builds` |
 

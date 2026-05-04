@@ -359,28 +359,51 @@ sidecar (see `infra/k8s/platform/manifests/cassandra/cluster-prod.yaml`):
 Mantenimiento operativo de estos thresholds vive en el runbook
 [`benchmarks/ontology/runbooks/hot-partitions.md`](../../../benchmarks/ontology/runbooks/hot-partitions.md).
 
-### A.4 Resultados de baseline observados
+### A.4 Evidence register and closure status
 
-**Estado de medición al 2026-05-03:** pendiente de ejecución en un
-entorno real. No se reclaman números de S1 desde el workspace local
-porque no había endpoint OpenFoundry levantado, no había dataset
-`OF_BENCH_*` configurado y `k6` no estaba instalado en la máquina de
-trabajo.
+**Measurement attempt 2026-05-03:** blocked in the connected
+Kubernetes context. The environment contained only a partial local
+cluster (`kubectl config current-context` -> `default`), no
+`CassandraDatacenter` resources, no Strimzi Kafka resources, no
+Prometheus Operator resources, no SparkApplication resources, no
+StatefulSets and no S1/S5 runtime dependencies. OpenFoundry identity
+and gateway deployments were present but unavailable (`0/1`).
 
-Evidencia de preflight local:
+Primary evidence:
+[`docs/architecture/slo-evidence/2026-05-03/summary.md`](../slo-evidence/2026-05-03/summary.md).
 
-| Campo | Valor |
+No exception is approved for ADR-0012. Therefore this ADR records the
+mandatory metrics as **open** and does not claim SLO compliance for
+S1/S3/S5 operational closure.
+
+Evidence of the local attempt:
+
+| Field | Value |
 |---|---|
-| Fecha de intento | 2026-05-03 |
-| Commit base | `70a5fbe` |
-| Estado del workspace | dirty; había cambios no relacionados en curso |
-| Entorno usado | workspace local `/Users/torrefacto/Documents/Repositorios/OpenFoundry` |
-| Plataforma live disponible | No; `curl -fsS --max-time 2` falló contra `127.0.0.1:8080`, `127.0.0.1:50101` y `127.0.0.1:50104` |
-| Dataset | No disponible; no estaban definidos `OF_BENCH_TENANT`, `OF_BENCH_TYPE_ID`, `OF_BENCH_OBJECT_IDS` ni `OF_BENCH_ACTION_ID` |
-| Runner de carga | No disponible localmente; `command -v k6` no devolvió binario |
-| Resultado | Benchmark no ejecutado; no hay métricas reales que reportar |
+| Attempt date | 2026-05-03 |
+| Commit base | `9d00721` |
+| Workspace state | dirty; unrelated and in-progress changes present |
+| Kubernetes context | `default` |
+| Runtime discovery | no CassandraDatacenter, no Kafka CRDs, no Prometheus CRDs, no SparkApplication CRDs, no StatefulSets |
+| OpenFoundry deployments | `authorization-policy-service`, `edge-gateway-service`, `identity-federation-service`, `tenancy-organizations-service` all `0/1`; `web` `1/1` |
+| Dataset | not present in this context; the required `OF_BENCH_*` fixture cannot be resolved against live services |
+| Load runner | `k6` not installed locally |
+| Closure result | BLOCKED; no numeric SLO claim and no approved exception |
 
-El harness queda cableado para la primera corrida real:
+Mandatory metric status:
+
+| Metric obligation | Evidence path | Status | Approval state |
+|---|---|---|---|
+| S1 ontology latency p50/p95/p99 | `benchmarks/results/ontology-mix-summary.json` + rendered ADR snippet | OPEN: blocked by missing Cassandra/services/k6 | no exception approved |
+| S1 ontology throughput and dropped iterations | k6 summary from 5,000 RPS run | OPEN: blocked by missing runtime | no exception approved |
+| S1 ontology error rate | k6 `http_req_failed` + service counters | OPEN: blocked by missing runtime | no exception approved |
+| Kafka lag for S5 sinks | `docs/architecture/lakehouse-evidence/<date>/kafka-offsets.txt` + Grafana/Prometheus | OPEN: existing pack is BLOCKED | no exception approved |
+| Temporal latency | Temporal frontend/SDK metrics or visibility timings | OPEN: Temporal runtime absent in current context | no exception approved |
+| Iceberg write latency | sink append histograms + Iceberg row-count deltas | OPEN: Lakekeeper/Iceberg/S5 sinks absent | no exception approved |
+| Trino query latency | gateway-routed Trino query output | OPEN: Trino/Lakekeeper/sql-bi-gateway runtime absent | no exception approved |
+| S3 failover/DR | signed identity failover drill evidence | OPEN: identity stack unavailable and dependencies absent | no exception approved |
+
+The harness remains the canonical path for the first accepted run:
 
 ```bash
 export OF_BENCH_BASE_URL=https://<gateway-o-read-service>
@@ -402,15 +425,15 @@ El comando anterior ejecuta `k6`, escribe
 `benchmarks/results/adr-0012-s1-baseline.md`, que contiene la tabla
 lista para pegar aquí con p50/p95/p99 reales por operación.
 
-Tabla de cierre actual:
+Table to replace after the first accepted run:
 
-| Operación | p50 medido | p95 medido | p99 medido | Run id |
+| Operation | p50 result | p95 result | p99 result | Run id |
 |---|---|---|---|---|
-| A1 read by id (strong) | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
-| A1 read by id (eventual, cache hit) | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
-| A2 list by type | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
-| A3 action execute | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | No medido; falta corrida en cluster real | Sin run real |
-| Throughput (mix) | No medido; falta corrida en cluster real | dropped iterations no medidos | error rate no medido | Sin run real |
+| A1 read by id (strong) | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | no accepted run |
+| A1 read by id (eventual, cache hit) | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | no accepted run |
+| A2 list by type | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | no accepted run |
+| A3 action execute | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | BLOCKED: `EXC-S1-ADR0012-2026-05-03` not approved | no accepted run |
+| Throughput (mix) | BLOCKED: no 5,000 RPS run | BLOCKED: no dropped-iteration evidence | BLOCKED: no error-rate evidence | no accepted run |
 
 Cada corrida aceptable debe adjuntar, además de los JSON de k6, un
 snapshot pre/post de `nodetool tablestats -F json` generado con

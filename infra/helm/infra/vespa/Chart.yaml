@@ -1,0 +1,14 @@
+apiVersion: v2
+name: vespa
+description: |
+  Vespa.ai search platform. Bundles the OpenFoundry-vendored Vespa
+  chart at ./upstream-chart/ as a file:// dependency, plus the Vespa
+  application package in files/app-package/ that ships the schemas
+  consumed at runtime.
+type: application
+version: 0.1.0
+appVersion: "8.482.30"
+dependencies:
+  - name: vespa
+    version: ">= 0.0.0"
+    repository: "file://./upstream-chart"

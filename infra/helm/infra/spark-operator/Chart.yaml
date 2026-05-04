@@ -1,0 +1,12 @@
+apiVersion: v2
+name: spark-operator
+description: |
+  Apache Spark Operator. Bundles the upstream Spark Operator chart
+  at ./upstream-chart/.
+type: application
+version: 0.1.0
+appVersion: "2.0.2"
+dependencies:
+  - name: spark-operator
+    version: ">= 0.0.0"
+    repository: "file://./upstream-chart"

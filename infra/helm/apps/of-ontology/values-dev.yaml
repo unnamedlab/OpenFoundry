@@ -1,0 +1,15 @@
+search:
+  backend: opensearch
+
+global:
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
+
+vespa:
+  enabled: false
+
+services:
+  ontology-indexer:
+    replicas: 1
+    env:
+      SEARCH_BACKEND: opensearch

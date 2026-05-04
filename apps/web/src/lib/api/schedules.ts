@@ -110,6 +110,40 @@ export interface VersionDiff {
 
 export const AUTO_PAUSED_REASON = 'AUTO_PAUSED_AFTER_FAILURES';
 
+export interface ListSchedulesQuery {
+  project?: string;
+  paused?: boolean;
+  owner?: string;
+  q?: string;
+  /** Foundry doc § "Find and manage schedules" — Files filter. */
+  files?: string[];
+  /** Multi-user filter. */
+  users?: string[];
+  /** Multi-project filter. */
+  projects?: string[];
+  sort?: 'name' | 'created_at' | 'last_run_at' | 'updated_at';
+  limit?: number;
+  offset?: number;
+}
+
+export function listSchedules(params: ListSchedulesQuery = {}) {
+  const qs = new URLSearchParams();
+  if (params.project) qs.set('project', params.project);
+  if (params.paused !== undefined) qs.set('paused', String(params.paused));
+  if (params.owner) qs.set('owner', params.owner);
+  if (params.q) qs.set('q', params.q);
+  for (const f of params.files ?? []) qs.append('files', f);
+  for (const u of params.users ?? []) qs.append('users', u);
+  for (const p of params.projects ?? []) qs.append('projects', p);
+  if (params.sort) qs.set('sort', params.sort);
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.offset) qs.set('offset', String(params.offset));
+  const tail = qs.toString();
+  return api.get<{ data: Schedule[]; total: number }>(
+    `${SCHEDULES_BASE}${tail ? `?${tail}` : ''}`,
+  );
+}
+
 export function getSchedule(rid: string) {
   return api.get<Schedule>(`${SCHEDULES_BASE}/${encodeURIComponent(rid)}`);
 }

@@ -11,9 +11,7 @@
 //!     rows.
 
 use chrono::Utc;
-use pipeline_schedule_service::domain::version_store::{
-    ScheduleVersion, diff_versions, json_diff,
-};
+use pipeline_schedule_service::domain::version_store::{ScheduleVersion, diff_versions, json_diff};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -83,7 +81,8 @@ fn diff_walks_full_tree_for_kind_swap() {
     // Switching a Time trigger to an Event trigger touches multiple
     // branches; the diff should call them all out so the UI can paint
     // each one.
-    let before = json!({"kind": {"time": {"cron": "0 9 * * *", "time_zone": "UTC", "flavor": "UNIX_5"}}});
+    let before =
+        json!({"kind": {"time": {"cron": "0 9 * * *", "time_zone": "UTC", "flavor": "UNIX_5"}}});
     let after = json!({"kind": {"event": {"type": "DATA_UPDATED", "target_rid": "ri.x"}}});
     let entries = json_diff(&before, &after);
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();

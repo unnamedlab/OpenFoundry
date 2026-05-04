@@ -26,11 +26,7 @@ impl SweepReport {
     /// the apply pass must execute. Each pair carries enough context
     /// for the host service to call its own pause / archive / delete
     /// primitive.
-    pub fn plan_apply(
-        &self,
-        rule_ids: &[RuleId],
-        finding_ids: &[Uuid],
-    ) -> Vec<AppliedAction> {
+    pub fn plan_apply(&self, rule_ids: &[RuleId], finding_ids: &[Uuid]) -> Vec<AppliedAction> {
         self.findings
             .iter()
             .filter(|f| rule_ids.is_empty() || rule_ids.contains(&f.rule_id))
@@ -106,11 +102,7 @@ mod tests {
         let report = run_sweep(&input_with(s));
         // SCH-001 (no recent runs), SCH-002 (paused), SCH-005 (stale owner),
         // SCH-007 (event w/o filter).
-        let codes: Vec<&'static str> = report
-            .findings
-            .iter()
-            .map(|f| f.rule_id.code())
-            .collect();
+        let codes: Vec<&'static str> = report.findings.iter().map(|f| f.rule_id.code()).collect();
         assert!(codes.contains(&"SCH-001"));
         assert!(codes.contains(&"SCH-002"));
         assert!(codes.contains(&"SCH-005"));

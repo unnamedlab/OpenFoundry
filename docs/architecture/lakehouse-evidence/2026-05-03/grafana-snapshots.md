@@ -176,13 +176,14 @@ Required Prometheus queries for real S5 evidence:
 
 ```promql
 # Kafka lag / consumer lag
-ontology_indexer_kafka_lag_records
 audit_sink_lag_seconds
+lineage_service_lag_seconds
 ai_sink_lag_seconds
 histogram_quantile(0.99, sum by (le) (rate(ontology_indexer_lag_seconds_bucket[5m])))
 
 # Sink commits
 increase(audit_sink_commits_total[30m])
+increase(lineage_service_commits_total[30m])
 increase(ai_sink_commits_total[30m])
 
 # Sink throughput
@@ -390,18 +391,17 @@ Lag:
 
 ```promql
 audit_sink_lag_seconds
+lineage_service_lag_seconds
 ai_sink_lag_seconds
-ontology_indexer_kafka_lag_records
 histogram_quantile(0.99, sum by (le) (rate(ontology_indexer_lag_seconds_bucket[5m])))
 ```
 
 Lineage metric caveat:
 
 ```text
-Repo search did not find lineage-service Prometheus metric constants for
-lineage_service_records_total, lineage_service_commits_total or
-lineage_service_lag_seconds. Full S5-OPS sign-off requires equivalent deployed
-metrics or an explicit instrumentation fix.
+Repo search now finds lineage-service Prometheus metrics in
+services/lineage-service/src/runtime.rs. Full S5-OPS sign-off requires the
+updated deployed binary to be scraped during real lineage.events.v1 traffic.
 ```
 
 Records and commits:
@@ -409,6 +409,8 @@ Records and commits:
 ```promql
 increase(audit_sink_records_total[30m])
 increase(audit_sink_commits_total[30m])
+increase(lineage_service_records_total[30m])
+increase(lineage_service_commits_total[30m])
 increase(ai_sink_records_total[30m])
 increase(ai_sink_commits_total[30m])
 increase(ontology_indexer_records_total[30m])

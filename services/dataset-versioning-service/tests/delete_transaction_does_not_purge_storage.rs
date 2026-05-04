@@ -73,14 +73,12 @@ async fn seed_committed(
     .execute(pool)
     .await
     .expect("commit");
-    sqlx::query(
-        "UPDATE dataset_branches SET head_transaction_id=$1, updated_at=NOW() WHERE id=$2",
-    )
-    .bind(txn_id)
-    .bind(branch_id)
-    .execute(pool)
-    .await
-    .expect("advance HEAD");
+    sqlx::query("UPDATE dataset_branches SET head_transaction_id=$1, updated_at=NOW() WHERE id=$2")
+        .bind(txn_id)
+        .bind(branch_id)
+        .execute(pool)
+        .await
+        .expect("advance HEAD");
     txn_id
 }
 
@@ -88,11 +86,8 @@ async fn seed_committed(
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn delete_transaction_marks_file_removed_but_keeps_bytes_in_backing_fs() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.delete-no-purge",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.delete-no-purge").await;
     let branch_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM dataset_branches WHERE dataset_id = $1 AND name = 'master'",
     )

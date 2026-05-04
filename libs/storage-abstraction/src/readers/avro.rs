@@ -64,8 +64,7 @@ fn decode_avro(
         None => SchemaRef::new(arrow_schema_from_avro(&writer_schema)?),
     };
 
-    let mut columns: Vec<Vec<Option<AvroValue>>> =
-        vec![Vec::new(); arrow_schema.fields().len()];
+    let mut columns: Vec<Vec<Option<AvroValue>>> = vec![Vec::new(); arrow_schema.fields().len()];
     let field_names: Vec<&str> = arrow_schema
         .fields()
         .iter()
@@ -102,8 +101,8 @@ fn decode_avro(
         arrays.push(build_array(dtype, &column)?);
     }
 
-    let batch =
-        RecordBatch::try_new(arrow_schema, arrays).map_err(|e| ReaderError::Arrow(e.to_string()))?;
+    let batch = RecordBatch::try_new(arrow_schema, arrays)
+        .map_err(|e| ReaderError::Arrow(e.to_string()))?;
     Ok(vec![batch])
 }
 
@@ -161,44 +160,55 @@ fn avro_to_arrow(s: &WriterSchema) -> (DataType, bool) {
     }
 }
 
-fn build_array(
-    dtype: &DataType,
-    values: &[Option<AvroValue>],
-) -> ReaderResult<ArrayRef> {
+fn build_array(dtype: &DataType, values: &[Option<AvroValue>]) -> ReaderResult<ArrayRef> {
     match dtype {
         DataType::Boolean => {
-            let xs: Vec<Option<bool>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_bool)).collect();
+            let xs: Vec<Option<bool>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_bool))
+                .collect();
             Ok(Arc::new(BooleanArray::from(xs)))
         }
         DataType::Int32 => {
-            let xs: Vec<Option<i32>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_i32)).collect();
+            let xs: Vec<Option<i32>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_i32))
+                .collect();
             Ok(Arc::new(Int32Array::from(xs)))
         }
         DataType::Int64 => {
-            let xs: Vec<Option<i64>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_i64)).collect();
+            let xs: Vec<Option<i64>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_i64))
+                .collect();
             Ok(Arc::new(Int64Array::from(xs)))
         }
         DataType::Float32 => {
-            let xs: Vec<Option<f32>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_f32)).collect();
+            let xs: Vec<Option<f32>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_f32))
+                .collect();
             Ok(Arc::new(Float32Array::from(xs)))
         }
         DataType::Float64 => {
-            let xs: Vec<Option<f64>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_f64)).collect();
+            let xs: Vec<Option<f64>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_f64))
+                .collect();
             Ok(Arc::new(Float64Array::from(xs)))
         }
         DataType::Utf8 => {
-            let xs: Vec<Option<String>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_string)).collect();
+            let xs: Vec<Option<String>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_string))
+                .collect();
             Ok(Arc::new(StringArray::from(xs)))
         }
         DataType::Binary => {
-            let xs: Vec<Option<Vec<u8>>> =
-                values.iter().map(|v| v.as_ref().and_then(coerce_bytes)).collect();
+            let xs: Vec<Option<Vec<u8>>> = values
+                .iter()
+                .map(|v| v.as_ref().and_then(coerce_bytes))
+                .collect();
             // BinaryArray requires the exact owning shape: convert Vec<Option<Vec<u8>>>
             // into Vec<Option<&[u8]>> for the From impl.
             let refs: Vec<Option<&[u8]>> = xs.iter().map(|x| x.as_deref()).collect();

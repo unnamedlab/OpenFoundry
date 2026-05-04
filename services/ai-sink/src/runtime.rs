@@ -1,6 +1,7 @@
 //! Runtime substrate for the `ai-sink` binary.
 
 use std::collections::{BTreeMap, HashMap};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -9,11 +10,16 @@ use arrow_array::{
     builder::FixedSizeBinaryBuilder,
 };
 use arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit};
+use chrono::Utc;
 use event_bus_data::{
     CommitError, DataBusConfig, DataMessage, DataSubscriber, ServicePrincipal, SubscribeError,
 };
+use prometheus::{
+    Encoder, HistogramVec, IntCounterVec, Opts, Registry, TextEncoder, histogram_opts,
+};
 use storage_abstraction::iceberg::{IcebergError, IcebergTable};
 use thiserror::Error;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
     AiEventEnvelope, AiEventKind, BatchPolicy, CONSUMER_GROUP, DecodeError, SOURCE_TOPIC, decode,
@@ -35,6 +41,116 @@ pub mod metrics {
 
     /// Counter — Iceberg commits performed (labelled by table + result).
     pub const SINK_COMMITS_TOTAL: &str = "ai_sink_commits_total";
+}
+
+#[derive(Clone)]
+pub struct RuntimeMetrics {
+    registry: Arc<Registry>,
+    sink_lag_seconds: HistogramVec,
+    sink_records_total: IntCounterVec,
+    sink_batch_size: HistogramVec,
+    sink_commits_total: IntCounterVec,
+}
+
+impl Default for RuntimeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuntimeMetrics {
+    pub fn new() -> Self {
+        let registry = Arc::new(Registry::new());
+        let sink_lag_seconds = HistogramVec::new(
+            histogram_opts!(
+                metrics::SINK_LAG_SECONDS,
+                "Seconds between AI event production time and successful Iceberg append.",
+                vec![0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
+            ),
+            &["table"],
+        )
+        .expect("valid ai_sink_lag_seconds metric");
+        let sink_records_total = IntCounterVec::new(
+            Opts::new(
+                metrics::SINK_RECORDS_TOTAL,
+                "Total AI records appended to Iceberg.",
+            ),
+            &["table"],
+        )
+        .expect("valid ai_sink_records_total metric");
+        let sink_batch_size = HistogramVec::new(
+            histogram_opts!(
+                metrics::SINK_BATCH_SIZE,
+                "AI records per successful Iceberg append.",
+                vec![1.0, 10.0, 100.0, 1_000.0, 10_000.0, 50_000.0, 100_000.0]
+            ),
+            &["table"],
+        )
+        .expect("valid ai_sink_batch_size metric");
+        let sink_commits_total = IntCounterVec::new(
+            Opts::new(
+                metrics::SINK_COMMITS_TOTAL,
+                "Iceberg append attempts by outcome.",
+            ),
+            &["table", "outcome"],
+        )
+        .expect("valid ai_sink_commits_total metric");
+
+        registry
+            .register(Box::new(sink_lag_seconds.clone()))
+            .expect("register ai_sink_lag_seconds");
+        registry
+            .register(Box::new(sink_records_total.clone()))
+            .expect("register ai_sink_records_total");
+        registry
+            .register(Box::new(sink_batch_size.clone()))
+            .expect("register ai_sink_batch_size");
+        registry
+            .register(Box::new(sink_commits_total.clone()))
+            .expect("register ai_sink_commits_total");
+
+        Self {
+            registry,
+            sink_lag_seconds,
+            sink_records_total,
+            sink_batch_size,
+            sink_commits_total,
+        }
+    }
+
+    fn record_append_success(&self, table: &str, events: &[AiEventEnvelope]) {
+        let now_micros = Utc::now().timestamp_micros();
+        self.sink_records_total
+            .with_label_values(&[table])
+            .inc_by(events.len() as u64);
+        self.sink_batch_size
+            .with_label_values(&[table])
+            .observe(events.len() as f64);
+        self.sink_commits_total
+            .with_label_values(&[table, "ok"])
+            .inc();
+        for event in events {
+            self.sink_lag_seconds
+                .with_label_values(&[table])
+                .observe(lag_seconds(event.at, now_micros));
+        }
+    }
+
+    fn record_append_failure(&self, table: &str) {
+        self.sink_commits_total
+            .with_label_values(&[table, "fail"])
+            .inc();
+    }
+
+    pub fn render(&self) -> Result<String, prometheus::Error> {
+        let mut buf = Vec::new();
+        TextEncoder::new().encode(&self.registry.gather(), &mut buf)?;
+        Ok(String::from_utf8(buf).unwrap_or_default())
+    }
+}
+
+fn lag_seconds(event_micros: i64, now_micros: i64) -> f64 {
+    (now_micros.saturating_sub(event_micros).max(0) as f64) / 1_000_000.0
 }
 
 #[derive(Debug, Error)]
@@ -181,8 +297,20 @@ async fn load_table(config: &RuntimeConfig, table: &str) -> Result<IcebergTable,
 /// corresponding Iceberg append succeeds.
 pub async fn run<S>(
     subscriber: S,
+    tables: TableSet,
+    batch_policy: BatchPolicy,
+) -> Result<(), RuntimeError>
+where
+    S: DataSubscriber,
+{
+    run_with_metrics(subscriber, tables, batch_policy, None).await
+}
+
+pub async fn run_with_metrics<S>(
+    subscriber: S,
     mut tables: TableSet,
     batch_policy: BatchPolicy,
+    metrics: Option<Arc<RuntimeMetrics>>,
 ) -> Result<(), RuntimeError>
 where
     S: DataSubscriber,
@@ -201,7 +329,7 @@ where
 
     loop {
         if !batch.is_empty() && batch_policy.should_flush(batch.len(), first_record_at.elapsed()) {
-            flush_batch(&subscriber, &mut tables, &mut batch).await?;
+            flush_batch(&subscriber, &mut tables, &mut batch, metrics.as_deref()).await?;
             first_record_at = Instant::now();
             continue;
         }
@@ -215,7 +343,7 @@ where
             match tokio::time::timeout(remaining, subscriber.recv()).await {
                 Ok(result) => result?,
                 Err(_) => {
-                    flush_batch(&subscriber, &mut tables, &mut batch).await?;
+                    flush_batch(&subscriber, &mut tables, &mut batch, metrics.as_deref()).await?;
                     first_record_at = Instant::now();
                     continue;
                 }
@@ -261,6 +389,7 @@ async fn flush_batch<S>(
     subscriber: &S,
     tables: &mut TableSet,
     batch: &mut Vec<PendingRecord>,
+    metrics: Option<&RuntimeMetrics>,
 ) -> Result<(), RuntimeError>
 where
     S: DataSubscriber,
@@ -280,10 +409,19 @@ where
 
     for (table_name, events) in &by_table {
         let record_batch = events_to_record_batch(events)?;
-        tables
+        if let Err(error) = tables
             .get_mut(table_name)
             .append_record_batches(vec![record_batch])
-            .await?;
+            .await
+        {
+            if let Some(metrics) = metrics {
+                metrics.record_append_failure(table_name);
+            }
+            return Err(error.into());
+        }
+        if let Some(metrics) = metrics {
+            metrics.record_append_success(table_name, events);
+        }
     }
 
     for record in batch.iter() {
@@ -304,6 +442,57 @@ where
 
     batch.clear();
     Ok(())
+}
+
+pub fn metrics_addr_from_env(default_port: u16) -> Result<SocketAddr, RuntimeError> {
+    let value = std::env::var("METRICS_ADDR").unwrap_or_else(|_| format!("0.0.0.0:{default_port}"));
+    value
+        .parse::<SocketAddr>()
+        .map_err(|_| RuntimeError::InvalidEnv {
+            key: "METRICS_ADDR",
+            value,
+            reason: "expected socket address, for example 0.0.0.0:9090",
+        })
+}
+
+pub async fn serve_metrics(metrics: Arc<RuntimeMetrics>, addr: SocketAddr) -> std::io::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        let metrics = Arc::clone(&metrics);
+        tokio::spawn(async move {
+            let mut buf = [0_u8; 1024];
+            let read =
+                tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(&mut buf))
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..read]);
+            let path = request.split_whitespace().nth(1).unwrap_or("/");
+            let (status, content_type, body) = match path {
+                "/health" | "/healthz" => ("200 OK", "text/plain; charset=utf-8", "ok\n".into()),
+                "/metrics" => match metrics.render() {
+                    Ok(body) => ("200 OK", "text/plain; version=0.0.4", body),
+                    Err(error) => (
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        format!("failed to render metrics: {error}\n"),
+                    ),
+                },
+                _ => (
+                    "404 Not Found",
+                    "text/plain; charset=utf-8",
+                    "not found\n".into(),
+                ),
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
+    }
 }
 
 /// Convert decoded AI events to the Arrow schema expected by Iceberg.
@@ -455,5 +644,28 @@ mod tests {
         event.trace_id = None;
         let batch = events_to_record_batch(&[event]).unwrap();
         assert_eq!(batch.num_rows(), 1);
+    }
+
+    #[test]
+    fn runtime_metrics_render_prometheus_text() {
+        let metrics = RuntimeMetrics::new();
+        metrics.record_append_success(
+            iceberg_target::TABLE_PROMPTS,
+            &[sample(AiEventKind::Prompt)],
+        );
+        let body = metrics.render().unwrap();
+        assert!(body.contains(metrics::SINK_RECORDS_TOTAL));
+        assert!(body.contains("table=\"prompts\""));
+        assert!(body.contains(metrics::SINK_LAG_SECONDS));
+    }
+
+    #[test]
+    fn runtime_metrics_track_failed_append_attempts() {
+        let metrics = RuntimeMetrics::new();
+        metrics.record_append_failure(iceberg_target::TABLE_TRACES);
+        let body = metrics.render().unwrap();
+        assert!(body.contains(metrics::SINK_COMMITS_TOTAL));
+        assert!(body.contains("outcome=\"fail\""));
+        assert!(body.contains("table=\"traces\""));
     }
 }

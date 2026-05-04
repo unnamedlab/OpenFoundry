@@ -80,7 +80,8 @@ pub fn schedule_convert_requires_manage() -> PolicyRecord {
         id: "schedule-convert-requires-manage".into(),
         version: 1,
         description: Some(
-            "Converting a schedule to project-scoped requires manage on every target project.".into(),
+            "Converting a schedule to project-scoped requires manage on every target project."
+                .into(),
         ),
         source: r#"
             permit(
@@ -119,7 +120,10 @@ pub fn build_run_user_clearance() -> PolicyRecord {
     PolicyRecord {
         id: "build-run-user-clearance".into(),
         version: 1,
-        description: Some("A user may dispatch a build only when their clearances cover the target's markings.".into()),
+        description: Some(
+            "A user may dispatch a build only when their clearances cover the target's markings."
+                .into(),
+        ),
         source: r#"
             permit(
               principal is User,

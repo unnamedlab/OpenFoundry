@@ -1,0 +1,436 @@
+release: of-data-engine
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+image:
+  registry: ghcr.io/openfoundry
+  tag: "0.1.0"
+
+global:
+  imagePullPolicy: IfNotPresent
+  imageRegistry: ""
+  imagePullSecrets: []
+  existingSecret: open-foundry-env
+  publicWebOrigin: https://openfoundry.example.com
+  labels:
+    app.kubernetes.io/part-of: openfoundry
+  podAnnotations: {}
+  podSecurityContext:
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    readOnlyRootFilesystem: false
+  terminationGracePeriodSeconds: 30
+  topologySpreadConstraints:
+    enabled: true
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  networkPolicy:
+    enabled: true
+    allowSameNamespaceTraffic: true
+    additionalEgressCidrs: []
+  platformProfile:
+    enabled: true
+    configMapName: openfoundry-platform-profile
+  probes:
+    readiness:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 8
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 6
+    liveness:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 3
+      failureThreshold: 3
+  deploymentFabric:
+    cloud: kubernetes
+    environment: shared
+    cell: core
+    region: global
+    multiCloud:
+      enabled: false
+      activeProvider: ""
+      workloadIdentity:
+        awsRoleArn: ""
+        gcpServiceAccount: ""
+        azureClientId: ""
+      providers: []
+    airGap:
+      enabled: false
+      privateRegistry: ""
+      releaseBundle: ""
+      disablePublicEgress: false
+      mirrorRegistries: []
+      allowedEgressCidrs: []
+    geoRestrictions:
+      enabled: false
+      allowedCountries: []
+      allowedIngressCidrs: []
+      allowedEgressCidrs: []
+      ingressAnnotations: {}
+      requiredNodeLabels: {}
+      residencyLabel: ""
+  cassandra:
+    localDc: dc1
+  kafka:
+    bootstrap: ""
+    topicPrefix: ""
+
+migrations:
+  pg-schemas:
+    enabled: true
+    dsnSecret:
+      name: pg-schemas-app
+      key: dsn
+  pg-runtime-config:
+    enabled: true
+    dsnSecret:
+      name: pg-runtime-config-app
+      key: dsn
+
+temporal:
+  # Frontend gRPC address consumed by Rust S2 services via TEMPORAL_HOST_PORT.
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  namespace: openfoundry-default
+
+services:
+  connector-management-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      INGESTION_REPLICATION_GRPC_URL: http://ingestion-replication-service:8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  ingestion-replication-service:
+    replicas: 3
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  dataset-versioning-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  media-sets-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      STORAGE_BUCKET: openfoundry-media
+      STORAGE_ROOT: /tmp/openfoundry-media
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  lineage-service:
+    replicas: 2
+    ports:
+      - name: metrics
+        containerPort: 9090
+        servicePort: 9090
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    serviceAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    probes:
+      readiness:
+        path: /health
+        port: metrics
+      liveness:
+        path: /health
+        port: metrics
+    env:
+      LINEAGE_RUNTIME_MODE: kafka_to_iceberg
+      ICEBERG_CATALOG_URL: http://lakekeeper.lakekeeper.svc:8181
+      ICEBERG_WAREHOUSE: openfoundry-iceberg
+      METRICS_ADDR: 0.0.0.0:9090
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  pipeline-build-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  sql-bi-gateway-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      DISTRIBUTED_QUERY_WORKERS: "4"
+      RUST_LOG: info
+      TRINO_FLIGHT_SQL_URL: http://trino-flight-sql-proxy.trino.svc:50133
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 12
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+      keda:
+        enabled: true
+        pollingInterval: 15
+        cooldownPeriod: 90
+        triggers:
+          - type: prometheus
+            metadata:
+              serverAddress: http://prometheus-operated.monitoring.svc.cluster.local:9090
+              metricName: query_inflight_requests
+              query: sum(openfoundry_query_inflight_requests)
+              threshold: "40"
+
+  # ── Data-engine services completed (S8.6 — full coverage) ───────────
+  dataset-quality-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  data-asset-catalog-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  lineage-deletion-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  pipeline-authoring-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  pipeline-schedule-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  sql-warehousing-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  virtual-table-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  time-series-data-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  event-streaming-service:
+    replicas: 3
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  cdc-metadata-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  global-branch-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  retention-policy-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  checkpoints-purpose-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  analytical-logic-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi

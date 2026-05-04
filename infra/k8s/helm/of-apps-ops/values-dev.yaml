@@ -1,3 +1,0 @@
-services:
-  audit-sink:
-    replicas: 1

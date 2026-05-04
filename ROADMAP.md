@@ -176,7 +176,7 @@ Current repo audit: 24 components are shipped. Enterprise auth remains the only 
       P4 retention worker + markings inheritance + global-branch-service ·
       P5 BranchCompare + lifecycle timeline + full E2E suite
 - [x] **D1.1.5 Builds parity (5/5)** — full Foundry builds lifecycle
-      ([ADR-0035](docs/architecture/adr/ADR-0035-builds-foundry-parity.md)):
+      ([ADR-0036](docs/architecture/adr/ADR-0036-builds-foundry-parity.md)):
       P1 BuildState/JobState lifecycle + resolver (cycles + locks + queue) ·
       P2 parallel JoinSet executor + multi-output atomicity + abort_policy
       cascade + staleness/force_build · P3 five logic kinds (Sync /

@@ -99,7 +99,16 @@ pub async fn create_media_set_sync(
     .await;
 
     match row {
-        Ok((id, source_id, sync_type, target_media_set_rid, subfolder, filters, schedule_cron, created_at)) => {
+        Ok((
+            id,
+            source_id,
+            sync_type,
+            target_media_set_rid,
+            subfolder,
+            filters,
+            schedule_cron,
+            created_at,
+        )) => {
             let kind = parse_kind(&sync_type);
             let filters: MediaSetSyncFilters = serde_json::from_value(filters).unwrap_or_default();
             (
@@ -145,19 +154,31 @@ pub async fn list_media_set_syncs(
         Ok(rows) => {
             let body: Vec<MediaSetSyncResponse> = rows
                 .into_iter()
-                .map(|(id, source_id, sync_type, target_media_set_rid, subfolder, filters, schedule_cron, created_at)| {
-                    let filters: MediaSetSyncFilters = serde_json::from_value(filters).unwrap_or_default();
-                    MediaSetSyncResponse {
+                .map(
+                    |(
                         id,
                         source_id,
-                        kind: parse_kind(&sync_type),
+                        sync_type,
                         target_media_set_rid,
                         subfolder,
                         filters,
                         schedule_cron,
                         created_at,
-                    }
-                })
+                    )| {
+                        let filters: MediaSetSyncFilters =
+                            serde_json::from_value(filters).unwrap_or_default();
+                        MediaSetSyncResponse {
+                            id,
+                            source_id,
+                            kind: parse_kind(&sync_type),
+                            target_media_set_rid,
+                            subfolder,
+                            filters,
+                            schedule_cron,
+                            created_at,
+                        }
+                    },
+                )
                 .collect();
             (StatusCode::OK, Json(body)).into_response()
         }
@@ -230,14 +251,7 @@ pub async fn execute_media_set_sync(
             dispatched += 1;
             continue;
         }
-        let result = dispatch_file(
-            cfg,
-            &file,
-            http,
-            media_sets_service_url,
-            bearer_token,
-        )
-        .await;
+        let result = dispatch_file(cfg, &file, http, media_sets_service_url, bearer_token).await;
         match result {
             Ok(()) => dispatched += 1,
             Err(err) => {
@@ -292,7 +306,10 @@ async fn dispatch_file(
     }
     let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("media-sets-service returned HTTP {}", resp.status().as_u16()));
+        return Err(format!(
+            "media-sets-service returned HTTP {}",
+            resp.status().as_u16()
+        ));
     }
     Ok(())
 }

@@ -6,17 +6,15 @@ mod common;
 use core_models::dataset::transaction::BranchName;
 use std::collections::HashMap;
 
-use pipeline_build_service::domain::build_executor::{
-    execute_build, ExecuteBuildArgs,
-};
+use pipeline_build_service::domain::build_executor::{ExecuteBuildArgs, execute_build};
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
 use pipeline_build_service::models::build::BuildState;
 
 use crate::common::{
-    arc_output, arc_runner, job_spec, MockDatasetClient, MockJobRunner, MockJobSpecRepo,
-    MockOutputClient, RunnerScript, spawn,
+    MockDatasetClient, MockJobRunner, MockJobSpecRepo, MockOutputClient, RunnerScript, arc_output,
+    arc_runner, job_spec, spawn,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -29,8 +27,20 @@ async fn failure_cascade_dependent_only() {
     specs.add(job_spec("ri.spec.a", vec!["raw.x"], vec!["mid.a"]));
     specs.add(job_spec("ri.spec.b", vec!["mid.a"], vec!["out.b"]));
     specs.add(job_spec("ri.spec.c", vec!["raw.y"], vec!["out.c"]));
-    versioning.add_branch("raw.x", BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None });
-    versioning.add_branch("raw.y", BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None });
+    versioning.add_branch(
+        "raw.x",
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
+    );
+    versioning.add_branch(
+        "raw.y",
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
+    );
 
     let build_branch: BranchName = "master".parse().unwrap();
     let outputs = vec!["mid.a".into(), "out.b".into(), "out.c".into()];

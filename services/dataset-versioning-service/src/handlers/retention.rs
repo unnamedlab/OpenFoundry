@@ -88,7 +88,9 @@ pub async fn update_retention(
         "policy": policy.as_str(),
         "ttl_days": ttl,
     }));
-    branch_events::emit(&mut tx, &envelope).await.map_err(|e| internal(e.to_string()))?;
+    branch_events::emit(&mut tx, &envelope)
+        .await
+        .map_err(|e| internal(e.to_string()))?;
     tx.commit().await.map_err(internal)?;
 
     crate::security::emit_audit(
@@ -131,7 +133,8 @@ pub async fn restore_branch(
     .map_err(internal)?
     .ok_or_else(|| not_found("branch not found"))?;
 
-    let (branch_id, archived_at, grace_until, branch_rid, dataset_rid, parent_branch_id, head_id) = archived;
+    let (branch_id, archived_at, grace_until, branch_rid, dataset_rid, parent_branch_id, head_id) =
+        archived;
     let Some(archived_ts) = archived_at else {
         return Err((
             StatusCode::CONFLICT,
@@ -172,7 +175,9 @@ pub async fn restore_branch(
     .with_parent_rid(parent_branch_id.map(|id| format!("ri.foundry.main.branch.{id}")))
     .with_head(head_id.map(|id| format!("ri.foundry.main.transaction.{id}")))
     .with_extras(json!({ "archived_at": archived_ts }));
-    branch_events::emit(&mut tx, &envelope).await.map_err(|e| internal(e.to_string()))?;
+    branch_events::emit(&mut tx, &envelope)
+        .await
+        .map_err(|e| internal(e.to_string()))?;
     tx.commit().await.map_err(internal)?;
 
     crate::security::emit_audit(
@@ -235,7 +240,10 @@ pub async fn get_branch_markings(
 // ── helpers (duplicated from `foundry.rs` to avoid pulling pub on its
 // internals just for the new module). ──
 
-async fn resolve_dataset_id(state: &AppState, rid: &str) -> Result<Uuid, (StatusCode, Json<Value>)> {
+async fn resolve_dataset_id(
+    state: &AppState,
+    rid: &str,
+) -> Result<Uuid, (StatusCode, Json<Value>)> {
     if let Ok(id) = Uuid::parse_str(rid) {
         return Ok(id);
     }

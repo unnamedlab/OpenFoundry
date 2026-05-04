@@ -212,16 +212,6 @@ SERVICES_SPEC = [
         "rule_id UUID NOT NULL, channel TEXT NOT NULL, target TEXT NOT NULL",
     ),
     (
-        "health-check-service",
-        "Health check evaluation: semantics, scheduling and results for resources and workflows",
-        50151,
-        "/api/v1/health-checks/checks",
-        "health_checks",
-        "name TEXT NOT NULL, target_kind TEXT NOT NULL, target_ref TEXT NOT NULL, schedule TEXT",
-        "health_check_results",
-        "check_id UUID NOT NULL, status TEXT NOT NULL, observed_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
-    (
         "execution-observability-service",
         "Run history, log search, distributed tracing and execution debug",
         50152,

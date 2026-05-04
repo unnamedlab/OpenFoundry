@@ -157,8 +157,7 @@ fn build_response(
     // schema_json that omits `file_format`; we patch it from the
     // dedicated column for callers that read straight from
     // dataset_view_schemas.
-    let mut schema: DatasetSchema =
-        serde_json::from_value(row.schema_json).map_err(internal)?;
+    let mut schema: DatasetSchema = serde_json::from_value(row.schema_json).map_err(internal)?;
     schema.file_format = parse_file_format(&row.file_format);
     if let Some(meta) = row.custom_metadata {
         if !meta.is_null() {
@@ -218,8 +217,8 @@ pub async fn get_view_schema(
     Path((rid, view_id_str)): Path<(String, String)>,
 ) -> Result<Json<SchemaResponse>, (StatusCode, Json<Value>)> {
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    let view_id = Uuid::parse_str(&view_id_str)
-        .map_err(|_| bad_request("view_id is not a valid UUID"))?;
+    let view_id =
+        Uuid::parse_str(&view_id_str).map_err(|_| bad_request("view_id is not a valid UUID"))?;
     let branch = assert_view_belongs_to_dataset(&state, dataset_id, view_id).await?;
     let row = load_schema_row(&state, view_id)
         .await?
@@ -240,8 +239,8 @@ pub async fn put_view_schema(
     crate::security::require_dataset_write(&user.0, &rid, "schema.put")?;
 
     let dataset_id = resolve_dataset_id(&state, &rid).await?;
-    let view_id = Uuid::parse_str(&view_id_str)
-        .map_err(|_| bad_request("view_id is not a valid UUID"))?;
+    let view_id =
+        Uuid::parse_str(&view_id_str).map_err(|_| bad_request("view_id is not a valid UUID"))?;
     let branch = assert_view_belongs_to_dataset(&state, dataset_id, view_id)
         .await?
         .ok_or_else(|| not_found("view not found"))?;
@@ -320,7 +319,10 @@ pub async fn put_view_schema(
         }),
     );
 
-    Ok((status, Json(build_response(row, dataset_id, Some(branch), false)?)))
+    Ok((
+        status,
+        Json(build_response(row, dataset_id, Some(branch), false)?),
+    ))
 }
 
 /// Legacy compat: `GET /v1/datasets/{rid}/schema`. Returns the schema

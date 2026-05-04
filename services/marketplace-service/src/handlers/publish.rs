@@ -257,13 +257,10 @@ pub async fn include_action_in_product(
             _ => None,
         })
         .unwrap_or_default();
-    let artifact_value = serde_json::to_value(&artifact)
-        .map_err(|cause| internal_error(cause.to_string()))?;
+    let artifact_value =
+        serde_json::to_value(&artifact).map_err(|cause| internal_error(cause.to_string()))?;
     artifacts.push(artifact_value);
-    manifest.insert(
-        "artifacts".to_string(),
-        serde_json::Value::Array(artifacts),
-    );
+    manifest.insert("artifacts".to_string(), serde_json::Value::Array(artifacts));
 
     let updated_manifest = serde_json::Value::Object(manifest);
     sqlx::query("UPDATE marketplace_package_versions SET manifest = $1::jsonb WHERE id = $2")

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use pipeline_schedule_service::domain::build_client::BuildAttemptOutcome;
 use pipeline_schedule_service::domain::dispatcher::{
-    AutoPauseConfig, Dispatcher, DispatcherConfig, DispatchTrigger,
+    AutoPauseConfig, DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::trigger::AUTO_PAUSED_REASON;
 use pipeline_schedule_service::domain::{schedule_store, trigger::Schedule};
@@ -63,6 +63,9 @@ async fn auto_unpause_clears_paused_state_on_first_success() {
         .unwrap();
 
     let after: Schedule = schedule_store::get_by_rid(&pool, &s.rid).await.unwrap();
-    assert!(!after.paused, "schedule should be auto-resumed after first success");
+    assert!(
+        !after.paused,
+        "schedule should be auto-resumed after first success"
+    );
     assert_eq!(after.paused_reason, None);
 }

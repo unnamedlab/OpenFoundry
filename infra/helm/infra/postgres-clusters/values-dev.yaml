@@ -1,0 +1,35 @@
+# dev override for postgres-clusters: 1 instance per cluster, no sync
+# replicas, no backups (no Rook in dev), local-path PVCs, tiny RAM.
+#
+# All four clusters share the same shape so dev can spin up only the ones
+# you need by setting `installed: false` on the cluster's release in the
+# helmfile (currently `pg-policy` is installed first per task order).
+
+_dev: &dev
+  enabled: true
+  instances: 1
+  syncReplicas: 0
+  walLevel: replica       # disable logical decoding until Debezium is wired
+  storageClass: local-path
+  storageSize: 10Gi
+  walStorageSize: 2Gi
+  enableSuperuserAccess: true
+  backupEnabled: false
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
+  postgresql:
+    sharedBuffers: 256MB
+    maxWalSize: 1GB
+    workMem: 8MB
+    effectiveCacheSize: 512MB
+    maxConnections: "100"
+    maxReplicationSlots: "4"
+    maxWalSenders: "6"
+
+# Tarea 4 enabled only pg-policy. Tareas 5/6/7 will parametrize the
+# remaining 3 templates and toggle these to *dev.
+pgPolicy:        *dev
+pgSchemas:       *dev
+pgRuntimeConfig: *dev
+pgLakekeeper:    *dev

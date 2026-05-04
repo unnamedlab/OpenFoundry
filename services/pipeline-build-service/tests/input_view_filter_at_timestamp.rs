@@ -65,13 +65,12 @@ async fn input_view_filter_at_timestamp_persists_resolution() {
     .await
     .expect("resolution succeeds");
 
-    let resolutions: Value = sqlx::query_scalar(
-        "SELECT input_view_resolutions FROM jobs WHERE build_id = $1",
-    )
-    .bind(resolved.build_id)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let resolutions: Value =
+        sqlx::query_scalar("SELECT input_view_resolutions FROM jobs WHERE build_id = $1")
+            .bind(resolved.build_id)
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
 
     let arr = resolutions.as_array().expect("array");
     assert_eq!(arr.len(), 1);

@@ -61,10 +61,10 @@ pub async fn compute_health(
     .fetch_optional(db)
     .await
     .map_err(|e| e.to_string())?;
-    let last_commit_at: Option<DateTime<Utc>> =
-        last.as_ref().and_then(|row| row.try_get("committed_at").ok());
-    let last_tx_type: Option<String> =
-        last.as_ref().and_then(|row| row.try_get("tx_type").ok());
+    let last_commit_at: Option<DateTime<Utc>> = last
+        .as_ref()
+        .and_then(|row| row.try_get("committed_at").ok());
+    let last_tx_type: Option<String> = last.as_ref().and_then(|row| row.try_get("tx_type").ok());
     let now = Utc::now();
     let freshness_seconds = match last_commit_at {
         Some(ts) => (now - ts).num_seconds().max(0),
@@ -120,14 +120,13 @@ pub async fn compute_health(
     // size_bytes is a proxy when actual row counts haven't been
     // materialised yet — the catalog's `dataset.row_count` column
     // takes precedence when present.
-    let row_count_catalog: Option<i64> = sqlx::query_scalar(
-        "SELECT row_count FROM datasets WHERE id = $1",
-    )
-    .bind(dataset_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?
-    .flatten();
+    let row_count_catalog: Option<i64> =
+        sqlx::query_scalar("SELECT row_count FROM datasets WHERE id = $1")
+            .bind(dataset_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| e.to_string())?
+            .flatten();
     let row_count = row_count_catalog.unwrap_or(row_count.unwrap_or(0));
 
     let col_count = compute_col_count(db, dataset_id).await.unwrap_or(0);
@@ -166,19 +165,14 @@ pub async fn compute_health(
     }))
 }
 
-async fn lookup_dataset_id(
-    db: &sqlx::PgPool,
-    rid: &str,
-) -> Result<Option<Uuid>, String> {
+async fn lookup_dataset_id(db: &sqlx::PgPool, rid: &str) -> Result<Option<Uuid>, String> {
     let row = sqlx::query_scalar::<_, Uuid>("SELECT id FROM datasets WHERE rid = $1")
         .bind(rid)
         .fetch_optional(db)
         .await;
     match row {
         Ok(id) => Ok(id),
-        Err(sqlx::Error::Database(db_err))
-            if db_err.message().contains("does not exist") =>
-        {
+        Err(sqlx::Error::Database(db_err)) if db_err.message().contains("does not exist") => {
             Ok(None)
         }
         Err(other) => Err(other.to_string()),
@@ -227,10 +221,7 @@ async fn compute_schema_drift(db: &sqlx::PgPool, dataset_id: Uuid) -> Result<boo
 /// `last_build_status` enum. Mirrors the colour code the dashboard
 /// card uses: green when fresh, amber when stale, red on abort, grey
 /// when there's nothing to report.
-fn derive_last_build_status(
-    last_commit_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> String {
+fn derive_last_build_status(last_commit_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
     let Some(ts) = last_commit_at else {
         return "unknown".into();
     };

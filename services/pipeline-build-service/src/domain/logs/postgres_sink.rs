@@ -23,11 +23,10 @@ impl PostgresLogSink {
 #[async_trait]
 impl LogSink for PostgresLogSink {
     async fn emit(&self, entry: LogEntry) -> Result<i64, LogSinkError> {
-        let job_id: Option<(uuid::Uuid,)> =
-            sqlx::query_as("SELECT id FROM jobs WHERE rid = $1")
-                .bind(&entry.job_rid)
-                .fetch_optional(&self.pool)
-                .await?;
+        let job_id: Option<(uuid::Uuid,)> = sqlx::query_as("SELECT id FROM jobs WHERE rid = $1")
+            .bind(&entry.job_rid)
+            .fetch_optional(&self.pool)
+            .await?;
         let Some((job_id,)) = job_id else {
             return Err(LogSinkError::JobNotFound(entry.job_rid));
         };

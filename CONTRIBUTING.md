@@ -233,10 +233,8 @@ Breaking changes to protos must additionally:
 We try to keep the 85+ services consistent. Before adding a new one:
 
 1. Open a `new service` issue and get approval from a Platform CODEOWNER.
-2. Use `just new-service <name>` (when available) or copy an existing,
-   minimal service such as
-   [`services/health-check-service`](services/health-check-service) as a
-   template.
+2. Use `just new-service <name>` (when available) or copy an existing
+   service in the same Helm release and ownership boundary as a template.
 3. Register the crate in the root [`Cargo.toml`](Cargo.toml) workspace
    members **and** in [`.github/CODEOWNERS`](.github/CODEOWNERS).
 4. Add proto definitions under [`proto/<domain>/v1/`](proto/) and regenerate.

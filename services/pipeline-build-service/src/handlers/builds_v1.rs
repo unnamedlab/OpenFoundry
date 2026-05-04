@@ -20,11 +20,9 @@ use crate::AppState;
 use crate::domain::build_resolution::{
     DatasetVersioningClient, JobSpecRepo, ResolveBuildArgs, resolve_build,
 };
-use crate::domain::job_lifecycle::{transition_job_in_tx};
+use crate::domain::job_lifecycle::transition_job_in_tx;
 use crate::domain::metrics;
-use crate::models::build::{
-    Build, BuildEnvelope, BuildState, CreateBuildRequest, ListBuildsQuery,
-};
+use crate::models::build::{Build, BuildEnvelope, BuildState, CreateBuildRequest, ListBuildsQuery};
 use crate::models::job::{Job, JobState};
 use core_models::dataset::transaction::BranchName;
 
@@ -120,19 +118,17 @@ pub async fn create_build(
     .await;
 
     match result {
-        Ok(resolved) => {
-            (
-                StatusCode::ACCEPTED,
-                Json(json!({
-                    "build_id": resolved.build_id,
-                    "state": resolved.state.as_str(),
-                    "queued_reason": resolved.queued_reason,
-                    "job_count": resolved.job_specs.len(),
-                    "output_transactions": resolved.opened_transactions,
-                })),
-            )
-                .into_response()
-        }
+        Ok(resolved) => (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "build_id": resolved.build_id,
+                "state": resolved.state.as_str(),
+                "queued_reason": resolved.queued_reason,
+                "job_count": resolved.job_specs.len(),
+                "output_transactions": resolved.opened_transactions,
+            })),
+        )
+            .into_response(),
         Err(error) => {
             tracing::warn!(error = %error, "build resolution failed");
             (StatusCode::BAD_REQUEST, error.to_string()).into_response()
@@ -159,13 +155,12 @@ pub async fn get_build(
         Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     };
 
-    let jobs = sqlx::query_as::<_, Job>(
-        "SELECT * FROM jobs WHERE build_id = $1 ORDER BY created_at ASC",
-    )
-    .bind(build.id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let jobs =
+        sqlx::query_as::<_, Job>("SELECT * FROM jobs WHERE build_id = $1 ORDER BY created_at ASC")
+            .bind(build.id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
 
     Json(BuildEnvelope { build, jobs }).into_response()
 }
@@ -272,10 +267,11 @@ pub async fn list_builds_v1(
     Query(params): Query<ListBuildsQuery>,
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
-    let cursor_created_at = params
-        .cursor
-        .as_deref()
-        .and_then(|c| chrono::DateTime::parse_from_rfc3339(c).ok().map(|d| d.with_timezone(&chrono::Utc)));
+    let cursor_created_at = params.cursor.as_deref().and_then(|c| {
+        chrono::DateTime::parse_from_rfc3339(c)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    });
 
     let rows = sqlx::query_as::<_, Build>(
         r#"SELECT * FROM builds
@@ -361,9 +357,10 @@ pub async fn create_job_spec(
 
     let id = uuid::Uuid::now_v7();
     let rid = format!("ri.foundry.main.job_spec.{id}");
-    let content_hash = body.content_hash.clone().unwrap_or_else(|| {
-        derive_content_hash(&kind_upper, &body)
-    });
+    let content_hash = body
+        .content_hash
+        .clone()
+        .unwrap_or_else(|| derive_content_hash(&kind_upper, &body));
 
     let inputs_json = serde_json::to_value(&body.inputs).unwrap_or_else(|_| serde_json::json!([]));
 
@@ -431,7 +428,9 @@ fn derive_content_hash(kind: &str, body: &CreateJobSpecRequest) -> String {
 }
 
 fn validate_kind_payload(kind: &str, body: &CreateJobSpecRequest) -> Result<(), String> {
-    use crate::domain::runners::{logic_kinds, AnalyticalConfig, ExportConfig, HealthCheckConfig, SyncConfig};
+    use crate::domain::runners::{
+        AnalyticalConfig, ExportConfig, HealthCheckConfig, SyncConfig, logic_kinds,
+    };
     match kind {
         logic_kinds::SYNC => {
             let cfg: SyncConfig = serde_json::from_value(body.logic_payload.clone())
@@ -446,7 +445,11 @@ fn validate_kind_payload(kind: &str, body: &CreateJobSpecRequest) -> Result<(), 
                 .map_err(|e| format!("HEALTH_CHECK payload invalid: {e}"))?;
             // Foundry semantics: the check produces a finding *on*
             // its single declared output dataset.
-            if !body.output_dataset_rids.iter().any(|r| r == &cfg.target_dataset_rid) {
+            if !body
+                .output_dataset_rids
+                .iter()
+                .any(|r| r == &cfg.target_dataset_rid)
+            {
                 return Err(format!(
                     "HEALTH_CHECK target {} must match the JobSpec's output dataset",
                     cfg.target_dataset_rid
@@ -463,7 +466,9 @@ fn validate_kind_payload(kind: &str, body: &CreateJobSpecRequest) -> Result<(), 
             let cfg: ExportConfig = serde_json::from_value(body.logic_payload.clone())
                 .map_err(|e| format!("EXPORT payload invalid: {e}"))?;
             if cfg.acl_alias.is_none() {
-                return Err("EXPORT acl_alias required: refusing unconfigured external push".into());
+                return Err(
+                    "EXPORT acl_alias required: refusing unconfigured external push".into(),
+                );
             }
             Ok(())
         }
@@ -481,14 +486,13 @@ pub async fn get_job_input_resolutions(
     State(state): State<AppState>,
     Path(rid): Path<String>,
 ) -> impl IntoResponse {
-    let row: Option<(uuid::Uuid, serde_json::Value)> = sqlx::query_as(
-        "SELECT id, input_view_resolutions FROM jobs WHERE rid = $1",
-    )
-    .bind(&rid)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let row: Option<(uuid::Uuid, serde_json::Value)> =
+        sqlx::query_as("SELECT id, input_view_resolutions FROM jobs WHERE rid = $1")
+            .bind(&rid)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
     let Some((_id, resolutions)) = row else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -513,14 +517,13 @@ pub async fn get_job_outputs(
     Path(rid): Path<String>,
 ) -> impl IntoResponse {
     // Resolve job_id from job RID (which encodes the UUID).
-    let job: Option<(uuid::Uuid, String, bool)> = sqlx::query_as(
-        "SELECT id, state, stale_skipped FROM jobs WHERE rid = $1",
-    )
-    .bind(&rid)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let job: Option<(uuid::Uuid, String, bool)> =
+        sqlx::query_as("SELECT id, state, stale_skipped FROM jobs WHERE rid = $1")
+            .bind(&rid)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
     let Some((job_id, job_state, stale_skipped)) = job else {
         return StatusCode::NOT_FOUND.into_response();
     };

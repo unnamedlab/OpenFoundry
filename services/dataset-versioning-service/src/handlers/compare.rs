@@ -228,7 +228,10 @@ fn detect_conflicts(a: &[Hydrated], b: &[Hydrated]) -> Vec<ConflictingFile> {
 
 // ── helpers shared with `handlers/retention.rs` ───────────────────
 
-async fn resolve_dataset_id(state: &AppState, rid: &str) -> Result<Uuid, (StatusCode, Json<Value>)> {
+async fn resolve_dataset_id(
+    state: &AppState,
+    rid: &str,
+) -> Result<Uuid, (StatusCode, Json<Value>)> {
     if let Ok(id) = Uuid::parse_str(rid) {
         return Ok(id);
     }

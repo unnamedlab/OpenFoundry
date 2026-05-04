@@ -82,7 +82,10 @@ async fn open_commit(h: &common::Harness, dataset_id: Uuid, branch: &str, tx_typ
         Some(json!({})),
     )
     .await;
-    assert!(commit_status.is_success(), "commit: {commit_status} {commit_body}");
+    assert!(
+        commit_status.is_success(),
+        "commit: {commit_status} {commit_body}"
+    );
     txn_id
 }
 
@@ -90,11 +93,8 @@ async fn open_commit(h: &common::Harness, dataset_id: Uuid, branch: &str, tx_typ
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn full_p1_to_p5_journey() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.full-journey",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.full-journey").await;
 
     // 1. master is already seeded.
     // 2. Snapshot on master.
@@ -161,9 +161,7 @@ async fn full_p1_to_p5_journey() {
     let (status, body) = http_json(
         &h,
         "GET",
-        &format!(
-            "/v1/datasets/{dataset_id}/branches/compare?base=master&compare=patch"
-        ),
+        &format!("/v1/datasets/{dataset_id}/branches/compare?base=master&compare=patch"),
         None,
     )
     .await;

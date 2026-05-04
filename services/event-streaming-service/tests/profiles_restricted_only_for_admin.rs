@@ -72,7 +72,10 @@ fn profiles_admin_can_explicitly_unrestrict_large_profile() {
 fn profiles_category_serde_is_screaming_snake() {
     // The UI keys off these strings; lock them in.
     for (variant, expected) in [
-        (ProfileCategory::TaskmanagerResources, "TASKMANAGER_RESOURCES"),
+        (
+            ProfileCategory::TaskmanagerResources,
+            "TASKMANAGER_RESOURCES",
+        ),
         (ProfileCategory::JobmanagerResources, "JOBMANAGER_RESOURCES"),
         (ProfileCategory::Parallelism, "PARALLELISM"),
         (ProfileCategory::Network, "NETWORK"),

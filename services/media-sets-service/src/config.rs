@@ -52,7 +52,8 @@ impl AppConfig {
 
     /// Resolved gRPC port (defaults to `port + 1` when not configured).
     pub fn resolved_grpc_port(&self) -> u16 {
-        self.grpc_port.unwrap_or_else(|| self.port.saturating_add(1))
+        self.grpc_port
+            .unwrap_or_else(|| self.port.saturating_add(1))
     }
 }
 

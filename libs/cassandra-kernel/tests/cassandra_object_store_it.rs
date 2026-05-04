@@ -13,20 +13,13 @@
 
 #![cfg(feature = "repos")]
 
-use std::time::Duration;
+mod support;
 
-use std::sync::Arc;
-
-use cassandra_kernel::{ClusterConfig, SessionBuilder, repos::CassandraObjectStore};
+use cassandra_kernel::repos::CassandraObjectStore;
 use futures::{StreamExt, stream};
 use storage_abstraction::repositories::{
     MarkingId, Object, ObjectId, ObjectStore, OwnerId, Page, PutOutcome, ReadConsistency, TenantId,
     TypeId,
-};
-use testcontainers::{
-    GenericImage,
-    core::{IntoContainerPort, WaitFor},
-    runners::AsyncRunner,
 };
 use uuid::Uuid;
 
@@ -43,30 +36,11 @@ async fn cassandra_object_store_inserts_10k_and_pages_by_type() {
     let _ = tracing_subscriber::fmt::try_init();
 
     // -- 1. Boot Cassandra ---------------------------------------------
-    let image = GenericImage::new("cassandra", "5.0.2")
-        .with_exposed_port(9042.tcp())
-        .with_wait_for(WaitFor::message_on_stdout(
-            "Starting listening for CQL clients",
-        ));
-    let container = image.start().await.expect("starting cassandra");
-    let host = container.get_host().await.expect("host").to_string();
-    let port = container
-        .get_host_port_ipv4(9042)
-        .await
-        .expect("mapped port");
-
-    // Cassandra needs a beat after the listening message.
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    let cfg = ClusterConfig {
-        contact_points: vec![format!("{host}:{port}")],
-        local_datacenter: "datacenter1".to_string(),
-        ..ClusterConfig::dev_local()
-    };
-    let session = Arc::new(SessionBuilder::new(cfg).build().await.expect("session"));
+    let cassandra = support::start_cassandra().await;
+    let session = cassandra.session.clone();
 
     // -- 2. Apply DDL --------------------------------------------------
-    apply_ddl(&session).await;
+    apply_ddl(session.as_ref()).await;
 
     // -- 3. Build the store -------------------------------------------
     let store = CassandraObjectStore::new(session.clone());

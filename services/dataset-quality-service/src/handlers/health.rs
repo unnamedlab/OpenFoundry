@@ -82,8 +82,7 @@ async fn persist_health(
     rid: &str,
     computed: &ComputedHealth,
 ) -> Result<(), String> {
-    let null_pct = serde_json::to_value(&computed.null_pct_by_column)
-        .map_err(|e| e.to_string())?;
+    let null_pct = serde_json::to_value(&computed.null_pct_by_column).map_err(|e| e.to_string())?;
     let txn_rate = computed.txn_failure_rate_24h;
     sqlx::query(
         r#"INSERT INTO dataset_health (
@@ -134,7 +133,11 @@ fn publish_metrics(rid: &str, computed: &ComputedHealth) {
     crate::metrics::DATASET_ROW_COUNT
         .with_label_values(&[rid])
         .set(computed.row_count);
-    if let Some(aborted) = computed.extras.get("aborted_total_24h").and_then(|v| v.as_i64()) {
+    if let Some(aborted) = computed
+        .extras
+        .get("aborted_total_24h")
+        .and_then(|v| v.as_i64())
+    {
         crate::metrics::DATASET_TXN_FAILURES_TOTAL
             .with_label_values(&[rid])
             .reset();

@@ -114,10 +114,7 @@ fn build_push_url(base_url: &str, view_rid: &str) -> String {
 /// Returns true when at least one running topology references this
 /// stream. The check is conservative — any non-`stopped`/`failed`
 /// status counts.
-async fn downstream_pipelines_active(
-    db: &PgPool,
-    stream_id: Uuid,
-) -> Result<bool, sqlx::Error> {
+async fn downstream_pipelines_active(db: &PgPool, stream_id: Uuid) -> Result<bool, sqlx::Error> {
     // `source_stream_ids` is JSONB. We scan the array for the stream id
     // and skip topologies whose `status` is in a terminal state.
     let count: i64 = sqlx::query_scalar(
@@ -212,9 +209,7 @@ pub async fn reset_stream(
         previous
             .as_ref()
             .and_then(|v| v.config_json.as_ref().map(|j| j.0.clone()))
-            .unwrap_or_else(|| {
-                serde_json::to_value(stream.config_view()).unwrap_or(Value::Null)
-            })
+            .unwrap_or_else(|| serde_json::to_value(stream.config_view()).unwrap_or(Value::Null))
     });
     let schema_changed = previous
         .as_ref()

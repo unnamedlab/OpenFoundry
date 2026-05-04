@@ -40,15 +40,12 @@ use axum::{
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
-use cedar_policy::{
-    Context, Entities, Entity, EntityUid, PolicySet, RestrictedExpression,
-};
+use cedar_policy::{Context, Entities, Entity, EntityUid, PolicySet, RestrictedExpression};
 use serde_json::Value;
 
 /// Bundled admin policy set (S3.1.i). Baked into the binary so the
 /// service boots without depending on `pg-policy.cedar_policies`.
-pub const IDENTITY_ADMIN_POLICIES: &str =
-    include_str!("../policies/identity_admin.cedar");
+pub const IDENTITY_ADMIN_POLICIES: &str = include_str!("../policies/identity_admin.cedar");
 
 /// Parse [`IDENTITY_ADMIN_POLICIES`] and return the records the
 /// `PolicyStore` expects (one per Cedar `permit`/`forbid` block).
@@ -79,7 +76,10 @@ pub fn bundled_policy_records() -> Result<Vec<PolicyRecord>, PolicyStoreError> {
 pub async fn bootstrap_engine() -> Result<Arc<AuthzEngine>, PolicyStoreError> {
     let records = bundled_policy_records()?;
     let store = PolicyStore::with_policies(&records).await?;
-    Ok(Arc::new(AuthzEngine::new(store, Arc::new(TracingAuditSink))))
+    Ok(Arc::new(AuthzEngine::new(
+        store,
+        Arc::new(TracingAuditSink),
+    )))
 }
 
 /// Subscribe to `authz.policy.changed` and re-load the bundled policy
@@ -89,10 +89,7 @@ pub async fn bootstrap_engine() -> Result<Arc<AuthzEngine>, PolicyStoreError> {
 /// `main` is fine — we only stop on process exit). On NATS connection
 /// errors we log and return without subscribing; the engine keeps
 /// serving the boot-time policy set.
-pub async fn spawn_policy_reload(
-    nats_url: &str,
-    engine: Arc<AuthzEngine>,
-) -> anyhow::Result<()> {
+pub async fn spawn_policy_reload(nats_url: &str, engine: Arc<AuthzEngine>) -> anyhow::Result<()> {
     let client = async_nats::connect(nats_url).await?;
     let subscriber = PolicyReloadSubscriber::new(client);
     let store = engine.store().clone();
@@ -100,8 +97,8 @@ pub async fn spawn_policy_reload(
         .run(move || {
             let store = store.clone();
             Box::pin(async move {
-                let records = bundled_policy_records()
-                    .map_err(|e| anyhow::anyhow!("reload parse: {e}"))?;
+                let records =
+                    bundled_policy_records().map_err(|e| anyhow::anyhow!("reload parse: {e}"))?;
                 store
                     .replace_policies(&records)
                     .await
@@ -387,7 +384,10 @@ pub fn principal_entities_from_claims(claims: &Claims) -> (Entity, Vec<Entity>) 
             "clearances".to_string(),
             RestrictedExpression::new_set(clearances),
         ),
-        ("roles".to_string(), RestrictedExpression::new_set(roles_set)),
+        (
+            "roles".to_string(),
+            RestrictedExpression::new_set(roles_set),
+        ),
     ];
 
     if let Some(kind) = claims
@@ -435,8 +435,7 @@ pub fn principal_entities_from_claims(claims: &Claims) -> (Entity, Vec<Entity>) 
         .into_iter()
         .collect();
         parent_entities.push(
-            Entity::new(g_uid, g_attrs, HashSet::new())
-                .expect("static Group attrs are valid"),
+            Entity::new(g_uid, g_attrs, HashSet::new()).expect("static Group attrs are valid"),
         );
     }
     for role in &claims.roles {
@@ -449,8 +448,7 @@ pub fn principal_entities_from_claims(claims: &Claims) -> (Entity, Vec<Entity>) 
         .into_iter()
         .collect();
         parent_entities.push(
-            Entity::new(r_uid, r_attrs, HashSet::new())
-                .expect("static Role attrs are valid"),
+            Entity::new(r_uid, r_attrs, HashSet::new()).expect("static Role attrs are valid"),
         );
     }
 

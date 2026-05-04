@@ -197,7 +197,10 @@ mod tests {
         let back: DatasetBranch = serde_json::from_value(raw).unwrap();
         assert_eq!(back.fallback_chain, b.fallback_chain);
         assert_eq!(back.labels, b.labels);
-        assert_eq!(back.created_from_transaction_id, b.created_from_transaction_id);
+        assert_eq!(
+            back.created_from_transaction_id,
+            b.created_from_transaction_id
+        );
     }
 
     #[test]

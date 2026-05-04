@@ -17,10 +17,12 @@ use storage_abstraction::repositories::{
 #[ignore = "requires Docker for ephemeral Kafka"]
 async fn kafka_event_is_consumed_and_indexed() {
     let kafka = EphemeralKafka::start().await.expect("start kafka");
-    kafka
-        .create_topic(topics::ONTOLOGY_OBJECT_CHANGED_V1, 1)
-        .await
-        .expect("create topic");
+    for topic in runtime::SUBSCRIBE_TOPICS {
+        kafka
+            .create_topic(topic, 1)
+            .await
+            .unwrap_or_else(|err| panic!("create topic {topic}: {err}"));
+    }
 
     let backend: Arc<dyn SearchBackend> = Arc::new(InMemorySearchBackend::default());
     let subscriber_cfg = kafka.config_for("ontology-indexer");
@@ -82,7 +84,15 @@ async fn kafka_event_is_consumed_and_indexed() {
             indexed = true;
             break;
         }
+        if task.is_finished() {
+            break;
+        }
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    if !indexed && task.is_finished() {
+        let result = task.await.expect("ontology-indexer task panicked");
+        panic!("ontology-indexer exited before indexing: {result:?}");
     }
 
     task.abort();

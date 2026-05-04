@@ -47,10 +47,12 @@ fn sch001_does_not_flag_schedule_with_run_in_last_90_days() {
         now,
         production: false,
     });
-    assert!(report
-        .findings
-        .iter()
-        .all(|f| f.rule_id != RuleId::Sch001InactiveLastNinety));
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|f| f.rule_id != RuleId::Sch001InactiveLastNinety)
+    );
 }
 
 #[test]

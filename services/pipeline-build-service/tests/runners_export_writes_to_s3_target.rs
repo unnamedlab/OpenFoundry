@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use pipeline_build_service::domain::build_executor::{JobContext, JobOutcome, JobRunner};
 use pipeline_build_service::domain::build_resolution::JobSpec;
-use pipeline_build_service::domain::runners::{logic_kinds, ExportJobRunner};
+use pipeline_build_service::domain::runners::{ExportJobRunner, logic_kinds};
 use serde_json::json;
 use uuid::Uuid;
 use wiremock::matchers::{body_partial_json, method, path};
@@ -60,7 +60,9 @@ async fn export_runner_posts_manifest_to_s3_endpoint() {
     };
     let outcome = runner.run(&ctx).await;
     match outcome {
-        JobOutcome::Completed { output_content_hash } => {
+        JobOutcome::Completed {
+            output_content_hash,
+        } => {
             assert!(!output_content_hash.is_empty());
         }
         other => panic!("expected Completed, got {other:?}"),

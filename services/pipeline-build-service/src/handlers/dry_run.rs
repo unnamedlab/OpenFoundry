@@ -31,12 +31,8 @@ use crate::AppState;
 use crate::domain::branch_resolution::{
     ResolveError, ResolvedInput, ResolvedOutput, resolve_input_dataset, resolve_output_dataset,
 };
-use crate::domain::build_resolution::{
-    DatasetVersioningClient, InputSpec, JobSpec, JobSpecRepo,
-};
-use crate::domain::job_graph::{
-    InMemoryJobSpecRepo, JobGraph, compile_build_graph, CompileError,
-};
+use crate::domain::build_resolution::{DatasetVersioningClient, InputSpec, JobSpec, JobSpecRepo};
+use crate::domain::job_graph::{CompileError, InMemoryJobSpecRepo, JobGraph, compile_build_graph};
 use crate::domain::metrics;
 
 #[derive(Debug, Deserialize)]
@@ -194,10 +190,8 @@ pub async fn dry_run_resolve(
     // Per-input branch resolution: if a versioning client is wired up,
     // use it; otherwise return the chain as-declared without
     // confirming branch existence.
-    let versioning: Option<Arc<dyn DatasetVersioningClient>> = state
-        .lifecycle_ports
-        .as_ref()
-        .map(|p| p.versioning.clone());
+    let versioning: Option<Arc<dyn DatasetVersioningClient>> =
+        state.lifecycle_ports.as_ref().map(|p| p.versioning.clone());
 
     let mut jobs = Vec::new();
     let mut errors = Vec::new();
@@ -253,7 +247,8 @@ pub async fn dry_run_resolve(
             let outcome = match versioning.as_deref() {
                 Some(client) => match client.list_branches(output_rid).await {
                     Ok(branches) => {
-                        let branch_names: Vec<_> = branches.iter().map(|b| b.name.clone()).collect();
+                        let branch_names: Vec<_> =
+                            branches.iter().map(|b| b.name.clone()).collect();
                         match resolve_output_dataset(&build_branch_parsed, &chain, &branch_names) {
                             Ok(ResolvedOutput::Existing(name)) => DryRunOutput {
                                 dataset_rid: output_rid.clone(),
@@ -353,13 +348,13 @@ async fn resolve_input_branch(
                     branch,
                     fallback_index,
                 }) => Ok((branch.into_string(), fallback_index)),
-                Err(ResolveError::NoMatch { tried, available, .. }) => {
-                    Err(format!(
-                        "no branch on {ds} matches build={bb} (tried {tried:?}, available {available:?})",
-                        ds = input.dataset_rid,
-                        bb = build_branch.as_str(),
-                    ))
-                }
+                Err(ResolveError::NoMatch {
+                    tried, available, ..
+                }) => Err(format!(
+                    "no branch on {ds} matches build={bb} (tried {tried:?}, available {available:?})",
+                    ds = input.dataset_rid,
+                    bb = build_branch.as_str(),
+                )),
                 Err(ResolveError::IncompatibleAncestry { .. }) => Err(format!(
                     "fallback chain on {ds} is not ancestry-compatible",
                     ds = input.dataset_rid

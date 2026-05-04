@@ -20,17 +20,21 @@ fn dst_fall_back_fires_twice_on_overlap() {
 
     // First fire: 01:30 EDT = 2026-11-01T05:30 UTC.
     let first = next_fire_after(&s, after).unwrap();
-    let first_expected: DateTime<Utc> = chrono::Utc
-        .with_ymd_and_hms(2026, 11, 1, 5, 30, 0)
-        .unwrap();
-    assert_eq!(first, first_expected, "first overlap fire should be 05:30 UTC (EDT)");
+    let first_expected: DateTime<Utc> =
+        chrono::Utc.with_ymd_and_hms(2026, 11, 1, 5, 30, 0).unwrap();
+    assert_eq!(
+        first, first_expected,
+        "first overlap fire should be 05:30 UTC (EDT)"
+    );
 
     // Second fire: 01:30 EST = 2026-11-01T06:30 UTC.
     let second = next_fire_after(&s, first).unwrap();
-    let second_expected: DateTime<Utc> = chrono::Utc
-        .with_ymd_and_hms(2026, 11, 1, 6, 30, 0)
-        .unwrap();
-    assert_eq!(second, second_expected, "second overlap fire should be 06:30 UTC (EST)");
+    let second_expected: DateTime<Utc> =
+        chrono::Utc.with_ymd_and_hms(2026, 11, 1, 6, 30, 0).unwrap();
+    assert_eq!(
+        second, second_expected,
+        "second overlap fire should be 06:30 UTC (EST)"
+    );
 
     // Third fire: 01:30 next day in EST = 2026-11-02 06:30 UTC.
     let third = next_fire_after(&s, second).unwrap();

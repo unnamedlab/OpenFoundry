@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use pipeline_schedule_service::domain::build_client::BuildAttemptOutcome;
 use pipeline_schedule_service::domain::dispatcher::{
-    Dispatcher, DispatcherConfig, DispatchTrigger,
+    DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::run_store::RunOutcome;
 
@@ -26,17 +26,15 @@ async fn dispatch_marks_run_ignored_when_outputs_fresh() {
         BuildAttemptOutcome::AllOutputsFresh,
     ));
     let notify = Arc::new(common::StubNotificationClient::default());
-    let dispatcher = Dispatcher::new(
-        pool.clone(),
-        build,
-        notify,
-        DispatcherConfig::default(),
-    );
+    let dispatcher = Dispatcher::new(pool.clone(), build, notify, DispatcherConfig::default());
 
     let report = dispatcher
-        .dispatch(&schedule, DispatchTrigger::Cron {
-            fired_at: chrono::Utc::now(),
-        })
+        .dispatch(
+            &schedule,
+            DispatchTrigger::Cron {
+                fired_at: chrono::Utc::now(),
+            },
+        )
         .await
         .expect("dispatch");
     let run = report.run.expect("run row");

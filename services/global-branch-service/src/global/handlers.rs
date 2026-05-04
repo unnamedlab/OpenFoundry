@@ -37,14 +37,22 @@ pub async fn create_global_branch(
             ),
             other => internal(other),
         })?;
-    audit("global_branch.created", &state.actor, &row.rid, json!({"name": row.name}));
+    audit(
+        "global_branch.created",
+        &state.actor,
+        &row.rid,
+        json!({"name": row.name}),
+    );
     Ok((StatusCode::CREATED, Json(row)))
 }
 
 pub async fn list_global_branches(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<GlobalBranch>>, (StatusCode, Json<Value>)> {
-    store::list_branches(&state.db).await.map(Json).map_err(internal)
+    store::list_branches(&state.db)
+        .await
+        .map(Json)
+        .map_err(internal)
 }
 
 pub async fn get_global_branch(
@@ -74,10 +82,16 @@ pub async fn add_link(
     }
     // Make sure the global branch exists so we never insert orphan
     // links pointing at a non-existent FK target.
-    if store::get_branch(&state.db, id).await.map_err(internal)?.is_none() {
+    if store::get_branch(&state.db, id)
+        .await
+        .map_err(internal)?
+        .is_none()
+    {
         return Err(not_found("global branch not found"));
     }
-    let link = store::add_link(&state.db, id, &request).await.map_err(internal)?;
+    let link = store::add_link(&state.db, id, &request)
+        .await
+        .map_err(internal)?;
     audit(
         "global_branch.link.added",
         &state.actor,
@@ -95,7 +109,10 @@ pub async fn list_resources(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<GlobalBranchLink>>, (StatusCode, Json<Value>)> {
-    store::list_links(&state.db, id).await.map(Json).map_err(internal)
+    store::list_links(&state.db, id)
+        .await
+        .map(Json)
+        .map_err(internal)
 }
 
 pub async fn promote(
@@ -119,7 +136,9 @@ pub async fn promote(
     )
     .with_header("event_type", "global.branch.promote.requested.v1")
     .with_header("global_branch_rid", branch.rid.clone());
-    enqueue(&mut tx, event).await.map_err(|e| internal(e.to_string()))?;
+    enqueue(&mut tx, event)
+        .await
+        .map_err(|e| internal(e.to_string()))?;
     tx.commit().await.map_err(internal)?;
 
     audit(

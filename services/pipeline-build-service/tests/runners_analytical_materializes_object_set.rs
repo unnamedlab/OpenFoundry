@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pipeline_build_service::domain::build_executor::{JobContext, JobOutcome, JobRunner};
 use pipeline_build_service::domain::build_resolution::JobSpec;
-use pipeline_build_service::domain::runners::{logic_kinds, AnalyticalJobRunner};
+use pipeline_build_service::domain::runners::{AnalyticalJobRunner, logic_kinds};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -46,7 +46,14 @@ async fn analytical_runner_emits_deterministic_hash() {
     let outcome2 = runner.run(&ctx_with(payload, vec!["ri.out"])).await;
 
     let (h1, h2) = match (outcome1, outcome2) {
-        (JobOutcome::Completed { output_content_hash: a }, JobOutcome::Completed { output_content_hash: b }) => (a, b),
+        (
+            JobOutcome::Completed {
+                output_content_hash: a,
+            },
+            JobOutcome::Completed {
+                output_content_hash: b,
+            },
+        ) => (a, b),
         other => panic!("unexpected outcomes: {other:?}"),
     };
     assert_eq!(h1, h2, "same payload must produce same hash");
@@ -57,10 +64,7 @@ async fn analytical_runner_rejects_multi_output() {
     let runner = AnalyticalJobRunner::default();
     let runner: Arc<dyn JobRunner> = Arc::new(runner);
     let outcome = runner
-        .run(&ctx_with(
-            json!({"object_set_query": {}}),
-            vec!["a", "b"],
-        ))
+        .run(&ctx_with(json!({"object_set_query": {}}), vec!["a", "b"]))
         .await;
     match outcome {
         JobOutcome::Failed { reason } => {

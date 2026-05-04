@@ -8,12 +8,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-async fn create_child(
-    h: &common::Harness,
-    dataset_id: Uuid,
-    name: &str,
-    parent: &str,
-) {
+async fn create_child(h: &common::Harness, dataset_id: Uuid, name: &str, parent: &str) {
     let req = Request::builder()
         .method("POST")
         .uri(format!("/v1/datasets/{dataset_id}/branches"))
@@ -24,18 +19,19 @@ async fn create_child(
         ))
         .unwrap();
     let resp = h.router.clone().oneshot(req).await.expect("router");
-    assert!(resp.status().is_success(), "create {name}: {}", resp.status());
+    assert!(
+        resp.status().is_success(),
+        "create {name}: {}",
+        resp.status()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires Docker; run with --include-ignored"]
 async fn lca_is_master_for_two_siblings_off_master() {
     let h = common::spawn().await;
-    let dataset_id = common::seed_dataset_with_master(
-        &h.pool,
-        "ri.foundry.main.dataset.compare-lca",
-    )
-    .await;
+    let dataset_id =
+        common::seed_dataset_with_master(&h.pool, "ri.foundry.main.dataset.compare-lca").await;
 
     create_child(&h, dataset_id, "feature-a", "master").await;
     create_child(&h, dataset_id, "feature-b", "master").await;

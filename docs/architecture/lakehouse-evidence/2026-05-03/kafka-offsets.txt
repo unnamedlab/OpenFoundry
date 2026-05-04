@@ -177,30 +177,34 @@ Retry and error metrics:
     - audit_sink_records_total
     - audit_sink_batch_size_records
     - audit_sink_commits_total
+    - lineage_service_lag_seconds
+    - lineage_service_records_total
+    - lineage_service_batch_size_records
+    - lineage_service_commits_total
     - ai_sink_lag_seconds
     - ai_sink_records_total
     - ai_sink_batch_size
     - ai_sink_commits_total
     - ontology_indexer_lag_seconds
-    - ontology_indexer_kafka_lag_records
     - ontology_indexer_records_total{outcome="decode_error"}
     - streaming_dead_letter_total
 
-  Repo search did not find lineage-service Prometheus metric constants for
-  lineage_service_records_total, lineage_service_commits_total or
-  lineage_service_lag_seconds. That remains a metric-instrumentation blocker
-  for full S5-OPS sign-off unless the deployed binary exposes equivalent
-  metrics.
+  Repo search now finds lineage-service Prometheus metrics in
+  `services/lineage-service/src/runtime.rs`. That removes the code-level metric
+  blocker, but full S5-OPS sign-off still requires the deployed binary to be
+  scraped during real traffic.
 
 Prometheus queries to close retry/error/lag evidence in the required environment:
 
   audit_sink_lag_seconds
   increase(audit_sink_records_total[30m])
   increase(audit_sink_commits_total[30m])
+  lineage_service_lag_seconds
+  increase(lineage_service_records_total[30m])
+  increase(lineage_service_commits_total[30m])
   ai_sink_lag_seconds
   increase(ai_sink_records_total[30m])
   increase(ai_sink_commits_total[30m])
-  ontology_indexer_kafka_lag_records
   histogram_quantile(0.99, sum by (le) (rate(ontology_indexer_lag_seconds_bucket[5m])))
   sum by (topic) (rate(ontology_indexer_records_total{outcome="decode_error"}[5m]))
   increase(streaming_dead_letter_total[30m])

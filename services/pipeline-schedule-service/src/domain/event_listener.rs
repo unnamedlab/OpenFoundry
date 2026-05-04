@@ -47,15 +47,16 @@ pub struct InboundEvent {
 /// function is what every consumer calls to project the payload onto
 /// the trigger-engine vocabulary.
 pub fn decode_event_payload(topic: &str, payload: &Value) -> Option<InboundEvent> {
-    let target_rid = payload.get("target_rid").and_then(Value::as_str)?.to_string();
+    let target_rid = payload
+        .get("target_rid")
+        .and_then(Value::as_str)?
+        .to_string();
     let event_type_str = payload.get("event_type").and_then(Value::as_str)?;
     let event_type = match (topic, event_type_str) {
         (DATASET_EVENTS_TOPIC, "data_updated") => EventType::DataUpdated,
         (DATASET_EVENTS_TOPIC, "new_logic") => EventType::NewLogic,
         (BUILD_EVENTS_TOPIC, "job_succeeded") => EventType::JobSucceeded,
-        (SCHEDULE_EVENTS_TOPIC, "schedule_ran_successfully") => {
-            EventType::ScheduleRanSuccessfully
-        }
+        (SCHEDULE_EVENTS_TOPIC, "schedule_ran_successfully") => EventType::ScheduleRanSuccessfully,
         _ => return None,
     };
     let occurred_at = payload

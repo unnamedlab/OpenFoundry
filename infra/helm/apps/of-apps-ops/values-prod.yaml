@@ -1,0 +1,19 @@
+global:
+  deploymentFabric:
+    environment: prod
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
+
+temporal:
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  namespace: openfoundry-prod
+
+services:
+  audit-sink:
+    replicas: 2
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80

@@ -125,19 +125,21 @@ async fn applicable_policies_buckets_inheritance_and_picks_most_restrictive_winn
 
     assert!(org_ids.contains(&org_policy), "org bucket: {body}");
     assert!(space_ids.contains(&space_policy), "space bucket: {body}");
-    assert!(project_ids.contains(&project_policy), "project bucket: {body}");
+    assert!(
+        project_ids.contains(&project_policy),
+        "project bucket: {body}"
+    );
     assert!(
         explicit_ids.contains(&explicit_policy),
         "explicit bucket: {body}"
     );
 
     // Winner: explicit-7-days (lowest retention_days + highest specificity).
-    let winner: Uuid = body["effective"]["id"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert_eq!(winner, explicit_policy, "winner must be the explicit policy: {body}");
+    let winner: Uuid = body["effective"]["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(
+        winner, explicit_policy,
+        "winner must be the explicit policy: {body}"
+    );
     let winner_days = body["effective"]["retention_days"].as_i64().unwrap();
     assert_eq!(winner_days, 7);
 

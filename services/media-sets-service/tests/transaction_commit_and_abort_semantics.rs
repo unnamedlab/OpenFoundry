@@ -44,7 +44,8 @@ async fn transactional_open_commit_seals_writes_and_rejects_double_commit() {
         .await
         .unwrap();
     assert_eq!(txn_resp.status(), StatusCode::CREATED);
-    let txn: Value = serde_json::from_slice(&txn_resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let txn: Value =
+        serde_json::from_slice(&txn_resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let txn_rid = txn["rid"].as_str().unwrap().to_string();
     assert_eq!(txn["state"], "OPEN");
 
@@ -89,7 +90,8 @@ async fn transactional_open_commit_seals_writes_and_rejects_double_commit() {
         .await
         .unwrap();
     assert_eq!(commit.status(), StatusCode::OK);
-    let after: Value = serde_json::from_slice(&commit.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let after: Value =
+        serde_json::from_slice(&commit.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(after["state"], "COMMITTED");
 
     let second_commit = h
@@ -120,7 +122,12 @@ async fn aborting_transaction_drops_staged_items() {
     .await;
 
     let txn = media_sets_service::handlers::transactions::open_transaction_op(
-        &h.state, &set.rid, "main", "tester", &common::test_ctx(),
+        &h.state,
+        &set.rid,
+        "main",
+        "tester",
+        media_sets_service::models::WriteMode::Modify,
+        &common::test_ctx(),
     )
     .await
     .expect("open transaction");
@@ -154,12 +161,16 @@ async fn aborting_transaction_drops_staged_items() {
     .expect("abort");
 
     // Items written inside an aborted transaction must be gone.
-    let staged: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM media_items WHERE transaction_rid = $1")
-        .bind(&txn.rid)
-        .fetch_one(&h.pool)
-        .await
-        .unwrap();
-    assert_eq!(staged.0, 0, "aborted transaction should have no surviving items");
+    let staged: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM media_items WHERE transaction_rid = $1")
+            .bind(&txn.rid)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        staged.0, 0,
+        "aborted transaction should have no surviving items"
+    );
 }
 
 #[tokio::test]

@@ -1,0 +1,47 @@
+# Values for the upstream Strimzi Kafka Operator Helm chart.
+#
+#   helm repo add strimzi https://strimzi.io/charts/
+#   helm install -n kafka --create-namespace strimzi-operator \
+#     strimzi/strimzi-kafka-operator \
+#     -f values-strimzi-operator.yaml
+#
+# The operator is namespace-scoped to `kafka` here. To watch additional
+# namespaces (e.g. dedicated ML namespaces with their own KafkaTopics),
+# extend `watchNamespaces`.
+
+replicas: 1
+
+watchNamespaces:
+  - kafka
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 384Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+
+# Strimzi 0.45+ removed the `UseKRaft` and `KafkaNodePools` gates
+# (both are now default-on and no longer toggleable). Leave empty
+# unless adding a currently documented gate.
+featureGates: ""
+
+# Restrict the operator's image pull policy and pin to the chart-default
+# tag (do not float). Override the registry mirror for air-gapped envs.
+image:
+  imagePullPolicy: IfNotPresent
+
+logLevel: INFO
+
+# Pod-level hardening — runs as non-root, read-only rootfs, no caps.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: trino
+description: |
+  Trino analytical query engine. Bundles the OpenFoundry-vendored
+  Trino chart at ./upstream-chart/ plus connector configs and
+  bootstrap views.
+type: application
+version: 0.1.0
+appVersion: "459"
+dependencies:
+  - name: trino
+    version: ">= 0.0.0"
+    repository: "file://./upstream-chart"

@@ -185,12 +185,10 @@ impl PgTriggerEvaluator {
 
         let satisfied = compound_satisfied_event_only(&schedule.trigger, "", &satisfied_paths);
         if satisfied {
-            sqlx::query(
-                "DELETE FROM schedule_event_observations WHERE schedule_id = $1",
-            )
-            .bind(schedule.id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("DELETE FROM schedule_event_observations WHERE schedule_id = $1")
+                .bind(schedule.id)
+                .execute(&mut *tx)
+                .await?;
             tx.commit().await?;
             Ok(TriggerOutcome::Satisfied)
         } else {

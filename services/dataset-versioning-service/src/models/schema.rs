@@ -232,10 +232,7 @@ pub enum SchemaValidationError {
     #[error("CSV options provided but file_format is not TEXT (got {0})")]
     CsvOptionsRequireText(&'static str),
     #[error("invalid CSV option `{key}`: `{value}`")]
-    InvalidCsvOption {
-        key: &'static str,
-        value: String,
-    },
+    InvalidCsvOption { key: &'static str, value: String },
 }
 
 /// Validate a [`DatasetSchema`]. Fail-fast on the first problem.
@@ -243,7 +240,9 @@ pub fn validate_schema(schema: &DatasetSchema) -> Result<(), SchemaValidationErr
     let mut seen = HashSet::new();
     for field in &schema.fields {
         if !seen.insert(field.name.as_str()) {
-            return Err(SchemaValidationError::DuplicateFieldName(field.name.clone()));
+            return Err(SchemaValidationError::DuplicateFieldName(
+                field.name.clone(),
+            ));
         }
         validate_field(field)?;
     }
@@ -281,12 +280,18 @@ pub fn validate_field(field: &Field) -> Result<(), SchemaValidationError> {
                 }
             }
             _ => {
-                return Err(SchemaValidationError::DecimalMissingParams(field.name.clone()));
+                return Err(SchemaValidationError::DecimalMissingParams(
+                    field.name.clone(),
+                ));
             }
         },
         FieldType::Array { array_sub_type } => match array_sub_type {
             Some(sub) => validate_field(sub)?,
-            None => return Err(SchemaValidationError::ArrayMissingSubType(field.name.clone())),
+            None => {
+                return Err(SchemaValidationError::ArrayMissingSubType(
+                    field.name.clone(),
+                ));
+            }
         },
         FieldType::Map {
             map_key_type,
@@ -303,7 +308,9 @@ pub fn validate_field(field: &Field) -> Result<(), SchemaValidationError> {
                 validate_field(v)?;
             }
             _ => {
-                return Err(SchemaValidationError::MapMissingKeyOrValue(field.name.clone()));
+                return Err(SchemaValidationError::MapMissingKeyOrValue(
+                    field.name.clone(),
+                ));
             }
         },
         FieldType::Struct { sub_schemas } => {
@@ -393,8 +400,7 @@ impl DatasetSchema {
     /// Render the schema as an Arrow [`arrow_schema::Schema`] for the
     /// runtime layer. Validation must be called separately if needed.
     pub fn to_arrow_schema(&self) -> arrow_schema::Schema {
-        let fields: Vec<arrow_schema::Field> =
-            self.fields.iter().map(field_to_arrow).collect();
+        let fields: Vec<arrow_schema::Field> = self.fields.iter().map(field_to_arrow).collect();
         arrow_schema::Schema::new(fields)
     }
 }
@@ -422,10 +428,9 @@ fn field_type_to_arrow(ft: &FieldType) -> arrow_schema::DataType {
         // Validation rejects un-parameterised DECIMAL, but if the type
         // sneaks through we pick the Foundry-recommended default so
         // Arrow stays well-formed.
-        FieldType::Decimal { precision, scale } => DataType::Decimal128(
-            precision.unwrap_or(38),
-            scale.unwrap_or(18) as i8,
-        ),
+        FieldType::Decimal { precision, scale } => {
+            DataType::Decimal128(precision.unwrap_or(38), scale.unwrap_or(18) as i8)
+        }
         FieldType::Array { array_sub_type } => {
             let inner = match array_sub_type.as_deref() {
                 Some(sub) => field_to_arrow(sub),

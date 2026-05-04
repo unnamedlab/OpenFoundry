@@ -105,7 +105,11 @@ impl KafkaPublisher {
 fn non_empty_env(key: &'static str) -> Option<String> {
     std::env::var(key).ok().and_then(|v| {
         let t = v.trim();
-        if t.is_empty() { None } else { Some(t.to_string()) }
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
     })
 }
 

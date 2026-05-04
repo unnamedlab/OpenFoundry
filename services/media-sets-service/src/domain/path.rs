@@ -25,7 +25,11 @@ pub struct MediaItemKey {
 }
 
 impl MediaItemKey {
-    pub fn new(media_set_rid: impl Into<String>, branch: impl Into<String>, sha256: impl Into<String>) -> Self {
+    pub fn new(
+        media_set_rid: impl Into<String>,
+        branch: impl Into<String>,
+        sha256: impl Into<String>,
+    ) -> Self {
         Self {
             media_set_rid: media_set_rid.into(),
             branch: branch.into(),
@@ -76,7 +80,11 @@ mod tests {
 
     #[test]
     fn storage_uri_uses_s3_scheme_regardless_of_backend() {
-        let k = MediaItemKey::new("ms", "main", "ffeeddcc00112233445566778899aabbccddeeff00112233445566778899aabb");
+        let k = MediaItemKey::new(
+            "ms",
+            "main",
+            "ffeeddcc00112233445566778899aabbccddeeff00112233445566778899aabb",
+        );
         assert_eq!(
             storage_uri("media", &k),
             "s3://media/media-sets/ms/main/ff/\

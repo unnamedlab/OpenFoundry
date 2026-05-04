@@ -8,17 +8,15 @@ mod common;
 use core_models::dataset::transaction::BranchName;
 use std::collections::HashMap;
 
-use pipeline_build_service::domain::build_executor::{
-    execute_build, ExecuteBuildArgs,
-};
+use pipeline_build_service::domain::build_executor::{ExecuteBuildArgs, execute_build};
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
 use pipeline_build_service::models::build::BuildState;
 
 use crate::common::{
-    arc_output, arc_runner, job_spec, MockDatasetClient, MockJobRunner, MockJobSpecRepo,
-    MockOutputClient, RunnerScript, spawn,
+    MockDatasetClient, MockJobRunner, MockJobSpecRepo, MockOutputClient, RunnerScript, arc_output,
+    arc_runner, job_spec, spawn,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -30,7 +28,10 @@ async fn staleness_skips_when_inputs_unchanged() {
     specs.add(job_spec("ri.spec.s", vec!["raw.in"], vec!["out.s"]));
     versioning.add_branch(
         "raw.in",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();

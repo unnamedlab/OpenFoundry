@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use pipeline_schedule_service::domain::build_client::BuildAttemptOutcome;
 use pipeline_schedule_service::domain::dispatcher::{
-    Dispatcher, DispatcherConfig, DispatchTrigger,
+    DispatchTrigger, Dispatcher, DispatcherConfig,
 };
 use pipeline_schedule_service::domain::run_store::{self, ListRunsFilter, RunOutcome};
 use uuid::Uuid;
@@ -33,9 +33,12 @@ async fn dispatch_marks_run_succeeded_on_started_build() {
     );
 
     let report = dispatcher
-        .dispatch(&schedule, DispatchTrigger::Manual {
-            requested_by: Uuid::now_v7(),
-        })
+        .dispatch(
+            &schedule,
+            DispatchTrigger::Manual {
+                requested_by: Uuid::now_v7(),
+            },
+        )
         .await
         .expect("dispatch");
     let run = report.run.expect("run row inserted");

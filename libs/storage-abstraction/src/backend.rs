@@ -9,6 +9,8 @@ pub enum StorageError {
     Io(#[from] object_store::Error),
     #[error("invalid path: {0}")]
     InvalidPath(String),
+    #[error("unsupported storage operation: {0}")]
+    Unsupported(String),
 }
 
 pub type StorageResult<T> = Result<T, StorageError>;

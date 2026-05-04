@@ -33,7 +33,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use scylla::Session;
+use scylla::{Session, frame::value::CqlTimestamp};
 use tracing::info;
 
 use crate::error::{KernelError, KernelResult};
@@ -129,10 +129,12 @@ pub async fn apply(
             session.query(*stmt, &[]).await?;
         }
 
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
+        let applied_at = CqlTimestamp(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+        );
         let insert = format!(
             "INSERT INTO {ks}.cassandra_kernel_migrations \
              (version, name, applied_at, checksum) VALUES (?, ?, ?, ?)",
@@ -141,7 +143,7 @@ pub async fn apply(
         session
             .query(
                 insert,
-                (m.version, m.name.to_string(), now_ms, current_checksum),
+                (m.version, m.name.to_string(), applied_at, current_checksum),
             )
             .await?;
         outcomes.push((m.version, MigrationOutcome::Applied));

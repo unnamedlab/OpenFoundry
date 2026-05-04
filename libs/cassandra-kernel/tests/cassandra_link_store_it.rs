@@ -13,16 +13,13 @@
 
 #![cfg(feature = "repos")]
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+mod support;
 
-use cassandra_kernel::{ClusterConfig, SessionBuilder, repos::CassandraLinkStore};
+use std::collections::HashSet;
+
+use cassandra_kernel::repos::CassandraLinkStore;
 use storage_abstraction::repositories::{
     Link, LinkStore, LinkTypeId, ObjectId, Page, ReadConsistency, TenantId,
-};
-use testcontainers::{
-    GenericImage,
-    core::{IntoContainerPort, WaitFor},
-    runners::AsyncRunner,
 };
 use uuid::Uuid;
 
@@ -31,27 +28,9 @@ use uuid::Uuid;
 async fn cassandra_link_store_round_trips_and_pages() {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let image = GenericImage::new("cassandra", "5.0.2")
-        .with_exposed_port(9042.tcp())
-        .with_wait_for(WaitFor::message_on_stdout(
-            "Starting listening for CQL clients",
-        ));
-    let container = image.start().await.expect("starting cassandra");
-    let host = container.get_host().await.expect("host").to_string();
-    let port = container
-        .get_host_port_ipv4(9042)
-        .await
-        .expect("mapped port");
-
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    let cfg = ClusterConfig {
-        contact_points: vec![format!("{host}:{port}")],
-        local_datacenter: "datacenter1".to_string(),
-        ..ClusterConfig::dev_local()
-    };
-    let session = Arc::new(SessionBuilder::new(cfg).build().await.expect("session"));
-    apply_ddl(&session).await;
+    let cassandra = support::start_cassandra().await;
+    let session = cassandra.session.clone();
+    apply_ddl(session.as_ref()).await;
 
     let store = CassandraLinkStore::new(session);
     store.warm_up().await.expect("warm-up prepares");

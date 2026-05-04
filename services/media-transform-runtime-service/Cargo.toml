@@ -1,0 +1,94 @@
+[package]
+name = "media-transform-runtime-service"
+description = "Worker that runs Foundry-style media access patterns (image / audio / video / document / spreadsheet). Bills compute-seconds via libs/observability, emits the canonical media_set.access_pattern_invoked audit envelope, and returns 501 NotImplemented (with a stable catalog) for transformations whose external dependency is not yet wired."
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.audit-trail]
+workspace = true
+
+[dependencies.auth-middleware]
+workspace = true
+
+[dependencies.axum]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.config]
+workspace = true
+
+[dependencies.observability]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
+[dependencies.tracing]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.uuid]
+workspace = true
+
+# Native image transformations — `image` covers thumbnail / resize /
+# rotate / crop / grayscale across the codecs we need (PNG / JPEG /
+# WEBP / TIFF / GIF). Audio / video / OCR / VLM lean on external
+# binaries that are deferred to follow-up PRs; those handlers return
+# 501 with a clear catalog so the wire surface stays stable.
+[dependencies.image]
+version = "0.25"
+default-features = false
+features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"]
+
+[lib]
+path = "src/lib.rs"
+name = "media_transform_runtime_service"
+required-features = []
+crate-type = ["lib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "media-transform-runtime-service"
+required-features = []
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt-multi-thread"]
+
+[dev-dependencies.tower]
+workspace = true
+
+[dev-dependencies.http-body-util]
+version = "0.1"
+
+[dev-dependencies.serde_json]
+workspace = true

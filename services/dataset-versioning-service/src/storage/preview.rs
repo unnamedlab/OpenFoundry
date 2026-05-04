@@ -27,8 +27,8 @@ use serde_json::{Map, Value};
 use sqlx::PgPool;
 use storage_abstraction::StorageBackend;
 use storage_abstraction::readers::arrow_array::{
-    Array, BinaryArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, Int8Array, RecordBatch, StringArray,
+    Array, BinaryArray, BooleanArray, Float32Array, Float64Array, Int8Array, Int16Array,
+    Int32Array, Int64Array, RecordBatch, StringArray,
 };
 use storage_abstraction::readers::arrow_schema::{DataType, Schema as ArrowSchema};
 use storage_abstraction::readers::{
@@ -208,8 +208,7 @@ pub async fn read_view_preview(
     // 6) Convert batches → JSON columnar. Apply offset/limit at this
     //    layer so a 50-row preview over a 1M-row file doesn't allocate
     //    1M JSON objects.
-    let (columns, rows, total_rows) =
-        materialise_rows(&batches, offset, limit, &stored, format)?;
+    let (columns, rows, total_rows) = materialise_rows(&batches, offset, limit, &stored, format)?;
 
     let schema_inferred = stored
         .as_ref()
@@ -296,10 +295,7 @@ struct ViewFile {
     introduced_by: Option<DateTime<Utc>>,
 }
 
-async fn list_view_files(
-    db: &PgPool,
-    view_id: Uuid,
-) -> Result<Vec<ViewFile>, PreviewError> {
+async fn list_view_files(db: &PgPool, view_id: Uuid) -> Result<Vec<ViewFile>, PreviewError> {
     #[derive(sqlx::FromRow)]
     struct Row {
         logical_path: String,
@@ -561,9 +557,9 @@ fn describe_columns(
         .iter()
         .map(|f| {
             let name = f.name().clone();
-            let foundry = by_name.get(name.as_str()).map(|field| {
-                format_foundry_type(field)
-            });
+            let foundry = by_name
+                .get(name.as_str())
+                .map(|field| format_foundry_type(field));
             PreviewColumn {
                 name: name.clone(),
                 field_type: foundry.unwrap_or_else(|| arrow_type_name(f.data_type())),

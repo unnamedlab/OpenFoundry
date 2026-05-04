@@ -1,0 +1,54 @@
+---
+# S5.7 alerts for the Spark Operator + jobs. Three things page:
+#  - Operator pod down.
+#  - A SparkApplication has been failing > 2 retries.
+#  - ANY SparkApplication targets the audit namespace
+#    (`of_audit.*` is WORM — S5.1.c — must never be touched).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: spark-operator
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: spark-operator
+    role: alert-rules
+spec:
+  groups:
+    - name: spark-operator.rules
+      interval: 30s
+      rules:
+        - alert: SparkOperatorDown
+          expr: |
+            sum(up{job="spark-operator"}) < 1
+          for: 5m
+          labels:
+            severity: critical
+            component: spark-operator
+          annotations:
+            summary: "Spark Operator controller is down"
+            runbook: "infra/helm/infra/spark-operator/templates/README.md"
+        - alert: SparkApplicationFailing
+          expr: |
+            spark_application_failed_executors_total > 2
+          for: 10m
+          labels:
+            severity: warning
+            component: spark-operator
+          annotations:
+            summary: "SparkApplication {{ $labels.application_name }} executors keep failing"
+            runbook: "infra/helm/infra/spark-jobs/templates/README.md"
+        - alert: SparkApplicationTargetsWormNamespace
+          # Hard P1: any job that mentions the audit namespace in its
+          # arguments is forbidden by S5.1.c. Page immediately.
+          expr: |
+            count by (application_name) (
+              spark_application_arguments_count{argument=~".*of_audit.*"}
+            ) > 0
+          for: 0s
+          labels:
+            severity: critical
+            component: spark-operator
+          annotations:
+            summary: "P1: SparkApplication {{ $labels.application_name }} targets WORM audit namespace"
+            description: "of_audit.* is append-only WORM per S5.1.c — kill the job and audit how it was authored"
+            runbook: "infra/helm/infra/spark-jobs/templates/README.md#worm-protection"

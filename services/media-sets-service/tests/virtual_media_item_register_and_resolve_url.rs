@@ -82,9 +82,13 @@ async fn register_virtual_item_then_download_url_resolves_via_connector_service(
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
-    let item: Value = serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let item: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let item_rid = item["rid"].as_str().unwrap().to_string();
-    assert_eq!(item["storage_uri"], "s3://external-bucket/path/to/image.png");
+    assert_eq!(
+        item["storage_uri"],
+        "s3://external-bucket/path/to/image.png"
+    );
 
     // Resolve the download URL — it must point at the mocked external
     // endpoint, NOT at Foundry's local storage backend.

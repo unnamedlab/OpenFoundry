@@ -95,10 +95,15 @@ pub enum DayOfWeek {
     Set(ValueSet),
     /// Last `weekday` of the month. `weekday` is normalised to `0..=6`
     /// where `0 = Sunday`.
-    LastWeekdayOfMonth { weekday: u32 },
+    LastWeekdayOfMonth {
+        weekday: u32,
+    },
     /// `weekday#occurrence` — the `occurrence`-th `weekday` of the
     /// month, with `occurrence` in `1..=5`.
-    NthWeekdayOfMonth { weekday: u32, occurrence: u32 },
+    NthWeekdayOfMonth {
+        weekday: u32,
+        occurrence: u32,
+    },
 }
 
 impl DayOfWeek {

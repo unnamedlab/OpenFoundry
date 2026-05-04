@@ -1,0 +1,6 @@
+dependencies:
+- name: trino
+  repository: file://./upstream-chart
+  version: 0.30.0
+digest: sha256:fa5d73fdc92b6772b587a3d4f8cd5eefdae9ff159de123fb21e3771533cbb411
+generated: "2026-05-04T00:20:53.453713+02:00"

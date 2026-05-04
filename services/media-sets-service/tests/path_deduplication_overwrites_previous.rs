@@ -95,18 +95,14 @@ async fn second_upload_to_same_path_overwrites_and_links_via_deduplicated_from()
         .await
         .unwrap();
     assert_eq!(list_resp.status(), StatusCode::OK);
-    let listed: Value = serde_json::from_slice(&list_resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let listed: Value =
+        serde_json::from_slice(&list_resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let items = listed.as_array().unwrap();
     assert_eq!(items.len(), 1, "list should only return the live item");
     assert_eq!(items[0]["rid"].as_str(), Some(second_rid.as_str()));
 }
 
-async fn upload(
-    h: &common::Harness,
-    set_rid: &str,
-    path: &str,
-    sha256: &str,
-) -> Value {
+async fn upload(h: &common::Harness, set_rid: &str, path: &str, sha256: &str) -> Value {
     let resp = h
         .router
         .clone()

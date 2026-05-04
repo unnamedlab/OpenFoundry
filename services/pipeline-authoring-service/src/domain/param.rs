@@ -175,7 +175,9 @@ mod tests {
     fn validate_rejects_missing_required() {
         let overrides = serde_json::Map::new();
         let err = validate_overrides(&declared(), &overrides).unwrap_err();
-        assert!(matches!(err, ParamValidationError::MissingRequired(name) if name == "deployment_key"));
+        assert!(
+            matches!(err, ParamValidationError::MissingRequired(name) if name == "deployment_key")
+        );
     }
 
     #[test]

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: of-data-engine
+description: |
+  OpenFoundry data engineering release. Owns connectors, ingestion,
+  dataset versioning, lineage, pipeline build and SQL/BI gateway.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: of-shared
+    version: 0.1.0
+    repository: file://../../_shared

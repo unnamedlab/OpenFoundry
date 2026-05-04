@@ -21,8 +21,8 @@ use crate::{
         },
         stream::{
             ConnectorBinding, CreateStreamRequest, PushStreamEventsRequest,
-            PushStreamEventsResponse, StreamConfig, StreamConsistency, StreamDefinition,
-            StreamRow, StreamSchema, StreamType, UpdateStreamConfigRequest, UpdateStreamRequest,
+            PushStreamEventsResponse, StreamConfig, StreamConsistency, StreamDefinition, StreamRow,
+            StreamSchema, StreamType, UpdateStreamConfigRequest, UpdateStreamRequest,
         },
         window::{CreateWindowRequest, UpdateWindowRequest, WindowDefinition, WindowRow},
     },
@@ -424,8 +424,8 @@ pub async fn create_stream(
     let default_marking = payload.default_marking.clone();
     let kind = payload.kind.unwrap_or_default();
     let retention_hours = payload.retention_hours.unwrap_or(72);
-    let schema_json: Value = serde_json::to_value(&schema)
-        .unwrap_or_else(|_| serde_json::json!({}));
+    let schema_json: Value =
+        serde_json::to_value(&schema).unwrap_or_else(|_| serde_json::json!({}));
     let mut tx = state.db.begin().await.map_err(|cause| db_error(&cause))?;
     sqlx::query(
         "INSERT INTO streaming_streams (
@@ -889,7 +889,11 @@ pub async fn update_stream_config(
     }
     if let Err(err) = state
         .hot_buffer
-        .apply_stream_type(definition.id, definition.stream_type, definition.compression)
+        .apply_stream_type(
+            definition.id,
+            definition.stream_type,
+            definition.compression,
+        )
         .await
     {
         tracing::warn!(
@@ -1667,22 +1671,21 @@ pub fn parse_window(value: Option<&str>) -> Result<i64, String> {
     if raw.is_empty() {
         return Err("window must not be empty".into());
     }
-    let (num_part, unit_seconds): (&str, i64) =
-        if let Some(prefix) = raw.strip_suffix("ms") {
-            // milliseconds — round down to whole seconds.
-            let ms: i64 = prefix
-                .parse()
-                .map_err(|_| format!("invalid window: {raw}"))?;
-            return clamp_window_seconds(ms / 1000);
-        } else if let Some(prefix) = raw.strip_suffix('s') {
-            (prefix, 1)
-        } else if let Some(prefix) = raw.strip_suffix('m') {
-            (prefix, 60)
-        } else if let Some(prefix) = raw.strip_suffix('h') {
-            (prefix, 3600)
-        } else {
-            (raw, 1)
-        };
+    let (num_part, unit_seconds): (&str, i64) = if let Some(prefix) = raw.strip_suffix("ms") {
+        // milliseconds — round down to whole seconds.
+        let ms: i64 = prefix
+            .parse()
+            .map_err(|_| format!("invalid window: {raw}"))?;
+        return clamp_window_seconds(ms / 1000);
+    } else if let Some(prefix) = raw.strip_suffix('s') {
+        (prefix, 1)
+    } else if let Some(prefix) = raw.strip_suffix('m') {
+        (prefix, 60)
+    } else if let Some(prefix) = raw.strip_suffix('h') {
+        (prefix, 3600)
+    } else {
+        (raw, 1)
+    };
     let n: i64 = num_part
         .parse()
         .map_err(|_| format!("invalid window: {raw}"))?;
@@ -1691,9 +1694,7 @@ pub fn parse_window(value: Option<&str>) -> Result<i64, String> {
 
 fn clamp_window_seconds(total: i64) -> Result<i64, String> {
     if !(60..=86_400).contains(&total) {
-        return Err(format!(
-            "window must resolve to 60s..86400s (got {total}s)"
-        ));
+        return Err(format!("window must resolve to 60s..86400s (got {total}s)"));
     }
     Ok(total)
 }
@@ -1753,10 +1754,7 @@ pub async fn get_stream_metrics(
     .await
     .unwrap_or_default();
     let records_output = rows.iter().map(|r| r.out as f64).sum::<f64>();
-    let total_lag = rows
-        .iter()
-        .map(|r| r.lag_ms as f64)
-        .fold(0.0_f64, f64::max);
+    let total_lag = rows.iter().map(|r| r.lag_ms as f64).fold(0.0_f64, f64::max);
     // The Foundry-default capacity heuristic is `5 MB/s per partition`
     // (see Streams.md). We don't have a byte-level meter so we
     // approximate utilization as
@@ -1766,7 +1764,9 @@ pub async fn get_stream_metrics(
     let nominal_capacity = (stream_row.partitions as f64 * 5000.0).max(1.0);
     let utilization_pct = (total_throughput / nominal_capacity).clamp(0.0, 1.0);
 
-    state.metrics.set_utilization(&stream_row.name, utilization_pct);
+    state
+        .metrics
+        .set_utilization(&stream_row.name, utilization_pct);
 
     Ok(Json(StreamMetricsResponse {
         stream_id,

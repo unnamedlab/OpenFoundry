@@ -12,11 +12,12 @@
 //! Cassandra `paging_state` to callers as an opaque, base64-encoded
 //! continuation token.
 //!
-//! [`CassandraLinkStore`] and [`CassandraActionLogStore`] are wired
-//! against the S1.1 Cassandra tables. [`CassandraSchemaStore`] and
-//! [`CassandraSessionStore`] remain typed scaffolds returning
-//! [`RepoError::Backend`]; schema/session data stay in PostgreSQL
-//! until the schema-cluster migration lands.
+//! [`CassandraLinkStore`], [`CassandraActionLogStore`],
+//! [`CassandraSchemaStore`] and [`CassandraSessionStore`] are wired
+//! against the S1.1/S3 Cassandra tables. Declarative ontology
+//! definitions still live in `pg-schemas`; `CassandraSchemaStore`
+//! only stores the per-object JSON Schema versions referenced by the
+//! storage abstraction trait.
 //!
 //! ## Object ↔ Row mapping
 //!
@@ -27,7 +28,7 @@
 //! by the table definition; objects without an `owner` are rejected
 //! with [`RepoError::InvalidArgument`].
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -47,12 +48,7 @@ use storage_abstraction::repositories::{
     Schema, SchemaStore, Session as RepoSession, SessionStore, TenantId, TypeId,
 };
 
-const PENDING: &str = "cassandra impl pending; see migration-plan §S1.4–S1.6";
 const ACTION_LOG_LOOKBACK_DAYS: u8 = 90;
-
-fn pending<T>() -> RepoResult<T> {
-    Err(RepoError::Backend(PENDING.to_string()))
-}
 
 fn driver_err<E: std::fmt::Display>(e: E) -> RepoError {
     RepoError::Backend(e.to_string())
@@ -1207,14 +1203,41 @@ impl LinkStore for CassandraLinkStore {
 }
 
 // ---------------------------------------------------------------------------
-// SchemaStore (kept on PG until S1.6)
+// SchemaStore
 // ---------------------------------------------------------------------------
 
-/// `SchemaStore` placeholder. Schema data stays in PostgreSQL until
-/// the schema-cluster migration in S1.6.
+/// `SchemaStore` backed by `ontology_objects.schemas_by_type` and
+/// `schemas_latest`.
+///
+/// This is deliberately narrower than the declarative ontology catalog:
+/// object type/link/action definitions remain in `pg-schemas.ontology_schema`.
+/// The Cassandra table stores only versioned JSON Schema payloads used by
+/// runtime object validation.
 pub struct CassandraSchemaStore {
-    #[allow(dead_code)]
     ctx: CassandraRepoCtx,
+    prepared: SchemaPreparedStatements,
+}
+
+struct SchemaPreparedStatements {
+    insert_version: OnceCell<PreparedStatement>,
+    delete_version: OnceCell<PreparedStatement>,
+    insert_latest: OnceCell<PreparedStatement>,
+    update_latest_if_version: OnceCell<PreparedStatement>,
+    select_latest: OnceCell<PreparedStatement>,
+    select_version: OnceCell<PreparedStatement>,
+}
+
+impl SchemaPreparedStatements {
+    fn new() -> Self {
+        Self {
+            insert_version: OnceCell::new(),
+            delete_version: OnceCell::new(),
+            insert_latest: OnceCell::new(),
+            update_latest_if_version: OnceCell::new(),
+            select_latest: OnceCell::new(),
+            select_version: OnceCell::new(),
+        }
+    }
 }
 
 impl CassandraSchemaStore {
@@ -1222,7 +1245,227 @@ impl CassandraSchemaStore {
     pub fn new(session: Arc<Session>) -> Self {
         Self {
             ctx: CassandraRepoCtx::new(session, "ontology_objects"),
+            prepared: SchemaPreparedStatements::new(),
         }
+    }
+
+    /// Build with a custom keyspace.
+    pub fn with_keyspace(session: Arc<Session>, keyspace: impl Into<String>) -> Self {
+        Self {
+            ctx: CassandraRepoCtx::new(session, keyspace),
+            prepared: SchemaPreparedStatements::new(),
+        }
+    }
+
+    /// Eagerly prepare every statement this store may issue.
+    pub async fn warm_up(&self) -> RepoResult<()> {
+        self.stmt_insert_version().await?;
+        self.stmt_delete_version().await?;
+        self.stmt_insert_latest().await?;
+        self.stmt_update_latest_if_version().await?;
+        self.stmt_select_latest().await?;
+        self.stmt_select_version().await?;
+        Ok(())
+    }
+
+    async fn stmt_insert_version(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "INSERT INTO {ks}.schemas_by_type \
+             (type_id, version, json_schema, created_at) VALUES (?, ?, ?, ?) IF NOT EXISTS",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.insert_version,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_delete_version(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "DELETE FROM {ks}.schemas_by_type WHERE type_id = ? AND version = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.delete_version,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_insert_latest(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "INSERT INTO {ks}.schemas_latest \
+             (type_id, version, json_schema, created_at) VALUES (?, ?, ?, ?) IF NOT EXISTS",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.insert_latest,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_update_latest_if_version(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "UPDATE {ks}.schemas_latest SET version = ?, json_schema = ?, created_at = ? \
+             WHERE type_id = ? IF version = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.update_latest_if_version,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_select_latest(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "SELECT version, json_schema, created_at FROM {ks}.schemas_latest WHERE type_id = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.select_latest,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_select_version(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "SELECT json_schema, created_at FROM {ks}.schemas_by_type \
+             WHERE type_id = ? AND version = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.select_version,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    fn schema_version_to_cql(version: u32) -> RepoResult<i32> {
+        if version == 0 {
+            return Err(invalid("schema version must be greater than zero"));
+        }
+        i32::try_from(version).map_err(|_| invalid("schema version exceeds CQL int range"))
+    }
+
+    fn schema_version_from_cql(version: i32) -> RepoResult<u32> {
+        u32::try_from(version).map_err(|_| {
+            RepoError::Backend(format!("stored schema version is negative: {version}"))
+        })
+    }
+
+    fn schema_json_to_cql(schema: &serde_json::Value) -> RepoResult<String> {
+        serde_json::to_string(schema)
+            .map_err(|e| invalid(format!("schema JSON is not serialisable: {e}")))
+    }
+
+    fn schema_json_from_cql(raw: String) -> RepoResult<serde_json::Value> {
+        serde_json::from_str(&raw)
+            .map_err(|e| RepoError::Backend(format!("invalid stored schema JSON: {e}")))
+    }
+
+    async fn select_latest_raw(
+        &self,
+        type_id: &TypeId,
+        consistency: ReadConsistency,
+    ) -> RepoResult<Option<(i32, String, CqlTimestamp)>> {
+        let mut prep = self.stmt_select_latest().await?.clone();
+        prep.set_consistency(cql_consistency(consistency));
+        let result = self
+            .ctx
+            .session
+            .execute(&prep, (type_id.0.as_str(),))
+            .await
+            .map_err(driver_err)?;
+        let mut rows = result.rows_typed_or_empty::<(i32, String, CqlTimestamp)>();
+        match rows.next() {
+            Some(row) => row.map(Some).map_err(driver_err),
+            None => Ok(None),
+        }
+    }
+
+    async fn delete_version_best_effort(&self, type_id: &TypeId, version: i32) {
+        if let Ok(prep) = self.stmt_delete_version().await {
+            let _ = self
+                .ctx
+                .session
+                .execute(prep, (type_id.0.as_str(), version))
+                .await;
+        }
+    }
+
+    async fn promote_latest(
+        &self,
+        type_id: &TypeId,
+        version: i32,
+        json_schema: &str,
+        created_at: CqlTimestamp,
+    ) -> RepoResult<()> {
+        let mut insert_latest = self.stmt_insert_latest().await?.clone();
+        insert_latest.set_consistency(Consistency::LocalQuorum);
+        insert_latest.set_serial_consistency(Some(SerialConsistency::LocalSerial));
+        let res = self
+            .ctx
+            .session
+            .execute(
+                &insert_latest,
+                (type_id.0.as_str(), version, json_schema, created_at),
+            )
+            .await
+            .map_err(driver_err)?;
+        if lwt_applied(&res) {
+            return Ok(());
+        }
+
+        for _ in 0..8 {
+            let Some((latest_version, _, _)) = self
+                .select_latest_raw(type_id, ReadConsistency::Strong)
+                .await?
+            else {
+                continue;
+            };
+            if version <= latest_version {
+                return Err(invalid(format!(
+                    "schema version {} not greater than latest {}",
+                    version, latest_version
+                )));
+            }
+
+            let mut update_latest = self.stmt_update_latest_if_version().await?.clone();
+            update_latest.set_consistency(Consistency::LocalQuorum);
+            update_latest.set_serial_consistency(Some(SerialConsistency::LocalSerial));
+            let res = self
+                .ctx
+                .session
+                .execute(
+                    &update_latest,
+                    (
+                        version,
+                        json_schema,
+                        created_at,
+                        type_id.0.as_str(),
+                        latest_version,
+                    ),
+                )
+                .await
+                .map_err(driver_err)?;
+            if lwt_applied(&res) {
+                return Ok(());
+            }
+        }
+
+        Err(RepoError::Backend(
+            "schema latest CAS did not converge after retries".to_string(),
+        ))
     }
 }
 
@@ -1230,32 +1473,131 @@ impl CassandraSchemaStore {
 impl SchemaStore for CassandraSchemaStore {
     async fn get_latest(
         &self,
-        _type_id: &TypeId,
-        _consistency: ReadConsistency,
+        type_id: &TypeId,
+        consistency: ReadConsistency,
     ) -> RepoResult<Option<Schema>> {
-        pending()
+        let Some((version, raw_schema, created_at)) =
+            self.select_latest_raw(type_id, consistency).await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Schema {
+            type_id: type_id.clone(),
+            version: Self::schema_version_from_cql(version)?,
+            json_schema: Self::schema_json_from_cql(raw_schema)?,
+            created_at_ms: cql_ts_to_ms(created_at),
+        }))
     }
+
     async fn get_version(
         &self,
-        _type_id: &TypeId,
-        _version: u32,
-        _consistency: ReadConsistency,
+        type_id: &TypeId,
+        version: u32,
+        consistency: ReadConsistency,
     ) -> RepoResult<Option<Schema>> {
-        pending()
+        let version_cql = Self::schema_version_to_cql(version)?;
+        let mut prep = self.stmt_select_version().await?.clone();
+        prep.set_consistency(cql_consistency(consistency));
+        let result = self
+            .ctx
+            .session
+            .execute(&prep, (type_id.0.as_str(), version_cql))
+            .await
+            .map_err(driver_err)?;
+        let mut rows = result.rows_typed_or_empty::<(String, CqlTimestamp)>();
+        let Some(row) = rows.next() else {
+            return Ok(None);
+        };
+        let (raw_schema, created_at) = row.map_err(driver_err)?;
+        Ok(Some(Schema {
+            type_id: type_id.clone(),
+            version,
+            json_schema: Self::schema_json_from_cql(raw_schema)?,
+            created_at_ms: cql_ts_to_ms(created_at),
+        }))
     }
-    async fn put(&self, _schema: Schema) -> RepoResult<()> {
-        pending()
+
+    async fn put(&self, schema: Schema) -> RepoResult<()> {
+        let version = Self::schema_version_to_cql(schema.version)?;
+        if let Some((latest, _, _)) = self
+            .select_latest_raw(&schema.type_id, ReadConsistency::Strong)
+            .await?
+        {
+            if version <= latest {
+                return Err(invalid(format!(
+                    "schema version {} not greater than latest {}",
+                    version, latest
+                )));
+            }
+        }
+
+        let raw_schema = Self::schema_json_to_cql(&schema.json_schema)?;
+        let created_at = ms_to_ts(schema.created_at_ms);
+        let mut insert_version = self.stmt_insert_version().await?.clone();
+        insert_version.set_consistency(Consistency::LocalQuorum);
+        insert_version.set_serial_consistency(Some(SerialConsistency::LocalSerial));
+        let res = self
+            .ctx
+            .session
+            .execute(
+                &insert_version,
+                (
+                    schema.type_id.0.as_str(),
+                    version,
+                    raw_schema.as_str(),
+                    created_at,
+                ),
+            )
+            .await
+            .map_err(driver_err)?;
+        if !lwt_applied(&res) {
+            return Err(invalid(format!(
+                "schema version {} already exists for type {}",
+                version, schema.type_id.0
+            )));
+        }
+
+        if let Err(err) = self
+            .promote_latest(&schema.type_id, version, raw_schema.as_str(), created_at)
+            .await
+        {
+            self.delete_version_best_effort(&schema.type_id, version)
+                .await;
+            return Err(err);
+        }
+        Ok(())
     }
 }
 
 // ---------------------------------------------------------------------------
-// SessionStore (kept on PG until S1.6)
+// SessionStore
 // ---------------------------------------------------------------------------
 
-/// `SessionStore` placeholder. Sessions stay in PostgreSQL until S1.6.
+/// `SessionStore` backed by `auth_runtime.sessions_by_id`.
+///
+/// This table is a point-lookup repository surface for the
+/// `storage-abstraction` trait. Identity-specific refresh-token,
+/// OAuth-state and revocation tables remain owned by the identity/session
+/// services in the same `auth_runtime` keyspace.
 pub struct CassandraSessionStore {
-    #[allow(dead_code)]
     ctx: CassandraRepoCtx,
+    prepared: SessionPreparedStatements,
+}
+
+struct SessionPreparedStatements {
+    insert_session: OnceCell<PreparedStatement>,
+    select_session: OnceCell<PreparedStatement>,
+    delete_session: OnceCell<PreparedStatement>,
+}
+
+impl SessionPreparedStatements {
+    fn new() -> Self {
+        Self {
+            insert_session: OnceCell::new(),
+            select_session: OnceCell::new(),
+            delete_session: OnceCell::new(),
+        }
+    }
 }
 
 impl CassandraSessionStore {
@@ -1263,7 +1605,75 @@ impl CassandraSessionStore {
     pub fn new(session: Arc<Session>) -> Self {
         Self {
             ctx: CassandraRepoCtx::new(session, "auth_runtime"),
+            prepared: SessionPreparedStatements::new(),
         }
+    }
+
+    /// Build with a custom keyspace.
+    pub fn with_keyspace(session: Arc<Session>, keyspace: impl Into<String>) -> Self {
+        Self {
+            ctx: CassandraRepoCtx::new(session, keyspace),
+            prepared: SessionPreparedStatements::new(),
+        }
+    }
+
+    /// Eagerly prepare every statement this store may issue.
+    pub async fn warm_up(&self) -> RepoResult<()> {
+        self.stmt_insert_session().await?;
+        self.stmt_select_session().await?;
+        self.stmt_delete_session().await?;
+        Ok(())
+    }
+
+    async fn stmt_insert_session(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "INSERT INTO {ks}.sessions_by_id \
+             (tenant, session_id, subject, attributes, issued_at, expires_at) \
+             VALUES (?, ?, ?, ?, ?, ?) USING TTL ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.insert_session,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_select_session(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "SELECT subject, attributes, issued_at, expires_at \
+             FROM {ks}.sessions_by_id WHERE tenant = ? AND session_id = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.select_session,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    async fn stmt_delete_session(&self) -> RepoResult<&PreparedStatement> {
+        let cql = format!(
+            "DELETE FROM {ks}.sessions_by_id WHERE tenant = ? AND session_id = ?",
+            ks = self.ctx.keyspace
+        );
+        ObjectPreparedStatements::get_or_prepare(
+            &self.prepared.delete_session,
+            &self.ctx.session,
+            &cql,
+        )
+        .await
+    }
+
+    fn ttl_seconds_until(expires_at_ms: i64, now_ms: i64) -> Option<i32> {
+        let ttl_ms = expires_at_ms.saturating_sub(now_ms);
+        if ttl_ms <= 0 {
+            return None;
+        }
+        let ttl_secs = ((ttl_ms as i128) + 999) / 1_000;
+        Some(ttl_secs.min(i32::MAX as i128) as i32)
     }
 }
 
@@ -1271,17 +1681,101 @@ impl CassandraSessionStore {
 impl SessionStore for CassandraSessionStore {
     async fn get(
         &self,
-        _tenant: &TenantId,
-        _id: &str,
-        _consistency: ReadConsistency,
+        tenant: &TenantId,
+        id: &str,
+        consistency: ReadConsistency,
     ) -> RepoResult<Option<RepoSession>> {
-        pending()
+        let mut prep = self.stmt_select_session().await?.clone();
+        prep.set_consistency(cql_consistency(consistency));
+        let result = self
+            .ctx
+            .session
+            .execute(&prep, (tenant_str(tenant), id))
+            .await
+            .map_err(driver_err)?;
+        let mut rows = result.rows_typed_or_empty::<(
+            String,
+            Option<HashMap<String, String>>,
+            CqlTimestamp,
+            CqlTimestamp,
+        )>();
+        let Some(row) = rows.next() else {
+            return Ok(None);
+        };
+        let (subject, attributes, issued_at, expires_at) = row.map_err(driver_err)?;
+        let expires_at_ms = cql_ts_to_ms(expires_at);
+        if expires_at_ms <= Utc::now().timestamp_millis() {
+            return Ok(None);
+        }
+        Ok(Some(RepoSession {
+            tenant: tenant.clone(),
+            id: id.to_string(),
+            subject,
+            attributes: attributes.unwrap_or_default(),
+            issued_at_ms: cql_ts_to_ms(issued_at),
+            expires_at_ms,
+        }))
     }
-    async fn put(&self, _session: RepoSession) -> RepoResult<()> {
-        pending()
+
+    async fn put(&self, session: RepoSession) -> RepoResult<()> {
+        if session.id.trim().is_empty() {
+            return Err(invalid("session id must not be empty"));
+        }
+        let Some(ttl_secs) =
+            Self::ttl_seconds_until(session.expires_at_ms, Utc::now().timestamp_millis())
+        else {
+            let prep = self.stmt_delete_session().await?.clone();
+            self.ctx
+                .session
+                .execute(&prep, (tenant_str(&session.tenant), session.id.as_str()))
+                .await
+                .map_err(driver_err)?;
+            return Ok(());
+        };
+
+        let mut prep = self.stmt_insert_session().await?.clone();
+        prep.set_consistency(Consistency::LocalQuorum);
+        self.ctx
+            .session
+            .execute(
+                &prep,
+                (
+                    tenant_str(&session.tenant),
+                    session.id.as_str(),
+                    session.subject.as_str(),
+                    session.attributes,
+                    ms_to_ts(session.issued_at_ms),
+                    ms_to_ts(session.expires_at_ms),
+                    ttl_secs,
+                ),
+            )
+            .await
+            .map_err(driver_err)?;
+        Ok(())
     }
-    async fn revoke(&self, _tenant: &TenantId, _id: &str) -> RepoResult<bool> {
-        pending()
+
+    async fn revoke(&self, tenant: &TenantId, id: &str) -> RepoResult<bool> {
+        let mut select = self.stmt_select_session().await?.clone();
+        select.set_consistency(Consistency::LocalQuorum);
+        let existed = self
+            .ctx
+            .session
+            .execute(&select, (tenant_str(tenant), id))
+            .await
+            .map_err(driver_err)?
+            .rows
+            .as_ref()
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false);
+
+        let mut delete = self.stmt_delete_session().await?.clone();
+        delete.set_consistency(Consistency::LocalQuorum);
+        self.ctx
+            .session
+            .execute(&delete, (tenant_str(tenant), id))
+            .await
+            .map_err(driver_err)?;
+        Ok(existed)
     }
 }
 
@@ -2077,6 +2571,46 @@ mod tests {
     fn link_timeuuid_conversion_rejects_malformed_ids() {
         let err = parse_timeuuid("source_id", "not-a-uuid").unwrap_err();
         assert!(matches!(err, RepoError::InvalidArgument(_)));
+    }
+
+    #[test]
+    fn schema_version_mapping_rejects_zero_and_out_of_range() {
+        assert!(matches!(
+            CassandraSchemaStore::schema_version_to_cql(0).unwrap_err(),
+            RepoError::InvalidArgument(_)
+        ));
+        assert_eq!(CassandraSchemaStore::schema_version_to_cql(7).unwrap(), 7);
+        assert!(matches!(
+            CassandraSchemaStore::schema_version_to_cql(i32::MAX as u32 + 1).unwrap_err(),
+            RepoError::InvalidArgument(_)
+        ));
+    }
+
+    #[test]
+    fn schema_payload_round_trips_through_canonical_json() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": { "type": "string" }
+            }
+        });
+        let encoded = CassandraSchemaStore::schema_json_to_cql(&schema).unwrap();
+        let decoded = CassandraSchemaStore::schema_json_from_cql(encoded).unwrap();
+        assert_eq!(decoded, schema);
+    }
+
+    #[test]
+    fn session_ttl_rounds_up_and_treats_expired_as_absent() {
+        assert_eq!(
+            CassandraSessionStore::ttl_seconds_until(1_001, 1_000),
+            Some(1)
+        );
+        assert_eq!(
+            CassandraSessionStore::ttl_seconds_until(2_001, 1_000),
+            Some(2)
+        );
+        assert_eq!(CassandraSessionStore::ttl_seconds_until(999, 1_000), None);
     }
 
     #[test]

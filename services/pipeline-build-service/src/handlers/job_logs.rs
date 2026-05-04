@@ -82,10 +82,7 @@ struct LogRowDto {
     params: Option<serde_json::Value>,
 }
 
-async fn resolve_job(
-    state: &AppState,
-    rid: &str,
-) -> Result<uuid::Uuid, StatusCode> {
+async fn resolve_job(state: &AppState, rid: &str) -> Result<uuid::Uuid, StatusCode> {
     sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM jobs WHERE rid = $1")
         .bind(rid)
         .fetch_optional(&state.db)
@@ -112,9 +109,14 @@ pub async fn list_logs(
     let from_seq = params.from_sequence.unwrap_or(0);
     let levels = params.parsed_levels();
 
-    let rows: Vec<(i64, DateTime<Utc>, String, String, Option<serde_json::Value>)> =
-        sqlx::query_as(
-            r#"SELECT sequence, ts, level, message, params
+    let rows: Vec<(
+        i64,
+        DateTime<Utc>,
+        String,
+        String,
+        Option<serde_json::Value>,
+    )> = sqlx::query_as(
+        r#"SELECT sequence, ts, level, message, params
                  FROM job_logs
                 WHERE job_id = $1
                   AND sequence >= $2
@@ -126,16 +128,16 @@ pub async fn list_logs(
                   )
                 ORDER BY sequence ASC
                 LIMIT $6"#,
-        )
-        .bind(job_id)
-        .bind(from_seq)
-        .bind(params.since)
-        .bind(params.until)
-        .bind(&levels)
-        .bind(limit)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    )
+    .bind(job_id)
+    .bind(from_seq)
+    .bind(params.since)
+    .bind(params.until)
+    .bind(&levels)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
 
     let dto: Vec<LogRowDto> = rows
         .into_iter()
@@ -170,11 +172,7 @@ pub async fn stream_logs(
     let ports = match state.lifecycle_ports.clone() {
         Some(p) => p,
         None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "live logs not configured",
-            )
-                .into_response();
+            return (StatusCode::SERVICE_UNAVAILABLE, "live logs not configured").into_response();
         }
     };
     let job_id = match resolve_job(&state, &rid).await {
@@ -184,7 +182,11 @@ pub async fn stream_logs(
     let from_seq = params.from_sequence.unwrap_or(0);
     let follow = params.follow.unwrap_or(true);
     let levels = params.parsed_levels();
-    let levels_filter = if levels.is_empty() { None } else { Some(levels) };
+    let levels_filter = if levels.is_empty() {
+        None
+    } else {
+        Some(levels)
+    };
 
     let pool = state.db.clone();
     let job_rid = rid.clone();
@@ -200,9 +202,14 @@ pub async fn stream_logs(
         "live-log subscriber connected"
     );
 
-    let history_rows: Vec<(i64, DateTime<Utc>, String, String, Option<serde_json::Value>)> =
-        sqlx::query_as(
-            r#"SELECT sequence, ts, level, message, params
+    let history_rows: Vec<(
+        i64,
+        DateTime<Utc>,
+        String,
+        String,
+        Option<serde_json::Value>,
+    )> = sqlx::query_as(
+        r#"SELECT sequence, ts, level, message, params
                  FROM job_logs
                 WHERE job_id = $1
                   AND sequence >= $2
@@ -212,13 +219,13 @@ pub async fn stream_logs(
                       OR level = ANY($3)
                   )
                 ORDER BY sequence ASC"#,
-        )
-        .bind(job_id)
-        .bind(from_seq)
-        .bind(&levels_filter)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
+    )
+    .bind(job_id)
+    .bind(from_seq)
+    .bind(&levels_filter)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
 
     let live_rx = if follow {
         Some(ports.broadcaster.subscribe(&job_rid).await)
@@ -233,29 +240,28 @@ pub async fn stream_logs(
     //   3. Catch-up history.
     //   4. (optional) Live tail from the broadcast channel.
     let levels_for_filter = levels_filter.clone();
-    let heartbeat_stream =
-        async_stream::stream! {
-            yield Ok::<Event, Infallible>(
-                Event::default()
-                    .event("heartbeat")
-                    .json_data(json!({
-                        "phase": "initializing",
-                        "delay_remaining_seconds": SSE_INITIAL_DELAY_SECS,
-                        "message": "Live logs are streamed in real-time. Time range filters do not apply.",
-                    }))
-                    .unwrap_or_else(|_| Event::default().event("heartbeat")),
-            );
-            for remaining in (1..=SSE_INITIAL_DELAY_SECS).rev() {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                yield Ok(Event::default()
-                    .event("heartbeat")
-                    .json_data(json!({
-                        "phase": "initializing",
-                        "delay_remaining_seconds": remaining - 1,
-                    }))
-                    .unwrap_or_else(|_| Event::default().event("heartbeat")));
-            }
-        };
+    let heartbeat_stream = async_stream::stream! {
+        yield Ok::<Event, Infallible>(
+            Event::default()
+                .event("heartbeat")
+                .json_data(json!({
+                    "phase": "initializing",
+                    "delay_remaining_seconds": SSE_INITIAL_DELAY_SECS,
+                    "message": "Live logs are streamed in real-time. Time range filters do not apply.",
+                }))
+                .unwrap_or_else(|_| Event::default().event("heartbeat")),
+        );
+        for remaining in (1..=SSE_INITIAL_DELAY_SECS).rev() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            yield Ok(Event::default()
+                .event("heartbeat")
+                .json_data(json!({
+                    "phase": "initializing",
+                    "delay_remaining_seconds": remaining - 1,
+                }))
+                .unwrap_or_else(|_| Event::default().event("heartbeat")));
+        }
+    };
 
     let history_stream = stream::iter(history_rows.into_iter().map(move |row| {
         let dto = LogRowDto {
@@ -311,9 +317,7 @@ pub async fn stream_logs(
         None => stream::empty().boxed(),
     };
 
-    let combined = heartbeat_stream
-        .chain(history_stream)
-        .chain(live_stream);
+    let combined = heartbeat_stream.chain(history_stream).chain(live_stream);
 
     Sse::new(combined)
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
@@ -338,13 +342,15 @@ pub async fn ws_logs(
     let job_rid = rid.clone();
     let from_seq = params.from_sequence.unwrap_or(0);
     let levels = params.parsed_levels();
-    let levels_filter = if levels.is_empty() { None } else { Some(levels) };
+    let levels_filter = if levels.is_empty() {
+        None
+    } else {
+        Some(levels)
+    };
     let pool = state.db.clone();
 
     ws.on_upgrade(move |socket| async move {
-        if let Err(err) =
-            run_ws(socket, pool, ports, job_rid, from_seq, levels_filter).await
-        {
+        if let Err(err) = run_ws(socket, pool, ports, job_rid, from_seq, levels_filter).await {
             tracing::warn!(error = %err, "ws session ended");
         }
     })
@@ -359,36 +365,46 @@ async fn run_ws(
     from_seq: i64,
     levels_filter: Option<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let job_id: Option<(uuid::Uuid,)> =
-        sqlx::query_as("SELECT id FROM jobs WHERE rid = $1")
-            .bind(&job_rid)
-            .fetch_optional(&pool)
-            .await?;
+    let job_id: Option<(uuid::Uuid,)> = sqlx::query_as("SELECT id FROM jobs WHERE rid = $1")
+        .bind(&job_rid)
+        .fetch_optional(&pool)
+        .await?;
     let Some((job_id,)) = job_id else {
         let _ = socket.send(Message::Close(None)).await;
         return Ok(());
     };
 
     // Catch-up.
-    let history: Vec<(i64, DateTime<Utc>, String, String, Option<serde_json::Value>)> =
-        sqlx::query_as(
-            r#"SELECT sequence, ts, level, message, params
+    let history: Vec<(
+        i64,
+        DateTime<Utc>,
+        String,
+        String,
+        Option<serde_json::Value>,
+    )> = sqlx::query_as(
+        r#"SELECT sequence, ts, level, message, params
                  FROM job_logs
                 WHERE job_id = $1
                   AND sequence >= $2
                 ORDER BY sequence ASC"#,
-        )
-        .bind(job_id)
-        .bind(from_seq)
-        .fetch_all(&pool)
-        .await?;
+    )
+    .bind(job_id)
+    .bind(from_seq)
+    .fetch_all(&pool)
+    .await?;
     for (sequence, ts, level, message, params) in history {
         if let Some(filter) = &levels_filter {
             if !filter.iter().any(|l| l == &level) {
                 continue;
             }
         }
-        let dto = LogRowDto { sequence, ts, level, message, params };
+        let dto = LogRowDto {
+            sequence,
+            ts,
+            level,
+            message,
+            params,
+        };
         let frame = serde_json::to_string(&dto)?;
         if socket.send(Message::Text(frame.into())).await.is_err() {
             return Ok(());
@@ -466,4 +482,3 @@ pub async fn emit_log(
         }
     }
 }
-

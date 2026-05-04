@@ -1,6 +1,8 @@
 # S3.5 — Failover drill: identity stack on Cassandra
 
 > Owner: identity-federation-service maintainers + SRE on-call.
+> Last evidence attempt: 2026-05-03.
+> Current result: BLOCKED; not signed off for S3 closure.
 > Gate: this drill must be executed and signed off before Stream S3
 > closes, but it is **necessary and not sufficient** on its own; S3
 > also requires the final gate `G-S3` in
@@ -213,13 +215,45 @@ save JWKS baseline/after/rollback JSON, Vault Transit metadata
 redacted for secrets, and one decoded JWT header per phase. File any
 failure in JIRA tagged `s3-failover-drill`.
 
+## Latest Execution Attempt
+
+| Field | Value |
+|---|---|
+| Date | 2026-05-03 |
+| Owner | identity-federation-service maintainers + SRE on-call |
+| Environment | Kubernetes context `default` |
+| Evidence pack | [`docs/architecture/slo-evidence/2026-05-03/summary.md`](../slo-evidence/2026-05-03/summary.md) |
+| Result | BLOCKED; no failover drill was executed |
+
+Commands and results:
+
+```bash
+kubectl get cassandradatacenters -A
+kubectl get deploy -A
+kubectl get statefulset -A
+```
+
+Result summary:
+
+```text
+No CassandraDatacenter resources found.
+No StatefulSet resources found.
+openfoundry/identity-federation-service  0/1
+```
+
+The drill requires a 3-node Cassandra runtime for `auth_runtime`,
+identity replicas, Redis, Vault Transit, Kafka audit publication and
+Grafana/k6 or Locust evidence. The current context lacks those runtime
+dependencies, so no RTO/RPO, p99 latency, timeout-rate or session-loss
+claim is approved.
+
 ## Sign-off
 
-- [ ] SRE on-call: ___
-- [ ] Identity service maintainer: ___
-- [ ] Security architect (observer): ___
-- [ ] Date: ___
-- [ ] Drill outcome: PASS / FAIL — ___
+- SRE on-call: NOT SIGNED
+- Identity service maintainer: NOT SIGNED
+- Security architect (observer): NOT SIGNED
+- Date: 2026-05-03
+- Drill outcome: BLOCKED, not approved for S3 closure
 
 > Failures in any pass-criteria block S3 closure. Re-run after
 > remediation; even on PASS, S3 stays open until the rest of the §18

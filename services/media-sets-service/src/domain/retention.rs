@@ -61,7 +61,10 @@ pub async fn reap_due(pool: &PgPool) -> Result<Vec<ExpiredItem>, sqlx::Error> {
 /// Reaper restricted to a single media set. Called synchronously from
 /// the PATCH handler so a retention reduction shows up in subsequent
 /// reads without waiting for the next periodic pass.
-pub async fn reap_media_set(pool: &PgPool, media_set_rid: &str) -> Result<Vec<ExpiredItem>, sqlx::Error> {
+pub async fn reap_media_set(
+    pool: &PgPool,
+    media_set_rid: &str,
+) -> Result<Vec<ExpiredItem>, sqlx::Error> {
     let rows: Vec<ExpiredItem> = sqlx::query_as(
         r#"UPDATE media_items i
               SET deleted_at = NOW()

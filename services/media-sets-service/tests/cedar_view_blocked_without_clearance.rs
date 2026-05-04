@@ -14,9 +14,7 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION},
 };
 use http_body_util::BodyExt;
-use media_sets_service::handlers::media_sets::{
-    create_media_set_op, patch_markings_op,
-};
+use media_sets_service::handlers::media_sets::{create_media_set_op, patch_markings_op};
 use media_sets_service::models::{CreateMediaSetRequest, MediaSetSchema, TransactionPolicy};
 use tower::ServiceExt;
 

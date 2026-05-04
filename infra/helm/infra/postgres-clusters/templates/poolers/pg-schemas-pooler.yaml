@@ -1,0 +1,55 @@
+{{- if .Values.pgSchemas.enabled }}
+---
+# S6.2 — PgBouncer Pooler for `pg-schemas` (transaction mode).
+#
+# CNPG renders this CRD into a PgBouncer Deployment + Service named
+# `pg-schemas-pooler-rw-rw`. Transaction mode is mandatory for our sqlx
+# clients, which open one connection per request — without pooling the
+# 23 schemas hosted here would exhaust Postgres `max_connections=400`
+# under modest concurrency (53 services × ~10 conns each = 530).
+#
+# Sizing per service:
+#   * `default_pool_size: "50"` — each backend (svc_<bc> + Postgres
+#     database) keeps up to 50 server connections in the pool.
+#   * `max_client_conn: "1000"` — total client-side capacity per Pooler
+#     instance; with 2 instances we serve 2 000 concurrent app conns
+#     against ~50 backend conns (20× multiplexing).
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: pg-schemas-pooler-rw
+  namespace: openfoundry
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: pg-schemas
+    openfoundry.io/managed-by: cnpg
+spec:
+  cluster:
+    name: pg-schemas
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "50"
+      reserve_pool_size: "10"
+      reserve_pool_timeout: "5"
+      server_idle_timeout: "120"
+      server_lifetime: "3600"
+      query_wait_timeout: "30"
+  monitoring:
+    enablePodMonitor: true
+  template:
+    spec:
+      containers: []
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    cnpg.io/poolerName: pg-schemas-pooler-rw
+{{- end }}

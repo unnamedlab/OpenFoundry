@@ -19,6 +19,9 @@
 //!   revocation.
 //! * [`REFRESH_TOKEN_BY_ID_DDL`] — lookup table that preserves the
 //!   token-id API shape without reviving the legacy Postgres table.
+//! * [`REPOSITORY_SESSION_BY_ID_DDL`] — point-lookup table for the
+//!   shared `storage-abstraction::SessionStore` implementation in
+//!   `cassandra-kernel`.
 //!
 //! All three tables use the
 //! `cassandra_kernel::Migration` ledger so the schema lands
@@ -161,6 +164,27 @@ CREATE TABLE IF NOT EXISTS auth_runtime.refresh_token_by_id ( \
                     'compaction_window_unit': 'DAYS', \
                     'compaction_window_size': '7'}";
 
+/// Generic repository session table used by
+/// `cassandra_kernel::repos::CassandraSessionStore`.
+///
+/// The partition key is `(tenant, session_id)` so every trait lookup is a
+/// single-row read and tenants with many concurrent sessions cannot create a
+/// hot tenant-wide partition. Identity-specific listing, refresh-token
+/// rotation and governance state stay in the tables above.
+pub const REPOSITORY_SESSION_BY_ID_DDL: &str = "\
+CREATE TABLE IF NOT EXISTS auth_runtime.sessions_by_id ( \
+    tenant      text, \
+    session_id  text, \
+    subject     text, \
+    attributes  map<text, text>, \
+    issued_at   timestamp, \
+    expires_at  timestamp, \
+    PRIMARY KEY ((tenant, session_id)) \
+) WITH default_time_to_live = 0 \
+  AND compaction = {'class': 'TimeWindowCompactionStrategy', \
+                    'compaction_window_unit': 'HOURS', \
+                    'compaction_window_size': '1'}";
+
 /// Versioned migration slice consumed by `cassandra_kernel::migrate::apply`.
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -176,6 +200,11 @@ pub const MIGRATIONS: &[Migration] = &[
             SCOPED_SESSION_BY_ID_DDL,
             REFRESH_TOKEN_BY_ID_DDL,
         ],
+    },
+    Migration {
+        version: 4,
+        name: "auth_runtime_repository_sessions_by_id",
+        statements: &[REPOSITORY_SESSION_BY_ID_DDL],
     },
 ];
 
@@ -636,11 +665,11 @@ impl SessionsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
 
-    fn repo_file(relative: &str) -> String {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
-        fs::read_to_string(path).expect("fixture file should be readable")
+    macro_rules! repo_file {
+        ($relative:literal $(,)?) => {
+            include_str!(concat!("../", $relative))
+        };
     }
 
     #[test]
@@ -666,17 +695,20 @@ mod tests {
 
     #[test]
     fn migrations_have_pinned_versions() {
-        assert_eq!(MIGRATIONS.len(), 2);
+        assert_eq!(MIGRATIONS.len(), 3);
         assert_eq!(MIGRATIONS[0].version, 1);
         assert_eq!(MIGRATIONS[1].version, 2);
+        assert_eq!(MIGRATIONS[2].version, 4);
         assert_eq!(MIGRATIONS[0].statements.len(), 3);
         assert_eq!(MIGRATIONS[1].statements.len(), 3);
+        assert_eq!(MIGRATIONS[2].statements.len(), 1);
+        assert!(REPOSITORY_SESSION_BY_ID_DDL.contains("auth_runtime.sessions_by_id"));
     }
 
     #[test]
     fn active_postgres_migrations_do_not_create_runtime_session_tables() {
-        let active_initial_auth_sql = repo_file("migrations/20260419000001_initial_auth.sql");
-        let active_migrations_readme = repo_file("migrations/README.md");
+        let active_initial_auth_sql = repo_file!("migrations/20260419000001_initial_auth.sql");
+        let active_migrations_readme = repo_file!("migrations/README.md");
 
         assert!(!active_initial_auth_sql.contains("CREATE TABLE IF NOT EXISTS refresh_tokens"));
         assert!(!active_initial_auth_sql.contains("CREATE TABLE IF NOT EXISTS scoped_sessions"));
@@ -687,10 +719,10 @@ mod tests {
 
     #[test]
     fn archived_postgres_runtime_ddl_is_preserved_for_cutover_audit() {
-        let legacy_refresh_tokens_sql = repo_file(
+        let legacy_refresh_tokens_sql = repo_file!(
             "../../docs/architecture/legacy-migrations/identity-federation-service/20260419000001_refresh_tokens.sql",
         );
-        let legacy_scoped_sessions_sql = repo_file(
+        let legacy_scoped_sessions_sql = repo_file!(
             "../../docs/architecture/legacy-migrations/identity-federation-service/20260425193000_scoped_sessions_security.sql",
         );
 

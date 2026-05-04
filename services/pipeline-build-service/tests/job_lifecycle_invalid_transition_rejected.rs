@@ -10,12 +10,10 @@ use core_models::dataset::transaction::BranchName;
 use pipeline_build_service::domain::build_resolution::{
     BranchSnapshot, ResolveBuildArgs, resolve_build,
 };
-use pipeline_build_service::domain::job_lifecycle::{
-    JobLifecycleError, transition_job,
-};
+use pipeline_build_service::domain::job_lifecycle::{JobLifecycleError, transition_job};
 use pipeline_build_service::models::job::JobState;
 
-use crate::common::{job_spec, MockDatasetClient, MockJobSpecRepo, spawn};
+use crate::common::{MockDatasetClient, MockJobSpecRepo, job_spec, spawn};
 
 #[tokio::test]
 #[ignore = "requires docker"]
@@ -26,7 +24,10 @@ async fn job_lifecycle_invalid_transition_rejected() {
     specs.add(job_spec("ri.spec.s1", vec!["raw.a"], vec!["mid.b"]));
     versioning.add_branch(
         "raw.a",
-        BranchSnapshot { name: "master".parse().unwrap(), head_transaction_rid: None },
+        BranchSnapshot {
+            name: "master".parse().unwrap(),
+            head_transaction_rid: None,
+        },
     );
 
     let build_branch: BranchName = "master".parse().unwrap();
@@ -68,12 +69,11 @@ async fn job_lifecycle_invalid_transition_rejected() {
         .await
         .unwrap();
     assert_eq!(state.0, "WAITING");
-    let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM job_state_transitions WHERE job_id = $1",
-    )
-    .bind(job_id.0)
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM job_state_transitions WHERE job_id = $1")
+            .bind(job_id.0)
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
     assert_eq!(count.0, 1, "no audit row written for rejected transition");
 }

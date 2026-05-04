@@ -269,10 +269,7 @@ pub mod local {
     }
 
     impl LocalBackingFs {
-        pub fn new(
-            backend: Arc<LocalStorage>,
-            cfg: LocalBackingFsConfig,
-        ) -> BackingFsResult<Self> {
+        pub fn new(backend: Arc<LocalStorage>, cfg: LocalBackingFsConfig) -> BackingFsResult<Self> {
             if cfg.base_directory.is_empty() {
                 return Err(BackingFsError::InvalidPath(
                     "base_directory must not be empty".into(),
@@ -363,10 +360,7 @@ pub mod local {
             Ok(bytes)
         }
 
-        async fn list(
-            &self,
-            logical_prefix: &str,
-        ) -> BackingFsResult<Vec<DatasetFileEntry>> {
+        async fn list(&self, logical_prefix: &str) -> BackingFsResult<Vec<DatasetFileEntry>> {
             let prefix_key = self.full_key(logical_prefix);
             let metas = self.backend.list(&prefix_key).await?;
             Ok(metas
@@ -388,11 +382,7 @@ pub mod local {
             let expires_at = Utc::now() + chrono::Duration::from_std(ttl).unwrap_or_default();
             let key = physical.object_key();
             let sig = self.sign(&key, expires_at.timestamp());
-            let origin = self
-                .cfg
-                .public_origin
-                .trim_end_matches('/')
-                .to_string();
+            let origin = self.cfg.public_origin.trim_end_matches('/').to_string();
             // The LocalBackingFs URL is consumed by the DVS download
             // proxy; the path is stable across local / dev so the UI
             // can build absolute redirects.
@@ -408,8 +398,7 @@ pub mod local {
                 sig = sig,
             );
             Ok(PresignedUrl {
-                url: Url::parse(&url_str)
-                    .map_err(|e| BackingFsError::Internal(e.to_string()))?,
+                url: Url::parse(&url_str).map_err(|e| BackingFsError::Internal(e.to_string()))?,
                 expires_at,
             })
         }
@@ -507,9 +496,7 @@ pub mod s3 {
         }
     }
 
-    fn build_amazon_s3(
-        cfg: &S3BackingFsConfig,
-    ) -> BackingFsResult<object_store::aws::AmazonS3> {
+    fn build_amazon_s3(cfg: &S3BackingFsConfig) -> BackingFsResult<object_store::aws::AmazonS3> {
         use object_store::aws::AmazonS3Builder;
         let mut b = AmazonS3Builder::new()
             .with_bucket_name(&cfg.bucket)
@@ -565,17 +552,13 @@ pub mod s3 {
             Ok(self.backend.get(&physical.object_key()).await?)
         }
 
-        async fn list(
-            &self,
-            logical_prefix: &str,
-        ) -> BackingFsResult<Vec<DatasetFileEntry>> {
+        async fn list(&self, logical_prefix: &str) -> BackingFsResult<Vec<DatasetFileEntry>> {
             let prefix_key = self.full_key(logical_prefix);
             let metas = self.backend.list(&prefix_key).await?;
             Ok(metas
                 .into_iter()
                 .map(|m| {
-                    let logical =
-                        split_object_key(&self.cfg.base_directory, &m.path).to_string();
+                    let logical = split_object_key(&self.cfg.base_directory, &m.path).to_string();
                     DatasetFileEntry {
                         logical_path: logical.clone(),
                         physical: PhysicalLocation {
@@ -608,15 +591,14 @@ pub mod s3 {
                 )));
             }
             let key = physical.object_key();
-            let path = ObjPath::parse(&key)
-                .map_err(|e| BackingFsError::InvalidPath(e.to_string()))?;
+            let path =
+                ObjPath::parse(&key).map_err(|e| BackingFsError::InvalidPath(e.to_string()))?;
             let url = self
                 .signer
                 .signed_url(reqwest::Method::GET, &path, ttl)
                 .await
                 .map_err(|e| BackingFsError::Internal(e.to_string()))?;
-            let expires_at =
-                Utc::now() + chrono::Duration::from_std(ttl).unwrap_or_default();
+            let expires_at = Utc::now() + chrono::Duration::from_std(ttl).unwrap_or_default();
             Ok(PresignedUrl { url, expires_at })
         }
     }
@@ -674,10 +656,7 @@ pub mod hdfs {
         async fn get(&self, _physical: &PhysicalLocation) -> BackingFsResult<Bytes> {
             Err(BackingFsError::PresignUnsupported("hdfs"))
         }
-        async fn list(
-            &self,
-            _logical_prefix: &str,
-        ) -> BackingFsResult<Vec<DatasetFileEntry>> {
+        async fn list(&self, _logical_prefix: &str) -> BackingFsResult<Vec<DatasetFileEntry>> {
             Err(BackingFsError::PresignUnsupported("hdfs"))
         }
         async fn delete(&self, _physical: &PhysicalLocation) -> BackingFsResult<()> {
@@ -760,15 +739,16 @@ mod tests {
         )
         .unwrap();
         let physical = fs
-            .put("rid/transactions/t1/file.bin", Bytes::from_static(b"hi"), PutOpts::default())
+            .put(
+                "rid/transactions/t1/file.bin",
+                Bytes::from_static(b"hi"),
+                PutOpts::default(),
+            )
             .await
             .unwrap();
         assert_eq!(physical.fs_id, "local");
         assert_eq!(physical.base_dir, "foundry/datasets");
-        assert_eq!(
-            physical.relative_path,
-            "rid/transactions/t1/file.bin"
-        );
+        assert_eq!(physical.relative_path, "rid/transactions/t1/file.bin");
         assert_eq!(
             physical.object_key(),
             "foundry/datasets/rid/transactions/t1/file.bin"
@@ -778,7 +758,11 @@ mod tests {
 
         // Same logical path, same physical → mapping is deterministic.
         let again = fs
-            .put("rid/transactions/t1/file.bin", Bytes::from_static(b"hello"), PutOpts::default())
+            .put(
+                "rid/transactions/t1/file.bin",
+                Bytes::from_static(b"hello"),
+                PutOpts::default(),
+            )
             .await
             .unwrap();
         assert_eq!(again.relative_path, physical.relative_path);
@@ -808,8 +792,7 @@ mod tests {
             .presigned_url(&physical, Duration::from_secs(300))
             .await
             .unwrap();
-        let q: std::collections::HashMap<_, _> =
-            signed.url.query_pairs().into_owned().collect();
+        let q: std::collections::HashMap<_, _> = signed.url.query_pairs().into_owned().collect();
         let expires_at: i64 = q.get("expires").unwrap().parse().unwrap();
         let sig = q.get("sig").unwrap();
         assert!(fs.verify_signature(&physical.object_key(), expires_at, sig));

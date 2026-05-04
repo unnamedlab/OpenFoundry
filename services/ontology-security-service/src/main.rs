@@ -35,9 +35,7 @@ use cassandra_kernel::{
     repos::{CassandraActionLogStore, CassandraLinkStore, CassandraObjectStore},
 };
 use core_models::{health::HealthStatus, observability};
-use ontology_kernel::{
-    AppState, domain::pg_repository::PostgresDefinitionStore, handlers::rules,
-};
+use ontology_kernel::{AppState, domain::pg_repository::PostgresDefinitionStore, handlers::rules};
 use search_abstraction::search_backend_from_env;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use storage_abstraction::repositories::SearchBackedObjectSetMaterializationStore;
@@ -108,10 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/ontology/rules/{id}/simulate",
             post(rules::simulate_rule),
         )
-        .route(
-            "/api/v1/ontology/rules/{id}/apply",
-            post(rules::apply_rule),
-        )
+        .route("/api/v1/ontology/rules/{id}/apply", post(rules::apply_rule))
         .route(
             "/api/v1/ontology/types/{type_id}/rules",
             get(rules::list_rules_for_object_type),
