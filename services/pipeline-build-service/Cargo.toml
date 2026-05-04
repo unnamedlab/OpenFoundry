@@ -168,3 +168,13 @@ workspace = true
 [dev-dependencies.sqlx]
 workspace = true
 features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"]
+
+# FASE 3 / Tarea 3.7 — opt-in Spark end-to-end integration test.
+# Enabling this feature pulls the Iceberg client surface from
+# `storage-abstraction` into the build so `tests/spark_e2e.rs` can
+# read the output table written by the SparkApplication. The test
+# itself is `#[ignore]`d and only exercised in CI staging via
+# `cargo test -p pipeline-build-service --features spark-e2e -- --ignored`.
+[features]
+default = []
+spark-e2e = ["storage-abstraction/iceberg"]
