@@ -403,8 +403,8 @@ fn parse_status(body: &JsonValue) -> SparkRunStatusReport {
         "" | "SUBMITTED" | "PENDING_SUBMISSION" | "PENDING_RERUN" => SparkRunStatus::Submitted,
         "RUNNING" | "INVALIDATING" | "SUCCEEDING" | "FAILING" => SparkRunStatus::Running,
         "COMPLETED" => SparkRunStatus::Succeeded,
-        "FAILED" | "FAILED_SUBMISSION" | "UNKNOWN" if state == "UNKNOWN" => SparkRunStatus::Unknown,
         "FAILED" | "FAILED_SUBMISSION" => SparkRunStatus::Failed,
+        "UNKNOWN" => SparkRunStatus::Unknown,
         _ => SparkRunStatus::Unknown,
     };
 

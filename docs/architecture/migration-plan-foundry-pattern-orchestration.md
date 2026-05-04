@@ -821,6 +821,38 @@ Failure modes:
 - Service quota: namespace puede tener LimitRange que rechaza pods con >X memoria. Ajustar.
 ```
 
+**Status:** done — implementation lives in
+[`services/pipeline-build-service/src/spark.rs`](../../services/pipeline-build-service/src/spark.rs)
+(template loaded via `include_str!` from the Tarea 3.2 chart, `${var}`
+substitution + YAML→JSON parse, `submit_pipeline_run` POSTs a
+`DynamicObject` against the `sparkoperator.k8s.io/v1beta2/sparkapplications`
+GVK, `get_pipeline_run_status` reads `.status.applicationState.state`
+and maps every Spark Operator state to {SUBMITTED, RUNNING, SUCCEEDED,
+FAILED, UNKNOWN}). The HTTP surface is in
+[`services/pipeline-build-service/src/handlers/spark_runs.rs`](../../services/pipeline-build-service/src/handlers/spark_runs.rs)
+(`POST /api/v1/pipeline/builds/run` + `GET /api/v1/pipeline/builds/{run_id}/status`),
+with state persisted in the new
+[`pipeline_run_submissions`](../../services/pipeline-build-service/migrations/20260504000080_pipeline_run_submissions.sql)
+table. `AppState` gains `kube_client: Option<kube::Client>` built via
+`kube::Client::try_default()` at boot — handlers respond with `503` when
+the client is unavailable (mirrors the existing `lifecycle_ports`
+pattern). RBAC for the SparkApplication CRD ships in
+[`infra/helm/apps/of-data-engine/templates/pipeline-build-service-spark-rbac.yaml`](../../infra/helm/apps/of-data-engine/templates/pipeline-build-service-spark-rbac.yaml)
+(`Role` with `create/get/list/watch/patch/delete` on
+`sparkapplications` + `sparkapplications/status` in the
+`openfoundry-spark` namespace, `RoleBinding` to the existing
+`pipeline-build-service` SA — gated by
+`services.pipeline-build-service.spark.rbac.create`, default `true`).
+Kube-client coverage lives in
+[`tests/spark_submit_kube_stub.rs`](../../services/pipeline-build-service/tests/spark_submit_kube_stub.rs)
+(`tower_test::mock` fake client, asserts the POST URI/body) plus 5
+unit tests in `src/spark.rs` for substitution, the 50-char composite
+name budget, status mapping, and placeholder leakage detection. The
+`temporal-client` dep was not present in `services/pipeline-build-service/Cargo.toml`
+to begin with (the service routes work through the workflow-service
+URL); no `temporal_*.rs` files existed under `domain/` either, so
+steps 2 + 3 of the task collapse to "nothing to remove".
+
 ### Tarea 3.5 — Refactor `pipeline-schedule-service` reemplazando temporal_schedule
 
 ```text
