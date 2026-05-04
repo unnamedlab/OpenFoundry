@@ -43,7 +43,13 @@ data:
         'sql_warehousing',
         'tabular_analysis',
         'time_series_data',
-        'report'
+        'report',
+        -- FASE 4 / Tarea 4.2 — bounded context for
+        -- `services/reindex-coordinator-service`. Owns the
+        -- `reindex_coordinator.reindex_jobs` resume-cursor table that
+        -- replaces the Temporal workflow `ResumeToken` from the legacy
+        -- Go `workers-go/reindex` worker (ADR-0021).
+        'reindex_coordinator'
       ];
     BEGIN
       FOREACH bc IN ARRAY bcs LOOP

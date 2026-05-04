@@ -1,0 +1,46 @@
+[package]
+name = "idempotency"
+description = "Consumer-side deduplication helper (ADR-0038): IdempotencyStore trait + Postgres / Cassandra implementations"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[features]
+default = []
+# Pull in the Postgres-backed implementation.
+postgres = ["dep:sqlx"]
+# Pull in the Cassandra (Scylla driver) backed implementation.
+cassandra = ["dep:scylla"]
+# Postgres testcontainer integration tests. Implies `postgres`.
+it-postgres = ["postgres", "dep:testcontainers"]
+# Cassandra testcontainer integration tests. Implies `cassandra`.
+it-cassandra = ["cassandra", "dep:testcontainers"]
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+sqlx = { workspace = true, optional = true }
+scylla = { workspace = true, optional = true }
+testcontainers = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lib]
+path = "src/lib.rs"
+name = "idempotency"
+crate-type = ["lib"]

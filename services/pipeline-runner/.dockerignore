@@ -1,0 +1,12 @@
+# Don't ship build artefacts or editor noise into the build context.
+target/
+project/target/
+project/project/
+.bsp/
+.idea/
+.metals/
+.bloop/
+.vscode/
+*.log
+*.iml
+.DS_Store

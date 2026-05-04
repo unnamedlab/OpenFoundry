@@ -16,6 +16,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = ROOT / "services"
 
+# Services whose Dockerfile is NOT a Rust workspace build and therefore
+# must not be passed through extract_meta() / render(). The script
+# leaves these untouched. Add new entries here when introducing
+# non-Rust services that still live under services/.
+NON_RUST_SERVICES: set[str] = {
+    # FASE 3 / Tarea 3.3: Scala/SBT image used as the `image:` of every
+    # dynamically-generated SparkApplication CR. Multi-stage build on
+    # top of apache/spark:3.5.4 — see services/pipeline-runner/README.md.
+    "pipeline-runner",
+}
+
 PORT_RE = re.compile(r"^ENV PORT=(\d+)", re.MULTILINE)
 PKG_RE = re.compile(r"(?:cargo build|cargo chef cook) [^\n]*-p\s+(\S+)")
 WORKDIR_RE = re.compile(r"^WORKDIR\s+(\S+)\s*$", re.MULTILINE)
@@ -83,6 +94,16 @@ SERVICE_OVERRIDES: dict[str, dict[str, str]] = {
         "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
         "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "kafka-rdkafka",
+    },
+    # FASE 4 / Tarea 4.2: Kafka-triggered Cassandra reindex coordinator.
+    # Pulls rdkafka through `event-bus-data` under the `runtime` feature,
+    # plus the scylla driver through `cassandra-kernel`. Same native
+    # build deps as `ontology-indexer`.
+    "reindex-coordinator-service": {
+        "extra_build_apk": "cmake perl zlib-dev zstd-dev cyrus-sasl-dev curl-dev linux-headers",
+        "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
+        "rust_flags": "-C target-feature=-crt-static",
+        "cargo_features": "runtime",
     },
     # Pulls rdkafka transitively through libs/event-bus-data (no feature
     # flag — the dependency is unconditional), so it needs the same
@@ -177,14 +198,18 @@ def render(meta: dict[str, str | bool]) -> str:
 
 def main() -> None:
     count = 0
+    skipped = 0
     for service_dir in sorted(SERVICES_DIR.iterdir()):
         dockerfile = service_dir / "Dockerfile"
         if not dockerfile.exists():
             continue
+        if service_dir.name in NON_RUST_SERVICES:
+            skipped += 1
+            continue
         meta = extract_meta(dockerfile)
         dockerfile.write_text(render(meta))
         count += 1
-    print(f"Rewrote {count} service Dockerfiles")
+    print(f"Rewrote {count} service Dockerfiles (skipped {skipped} non-Rust)")
 
 
 if __name__ == "__main__":

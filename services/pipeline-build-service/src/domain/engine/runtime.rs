@@ -1998,6 +1998,9 @@ mod tests {
             distributed_compute_poll_interval_ms: 5_000,
             distributed_compute_timeout_secs: 900,
             lifecycle_ports: None,
+            kube_client: None,
+            spark_namespace: "openfoundry-spark".to_string(),
+            pipeline_runner_image: "localhost:5001/pipeline-runner:0.1.0".to_string(),
         }
     }
 

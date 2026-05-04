@@ -35,18 +35,17 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use temporal_client::{PipelineRunInput, PipelineScheduleClient};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     domain::{
+        cron_dispatch::{CronEmitterPlan, dispatch_plan_for},
+        cron_registrar::CronRegistrar,
         run_store::{self, ListRunsFilter, RunOutcome},
         schedule_store::{self, CreateSchedule, ListFilter, StoreError, UpdateSchedule},
-        temporal_schedule::{DispatchPlan, dispatch_plan_for},
         trigger::{
-            AUTO_PAUSED_REASON, MANUAL_PAUSED_REASON, Schedule, ScheduleTarget, ScheduleTargetKind,
-            Trigger,
+            AUTO_PAUSED_REASON, MANUAL_PAUSED_REASON, Schedule, ScheduleTarget, Trigger,
         },
         trigger_engine, version_store,
     },
@@ -82,7 +81,7 @@ pub struct CreateScheduleBody {
 pub async fn create_schedule(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
-    Extension(temporal): Extension<PipelineScheduleClient>,
+    Extension(registrar): Extension<CronRegistrar>,
     Json(body): Json<CreateScheduleBody>,
 ) -> impl IntoResponse {
     let req = CreateSchedule {
@@ -100,60 +99,29 @@ pub async fn create_schedule(
         Err(e) => return store_error_response(e),
     };
 
-    // For pure-Time and OR-of-Time triggers, also register the schedule
-    // with Temporal so cron dispatch is owned by the durable schedule
-    // service. Event/Compound triggers stay Postgres-driven and are
-    // dispatched ad-hoc by the trigger engine when satisfied.
-    if !schedule.paused {
-        if let DispatchPlan::TemporalCron {
-            cron_expressions,
-            timezone,
-        } = dispatch_plan_for(&schedule)
+    // Tarea 3.5 — for pure-Time and OR-of-Time triggers, persist one
+    // row per cron clause in `schedules.definitions` so the
+    // `schedules-tick` K8s `CronJob` (binary from
+    // `libs/event-scheduler`) fires them every minute. Event /
+    // Compound triggers stay Postgres-driven and are dispatched
+    // ad-hoc by the trigger engine when satisfied. We register the
+    // rows even when paused (with `enabled = false`) so resume can
+    // simply flip the flag back on without losing the schedule's
+    // history.
+    if let CronEmitterPlan::CronEmitter { clauses } = dispatch_plan_for(&schedule) {
+        if let Err(e) = registrar
+            .register(&schedule, &clauses, !schedule.paused)
+            .await
         {
-            if let Some(input) = pipeline_run_input_for(&schedule, &claims.sub) {
-                if let Err(e) = temporal
-                    .create(
-                        schedule.rid.clone(),
-                        cron_expressions,
-                        timezone,
-                        input,
-                        Uuid::now_v7(),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        rid = %schedule.rid,
-                        error = %e,
-                        "Temporal Schedule registration failed; row persisted but cron will not fire"
-                    );
-                }
-            }
+            tracing::warn!(
+                rid = %schedule.rid,
+                error = %e,
+                "schedules.definitions registration failed; row persisted but cron will not fire"
+            );
         }
     }
 
     (StatusCode::CREATED, Json(schedule_view(&schedule))).into_response()
-}
-
-/// Build a [`PipelineRunInput`] from a Schedule. Returns `None` for
-/// targets that the pipeline run workflow cannot consume (Sync /
-/// HealthCheck — those have their own workflow types and dispatch
-/// paths to be wired in later passes).
-fn pipeline_run_input_for(schedule: &Schedule, requested_by: &Uuid) -> Option<PipelineRunInput> {
-    let pipeline_rid = match &schedule.target.kind {
-        ScheduleTargetKind::PipelineBuild(t) => t.pipeline_rid.clone(),
-        ScheduleTargetKind::DatasetBuild(t) => t.dataset_rid.clone(),
-        ScheduleTargetKind::SyncRun(_) | ScheduleTargetKind::HealthCheck(_) => return None,
-    };
-    Some(PipelineRunInput {
-        pipeline_id: schedule.id,
-        tenant_id: schedule.project_rid.clone(),
-        revision: None,
-        parameters: json!({
-            "schedule_rid": schedule.rid,
-            "pipeline_rid": pipeline_rid,
-            "requested_by": requested_by.to_string(),
-        }),
-    })
 }
 
 // ---- GET /v1/schedules?project=&paused=&owner=&q= --------------------------
@@ -248,17 +216,17 @@ pub async fn patch_schedule(
 pub async fn delete_schedule(
     _user: AuthUser,
     State(state): State<AppState>,
-    Extension(temporal): Extension<PipelineScheduleClient>,
+    Extension(registrar): Extension<CronRegistrar>,
     Path(rid): Path<String>,
 ) -> impl IntoResponse {
-    // Tear down the Temporal Schedule first; missing schedules return
-    // an error from the client, but the Postgres delete still proceeds
-    // so the row does not get stranded.
-    if let Err(e) = temporal.delete(&rid).await {
+    // Tarea 3.5 — drop the schedules.definitions rows first so cron
+    // stops firing; the Postgres delete still proceeds even if no
+    // rows existed (e.g. event-only triggers).
+    if let Err(e) = registrar.unregister(&rid).await {
         tracing::warn!(
             rid = %rid,
             error = %e,
-            "Temporal schedule delete failed (continuing with Postgres delete)"
+            "schedules.definitions delete failed (continuing with schedule_store delete)"
         );
     }
     match schedule_store::delete(&state.db, &rid).await {
@@ -272,7 +240,7 @@ pub async fn delete_schedule(
 pub async fn run_now(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
-    Extension(temporal): Extension<PipelineScheduleClient>,
+    Extension(registrar): Extension<CronRegistrar>,
     Path(rid): Path<String>,
 ) -> impl IntoResponse {
     let schedule = match schedule_store::get_by_rid(&state.db, &rid).await {
@@ -282,23 +250,17 @@ pub async fn run_now(
 
     let run_id = Uuid::now_v7();
 
-    // Manual-trigger semantics: register a one-shot Temporal schedule
-    // that fires immediately and only once. Temporal's
-    // `PipelineScheduleClient::create` is reused with no cron clauses
-    // — the scheduler treats an empty schedule_spec.cron_expressions
-    // list as "fire ad-hoc on creation".
-    if let Some(input) = pipeline_run_input_for(&schedule, &claims.sub) {
-        let one_shot_id = format!("{rid}:run-now:{run_id}");
-        if let Err(e) = temporal
-            .create(one_shot_id.clone(), Vec::new(), None, input, run_id)
-            .await
-        {
-            tracing::warn!(
-                rid = %schedule.rid,
-                error = %e,
-                "ad-hoc Temporal dispatch failed for run-now"
-            );
-        }
+    // Tarea 3.5 — manual-trigger semantics: stamp a one-shot row in
+    // `schedules.definitions` whose `next_run_at = now` so the very
+    // next `schedules-tick` invocation publishes the same Kafka
+    // payload as a scheduled fire (consumed by
+    // `pipeline-build-service`).
+    if let Err(e) = registrar.run_now(&schedule, run_id).await {
+        tracing::warn!(
+            rid = %schedule.rid,
+            error = %e,
+            "ad-hoc schedules.definitions registration failed for run-now"
+        );
     }
 
     if let Err(e) = schedule_store::mark_run(&state.db, &schedule.rid, Utc::now()).await {
@@ -398,7 +360,7 @@ pub struct PauseScheduleBody {
 pub async fn pause_schedule(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
-    Extension(temporal): Extension<PipelineScheduleClient>,
+    Extension(registrar): Extension<CronRegistrar>,
     Path(rid): Path<String>,
     Json(body): Json<PauseScheduleBody>,
 ) -> impl IntoResponse {
@@ -426,14 +388,16 @@ pub async fn pause_schedule(
         );
     }
 
-    // Tear down any active Temporal Schedule so cron stops firing.
-    // Best-effort — if there is no Temporal Schedule registered (e.g.
-    // event-only triggers), the call is harmless.
-    if let Err(e) = temporal.delete(&updated.rid).await {
+    // Tarea 3.5 — flip `enabled = false` on every owned row in
+    // `schedules.definitions` so cron stops firing without dropping
+    // the row's `next_run_at` history (resume just flips it back).
+    // Best-effort — if no rows exist (e.g. event-only triggers) the
+    // call returns 0 and is harmless.
+    if let Err(e) = registrar.set_enabled(&updated.rid, false).await {
         tracing::debug!(
             rid = %updated.rid,
             error = %e,
-            "Temporal schedule delete on pause failed (likely none registered)"
+            "schedules.definitions pause failed (likely none registered)"
         );
     }
 
@@ -446,7 +410,7 @@ pub async fn pause_schedule(
 pub async fn resume_schedule(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
-    Extension(temporal): Extension<PipelineScheduleClient>,
+    Extension(registrar): Extension<CronRegistrar>,
     Path(rid): Path<String>,
 ) -> impl IntoResponse {
     let updated = match schedule_store::set_paused(&state.db, &rid, false, None).await {
@@ -454,29 +418,28 @@ pub async fn resume_schedule(
         Err(e) => return store_error_response(e),
     };
 
-    // For Time/OR-of-Time triggers, re-register the Temporal Schedule
-    // so cron starts firing again. Event/Compound triggers stay
-    // listener-driven and don't need a Temporal handle.
-    if let DispatchPlan::TemporalCron {
-        cron_expressions,
-        timezone,
-    } = dispatch_plan_for(&updated)
-    {
-        if let Some(input) = pipeline_run_input_for(&updated, &claims.sub) {
-            if let Err(e) = temporal
-                .create(
-                    updated.rid.clone(),
-                    cron_expressions,
-                    timezone,
-                    input,
-                    Uuid::now_v7(),
-                )
-                .await
-            {
+    // Tarea 3.5 — re-enable cron firing. Try the cheap toggle first
+    // (preserves `next_run_at` history); if it touched 0 rows the
+    // schedule was created paused and never registered, so register
+    // it now (Time / OR-of-Time only — Event/Compound triggers stay
+    // listener-driven).
+    if let CronEmitterPlan::CronEmitter { clauses } = dispatch_plan_for(&updated) {
+        match registrar.set_enabled(&updated.rid, true).await {
+            Ok(0) => {
+                if let Err(e) = registrar.register(&updated, &clauses, true).await {
+                    tracing::warn!(
+                        rid = %updated.rid,
+                        error = %e,
+                        "schedules.definitions registration on resume failed"
+                    );
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
                 tracing::warn!(
                     rid = %updated.rid,
                     error = %e,
-                    "Temporal schedule re-create on resume failed"
+                    "schedules.definitions enable on resume failed"
                 );
             }
         }

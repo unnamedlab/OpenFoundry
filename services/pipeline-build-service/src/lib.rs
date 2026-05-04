@@ -17,6 +17,7 @@ pub mod config;
 pub mod domain;
 pub mod handlers;
 pub mod models;
+pub mod spark;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -39,4 +40,12 @@ pub struct AppState {
     pub distributed_compute_poll_interval_ms: u64,
     pub distributed_compute_timeout_secs: u64,
     pub lifecycle_ports: Option<handlers::builds_v1::BuildLifecyclePorts>,
+    /// Kubernetes client used to POST `SparkApplication` CRs. `None`
+    /// in unit tests / environments without a kubeconfig — the
+    /// SparkApplication handlers respond with `503` in that case.
+    pub kube_client: Option<kube::Client>,
+    /// Namespace the Spark Operator watches.
+    pub spark_namespace: String,
+    /// Default `image:` for the SparkApplication CR.
+    pub pipeline_runner_image: String,
 }

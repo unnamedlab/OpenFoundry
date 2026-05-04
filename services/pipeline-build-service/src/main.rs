@@ -41,6 +41,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_config = JwtConfig::new(&app_config.jwt_secret).with_env_defaults();
     let http_client = reqwest::Client::new();
     let storage = build_storage(&app_config)?;
+    // FASE 3 / Tarea 3.4 — kube client is best-effort: in the dev
+    // cluster `try_default()` finds the in-pod ServiceAccount token;
+    // outside k8s (local `cargo run` against a plain Postgres) it
+    // fails and the SparkApplication endpoints simply return 503.
+    let kube_client = match kube::Client::try_default().await {
+        Ok(client) => {
+            tracing::info!(
+                namespace = %app_config.spark_namespace,
+                "kube client initialised — SparkApplication endpoints active"
+            );
+            Some(client)
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "kube client unavailable — SparkApplication endpoints will return 503"
+            );
+            None
+        }
+    };
     let state = AppState {
         db,
         jwt_config: jwt_config.clone(),
@@ -61,6 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         distributed_compute_poll_interval_ms: app_config.distributed_compute_poll_interval_ms,
         distributed_compute_timeout_secs: app_config.distributed_compute_timeout_secs,
         lifecycle_ports: None,
+        kube_client,
+        spark_namespace: app_config.spark_namespace.clone(),
+        pipeline_runner_image: app_config.pipeline_runner_image.clone(),
     };
 
     domain::metrics::init();
@@ -145,9 +168,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             auth_middleware::layer::auth_layer,
         ));
 
+    // FASE 3 / Tarea 3.4 — SparkApplication submission surface.
+    // Mounted unauthenticated for now; the gateway terminates JWT
+    // upstream and the existing `/api/v1/data-integration` group is
+    // the only authenticated namespace (see lifecycle_ports gating).
+    let spark_runs = Router::new()
+        .route(
+            "/builds/run",
+            post(handlers::spark_runs::submit_pipeline_run),
+        )
+        .route(
+            "/builds/{run_id}/status",
+            get(handlers::spark_runs::get_pipeline_run_status),
+        );
+
     let app = Router::new()
         .nest("/api/v1/data-integration", runs)
         .nest("/v1", builds_v1)
+        .nest("/api/v1/pipeline", spark_runs)
         .route("/healthz", get(|| async { "ok" }))
         .with_state(state);
 

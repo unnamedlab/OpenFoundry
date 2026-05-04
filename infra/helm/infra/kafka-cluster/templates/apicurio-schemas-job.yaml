@@ -1,0 +1,140 @@
+{{- if and .Values.apicurio.enabled .Values.apicurio.registerSchemas }}
+---
+# Tarea 4.4 — register the JSON Schema for `ontology.reindex.v1`
+# into Apicurio Registry on chart install/upgrade.
+#
+# Why a Job (not the producer's responsibility):
+#   - Schemas are platform contracts; pinning them at chart-install
+#     time means a misconfigured producer cannot register a
+#     breaking schema by accident.
+#   - The downstream consumer (`services/ontology-indexer`) compiles
+#     the same schema text at startup
+#     (`services/ontology-indexer/src/schema.rs`) so the validator
+#     and the registered artifact stay byte-for-byte identical
+#     (asserted by `helm_chart_copy_is_in_sync_with_source` test).
+#
+# The Job uses Apicurio's Confluent-compatible API (`/apis/ccompat/v7`)
+# so the same call shape works against either Apicurio or a
+# Confluent-style registry. Idempotent: re-applies on every upgrade
+# and Apicurio dedups by content hash on the same subject.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-schema-ontology-reindex-v1
+  namespace: {{ .Values.apicurio.schemasNamespace | default "apicurio" }}
+  labels:
+    openfoundry.io/component: schema-registry
+    openfoundry.io/subject: ontology.reindex.v1-value
+data:
+  # Source of truth: services/ontology-indexer/schemas/ontology.reindex.v1.json
+  # (drift guarded by the `helm_chart_copy_is_in_sync_with_source`
+  # unit test in services/ontology-indexer).
+  ontology.reindex.v1.json: |-
+{{ .Files.Get "files/schemas/ontology.reindex.v1.json" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-ontology-reindex-v1-schema
+  namespace: {{ .Values.apicurio.schemasNamespace | default "apicurio" }}
+  labels:
+    openfoundry.io/component: schema-registry
+    openfoundry.io/subject: ontology.reindex.v1-value
+  annotations:
+    # Re-run on every chart upgrade so schema edits land without a
+    # manual delete/recreate dance. Helm replaces the Job in place
+    # via the post-install/post-upgrade hook.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: register-ontology-reindex-v1-schema
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: register
+          image: {{ .Values.apicurio.registrarImage | default "curlimages/curl:8.10.1" }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: APICURIO_BASE_URL
+              value: {{ .Values.apicurio.baseUrl | default "http://apicurio-registry.apicurio.svc:8080" | quote }}
+            - name: GROUP_ID
+              # Apicurio "default" group is the conventional bucket
+              # for ungrouped artifacts and matches what the
+              # Confluent-compat layer maps onto.
+              value: "default"
+            - name: ARTIFACT_ID
+              # Apicurio artifactId == Confluent subject for
+              # consistency with the consumer's pinned constant
+              # `REINDEX_V1_SUBJECT`
+              # (services/ontology-indexer/src/schema.rs).
+              value: "ontology.reindex.v1-value"
+            - name: SCHEMA_PATH
+              value: "/etc/openfoundry/schemas/ontology.reindex.v1.json"
+            - name: COMPATIBILITY
+              value: {{ .Values.apicurio.reindexV1Compatibility | default "BACKWARD" | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+              # Wait for Apicurio to come up — chart install order is
+              # not deterministic across operators.
+              for i in $(seq 1 60); do
+                if curl -sfo /dev/null "${APICURIO_BASE_URL}/apis/registry/v3/system/info"; then
+                  break
+                fi
+                echo "waiting for Apicurio Registry (${i}/60)…"
+                sleep 5
+              done
+
+              # Apicurio Core API takes the schema body verbatim — no
+              # Confluent-style {"schema":"<escaped string>"} wrapping
+              # required, so we avoid pulling in jq / python just for
+              # JSON-string escaping. `IfExists=RETURN_OR_UPDATE`
+              # makes the call idempotent across upgrades: same
+              # content → same version, edited content → new version.
+              echo "Registering ${ARTIFACT_ID} (group=${GROUP_ID}) from ${SCHEMA_PATH}"
+              curl -sfS -X POST \
+                -H "Content-Type: application/json" \
+                -H "X-Registry-ArtifactType: JSON" \
+                -H "X-Registry-ArtifactId: ${ARTIFACT_ID}" \
+                -H "X-Registry-Version: 1" \
+                "${APICURIO_BASE_URL}/apis/registry/v3/groups/${GROUP_ID}/artifacts?ifExists=RETURN_OR_UPDATE" \
+                --data-binary @"${SCHEMA_PATH}" \
+                | tee /dev/stderr
+              echo
+
+              # Pin the compatibility rule on the artifact so a later
+              # breaking edit is rejected by the registry, not just
+              # by downstream consumer crashes.
+              curl -sfS -X POST \
+                -H "Content-Type: application/json" \
+                --data "{\"ruleType\":\"COMPATIBILITY\",\"config\":\"${COMPATIBILITY}\"}" \
+                "${APICURIO_BASE_URL}/apis/registry/v3/groups/${GROUP_ID}/artifacts/${ARTIFACT_ID}/rules" \
+                || echo "(compatibility rule already configured)"
+              echo "done"
+          volumeMounts:
+            - name: schema
+              mountPath: /etc/openfoundry/schemas
+              readOnly: true
+      volumes:
+        - name: schema
+          configMap:
+            name: kafka-schema-ontology-reindex-v1
+{{- end }}

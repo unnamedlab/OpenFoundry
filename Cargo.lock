@@ -1014,10 +1014,13 @@ dependencies = [
  "core-models",
  "event-bus-control",
  "futures",
+ "outbox",
+ "rdkafka",
  "regex",
  "serde",
  "serde_json",
  "sqlx",
+ "testcontainers",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -4544,6 +4547,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-scheduler"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "event-bus-data",
+ "scheduling-cron",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "event-streaming-service"
 version = "0.0.1"
 dependencies = [
@@ -5830,6 +5854,21 @@ name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
+
+[[package]]
+name = "idempotency"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "scylla",
+ "sqlx",
+ "testcontainers",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "ident_case"
@@ -8093,6 +8132,7 @@ dependencies = [
  "chrono",
  "core-models",
  "event-bus-data",
+ "jsonschema",
  "prometheus",
  "search-abstraction",
  "serde",
@@ -8795,6 +8835,10 @@ dependencies = [
  "datafusion",
  "event-bus-control",
  "futures",
+ "http 1.4.0",
+ "http-body-util",
+ "k8s-openapi",
+ "kube",
  "once_cell",
  "outbox",
  "prometheus",
@@ -8803,6 +8847,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2 0.10.9",
  "sqlx",
  "storage-abstraction",
@@ -8813,6 +8858,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
+ "tower-test",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -8839,6 +8885,7 @@ dependencies = [
  "datafusion",
  "event-bus-control",
  "event-bus-data",
+ "event-scheduler",
  "futures",
  "prometheus",
  "pyo3",
@@ -8850,7 +8897,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "storage-abstraction",
- "temporal-client",
  "testing",
  "thiserror 2.0.18",
  "tokio",
@@ -9867,6 +9913,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "reindex-coordinator-service"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "cassandra-kernel",
+ "chrono",
+ "event-bus-data",
+ "idempotency",
+ "jsonschema",
+ "prometheus",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "report-service"
 version = "0.0.1"
 dependencies = [
@@ -10296,6 +10366,24 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
+name = "saga"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "outbox",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "salsa20"
@@ -11509,6 +11597,22 @@ dependencies = [
  "libc",
  "psm",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "state-machine"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -78,7 +78,7 @@ environments:
 {{- $mimirInstalled            := eq $profile "prod" -}}
 {{- $rookInstalled             := eq $profile "prod" -}}
 {{- $flinkInstalled            := eq $profile "prod" -}}
-{{- $debeziumInstalled         := not $isDev -}}
+{{- $debeziumInstalled         := true -}}
 {{- $postgresClustersInstalled := true -}}
 {{- $cassandraClusterInstalled := true -}}
 {{- $kafkaClusterInstalled     := true -}}

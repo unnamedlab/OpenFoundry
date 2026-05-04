@@ -1,4 +1,11 @@
+{{- /* `files/prometheus-rules.yaml` is a `PrometheusRule` CR. Only
+       inline it when the Prometheus Operator CRDs are installed,
+       otherwise the chart cannot apply in dev profile (where
+       `observabilityInstalled` is false in
+       `infra/helm/helmfile.yaml.gotmpl`). */ -}}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
 {{- range $path, $_ := .Files.Glob "files/*.yaml" }}
 ---
 {{ $.Files.Get $path }}
+{{- end }}
 {{- end }}

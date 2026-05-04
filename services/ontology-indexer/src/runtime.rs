@@ -18,7 +18,7 @@ use search_abstraction::{RepoError, SearchBackend};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{IndexAction, decode_object_changed, topics};
+use crate::{IndexAction, decode_object_changed, schema, topics};
 
 /// Kafka consumer group used by every replica of the indexer. Pinned
 /// here so a typo across replicas does not silently fork the
@@ -43,6 +43,13 @@ pub enum RecordOutcome {
     DecodeError,
     /// Record carried no payload and was skipped after logging.
     EmptyPayload,
+    /// Record on `ontology.reindex.v1` failed JSON-Schema validation
+    /// against the contract pinned in
+    /// `services/ontology-indexer/schemas/ontology.reindex.v1.json`
+    /// (Tarea 4.4). Skipped after logging so a single poisoned
+    /// producer batch cannot stall the consumer group; surfaced as
+    /// its own metric label so an alert can DLQ-route it.
+    SchemaInvalid,
 }
 
 impl RecordOutcome {
@@ -52,6 +59,7 @@ impl RecordOutcome {
             RecordOutcome::Deleted => "deleted",
             RecordOutcome::DecodeError => "decode_error",
             RecordOutcome::EmptyPayload => "empty_payload",
+            RecordOutcome::SchemaInvalid => "schema_invalid",
         }
     }
 }
@@ -74,6 +82,8 @@ pub enum RuntimeError {
     Commit(#[from] CommitError),
     #[error("search backend write failed: {0}")]
     Search(#[from] RepoError),
+    #[error("ontology.reindex.v1 schema failed to compile at startup: {0}")]
+    SchemaCompile(#[from] schema::SchemaError),
 }
 
 /// Build the Kafka data-bus config from the standard OpenFoundry env vars.
@@ -126,6 +136,11 @@ pub async fn run_with_metrics<S>(
 where
     S: DataSubscriber,
 {
+    // Compile the `ontology.reindex.v1` JSON Schema once at startup
+    // so a malformed artifact (e.g. a botched Helm-time edit) fails
+    // the readiness probe instead of the first batch (Tarea 4.4).
+    schema::ensure_compiled()?;
+
     subscriber.subscribe(SUBSCRIBE_TOPICS)?;
     tracing::info!(
         group = CONSUMER_GROUP,
@@ -165,6 +180,25 @@ pub async fn process_message(
         );
         return Ok(RecordOutcome::EmptyPayload);
     };
+
+    // Schema gate for the `ontology.reindex.v1` topic only — the
+    // live `object.changed.v1` / `action.applied.v1` topics are
+    // already produced via the EventRouter SMT against schemas
+    // registered elsewhere; gating them here is out of scope for
+    // Tarea 4.4 and would risk dropping live writes during the
+    // cut-over.
+    if message.topic() == topics::ONTOLOGY_REINDEX_V1 {
+        if let Err(error) = schema::validate_bytes(payload) {
+            tracing::warn!(
+                topic = message.topic(),
+                partition = message.partition(),
+                offset = message.offset(),
+                %error,
+                "ontology-indexer skipping reindex record that violates ontology.reindex.v1 schema"
+            );
+            return Ok(RecordOutcome::SchemaInvalid);
+        }
+    }
 
     let action = match decode_object_changed(payload) {
         Ok(action) => action,
@@ -282,6 +316,7 @@ impl RuntimeMetrics {
                 RecordOutcome::Deleted,
                 RecordOutcome::DecodeError,
                 RecordOutcome::EmptyPayload,
+                RecordOutcome::SchemaInvalid,
             ] {
                 let labels = &[*topic, outcome.as_metric_label()];
                 self.indexer_records_total.with_label_values(labels);

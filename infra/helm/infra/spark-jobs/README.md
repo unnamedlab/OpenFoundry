@@ -23,6 +23,7 @@ audit policy and must be reverted.
 | `iceberg-rewrite-data-files.yaml` | Compact small files into 256MB targets across the allowlist namespaces. | weekly Sun 03:00 UTC |
 | `iceberg-expire-snapshots.yaml` | Drop snapshots older than per-namespace retention (90d/1y) — never against `of_audit`. | weekly Sun 04:00 UTC |
 | `metrics-aggregation-service-daily.yaml` | Read Mimir TSDB blocks from S3, aggregate per-service per-day, append to `of_metrics_long.service_metrics_daily`. | daily 02:00 UTC |
+| `_pipeline-run-template.yaml` | **Template** (not rendered by Helm — leading underscore). Loaded by `pipeline-build-service`, `${...}`-substituted, and POSTed to the K8s API as one `SparkApplication` per pipeline run. See [`README-pipeline-run.md`](README-pipeline-run.md). | per pipeline run |
 
 ## WORM protection
 
