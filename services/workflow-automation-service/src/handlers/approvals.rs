@@ -1,11 +1,9 @@
 //! HTTP proxy from `POST /api/v1/workflows/approvals/{id}/continue`
 //! to `approvals-service::POST /api/v1/approvals/{id}/decide`.
 //!
-//! Pre-FASE-7 this handler held a [`temporal_client::ApprovalsClient`]
-//! and signalled the Temporal workflow directly. Post-FASE-7 the
-//! authoritative store of approvals is
-//! `audit_compliance.approval_requests` in `approvals-service`, and
-//! the decision happens via a synchronous HTTP call. The
+//! The authoritative store of approvals is
+//! `audit_compliance.approval_requests` in `approvals-service`. The
+//! decision happens via a synchronous HTTP call; the
 //! `approvals-service` handler updates the state-machine row +
 //! publishes `approval.completed.v1` via the transactional outbox.
 //!

@@ -15,11 +15,6 @@
 //! `saga.step.requested.v1` outbox row in a single transaction; the
 //! saga consumer ([`crate::domain::saga_consumer`]) picks the event
 //! up and dispatches the matching step graph.
-//!
-//! The Temporal adapter at
-//! [`crate::domain::temporal_adapter`] is dead code (no live writes
-//! ever go through it). It survives until FASE 8 / Tarea 8.3 retires
-//! `libs/temporal-client` workspace-wide.
 
 pub mod config;
 pub mod domain;

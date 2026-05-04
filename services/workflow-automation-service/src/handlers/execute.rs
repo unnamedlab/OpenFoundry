@@ -6,11 +6,8 @@
 //! [`crate::domain::condition_consumer`]) picks the event up and
 //! drives the dispatch.
 //!
-//! FASE 5 / Tarea 5.3 deliverable. Replaces the legacy
-//! `TemporalAdapter::start_run` path; the adapter file is left in
-//! place because `handlers/approvals.rs` still uses
-//! `temporal_client::ApprovalsClient` until FASE 7 retires the
-//! Temporal-backed approvals worker. The HTTP routes themselves
+//! FASE 5 / Tarea 5.3 deliverable; the legacy Temporal adapter
+//! was retired in FASE 8 / Tarea 8.2. The HTTP routes themselves
 //! keep their old shapes so callers (UI, webhook senders,
 //! `pipeline-service::trigger_lineage_builds`,
 //! `pipeline-schedule-service::workflow_run_requested`) do not need

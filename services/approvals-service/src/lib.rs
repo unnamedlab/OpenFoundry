@@ -8,10 +8,7 @@
 //! approved/rejected/expired) lives in
 //! `audit_compliance.approval_requests` driven by
 //! `libs/state-machine::PgStore`. New writes route through
-//! [`crate::handlers::approvals`]; the legacy Temporal adapter at
-//! [`crate::domain::temporal_adapter`] is dead code and survives
-//! only until FASE 8 / Tarea 8.3 retires `libs/temporal-client`
-//! workspace-wide.
+//! [`crate::handlers::approvals`].
 //!
 //! ## Companion CronJob
 //!
