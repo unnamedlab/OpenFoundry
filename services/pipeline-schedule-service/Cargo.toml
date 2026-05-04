@@ -131,7 +131,7 @@ path = "src/main.rs"
 name = "pipeline-schedule-service"
 required-features = []
 
-[[bin]]
-path = "src/bin/schedules-tick.rs"
-name = "schedules-tick"
-required-features = []
+# Tarea 3.5 — the `schedules-tick` binary that drains
+# `schedules.definitions` lives in `libs/event-scheduler/src/bin/`,
+# not here. This service only writes to that table via
+# `domain::cron_registrar`.

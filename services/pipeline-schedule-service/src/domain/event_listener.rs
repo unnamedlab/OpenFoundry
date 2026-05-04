@@ -12,11 +12,11 @@
 //!   3. push the observation into [`PgTriggerEvaluator::observe`] —
 //!      which both persists the observation AND returns whether the
 //!      compound trigger has now become satisfied;
-//!   4. if `Satisfied`, enqueue an ad-hoc Temporal workflow run.
+//!   4. if `Satisfied`, enqueue an ad-hoc workflow run.
 //!
 //! Step 4's actual dispatch is delegated to
-//! [`crate::domain::temporal_schedule`] in P3; here we only enqueue
-//! the run-now intent.
+//! [`crate::domain::cron_registrar`] (Tarea 3.5); here we only
+//! enqueue the run-now intent.
 
 use std::collections::HashSet;
 
