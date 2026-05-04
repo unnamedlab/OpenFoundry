@@ -716,6 +716,20 @@ Failure modes:
   Tarea 3.3 lo construye.
 ```
 
+**Status:** done — see
+[`infra/helm/infra/spark-jobs/templates/_pipeline-run-template.yaml`](../../infra/helm/infra/spark-jobs/templates/_pipeline-run-template.yaml)
+for the parameterised `SparkApplication` template (POSIX-style
+`${var}` placeholders, substituted at runtime by
+`pipeline-build-service`; the leading underscore makes Helm skip the
+file at install time so the chart still installs cleanly) and
+[`infra/helm/infra/spark-jobs/README-pipeline-run.md`](../../infra/helm/infra/spark-jobs/README-pipeline-run.md)
+for the placeholder reference, the render command (`envsubst`), and
+both the offline (Python YAML parse) and cluster-side
+(`kubectl --dry-run=client`) validation recipes. The retry policy and
+30-min start-to-close from `ExecutePipeline` are mapped 1:1 to
+`spec.restartPolicy` + `spec.timeToLiveSeconds`. WORM protection is
+inherited via `spec.driver.serviceAccount: spark-jobs-non-audit`.
+
 ### Tarea 3.3 — Construir imagen `pipeline-runner` (Spark + Iceberg + transforms)
 
 ```text

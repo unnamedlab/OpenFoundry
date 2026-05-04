@@ -1,0 +1,114 @@
+---
+# FASE 3 / Tarea 3.2 — pipeline-run SparkApplication template.
+#
+# This file is NOT rendered by Helm (the leading underscore in the
+# filename makes Helm treat it as a partial — `helm install`/`helm
+# template` will skip it). It ships inside the `spark-jobs` chart so
+# the template lives next to the maintenance jobs it replaces, but it
+# is consumed at runtime by `pipeline-build-service`:
+#
+#   1. The service loads this file as a string.
+#   2. It substitutes `${...}` placeholders with the per-run values
+#      (pipeline_id, run_id, dataset RIDs, image tag, resources, …).
+#   3. The rendered YAML is POSTed to the Kubernetes API
+#      (`apiVersion: sparkoperator.k8s.io/v1beta2`, `kind:
+#      SparkApplication`) — one CR per pipeline run, replacing the
+#      Temporal `PipelineRun` workflow + `ExecutePipeline` activity
+#      pair documented in
+#      `docs/architecture/refactor/pipeline-worker-inventory.md`.
+#
+# The Spark Operator (chart `../spark-operator/`) reconciles the CR
+# into a driver Pod + N executor Pods. Restart, retry and timeout
+# semantics are encoded in `spec.restartPolicy` /
+# `spec.timeToLiveSeconds`, mirroring the Temporal retry policy
+# (3 attempts, 1m → 15m exponential backoff, 30 min start-to-close).
+#
+# Placeholder reference and a full render example live in
+# `templates/README-pipeline-run.md`. NEVER add `of_audit` to any
+# pipeline-run SparkConf or arguments — the WORM allowlist for this
+# template is enforced by the `spark-jobs-non-audit` service account
+# (see `../spark-jobs/README.md`).
+#
+# IMPORTANT — the image referenced by `${pipeline_runner_image}` is
+# built in Tarea 3.3 (`pipeline-runner`, ships Iceberg + Lakekeeper
+# REST client + the pipeline-build-service transform library). Until
+# 3.3 lands, rendered manifests will fail to pull.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  # Name is bounded by k8s' 253-char limit AND by the Spark Operator's
+  # own 63-char limit on the derived driver Pod name. The Rust
+  # generator MUST truncate `${pipeline_id}` / `${run_id}` so that the
+  # final string is ≤ 50 characters (room for `pipeline-run-` prefix +
+  # the per-pod suffix the operator appends).
+  name: pipeline-run-${pipeline_id}-${run_id}
+  namespace: ${namespace}
+  labels:
+    openfoundry.io/component: pipeline-run
+    openfoundry.io/pipeline-id: "${pipeline_id}"
+    openfoundry.io/run-id: "${run_id}"
+spec:
+  # `Scala` for compiled JAR transforms (sql/spark nodes), `Python`
+  # for `pyspark` nodes — see `pipeline-build-service::domain::engine`
+  # transform dispatch table in
+  # `docs/architecture/refactor/pipeline-worker-inventory.md`. The
+  # generator picks one of {Scala, Python}.
+  type: ${spark_application_type}
+  mode: cluster
+  image: ${pipeline_runner_image}
+  imagePullPolicy: IfNotPresent
+  # For `type: Scala`:  set `mainClass` and point `mainApplicationFile`
+  #                     at the JAR baked into the image.
+  # For `type: Python`: leave `mainClass` empty (the generator omits
+  #                     the line) and point `mainApplicationFile` at a
+  #                     `.py` entrypoint baked into the image.
+  mainClass: ${main_class}
+  mainApplicationFile: ${main_application_file}
+  arguments:
+    - "--pipeline-id"
+    - "${pipeline_id}"
+    - "--run-id"
+    - "${run_id}"
+    - "--input-dataset"
+    - "${input_dataset_rid}"
+    - "--output-dataset"
+    - "${output_dataset_rid}"
+    - "--catalog"
+    - "lakekeeper"
+    - "--catalog-uri"
+    - "http://lakekeeper.lakekeeper.svc:8181"
+  sparkVersion: "3.5.3"
+  # Mirrors the Temporal `ExecutePipeline` activity retry policy
+  # (3 attempts, exponential backoff). `timeToLiveSeconds` is the
+  # equivalent of the 30 min start-to-close timeout.
+  restartPolicy:
+    type: OnFailure
+    onFailureRetries: 2
+    onFailureRetryInterval: 60
+    onSubmissionFailureRetries: 3
+    onSubmissionFailureRetryInterval: 30
+  timeToLiveSeconds: 1800
+  driver:
+    cores: ${driver_cores}
+    memory: "${driver_memory}"
+    # `spark-jobs-non-audit` denies write to objects labelled
+    # `openfoundry.io/worm: "true"` — pipeline runs MUST NOT use a
+    # service account with audit-write permission.
+    serviceAccount: spark-jobs-non-audit
+    labels:
+      openfoundry.io/pipeline-id: "${pipeline_id}"
+      openfoundry.io/run-id: "${run_id}"
+  executor:
+    cores: ${executor_cores}
+    instances: ${executor_instances}
+    memory: "${executor_memory}"
+    labels:
+      openfoundry.io/pipeline-id: "${pipeline_id}"
+      openfoundry.io/run-id: "${run_id}"
+  sparkConf:
+    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
+    spark.sql.catalog.lakekeeper.type: "rest"
+    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181"
+    spark.hadoop.fs.s3a.endpoint: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+    spark.hadoop.fs.s3a.path.style.access: "true"
