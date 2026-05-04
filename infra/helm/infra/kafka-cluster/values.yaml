@@ -96,9 +96,45 @@ topics:
       class: ontology
     - name: ontology.reindex.completed.v1
       class: ontology
+    # saga.step.v1 — kept for legacy / broadcast / cross-saga
+    # diagnostic feed. Not used by the FASE 6 / Tarea 6.3 saga
+    # runtime, which subscribes to the four typed `.v1` topics
+    # below. Deprecation gate lives with the FASE 9 / Tarea 9.x
+    # cleanup of the legacy substrate.
     - name: saga.step.v1
       class: saga
       retentionMs: "1209600000"       # 14d (saga replay window)
+    # FASE 6 / Tarea 6.2 — typed Saga choreography topics.
+    # Wire-format payloads are pinned in `libs/saga/src/events.rs`.
+    # The `libs/saga::SagaRunner` runner emits the outbound topics
+    # (completed / failed / compensated / completed-saga / aborted)
+    # via the transactional outbox + Debezium EventRouter SMT;
+    # producers (HTTP handlers, k8s CronJobs, upstream domain
+    # events) publish to the inbound topics (requested,
+    # compensate). Topic provisioning matches the rest of the
+    # Foundry-pattern catalog: 14d retention as the operator
+    # replay window, with one DLQ per topic at the same retention.
+    - name: saga.step.requested.v1
+      class: saga
+      retentionMs: "1209600000"
+    - name: saga.step.completed.v1
+      class: saga
+      retentionMs: "1209600000"
+    - name: saga.step.failed.v1
+      class: saga
+      retentionMs: "1209600000"
+    - name: saga.step.compensated.v1
+      class: saga
+      retentionMs: "1209600000"
+    - name: saga.compensate.v1
+      class: saga
+      retentionMs: "1209600000"
+    - name: saga.completed.v1
+      class: saga
+      retentionMs: "1209600000"
+    - name: saga.aborted.v1
+      class: saga
+      retentionMs: "1209600000"
     - name: pipeline.builds.v1
       class: pipeline
       retentionMs: "1209600000"       # 14d
@@ -116,6 +152,13 @@ topics:
     - { name: __dlq.ontology.reindex.requested.v1, class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.ontology.reindex.completed.v1, class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.saga.step.v1,          class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.step.requested.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.step.completed.v1,   class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.step.failed.v1,      class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.step.compensated.v1, class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.compensate.v1,       class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.completed.v1,        class: dlq, retentionMs: "1209600000" }
+    - { name: __dlq.saga.aborted.v1,          class: dlq, retentionMs: "1209600000" }
     - { name: __dlq.pipeline.builds.v1,    class: dlq, retentionMs: "1209600000" }
 
 acls:             { enabled: true }

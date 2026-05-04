@@ -87,9 +87,9 @@ tx.commit().await?;
 # Ok(()) }
 ```
 
-If `charge_card` returns `Err`, the runner emits `saga.step.failed`
+If `charge_card` returns `Err`, the runner emits `saga.step.failed.v1`
 for `charge_card`, then runs `ReserveInventory::compensate` with the
-original input and emits `saga.step.compensated` for it. The saga
+original input and emits `saga.step.compensated.v1` for it. The saga
 ends in status `compensated`. If the process crashes mid-saga and
 restarts with the same `saga_id`, the runner reads back
 `saga.state.completed_steps` and skips the already-finished prefix.
@@ -115,13 +115,23 @@ under `migrations/` so a service can apply both with `sqlx::migrate!`.
 
 ## Event taxonomy
 
-| topic                       | when                                      |
-| --------------------------- | ----------------------------------------- |
-| `saga.step.completed`       | a step's `execute` returned `Ok`          |
-| `saga.step.failed`          | a step's `execute` returned `Err`         |
-| `saga.step.compensated`     | a previously-completed step was undone    |
-| `saga.completed`            | `finish()` ran after every step OK        |
-| `saga.aborted`              | `abort()` was called by the caller        |
+| topic                          | when                                      |
+| ------------------------------ | ----------------------------------------- |
+| `saga.step.completed.v1`       | a step's `execute` returned `Ok`          |
+| `saga.step.failed.v1`          | a step's `execute` returned `Err`         |
+| `saga.step.compensated.v1`     | a previously-completed step was undone    |
+| `saga.completed.v1`            | `finish()` ran after every step OK        |
+| `saga.aborted.v1`              | `abort()` was called by the caller        |
+
+Inbound topics (consumed by the runtime, not emitted by the runner):
+
+| topic                          | when                                                  |
+| ------------------------------ | ----------------------------------------------------- |
+| `saga.step.requested.v1`       | a producer asks the runtime to start (or resume) one  |
+| `saga.compensate.v1`           | upstream signal asking the runtime to roll back       |
+
+Wire-format payloads for every topic above are pinned in
+[`src/events.rs`](src/events.rs) (FASE 6 / Tarea 6.2).
 
 Every event is emitted via `outbox::enqueue` so the application's
 primary writes, the saga state update and the event publication all
@@ -154,8 +164,8 @@ cargo test -p saga --features it-postgres -- --include-ignored
 - **Compensation failures.** The runner does not stop the chain on
   a compensation error — it logs and continues so a misbehaving
   third-party doesn't block the rest of the rollback. Operators
-  should monitor for sagas that emitted `saga.step.failed` but fewer
-  `saga.step.compensated` events than `completed_steps`.
+  should monitor for sagas that emitted `saga.step.failed.v1` but
+  fewer `saga.step.compensated.v1` events than `completed_steps`.
 - **Terminal-state replay.** Calling `SagaRunner::start` for a saga
   that already ended (`completed` / `failed` / `compensated` /
   `aborted`) returns `SagaError::Terminal`. The caller should not

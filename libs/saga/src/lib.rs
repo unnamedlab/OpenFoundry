@@ -79,6 +79,8 @@ use uuid::Uuid;
 pub use outbox;
 use outbox::OutboxEvent;
 
+pub mod events;
+
 // ─── Errors ───────────────────────────────────────────────────────────────
 
 /// Errors raised by saga step execution, compensation, persistence or
@@ -212,13 +214,17 @@ pub enum SagaEventKind {
 }
 
 impl SagaEventKind {
-    fn topic(self) -> &'static str {
+    /// Fully-qualified Kafka topic name including the platform-wide
+    /// `.v1` suffix (per ADR-0022 / FASE 6 / Tarea 6.2). Locked in by
+    /// [`crate::events::topic_constants_match_runner_emit_topics`]
+    /// so the runner and the wire-type module never drift apart.
+    pub fn topic(self) -> &'static str {
         match self {
-            SagaEventKind::StepCompleted => "saga.step.completed",
-            SagaEventKind::StepFailed => "saga.step.failed",
-            SagaEventKind::StepCompensated => "saga.step.compensated",
-            SagaEventKind::SagaCompleted => "saga.completed",
-            SagaEventKind::SagaAborted => "saga.aborted",
+            SagaEventKind::StepCompleted => crate::events::SAGA_STEP_COMPLETED_V1,
+            SagaEventKind::StepFailed => crate::events::SAGA_STEP_FAILED_V1,
+            SagaEventKind::StepCompensated => crate::events::SAGA_STEP_COMPENSATED_V1,
+            SagaEventKind::SagaCompleted => crate::events::SAGA_COMPLETED_V1,
+            SagaEventKind::SagaAborted => crate::events::SAGA_ABORTED_V1,
         }
     }
 
@@ -471,12 +477,12 @@ impl<'a, 'tx> SagaRunner<'a, 'tx> {
                     .emit(
                         SagaEventKind::StepCompleted,
                         Some(step_name),
-                        &serde_json::json!({
-                            "saga_id": self.saga_id,
-                            "saga": self.name,
-                            "step": step_name,
-                            "output": output_json,
-                        }),
+                        &serde_json::to_value(events::SagaStepCompletedV1 {
+                            saga_id: self.saga_id,
+                            saga: self.name.clone(),
+                            step: step_name.to_string(),
+                            output: output_json.clone(),
+                        })?,
                     )
                     .await?;
 
@@ -523,12 +529,12 @@ impl<'a, 'tx> SagaRunner<'a, 'tx> {
                     .emit(
                         SagaEventKind::StepFailed,
                         Some(step_name),
-                        &serde_json::json!({
-                            "saga_id": self.saga_id,
-                            "saga": self.name,
-                            "step": step_name,
-                            "error": err.to_string(),
-                        }),
+                        &serde_json::to_value(events::SagaStepFailedV1 {
+                            saga_id: self.saga_id,
+                            saga: self.name.clone(),
+                            step: step_name.to_string(),
+                            error: err.to_string(),
+                        })?,
                     )
                     .await?;
 
@@ -554,11 +560,11 @@ impl<'a, 'tx> SagaRunner<'a, 'tx> {
         self.emit(
             SagaEventKind::SagaCompleted,
             None,
-            &serde_json::json!({
-                "saga_id": self.saga_id,
-                "saga": self.name,
-                "completed_steps": self.completed_steps,
-            }),
+            &serde_json::to_value(events::SagaCompletedV1 {
+                saga_id: self.saga_id,
+                saga: self.name.clone(),
+                completed_steps: self.completed_steps.clone(),
+            })?,
         )
         .await?;
         self.set_status(SagaStatus::Completed, None).await
@@ -575,10 +581,10 @@ impl<'a, 'tx> SagaRunner<'a, 'tx> {
         self.emit(
             SagaEventKind::SagaAborted,
             None,
-            &serde_json::json!({
-                "saga_id": self.saga_id,
-                "saga": self.name,
-            }),
+            &serde_json::to_value(events::SagaAbortedV1 {
+                saga_id: self.saga_id,
+                saga: self.name.clone(),
+            })?,
         )
         .await?;
         self.set_status(SagaStatus::Aborted, None).await
@@ -599,11 +605,11 @@ impl<'a, 'tx> SagaRunner<'a, 'tx> {
                         .emit(
                             SagaEventKind::StepCompensated,
                             Some(step_name),
-                            &serde_json::json!({
-                                "saga_id": self.saga_id,
-                                "saga": self.name,
-                                "step": step_name,
-                            }),
+                            &serde_json::to_value(events::SagaStepCompensatedV1 {
+                                saga_id: self.saga_id,
+                                saga: self.name.clone(),
+                                step: step_name.to_string(),
+                            })?,
                         )
                         .await?;
                     ran_any = true;
@@ -690,14 +696,18 @@ mod tests {
     #[test]
     fn saga_event_kind_topics_are_stable() {
         // These strings show up on the wire — locking them in.
-        assert_eq!(SagaEventKind::StepCompleted.topic(), "saga.step.completed");
-        assert_eq!(SagaEventKind::StepFailed.topic(), "saga.step.failed");
+        // The platform convention is `<domain>.<entity>.v<N>` (per
+        // ADR-0022 and FASE 6 / Tarea 6.2). The deeper invariant
+        // "topic() matches the events module constants exactly"
+        // lives in `events::tests::topic_constants_match_runner_emit_topics`.
+        assert_eq!(SagaEventKind::StepCompleted.topic(), "saga.step.completed.v1");
+        assert_eq!(SagaEventKind::StepFailed.topic(), "saga.step.failed.v1");
         assert_eq!(
             SagaEventKind::StepCompensated.topic(),
-            "saga.step.compensated"
+            "saga.step.compensated.v1"
         );
-        assert_eq!(SagaEventKind::SagaCompleted.topic(), "saga.completed");
-        assert_eq!(SagaEventKind::SagaAborted.topic(), "saga.aborted");
+        assert_eq!(SagaEventKind::SagaCompleted.topic(), "saga.completed.v1");
+        assert_eq!(SagaEventKind::SagaAborted.topic(), "saga.aborted.v1");
     }
 
     #[test]
