@@ -1,0 +1,100 @@
+name: CI — Foundry-pattern integration
+
+# FASE 9 / Tarea 9.4 deliverable. Runs the testcontainer-backed
+# integration suites that exercise the Foundry-pattern substrate
+# end-to-end: outbox + Debezium contract, libs/saga LIFO
+# compensation, libs/state-machine PgStore round-trip, and the
+# automation-operations saga chaos test.
+#
+# These suites are gated behind `it-postgres` (or per-crate
+# equivalent) cargo features so plain `cargo test --workspace`
+# stays no-IO. This workflow turns them on so a regression cannot
+# slip past CI even when a contributor doesn't run the heavy
+# tests locally.
+#
+# Spark-side end-to-end (pipeline-runner SparkApplication
+# submission against a real Spark Operator) is deferred — that
+# requires a kind cluster + Spark Operator install which is
+# expensive to bring up here. The unit-level coverage of the
+# Spark-submit path lives in pipeline-build-service's existing
+# tests; the live SparkApplication smoke is FASE 11 territory.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/saga/**"
+      - "libs/state-machine/**"
+      - "libs/outbox/**"
+      - "libs/idempotency/**"
+      - "services/approvals-service/**"
+      - "services/automation-operations-service/**"
+      - "services/workflow-automation-service/**"
+      - "services/audit-compliance-service/**"
+      - "services/reindex-coordinator-service/**"
+      - "Cargo.lock"
+      - ".github/workflows/integration-foundry-pattern.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/saga/**"
+      - "libs/state-machine/**"
+      - "libs/outbox/**"
+      - "libs/idempotency/**"
+      - "services/approvals-service/**"
+      - "services/automation-operations-service/**"
+      - "services/workflow-automation-service/**"
+      - "services/audit-compliance-service/**"
+      - "services/reindex-coordinator-service/**"
+      - "Cargo.lock"
+      - ".github/workflows/integration-foundry-pattern.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  SQLX_OFFLINE: "true"
+
+jobs:
+  saga-integration:
+    name: Saga + state-machine + outbox integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Postgres testcontainer is booted by each test crate (no
+      # services: block needed). The runner provides Docker via
+      # the standard ubuntu-latest image; `testcontainers-rs`
+      # talks to the local socket.
+      - name: libs/saga happy-path / failure / idempotent-replay
+        run: cargo test -p saga --features it-postgres -- --include-ignored
+
+      - name: libs/state-machine PgStore round-trip
+        run: cargo test -p state-machine --features it-postgres -- --include-ignored
+
+      - name: libs/outbox INSERT+DELETE round-trip
+        run: cargo test -p outbox --features it-postgres -- --include-ignored
+
+      # FASE 6 / Tarea 6.4 — chaos test: forces step 2 of a 3-step
+      # saga to fail and verifies the LIFO compensation chain
+      # plus the saga.state row landing in `compensated`.
+      - name: automation-operations saga chaos
+        run: |
+          cargo test -p automation-operations-service \
+            --features it-postgres \
+            --test saga_chaos -- --test-threads=1
+
+  idempotency-integration:
+    name: Idempotency Postgres backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: libs/idempotency PgIdempotencyStore
+        # `it-postgres` implies `postgres` and pulls in
+        # `testcontainers` so the PG-backed dedup table can be
+        # round-tripped against a real database.
+        run: |
+          cargo test -p idempotency --features it-postgres -- --include-ignored

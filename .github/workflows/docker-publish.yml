@@ -19,12 +19,29 @@ jobs:
     strategy:
       matrix:
         service:
-          - gateway
-          - auth-service
-          - dataset-service
+          # Foundry-pattern services that are wired into the apps
+          # helm charts and ship as Docker images. The matrix was
+          # rebuilt by FASE 9 / Tarea 9.4 — the previous entries
+          # (`gateway`, `auth-service`, `dataset-service`,
+          # `pipeline-service`, `ontology-service`) referenced
+          # legacy service names that never had Dockerfiles in
+          # services/ and silently failed every push.
+          - approvals-service
+          - automation-operations-service
+          - audit-compliance-service
+          - data-asset-catalog-service
+          - edge-gateway-service
+          - identity-federation-service
+          - ontology-actions-service
+          - ontology-definition-service
+          - ontology-indexer
+          - pipeline-authoring-service
+          - pipeline-build-service
+          - pipeline-runner
+          - pipeline-schedule-service
+          - reindex-coordinator-service
           - sql-bi-gateway-service
-          - pipeline-service
-          - ontology-service
+          - workflow-automation-service
     steps:
       - uses: actions/checkout@v6
       - uses: docker/login-action@v3
