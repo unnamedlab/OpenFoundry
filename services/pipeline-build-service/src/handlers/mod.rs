@@ -4,3 +4,4 @@ pub mod dry_run;
 pub mod execute;
 pub mod job_logs;
 pub mod runs;
+pub mod spark_runs;

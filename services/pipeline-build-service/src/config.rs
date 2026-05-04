@@ -40,6 +40,20 @@ pub struct AppConfig {
     pub distributed_compute_poll_interval_ms: u64,
     #[serde(default = "default_distributed_compute_timeout_secs")]
     pub distributed_compute_timeout_secs: u64,
+
+    // FASE 3 / Tarea 3.4 — SparkApplication submission settings.
+    //
+    // `spark_namespace` is the namespace the Spark Operator watches
+    // (and therefore where `pipeline-build-service` MUST create the
+    // CR — see `infra/helm/infra/spark-operator/`).
+    // `pipeline_runner_image` defaults to the local-registry tag built
+    // by Tarea 3.3 so the service is usable out-of-the-box in the
+    // dev cluster. Both can be overridden via env (`SPARK_NAMESPACE`,
+    // `PIPELINE_RUNNER_IMAGE`).
+    #[serde(default = "default_spark_namespace")]
+    pub spark_namespace: String,
+    #[serde(default = "default_pipeline_runner_image")]
+    pub pipeline_runner_image: String,
 }
 
 fn default_host() -> String {
@@ -88,6 +102,15 @@ fn default_distributed_compute_poll_interval_ms() -> u64 {
 
 fn default_distributed_compute_timeout_secs() -> u64 {
     900
+}
+
+fn default_spark_namespace() -> String {
+    "openfoundry-spark".to_string()
+}
+
+fn default_pipeline_runner_image() -> String {
+    // Mirrors the local-registry tag pushed in Tarea 3.3.
+    "localhost:5001/pipeline-runner:0.1.0".to_string()
 }
 
 impl AppConfig {

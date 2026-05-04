@@ -24,6 +24,20 @@ sha2 = { workspace = true }
 # P4 — live logs SSE/WS plumbing
 tokio-stream = { version = "0.1", features = ["sync"] }
 async-stream = "0.3"
+# FASE 3 / Tarea 3.4 — submit SparkApplication CRs (replaces the
+# Temporal `PipelineRun` workflow). Versions match
+# `services/ingestion-replication-service/Cargo.toml` so the workspace
+# resolves a single copy of `kube` / `k8s-openapi`.
+serde_yaml = { workspace = true }
+
+[dependencies.kube]
+version = "0.95"
+default-features = false
+features = ["client", "rustls-tls", "runtime"]
+
+[dependencies.k8s-openapi]
+version = "0.23"
+features = ["v1_30"]
 
 [dependencies.auth-middleware]
 workspace = true
@@ -126,6 +140,11 @@ required-features = []
 testcontainers = { workspace = true }
 wiremock = { workspace = true }
 tempfile = "3"
+# FASE 3 / Tarea 3.4 — kube fake-client integration test (mirrors
+# services/ingestion-replication-service/tests/control_plane_kube_stub.rs).
+tower-test = "0.4"
+http = "1"
+http-body-util = "0.1"
 
 [dev-dependencies.testing]
 workspace = true
