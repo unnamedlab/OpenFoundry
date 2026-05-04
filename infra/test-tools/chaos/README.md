@@ -27,8 +27,15 @@ kubectl apply -f infra/k8s/chaos/
 | ---- | ------ | -------------- | ----------------- |
 | [`cassandra-kill.yaml`](cassandra-kill.yaml) | one Cassandra Pod (`dc1`) | Tue 02:00 | P95 read ≤ 25 ms within 60 s |
 | [`kafka-broker-kill.yaml`](kafka-broker-kill.yaml) | one Strimzi broker | Wed 02:00 | consumer lag back to baseline ≤ 90 s |
-| [`temporal-history-kill.yaml`](temporal-history-kill.yaml) | one Temporal history Pod | Thu 02:00 | no `WorkflowExecutionTimedOut` |
 | [`k8s-node-drain.yaml`](k8s-node-drain.yaml) | one worker node | Fri 02:00 | PDBs honoured, reschedule ≤ 5 min |
+
+The Temporal-history-Pod kill that previously sat on Thursdays was
+deleted in FASE 9 of the Foundry-pattern migration (ADR-0037
+supersedes ADR-0021). The orchestration-plane SPOF coverage moved
+into the dedicated subsuite [`foundry-pattern/`](foundry-pattern/),
+which kills `workflow-automation-service`, `automation-operations-service`,
+the Debezium Connect worker and the Spark Operator controller on
+Mon–Thu 03:00 UTC.
 
 ## Pause / resume
 

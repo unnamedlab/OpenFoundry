@@ -1,0 +1,31 @@
+# FASE 11 / Tarea 11.3 — kill one workflow-automation-service Pod
+# weekly. Validates the Foundry-pattern Automate substrate survives
+# a consumer crash mid-event-loop:
+#   * the saga.step.requested.v1 partition gets reassigned to the
+#     surviving replica within the consumer-group rebalance window;
+#   * in-flight automation_runs rows stay consistent (state-machine
+#     transitions are idempotent under PgIdempotencyStore);
+#   * no event is lost (outbox INSERT+DELETE same-TX semantics).
+#
+# Success criterion: smoke/scenarios/foundry-pattern-full-flow.json
+# passes within 90 s of the kill (consumer-group rebalance + recovery
+# budget). See `docs/architecture/foundry-pattern-orchestration.md`.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-fp-workflow-automation-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * 1"          # every Monday 03:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - of-platform
+      labelSelectors:
+        app.kubernetes.io/name: workflow-automation-service
+    gracePeriod: 0

@@ -1,0 +1,196 @@
+{
+  "_comment_": "FASE 11 / Tarea 11.1 — end-to-end smoke that exercises the four Foundry-pattern surfaces (Automate, Saga, Approval, Pipeline) on a live cluster. Designed to be runnable via `cargo run -p of-cli -- smoke run --scenario smoke/scenarios/foundry-pattern-full-flow.json --output smoke/results/foundry-pattern-full-flow.json` against a `helmfile -e dev apply` deployment. Audit-log assertions assume Debezium has connected and the EventRouter SMT is wired (FASE 2 / Tarea 2.4).",
+  "base_url": "http://127.0.0.1:8080",
+  "default_headers": {
+    "content-type": "application/json"
+  },
+  "auth": {
+    "type": "dev_jwt",
+    "secret_env": "JWT_SECRET",
+    "roles": ["admin"],
+    "permissions": ["*:*"],
+    "attributes": {
+      "tenant_tier": "team",
+      "workspace": "smoke-foundry-pattern",
+      "tenant_quotas": {
+        "requests_per_minute": 600
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "fp_create_workflow_definition",
+      "_comment_": "FASE 5 / Tarea 5.3 — workflow-automation Postgres state machine.",
+      "method": "POST",
+      "path": "/api/v1/workflows",
+      "expected_status": 201,
+      "body": {
+        "name": "fp-smoke-${RUN_ID}",
+        "description": "FASE 11 smoke — Automate pattern",
+        "trigger": {
+          "kind": "manual"
+        },
+        "steps": [
+          { "id": "noop", "kind": "noop" }
+        ]
+      },
+      "capture": {
+        "workflow_id": "/id"
+      },
+      "expect": [
+        { "path": "/id", "exists": true }
+      ]
+    },
+    {
+      "name": "fp_execute_workflow",
+      "_comment_": "Drives the automation_runs row from `pending` to `running` via the saga.step.requested.v1 outbox event.",
+      "method": "POST",
+      "path": "/api/v1/workflows/${workflow_id}/execute",
+      "expected_status": 202,
+      "body": {
+        "context": { "smoke": true }
+      },
+      "capture": {
+        "automation_run_id": "/run_id",
+        "automation_correlation_id": "/correlation_id"
+      },
+      "expect": [
+        { "path": "/run_id", "exists": true },
+        { "path": "/correlation_id", "exists": true }
+      ]
+    },
+    {
+      "name": "fp_wait_workflow_completed",
+      "_comment_": "Postgres state-machine row is the source of truth (no Temporal). Allow up to 30s for the consumer to drain the saga.step.requested.v1 partition + dispatch the no-op effect.",
+      "method": "GET",
+      "path": "/api/v1/workflows/${workflow_id}/runs/${automation_run_id}",
+      "expected_status": 200,
+      "retry_attempts": 60,
+      "retry_delay_ms": 500,
+      "expect": [
+        { "path": "/state", "equals": "Completed" },
+        { "path": "/correlation_id", "equals": "${automation_correlation_id}" }
+      ]
+    },
+    {
+      "name": "fp_create_pipeline_with_cron",
+      "_comment_": "FASE 3 / Tarea 3.4 — pipeline-build-service emits a SparkApplication CR. Cron dispatch is owned by the schedules-tick CronJob (FASE 3 / Tarea 3.5).",
+      "method": "POST",
+      "path": "/api/v1/pipelines",
+      "expected_status": 201,
+      "body": {
+        "name": "fp-smoke-pipeline-${RUN_ID}",
+        "image_tag": "smoke",
+        "input_dataset_rids": [],
+        "output_dataset_rid": "ri.smoke.fp.${RUN_ID}",
+        "schedule": {
+          "cron": "*/2 * * * *",
+          "timezone": "UTC"
+        }
+      },
+      "capture": {
+        "pipeline_id": "/id"
+      },
+      "expect": [
+        { "path": "/schedule/cron", "equals": "*/2 * * * *" }
+      ]
+    },
+    {
+      "name": "fp_run_pipeline_now",
+      "_comment_": "Bypasses the cron tick to materialise a SparkApplication CR immediately.",
+      "method": "POST",
+      "path": "/api/v1/pipelines/${pipeline_id}:run-now",
+      "expected_status": 202,
+      "capture": {
+        "pipeline_run_id": "/run_id"
+      },
+      "expect": [
+        { "path": "/run_id", "exists": true }
+      ]
+    },
+    {
+      "name": "fp_wait_pipeline_succeeded",
+      "_comment_": "Spark Operator reconciles the CR into a driver Pod + executors. SUCCEEDED maps to spec.status.applicationState=COMPLETED.",
+      "method": "GET",
+      "path": "/api/v1/pipelines/${pipeline_id}/runs/${pipeline_run_id}",
+      "expected_status": 200,
+      "retry_attempts": 240,
+      "retry_delay_ms": 500,
+      "expect": [
+        { "path": "/status", "equals": "Succeeded" }
+      ]
+    },
+    {
+      "name": "fp_request_approval",
+      "_comment_": "FASE 7 — approvals-service 5-state machine + timeout sweep CronJob.",
+      "method": "POST",
+      "path": "/api/v1/approvals",
+      "expected_status": 201,
+      "body": {
+        "subject": "fp-smoke-${RUN_ID}",
+        "decision_window_seconds": 600,
+        "request_payload": { "smoke": true }
+      },
+      "capture": {
+        "approval_id": "/id"
+      },
+      "expect": [
+        { "path": "/state", "equals": "Pending" }
+      ]
+    },
+    {
+      "name": "fp_decide_approval",
+      "method": "POST",
+      "path": "/api/v1/approvals/${approval_id}/decide",
+      "expected_status": 200,
+      "body": {
+        "decision": "approved",
+        "comment": "smoke run"
+      },
+      "expect": [
+        { "path": "/state", "equals": "Approved" }
+      ]
+    },
+    {
+      "name": "fp_cleanup_saga",
+      "_comment_": "FASE 6 — automation-operations saga runs LIFO compensation. We trigger the cleanup_workspace 3-step saga and assert it reaches `Completed`.",
+      "method": "POST",
+      "path": "/api/v1/automations",
+      "expected_status": 202,
+      "body": {
+        "saga_type": "cleanup_workspace",
+        "input": { "workspace_id": "fp-smoke-${RUN_ID}" }
+      },
+      "capture": {
+        "saga_id": "/saga_id"
+      },
+      "expect": [
+        { "path": "/saga_id", "exists": true }
+      ]
+    },
+    {
+      "name": "fp_wait_saga_completed",
+      "method": "GET",
+      "path": "/api/v1/automations/${saga_id}",
+      "expected_status": 200,
+      "retry_attempts": 60,
+      "retry_delay_ms": 500,
+      "expect": [
+        { "path": "/state", "equals": "Completed" }
+      ]
+    },
+    {
+      "name": "fp_audit_log_visible",
+      "_comment_": "Audit lands via outbox → Debezium → audit-compliance-service consumer. Assert the workflow run's correlation_id surfaces. ADR-0038 idempotency: re-querying must return the same row.",
+      "method": "GET",
+      "path": "/api/v1/audit/events?correlation_id=${automation_correlation_id}",
+      "expected_status": 200,
+      "retry_attempts": 60,
+      "retry_delay_ms": 500,
+      "expect": [
+        { "path": "/items/0/correlation_id", "equals": "${automation_correlation_id}" },
+        { "path": "/items/0/event_type", "exists": true }
+      ]
+    }
+  ]
+}

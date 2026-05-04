@@ -1,0 +1,31 @@
+# FASE 11 / Tarea 11.3 — kill one automation-operations-service Pod
+# weekly. Validates the Foundry-pattern Saga substrate (libs/saga +
+# libs/state-machine) survives a runner crash:
+#   * an in-flight saga resumes from its last persisted step (the
+#     `saga.state` row is the source of truth, not an in-memory
+#     ledger);
+#   * compensation runs in LIFO order if the resumed step fails;
+#   * the saga consumer rebalances onto the surviving replica.
+#
+# Success criterion: a cleanup_workspace saga submitted before the
+# kill reaches `Completed` (or, deterministically, `Compensated`)
+# within 120 s.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-fp-automation-operations-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * 2"          # every Tuesday 03:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - of-apps-ops
+      labelSelectors:
+        app.kubernetes.io/name: automation-operations-service
+    gracePeriod: 0

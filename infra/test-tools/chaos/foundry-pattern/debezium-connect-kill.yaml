@@ -1,0 +1,32 @@
+# FASE 11 / Tarea 11.3 — kill one Debezium Connect worker Pod
+# weekly. Validates the outbox → Kafka leg of the Foundry-pattern
+# event flow:
+#   * the surviving Connect worker takes over the failed task;
+#   * the EventRouter SMT continues routing rows from `outbox.events`
+#     into the destination `<domain>.<entity>.v<N>` topics;
+#   * no event is duplicated (deterministic UUIDv5 event_id +
+#     consumer-side idempotency).
+#
+# Success criterion: outbox INSERT → Kafka-visible latency returns to
+# baseline within 60 s of the kill (`debezium_metrics_milli_seconds_behind_source`
+# back below 5 s).
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-fp-debezium-connect-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * 3"          # every Wednesday 03:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - debezium
+      labelSelectors:
+        strimzi.io/kind: KafkaConnect
+        strimzi.io/cluster: outbox-connect
+    gracePeriod: 0

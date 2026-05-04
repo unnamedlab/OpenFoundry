@@ -1,0 +1,33 @@
+# FASE 11 / Tarea 11.3 — kill the Spark Operator controller Pod
+# weekly. Validates the Pipeline-pattern substrate that replaced the
+# Temporal `PipelineRun` workflow:
+#   * a SparkApplication CR submitted before the kill keeps running
+#     (the controller crash does not abort the driver Pod);
+#   * the new controller picks up the in-flight CR's status and
+#     keeps reconciling restartPolicy / retries;
+#   * pipeline-build-service can submit new SparkApplication CRs
+#     once the controller is back.
+#
+# Success criterion: a pipeline run submitted before the kill reaches
+# `Succeeded` (or, deterministically, `Failed` after onFailureRetries
+# exhaust) within the existing pipeline timeout budget.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: chaos-fp-spark-operator-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * 4"          # every Thursday 03:00 UTC
+  type: PodChaos
+  concurrencyPolicy: Forbid
+  historyLimit: 5
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      namespaces:
+        - spark-operator
+      labelSelectors:
+        app.kubernetes.io/name: spark-operator
+        app.kubernetes.io/component: controller
+    gracePeriod: 0
