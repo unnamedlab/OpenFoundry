@@ -100,7 +100,15 @@ impl Throttle {
         if self.max_batches_per_second == 0 {
             Duration::ZERO
         } else {
-            Duration::from_millis(1_000 / u64::from(self.max_batches_per_second).max(1))
+            // Approximate (≤1 ms granularity, integer-rounded
+            // upward to keep the actual rate at or below the
+            // configured ceiling — e.g. max=3 ⇒ 334ms ⇒ ~2.99/s,
+            // max=100 ⇒ 10ms ⇒ exactly 100/s). For sub-millisecond
+            // accuracy switch to a token bucket; today the only
+            // consumer of this knob is operator-driven backfill
+            // throttling where ±1% is fine.
+            let n = u64::from(self.max_batches_per_second);
+            Duration::from_millis(1_000u64.div_ceil(n))
         }
     }
 }
