@@ -29,7 +29,6 @@ jobs:
           # one worker doesn't bust the cache for the others.
           cache-dependency-path: |
             workers-go/workflow-automation/go.sum
-            workers-go/pipeline/go.sum
             workers-go/approvals/go.sum
             workers-go/automation-ops/go.sum
 
@@ -67,7 +66,6 @@ jobs:
       matrix:
         worker:
           - workflow-automation
-          - pipeline
           - approvals
           - automation-ops
     steps:

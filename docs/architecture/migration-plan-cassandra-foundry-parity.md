@@ -80,6 +80,7 @@
 | `services/health-check-service` | **Borrado** → `telemetry-governance-service` | Anti-patrón; las health probes de k8s y el dominio de telemetría son la respuesta |
 | `services/widget-registry-service` | **Borrado** → `application-composition-service` | Stub absorbido por el runtime de composición |
 | `services/tool-registry-service` | **Borrado** → `agent-runtime-service` | Granularidad excesiva; catálogo/dispatch viven con el agente |
+| `workers-go/pipeline/` (Go/Temporal worker, task queue `openfoundry.pipeline`) | **Borrado (Tarea 3.6 ✅)** | Sustituido por `pipeline-build-service` que emite `SparkApplication` CRs y por el `CronJob schedules-tick` para disparos cron; sin worker intermedio. |
 
 ---
 
@@ -971,7 +972,6 @@ Pasa cuando devuelve `0 hits` para runtime hot-path. Quedan fuera del gate los �
 ```bash
 rg -n 'ErrNotImplemented|TODO|substrate stub|_substrate|logging stub|implementation pending' \
   workers-go/workflow-automation \
-  workers-go/pipeline \
   workers-go/approvals \
   workers-go/automation-ops \
   -g '*.go'
