@@ -125,9 +125,9 @@ pub async fn list_due_runs(
             due_runs.extend(list_due_pipeline_runs(state, limit).await?);
         }
         Some(ScheduleTargetKind::Workflow) => {
-            // Workflow cron dispatch is owned by Temporal Schedules; this
-            // Postgres-polling path was removed alongside the legacy
-            // break-glass admin endpoints.
+            // Workflow cron dispatch is owned by the workflow-automation
+            // service's own Postgres state machine + Kafka consumer
+            // (FASE 5). This service only schedules pipeline runs.
         }
     }
 
@@ -267,8 +267,8 @@ pub async fn backfill_runs(
             Ok(results)
         }
         ScheduleTargetKind::Workflow => Err(
-            "workflow backfill via /schedules/backfill has been removed; \
-             trigger workflow runs through Temporal Schedules instead"
+            "workflow backfill via /schedules/backfill is not supported here; \
+             trigger workflow runs through the workflow-automation service"
                 .to_string(),
         ),
     }

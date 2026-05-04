@@ -4,10 +4,6 @@ global:
   kafka:
     bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
 
-temporal:
-  address: temporal-frontend.temporal.svc.cluster.local:7233
-  namespace: openfoundry-staging
-
 services:
   audit-sink:
     replicas: 1

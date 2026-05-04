@@ -6,7 +6,7 @@
 //!   * the trigger evaluator's listener after `observe()` returns
 //!     `Satisfied` (Event / Compound triggers);
 //!   * the manual `:run-now` endpoint;
-//!   * Temporal Schedule callbacks (Time triggers, in P3+).
+//!   * the in-process `schedules-tick` cron loop (Time triggers).
 //!
 //! Maps the build-service response to the three Foundry-doc outcomes
 //! (Succeeded / Ignored / Failed), persists a `schedule_runs` row,
@@ -70,7 +70,7 @@ impl Default for DispatcherConfig {
 pub enum DispatchTrigger {
     /// Cron / Time trigger fired. The optional `user_jwt` is the
     /// caller's token when a USER-mode schedule fires manually
-    /// (Time triggers fired by Temporal carry no user JWT — the
+    /// (Time triggers fired by the cron tick carry no user JWT — the
     /// dispatcher then uses the run-as user's stored token).
     Cron {
         fired_at: chrono::DateTime<chrono::Utc>,

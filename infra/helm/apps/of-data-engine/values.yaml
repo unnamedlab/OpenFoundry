@@ -108,11 +108,6 @@ migrations:
       name: pg-runtime-config-app
       key: dsn
 
-temporal:
-  # Frontend gRPC address consumed by Rust S2 services via TEMPORAL_HOST_PORT.
-  address: temporal-frontend.temporal.svc.cluster.local:7233
-  namespace: openfoundry-default
-
 services:
   connector-management-service:
     replicas: 2

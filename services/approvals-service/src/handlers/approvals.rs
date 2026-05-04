@@ -1,11 +1,6 @@
 //! HTTP handlers — every inbound producer (`POST /api/v1/approvals`,
 //! `POST /api/v1/approvals/{id}/decide`) lands here and persists the
 //! state-machine row + outbox row in a single Postgres transaction.
-//!
-//! FASE 7 / Tarea 7.3 deliverable. Replaces the legacy
-//! `ApprovalsAdapter` Temporal path; the `temporal_adapter` module
-//! survives as dead code until FASE 8 / Tarea 8.3 retires
-//! `libs/temporal-client` workspace-wide.
 
 use axum::{
     Json,

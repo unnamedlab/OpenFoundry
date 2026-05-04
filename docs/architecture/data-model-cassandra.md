@@ -7,7 +7,11 @@
   - [ADR-0020](./adr/ADR-0020-cassandra-as-operational-store.md) —
     decision and hard rules.
   - [ADR-0021](./adr/ADR-0021-temporal-on-cassandra-go-workers.md) —
-    Temporal keyspaces share this cluster.
+    *Superseded by ADR-0037; Temporal keyspaces have been retired
+    (FASE 9 of the Foundry-pattern migration). See
+    `infra/runbooks/temporal.md`.*
+  - [ADR-0037](./adr/ADR-0037-foundry-pattern-orchestration.md) —
+    the orchestration model that replaced Temporal.
   - [ADR-0022](./adr/ADR-0022-transactional-outbox-postgres-debezium.md) —
     why the outbox is **not** in Cassandra.
   - [ADR-0028](./adr/ADR-0028-search-backend-abstraction.md) — search
@@ -454,17 +458,18 @@ CREATE TABLE agent_state.agent_context_by_session (
 
 ---
 
-## Keyspaces `temporal_persistence` and `temporal_visibility`
+## Keyspaces `temporal_persistence` and `temporal_visibility` *(retired)*
 
-**Owned by Temporal.** Schema is created and migrated by
-`temporal-cassandra-tool`. We do not author or modify these tables.
+These keyspaces existed under ADR-0021 and held Temporal's
+persistence + visibility schema. They were retired in FASE 9 of the
+Foundry-pattern migration (ADR-0037 supersedes ADR-0021). On a fresh
+dev cluster they are never created; on a brownfield cluster the
+irreversible `DROP` is driven by
+[`infra/runbooks/temporal.md`](../../infra/runbooks/temporal.md).
 
-- **Replication:** `NetworkTopologyStrategy {dc1:3, dc2:3, dc3:3}`.
-- **Consistency:** `LOCAL_QUORUM` (Temporal default for these
-  backends).
-- **Operational:** see
-  [ADR-0021](./adr/ADR-0021-temporal-on-cassandra-go-workers.md) and
-  the runbook `infra/runbooks/temporal.md`.
+No application traffic touches these names anymore — orchestration
+state lives in Postgres state machines + Kafka events
+(see [foundry-pattern-orchestration.md](./foundry-pattern-orchestration.md)).
 
 ---
 

@@ -208,17 +208,6 @@ pub async fn apply_approval_proposal(
     }
 }
 
-pub async fn fail_run(
-    _state: &AppState,
-    execution_id: Uuid,
-    _context: &Value,
-    error_message: String,
-) -> Result<(), String> {
-    Err(format!(
-        "approval execution {execution_id} failure is authoritative in Temporal; legacy state update retired: {error_message}"
-    ))
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ApprovalContinuationAck {
     pub accepted: bool,

@@ -1,23 +1,20 @@
+{{- /*
+FASE 11 / Tarea 11.4 — TEMPORAL_* env injection retired.
+
+Pre-FASE-7 this template detected `approvals-service` by name
+and overlaid TEMPORAL_HOST_PORT + TEMPORAL_NAMESPACE +
+TEMPORAL_REQUIRE_REAL_CLIENT + TEMPORAL_TASK_QUEUE_APPROVALS env
+vars onto the Deployment. The service no longer reads those env
+vars (it owns the `audit_compliance.approval_requests` state
+machine + outbox publish flow per ADR-0037), so the injection
+block is gone. The template is now a plain `range .Values.services`
+that emits the standard Deployment + Service + NetworkPolicy +
+optional HPA/ScaledObject/PDB shape via the of-shared partials.
+*/ -}}
 {{- $release := .Values.release -}}
-{{- $temporal := .Values.temporal | default dict -}}
-{{- $temporalRustServices := dict
-  "approvals-service" (dict "envKey" "TEMPORAL_TASK_QUEUE_APPROVALS" "taskQueue" "openfoundry.approvals")
--}}
 {{- range $name, $svc := .Values.services }}
 {{- if not (hasKey $svc "enabled") }}{{- $_ := set $svc "enabled" true -}}{{- end }}
 {{- if $svc.enabled }}
-{{- if hasKey $temporalRustServices $name }}
-{{- $queue := get $temporalRustServices $name -}}
-{{- $serviceEnv := dict -}}
-{{- if kindIs "map" ($svc.env | default dict) }}{{- $serviceEnv = ($svc.env | default dict) }}{{- end -}}
-{{- $temporalEnv := dict
-    "TEMPORAL_HOST_PORT" ($temporal.address | default "temporal-frontend.temporal.svc.cluster.local:7233")
-    "TEMPORAL_NAMESPACE" ($temporal.namespace | default "default")
-    "TEMPORAL_REQUIRE_REAL_CLIENT" "true"
--}}
-{{- $_ := set $temporalEnv (get $queue "envKey") (get $queue "taskQueue") -}}
-{{- $_ := set $svc "env" (mergeOverwrite (dict) $temporalEnv $serviceEnv) -}}
-{{- end }}
 ---
 {{- $ctx := dict
     "root" $

@@ -17,27 +17,3 @@ services:
       maxReplicas: 4
       targetCPUUtilizationPercentage: 70
       targetMemoryUtilizationPercentage: 80
-
-temporal:
-  address: temporal-frontend.temporal.svc.cluster.local:7233
-  namespace: openfoundry-staging
-
-temporalWorkers:
-  defaults:
-    replicas: 2
-    logLevel: info
-    autoscaling:
-      enabled: true
-      minReplicas: 2
-      maxReplicas: 5
-      targetCPUUtilizationPercentage: 70
-      targetMemoryUtilizationPercentage: 80
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-  serviceMonitor:
-    enabled: true

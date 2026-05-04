@@ -4,13 +4,6 @@
 //! row in the same Postgres transaction. The saga consumer (see
 //! [`crate::domain::saga_consumer`]) picks the event up and drives
 //! the dispatch.
-//!
-//! FASE 6 / Tarea 6.3 deliverable. Replaces the legacy
-//! `AutomationOpsAdapter::enqueue` Temporal path; the
-//! `temporal_adapter` module is left in place because removing it
-//! would require dropping the `temporal-client` workspace dep, which
-//! happens in FASE 8 / Tarea 8.3 when every service has migrated
-//! away.
 
 use axum::{
     Json,

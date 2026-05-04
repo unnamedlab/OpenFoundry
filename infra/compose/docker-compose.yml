@@ -182,10 +182,12 @@ services:
       start_period: 60s
 
   # Init container that creates the 6 application keyspaces with RF=1.
-  # Mirrors `infra/k8s/platform/manifests/cassandra/keyspaces-job.yaml` but with RF=1 since
-  # this is a single-node cluster. The `temporal_persistence` and
-  # `temporal_visibility` keyspaces are created by the Temporal
-  # auto-setup container itself, so we do not duplicate them here.
+  # Mirrors `infra/helm/infra/cassandra-cluster/templates/keyspaces-job.yaml`
+  # but with RF=1 since this is a single-node dev cluster. The
+  # `temporal_persistence` / `temporal_visibility` keyspaces that
+  # used to be auto-bootstrapped by the Temporal devserver are
+  # not created — Temporal was retired in FASE 9 of the
+  # Foundry-pattern migration (ADR-0037).
   cassandra-init:
     image: ${OPENFOUNDRY_CASSANDRA_IMAGE:-cassandra:5.0}
     depends_on:
@@ -207,47 +209,11 @@ services:
         "
     restart: "no"
 
-  # ── Temporal (devserver) ──────────────────────────────
-  # `temporalio/auto-setup:1.24` (the all-in-one image) backed by the
-  # Cassandra container above. Production also runs Temporal on
-  # Cassandra (ADR-0021); using the same backend in dev keeps the
-  # surface identical and exercises the keyspace creation path.
-  temporal:
-    <<: *common
-    image: ${OPENFOUNDRY_TEMPORAL_IMAGE:-temporalio/auto-setup:1.24}
-    ports:
-      - "${OPENFOUNDRY_TEMPORAL_FRONTEND_HOST_PORT:-7233}:7233"
-    environment:
-      DB: cassandra
-      CASSANDRA_SEEDS: cassandra
-      CASSANDRA_PORT: "9042"
-      KEYSPACE: temporal_persistence
-      VISIBILITY_KEYSPACE: temporal_visibility
-      DEFAULT_NAMESPACE: default
-      DEFAULT_NAMESPACE_RETENTION: 1d
-      SKIP_DEFAULT_NAMESPACE_CREATION: "false"
-    depends_on:
-      cassandra-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "tctl --address 127.0.0.1:7233 cluster health || temporal operator cluster health"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
-
-  # Temporal Web UI bound to the dev frontend.
-  temporal-ui:
-    <<: *common
-    image: ${OPENFOUNDRY_TEMPORAL_UI_IMAGE:-temporalio/ui:2.31.2}
-    ports:
-      - "${OPENFOUNDRY_TEMPORAL_UI_HOST_PORT:-8233}:8080"
-    environment:
-      TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: http://localhost:3000
-    depends_on:
-      temporal:
-        condition: service_started
+  # ── Temporal (retired) ─────────────────────────────────
+  # Removed by FASE 9 / Tarea 9.1 of the Foundry-pattern migration
+  # (ADR-0037). The dev compose stack no longer boots a Temporal
+  # frontend or UI; the substrate that replaced it lives in the
+  # Rust services (state machines + outbox + Kafka consumers).
 
   # ── OpenSearch (dev/CI search backend) ────────────────────
   # Per ADR-0028, OpenSearch is the dev / CI fallback for the Vespa

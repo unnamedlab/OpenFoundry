@@ -1,23 +1,22 @@
+{{- /*
+FASE 11 / Tarea 11.4 — TEMPORAL_* env injection retired.
+
+Pre-FASE-3 this template detected `pipeline-schedule-service`
+by name and overlaid TEMPORAL_HOST_PORT + TEMPORAL_NAMESPACE +
+TEMPORAL_REQUIRE_REAL_CLIENT + TEMPORAL_TASK_QUEUE_PIPELINE env
+vars onto its Deployment. The service no longer reads those env
+vars (cron dispatch is owned by the `schedules-tick` k8s
+CronJob from `libs/event-scheduler` per Tarea 3.5; runtime
+launches SparkApplication CRs via `pipeline-build-service` per
+Tarea 3.4). Injection retired; the template is now a plain
+`range .Values.services` that emits the standard Deployment +
+Service + NetworkPolicy + optional HPA/ScaledObject/PDB shape
+via the of-shared partials.
+*/ -}}
 {{- $release := .Values.release -}}
-{{- $temporal := .Values.temporal | default dict -}}
-{{- $temporalRustServices := dict
-  "pipeline-schedule-service" (dict "envKey" "TEMPORAL_TASK_QUEUE_PIPELINE" "taskQueue" "openfoundry.pipeline")
--}}
 {{- range $name, $svc := .Values.services }}
 {{- if not (hasKey $svc "enabled") }}{{- $_ := set $svc "enabled" true -}}{{- end }}
 {{- if $svc.enabled }}
-{{- if hasKey $temporalRustServices $name }}
-{{- $queue := get $temporalRustServices $name -}}
-{{- $serviceEnv := dict -}}
-{{- if kindIs "map" ($svc.env | default dict) }}{{- $serviceEnv = ($svc.env | default dict) }}{{- end -}}
-{{- $temporalEnv := dict
-    "TEMPORAL_HOST_PORT" ($temporal.address | default "temporal-frontend.temporal.svc.cluster.local:7233")
-    "TEMPORAL_NAMESPACE" ($temporal.namespace | default "default")
-    "TEMPORAL_REQUIRE_REAL_CLIENT" "true"
--}}
-{{- $_ := set $temporalEnv (get $queue "envKey") (get $queue "taskQueue") -}}
-{{- $_ := set $svc "env" (mergeOverwrite (dict) $temporalEnv $serviceEnv) -}}
-{{- end }}
 ---
 {{- $ctx := dict
     "root" $

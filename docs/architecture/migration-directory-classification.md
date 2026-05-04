@@ -98,7 +98,9 @@ chain for it.
 
 - `docs/architecture/legacy-migrations/automation-operations-service/`
 - `services/automation-operations-service/migrations`
-  Pointer-only directory; active SQL was archived and Temporal is authoritative.
+  Active again post-FASE 6 (Foundry-pattern migration): hosts the
+  saga state-machine + audit schema (`saga.state`, `saga_audit_log`)
+  that replaced Temporal as the authoritative orchestration store.
 - `docs/architecture/legacy-migrations/event-streaming-service/`
 - `docs/architecture/legacy-migrations/identity-federation-service/`
 - `docs/architecture/legacy-migrations/object-database-service/`

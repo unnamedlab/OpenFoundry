@@ -11,9 +11,13 @@
 #   * k8ssandra-operator deliberately does not own application schema.
 #     Application keyspace ownership belongs to OpenFoundry release
 #     pipelines (versioned, idempotent CQL), not to infra reconciliation.
-#   * Temporal is excluded — its keyspaces (`temporal_persistence`,
-#     `temporal_visibility`) are bootstrapped by `temporal-cassandra-tool`
-#     from the Temporal frontend chart (see ADR-0021).
+#   * The legacy `temporal_persistence` / `temporal_visibility`
+#     keyspaces are NOT created here — they were bootstrapped by the
+#     Temporal frontend chart (ADR-0021), which was retired in
+#     FASE 9 of the Foundry-pattern migration (ADR-0037 +
+#     `infra/runbooks/temporal.md`). On a fresh dev cluster nothing
+#     ever creates them; on a brownfield cluster the runbook drives
+#     the irreversible DROP.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -97,8 +101,9 @@ metadata:
   namespace: {{ $namespace }}
 data:
   keyspaces.cql: |
-    -- OpenFoundry application keyspaces (six per ADR-0020). Temporal
-    -- keyspaces are managed separately by the Temporal frontend chart.
+    -- OpenFoundry application keyspaces (six per ADR-0020). The
+    -- legacy `temporal_*` keyspaces are not provisioned (Temporal
+    -- itself was retired in FASE 9 / Tarea 9.1).
     -- DURABLE_WRITES is left at the default (true).
     {{- $replication := "" }}
     {{- range $i, $dc := $dcs }}
