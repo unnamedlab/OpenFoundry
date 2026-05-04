@@ -65,6 +65,33 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+# ── Optional dependencies for the `it-debezium` end-to-end smoke test
+# (`tests/outbox_e2e.rs`). Cargo cannot make `[dev-dependencies]`
+# optional, so we declare them as optional regular dependencies and
+# pull them in only when the feature is on. `cargo build` of the
+# service binary in the default profile pays no librdkafka CMake cost.
+[dependencies.outbox]
+workspace = true
+optional = true
+
+[dependencies.rdkafka]
+version = "0.36"
+default-features = false
+features = ["cmake-build", "ssl", "sasl", "tokio"]
+optional = true
+
+[dependencies.testcontainers]
+workspace = true
+optional = true
+
+[features]
+default = []
+# Opt-in flag for the outbox → Debezium → Kafka backbone smoke test
+# (S2.4). Off by default so plain `cargo test -p audit-compliance-service`
+# stays Docker- and network-free. See `tests/outbox_e2e.rs` for the
+# environment variables it expects.
+it-debezium = ["dep:outbox", "dep:rdkafka", "dep:testcontainers"]
+
 [[bin]]
 path = "src/main.rs"
 name = "audit-compliance-service"
