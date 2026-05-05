@@ -6,15 +6,20 @@
 > Tracks per-service status of the consolidation work declared in
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
-> Audit date: 2026-05-05. The live repository has **96 directories** under
-> `services/` (`ls services/ | wc -l`). S8 is now measured as
-> ownership/deployment consolidation, not as physical reduction of the source
-> tree to 30 directories. The three retired stubs `health-check-service`,
-> `tool-registry-service` and `widget-registry-service` are documented below
-> the current map and must not appear in Helm or compose runtime surfaces.
-> The model-plane consolidation completed on 2026-05-05 retired
-> `ml-experiments-service`, `model-adapter-service` and `model-lifecycle-service`
-> into `model-catalog-service`.
+> Audit date: 2026-05-05 (S8 sql/BI consolidation). The live repository
+> has **90 directories** under `services/` (`ls services/ | wc -l`). S8
+> is now measured as ownership/deployment consolidation, not as physical
+> reduction of the source tree to 30 directories. The three retired
+> stubs `health-check-service`, `tool-registry-service` and
+> `widget-registry-service` are documented below the current map and
+> must not appear in Helm or compose runtime surfaces. The model-plane
+> consolidation completed on 2026-05-05 retired `ml-experiments-service`,
+> `model-adapter-service` and `model-lifecycle-service` into
+> `model-catalog-service`. The same day's SQL/BI consolidation retired
+> `sql-warehousing-service`, `tabular-analysis-service` and
+> `analytical-logic-service` into `sql-bi-gateway-service`; the
+> analytical-expressions surface collapsed further into the new
+> internal `libs/analytical-logic` crate (no duplicated HTTP routes).
 >
 > ADR-0030's original "95 dirs → 33 ownership boundaries + 3 sinks" framing
 > is amended by ADR-0042 to "99 dirs → 36 ownership boundaries + 3 sinks +
@@ -42,7 +47,7 @@
 | `ai-application-generation-service` | `ai-evaluation-service` | merge → `ai-evaluation-service` | both share evaluation rig |
 | `ai-evaluation-service` | `ai-evaluation-service` | keep | also absorbs `mcp-orchestration-service` |
 | `ai-sink` | `ai-sink` | sink | Kafka → ML inference store |
-| `analytical-logic-service` | `sql-bi-gateway-service` | merge → `sql-bi-gateway-service` | reusable expressions live next to SQL gateway |
+| `analytical-logic-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; reusable expressions now live in the internal `libs/analytical-logic` crate (no duplicated HTTP routes). `analytical_expressions` schema folded into `services/sql-bi-gateway-service/migrations/`. |
 | `app-builder-service` | (legacy) | delete | already retired in earlier R-prompts; verify Cargo workspace removal |
 | `application-composition-service` | `application-composition-service` | keep | absorbs `application-curation-service`, `widget-registry-service` (S8.1.b), `developer-console-service`, `custom-endpoints-service`, `managed-workspace-service` |
 | `application-curation-service` | `application-composition-service` | merge → `application-composition-service` | |
@@ -129,8 +134,8 @@
 | `solution-design-service` | `solution-design-service` | keep | |
 | `spreadsheet-computation-service` | `notebook-runtime-service` | merge → `notebook-runtime-service` | |
 | `sql-bi-gateway-service` | `sql-bi-gateway-service` | keep | absorbs warehousing, tabular, analytical-logic |
-| `sql-warehousing-service` | `sql-bi-gateway-service` | merge → `sql-bi-gateway-service` | |
-| `tabular-analysis-service` | `sql-bi-gateway-service` | merge → `sql-bi-gateway-service` | |
+| `sql-warehousing-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; `warehouse_jobs` / `warehouse_transformations` / `warehouse_storage_artifacts` schemas folded into `services/sql-bi-gateway-service/migrations/`; CRUD served at `/api/v1/warehouse/*`. |
+| `tabular-analysis-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; `tabular_analysis_jobs` / `tabular_analysis_results` schemas folded into `services/sql-bi-gateway-service/migrations/`; CRUD served at `/api/v1/tabular/*`. |
 | `telemetry-governance-service` | `telemetry-governance-service` | keep | absorbs monitoring rules, health checks, execution observability |
 | `tenancy-organizations-service` | `tenancy-organizations-service` | keep | |
 | `time-series-data-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |

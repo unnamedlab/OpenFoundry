@@ -990,25 +990,9 @@ services:
     ports:
       - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50122"
 
-  sql-warehousing-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/sql-warehousing-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50123
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_sql_warehousing_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
-      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_SQL_WAREHOUSING_HOST_PORT:-50123}:50123"
+  # ── S8 / ADR-0030 — sql-warehousing-service merged into
+  # sql-bi-gateway-service. The warehousing CRUD lives at
+  # /api/v1/warehouse/* on port 50133. ──
 
   time-series-data-service:
     <<: *app-common
@@ -1093,24 +1077,9 @@ services:
     ports:
       - "${OPENFOUNDRY_AI_APPLICATION_GENERATION_HOST_PORT:-50129}:50129"
 
-  tabular-analysis-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/tabular-analysis-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50130
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_tabular_analysis_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_TABULAR_ANALYSIS_HOST_PORT:-50130}:50130"
+  # ── S8 / ADR-0030 — tabular-analysis-service merged into
+  # sql-bi-gateway-service. Tabular analysis CRUD lives at
+  # /api/v1/tabular/* on port 50133. ──
 
   ontology-exploratory-analysis-service:
     <<: *app-common
@@ -1212,22 +1181,9 @@ services:
     ports:
       - "${OPENFOUNDRY_SPREADSHEET_COMPUTATION_HOST_PORT:-50135}:50135"
 
-  analytical-logic-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/analytical-logic-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50136
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_analytical_logic
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ANALYTICAL_LOGIC_HOST_PORT:-50136}:50136"
+  # ── S8 / ADR-0030 — analytical-logic-service retired: reusable
+  # expressions are now an internal crate (`libs/analytical-logic`)
+  # consumed in-process by sql-bi-gateway-service. No HTTP surface. ──
 
   workflow-automation-service:
     <<: *app-common
@@ -2408,7 +2364,9 @@ services:
       DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
       EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
       CDC_METADATA_SERVICE_URL: http://cdc-metadata-service:50122
-      SQL_WAREHOUSING_SERVICE_URL: http://sql-warehousing-service:50123
+      # S8 / ADR-0030: SQL_WAREHOUSING_SERVICE_URL retired —
+      # warehousing CRUD is served by sql-bi-gateway-service (50133).
+      SQL_WAREHOUSING_SERVICE_URL: http://sql-bi-gateway-service:50133
       TIME_SERIES_DATA_SERVICE_URL: http://time-series-data-service:50124
       QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
       PIPELINE_AUTHORING_SERVICE_URL: http://pipeline-authoring-service:50080
@@ -2458,13 +2416,16 @@ services:
       AGENT_RUNTIME_SERVICE_URL: http://agent-runtime-service:50127
       DOCUMENT_INTELLIGENCE_SERVICE_URL: http://document-intelligence-service:50128
       AI_APPLICATION_GENERATION_SERVICE_URL: http://ai-application-generation-service:50129
-      TABULAR_ANALYSIS_SERVICE_URL: http://tabular-analysis-service:50130
+      # S8 / ADR-0030: TABULAR_ANALYSIS_SERVICE_URL retired —
+      # tabular-analysis CRUD is served by sql-bi-gateway-service (50133).
+      TABULAR_ANALYSIS_SERVICE_URL: http://sql-bi-gateway-service:50133
       ONTOLOGY_EXPLORATORY_ANALYSIS_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       ONTOLOGY_TIMESERIES_ANALYTICS_SERVICE_URL: http://ontology-timeseries-analytics-service:50132
       SQL_BI_GATEWAY_SERVICE_URL: http://sql-bi-gateway-service:50133
       NOTEBOOK_RUNTIME_SERVICE_URL: http://notebook-runtime-service:50134
       SPREADSHEET_COMPUTATION_SERVICE_URL: http://spreadsheet-computation-service:50135
-      ANALYTICAL_LOGIC_SERVICE_URL: http://analytical-logic-service:50136
+      # S8 / ADR-0030: ANALYTICAL_LOGIC_SERVICE_URL retired — reusable
+      # expressions are now an internal library crate; no HTTP surface.
       WORKFLOW_AUTOMATION_SERVICE_URL: http://workflow-automation-service:50137
       AUTOMATION_OPERATIONS_SERVICE_URL: http://automation-operations-service:50138
       WORKFLOW_TRACE_SERVICE_URL: http://workflow-trace-service:50139
@@ -2524,8 +2485,7 @@ services:
         condition: service_started
       cdc-metadata-service:
         condition: service_started
-      sql-warehousing-service:
-        condition: service_started
+      # S8 / ADR-0030: sql-warehousing-service merged into sql-bi-gateway-service (below).
       time-series-data-service:
         condition: service_started
       sql-bi-gateway-service:
@@ -2608,16 +2568,14 @@ services:
         condition: service_started
       ai-application-generation-service:
         condition: service_started
-      tabular-analysis-service:
-        condition: service_started
+      # S8 / ADR-0030: tabular-analysis-service merged into sql-bi-gateway-service.
       ontology-exploratory-analysis-service:
         condition: service_started
       ontology-timeseries-analytics-service:
         condition: service_started
       spreadsheet-computation-service:
         condition: service_started
-      analytical-logic-service:
-        condition: service_started
+      # S8 / ADR-0030: analytical-logic-service retired (now an internal crate).
       automation-operations-service:
         condition: service_started
       workflow-trace-service:

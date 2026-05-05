@@ -1,0 +1,33 @@
+[package]
+name = "analytical-logic"
+description = "Reusable analytical expressions and visual function templates (formerly the analytical-logic-service runtime). Internal library so callers compose the expressions without going through duplicated HTTP routes (S8 consolidation, ADR-0030)."
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.chrono]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.sqlx]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.uuid]
+workspace = true

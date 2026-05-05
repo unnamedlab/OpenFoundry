@@ -1,3 +1,17 @@
+//! HTTP handlers for the tabular-analysis CRUD surface.
+//!
+//! Routes (mounted by [`crate::http::build_router`] when a Postgres pool
+//! is available):
+//!
+//! * `GET    /api/v1/tabular/jobs`                     — list recent jobs
+//! * `POST   /api/v1/tabular/jobs`                     — submit new job
+//! * `GET    /api/v1/tabular/jobs/:id`                 — fetch job by id
+//! * `GET    /api/v1/tabular/jobs/:id/results`         — list results for job
+//! * `POST   /api/v1/tabular/jobs/:id/results`         — publish a result
+//!
+//! Ported verbatim from the retired `tabular-analysis-service` handlers
+//! (S8 consolidation, ADR-0030).
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -7,8 +21,8 @@ use axum::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::models::{
+use crate::http::AppState;
+use crate::tabular::models::{
     PublishResultRequest, SubmitJobRequest, TabularAnalysisJob, TabularAnalysisResult,
 };
 
@@ -16,7 +30,7 @@ pub async fn list_jobs(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, TabularAnalysisJob>(
         "SELECT * FROM tabular_analysis_jobs ORDER BY created_at DESC LIMIT 200",
     )
-    .fetch_all(&state.db)
+    .fetch_all(state.db.as_ref())
     .await
     {
         Ok(rows) => Json(rows).into_response(),
@@ -38,7 +52,7 @@ pub async fn submit_job(
     .bind(body.dataset_id)
     .bind(&body.analysis_kind)
     .bind(&options)
-    .fetch_one(&state.db)
+    .fetch_one(state.db.as_ref())
     .await
     {
         Ok(row) => (StatusCode::CREATED, Json(row)).into_response(),
@@ -46,15 +60,12 @@ pub async fn submit_job(
     }
 }
 
-pub async fn get_job(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+pub async fn get_job(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match sqlx::query_as::<_, TabularAnalysisJob>(
         "SELECT * FROM tabular_analysis_jobs WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_optional(state.db.as_ref())
     .await
     {
         Ok(Some(row)) => Json(row).into_response(),
@@ -71,7 +82,7 @@ pub async fn list_results(
         "SELECT * FROM tabular_analysis_results WHERE job_id = $1 ORDER BY created_at DESC",
     )
     .bind(job_id)
-    .fetch_all(&state.db)
+    .fetch_all(state.db.as_ref())
     .await
     {
         Ok(rows) => Json(rows).into_response(),
@@ -93,7 +104,7 @@ pub async fn publish_result(
     .bind(job_id)
     .bind(&body.result_kind)
     .bind(&body.payload)
-    .fetch_one(&state.db)
+    .fetch_one(state.db.as_ref())
     .await
     {
         Ok(row) => (StatusCode::CREATED, Json(row)).into_response(),

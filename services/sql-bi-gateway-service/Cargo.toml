@@ -17,6 +17,9 @@ workspace = true
 [dependencies.arrow]
 version = "53"
 
+[dependencies.analytical-logic]
+workspace = true
+
 [dependencies.arrow-flight]
 version = "53"
 features = ["flight-sql-experimental"]

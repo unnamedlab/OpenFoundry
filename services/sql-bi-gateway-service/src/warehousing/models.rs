@@ -1,3 +1,10 @@
+//! Persistent models for the warehousing bounded context.
+//!
+//! Copied verbatim from the retired `sql-warehousing-service` crate
+//! when the source service was absorbed by the SQL/BI gateway
+//! (ADR-0030, S8). The schema lives in
+//! `migrations/20260427090000_sql_warehousing_foundation.sql`.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

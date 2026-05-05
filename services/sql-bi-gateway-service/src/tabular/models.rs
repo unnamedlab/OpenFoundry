@@ -1,3 +1,9 @@
+//! Persistent models for the tabular-analysis bounded context.
+//!
+//! Copied from the retired `tabular-analysis-service` crate
+//! (S8 consolidation, ADR-0030). Schema lives in
+//! `migrations/20260427070500_tabular_analysis_foundation.sql`.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;

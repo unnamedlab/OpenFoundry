@@ -7,11 +7,24 @@
 //! * `POST /api/v1/queries/saved` — create a saved query.
 //! * `GET  /api/v1/queries/saved` — list saved queries (paginated).
 //! * `DELETE /api/v1/queries/saved/:id` — delete a saved query.
+//! * `…/api/v1/warehouse/*` — warehousing CRUD absorbed from the
+//!   retired `sql-warehousing-service` (S8 consolidation, ADR-0030).
+//!   Routes are listed in [`crate::warehousing::handlers`].
+//! * `…/api/v1/tabular/*`   — tabular-analysis CRUD absorbed from the
+//!   retired `tabular-analysis-service`. Routes are listed in
+//!   [`crate::tabular::handlers`].
 //!
-//! Saved queries are stored in the per-bounded-context CNPG cluster; the
-//! schema lives in `migrations/20260419100003_initial_queries.sql` and is
-//! provisioned out of band by the umbrella Helm chart (see
-//! `services/sql-bi-gateway-service/k8s/README.md`).
+//! Reusable analytical expressions (the previous
+//! `analytical-logic-service` payload) are exposed via the internal
+//! [`analytical_logic`] crate; **no HTTP routes are mounted here for
+//! them** — consumers compose the crate directly.
+//!
+//! Saved queries, warehousing tables and tabular-analysis tables all
+//! live in the per-bounded-context CNPG cluster
+//! (`pg-runtime-config`); migrations are co-located in
+//! `services/sql-bi-gateway-service/migrations/` and applied by the
+//! `of-data-engine` umbrella chart's pre-install Job (see
+//! `infra/helm/apps/of-data-engine/templates/sql-bi-gateway-migrations.yaml`).
 
 use std::sync::Arc;
 
@@ -28,6 +41,8 @@ use uuid::Uuid;
 use crate::models::{
     CreateSavedQueryParams, CreateSavedQueryRequest, ListQueriesQuery, SavedQuery,
 };
+use crate::tabular::handlers as tabular_handlers;
+use crate::warehousing::handlers as warehousing_handlers;
 
 /// Axum state shared by every saved-queries handler.
 #[derive(Clone)]
@@ -49,9 +64,53 @@ pub fn build_router(db: Option<Arc<PgPool>>) -> Router {
         Some(db) => {
             let state = AppState { db };
             let stateful: Router = Router::new()
+                // Saved queries (gateway native).
                 .route("/api/v1/queries/saved", post(create_saved_query))
                 .route("/api/v1/queries/saved", get(list_saved_queries))
                 .route("/api/v1/queries/saved/:id", delete(delete_saved_query))
+                // Warehousing — absorbed from sql-warehousing-service (S8).
+                .route(
+                    "/api/v1/warehouse/jobs",
+                    get(warehousing_handlers::list_jobs).post(warehousing_handlers::submit_job),
+                )
+                .route(
+                    "/api/v1/warehouse/jobs/:id",
+                    get(warehousing_handlers::get_job),
+                )
+                .route(
+                    "/api/v1/warehouse/jobs/:id/cancel",
+                    post(warehousing_handlers::cancel_job),
+                )
+                .route(
+                    "/api/v1/warehouse/transformations",
+                    get(warehousing_handlers::list_transformations)
+                        .post(warehousing_handlers::register_transformation),
+                )
+                .route(
+                    "/api/v1/warehouse/transformations/:id",
+                    get(warehousing_handlers::get_transformation),
+                )
+                .route(
+                    "/api/v1/warehouse/artifacts",
+                    get(warehousing_handlers::list_storage_artifacts),
+                )
+                .route(
+                    "/api/v1/warehouse/artifacts/:id",
+                    get(warehousing_handlers::get_storage_artifact),
+                )
+                // Tabular analysis — absorbed from tabular-analysis-service (S8).
+                .route(
+                    "/api/v1/tabular/jobs",
+                    get(tabular_handlers::list_jobs).post(tabular_handlers::submit_job),
+                )
+                .route(
+                    "/api/v1/tabular/jobs/:id",
+                    get(tabular_handlers::get_job),
+                )
+                .route(
+                    "/api/v1/tabular/jobs/:id/results",
+                    get(tabular_handlers::list_results).post(tabular_handlers::publish_result),
+                )
                 .with_state(state);
             base.merge(stateful)
         }
