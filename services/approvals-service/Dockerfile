@@ -14,10 +14,9 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,id=approvals-service-target,sharing=locked \
-    cargo build --locked --profile docker-release -p approvals-service  \
-    && cp /workspace/target/docker-release/approvals-service /tmp/approvals-service \
-    && cp /workspace/target/docker-release/approvals-timeout-sweep /tmp/approvals-timeout-sweep \
-    && strip /tmp/approvals-service /tmp/approvals-timeout-sweep
+    cargo build --locked --profile docker-release -p approvals-service  && cp /workspace/target/docker-release/approvals-service /tmp/approvals-service  && strip /tmp/approvals-service \
+ && cp /workspace/target/docker-release/approvals-timeout-sweep /tmp/approvals-timeout-sweep \
+ && strip /tmp/approvals-timeout-sweep
 
 FROM alpine:3.23 AS runtime
 WORKDIR /app
@@ -28,10 +27,6 @@ ENV HOST=0.0.0.0
 ENV PORT=50071
 
 COPY --from=builder /tmp/approvals-service /usr/local/bin/approvals-service
-# FASE 7 / Tarea 7.4 — companion CronJob binary that drives the
-# `pending → expired` transition. Same image, different entrypoint:
-# the helm CronJob template overrides `command` to `/usr/local/bin/`
-# `approvals-timeout-sweep`.
 COPY --from=builder /tmp/approvals-timeout-sweep /usr/local/bin/approvals-timeout-sweep
 COPY --from=builder /workspace/services/approvals-service/config ./config
 EXPOSE 50071

@@ -1,0 +1,136 @@
+{{/*
+FASE 4 / Tarea 4.2 — `reindex_coordinator` schema migration.
+
+The shared `of-shared.migrations` helper (templates/migrations.yaml)
+ships a Postgres-driver-based migrator image keyed by `migrations.<db>`,
+but the `reindex_coordinator` schema lives inside the existing
+`pg-runtime-config` cluster and only needs two `CREATE TABLE IF NOT
+EXISTS` statements. Owning a dedicated lightweight Job here keeps the
+table contract co-located with the chart that ships the consuming
+Deployment, and avoids dragging this schema into the centralised
+`of-migrator` image pipeline.
+
+The Job is:
+  * `pre-install,pre-upgrade`     — runs before the coordinator
+                                    Deployment rolls out.
+  * `helm.sh/hook-weight: "-3"`   — runs AFTER `of-shared.migrations`
+                                    (weight -5) so a future `pg-schemas`
+                                    rename can safely depend on the
+                                    base migrator finishing first.
+  * Idempotent — the SQL uses `IF NOT EXISTS` everywhere.
+  * Gated by `.Values.reindexCoordinator.migrations.enabled` so an
+    operator can opt out (e.g. when the cluster is bootstrapped from
+    a managed Postgres backup that already contains the schema).
+*/}}
+{{- $cfg := (.Values.reindexCoordinator | default dict).migrations | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $cfg "enabled" -}}
+  {{- $enabled = $cfg.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $release := required "Values.release is required for reindex-coordinator migration resource names" .Values.release -}}
+{{- $jobName := printf "%s-reindex-coordinator-migrate" $release | trunc 63 | trimSuffix "-" -}}
+{{- $cmName := printf "%s-reindex-coordinator-migrations" $release | trunc 63 | trimSuffix "-" -}}
+{{- $secretName := ($cfg.dsnSecret | default dict).name | default "pg-runtime-config-app" -}}
+{{- $secretKey := ($cfg.dsnSecret | default dict).key | default "DATABASE_URL" -}}
+{{- $image := $cfg.image | default "docker.io/bitnami/postgresql:16" -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cmName }}
+  labels:
+    app.kubernetes.io/name: reindex-coordinator-migrator
+    app.kubernetes.io/instance: {{ $release }}
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: openfoundry
+    openfoundry.io/release: {{ $release }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  0001_reindex_jobs.sql: |-
+{{ .Files.Get "files/reindex-coordinator/0001_reindex_jobs.sql" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $jobName }}
+  labels:
+    app.kubernetes.io/name: reindex-coordinator-migrator
+    app.kubernetes.io/instance: {{ $release }}
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: openfoundry
+    openfoundry.io/release: {{ $release }}
+    openfoundry.io/migration-target: pg-runtime-config-reindex-coordinator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: reindex-coordinator-migrator
+        app.kubernetes.io/instance: {{ $release }}
+        openfoundry.io/migration-target: pg-runtime-config-reindex-coordinator
+    spec:
+      restartPolicy: Never
+      {{- with (.Values.global.imagePullSecrets | default (list)) }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[reindex-coordinator-migrate] applying 0001_reindex_jobs.sql"
+              psql --set ON_ERROR_STOP=1 --single-transaction \
+                   "$DATABASE_URL" \
+                   -f /migrations/0001_reindex_jobs.sql
+              echo "[reindex-coordinator-migrate] done"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $secretKey | quote }}
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+          resources:
+            requests: { cpu: "50m",  memory: "64Mi"  }
+            limits:   { cpu: "200m", memory: "128Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ $cmName }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}
