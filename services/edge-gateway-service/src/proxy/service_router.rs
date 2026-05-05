@@ -340,7 +340,8 @@ pub async fn proxy_handler(
         || (path.starts_with("/api/v1/apps/") && path.ends_with("/versions"))
         || (path.starts_with("/api/v1/apps/") && path.ends_with("/publish"))
     {
-        &config.application_curation_service_url
+        // S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
+        &config.application_composition_service_url
     } else if path.starts_with("/api/v1/apps") {
         &config.app_builder_service_url
     } else {

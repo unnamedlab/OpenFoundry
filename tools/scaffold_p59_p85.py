@@ -112,16 +112,8 @@ SERVICES_SPEC = [
         "solution_references",
         "diagram_id UUID NOT NULL, ref_kind TEXT NOT NULL, ref_value TEXT NOT NULL",
     ),
-    (
-        "developer-console-service",
-        "Developer console for application admin, scopes, subdomains, releases and config",
-        50143,
-        "/api/v1/developer-console/applications",
-        "developer_applications",
-        "name TEXT NOT NULL, subdomain TEXT NOT NULL UNIQUE, scopes JSONB NOT NULL DEFAULT '[]'::jsonb",
-        "developer_releases",
-        "application_id UUID NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft'",
-    ),
+    # `developer-console-service` (was port 50143) merged →
+    # `application-composition-service` per ADR-0030 (S8 / B19).
     (
         "sdk-generation-service",
         "SDK and OpenAPI contract generation, publication and versioning",
@@ -132,26 +124,8 @@ SERVICES_SPEC = [
         "sdk_generation_publications",
         "job_id UUID NOT NULL, location TEXT NOT NULL, version TEXT NOT NULL",
     ),
-    (
-        "managed-workspace-service",
-        "Managed dev workspaces: profiles, dataset aliases, builder branches and context resolution",
-        50145,
-        "/api/v1/managed-workspaces/workspaces",
-        "managed_workspaces",
-        "name TEXT NOT NULL, profile JSONB NOT NULL DEFAULT '{}'::jsonb, owner_id UUID NOT NULL",
-        "managed_workspace_aliases",
-        "workspace_id UUID NOT NULL, alias TEXT NOT NULL, target TEXT NOT NULL",
-    ),
-    (
-        "custom-endpoints-service",
-        "Custom endpoint set publishing, versioning and HTTP remap to actions and functions",
-        50146,
-        "/api/v1/custom-endpoints/sets",
-        "custom_endpoint_sets",
-        "name TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft'",
-        "custom_endpoints",
-        "set_id UUID NOT NULL, path TEXT NOT NULL, method TEXT NOT NULL, target JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `managed-workspace-service` (was port 50145) and `custom-endpoints-service`
+    # (was port 50146) merged → `application-composition-service` per ADR-0030 (S8 / B19).
     # `mcp-orchestration-service` (was port 50147, /api/v1/mcp/servers)
     # merged → `ai-evaluation-service` per ADR-0030 (S8 / B18). Schema
     # (`mcp_servers` / `mcp_tools`) preserved on `pg-ai-eval`.

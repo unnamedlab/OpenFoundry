@@ -207,10 +207,7 @@
 # --- Developer platform / app builder / marketplace / SDKs ---
 /services/app-builder-service/                          @open-foundry/developer-platform @open-foundry/frontend-team
 /services/application-composition-service/              @open-foundry/developer-platform @open-foundry/frontend-team
-/services/application-curation-service/                 @open-foundry/developer-platform
 /services/code-repository-review-service/               @open-foundry/developer-platform
-/services/custom-endpoints-service/                     @open-foundry/developer-platform
-/services/developer-console-service/                    @open-foundry/developer-platform
 /services/marketplace-catalog-service/                  @open-foundry/developer-platform
 /services/marketplace-service/                          @open-foundry/developer-platform
 /services/product-distribution-service/                 @open-foundry/developer-platform
@@ -225,5 +222,4 @@
 
 # --- Platform runtime / observability / tenancy ---
 /services/edge-gateway-service/                         @open-foundry/platform-runtime
-/services/managed-workspace-service/                    @open-foundry/platform-runtime
 /services/tenancy-organizations-service/                @open-foundry/platform-runtime @open-foundry/security-team

@@ -63,22 +63,8 @@ services:
   # S8 / ADR-0030 — `compute-modules-{control-plane,runtime}-service` were
   # never wired and are merged → `pipeline-build-service`; their dev DSN
   # overrides are no longer needed.
-  custom-endpoints-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: custom-endpoints-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: custom-endpoints-db-dsn
-        key: reader_url
-  developer-console-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: developer-console-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: developer-console-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B19): custom-endpoints-service and
+  # developer-console-service merged → application-composition-service.
   # S8 / ADR-0030: document-intelligence-service merged into
   # retrieval-context-service (of-ml-aip). The document-intelligence
   # tables now ship under retrieval-context-service' migrations against
@@ -96,14 +82,8 @@ services:
       DATABASE_READ_URL:
         secretName: federation-product-exchange-db-dsn
         key: reader_url
-  managed-workspace-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: managed-workspace-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: managed-workspace-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B19): managed-workspace-service merged →
+  # application-composition-service.
   marketplace-service:
     envSecrets:
       DATABASE_URL:

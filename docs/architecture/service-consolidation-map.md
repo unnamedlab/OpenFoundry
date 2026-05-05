@@ -11,9 +11,9 @@
 > notebook-runtime + agent-runtime + model-deployment +
 > dataset-versioning + pipeline-build + authorization-policy +
 > audit-compliance + identity-federation + connector-management +
-> ai-evaluation + telemetry-governance consolidation). The live
-> repository has **54 directories** under `services/`
-> (`ls services/ | wc -l`). S8 is now measured as
+> ai-evaluation + telemetry-governance + application-composition
+> consolidation). The live repository has **50 directories** under
+> `services/` (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -64,7 +64,7 @@
 | `analytical-logic-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; reusable expressions now live in the internal `libs/analytical-logic` crate (no duplicated HTTP routes). `analytical_expressions` schema folded into `services/sql-bi-gateway-service/migrations/`. |
 | `app-builder-service` | (legacy) | delete | already retired in earlier R-prompts; verify Cargo workspace removal |
 | `application-composition-service` | `application-composition-service` | keep | absorbs `application-curation-service`, `widget-registry-service` (S8.1.b), `developer-console-service`, `custom-endpoints-service`, `managed-workspace-service` |
-| `application-curation-service` | `application-composition-service` | merge → `application-composition-service` | |
+| `application-curation-service` | `application-composition-service` | merged → `application-composition-service` | S8 (B19): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder. Edge gateway routing for `/api/v1/apps/*/{versions,publish}` retargeted at `application-composition-service:50140`. `APPLICATION_CURATION_SERVICE_URL` callers also retargeted. |
 | `approvals-service` | `workflow-automation-service` | merged → `workflow-automation-service` | S8: directory removed; `audit_compliance.approval_requests` state machine + `approval.{requested,completed,expired,decided}.v1` outbox + `approvals-timeout-sweep` CronJob binary moved under `services/workflow-automation-service/src/approvals/` and `src/bin/approvals_timeout_sweep.rs`. Helm CronJob template moved from `of-platform` to `of-apps-ops`. |
 | `audit-compliance-service` | `audit-compliance-service` | keep | absorbs `sds-service`, `retention-policy-service`, `lineage-deletion-service` |
 | `audit-sink` | `audit-sink` | sink | Kafka → Iceberg |
@@ -79,11 +79,11 @@
 | `compute-modules-runtime-service` | `pipeline-build-service` | merged → `pipeline-build-service` | S8: directory removed; same scaffold pattern as the control-plane sibling (generic CRUD over `compute_module_runs` / `compute_module_metrics`); migration preserved on `pg-pipeline`. |
 | `connector-management-service` | `connector-management-service` | keep | absorbs `virtual-table-service`, OAuth-data side of `oauth-integration-service` |
 | `conversation-state-service` | `agent-runtime-service` | merged → `agent-runtime-service` | S8: directory removed; the source was a substrate-only crate (`fn main() {}` stub plus `domain.rs`/`handlers.rs`/`models.rs` shims that re-exported `libs/ai-kernel`). No migrations to move. Helm Deployment retired from `of-ml-aip`; `CONVERSATION_STATE_SERVICE_URL` callers retargeted at `agent-runtime-service:50127`. |
-| `custom-endpoints-service` | `application-composition-service` | merge → `application-composition-service` | |
+| `custom-endpoints-service` | `application-composition-service` | merged → `application-composition-service` | S8 (B19): directory removed; `tools/scaffold_p59_p85.py` placeholder. Migration preserved on `pg-runtime-config`. `CUSTOM_ENDPOINTS_SERVICE_URL` callers retargeted at `application-composition-service:50140`. |
 | `data-asset-catalog-service` | `dataset-versioning-service` | merged → `dataset-versioning-service` | S8: directory removed; 32 source files (config, domain with catalog/file_format/markings/runtime/storage/transactions/validation, handlers with catalog/crud/dataset_model/export/internal/preview/schema_validate/upload/views, models, security, metrics) absorbed under `services/dataset-versioning-service/src/data_asset_catalog/`. 8 source migrations preserved on `pg-schemas`. Edge gateway routing for `/api/v1/datasets` and `/api/v2/filesystem` retargeted at `dataset-versioning-service`. The streaming runtime wiring into the consolidated binary's main is a follow-up. |
 | `dataset-quality-service` | `dataset-versioning-service` | merged → `dataset-versioning-service` | S8: directory removed; 19 source files (config, domain with health and quality/{alerts,profiler,rules,scorer}, handlers with health/lint/quality, models, metrics) absorbed under `services/dataset-versioning-service/src/dataset_quality/`. The single `dataset_health` migration preserved. Edge gateway routing for `/api/v1/datasets/.../quality` and `/lint` retargeted at `dataset-versioning-service`. Two integration tests (`health_freshness_sla.rs`, `schema_drift_detected.rs`) NOT moved — they need follow-up wiring of the dataset_quality handlers in target's main. |
 | `dataset-versioning-service` | `dataset-versioning-service` | keep | sole runtime owner of `dataset_versions`, `dataset_branches`, `dataset_transactions`; Iceberg owns snapshots/data state |
-| `developer-console-service` | `application-composition-service` | merge → `application-composition-service` | |
+| `developer-console-service` | `application-composition-service` | merged → `application-composition-service` | S8 (B19): directory removed; `tools/scaffold_p59_p85.py` placeholder. Migration preserved on `pg-runtime-config`. `DEVELOPER_CONSOLE_SERVICE_URL` callers retargeted at `application-composition-service:50140`. |
 | `document-intelligence-service` | `retrieval-context-service` | merged → `retrieval-context-service` | S8: directory removed; sketch handlers/models preserved under `services/retrieval-context-service/src/document_intelligence/` and gated behind a new `parsers` Cargo feature so parser pipelines stay out of the default CI compile path. The `document_intelligence_jobs` / `_status_events` / `_extractions` migration is folded into `services/retrieval-context-service/migrations/0001_document_intelligence_foundation.sql`; tables stay on `pg-schemas`. |
 | `document-reporting-service` | `notebook-runtime-service` | merged → `notebook-runtime-service` | S8: directory removed; the notepad domain (`domain/notepad.rs`, `handlers/notepad.rs`, `models/notepad.rs`) was already byte-identical between source and target before this merge — the source crate had degenerated to `fn main() {}` plus three `pub mod notepad;` shims. Migration `20260425193000_notepad_documents.sql` moved to `services/notebook-runtime-service/migrations/`. Edge gateway `/api/v1/notepad/*` retargeted at `notebook-runtime-service`. Helm Deployment retired from `of-apps-ops`. |
 | `edge-gateway-service` | `edge-gateway-service` | keep | |
@@ -100,7 +100,7 @@
 | `lineage-deletion-service` | `audit-compliance-service` | merged → `audit-compliance-service` | S8: directory removed; 11 source files (config, domain/deletion, handlers/deletion, models, retention runner) absorbed under `services/audit-compliance-service/src/lineage_deletion/`. Migration preserved on `pg-policy`. Edge gateway routing for `/api/v1/lineage-deletions` and `/api/v1/audit/gdpr/erase` retargeted at `audit-compliance-service`. |
 | `lineage-service` | `lineage-service` | keep | absorbs `workflow-trace-service` |
 | `llm-catalog-service` | `llm-catalog-service` | keep | |
-| `managed-workspace-service` | `application-composition-service` | merge → `application-composition-service` | |
+| `managed-workspace-service` | `application-composition-service` | merged → `application-composition-service` | S8 (B19): directory removed; `tools/scaffold_p59_p85.py` placeholder. Migration preserved on `pg-runtime-config`. `MANAGED_WORKSPACE_SERVICE_URL` callers retargeted at `application-composition-service:50140`. |
 | `marketplace-catalog-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `marketplace-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `mcp-orchestration-service` | `ai-evaluation-service` | merged → `ai-evaluation-service` | S8 (B18): directory removed; the source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `mcp_servers` / `mcp_tools`, no production callers). Migration preserved on `pg-ai-eval`. `MCP_ORCHESTRATION_SERVICE_URL` callers retargeted at `ai-evaluation-service:50075`. |
@@ -173,12 +173,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 11 |
-| merged → X (completed) | 45 |
+| merge → X (pending) | 7 |
+| merged → X (completed) | 49 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **54** |
+| **Total current service directories** | **50** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

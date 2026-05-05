@@ -39,8 +39,7 @@
 services:
   app-builder-service:
     - control
-  application-curation-service:
-    - control
+  # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
   audit-compliance-service:
     - control
   connector-management-service:

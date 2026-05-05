@@ -1054,22 +1054,8 @@ services:
     ports:
       - "${OPENFOUNDRY_SOLUTION_DESIGN_HOST_PORT:-50142}:50142"
 
-  developer-console-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/developer-console-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50143
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_developer_console
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_DEVELOPER_CONSOLE_HOST_PORT:-50143}:50143"
+  # ── S8 / ADR-0030 (B19) — developer-console-service merged →
+  # application-composition-service. ──
 
   sdk-generation-service:
     <<: *app-common
@@ -1088,39 +1074,8 @@ services:
     ports:
       - "${OPENFOUNDRY_SDK_GENERATION_HOST_PORT:-50144}:50144"
 
-  managed-workspace-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/managed-workspace-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50145
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_managed_workspace
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MANAGED_WORKSPACE_HOST_PORT:-50145}:50145"
-
-  custom-endpoints-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/custom-endpoints-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50146
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_custom_endpoints
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_CUSTOM_ENDPOINTS_HOST_PORT:-50146}:50146"
+  # ── S8 / ADR-0030 (B19) — managed-workspace-service and
+  # custom-endpoints-service merged → application-composition-service. ──
 
   # ── S8 / ADR-0030 (B18) — mcp-orchestration-service merged →
   # ai-evaluation-service. MCP_ORCHESTRATION_SERVICE_URL callers
@@ -1516,25 +1471,8 @@ services:
     ports:
       - "${OPENFOUNDRY_APP_BUILDER_HOST_PORT:-50063}:50063"
 
-  application-curation-service:
-    <<: *app-common
-    profiles: *profiles-experience
-    build:
-      context: ..
-      dockerfile: services/application-curation-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50101
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_app_builder_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      PUBLIC_BASE_URL: ${OPENFOUNDRY_PUBLIC_BASE_URL:-http://localhost:3000/apps/runtime}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      app-builder-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_APPLICATION_CURATION_HOST_PORT:-50101}:50101"
+  # ── S8 / ADR-0030 (B19) — application-curation-service merged →
+  # application-composition-service. ──
 
   report-service:
     <<: *app-common
@@ -1826,7 +1764,8 @@ services:
       # S8 / ADR-0030: document-reporting-service merged → notebook-runtime-service.
       DOCUMENT_REPORTING_SERVICE_URL: http://notebook-runtime-service:50134
       APP_BUILDER_SERVICE_URL: http://app-builder-service:50063
-      APPLICATION_CURATION_SERVICE_URL: http://application-curation-service:50101
+      # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
+      APPLICATION_CURATION_SERVICE_URL: http://application-composition-service:50140
       REPORT_SERVICE_URL: http://report-service:50064
       # S8 / ADR-0030 — global-branch-service merged → code-repository-review-service.
       GLOBAL_BRANCH_SERVICE_URL: http://code-repository-review-service:50155
@@ -1864,10 +1803,13 @@ services:
       APPLICATION_COMPOSITION_SERVICE_URL: http://application-composition-service:50140
       SCENARIO_SIMULATION_SERVICE_URL: http://scenario-simulation-service:50141
       SOLUTION_DESIGN_SERVICE_URL: http://solution-design-service:50142
-      DEVELOPER_CONSOLE_SERVICE_URL: http://developer-console-service:50143
+      # S8 / ADR-0030 (B19): developer-console-service merged → application-composition-service.
+      DEVELOPER_CONSOLE_SERVICE_URL: http://application-composition-service:50140
       SDK_GENERATION_SERVICE_URL: http://sdk-generation-service:50144
-      MANAGED_WORKSPACE_SERVICE_URL: http://managed-workspace-service:50145
-      CUSTOM_ENDPOINTS_SERVICE_URL: http://custom-endpoints-service:50146
+      # S8 / ADR-0030 (B19): managed-workspace-service merged → application-composition-service.
+      MANAGED_WORKSPACE_SERVICE_URL: http://application-composition-service:50140
+      # S8 / ADR-0030 (B19): custom-endpoints-service merged → application-composition-service.
+      CUSTOM_ENDPOINTS_SERVICE_URL: http://application-composition-service:50140
       # S8 / ADR-0030 (B18): mcp-orchestration-service merged → ai-evaluation-service.
       MCP_ORCHESTRATION_SERVICE_URL: http://ai-evaluation-service:50075
       # S8 / ADR-0030 — compute-modules-{control-plane,runtime}-service merged → pipeline-build-service.
@@ -1948,8 +1890,7 @@ services:
       # S8 / ADR-0030: document-reporting-service merged → notebook-runtime-service.
       app-builder-service:
         condition: service_started
-      application-curation-service:
-        condition: service_started
+      # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
       report-service:
         condition: service_started
       marketplace-catalog-service:
@@ -1984,14 +1925,11 @@ services:
         condition: service_started
       solution-design-service:
         condition: service_started
-      developer-console-service:
-        condition: service_started
+      # S8 / ADR-0030 (B19): developer-console-service merged → application-composition-service.
       sdk-generation-service:
         condition: service_started
-      managed-workspace-service:
-        condition: service_started
-      custom-endpoints-service:
-        condition: service_started
+      # S8 / ADR-0030 (B19): managed-workspace-service merged → application-composition-service.
+      # S8 / ADR-0030 (B19): custom-endpoints-service merged → application-composition-service.
       # S8 / ADR-0030 (B18): mcp-orchestration-service merged → ai-evaluation-service.
       # S8 / ADR-0030 (B22): monitoring-rules-service merged → telemetry-governance-service.
       # S8 / ADR-0030 (B22): execution-observability-service merged → telemetry-governance-service.

@@ -362,18 +362,8 @@ services:
         cpu: "1"
         memory: 1Gi
 
-  application-curation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B19) — `application-curation-service` merged →
+  # `application-composition-service`. No Deployment renders here.
 
   # S8 / ADR-0030: `automation-operations-service` merged →
   # `workflow-automation-service` (live binary above absorbs its saga
@@ -389,31 +379,9 @@ services:
   # marks both as `merged → pipeline-build-service`; runtime ownership
   # of the compute-modules domain stays with the build service.
 
-  custom-endpoints-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  developer-console-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B19) — `custom-endpoints-service` and
+  # `developer-console-service` merged → `application-composition-service`.
+  # No Deployments render here.
 
   # ── S8 / ADR-0030 — document-intelligence-service merged into
   # retrieval-context-service (Helm release `of-ml-aip`). It does not
@@ -441,18 +409,8 @@ services:
         cpu: "1"
         memory: 1Gi
 
-  managed-workspace-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B19) — `managed-workspace-service` merged →
+  # `application-composition-service`. No Deployment renders here.
 
   marketplace-service:
     replicas: 2

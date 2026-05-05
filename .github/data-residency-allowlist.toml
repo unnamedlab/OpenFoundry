@@ -154,14 +154,8 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/connector-management-service/src/domain/agent_registry.rs", "services/connector-management-service/src/domain/auto_registration.rs", "services/connector-management-service/src/domain/dataset_versioning.rs", "services/connector-management-service/src/domain/sync_engine.rs", "services/connector-management-service/src/domain/update_detection.rs", "services/connector-management-service/src/handlers/catalog.rs", "services/connector-management-service/src/handlers/connections.rs", "services/connector-management-service/src/handlers/data_connection.rs", "services/connector-management-service/src/handlers/hyperauto.rs", "services/connector-management-service/src/handlers/iceberg_catalog.rs", "services/connector-management-service/src/handlers/registrations.rs"], tables = ["connection_registrations", "connections", "connector_agents", "source_policy_bindings", "sync_jobs", "sync_runs"] }
 tables = ["connections", "sync_jobs", "connector_agents", "connection_registrations", "source_credentials", "source_policy_bindings", "batch_sync_defs", "sync_runs"]
 
-[[entries]]
-component = "services/custom-endpoints-service"
-service = "custom-endpoints-service"
-migration_dir = "services/custom-endpoints-service/migrations"
-schema = "custom_endpoints"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/custom-endpoints-service/src/handlers.rs"], tables = ["custom_endpoint_sets", "custom_endpoints"] }
-tables = ["custom_endpoint_sets", "custom_endpoints"]
+# S8 / ADR-0030 (B19): custom-endpoints-service merged →
+# application-composition-service. Schema absorbed.
 
 # S8 / ADR-0030: `data-asset-catalog-service` and `dataset-quality-service`
 # merged → `dataset-versioning-service`. The catalog and quality
@@ -179,14 +173,8 @@ allow_new_sqlx = { files = ["services/dataset-versioning-service/src/handlers/br
 legacy_archive_tables = ["dataset_transactions"]
 tables = ["datasets", "dataset_branches", "dataset_versions", "dataset_transactions", "dataset_views", "dataset_view_files", "dataset_transaction_files", "dataset_branch_fallbacks"]
 
-[[entries]]
-component = "services/developer-console-service"
-service = "developer-console-service"
-migration_dir = "services/developer-console-service/migrations"
-schema = "developer_console"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/developer-console-service/src/handlers.rs"], tables = ["developer_applications", "developer_releases"] }
-tables = ["developer_applications", "developer_releases"]
+# S8 / ADR-0030 (B19): developer-console-service merged →
+# application-composition-service. Schema absorbed.
 
 # S8 / ADR-0030: document-intelligence-service merged into
 # retrieval-context-service. Tables stay in `pg-schemas`; the
@@ -271,14 +259,8 @@ residency = "pg-schemas"
 legacy_archive_tables = ["lineage_nodes"]
 tables = ["lineage_nodes", "lineage_relations"]
 
-[[entries]]
-component = "services/managed-workspace-service"
-service = "managed-workspace-service"
-migration_dir = "services/managed-workspace-service/migrations"
-schema = "managed_workspace"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/managed-workspace-service/src/handlers.rs"], tables = ["managed_workspace_aliases", "managed_workspaces"] }
-tables = ["managed_workspaces", "managed_workspace_aliases"]
+# S8 / ADR-0030 (B19): managed-workspace-service merged →
+# application-composition-service. Schema absorbed.
 
 [[entries]]
 component = "services/marketplace-service"

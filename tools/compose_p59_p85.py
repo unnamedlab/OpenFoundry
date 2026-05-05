@@ -14,10 +14,10 @@ SERVICES = [
     ("application-composition-service", 50140, "application_composition", "OPENFOUNDRY_APPLICATION_COMPOSITION_HOST_PORT"),
     ("scenario-simulation-service", 50141, "scenario_simulation", "OPENFOUNDRY_SCENARIO_SIMULATION_HOST_PORT"),
     ("solution-design-service", 50142, "solution_design", "OPENFOUNDRY_SOLUTION_DESIGN_HOST_PORT"),
-    ("developer-console-service", 50143, "developer_console", "OPENFOUNDRY_DEVELOPER_CONSOLE_HOST_PORT"),
+    # `developer-console-service` (was 50143) merged → `application-composition-service` per ADR-0030 (S8 / B19).
     ("sdk-generation-service", 50144, "sdk_generation", "OPENFOUNDRY_SDK_GENERATION_HOST_PORT"),
-    ("managed-workspace-service", 50145, "managed_workspace", "OPENFOUNDRY_MANAGED_WORKSPACE_HOST_PORT"),
-    ("custom-endpoints-service", 50146, "custom_endpoints", "OPENFOUNDRY_CUSTOM_ENDPOINTS_HOST_PORT"),
+    # `managed-workspace-service` (was 50145) and `custom-endpoints-service` (was 50146)
+    # merged → `application-composition-service` per ADR-0030 (S8 / B19).
     # `mcp-orchestration-service` (was 50147) merged → `ai-evaluation-service` per ADR-0030 (S8 / B18).
     ("compute-modules-control-plane-service", 50148, "compute_modules_control_plane", "OPENFOUNDRY_COMPUTE_MODULES_CONTROL_PLANE_HOST_PORT"),
     ("compute-modules-runtime-service", 50149, "compute_modules_runtime", "OPENFOUNDRY_COMPUTE_MODULES_RUNTIME_HOST_PORT"),

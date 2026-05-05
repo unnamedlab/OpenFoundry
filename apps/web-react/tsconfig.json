@@ -20,15 +20,13 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@api/*": ["src/lib/api/*"],
-      "@components/*": ["src/lib/components/*"],
-      "@stores/*": ["src/lib/stores/*"],
-      "@utils/*": ["src/lib/utils/*"]
+      "@/*": ["./src/*"],
+      "@api/*": ["./src/lib/api/*"],
+      "@components/*": ["./src/lib/components/*"],
+      "@stores/*": ["./src/lib/stores/*"],
+      "@utils/*": ["./src/lib/utils/*"]
     }
   },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": ["src"]
 }
