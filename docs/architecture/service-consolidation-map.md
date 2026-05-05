@@ -51,7 +51,7 @@
 | `audit-sink` | `audit-sink` | sink | Kafka → Iceberg |
 | `authorization-policy-service` | `authorization-policy-service` | keep | absorbs `cipher-service`, `network-boundary-service`, `checkpoints-purpose-service`, `security-governance-service` |
 | `automation-operations-service` | `workflow-automation-service` | merge → `workflow-automation-service` | |
-| `cdc-metadata-service` | `ingestion-replication-service` | merge → `ingestion-replication-service` | |
+| `cdc-metadata-service` | `ingestion-replication-service` | merged → `ingestion-replication-service` | S8-13A: code moved under `services/ingestion-replication-service/src/cdc_metadata/`; migrations kept in `migrations/cdc_metadata/` and still run against `cdc-metadata-pg` via `CDC_METADATA_DATABASE_URL`. |
 | `checkpoints-purpose-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
 | `cipher-service` | `authorization-policy-service` | merge → `authorization-policy-service` | shares same secret store |
 | `code-repository-review-service` | `code-repository-review-service` | keep | absorbs `global-branch-service`, `code-security-scanning-service` |

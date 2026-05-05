@@ -90,12 +90,12 @@ allow_new_sqlx = { files = ["services/automation-operations-service/src/handlers
 tables = ["automation_queues", "automation_queue_runs"]
 
 [[entries]]
-component = "services/cdc-metadata-service"
-service = "cdc-metadata-service"
-migration_dir = "services/cdc-metadata-service/migrations"
+component = "services/ingestion-replication-service/cdc_metadata"
+service = "ingestion-replication-service"
+migration_dir = "services/ingestion-replication-service/migrations/cdc_metadata"
 schema = "cdc_metadata"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/cdc-metadata-service/src/schema_registry.rs"], tables = ["schema_compatibility_audit", "schema_references", "schema_subjects", "schema_versions"] }
+residency = "cdc-metadata-pg"
+allow_new_sqlx = { files = ["services/ingestion-replication-service/src/cdc_metadata/schema_registry.rs"], tables = ["schema_compatibility_audit", "schema_references", "schema_subjects", "schema_versions"] }
 tables = ["cdc_streams", "cdc_incremental_checkpoints", "cdc_resolution_state", "schema_subjects", "schema_versions", "schema_references", "schema_compatibility_audit"]
 
 [[entries]]

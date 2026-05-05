@@ -3,7 +3,7 @@
 # Example FlinkDeployment: CDC -> Iceberg
 #
 # Reads change events emitted by the OpenFoundry CDC pipeline (see
-# `services/cdc-metadata-service`) and writes them as Iceberg tables stored in
+# `services/ingestion-replication-service/src/cdc_metadata`) and writes them as Iceberg tables stored in
 # the `openfoundry-iceberg` Ceph RGW bucket. Demonstrates the canonical
 # operator settings used in production:
 #

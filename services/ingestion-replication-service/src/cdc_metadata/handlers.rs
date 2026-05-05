@@ -16,7 +16,7 @@ use crate::cdc_metadata::{
 };
 
 fn db_error(label: &str, error: sqlx::Error) -> axum::response::Response {
-    tracing::error!("cdc-metadata-service {label} failed: {error}");
+    tracing::error!("cdc_metadata {label} failed: {error}");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }
 

@@ -3,10 +3,10 @@
 -- replication slot and the downstream event-streaming topic the worker
 -- publishes to.
 --
--- Mirrors the shape of `cdc_metadata_service::IncrementalCheckpoint` so the
+-- Mirrors the shape of `cdc_metadata::models::IncrementalCheckpoint` so the
 -- two services can be merged later without a schema migration. We keep a
 -- copy local to the ingestion plane so the worker can resume after a crash
--- without depending on cdc-metadata-service being reachable.
+-- without depending on a separate CDC metadata service being reachable.
 CREATE TABLE IF NOT EXISTS ingestion_checkpoints (
     subscription_id UUID PRIMARY KEY,
     slot_name TEXT NOT NULL,
