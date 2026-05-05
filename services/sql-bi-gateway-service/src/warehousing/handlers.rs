@@ -1,3 +1,21 @@
+//! HTTP handlers for the warehousing CRUD surface.
+//!
+//! Routes (mounted by [`crate::http::build_router`] when a Postgres pool
+//! is available):
+//!
+//! * `GET    /api/v1/warehouse/jobs`               — list recent jobs
+//! * `POST   /api/v1/warehouse/jobs`               — submit a new job
+//! * `GET    /api/v1/warehouse/jobs/:id`           — fetch by id
+//! * `POST   /api/v1/warehouse/jobs/:id/cancel`    — cancel queued/running job
+//! * `GET    /api/v1/warehouse/transformations`    — list reusable transforms
+//! * `POST   /api/v1/warehouse/transformations`    — register/update by slug
+//! * `GET    /api/v1/warehouse/transformations/:id`— fetch by id
+//! * `GET    /api/v1/warehouse/artifacts`          — list intermediate artifacts
+//! * `GET    /api/v1/warehouse/artifacts/:id`      — fetch by id
+//!
+//! Ported verbatim from the retired `sql-warehousing-service` handlers
+//! (S8 consolidation, ADR-0030).
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -7,16 +25,14 @@ use axum::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{
-    AppState,
-    models::{
-        RegisterTransformationRequest, SubmitWarehouseJobRequest, WarehouseJob,
-        WarehouseStorageArtifact, WarehouseTransformation,
-    },
+use crate::http::AppState;
+use crate::warehousing::models::{
+    RegisterTransformationRequest, SubmitWarehouseJobRequest, WarehouseJob,
+    WarehouseStorageArtifact, WarehouseTransformation,
 };
 
 fn db_error(label: &str, error: sqlx::Error) -> axum::response::Response {
-    tracing::error!("sql-warehousing-service {label} failed: {error}");
+    tracing::error!("warehousing {label} failed: {error}");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }
 
@@ -28,7 +44,7 @@ pub async fn list_jobs(State(state): State<AppState>) -> impl IntoResponse {
          ORDER BY created_at DESC
          LIMIT 200",
     )
-    .fetch_all(&state.db)
+    .fetch_all(state.db.as_ref())
     .await
     {
         Ok(rows) => Json(json!({ "data": rows })).into_response(),
@@ -62,7 +78,7 @@ pub async fn submit_job(
     .bind(sources)
     .bind(body.target_dataset_id)
     .bind(body.target_storage_id)
-    .fetch_one(&state.db)
+    .fetch_one(state.db.as_ref())
     .await
     {
         Ok(job) => (StatusCode::CREATED, Json(job)).into_response(),
@@ -77,7 +93,7 @@ pub async fn get_job(State(state): State<AppState>, Path(id): Path<Uuid>) -> imp
          FROM warehouse_jobs WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_optional(state.db.as_ref())
     .await
     {
         Ok(Some(row)) => Json(row).into_response(),
@@ -95,7 +111,7 @@ pub async fn cancel_job(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
                    submitted_by, error_message, started_at, finished_at, created_at, updated_at",
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_optional(state.db.as_ref())
     .await
     {
         Ok(Some(row)) => Json(row).into_response(),
@@ -110,7 +126,7 @@ pub async fn list_transformations(State(state): State<AppState>) -> impl IntoRes
          FROM warehouse_transformations
          ORDER BY slug",
     )
-    .fetch_all(&state.db)
+    .fetch_all(state.db.as_ref())
     .await
     {
         Ok(rows) => Json(json!({ "data": rows })).into_response(),
@@ -143,7 +159,7 @@ pub async fn register_transformation(
     .bind(body.description.as_deref())
     .bind(&body.sql_template)
     .bind(bindings)
-    .fetch_one(&state.db)
+    .fetch_one(state.db.as_ref())
     .await
     {
         Ok(row) => (StatusCode::CREATED, Json(row)).into_response(),
@@ -160,7 +176,7 @@ pub async fn get_transformation(
          FROM warehouse_transformations WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_optional(state.db.as_ref())
     .await
     {
         Ok(Some(row)) => Json(row).into_response(),
@@ -177,7 +193,7 @@ pub async fn list_storage_artifacts(State(state): State<AppState>) -> impl IntoR
          ORDER BY created_at DESC
          LIMIT 200",
     )
-    .fetch_all(&state.db)
+    .fetch_all(state.db.as_ref())
     .await
     {
         Ok(rows) => Json(json!({ "data": rows })).into_response(),
@@ -195,7 +211,7 @@ pub async fn get_storage_artifact(
          FROM warehouse_storage_artifacts WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_optional(state.db.as_ref())
     .await
     {
         Ok(Some(row)) => Json(row).into_response(),

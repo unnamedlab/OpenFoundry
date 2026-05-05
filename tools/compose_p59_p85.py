@@ -6,7 +6,8 @@ SERVICES = [
     ("sql-bi-gateway-service", 50133, "sql_bi_gateway", "OPENFOUNDRY_SQL_BI_GATEWAY_HOST_PORT"),
     ("notebook-runtime-service", 50134, "notebook_runtime", "OPENFOUNDRY_NOTEBOOK_RUNTIME_HOST_PORT"),
     ("spreadsheet-computation-service", 50135, "spreadsheet_computation", "OPENFOUNDRY_SPREADSHEET_COMPUTATION_HOST_PORT"),
-    ("analytical-logic-service", 50136, "analytical_logic", "OPENFOUNDRY_ANALYTICAL_LOGIC_HOST_PORT"),
+    # S8 / ADR-0030: `analytical-logic-service` retired — see
+    # `tools/scaffold_p59_p85.py` and `libs/analytical-logic`.
     ("workflow-automation-service", 50137, "workflow_automation", "OPENFOUNDRY_WORKFLOW_AUTOMATION_HOST_PORT"),
     ("automation-operations-service", 50138, "automation_operations", "OPENFOUNDRY_AUTOMATION_OPERATIONS_HOST_PORT"),
     ("workflow-trace-service", 50139, "workflow_trace", "OPENFOUNDRY_WORKFLOW_TRACE_HOST_PORT"),

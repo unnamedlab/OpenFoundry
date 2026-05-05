@@ -42,6 +42,13 @@ data:
         'sql_bi_gateway',
         'sql_warehousing',
         'tabular_analysis',
+        -- S8 / ADR-0030 — `analytical_logic` schema for the
+        -- `analytical_expressions` / `analytical_expression_versions`
+        -- tables absorbed into `sql-bi-gateway-service` from the
+        -- retired `analytical-logic-service`. Reusable expressions are
+        -- now an internal crate (`libs/analytical-logic`) consumed
+        -- in-process by the gateway.
+        'analytical_logic',
         'time_series_data',
         'report',
         -- FASE 4 / Tarea 4.2 — bounded context for
