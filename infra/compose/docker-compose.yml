@@ -813,6 +813,9 @@ services:
       HOST: 0.0.0.0
       PORT: 50090
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
+      CDC_METADATA_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cdc_metadata
+      CDC_METADATA_HOST: 0.0.0.0
+      CDC_METADATA_PORT: 50122
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
@@ -827,6 +830,7 @@ services:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_INGESTION_REPLICATION_HOST_PORT:-50090}:50090"
+      - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50122"
 
   dataset-versioning-service:
     <<: *app-common
@@ -970,29 +974,12 @@ services:
       - "${OPENFOUNDRY_EVENT_STREAMING_GRPC_HOST_PORT:-50221}:50221"
       - "${OPENFOUNDRY_EVENT_STREAMING_ADMIN_HOST_PORT:-50222}:50222"
 
-  cdc-metadata-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/cdc-metadata-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50122
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cdc_metadata_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_CONNECTOR_URL: http://connector-management-service:50088
-      EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
-      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50122"
-
   # ── S8 / ADR-0030 — sql-warehousing-service merged into
   # sql-bi-gateway-service. The warehousing CRUD lives at
   # /api/v1/warehouse/* on port 50133. ──
+  # ── S8-13A — cdc-metadata-service merged into
+  # ingestion-replication-service. The CDC metadata HTTP surface lives on
+  # ingestion-replication-service when CDC_METADATA_DATABASE_URL is set. ──
 
   time-series-data-service:
     <<: *app-common
@@ -2363,7 +2350,7 @@ services:
       DATA_ASSET_CATALOG_SERVICE_URL: http://data-asset-catalog-service:50079
       DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
       EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
-      CDC_METADATA_SERVICE_URL: http://cdc-metadata-service:50122
+      CDC_METADATA_SERVICE_URL: http://ingestion-replication-service:50122
       # S8 / ADR-0030: SQL_WAREHOUSING_SERVICE_URL retired —
       # warehousing CRUD is served by sql-bi-gateway-service (50133).
       SQL_WAREHOUSING_SERVICE_URL: http://sql-bi-gateway-service:50133
@@ -2483,8 +2470,7 @@ services:
         condition: service_started
       event-streaming-service:
         condition: service_started
-      cdc-metadata-service:
-        condition: service_started
+      # S8-13A: cdc-metadata-service merged into ingestion-replication-service.
       # S8 / ADR-0030: sql-warehousing-service merged into sql-bi-gateway-service (below).
       time-series-data-service:
         condition: service_started

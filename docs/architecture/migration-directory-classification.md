@@ -19,7 +19,7 @@ chain for it.
 ## `pg-schemas`
 
 - `services/ai-application-generation-service/migrations`
-- `services/cdc-metadata-service/migrations`
+- `services/ingestion-replication-service/migrations/cdc_metadata`
 - `services/code-repository-review-service/migrations`
 - `services/data-asset-catalog-service/migrations`
 - `services/dataset-versioning-service/migrations`

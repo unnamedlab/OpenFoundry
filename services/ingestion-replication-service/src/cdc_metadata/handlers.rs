@@ -7,7 +7,7 @@ use axum::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{
+use crate::cdc_metadata::{
     AppState,
     models::{
         CdcStream, IncrementalCheckpoint, RecordCheckpointRequest, RegisterCdcStreamRequest,
@@ -16,7 +16,7 @@ use crate::{
 };
 
 fn db_error(label: &str, error: sqlx::Error) -> axum::response::Response {
-    tracing::error!("cdc-metadata-service {label} failed: {error}");
+    tracing::error!("cdc_metadata {label} failed: {error}");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }
 
@@ -99,10 +99,7 @@ pub async fn register_stream(
     }
 }
 
-pub async fn get_stream(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+pub async fn get_stream(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match sqlx::query_as::<_, CdcStream>(
         "SELECT id, slug, source_kind, source_ref, upstream_topic, primary_keys, watermark_column,
                 incremental_mode, status, created_at, updated_at

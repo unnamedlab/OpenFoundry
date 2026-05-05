@@ -7,9 +7,9 @@
 //! - `GET    /subjects/:name/versions`
 //! - `POST   /subjects/:name/versions`              register a new version
 //! - `GET    /subjects/:name/versions/:version`     fetch a specific version
-//!                                                  ("latest" alias supported)
+//!   ("latest" alias supported)
 //! - `POST   /compatibility/subjects/:name/versions/:version`
-//!                                                  test compatibility
+//!   test compatibility
 //!
 //! Storage lives in the four tables created by
 //! `migrations/20260501120000_schema_registry.sql`. The validators and
@@ -34,7 +34,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::cdc_metadata::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -165,8 +165,8 @@ fn schema_error(error: SchemaError) -> axum::response::Response {
         .into_response()
 }
 
-fn parse_schema_type(value: &str) -> Result<SchemaType, axum::response::Response> {
-    SchemaType::from_str(value).map_err(schema_error)
+fn parse_schema_type(value: &str) -> Result<SchemaType, SchemaError> {
+    SchemaType::from_str(value)
 }
 
 async fn fetch_or_create_subject(db: &PgPool, name: &str) -> Result<SubjectRow, sqlx::Error> {
@@ -330,7 +330,7 @@ async fn register_version(
 ) -> impl IntoResponse {
     let schema_type = match parse_schema_type(&body.schema_type) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(error) => return schema_error(error),
     };
     let fingerprint = match validator::fingerprint(schema_type, &body.schema) {
         Ok(value) => value,
@@ -468,7 +468,7 @@ async fn check_compatibility(
 ) -> impl IntoResponse {
     let schema_type = match parse_schema_type(&body.schema_type) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(error) => return schema_error(error),
     };
     let subject = match sqlx::query_as::<_, SubjectRow>(
         "SELECT id, name, compatibility_mode, created_at FROM schema_subjects WHERE name = $1",

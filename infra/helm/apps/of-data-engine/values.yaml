@@ -129,6 +129,16 @@ services:
     ports:
       - name: http
         containerPort: 8080
+      - name: cdc-metadata
+        containerPort: 50122
+        servicePort: 50122
+    env:
+      CDC_METADATA_HOST: 0.0.0.0
+      CDC_METADATA_PORT: "50122"
+    envSecrets:
+      CDC_METADATA_DATABASE_URL:
+        secretName: cdc-metadata-pg-app
+        key: uri
     resources:
       requests:
         cpu: 200m
@@ -365,18 +375,6 @@ services:
         cpu: "1"
         memory: 1Gi
 
-  cdc-metadata-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
 
   global-branch-service:
     replicas: 2

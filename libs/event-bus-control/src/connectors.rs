@@ -133,7 +133,7 @@ pub fn find_topic_entry(
 /// ```
 ///
 /// `schema_subject` (a reference to a registered subject in the
-/// cdc-metadata-service Schema Registry) is recognised but only used by
+/// ingestion-replication-service CDC metadata Schema Registry) is recognised but only used by
 /// the connector for traceability — actual validation always runs against
 /// the inline `schema.text` when present. This keeps the connector usable
 /// in environments where the registry is offline (catalog_backed mode).
