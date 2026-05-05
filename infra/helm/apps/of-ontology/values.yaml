@@ -103,6 +103,24 @@ migrations:
       name: pg-schemas-app
       key: dsn
 
+# FASE 4 / Tarea 4.2 — `reindex_coordinator` schema migration.
+# See `templates/reindex-coordinator-migrations.yaml` for the Job
+# definition. This is a chart-local migration (not part of the
+# `of-migrator` image pipeline) because the schema lives inside
+# the existing `pg-runtime-config` cluster and only needs two
+# `CREATE TABLE IF NOT EXISTS` statements.
+reindexCoordinator:
+  migrations:
+    enabled: true
+    # Secret key holding the DSN for `pg-runtime-config` with at
+    # least owner privileges on the `reindex_coordinator` schema
+    # (created by `pg-runtime-config-bootstrap-sql.yaml`).
+    dsnSecret:
+      name: pg-runtime-config-app
+      key: DATABASE_URL
+    # Lightweight psql image used to apply the migration.
+    image: docker.io/bitnami/postgresql:16
+
 search:
   backend: opensearch
 
@@ -186,6 +204,60 @@ services:
     env:
       METRICS_ADDR: 0.0.0.0:9090
       SEARCH_BACKEND: opensearch
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  # FASE 4 / Tarea 4.2 — Rust replacement for the legacy Go
+  # `workers-go/reindex` Temporal worker (ADR-0021). Owns the
+  # operator-driven reindex pipeline:
+  #   ontology.reindex.requested.v1
+  #     → reindex-coordinator-service (this pod)
+  #     → ontology.reindex.v1 (consumed by ontology-indexer)
+  #     → ontology.reindex.completed.v1
+  # See `services/reindex-coordinator-service/README.md` for the
+  # runbook (how to dispatch a reindex, alert routing, restart
+  # safety guarantees).
+  #
+  # Environment contract (supplied by `global.existingSecret`,
+  # see `services/reindex-coordinator-service/README.md#configuration`):
+  #   DATABASE_URL                — pg-runtime-config DSN with the
+  #                                 `reindex_coordinator` schema role.
+  #   KAFKA_BOOTSTRAP_SERVERS     — same shape as ontology-indexer.
+  #   KAFKA_SASL_USERNAME / _PASSWORD / _MECHANISM /
+  #     KAFKA_SECURITY_PROTOCOL   — optional SASL/SCRAM.
+  #   CASSANDRA_CONTACT_POINTS    — comma-separated host:port list
+  #                                 (CASSANDRA_LOCAL_DC is injected
+  #                                 from `global.cassandra.localDc`).
+  reindex-coordinator-service:
+    replicas: 2
+    ports:
+      - name: metrics
+        containerPort: 9090
+        servicePort: 9090
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    serviceAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    probes:
+      readiness:
+        path: /health
+        port: metrics
+      liveness:
+        path: /health
+        port: metrics
+    env:
+      METRICS_ADDR: 0.0.0.0:9090
+      CASSANDRA_KEYSPACE: ontology_objects
+      OF_OPENLINEAGE_NAMESPACE: openfoundry
     resources:
       requests:
         cpu: 100m

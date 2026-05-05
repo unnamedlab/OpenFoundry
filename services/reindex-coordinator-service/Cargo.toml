@@ -129,3 +129,14 @@ crate-type = ["lib"]
 path = "src/main.rs"
 name = "reindex-coordinator-service"
 required-features = ["runtime"]
+
+# Admin CLI: official, supported producer of
+# `ontology.reindex.requested.v1` (FASE 4 / Tarea 4.2 §3 — closes
+# the producer gap so operators no longer rely on bespoke
+# `kafkacat` recipes). Shares the runtime-feature gate so it
+# inherits the same `event-bus-data` + `tracing-subscriber`
+# dependency tree as the long-running coordinator.
+[[bin]]
+path = "src/bin/reindex_request.rs"
+name = "reindex-request"
+required-features = ["runtime"]

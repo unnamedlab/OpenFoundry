@@ -15,7 +15,9 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,id=reindex-coordinator-service-target,sharing=locked \
-    cargo build --locked --profile docker-release -p reindex-coordinator-service --features runtime  && cp /workspace/target/docker-release/reindex-coordinator-service /tmp/reindex-coordinator-service  && strip /tmp/reindex-coordinator-service
+    cargo build --locked --profile docker-release -p reindex-coordinator-service --features runtime  && cp /workspace/target/docker-release/reindex-coordinator-service /tmp/reindex-coordinator-service  && strip /tmp/reindex-coordinator-service \
+ && cp /workspace/target/docker-release/reindex-request /tmp/reindex-request \
+ && strip /tmp/reindex-request
 
 FROM alpine:3.23 AS runtime
 WORKDIR /app
@@ -26,5 +28,7 @@ ENV HOST=0.0.0.0
 ENV PORT=9090
 
 COPY --from=builder /tmp/reindex-coordinator-service /usr/local/bin/reindex-coordinator-service
+COPY --from=builder /tmp/reindex-request /usr/local/bin/reindex-request
 EXPOSE 9090
 CMD ["/usr/local/bin/reindex-coordinator-service"]
+

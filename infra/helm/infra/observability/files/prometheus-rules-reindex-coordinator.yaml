@@ -1,0 +1,184 @@
+---
+# FASE 4 / Tarea 4.2 — `reindex-coordinator-service` alerts.
+#
+# Closes the observability gap that lets the reindex pipeline rot
+# silently. Alerts target the five failure modes called out in the
+# operator runbook
+# (`services/reindex-coordinator-service/README.md#operations`):
+#   1. requests pile up unconsumed on `ontology.reindex.requested.v1`,
+#   2. coordinator stops consuming altogether,
+#   3. coordinator consumes but stops producing on
+#      `ontology.reindex.v1`,
+#   4. jobs sit in `queued` / `running` for too long,
+#   5. DLQs fill up.
+#
+# Metrics referenced (all exposed by
+# `services/reindex-coordinator-service/src/runtime.rs::RuntimeMetrics`):
+#   * reindex_coordinator_requests_total{outcome=...}
+#   * reindex_coordinator_batches_total{outcome=...}
+#   * reindex_coordinator_records_total{outcome=...}
+#   * reindex_coordinator_jobs_in_flight
+#
+# Topic-level metrics (`kafka_consumergroup_lag`,
+# `kafka_topic_partition_oldest_offset`, `kafka_log_log_size`) are
+# expected to be exposed by Strimzi's `kafka-exporter`; the
+# `consumergroup` label matches `CONSUMER_GROUP =
+# "reindex-coordinator-service"`.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: reindex-coordinator
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: reindex-coordinator-service
+    role: alert-rules
+spec:
+  groups:
+    - name: reindex-coordinator.rules
+      rules:
+        # ── 1. Requests piling up on the input topic ─────────────
+        - alert: ReindexCoordinatorRequestLag
+          expr: |
+            sum by (consumergroup, topic) (
+              kafka_consumergroup_lag{
+                consumergroup="reindex-coordinator-service",
+                topic="ontology.reindex.requested.v1"
+              }
+            ) > 100
+          for: 15m
+          labels:
+            severity: warning
+            component: reindex-coordinator-service
+            stream: s4
+          annotations:
+            summary: "reindex requests piling up (lag > 100 for 15m)"
+            description: |
+              The `reindex-coordinator-service` consumer group has
+              more than 100 un-consumed messages on
+              `ontology.reindex.requested.v1`. Either the coordinator
+              is stuck (see `ReindexCoordinatorNotConsuming`) or the
+              throttle (`OF_REINDEX_PAGE_INTERVAL_MS` /
+              `OF_REINDEX_MAX_BATCHES_PER_SECOND`) is too aggressive
+              for the request rate.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/services/reindex-coordinator-service/README.md#operations
+
+        # ── 2. Coordinator stopped consuming altogether ──────────
+        - alert: ReindexCoordinatorNotConsuming
+          # absent_over_time fires when the counter has produced no
+          # samples at all for 30m — typical when every replica is
+          # CrashLooping or has lost the consumer group session.
+          expr: |
+            absent_over_time(
+              reindex_coordinator_requests_total[30m]
+            ) == 1
+          for: 5m
+          labels:
+            severity: critical
+            component: reindex-coordinator-service
+            stream: s4
+          annotations:
+            summary: "reindex-coordinator-service is not consuming requests"
+            description: |
+              No `reindex_coordinator_requests_total` samples for
+              30m. The Deployment is either CrashLooping, has lost
+              the Kafka session (check broker logs) or has been
+              scaled to zero by mistake. Page on-call.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/services/reindex-coordinator-service/README.md#operations
+
+        # ── 3. Consuming but not producing batches ───────────────
+        # Jobs are in flight (gauge > 0) but no batches have hit the
+        # output topic for 15m. Symptom of a hung Cassandra page
+        # fetch or a Kafka producer back-pressure stall.
+        - alert: ReindexCoordinatorNotProducingBatches
+          expr: |
+            (max_over_time(reindex_coordinator_jobs_in_flight[15m]) > 0)
+            and
+            (sum(increase(reindex_coordinator_batches_total{outcome="published"}[15m])) == 0)
+          for: 5m
+          labels:
+            severity: critical
+            component: reindex-coordinator-service
+            stream: s4
+          annotations:
+            summary: "reindex jobs in flight but no batches produced for 15m"
+            description: |
+              `reindex_coordinator_jobs_in_flight > 0` and
+              `reindex_coordinator_batches_total{outcome="published"}`
+              has not advanced for 15 minutes. Either a Cassandra
+              page fetch is hung (check `cassandra_kernel` request
+              timeout) or the Kafka producer is back-pressured on
+              `ontology.reindex.v1` (check broker disk / partition
+              health).
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/services/reindex-coordinator-service/README.md#operations
+
+        # ── 4. Jobs stuck in queued/running too long ─────────────
+        # The gauge is process-local, so use `max` across replicas
+        # to catch the case where one replica owns the job.
+        - alert: ReindexCoordinatorJobsStuck
+          expr: |
+            max(reindex_coordinator_jobs_in_flight) > 0
+          for: 2h
+          labels:
+            severity: warning
+            component: reindex-coordinator-service
+            stream: s4
+          annotations:
+            summary: "reindex jobs running for >2h"
+            description: |
+              At least one reindex job has been in flight for more
+              than two hours. For a small tenant this almost always
+              means the job is wedged. Inspect
+              `reindex_coordinator.reindex_jobs` for the offending
+              row (look for `status='running'` with an old
+              `updated_at`). Cancel via
+              `UPDATE reindex_coordinator.reindex_jobs SET status='cancelled', completed_at=now() WHERE id = ...;`
+              then redeliver the request via the admin CLI.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/services/reindex-coordinator-service/README.md#operations
+
+        # ── 5. DLQ growth on any of the three reindex topics ─────
+        # The DLQ topics are declared in
+        # `infra/helm/infra/kafka-cluster/values.yaml` (`__dlq.ontology.reindex.*`)
+        # with a 14-day retention. Any growth at all in the last
+        # 30m is an actionable signal.
+        - alert: ReindexCoordinatorDLQGrowth
+          expr: |
+            sum by (topic) (
+              increase(
+                kafka_topic_partition_current_offset{
+                  topic=~"__dlq\\.ontology\\.reindex\\..*"
+                }[30m]
+              )
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: reindex-coordinator-service
+            stream: s4
+          annotations:
+            summary: "messages landing on {{ $labels.topic }}"
+            description: |
+              At least one message has been written to the reindex
+              DLQ in the last 30 minutes. Inspect with
+              `kafkacat -C -t {{ $labels.topic }} -o beginning -e`
+              and decide whether to fix-and-replay or to drop after
+              recording the root cause in the runbook.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/services/reindex-coordinator-service/README.md#operations
+
+        # ── Bonus: malformed requests beyond noise floor ─────────
+        - alert: ReindexCoordinatorDecodeErrors
+          expr: |
+            sum(rate(reindex_coordinator_requests_total{outcome="decode_error"}[15m])) > 0
+          for: 30m
+          labels:
+            severity: warning
+            component: reindex-coordinator-service
+            stream: s4
+          annotations:
+            summary: "reindex-coordinator decode errors for 30m"
+            description: |
+              Producers are sending records that fail
+              `ReindexRequestedV1` decoding. Cross-check the
+              registered Apicurio schema against any recent producer
+              deploys and update the admin CLI if the contract has
+              shifted.
+            runbook_url: https://github.com/openfoundry/openfoundry/blob/main/services/reindex-coordinator-service/README.md#operations
