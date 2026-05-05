@@ -6,6 +6,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/lineage', title: 'Lineage', description: 'Dataset / pipeline / workflow graph with impact analysis and build dispatch.' },
   { path: '/notebooks', title: 'Notebooks', description: 'Multi-kernel notebooks with Monaco-backed cells and a workspace file tree.' },
   { path: '/contour', title: 'Contour', description: 'Top-down dataset analysis: join, drill, chart-to-chart filter, materialize.' },
+  { path: '/geospatial', title: 'Geospatial', description: 'MapLibre canvas with layers, queries, clustering, geocoding, routing, templates.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
