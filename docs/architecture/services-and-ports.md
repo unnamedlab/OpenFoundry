@@ -21,8 +21,8 @@ of services are dual-anchored (e.g. write-path services that govern
 | `ingestion-replication-service` | `50090` (HTTP REST) / `50091` (gRPC `IngestJobService`) | ingestion | Ingest-job materialization, Debezium/Flink control plane, and CDC checkpoint ownership; no source-definition ownership |
 | `dataset-service` | `50053` | state | Dataset metadata/discovery plus versioning runtime after consolidation; `dataset-versioning-service` is the sole runtime owner of versions/branches/transactions and Iceberg-backed snapshot state |
 | `streaming-service` | `50054` | ingestion | Streaming pipelines and archive management |
-| `sql-bi-gateway-service` | `50133` (Flight SQL gRPC) / `50134` (HTTP `/healthz` + saved queries) | compute | **Edge SQL gateway** for external BI traffic (Tableau, Superset, Arrow Flight SQL JDBC clients). Implemented as a real Apache Arrow Flight SQL server backed by DataFusion that routes per-statement to the appropriate backend (Iceberg via `sql-warehousing-service`, Trino for Iceberg analytics, Vespa, Postgres) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md) and [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md), supersedes [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md). Internal service-to-service SQL still uses Flight SQL P2P. |
-| `sql-warehousing-service` | `50123` (Flight SQL gRPC) / `50124` (HTTP `/healthz`) | compute | SQL warehousing workflows, intermediate persistence and large-scale SQL transformations exposed as an Apache Arrow Flight SQL server backed by DataFusion |
+| `sql-bi-gateway-service` | `50133` (Flight SQL gRPC) / `50134` (HTTP `/healthz` + saved queries + warehousing/tabular CRUD) | compute | **Edge SQL gateway** for external BI traffic (Tableau, Superset, Arrow Flight SQL JDBC clients). Implemented as a real Apache Arrow Flight SQL server backed by DataFusion that routes per-statement to the appropriate backend (local DataFusion for Iceberg, Trino for Iceberg analytics, Vespa, Postgres) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md), [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md) and [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md), supersedes [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md). Also serves the warehousing and tabular-analysis HTTP CRUD absorbed from the retired `sql-warehousing-service` and `tabular-analysis-service` (S8 consolidation). Reusable analytical expressions (formerly `analytical-logic-service`) are exposed via the internal `libs/analytical-logic` crate, not duplicated as HTTP routes. Internal service-to-service SQL still uses Flight SQL P2P. |
+| ~~`sql-warehousing-service`~~ | _retired_ | _merged into_ `sql-bi-gateway-service` | S8 / ADR-0030. Warehousing jobs / transformations / artifacts CRUD is served at `/api/v1/warehouse/*` on the gateway (port 50133). The standalone Flight SQL endpoint on `50123` is gone; the gateway's local DataFusion executes the same SQL in-process. |
 | `pipeline-service` | `50056` | compute | Pipeline compatibility shell during service decomposition |
 | `pipeline-authoring-service` | `50080` | compute | Pipeline definitions, validation, compilation, pruning, and executable plan generation |
 | `pipeline-build-service` | `50081` | compute | Pipeline run execution and retry orchestration |
@@ -54,7 +54,7 @@ confuse; their roles are intentionally disjoint:
 
 | Component                      | Plano objetivo            | Role                                                                                                                                                                                                                            |
 | ------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sql-bi-gateway-service`       | compute (edge BI gateway) | **Edge BI gateway**. The single Apache Arrow Flight SQL surface for external BI clients (Tableau, Superset, JDBC/ODBC). Backed by DataFusion, applies auth/quotas/audit/saved-queries, and routes per-statement to `sql-warehousing-service` (Iceberg), Trino (Iceberg analytics), Vespa (hybrid retrieval) or Postgres (OLTP reference) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md) and [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md). |
+| `sql-bi-gateway-service`       | compute (edge BI gateway) | **Edge BI gateway**. The single Apache Arrow Flight SQL surface for external BI clients (Tableau, Superset, JDBC/ODBC). Backed by DataFusion, applies auth/quotas/audit/saved-queries, and routes per-statement to local DataFusion (Iceberg), Trino (Iceberg analytics), Vespa (hybrid retrieval) or Postgres (OLTP reference) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md), [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md) and [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md). After S8 also owns the warehousing (`/api/v1/warehouse/*`) and tabular-analysis (`/api/v1/tabular/*`) HTTP CRUD absorbed from the retired `sql-warehousing-service` and `tabular-analysis-service`; the analytical-expressions surface lives in the `libs/analytical-logic` internal crate (no duplicated routes). |
 
 ## Gateway Route Ownership
 
@@ -109,6 +109,9 @@ Every service exposes a `/health` route. This shared convention is used by:
 - GitHub Actions smoke jobs
 - Helm health probes and operational checks
 
-The `sql-warehousing-service` is gRPC-only on its primary port and therefore
-exposes its HTTP health probe (`/healthz`, also aliased as `/health`) on a
-companion port (`healthz_port`, default `50124`).
+The `sql-bi-gateway-service` is gRPC-only on its primary Flight SQL port
+(`50133`) and therefore exposes its HTTP `/healthz` probe (also aliased as
+`/health`) plus the saved-queries / warehousing / tabular-analysis HTTP
+CRUD on a companion port (`healthz_port`, default `50134`). The retired
+`sql-warehousing-service` previously played the same gRPC-only role on
+ports `50123`/`50124`; that surface is now folded into the gateway.

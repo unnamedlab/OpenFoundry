@@ -19,7 +19,6 @@ chain for it.
 ## `pg-schemas`
 
 - `services/ai-application-generation-service/migrations`
-- `services/analytical-logic-service/migrations`
 - `services/cdc-metadata-service/migrations`
 - `services/code-repository-review-service/migrations`
 - `services/data-asset-catalog-service/migrations`
@@ -79,8 +78,13 @@ chain for it.
 - `services/report-service/migrations`
 - `services/spreadsheet-computation-service/migrations`
 - `services/sql-bi-gateway-service/migrations`
-- `services/sql-warehousing-service/migrations`
-- `services/tabular-analysis-service/migrations`
+  Note: also hosts the `warehouse_*`, `tabular_analysis_*` and
+  `analytical_expression*` migrations absorbed from the retired
+  `sql-warehousing-service`, `tabular-analysis-service` and
+  `analytical-logic-service` (S8 consolidation, ADR-0030). The
+  `analytical_expressions` schema is also shipped by the internal
+  `libs/analytical-logic` crate so non-gateway consumers can re-apply
+  it locally for tests.
 - `services/time-series-data-service/migrations`
 - `services/workflow-automation-service/migrations`
 - `services/workflow-trace-service/migrations`

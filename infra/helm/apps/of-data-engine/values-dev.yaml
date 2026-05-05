@@ -20,6 +20,7 @@ global:
 
 services:
   sql-bi-gateway-service:
+    # NOTE — S8 / ADR-0030: dev override for the consolidated gateway.
     replicas: 1
     env:
       DISTRIBUTED_QUERY_WORKERS: "2"
