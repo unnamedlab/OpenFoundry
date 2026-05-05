@@ -16,6 +16,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/global-branching', title: 'Global branching', description: 'Workspace branches + scoped resources + merge / promote workflow.' },
   { path: '/developers', title: 'Developers', description: 'Plugin SDK + CLI cookbook + OpenAPI explorer + Terraform provider + Git integrations.' },
   { path: '/object-databases', title: 'Object databases', description: 'Storage topology: object rows, link edges, search projections, Funnel runs, indexes.' },
+  { path: '/workflows', title: 'Workflows', description: 'Builder + run history + HITL approvals for event/cron/manual/webhook automations.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
