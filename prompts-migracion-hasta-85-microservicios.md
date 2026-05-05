@@ -273,11 +273,11 @@ Actua en OpenFoundry. Cierra la migracion del bounded context "Virtual Table and
 
 ### P27. CDC Metadata and Resolution Service
 
-Objetivo: `services/cdc-metadata-service`
+Objetivo: `services/ingestion-replication-service/src/cdc_metadata`
 Fuentes: `services/data-connector`, `services/event-streaming-service`, `services/pipeline-service`
 
 ```text
-Actua en OpenFoundry. Crea `services/cdc-metadata-service` y migra ahi change data capture metadata, incremental sync semantics, resolution state y contratos CDC compartidos. Usa `data-connector`, `event-streaming-service` y `pipeline-service` como fuentes y separa este dominio de la logica general de ingestion o streaming. Deja el nuevo servicio como owner de CDC metadata y resolution.
+Actua en OpenFoundry. Crea `services/ingestion-replication-service/src/cdc_metadata` y migra ahi change data capture metadata, incremental sync semantics, resolution state y contratos CDC compartidos. Usa `data-connector`, `event-streaming-service` y `pipeline-service` como fuentes y separa este dominio de la logica general de ingestion o streaming. Deja el nuevo servicio como owner de CDC metadata y resolution.
 ```
 
 ### P28. SQL Warehousing Service
@@ -864,7 +864,7 @@ Actua en OpenFoundry. Retira `services/audit-service` solo si `audit-compliance-
 ### R04. Retirar `services/data-connector`
 
 ```text
-Actua en OpenFoundry. Retira `services/data-connector` solo si `connector-management-service`, `ingestion-replication-service`, `virtual-table-service`, `cdc-metadata-service` y `oauth-integration-service` ya son owners reales. Elimina cualquier query, agent, scheduler o credential flow residual y borra el legacy tras validar el slice de conectividad.
+Actua en OpenFoundry. Retira `services/data-connector` solo si `connector-management-service`, `ingestion-replication-service`, `virtual-table-service`, `ingestion-replication-service CDC metadata module` y `oauth-integration-service` ya son owners reales. Elimina cualquier query, agent, scheduler o credential flow residual y borra el legacy tras validar el slice de conectividad.
 ```
 
 ### R05. Retirar `services/dataset-service`
@@ -876,7 +876,7 @@ Actua en OpenFoundry. Retira `services/dataset-service` solo si `data-asset-cata
 ### R06. Retirar `services/streaming-service`
 
 ```text
-Actua en OpenFoundry. Retira `services/streaming-service` solo si `event-streaming-service`, `cdc-metadata-service` y `time-series-data-service` ya cubren todo su ownership residual. Elimina rutas y runtime legacy, actualiza observabilidad y borra el directorio tras validar replay, windows y topologies.
+Actua en OpenFoundry. Retira `services/streaming-service` solo si `event-streaming-service`, `ingestion-replication-service CDC metadata module` y `time-series-data-service` ya cubren todo su ownership residual. Elimina rutas y runtime legacy, actualiza observabilidad y borra el directorio tras validar replay, windows y topologies.
 ```
 
 ### R07. Retirar `services/query-service`

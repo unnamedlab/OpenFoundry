@@ -21,8 +21,8 @@ of services are dual-anchored (e.g. write-path services that govern
 | `ingestion-replication-service` | `50090` (HTTP REST) / `50091` (gRPC `IngestJobService`) | ingestion | Ingest-job materialization, Debezium/Flink control plane, and CDC checkpoint ownership; no source-definition ownership |
 | `dataset-service` | `50053` | state | Dataset metadata/discovery plus versioning runtime after consolidation; `dataset-versioning-service` is the sole runtime owner of versions/branches/transactions and Iceberg-backed snapshot state |
 | `streaming-service` | `50054` | ingestion | Streaming pipelines and archive management |
-| `sql-bi-gateway-service` | `50133` (Flight SQL gRPC) / `50134` (HTTP `/healthz` + saved queries) | compute | **Edge SQL gateway** for external BI traffic (Tableau, Superset, Arrow Flight SQL JDBC clients). Implemented as a real Apache Arrow Flight SQL server backed by DataFusion that routes per-statement to the appropriate backend (Iceberg via `sql-warehousing-service`, Trino for Iceberg analytics, Vespa, Postgres) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md) and [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md), supersedes [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md). Internal service-to-service SQL still uses Flight SQL P2P. |
-| `sql-warehousing-service` | `50123` (Flight SQL gRPC) / `50124` (HTTP `/healthz`) | compute | SQL warehousing workflows, intermediate persistence and large-scale SQL transformations exposed as an Apache Arrow Flight SQL server backed by DataFusion |
+| `sql-bi-gateway-service` | `50133` (Flight SQL gRPC) / `50134` (HTTP `/healthz` + saved queries + warehousing/tabular CRUD) | compute | **Edge SQL gateway** for external BI traffic (Tableau, Superset, Arrow Flight SQL JDBC clients). Implemented as a real Apache Arrow Flight SQL server backed by DataFusion that routes per-statement to the appropriate backend (local DataFusion for Iceberg, Trino for Iceberg analytics, Vespa, Postgres) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md), [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md) and [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md), supersedes [ADR-0009](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md). Also serves the warehousing and tabular-analysis HTTP CRUD absorbed from the retired `sql-warehousing-service` and `tabular-analysis-service` (S8 consolidation). Reusable analytical expressions (formerly `analytical-logic-service`) are exposed via the internal `libs/analytical-logic` crate, not duplicated as HTTP routes. Internal service-to-service SQL still uses Flight SQL P2P. |
+| ~~`sql-warehousing-service`~~ | _retired_ | _merged into_ `sql-bi-gateway-service` | S8 / ADR-0030. Warehousing jobs / transformations / artifacts CRUD is served at `/api/v1/warehouse/*` on the gateway (port 50133). The standalone Flight SQL endpoint on `50123` is gone; the gateway's local DataFusion executes the same SQL in-process. |
 | `pipeline-service` | `50056` | compute | Pipeline compatibility shell during service decomposition |
 | `pipeline-authoring-service` | `50080` | compute | Pipeline definitions, validation, compilation, pruning, and executable plan generation |
 | `pipeline-build-service` | `50081` | compute | Pipeline run execution and retry orchestration |
@@ -31,10 +31,7 @@ of services are dual-anchored (e.g. write-path services that govern
 | `ontology-definition-service` | `50103` | control | Control plane: object types, properties, interfaces, link types, action definitions, function packages, object-set definitions, funnel definitions, project governance |
 | `object-database-service` | `50104` | state | Write authority: object instances, link instances, revision history, transactional outbox |
 | `ontology-query-service` | `50105` | compute | Serving plane: search, graph traversal, object views, KNN, object-set queries, read models and projections |
-| `ontology-actions-service` | `50106` | control | Controlled mutations: action validation, planning, execution, workflow and notification integration |
-| `ontology-funnel-service` | `50107` | ingestion | Batch ingestion: funnel source definitions, run orchestration, health monitoring |
-| `ontology-functions-service` | `50108` | compute | Function runtime: TypeScript/Python package execution, capability-governed sandbox |
-| `ontology-security-service` | `50109` | control | Security plane: policy compilation, marking resolution, permission-aware query filters, policy bundle distribution |
+| `ontology-actions-service` | `50106` | control | Controlled mutations and policy/runtime plane: action validation/planning/execution, batch ingestion (funnel sources + runs + storage insights), function-package runtime (TypeScript/Python sandbox), and rule-engine (policy compilation, marking resolution, permission-aware filters). Sole runtime owner of the `actions_log` Cassandra column family — absorbed `ontology-funnel-service` (ex-`50107`), `ontology-functions-service` (ex-`50108`) and `ontology-security-service` (ex-`50109`) per ADR-0030 (S8.1) |
 | `fusion-service` | `50058` | compute | Fusion and spreadsheet-oriented interactions |
 | `ml-service` | `50059` | compute | Experiments, training, registry, model lifecycle |
 | `ai-service` | `50060` | compute | AI providers, chat, tools, workflows |
@@ -57,7 +54,7 @@ confuse; their roles are intentionally disjoint:
 
 | Component                      | Plano objetivo            | Role                                                                                                                                                                                                                            |
 | ------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sql-bi-gateway-service`       | compute (edge BI gateway) | **Edge BI gateway**. The single Apache Arrow Flight SQL surface for external BI clients (Tableau, Superset, JDBC/ODBC). Backed by DataFusion, applies auth/quotas/audit/saved-queries, and routes per-statement to `sql-warehousing-service` (Iceberg), Trino (Iceberg analytics), Vespa (hybrid retrieval) or Postgres (OLTP reference) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md) and [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md). |
+| `sql-bi-gateway-service`       | compute (edge BI gateway) | **Edge BI gateway**. The single Apache Arrow Flight SQL surface for external BI clients (Tableau, Superset, JDBC/ODBC). Backed by DataFusion, applies auth/quotas/audit/saved-queries, and routes per-statement to local DataFusion (Iceberg), Trino (Iceberg analytics), Vespa (hybrid retrieval) or Postgres (OLTP reference) — see [ADR-0014](./adr/ADR-0014-retire-trino-flight-sql-only.md), [ADR-0029](./adr/ADR-0029-reintroduce-trino-for-iceberg-analytics.md) and [ADR-0030](./adr/ADR-0030-service-consolidation-30-targets.md). After S8 also owns the warehousing (`/api/v1/warehouse/*`) and tabular-analysis (`/api/v1/tabular/*`) HTTP CRUD absorbed from the retired `sql-warehousing-service` and `tabular-analysis-service`; the analytical-expressions surface lives in the `libs/analytical-logic` internal crate (no duplicated routes). |
 
 ## Gateway Route Ownership
 
@@ -72,10 +69,7 @@ The gateway maps URL prefixes to backend services. Important examples:
 - `/api/v1/workflows/events/*`, `/api/v1/workflows/triggers/cron/*`, `/api/v1/schedules/*` -> `pipeline-schedule-service`
 - `/api/v1/lineage` -> `lineage-service`
 - `/api/v1/ontology/projects` -> `tenancy-organizations-service`
-- `/api/v1/ontology/functions` -> `ontology-functions-service`
-- `/api/v1/ontology/funnel`, `/api/v1/ontology/storage/insights` -> `ontology-funnel-service`
-- `/api/v1/ontology/actions`, `/api/v1/ontology/types/{id}/objects/{id}/inline-edit` -> `ontology-actions-service`
-- `/api/v1/ontology/rules`, `/api/v1/ontology/types/{id}/rules` -> `ontology-security-service`
+- `/api/v1/ontology/actions`, `/api/v1/ontology/funnel`, `/api/v1/ontology/storage/insights`, `/api/v1/ontology/functions`, `/api/v1/ontology/rules`, `/api/v1/ontology/types/{id}/objects/{id}/inline-edit`, `/api/v1/ontology/types/{id}/rules`, `/api/v1/ontology/objects/{id}/rule-runs` -> `ontology-actions-service` (S8.1: sole runtime owner after absorbing funnel/functions/security)
 - `/api/v1/ontology/search`, `/api/v1/ontology/graph`, `/api/v1/ontology/quiver`, `/api/v1/ontology/object-sets`, `/api/v1/ontology/types/{id}/objects/query`, `/api/v1/ontology/types/{id}/objects/knn` -> `ontology-query-service`
 - `/api/v1/ontology/links/{id}/instances`, `/api/v1/ontology/types/{id}/objects` -> `object-database-service`
 - `/api/v1/ontology/interfaces`, `/api/v1/ontology/shared-property-types`, `/api/v1/ontology/links`, `/api/v1/ontology/types` -> `ontology-definition-service`
@@ -101,11 +95,8 @@ Configuration files show explicit service-to-service defaults for several domain
 - `workflow-automation-service` depends on notification, ontology, and pipeline services
 - `ontology-definition-service` depends on audit, AI, and notification services
 - `object-database-service` depends on audit and notification services; all writes go through `object-database-service`
-- `ontology-query-service` depends on `object-database-service` (fallback point lookups), `ontology-security-service` (policy filters), and AI services
-- `ontology-actions-service` depends on `object-database-service` (mutations), `ontology-definition-service` (action definitions), `ontology-security-service` (permission checks), and notification/audit services
-- `ontology-funnel-service` depends on dataset, pipeline, and `object-database-service`
-- `ontology-functions-service` depends on `ontology-query-service` (reads) and `ontology-actions-service` / `object-database-service` (writes, depending on declared capability)
-- `ontology-security-service` compiles policies from `ontology-definition-service` definitions and auth service claims
+- `ontology-query-service` depends on `object-database-service` (fallback point lookups), `ontology-actions-service` (policy filters, S8.1), and AI services
+- `ontology-actions-service` depends on `object-database-service` (mutations) and `ontology-definition-service` (action / function package definitions); owns the actions, funnel, function-runtime and rule (policy / marking) HTTP surfaces and the `actions_log` Cassandra column family (S8.1)
 - `report-service` depends on dataset and geospatial services
 - `notebook-runtime-service` depends on query and AI services
 - `marketplace-service` depends on app-builder
@@ -118,6 +109,9 @@ Every service exposes a `/health` route. This shared convention is used by:
 - GitHub Actions smoke jobs
 - Helm health probes and operational checks
 
-The `sql-warehousing-service` is gRPC-only on its primary port and therefore
-exposes its HTTP health probe (`/healthz`, also aliased as `/health`) on a
-companion port (`healthz_port`, default `50124`).
+The `sql-bi-gateway-service` is gRPC-only on its primary Flight SQL port
+(`50133`) and therefore exposes its HTTP `/healthz` probe (also aliased as
+`/health`) plus the saved-queries / warehousing / tabular-analysis HTTP
+CRUD on a companion port (`healthz_port`, default `50134`). The retired
+`sql-warehousing-service` previously played the same gRPC-only role on
+ports `50123`/`50124`; that surface is now folded into the gateway.

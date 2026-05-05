@@ -1,0 +1,145 @@
+{{/*
+S8 / ADR-0030 — `sql-bi-gateway-service` consolidated schema migration.
+
+The shared `of-shared.migrations` helper ships an `of-migrator` image
+keyed by `migrations.<db>` (currently `pg-schemas` and
+`pg-runtime-config`). The four schemas owned by the consolidated
+gateway (saved BI queries, tabular analysis jobs/results, analytical
+expressions, warehouse jobs/transformations/artifacts) all live inside
+the existing `pg-runtime-config` cluster and only need a handful of
+`CREATE TABLE IF NOT EXISTS` statements, so we follow the same
+lightweight pattern used by `of-ontology/templates/reindex-coordinator-migrations.yaml`:
+
+  * A ConfigMap bundles the absorbed `.sql` files (one per migration
+    file, lexicographically ordered by name).
+  * A psql `pre-install,pre-upgrade` Job applies them with
+    `ON_ERROR_STOP=1 --single-transaction` against the
+    `pg-runtime-config-app` Secret's DSN.
+  * `helm.sh/hook-weight: "-3"` runs AFTER `of-shared.migrations`
+    (weight `-5`) so any future centrally-managed `pg-runtime-config`
+    base migrations finish first.
+  * Idempotent — every statement uses `IF NOT EXISTS`.
+  * Gated by `.Values.sqlBiGateway.migrations.enabled` so an operator
+    can opt out (e.g. when restoring from a managed backup that
+    already contains the schemas).
+*/}}
+{{- $cfg := (.Values.sqlBiGateway | default dict).migrations | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $cfg "enabled" -}}
+  {{- $enabled = $cfg.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $release := required "Values.release is required for sql-bi-gateway migration resource names" .Values.release -}}
+{{- $jobName := printf "%s-sql-bi-gateway-migrate" $release | trunc 63 | trimSuffix "-" -}}
+{{- $cmName := printf "%s-sql-bi-gateway-migrations" $release | trunc 63 | trimSuffix "-" -}}
+{{- $secretName := ($cfg.dsnSecret | default dict).name | default "pg-runtime-config-app" -}}
+{{- $secretKey := ($cfg.dsnSecret | default dict).key | default "DATABASE_URL" -}}
+{{- $image := $cfg.image | default "docker.io/bitnami/postgresql:16" -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cmName }}
+  labels:
+    app.kubernetes.io/name: sql-bi-gateway-migrator
+    app.kubernetes.io/instance: {{ $release }}
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: openfoundry
+    openfoundry.io/release: {{ $release }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  0001_initial_queries.sql: |-
+{{ .Files.Get "files/sql-bi-gateway/0001_initial_queries.sql" | indent 4 }}
+  0002_tabular_analysis_foundation.sql: |-
+{{ .Files.Get "files/sql-bi-gateway/0002_tabular_analysis_foundation.sql" | indent 4 }}
+  0003_analytical_expressions_foundation.sql: |-
+{{ .Files.Get "files/sql-bi-gateway/0003_analytical_expressions_foundation.sql" | indent 4 }}
+  0004_sql_warehousing_foundation.sql: |-
+{{ .Files.Get "files/sql-bi-gateway/0004_sql_warehousing_foundation.sql" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $jobName }}
+  labels:
+    app.kubernetes.io/name: sql-bi-gateway-migrator
+    app.kubernetes.io/instance: {{ $release }}
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: openfoundry
+    openfoundry.io/release: {{ $release }}
+    openfoundry.io/migration-target: pg-runtime-config-sql-bi-gateway
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sql-bi-gateway-migrator
+        app.kubernetes.io/instance: {{ $release }}
+        openfoundry.io/migration-target: pg-runtime-config-sql-bi-gateway
+    spec:
+      restartPolicy: Never
+      {{- with (.Values.global.imagePullSecrets | default (list)) }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              for f in /migrations/*.sql; do
+                echo "[sql-bi-gateway-migrate] applying $(basename "$f")"
+                psql --set ON_ERROR_STOP=1 --single-transaction \
+                     "$DATABASE_URL" \
+                     -f "$f"
+              done
+              echo "[sql-bi-gateway-migrate] done"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $secretKey | quote }}
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+          resources:
+            requests: { cpu: "50m",  memory: "64Mi"  }
+            limits:   { cpu: "200m", memory: "128Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ $cmName }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

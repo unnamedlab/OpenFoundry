@@ -61,16 +61,10 @@ SERVICES_SPEC = [
         "spreadsheet_recalcs",
         "sheet_id UUID NOT NULL, status TEXT NOT NULL DEFAULT 'queued', result JSONB NOT NULL DEFAULT '{}'::jsonb",
     ),
-    (
-        "analytical-logic-service",
-        "Saved expressions, reusable analytical logic and visual function templates",
-        50136,
-        "/api/v1/analytical-logic/expressions",
-        "analytical_expressions",
-        "name TEXT NOT NULL, kind TEXT NOT NULL, definition JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "analytical_expression_versions",
-        "expression_id UUID NOT NULL, version INT NOT NULL, body JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # S8 / ADR-0030: `analytical-logic-service` was merged into
+    # `sql-bi-gateway-service` and reduced to the internal
+    # `libs/analytical-logic` crate. It is intentionally absent here so
+    # re-running this scaffolder does not recreate the retired service.
     (
         "workflow-automation-service",
         "Continuous and scheduled business automations: definitions, runs and rules",

@@ -158,13 +158,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # --- Ontology ---
-/services/ontology-actions-service/                     @open-foundry/ontology-team
+/services/ontology-actions-service/                     @open-foundry/ontology-team @open-foundry/security-team
 /services/ontology-definition-service/                  @open-foundry/ontology-team
 /services/ontology-exploratory-analysis-service/        @open-foundry/ontology-team
-/services/ontology-functions-service/                   @open-foundry/ontology-team
-/services/ontology-funnel-service/                      @open-foundry/ontology-team
 /services/ontology-query-service/                       @open-foundry/ontology-team
-/services/ontology-security-service/                    @open-foundry/ontology-team @open-foundry/security-team
 /services/ontology-timeseries-analytics-service/        @open-foundry/ontology-team @open-foundry/analytics-team
 /services/object-database-service/                      @open-foundry/ontology-team @open-foundry/data-platform
 /services/entity-resolution-service/                    @open-foundry/ontology-team
@@ -176,13 +173,10 @@
 /services/conversation-state-service/                   @open-foundry/ai-platform
 /services/llm-catalog-service/                          @open-foundry/ai-platform
 /services/mcp-orchestration-service/                    @open-foundry/ai-platform
-/services/ml-experiments-service/                       @open-foundry/ai-platform
-/services/model-adapter-service/                        @open-foundry/ai-platform
 /services/model-catalog-service/                        @open-foundry/ai-platform
 /services/model-deployment-service/                     @open-foundry/ai-platform
 /services/model-evaluation-service/                     @open-foundry/ai-platform
 /services/model-inference-history-service/              @open-foundry/ai-platform
-/services/model-lifecycle-service/                      @open-foundry/ai-platform
 /services/model-serving-service/                        @open-foundry/ai-platform
 /services/notebook-runtime-service/                     @open-foundry/ai-platform
 /services/prompt-workflow-service/                      @open-foundry/ai-platform
@@ -191,7 +185,6 @@
 /services/knowledge-index-service/                      @open-foundry/ai-platform
 
 # --- Data platform / pipelines / datasets ---
-/services/cdc-metadata-service/                         @open-foundry/data-platform
 /services/connector-management-service/                 @open-foundry/data-platform
 /services/data-asset-catalog-service/                   @open-foundry/data-platform
 /services/dataset-quality-service/                      @open-foundry/data-platform

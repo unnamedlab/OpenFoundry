@@ -8,6 +8,11 @@
 //! `event-streaming-service` over gRPC.
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let protoc = protoc_bin_vendored::protoc_bin_path()?;
+    unsafe {
+        std::env::set_var("PROTOC", protoc);
+    }
+
     let proto = "proto/ingestion_control_plane.proto";
     let router_proto = "../../proto/streaming/router.proto";
     println!("cargo:rerun-if-changed={proto}");

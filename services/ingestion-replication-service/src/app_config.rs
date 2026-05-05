@@ -20,6 +20,16 @@ pub struct AppConfig {
     /// Reconcile loop period (seconds).
     #[serde(default = "default_reconcile_period_secs")]
     pub reconcile_period_secs: u64,
+    /// Optional Postgres connection string for the consolidated CDC metadata
+    /// bounded context. When unset, the CDC metadata HTTP surface is disabled.
+    #[serde(default)]
+    pub cdc_metadata_database_url: Option<String>,
+    /// Bind host for the CDC metadata HTTP compatibility surface.
+    #[serde(default = "default_host")]
+    pub cdc_metadata_host: String,
+    /// Bind port for the CDC metadata HTTP compatibility surface.
+    #[serde(default = "default_cdc_metadata_port")]
+    pub cdc_metadata_port: u16,
 }
 
 fn default_host() -> String {
@@ -36,6 +46,10 @@ fn default_namespace() -> String {
 
 fn default_reconcile_period_secs() -> u64 {
     30
+}
+
+fn default_cdc_metadata_port() -> u16 {
+    50122
 }
 
 impl AppConfig {

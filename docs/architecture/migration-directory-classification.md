@@ -1,6 +1,6 @@
 # Migration Directory Classification
 
-This catalog is the cleanup baseline for the **58 migration roots**
+This catalog is the cleanup baseline for the **56 migration roots**
 called out by the Cassandra/Foundry parity plan. It classifies every
 runtime SQL migration directory into one of the final buckets used by
 the platform:
@@ -19,8 +19,7 @@ chain for it.
 ## `pg-schemas`
 
 - `services/ai-application-generation-service/migrations`
-- `services/analytical-logic-service/migrations`
-- `services/cdc-metadata-service/migrations`
+- `services/ingestion-replication-service/migrations/cdc_metadata`
 - `services/code-repository-review-service/migrations`
 - `services/data-asset-catalog-service/migrations`
 - `services/dataset-versioning-service/migrations`
@@ -30,9 +29,10 @@ chain for it.
 - `services/lineage-service/migrations`
 - `services/marketplace-service/migrations`
 - `services/mcp-orchestration-service/migrations`
-- `services/model-adapter-service/migrations`
 - `services/model-catalog-service/migrations`
-- `services/model-lifecycle-service/migrations`
+  Note: also hosts the `model_adapter_*` and `model_lifecycle_*` migrations
+  absorbed from the retired `model-adapter-service` / `model-lifecycle-service`
+  (S8 consolidation, ADR-0030).
 - `services/oauth-integration-service/migrations`
 - `services/ontology-definition-service/migrations-pg`
 - `services/scenario-simulation-service/migrations`
@@ -78,8 +78,13 @@ chain for it.
 - `services/report-service/migrations`
 - `services/spreadsheet-computation-service/migrations`
 - `services/sql-bi-gateway-service/migrations`
-- `services/sql-warehousing-service/migrations`
-- `services/tabular-analysis-service/migrations`
+  Note: also hosts the `warehouse_*`, `tabular_analysis_*` and
+  `analytical_expression*` migrations absorbed from the retired
+  `sql-warehousing-service`, `tabular-analysis-service` and
+  `analytical-logic-service` (S8 consolidation, ADR-0030). The
+  `analytical_expressions` schema is also shipped by the internal
+  `libs/analytical-logic` crate so non-gateway consumers can re-apply
+  it locally for tests.
 - `services/time-series-data-service/migrations`
 - `services/workflow-automation-service/migrations`
 - `services/workflow-trace-service/migrations`

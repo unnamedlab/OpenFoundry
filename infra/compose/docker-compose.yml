@@ -813,6 +813,9 @@ services:
       HOST: 0.0.0.0
       PORT: 50090
       DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_data_connector
+      CDC_METADATA_DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cdc_metadata
+      CDC_METADATA_HOST: 0.0.0.0
+      CDC_METADATA_PORT: 50122
       JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
       DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
       PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
@@ -827,6 +830,7 @@ services:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_INGESTION_REPLICATION_HOST_PORT:-50090}:50090"
+      - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50122"
 
   dataset-versioning-service:
     <<: *app-common
@@ -970,45 +974,12 @@ services:
       - "${OPENFOUNDRY_EVENT_STREAMING_GRPC_HOST_PORT:-50221}:50221"
       - "${OPENFOUNDRY_EVENT_STREAMING_ADMIN_HOST_PORT:-50222}:50222"
 
-  cdc-metadata-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/cdc-metadata-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50122
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cdc_metadata_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATA_CONNECTOR_URL: http://connector-management-service:50088
-      EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
-      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_CDC_METADATA_HOST_PORT:-50122}:50122"
-
-  sql-warehousing-service:
-    <<: *app-common
-    profiles: *profiles-data
-    build:
-      context: ..
-      dockerfile: services/sql-warehousing-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50123
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_sql_warehousing_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
-      PIPELINE_SERVICE_URL: http://pipeline-authoring-service:50080
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_SQL_WAREHOUSING_HOST_PORT:-50123}:50123"
+  # ── S8 / ADR-0030 — sql-warehousing-service merged into
+  # sql-bi-gateway-service. The warehousing CRUD lives at
+  # /api/v1/warehouse/* on port 50133. ──
+  # ── S8-13A — cdc-metadata-service merged into
+  # ingestion-replication-service. The CDC metadata HTTP surface lives on
+  # ingestion-replication-service when CDC_METADATA_DATABASE_URL is set. ──
 
   time-series-data-service:
     <<: *app-common
@@ -1030,45 +1001,9 @@ services:
     ports:
       - "${OPENFOUNDRY_TIME_SERIES_DATA_HOST_PORT:-50124}:50124"
 
-  model-adapter-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-adapter-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50125
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_model_adapter_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
-      MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
-      MODEL_SERVING_SERVICE_URL: http://model-serving-service:50087
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_ADAPTER_HOST_PORT:-50125}:50125"
-
-  model-lifecycle-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-lifecycle-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50126
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_model_lifecycle_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
-      MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
-      APPROVALS_SERVICE_URL: http://approvals-service:50071
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_LIFECYCLE_HOST_PORT:-50126}:50126"
+  # NOTE: `model-adapter-service` and `model-lifecycle-service` were merged
+  # into `model-catalog-service` (S8 consolidation, ADR-0030). Ports
+  # 50125/50126 are no longer claimed.
 
   agent-runtime-service:
     <<: *app-common
@@ -1129,24 +1064,9 @@ services:
     ports:
       - "${OPENFOUNDRY_AI_APPLICATION_GENERATION_HOST_PORT:-50129}:50129"
 
-  tabular-analysis-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/tabular-analysis-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50130
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_tabular_analysis_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_TABULAR_ANALYSIS_HOST_PORT:-50130}:50130"
+  # ── S8 / ADR-0030 — tabular-analysis-service merged into
+  # sql-bi-gateway-service. Tabular analysis CRUD lives at
+  # /api/v1/tabular/* on port 50133. ──
 
   ontology-exploratory-analysis-service:
     <<: *app-common
@@ -1248,22 +1168,9 @@ services:
     ports:
       - "${OPENFOUNDRY_SPREADSHEET_COMPUTATION_HOST_PORT:-50135}:50135"
 
-  analytical-logic-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/analytical-logic-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50136
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_analytical_logic
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ANALYTICAL_LOGIC_HOST_PORT:-50136}:50136"
+  # ── S8 / ADR-0030 — analytical-logic-service retired: reusable
+  # expressions are now an internal crate (`libs/analytical-logic`)
+  # consumed in-process by sql-bi-gateway-service. No HTTP surface. ──
 
   workflow-automation-service:
     <<: *app-common
@@ -1826,84 +1733,11 @@ services:
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_ACTIONS_HOST_PORT:-50106}:50106"
 
-  ontology-funnel-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/ontology-funnel-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50107
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
-    depends_on:
-      postgres:
-        condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
-      pipeline-build-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_FUNNEL_HOST_PORT:-50107}:50107"
-
-  ontology-functions-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/ontology-functions-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50108
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_FUNCTIONS_HOST_PORT:-50108}:50108"
-
-  ontology-security-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/ontology-security-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50109
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_SECURITY_HOST_PORT:-50109}:50109"
+  # ontology-funnel-service / ontology-functions-service /
+  # ontology-security-service have been merged into
+  # ontology-actions-service per ADR-0030 + service-consolidation-map.md
+  # (S8.1, ontology plane). See services/ontology-actions-service/src/lib.rs
+  # for the consolidated route surface.
 
   entity-resolution-service:
     <<: *app-common
@@ -1922,23 +1756,8 @@ services:
     ports:
       - "${OPENFOUNDRY_ENTITY_RESOLUTION_HOST_PORT:-50058}:50058"
 
-  ml-experiments-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/ml-experiments-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50084
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      OPENFOUNDRY_ENV: development
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ML_EXPERIMENTS_HOST_PORT:-50084}:50084"
+  # NOTE: `ml-experiments-service` was merged into `model-catalog-service`
+  # (S8 consolidation, ADR-0030); port 50084 is no longer claimed.
 
   model-catalog-service:
     <<: *app-common
@@ -2531,8 +2350,10 @@ services:
       DATA_ASSET_CATALOG_SERVICE_URL: http://data-asset-catalog-service:50079
       DATASET_QUALITY_SERVICE_URL: http://dataset-quality-service:50072
       EVENT_STREAMING_SERVICE_URL: http://event-streaming-service:50121
-      CDC_METADATA_SERVICE_URL: http://cdc-metadata-service:50122
-      SQL_WAREHOUSING_SERVICE_URL: http://sql-warehousing-service:50123
+      CDC_METADATA_SERVICE_URL: http://ingestion-replication-service:50122
+      # S8 / ADR-0030: SQL_WAREHOUSING_SERVICE_URL retired —
+      # warehousing CRUD is served by sql-bi-gateway-service (50133).
+      SQL_WAREHOUSING_SERVICE_URL: http://sql-bi-gateway-service:50133
       TIME_SERIES_DATA_SERVICE_URL: http://time-series-data-service:50124
       QUERY_SERVICE_URL: http://sql-bi-gateway-service:50133
       PIPELINE_AUTHORING_SERVICE_URL: http://pipeline-authoring-service:50080
@@ -2543,13 +2364,9 @@ services:
       OBJECT_DATABASE_SERVICE_URL: http://object-database-service:50104
       ONTOLOGY_QUERY_SERVICE_URL: http://ontology-query-service:50105
       ONTOLOGY_ACTIONS_SERVICE_URL: http://ontology-actions-service:50106
-      ONTOLOGY_FUNNEL_SERVICE_URL: http://ontology-funnel-service:50107
-      ONTOLOGY_FUNCTIONS_SERVICE_URL: http://ontology-functions-service:50108
-      ONTOLOGY_SECURITY_SERVICE_URL: http://ontology-security-service:50109
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       ENTITY_RESOLUTION_SERVICE_URL: http://entity-resolution-service:50058
       ML_SERVICE_URL: http://model-catalog-service:50085
-      ML_EXPERIMENTS_SERVICE_URL: http://ml-experiments-service:50084
       MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
       MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
       MODEL_EVALUATION_SERVICE_URL: http://model-evaluation-service:50091
@@ -2583,18 +2400,19 @@ services:
       AUDIT_COMPLIANCE_SERVICE_URL: http://audit-compliance-service:50115
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       SDS_SERVICE_URL: http://sds-service:50076
-      MODEL_ADAPTER_SERVICE_URL: http://model-adapter-service:50125
-      MODEL_LIFECYCLE_SERVICE_URL: http://model-lifecycle-service:50126
       AGENT_RUNTIME_SERVICE_URL: http://agent-runtime-service:50127
       DOCUMENT_INTELLIGENCE_SERVICE_URL: http://document-intelligence-service:50128
       AI_APPLICATION_GENERATION_SERVICE_URL: http://ai-application-generation-service:50129
-      TABULAR_ANALYSIS_SERVICE_URL: http://tabular-analysis-service:50130
+      # S8 / ADR-0030: TABULAR_ANALYSIS_SERVICE_URL retired —
+      # tabular-analysis CRUD is served by sql-bi-gateway-service (50133).
+      TABULAR_ANALYSIS_SERVICE_URL: http://sql-bi-gateway-service:50133
       ONTOLOGY_EXPLORATORY_ANALYSIS_SERVICE_URL: http://ontology-exploratory-analysis-service:50131
       ONTOLOGY_TIMESERIES_ANALYTICS_SERVICE_URL: http://ontology-timeseries-analytics-service:50132
       SQL_BI_GATEWAY_SERVICE_URL: http://sql-bi-gateway-service:50133
       NOTEBOOK_RUNTIME_SERVICE_URL: http://notebook-runtime-service:50134
       SPREADSHEET_COMPUTATION_SERVICE_URL: http://spreadsheet-computation-service:50135
-      ANALYTICAL_LOGIC_SERVICE_URL: http://analytical-logic-service:50136
+      # S8 / ADR-0030: ANALYTICAL_LOGIC_SERVICE_URL retired — reusable
+      # expressions are now an internal library crate; no HTTP surface.
       WORKFLOW_AUTOMATION_SERVICE_URL: http://workflow-automation-service:50137
       AUTOMATION_OPERATIONS_SERVICE_URL: http://automation-operations-service:50138
       WORKFLOW_TRACE_SERVICE_URL: http://workflow-trace-service:50139
@@ -2652,10 +2470,8 @@ services:
         condition: service_started
       event-streaming-service:
         condition: service_started
-      cdc-metadata-service:
-        condition: service_started
-      sql-warehousing-service:
-        condition: service_started
+      # S8-13A: cdc-metadata-service merged into ingestion-replication-service.
+      # S8 / ADR-0030: sql-warehousing-service merged into sql-bi-gateway-service (below).
       time-series-data-service:
         condition: service_started
       sql-bi-gateway-service:
@@ -2676,15 +2492,7 @@ services:
         condition: service_started
       ontology-actions-service:
         condition: service_started
-      ontology-funnel-service:
-        condition: service_started
-      ontology-functions-service:
-        condition: service_started
-      ontology-security-service:
-        condition: service_started
       entity-resolution-service:
-        condition: service_started
-      ml-experiments-service:
         condition: service_started
       model-catalog-service:
         condition: service_started
@@ -2740,26 +2548,20 @@ services:
         condition: service_started
       sds-service:
         condition: service_started
-      model-adapter-service:
-        condition: service_started
-      model-lifecycle-service:
-        condition: service_started
       agent-runtime-service:
         condition: service_started
       document-intelligence-service:
         condition: service_started
       ai-application-generation-service:
         condition: service_started
-      tabular-analysis-service:
-        condition: service_started
+      # S8 / ADR-0030: tabular-analysis-service merged into sql-bi-gateway-service.
       ontology-exploratory-analysis-service:
         condition: service_started
       ontology-timeseries-analytics-service:
         condition: service_started
       spreadsheet-computation-service:
         condition: service_started
-      analytical-logic-service:
-        condition: service_started
+      # S8 / ADR-0030: analytical-logic-service retired (now an internal crate).
       automation-operations-service:
         condition: service_started
       workflow-trace-service:

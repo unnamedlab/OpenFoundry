@@ -129,6 +129,16 @@ services:
     ports:
       - name: http
         containerPort: 8080
+      - name: cdc-metadata
+        containerPort: 50122
+        servicePort: 50122
+    env:
+      CDC_METADATA_HOST: 0.0.0.0
+      CDC_METADATA_PORT: "50122"
+    envSecrets:
+      CDC_METADATA_DATABASE_URL:
+        secretName: cdc-metadata-pg-app
+        key: uri
     resources:
       requests:
         cpu: 200m
@@ -248,6 +258,12 @@ services:
               threshold: "40"
 
   # ── Data-engine services completed (S8.6 — full coverage) ───────────
+  # NOTE — S8 / ADR-0030: `sql-warehousing-service`, `tabular-analysis-service`
+  # and `analytical-logic-service` are merged into `sql-bi-gateway-service`
+  # above; their schemas are migrated by `sql-bi-gateway-migrations.yaml`
+  # and their HTTP/Flight SQL surfaces are served by the gateway pods.
+  # Tabular-analysis lived under the ops chart previously and is removed
+  # from `infra/helm/apps/of-apps-ops/values.yaml`.
   dataset-quality-service:
     replicas: 2
     ports:
@@ -314,17 +330,11 @@ services:
         memory: 512Mi
 
   sql-warehousing-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+    # S8 / ADR-0030: retired — merged into `sql-bi-gateway-service` above.
+    # Schemas (`warehouse_jobs`, `warehouse_transformations`,
+    # `warehouse_storage_artifacts`) are migrated by the gateway's
+    # pre-install Job (`templates/sql-bi-gateway-migrations.yaml`).
+    enabled: false
 
   virtual-table-service:
     replicas: 2
@@ -365,18 +375,6 @@ services:
         cpu: "1"
         memory: 1Gi
 
-  cdc-metadata-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
 
   global-branch-service:
     replicas: 2
@@ -418,14 +416,9 @@ services:
         memory: 512Mi
 
   analytical-logic-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+    # S8 / ADR-0030: retired — reusable expressions are now an internal
+    # crate (`libs/analytical-logic`) consumed by `sql-bi-gateway-service`
+    # in-process, with no duplicated HTTP routes. The
+    # `analytical_expressions` schema is migrated by the gateway's
+    # pre-install Job (`templates/sql-bi-gateway-migrations.yaml`).
+    enabled: false

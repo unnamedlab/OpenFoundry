@@ -604,17 +604,12 @@ services:
         memory: 1Gi
 
   tabular-analysis-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+    # S8 / ADR-0030: retired — merged into `sql-bi-gateway-service`
+    # under the of-data-engine release. The `tabular_analysis_jobs`
+    # and `tabular_analysis_results` schemas are migrated by the
+    # gateway's pre-install Job
+    # (`infra/helm/apps/of-data-engine/templates/sql-bi-gateway-migrations.yaml`).
+    enabled: false
 
   workflow-trace-service:
     replicas: 2

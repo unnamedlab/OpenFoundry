@@ -20,6 +20,12 @@ path = "src/lib.rs"
 [dependencies]
 prometheus = { workspace = true }
 
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
 [dependencies.tower]
 workspace = true
 

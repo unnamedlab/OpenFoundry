@@ -8,7 +8,7 @@
 //! rest of the data plane expects:
 //!
 //! * `cdc.op`    — `append_only` | `upsert` | `hard_delete` (mapped from
-//!   the `incremental_mode` enum modelled by `cdc-metadata-service`).
+//!   the `incremental_mode` enum modelled by `cdc_metadata`).
 //! * `cdc.lsn`   — `X/X` text LSN of the change.
 //! * `cdc.tx_id` — Postgres transaction id (xid).
 //! * `cdc.table` / `cdc.schema` — convenience for downstream routing.
@@ -122,7 +122,7 @@ pub struct CdcEnvelope {
 }
 
 /// CDC operation flavours mapped 1:1 to the `incremental_mode` enum
-/// modelled by `cdc-metadata-service`.
+/// modelled by `cdc_metadata`.
 ///
 /// | wal2json `kind` | header value      | `incremental_mode` |
 /// |-----------------|-------------------|--------------------|

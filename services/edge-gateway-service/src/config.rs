@@ -61,12 +61,6 @@ pub struct GatewayConfig {
     pub ontology_query_service_url: String,
     #[serde(default = "default_ontology_actions_service_url")]
     pub ontology_actions_service_url: String,
-    #[serde(default = "default_ontology_funnel_service_url")]
-    pub ontology_funnel_service_url: String,
-    #[serde(default = "default_ontology_functions_service_url")]
-    pub ontology_functions_service_url: String,
-    #[serde(default = "default_ontology_security_service_url")]
-    pub ontology_security_service_url: String,
     #[serde(default = "default_ontology_url")]
     pub ontology_service_url: String,
     #[serde(default = "default_workflow_url")]
@@ -85,8 +79,6 @@ pub struct GatewayConfig {
     pub application_composition_service_url: String,
     #[serde(default = "default_ml_service_url")]
     pub ml_service_url: String,
-    #[serde(default = "default_ml_experiments_service_url")]
-    pub ml_experiments_service_url: String,
     #[serde(default = "default_model_catalog_service_url")]
     pub model_catalog_service_url: String,
     #[serde(default = "default_model_deployment_service_url")]
@@ -232,15 +224,6 @@ fn default_ontology_query_service_url() -> String {
 fn default_ontology_actions_service_url() -> String {
     "http://localhost:50106".to_string()
 }
-fn default_ontology_funnel_service_url() -> String {
-    "http://localhost:50107".to_string()
-}
-fn default_ontology_functions_service_url() -> String {
-    "http://localhost:50108".to_string()
-}
-fn default_ontology_security_service_url() -> String {
-    "http://localhost:50109".to_string()
-}
 fn default_ontology_url() -> String {
     "http://localhost:50103".to_string()
 }
@@ -267,9 +250,6 @@ fn default_application_composition_service_url() -> String {
 }
 fn default_ml_service_url() -> String {
     "http://localhost:50085".to_string()
-}
-fn default_ml_experiments_service_url() -> String {
-    "http://localhost:50084".to_string()
 }
 fn default_model_catalog_service_url() -> String {
     "http://localhost:50085".to_string()

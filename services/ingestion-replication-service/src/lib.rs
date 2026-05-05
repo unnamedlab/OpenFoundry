@@ -25,6 +25,7 @@
 
 pub mod app_config;
 pub mod cdc;
+pub mod cdc_metadata;
 pub mod control_plane;
 pub mod crds;
 pub mod grpc_service;

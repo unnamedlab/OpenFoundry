@@ -1,4 +1,4 @@
-//! Schema Registry primitives shared by `cdc-metadata-service` (storage +
+//! Schema Registry primitives shared by `ingestion-replication-service` CDC metadata module (storage +
 //! REST API) and the data-connection plane connectors (validation of
 //! incoming samples).
 //!
