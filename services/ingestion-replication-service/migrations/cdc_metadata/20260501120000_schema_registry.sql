@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS schema_versions (
     subject_id UUID NOT NULL REFERENCES schema_subjects(id) ON DELETE CASCADE,
     -- Monotonic per-subject version (1, 2, 3, ...).
     version INT NOT NULL,
-    -- Restricted to the three serde families supported by the validators
-    -- in `event-bus-control::schema_registry`.
+    -- Restricted to the lowercase values returned by
+    -- `event-bus-control::schema_registry::SchemaType::as_str`.
     schema_type TEXT NOT NULL CHECK (schema_type IN ('avro', 'protobuf', 'json')),
     schema_text TEXT NOT NULL,
     -- SHA-256 of the canonicalised schema text. Used to short-circuit

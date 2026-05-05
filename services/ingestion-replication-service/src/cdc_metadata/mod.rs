@@ -28,6 +28,9 @@ pub fn routes() -> Router<AppState> {
 
     Router::new()
         .merge(schema_registry::routes())
+        // Preserve both the bounded-context-prefixed routes used by the
+        // consolidated target and the root stream routes expected by older
+        // direct callers of the retired service.
         .nest("/cdc", stream_routes.clone())
         .merge(stream_routes)
 }
