@@ -54,6 +54,20 @@ export function Sidebar() {
           <span className="of-sidebar__label">Geospatial</span>
         </NavLink>
         <NavLink
+          to="/queries"
+          className="of-sidebar__link"
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
+        >
+          <span className="of-sidebar__label">Queries</span>
+        </NavLink>
+        <NavLink
+          to="/search"
+          className="of-sidebar__link"
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
+        >
+          <span className="of-sidebar__label">Search</span>
+        </NavLink>
+        <NavLink
           to="/settings"
           className="of-sidebar__link"
           style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}

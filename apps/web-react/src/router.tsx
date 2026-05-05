@@ -67,6 +67,14 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/geospatial/GeospatialPage')).GeospatialPage }),
       },
       {
+        path: 'search',
+        lazy: async () => ({ Component: (await import('./routes/search/SearchPage')).SearchPage }),
+      },
+      {
+        path: 'queries',
+        lazy: async () => ({ Component: (await import('./routes/queries/QueriesPage')).QueriesPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
