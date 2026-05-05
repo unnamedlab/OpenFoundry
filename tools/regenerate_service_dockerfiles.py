@@ -104,6 +104,12 @@ SERVICE_OVERRIDES: dict[str, dict[str, str]] = {
         "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
         "rust_flags": "-C target-feature=-crt-static",
         "cargo_features": "runtime",
+        # Ship the operator-facing admin CLI alongside the long-running
+        # coordinator. The CLI is the official, supported producer of
+        # `ontology.reindex.requested.v1` (FASE 4 / Tarea 4.2 §3) so it
+        # MUST be available in the same container an SRE pod is launched
+        # from with `kubectl run --image=...`.
+        "extra_binaries": ["reindex-request"],
     },
     # Pulls rdkafka transitively through libs/event-bus-data (no feature
     # flag — the dependency is unconditional), so it needs the same
@@ -133,7 +139,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \\
     --mount=type=cache,target=/workspace/target,id={pkg}-target,sharing=locked \\
     cargo build --locked --profile docker-release -p {pkg}{cargo_features} \
  && cp /workspace/target/docker-release/{pkg} /tmp/{pkg} \
- && strip /tmp/{pkg}
+ && strip /tmp/{pkg}{extra_binary_build}
 
 FROM alpine:3.23 AS runtime
 WORKDIR {workdir}
@@ -144,7 +150,7 @@ ENV HOST=0.0.0.0
 ENV PORT={port}
 
 COPY --from=builder /tmp/{pkg} /usr/local/bin/{pkg}
-{config_copy}EXPOSE {port}
+{extra_binary_copies}{config_copy}EXPOSE {port}
 CMD [\"/usr/local/bin/{pkg}\"]
 """
 
@@ -184,6 +190,16 @@ def render(meta: dict[str, str | bool]) -> str:
     extra_runtime = overrides.get("extra_runtime_apk", "")
     cargo_features = overrides.get("cargo_features", "")
     rust_flags = overrides.get("rust_flags", "")
+    extra_binaries = overrides.get("extra_binaries", []) or []
+    extra_binary_build = "".join(
+        f" \\\n && cp /workspace/target/docker-release/{name} /tmp/{name}"
+        f" \\\n && strip /tmp/{name}"
+        for name in extra_binaries
+    )
+    extra_binary_copies = "".join(
+        f"COPY --from=builder /tmp/{name} /usr/local/bin/{name}\n"
+        for name in extra_binaries
+    )
     return TEMPLATE.format(
         pkg=pkg,
         port=port,
@@ -193,6 +209,8 @@ def render(meta: dict[str, str | bool]) -> str:
         extra_runtime_apk=(f" {extra_runtime}" if extra_runtime else ""),
         cargo_features=(f" --features {cargo_features}" if cargo_features else ""),
         rust_flags_env=(f'ENV RUSTFLAGS="{rust_flags}"\n' if rust_flags else ""),
+        extra_binary_build=extra_binary_build,
+        extra_binary_copies=extra_binary_copies,
     )
 
 
