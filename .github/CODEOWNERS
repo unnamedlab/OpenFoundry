@@ -176,13 +176,10 @@
 /services/conversation-state-service/                   @open-foundry/ai-platform
 /services/llm-catalog-service/                          @open-foundry/ai-platform
 /services/mcp-orchestration-service/                    @open-foundry/ai-platform
-/services/ml-experiments-service/                       @open-foundry/ai-platform
-/services/model-adapter-service/                        @open-foundry/ai-platform
 /services/model-catalog-service/                        @open-foundry/ai-platform
 /services/model-deployment-service/                     @open-foundry/ai-platform
 /services/model-evaluation-service/                     @open-foundry/ai-platform
 /services/model-inference-history-service/              @open-foundry/ai-platform
-/services/model-lifecycle-service/                      @open-foundry/ai-platform
 /services/model-serving-service/                        @open-foundry/ai-platform
 /services/notebook-runtime-service/                     @open-foundry/ai-platform
 /services/prompt-workflow-service/                      @open-foundry/ai-platform

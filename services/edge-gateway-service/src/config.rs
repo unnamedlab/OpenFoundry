@@ -85,8 +85,6 @@ pub struct GatewayConfig {
     pub application_composition_service_url: String,
     #[serde(default = "default_ml_service_url")]
     pub ml_service_url: String,
-    #[serde(default = "default_ml_experiments_service_url")]
-    pub ml_experiments_service_url: String,
     #[serde(default = "default_model_catalog_service_url")]
     pub model_catalog_service_url: String,
     #[serde(default = "default_model_deployment_service_url")]
@@ -267,9 +265,6 @@ fn default_application_composition_service_url() -> String {
 }
 fn default_ml_service_url() -> String {
     "http://localhost:50085".to_string()
-}
-fn default_ml_experiments_service_url() -> String {
-    "http://localhost:50084".to_string()
 }
 fn default_model_catalog_service_url() -> String {
     "http://localhost:50085".to_string()

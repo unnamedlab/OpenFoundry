@@ -1030,45 +1030,9 @@ services:
     ports:
       - "${OPENFOUNDRY_TIME_SERIES_DATA_HOST_PORT:-50124}:50124"
 
-  model-adapter-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-adapter-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50125
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_model_adapter_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
-      MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
-      MODEL_SERVING_SERVICE_URL: http://model-serving-service:50087
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_ADAPTER_HOST_PORT:-50125}:50125"
-
-  model-lifecycle-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-lifecycle-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50126
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_model_lifecycle_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
-      MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
-      APPROVALS_SERVICE_URL: http://approvals-service:50071
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_LIFECYCLE_HOST_PORT:-50126}:50126"
+  # NOTE: `model-adapter-service` and `model-lifecycle-service` were merged
+  # into `model-catalog-service` (S8 consolidation, ADR-0030). Ports
+  # 50125/50126 are no longer claimed.
 
   agent-runtime-service:
     <<: *app-common
@@ -1922,23 +1886,8 @@ services:
     ports:
       - "${OPENFOUNDRY_ENTITY_RESOLUTION_HOST_PORT:-50058}:50058"
 
-  ml-experiments-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/ml-experiments-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50084
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      OPENFOUNDRY_ENV: development
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ML_EXPERIMENTS_HOST_PORT:-50084}:50084"
+  # NOTE: `ml-experiments-service` was merged into `model-catalog-service`
+  # (S8 consolidation, ADR-0030); port 50084 is no longer claimed.
 
   model-catalog-service:
     <<: *app-common
@@ -2549,7 +2498,6 @@ services:
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       ENTITY_RESOLUTION_SERVICE_URL: http://entity-resolution-service:50058
       ML_SERVICE_URL: http://model-catalog-service:50085
-      ML_EXPERIMENTS_SERVICE_URL: http://ml-experiments-service:50084
       MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
       MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
       MODEL_EVALUATION_SERVICE_URL: http://model-evaluation-service:50091
@@ -2583,8 +2531,6 @@ services:
       AUDIT_COMPLIANCE_SERVICE_URL: http://audit-compliance-service:50115
       AUDIT_SERVICE_URL: http://audit-compliance-service:50115
       SDS_SERVICE_URL: http://sds-service:50076
-      MODEL_ADAPTER_SERVICE_URL: http://model-adapter-service:50125
-      MODEL_LIFECYCLE_SERVICE_URL: http://model-lifecycle-service:50126
       AGENT_RUNTIME_SERVICE_URL: http://agent-runtime-service:50127
       DOCUMENT_INTELLIGENCE_SERVICE_URL: http://document-intelligence-service:50128
       AI_APPLICATION_GENERATION_SERVICE_URL: http://ai-application-generation-service:50129
@@ -2684,8 +2630,6 @@ services:
         condition: service_started
       entity-resolution-service:
         condition: service_started
-      ml-experiments-service:
-        condition: service_started
       model-catalog-service:
         condition: service_started
       model-evaluation-service:
@@ -2739,10 +2683,6 @@ services:
       audit-compliance-service:
         condition: service_started
       sds-service:
-        condition: service_started
-      model-adapter-service:
-        condition: service_started
-      model-lifecycle-service:
         condition: service_started
       agent-runtime-service:
         condition: service_started
