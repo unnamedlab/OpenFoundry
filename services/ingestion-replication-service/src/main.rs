@@ -47,16 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cdc_metadata_app = cdc_metadata::routes().with_state(cdc_metadata::AppState {
             db: cdc_metadata_pool,
         });
+        let cdc_metadata_listener = tokio::net::TcpListener::bind(cdc_metadata_addr).await?;
         tokio::spawn(async move {
-            let listener = match tokio::net::TcpListener::bind(cdc_metadata_addr).await {
-                Ok(listener) => listener,
-                Err(error) => {
-                    tracing::error!(%cdc_metadata_addr, %error, "CDC metadata HTTP server failed to bind");
-                    return;
-                }
-            };
             tracing::info!(%cdc_metadata_addr, "starting CDC metadata HTTP server");
-            if let Err(error) = axum::serve(listener, cdc_metadata_app).await {
+            if let Err(error) = axum::serve(cdc_metadata_listener, cdc_metadata_app).await {
                 tracing::error!(%error, "CDC metadata HTTP server encountered error");
             }
         });
