@@ -8,8 +8,8 @@
 >
 > Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
 > code-repository-review + workflow-trace + event-streaming +
-> notebook-runtime + agent-runtime consolidation). The live
-> repository has **77 directories** under `services/`
+> notebook-runtime + agent-runtime + model-deployment consolidation).
+> The live repository has **74 directories** under `services/`
 > (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
@@ -107,10 +107,10 @@
 | `model-adapter-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; `model_adapters` / `inference_contracts` migrations folded into `services/model-catalog-service/migrations/`. No table-name collision with the target's `ml_*` tables. |
 | `model-catalog-service` | `model-catalog-service` | keep | sole runtime owner of the model-catalog, model-adapter, model-lifecycle and ML-experiments domains within the `model_catalog` / `model_adapter` / `model_lifecycle` schemas of `pg-schemas` |
 | `model-deployment-service` | `model-deployment-service` | keep | absorbs `model-serving-service`, `model-evaluation-service`, `model-inference-history-service` |
-| `model-evaluation-service` | `model-deployment-service` | merge → `model-deployment-service` | |
-| `model-inference-history-service` | `model-deployment-service` | merge → `model-deployment-service` | |
+| `model-evaluation-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (`fn main() {}` stub, `domain/mod.rs` re-exporting `drift`, `handlers/mod.rs` re-exporting `deployments`). Edge gateway routing for `/api/v1/ml/deployments/{id}/drift` retargeted at `model-deployment-service`. |
+| `model-inference-history-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (re-exported the same `predictions` modules as `model-serving-service`). Edge gateway routing for `/api/v1/ml/batch-predictions` retargeted at `model-deployment-service`. |
 | `model-lifecycle-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; `modeling_objectives` / `model_submissions` / `model_lifecycle_events` migrations folded into `services/model-catalog-service/migrations/`. No table-name collision with the target's `ml_*` tables. |
-| `model-serving-service` | `model-deployment-service` | merge → `model-deployment-service` | |
+| `model-serving-service` | `model-deployment-service` | merged → `model-deployment-service` | S8: directory removed; the source was a substrate-only shim over `libs/ml-kernel` (re-exported `predictions` modules; identical scaffold to `model-inference-history-service`). Edge gateway routing for `/api/v1/ml/deployments/{id}/predict` retargeted at `model-deployment-service`. |
 | `monitoring-rules-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
 | `network-boundary-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
 | `nexus-service` | (legacy) | delete | retire after `tenancy-organizations-service` and `federation-product-exchange-service` confirmed |
@@ -170,12 +170,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 34 |
-| merged → X (completed) | 22 |
+| merge → X (pending) | 31 |
+| merged → X (completed) | 25 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **77** |
+| **Total current service directories** | **74** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

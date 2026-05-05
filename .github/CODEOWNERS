@@ -174,9 +174,6 @@
 /services/mcp-orchestration-service/                    @open-foundry/ai-platform
 /services/model-catalog-service/                        @open-foundry/ai-platform
 /services/model-deployment-service/                     @open-foundry/ai-platform
-/services/model-evaluation-service/                     @open-foundry/ai-platform
-/services/model-inference-history-service/              @open-foundry/ai-platform
-/services/model-serving-service/                        @open-foundry/ai-platform
 /services/notebook-runtime-service/                     @open-foundry/ai-platform
 /services/retrieval-context-service/                    @open-foundry/ai-platform
 /services/document-intelligence-service/                @open-foundry/ai-platform

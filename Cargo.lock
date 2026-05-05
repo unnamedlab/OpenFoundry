@@ -7123,57 +7123,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "model-evaluation-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "model-inference-history-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "model-serving-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "module-lattice"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

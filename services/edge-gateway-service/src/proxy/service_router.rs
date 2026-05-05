@@ -263,11 +263,14 @@ pub async fn proxy_handler(
     {
         &config.model_catalog_service_url
     } else if path.starts_with("/api/v1/ml/deployments/") && path.ends_with("/drift") {
-        &config.model_evaluation_service_url
+        // S8 / ADR-0030: model-evaluation-service merged → model-deployment-service.
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml/deployments/") && path.ends_with("/predict") {
-        &config.model_serving_service_url
+        // S8 / ADR-0030: model-serving-service merged → model-deployment-service.
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml/batch-predictions") {
-        &config.model_inference_history_service_url
+        // S8 / ADR-0030: model-inference-history-service merged → model-deployment-service.
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml/deployments") {
         &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml") {

@@ -217,44 +217,12 @@ services:
   # `ml-experiments-service` were merged into `model-catalog-service`
   # (S8 consolidation, ADR-0030); they no longer ship as standalone
   # Deployments.
-  model-serving-service:
-    replicas: 3
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: "2"
-        memory: 4Gi
-
-  model-evaluation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
-
-  model-inference-history-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `model-serving-service`, `model-evaluation-service`
+  # and `model-inference-history-service` merged →
+  # `model-deployment-service`. All three were substrate-only shims
+  # over `libs/ml-kernel`; the `/api/v1/ml/{deployments/{id}/predict,
+  # deployments/{id}/drift, batch-predictions}` HTTP surfaces now hit
+  # `model-deployment-service`.
 
   ai-application-generation-service:
     replicas: 2

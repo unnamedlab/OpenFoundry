@@ -1672,59 +1672,11 @@ services:
     ports:
       - "${OPENFOUNDRY_MODEL_DEPLOYMENT_HOST_PORT:-50086}:50086"
 
-  model-evaluation-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-evaluation-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50091
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      OPENFOUNDRY_ENV: development
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_EVALUATION_HOST_PORT:-50091}:50091"
-
-  model-serving-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-serving-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50087
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      OPENFOUNDRY_ENV: development
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_SERVING_HOST_PORT:-50087}:50087"
-
-  model-inference-history-service:
-    <<: *app-common
-    profiles: *profiles-intelligence
-    build:
-      context: ..
-      dockerfile: services/model-inference-history-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50092
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ml_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      OPENFOUNDRY_ENV: development
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_MODEL_INFERENCE_HISTORY_HOST_PORT:-50092}:50092"
+  # ── S8 / ADR-0030 — model-serving-service, model-evaluation-service
+  # and model-inference-history-service merged → model-deployment-service.
+  # All three were substrate-only shims over libs/ml-kernel; the
+  # MODEL_{SERVING,EVALUATION,INFERENCE_HISTORY}_SERVICE_URL callers
+  # now hit model-deployment-service:50086. ──
 
   ai-evaluation-service:
     <<: *app-common
@@ -2156,9 +2108,10 @@ services:
       ML_SERVICE_URL: http://model-catalog-service:50085
       MODEL_CATALOG_SERVICE_URL: http://model-catalog-service:50085
       MODEL_DEPLOYMENT_SERVICE_URL: http://model-deployment-service:50086
-      MODEL_EVALUATION_SERVICE_URL: http://model-evaluation-service:50091
-      MODEL_SERVING_SERVICE_URL: http://model-serving-service:50087
-      MODEL_INFERENCE_HISTORY_SERVICE_URL: http://model-inference-history-service:50092
+      # S8 / ADR-0030: model-{serving,evaluation,inference-history}-service merged → model-deployment-service.
+      MODEL_EVALUATION_SERVICE_URL: http://model-deployment-service:50086
+      MODEL_SERVING_SERVICE_URL: http://model-deployment-service:50086
+      MODEL_INFERENCE_HISTORY_SERVICE_URL: http://model-deployment-service:50086
       AI_SERVICE_URL: http://agent-runtime-service:50127
       CHECKPOINTS_PURPOSE_SERVICE_URL: http://checkpoints-purpose-service:50116
       NETWORK_BOUNDARY_SERVICE_URL: http://network-boundary-service:50119
@@ -2292,13 +2245,8 @@ services:
         condition: service_started
       model-catalog-service:
         condition: service_started
-      model-evaluation-service:
-        condition: service_started
-      model-inference-history-service:
-        condition: service_started
+      # S8 / ADR-0030: model-{serving,evaluation,inference-history}-service merged → model-deployment-service.
       model-deployment-service:
-        condition: service_started
-      model-serving-service:
         condition: service_started
       llm-catalog-service:
         condition: service_started
