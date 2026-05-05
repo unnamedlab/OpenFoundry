@@ -267,45 +267,11 @@ services:
         memory: 512Mi
 
   # ── Ontology services completed (S8.6 — full coverage) ─────────────
-  ontology-functions-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
-
-  ontology-funnel-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  ontology-security-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
+  # ontology-funnel-service / ontology-functions-service /
+  # ontology-security-service have been merged into
+  # ontology-actions-service per ADR-0030 + service-consolidation-map.md
+  # (S8.1, ontology plane). The actions service is now the sole runtime
+  # owner of the funnel, function and rule HTTP surfaces.
   ontology-timeseries-analytics-service:
     replicas: 2
     ports:

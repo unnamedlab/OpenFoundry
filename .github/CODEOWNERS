@@ -158,13 +158,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # --- Ontology ---
-/services/ontology-actions-service/                     @open-foundry/ontology-team
+/services/ontology-actions-service/                     @open-foundry/ontology-team @open-foundry/security-team
 /services/ontology-definition-service/                  @open-foundry/ontology-team
 /services/ontology-exploratory-analysis-service/        @open-foundry/ontology-team
-/services/ontology-functions-service/                   @open-foundry/ontology-team
-/services/ontology-funnel-service/                      @open-foundry/ontology-team
 /services/ontology-query-service/                       @open-foundry/ontology-team
-/services/ontology-security-service/                    @open-foundry/ontology-team @open-foundry/security-team
 /services/ontology-timeseries-analytics-service/        @open-foundry/ontology-team @open-foundry/analytics-team
 /services/object-database-service/                      @open-foundry/ontology-team @open-foundry/data-platform
 /services/entity-resolution-service/                    @open-foundry/ontology-team

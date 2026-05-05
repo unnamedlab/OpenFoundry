@@ -99,14 +99,14 @@
 | `notification-alerting-service` | `notification-alerting-service` | keep | |
 | `oauth-integration-service` | split → `identity-federation-service` (auth) + `connector-management-service` (data OAuth) | merge | |
 | `object-database-service` | `object-database-service` | keep | |
-| `ontology-actions-service` | `ontology-actions-service` | keep | absorbs `ontology-funnel-service`, `ontology-functions-service`, `ontology-security-service` |
+| `ontology-actions-service` | `ontology-actions-service` | keep | sole runtime owner of the ontology action / funnel / function / rule HTTP surfaces; absorbed `ontology-funnel-service`, `ontology-functions-service`, `ontology-security-service` (S8.1) |
 | `ontology-definition-service` | `ontology-definition-service` | keep | |
 | `ontology-exploratory-analysis-service` | `ontology-exploratory-analysis-service` | keep | absorbs `ontology-timeseries-analytics-service`, `time-series-data-service`, `geospatial-intelligence-service`, `scenario-simulation-service` |
-| `ontology-functions-service` | `ontology-actions-service` | merge → `ontology-actions-service` | |
-| `ontology-funnel-service` | `ontology-actions-service` | merge → `ontology-actions-service` | |
+| `ontology-functions-service` | `ontology-actions-service` | merged → `ontology-actions-service` | crate removed (S8.1) |
+| `ontology-funnel-service` | `ontology-actions-service` | merged → `ontology-actions-service` | crate removed (S8.1) |
 | `ontology-indexer` | `ontology-indexer` | sink | |
 | `ontology-query-service` | `ontology-query-service` | keep | |
-| `ontology-security-service` | `ontology-actions-service` | merge → `ontology-actions-service` | |
+| `ontology-security-service` | `ontology-actions-service` | merged → `ontology-actions-service` | crate removed (S8.1) |
 | `ontology-timeseries-analytics-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `pipeline-authoring-service` | `pipeline-build-service` | merge → `pipeline-build-service` | |
 | `pipeline-build-service` | `pipeline-build-service` | keep | absorbs authoring, schedule, compute modules |

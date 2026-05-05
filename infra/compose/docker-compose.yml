@@ -1826,84 +1826,11 @@ services:
     ports:
       - "${OPENFOUNDRY_ONTOLOGY_ACTIONS_HOST_PORT:-50106}:50106"
 
-  ontology-funnel-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/ontology-funnel-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50107
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
-    depends_on:
-      postgres:
-        condition: service_healthy
-      data-asset-catalog-service:
-        condition: service_started
-      pipeline-build-service:
-        condition: service_started
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_FUNNEL_HOST_PORT:-50107}:50107"
-
-  ontology-functions-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/ontology-functions-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50108
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_FUNCTIONS_HOST_PORT:-50108}:50108"
-
-  ontology-security-service:
-    <<: *app-common
-    profiles: *profiles-knowledge
-    build:
-      context: ..
-      dockerfile: services/ontology-security-service/Dockerfile
-    environment:
-      HOST: 0.0.0.0
-      PORT: 50109
-      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_ontology_service
-      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
-      AUDIT_SERVICE_URL: http://audit-compliance-service:50115
-      DATASET_SERVICE_URL: http://data-asset-catalog-service:50079
-      ONTOLOGY_SERVICE_URL: http://gateway:8080
-      PIPELINE_SERVICE_URL: http://pipeline-build-service:50081
-      AI_SERVICE_URL: http://agent-runtime-service:50127
-      NOTIFICATION_SERVICE_URL: http://notification-alerting-service:50114
-      NODE_RUNTIME_COMMAND: node
-      SEARCH_EMBEDDING_PROVIDER: deterministic-hash
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${OPENFOUNDRY_ONTOLOGY_SECURITY_HOST_PORT:-50109}:50109"
+  # ontology-funnel-service / ontology-functions-service /
+  # ontology-security-service have been merged into
+  # ontology-actions-service per ADR-0030 + service-consolidation-map.md
+  # (S8.1, ontology plane). See services/ontology-actions-service/src/lib.rs
+  # for the consolidated route surface.
 
   entity-resolution-service:
     <<: *app-common
@@ -2543,9 +2470,6 @@ services:
       OBJECT_DATABASE_SERVICE_URL: http://object-database-service:50104
       ONTOLOGY_QUERY_SERVICE_URL: http://ontology-query-service:50105
       ONTOLOGY_ACTIONS_SERVICE_URL: http://ontology-actions-service:50106
-      ONTOLOGY_FUNNEL_SERVICE_URL: http://ontology-funnel-service:50107
-      ONTOLOGY_FUNCTIONS_SERVICE_URL: http://ontology-functions-service:50108
-      ONTOLOGY_SECURITY_SERVICE_URL: http://ontology-security-service:50109
       ONTOLOGY_SERVICE_URL: http://ontology-definition-service:50103
       ENTITY_RESOLUTION_SERVICE_URL: http://entity-resolution-service:50058
       ML_SERVICE_URL: http://model-catalog-service:50085
@@ -2675,12 +2599,6 @@ services:
       ontology-query-service:
         condition: service_started
       ontology-actions-service:
-        condition: service_started
-      ontology-funnel-service:
-        condition: service_started
-      ontology-functions-service:
-        condition: service_started
-      ontology-security-service:
         condition: service_started
       entity-resolution-service:
         condition: service_started

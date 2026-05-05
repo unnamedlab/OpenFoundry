@@ -192,23 +192,21 @@ pub async fn proxy_handler(
         &config.pipeline_authoring_service_url
     } else if path.starts_with("/api/v1/lineage") {
         &config.lineage_service_url
-    } else if path.starts_with("/api/v1/ontology/functions") {
-        &config.ontology_functions_service_url
-    } else if path.starts_with("/api/v1/ontology/funnel")
+    } else if path.starts_with("/api/v1/ontology/functions")
+        || path.starts_with("/api/v1/ontology/funnel")
         || path.starts_with("/api/v1/ontology/storage/insights")
-    {
-        &config.ontology_funnel_service_url
-    } else if path.starts_with("/api/v1/ontology/actions")
+        || path.starts_with("/api/v1/ontology/actions")
+        || path.starts_with("/api/v1/ontology/rules")
         || (path.starts_with("/api/v1/ontology/types/")
             && path.contains("/objects/")
             && path.contains("/inline-edit/"))
-    {
-        &config.ontology_actions_service_url
-    } else if path.starts_with("/api/v1/ontology/rules")
         || (path.starts_with("/api/v1/ontology/types/") && path.ends_with("/rules"))
         || (path.starts_with("/api/v1/ontology/objects/") && path.ends_with("/rule-runs"))
     {
-        &config.ontology_security_service_url
+        // S8.1 — `ontology-actions-service` is the sole runtime owner
+        // of the ontology action / funnel / function / rule HTTP
+        // surfaces (per ADR-0030 + service-consolidation-map.md).
+        &config.ontology_actions_service_url
     } else if path.starts_with("/api/v1/ontology/search")
         || path.starts_with("/api/v1/ontology/graph")
         || path.starts_with("/api/v1/ontology/quiver")

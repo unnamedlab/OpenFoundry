@@ -11,7 +11,8 @@
 //!
 //! * [`MarkingId`] is the stable identifier of a marking definition,
 //!   stored in the `markings` master table managed by
-//!   `ontology-security-service`. We model it as a typed UUID so it
+//!   `ontology-actions-service` (rule-engine plane, post-S8.1 — formerly
+//!   `ontology-security-service`). We model it as a typed UUID so it
 //!   can't accidentally be confused with a dataset RID or a user ID.
 //! * [`MarkingSource`] explains *why* a marking applies to a dataset —
 //!   either a user attached it (`Direct`) or it propagated from an

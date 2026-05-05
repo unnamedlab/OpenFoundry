@@ -103,8 +103,8 @@ kafkacat -C -t ontology.reindex.completed.v1
 
 The reindex pipeline is the **only** supported way to backfill the
 search index for an existing tenant; it is intentionally distinct
-from `ontology-funnel-service`, which owns the **batch ingestion**
-plane (`/api/v1/ontology/funnel/*`) and never re-processes data
+from `ontology-actions-service`, which owns the **batch ingestion**
+plane (`/api/v1/ontology/funnel/*`, post-S8.1) and never re-processes data
 already on disk in Cassandra. A reindex is the operator's tool when
 the index is suspected stale (schema upgrade, OpenSearch/Vespa
 restore, search backend cut-over).

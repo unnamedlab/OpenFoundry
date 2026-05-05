@@ -31,10 +31,7 @@ of services are dual-anchored (e.g. write-path services that govern
 | `ontology-definition-service` | `50103` | control | Control plane: object types, properties, interfaces, link types, action definitions, function packages, object-set definitions, funnel definitions, project governance |
 | `object-database-service` | `50104` | state | Write authority: object instances, link instances, revision history, transactional outbox |
 | `ontology-query-service` | `50105` | compute | Serving plane: search, graph traversal, object views, KNN, object-set queries, read models and projections |
-| `ontology-actions-service` | `50106` | control | Controlled mutations: action validation, planning, execution, workflow and notification integration |
-| `ontology-funnel-service` | `50107` | ingestion | Batch ingestion: funnel source definitions, run orchestration, health monitoring |
-| `ontology-functions-service` | `50108` | compute | Function runtime: TypeScript/Python package execution, capability-governed sandbox |
-| `ontology-security-service` | `50109` | control | Security plane: policy compilation, marking resolution, permission-aware query filters, policy bundle distribution |
+| `ontology-actions-service` | `50106` | control | Controlled mutations and policy/runtime plane: action validation/planning/execution, batch ingestion (funnel sources + runs + storage insights), function-package runtime (TypeScript/Python sandbox), and rule-engine (policy compilation, marking resolution, permission-aware filters). Sole runtime owner of the `actions_log` Cassandra column family — absorbed `ontology-funnel-service` (ex-`50107`), `ontology-functions-service` (ex-`50108`) and `ontology-security-service` (ex-`50109`) per ADR-0030 (S8.1) |
 | `fusion-service` | `50058` | compute | Fusion and spreadsheet-oriented interactions |
 | `ml-service` | `50059` | compute | Experiments, training, registry, model lifecycle |
 | `ai-service` | `50060` | compute | AI providers, chat, tools, workflows |
@@ -72,10 +69,7 @@ The gateway maps URL prefixes to backend services. Important examples:
 - `/api/v1/workflows/events/*`, `/api/v1/workflows/triggers/cron/*`, `/api/v1/schedules/*` -> `pipeline-schedule-service`
 - `/api/v1/lineage` -> `lineage-service`
 - `/api/v1/ontology/projects` -> `tenancy-organizations-service`
-- `/api/v1/ontology/functions` -> `ontology-functions-service`
-- `/api/v1/ontology/funnel`, `/api/v1/ontology/storage/insights` -> `ontology-funnel-service`
-- `/api/v1/ontology/actions`, `/api/v1/ontology/types/{id}/objects/{id}/inline-edit` -> `ontology-actions-service`
-- `/api/v1/ontology/rules`, `/api/v1/ontology/types/{id}/rules` -> `ontology-security-service`
+- `/api/v1/ontology/actions`, `/api/v1/ontology/funnel`, `/api/v1/ontology/storage/insights`, `/api/v1/ontology/functions`, `/api/v1/ontology/rules`, `/api/v1/ontology/types/{id}/objects/{id}/inline-edit`, `/api/v1/ontology/types/{id}/rules`, `/api/v1/ontology/objects/{id}/rule-runs` -> `ontology-actions-service` (S8.1: sole runtime owner after absorbing funnel/functions/security)
 - `/api/v1/ontology/search`, `/api/v1/ontology/graph`, `/api/v1/ontology/quiver`, `/api/v1/ontology/object-sets`, `/api/v1/ontology/types/{id}/objects/query`, `/api/v1/ontology/types/{id}/objects/knn` -> `ontology-query-service`
 - `/api/v1/ontology/links/{id}/instances`, `/api/v1/ontology/types/{id}/objects` -> `object-database-service`
 - `/api/v1/ontology/interfaces`, `/api/v1/ontology/shared-property-types`, `/api/v1/ontology/links`, `/api/v1/ontology/types` -> `ontology-definition-service`
@@ -101,11 +95,8 @@ Configuration files show explicit service-to-service defaults for several domain
 - `workflow-automation-service` depends on notification, ontology, and pipeline services
 - `ontology-definition-service` depends on audit, AI, and notification services
 - `object-database-service` depends on audit and notification services; all writes go through `object-database-service`
-- `ontology-query-service` depends on `object-database-service` (fallback point lookups), `ontology-security-service` (policy filters), and AI services
-- `ontology-actions-service` depends on `object-database-service` (mutations), `ontology-definition-service` (action definitions), `ontology-security-service` (permission checks), and notification/audit services
-- `ontology-funnel-service` depends on dataset, pipeline, and `object-database-service`
-- `ontology-functions-service` depends on `ontology-query-service` (reads) and `ontology-actions-service` / `object-database-service` (writes, depending on declared capability)
-- `ontology-security-service` compiles policies from `ontology-definition-service` definitions and auth service claims
+- `ontology-query-service` depends on `object-database-service` (fallback point lookups), `ontology-actions-service` (policy filters, S8.1), and AI services
+- `ontology-actions-service` depends on `object-database-service` (mutations) and `ontology-definition-service` (action / function package definitions); owns the actions, funnel, function-runtime and rule (policy / marking) HTTP surfaces and the `actions_log` Cassandra column family (S8.1)
 - `report-service` depends on dataset and geospatial services
 - `notebook-runtime-service` depends on query and AI services
 - `marketplace-service` depends on app-builder
