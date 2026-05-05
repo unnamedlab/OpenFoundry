@@ -1,6 +1,6 @@
 # Migration Directory Classification
 
-This catalog is the cleanup baseline for the **58 migration roots**
+This catalog is the cleanup baseline for the **56 migration roots**
 called out by the Cassandra/Foundry parity plan. It classifies every
 runtime SQL migration directory into one of the final buckets used by
 the platform:
@@ -30,9 +30,10 @@ chain for it.
 - `services/lineage-service/migrations`
 - `services/marketplace-service/migrations`
 - `services/mcp-orchestration-service/migrations`
-- `services/model-adapter-service/migrations`
 - `services/model-catalog-service/migrations`
-- `services/model-lifecycle-service/migrations`
+  Note: also hosts the `model_adapter_*` and `model_lifecycle_*` migrations
+  absorbed from the retired `model-adapter-service` / `model-lifecycle-service`
+  (S8 consolidation, ADR-0030).
 - `services/oauth-integration-service/migrations`
 - `services/ontology-definition-service/migrations-pg`
 - `services/scenario-simulation-service/migrations`

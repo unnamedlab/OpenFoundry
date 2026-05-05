@@ -7290,25 +7290,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ml-experiments-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "storage-abstraction",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "mockall"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7332,25 +7313,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "model-adapter-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -7418,25 +7380,6 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "uuid",
-]
-
-[[package]]
-name = "model-lifecycle-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 

@@ -6,12 +6,15 @@
 > Tracks per-service status of the consolidation work declared in
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
-> Audit date: 2026-05-05. The live repository has **99 directories** under
+> Audit date: 2026-05-05. The live repository has **96 directories** under
 > `services/` (`ls services/ | wc -l`). S8 is now measured as
 > ownership/deployment consolidation, not as physical reduction of the source
 > tree to 30 directories. The three retired stubs `health-check-service`,
 > `tool-registry-service` and `widget-registry-service` are documented below
 > the current map and must not appear in Helm or compose runtime surfaces.
+> The model-plane consolidation completed on 2026-05-05 retired
+> `ml-experiments-service`, `model-adapter-service` and `model-lifecycle-service`
+> into `model-catalog-service`.
 >
 > ADR-0030's original "95 dirs → 33 ownership boundaries + 3 sinks" framing
 > is amended by ADR-0042 to "99 dirs → 36 ownership boundaries + 3 sinks +
@@ -84,13 +87,13 @@
 | `mcp-orchestration-service` | `ai-evaluation-service` | merge → `ai-evaluation-service` | |
 | `media-sets-service` | `media-sets-service` | keep | Foundry media sets runtime; owns media set transactions, item metadata and presigned object-store access. |
 | `media-transform-runtime-service` | `media-transform-runtime-service` | keep | Sibling runtime to `media-sets-service` per ADR-0039: executes the typed image / audio / video / document / spreadsheet access patterns, bills compute-seconds, emits the `media_set.access_pattern_invoked` audit envelope. Kept as its own ownership boundary so the metadata plane (`media-sets-service`) and the compute plane scale and ship independently. |
-| `ml-experiments-service` | `model-catalog-service` | merge → `model-catalog-service` | |
-| `model-adapter-service` | `model-catalog-service` | merge → `model-catalog-service` | |
-| `model-catalog-service` | `model-catalog-service` | keep | |
+| `ml-experiments-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; experiments handler now re-exported by `model-catalog-service` from `libs/ml-kernel`. |
+| `model-adapter-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; `model_adapters` / `inference_contracts` migrations folded into `services/model-catalog-service/migrations/`. No table-name collision with the target's `ml_*` tables. |
+| `model-catalog-service` | `model-catalog-service` | keep | sole runtime owner of the model-catalog, model-adapter, model-lifecycle and ML-experiments domains within the `model_catalog` / `model_adapter` / `model_lifecycle` schemas of `pg-schemas` |
 | `model-deployment-service` | `model-deployment-service` | keep | absorbs `model-serving-service`, `model-evaluation-service`, `model-inference-history-service` |
 | `model-evaluation-service` | `model-deployment-service` | merge → `model-deployment-service` | |
 | `model-inference-history-service` | `model-deployment-service` | merge → `model-deployment-service` | |
-| `model-lifecycle-service` | `model-catalog-service` | merge → `model-catalog-service` | |
+| `model-lifecycle-service` | `model-catalog-service` | merged → `model-catalog-service` | S8: directory removed; `modeling_objectives` / `model_submissions` / `model_lifecycle_events` migrations folded into `services/model-catalog-service/migrations/`. No table-name collision with the target's `ml_*` tables. |
 | `model-serving-service` | `model-deployment-service` | merge → `model-deployment-service` | |
 | `monitoring-rules-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
 | `network-boundary-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
@@ -151,12 +154,13 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 56 |
+| merge → X (pending) | 53 |
+| merged → X (completed) | 3 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **99** |
-| **Retired service directories tracked for references** | **3** |
+| **Total current service directories** | **96** |
+| **Retired service directories tracked for references** | **6** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 
 ## Execution sequence

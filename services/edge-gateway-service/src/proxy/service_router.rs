@@ -240,7 +240,8 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/notifications") {
         &config.notification_service_url
     } else if path.starts_with("/api/v1/ml/experiments") || path.starts_with("/api/v1/ml/runs") {
-        &config.ml_experiments_service_url
+        // S8: experiments/runs absorbed by `model-catalog-service`.
+        &config.model_catalog_service_url
     } else if path.starts_with("/api/v1/ml/models") || path.starts_with("/api/v1/ml/model-versions")
     {
         &config.model_catalog_service_url

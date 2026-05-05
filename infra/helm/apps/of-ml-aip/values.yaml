@@ -213,19 +213,10 @@ services:
         memory: 512Mi
 
   # ── ML / AIP services completed (S8.6 — full coverage) ─────────────
-  model-adapter-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
+  # NOTE: `model-adapter-service`, `model-lifecycle-service` and
+  # `ml-experiments-service` were merged into `model-catalog-service`
+  # (S8 consolidation, ADR-0030); they no longer ship as standalone
+  # Deployments.
   model-serving-service:
     replicas: 3
     ports:
@@ -238,19 +229,6 @@ services:
       limits:
         cpu: "2"
         memory: 4Gi
-
-  model-lifecycle-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
 
   model-evaluation-service:
     replicas: 2
@@ -266,19 +244,6 @@ services:
         memory: 1Gi
 
   model-inference-history-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  ml-experiments-service:
     replicas: 2
     ports:
       - name: http
