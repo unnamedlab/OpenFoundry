@@ -165,10 +165,6 @@ fn schema_error(error: SchemaError) -> axum::response::Response {
         .into_response()
 }
 
-fn parse_schema_type(value: &str) -> Result<SchemaType, SchemaError> {
-    SchemaType::from_str(value)
-}
-
 async fn fetch_or_create_subject(db: &PgPool, name: &str) -> Result<SubjectRow, sqlx::Error> {
     if let Some(existing) = sqlx::query_as::<_, SubjectRow>(
         "SELECT id, name, compatibility_mode, created_at FROM schema_subjects WHERE name = $1",
@@ -328,7 +324,7 @@ async fn register_version(
     Path(name): Path<String>,
     Json(body): Json<RegisterVersionRequest>,
 ) -> impl IntoResponse {
-    let schema_type = match parse_schema_type(&body.schema_type) {
+    let schema_type = match SchemaType::from_str(&body.schema_type) {
         Ok(value) => value,
         Err(error) => return schema_error(error),
     };
@@ -466,7 +462,7 @@ async fn check_compatibility(
     Path((name, version)): Path<(String, String)>,
     Json(body): Json<CompatibilityCheckRequest>,
 ) -> impl IntoResponse {
-    let schema_type = match parse_schema_type(&body.schema_type) {
+    let schema_type = match SchemaType::from_str(&body.schema_type) {
         Ok(value) => value,
         Err(error) => return schema_error(error),
     };
