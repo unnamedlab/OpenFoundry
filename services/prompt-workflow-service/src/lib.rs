@@ -1,7 +1,7 @@
 //! `prompt-workflow-service` — substrate-only library.
 //!
-//! Surfaces [`ai_events`] which mirrors the publisher constants used
-//! by `agent-runtime-service`. Both services emit to the same topic
-//! `ai.events.v1` (S5.3.a); event `kind` distinguishes producers.
-
-pub mod ai_events;
+//! The AI-event publisher constants for this producer were moved to
+//! `agent-runtime-service` under `agent_runtime_service::prompt_workflow::ai_events`
+//! as part of the S8.1 service consolidation (ADR-0030). This crate is
+//! kept as an empty workspace member until the retirement step removes
+//! it entirely.
