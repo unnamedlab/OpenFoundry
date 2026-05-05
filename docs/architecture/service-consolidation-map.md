@@ -1,15 +1,24 @@
-# Service consolidation map — 95 service directories → 33 ownership boundaries
+# Service consolidation map — 99 service directories → 36 ownership boundaries
 
-> Companion to [ADR-0030](adr/ADR-0030-service-consolidation-30-targets.md).
+> Companion to [ADR-0030](adr/ADR-0030-service-consolidation-30-targets.md)
+> and [ADR-0042](adr/ADR-0042-service-consolidation-map-reconciliation.md)
+> (reconciliation of 4 directories the original map did not enumerate).
 > Tracks per-service status of the consolidation work declared in
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
-> Audit date: 2026-05-03. The live repository has **95 directories** under
-> `services/`. S8 is now measured as ownership/deployment consolidation, not
-> as physical reduction of the source tree to 30 directories. The three retired
-> stubs `health-check-service`, `tool-registry-service` and
-> `widget-registry-service` are documented below the current map and must not
-> appear in Helm or compose runtime surfaces.
+> Audit date: 2026-05-05. The live repository has **99 directories** under
+> `services/` (`ls services/ | wc -l`). S8 is now measured as
+> ownership/deployment consolidation, not as physical reduction of the source
+> tree to 30 directories. The three retired stubs `health-check-service`,
+> `tool-registry-service` and `widget-registry-service` are documented below
+> the current map and must not appear in Helm or compose runtime surfaces.
+>
+> ADR-0030's original "95 dirs → 33 ownership boundaries + 3 sinks" framing
+> is amended by ADR-0042 to "99 dirs → 36 ownership boundaries + 3 sinks +
+> 1 non-Rust runtime image"; the four newly-enumerated directories
+> (`iceberg-catalog-service`, `media-transform-runtime-service`,
+> `pipeline-runner`, `reindex-coordinator-service`) were already accepted
+> by ADR-0021, ADR-0036, ADR-0039 and ADR-0041 — only the map was stale.
 
 ## Status legend
 
@@ -20,6 +29,7 @@
 | `merged → X` | Done: legacy crate removed; `X` is the runtime owner. |
 | `delete` | Service domain is fully owned elsewhere; legacy crate scheduled for deletion. |
 | `sink` | Kafka consumer / relay; counted separately from ownership boundaries. |
+| `image` | Non-Rust container image directory (build artifact, not a workspace member); counted separately from ownership boundaries. |
 
 ## Map
 
@@ -61,6 +71,7 @@
 | `federation-product-exchange-service` | `federation-product-exchange-service` | keep | absorbs `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` |
 | `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `global-branch-service` | `code-repository-review-service` | merge → `code-repository-review-service` | |
+| `iceberg-catalog-service` | `iceberg-catalog-service` | keep | Foundry-flavoured Iceberg REST Catalog (ADR-0041); supersedes Lakekeeper for the internal catalog surface, owns Foundry transaction/markings/schema-evolution semantics. |
 | `identity-federation-service` | `identity-federation-service` | keep | absorbs `oauth-integration-service` (auth side), `session-governance-service` |
 | `ingestion-replication-service` | `ingestion-replication-service` | keep | |
 | `knowledge-index-service` | `retrieval-context-service` | merge → `retrieval-context-service` | |
@@ -72,6 +83,7 @@
 | `marketplace-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `mcp-orchestration-service` | `ai-evaluation-service` | merge → `ai-evaluation-service` | |
 | `media-sets-service` | `media-sets-service` | keep | Foundry media sets runtime; owns media set transactions, item metadata and presigned object-store access. |
+| `media-transform-runtime-service` | `media-transform-runtime-service` | keep | Sibling runtime to `media-sets-service` per ADR-0039: executes the typed image / audio / video / document / spreadsheet access patterns, bills compute-seconds, emits the `media_set.access_pattern_invoked` audit envelope. Kept as its own ownership boundary so the metadata plane (`media-sets-service`) and the compute plane scale and ship independently. |
 | `ml-experiments-service` | `model-catalog-service` | merge → `model-catalog-service` | |
 | `model-adapter-service` | `model-catalog-service` | merge → `model-catalog-service` | |
 | `model-catalog-service` | `model-catalog-service` | keep | |
@@ -98,9 +110,11 @@
 | `ontology-timeseries-analytics-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
 | `pipeline-authoring-service` | `pipeline-build-service` | merge → `pipeline-build-service` | |
 | `pipeline-build-service` | `pipeline-build-service` | keep | absorbs authoring, schedule, compute modules |
+| `pipeline-runner` | `pipeline-runner` | image | Scala/SBT project (FASE 3 / Tarea 3.3) that builds the Spark/Iceberg image referenced by SparkApplication CRs launched by `pipeline-build-service`. **Not** a Rust workspace member, no service binary, no Helm Deployment of its own — it is a build artifact. Listed in `tools/regenerate_service_dockerfiles.py`'s `NON_RUST_SERVICES` skip set. |
 | `pipeline-schedule-service` | `pipeline-build-service` | merge → `pipeline-build-service` | |
 | `product-distribution-service` | `federation-product-exchange-service` | merge → `federation-product-exchange-service` | |
 | `prompt-workflow-service` | `agent-runtime-service` | merge → `agent-runtime-service` | |
+| `reindex-coordinator-service` | `reindex-coordinator-service` | keep | Rust replacement (FASE 4 / Tarea 4.2) for the Go `workers-go/reindex` Temporal worker (ADR-0021). Owns the resume cursor in `pg-runtime-config.reindex_jobs`, drives Cassandra page-by-page scans via `cassandra-kernel`, and fans batches out to `services/ontology-indexer` over `ontology.reindex.v1`. Distinct ownership boundary (Postgres state + Temporal-replacement semantics) from the downstream `ontology-indexer` sink. |
 | `report-service` | (legacy) | delete | already covered by `document-reporting-service` |
 | `retention-policy-service` | `audit-compliance-service` | merge → `audit-compliance-service` | |
 | `retrieval-context-service` | `retrieval-context-service` | keep | absorbs `knowledge-index-service`, `document-intelligence-service` |
@@ -136,13 +150,14 @@ directories under `services/` and must not be rendered by Helm or compose:
 
 | Status | Count |
 | ------ | ----- |
-| keep / ownership boundary | 33 |
+| keep / ownership boundary | 36 |
 | merge → X (pending) | 56 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
-| **Total current service directories** | **95** |
+| image (non-Rust runtime image) | 1 |
+| **Total current service directories** | **99** |
 | **Retired service directories tracked for references** | **3** |
-| **Current target metric** | **33 ownership boundaries + 3 sinks across 5 Helm releases** |
+| **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 
 ## Execution sequence
 
