@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build-and-push-all.sh — build & push ~98 Rust services to local-registry
-# Parallelism: 2 (RAM-safe for cold builds on Apple Silicon)
+# Parallelism: 6 (host has 48 GB RAM / 14 cores; sweet spot at ~85% CPU)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -32,7 +32,7 @@ build_one() {
 export -f build_one
 
 ls services/*/Dockerfile | xargs -n1 -I{} dirname {} | xargs -n1 basename \
-  | xargs -P 2 -I{} bash -c 'build_one "$@"' _ {}
+  | xargs -P 6 -I{} bash -c 'build_one "$@"' _ {}
 
 echo
 echo "=== Summary ==="

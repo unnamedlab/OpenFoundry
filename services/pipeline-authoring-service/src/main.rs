@@ -167,6 +167,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // pipeline required). Mirrors Foundry's "Validate" / "Preview" buttons
         // shown in the canvas toolbar before Deploy.
         .route("/pipelines/_validate", post(handlers::compiler::validate_pipeline))
+        // FASE 3 — id-scoped, type-safe validator. Returns per-node
+        // status used by the canvas to render squiggles + ✓/⚠/✗ icons.
+        .route(
+            "/pipelines/{id}/validate",
+            post(handlers::validate_node::validate_pipeline_by_id),
+        )
         .route("/pipelines/_compile", post(handlers::compiler::compile_pipeline))
         .route("/pipelines/_prune", post(handlers::compiler::prune_pipeline))
         // P2 — JobSpec publish/list. Foundry doc § "Job graph compilation":

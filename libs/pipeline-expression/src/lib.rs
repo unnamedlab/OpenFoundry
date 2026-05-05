@@ -23,9 +23,13 @@
 
 pub mod catalog;
 pub mod infer;
+pub mod node_check;
 pub mod parser;
 pub mod types;
 
 pub use infer::{ColumnEnv, TypeError, infer_expr};
+pub use node_check::{
+    NodeValidationError, NodeValidationReport, PipelineValidationReport, validate_nodes_json,
+};
 pub use parser::{Expr, Literal, ParseError, parse_expr};
 pub use types::{PipelineType, can_promote, promote};

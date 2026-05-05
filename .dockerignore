@@ -4,8 +4,17 @@
 .idea
 
 target
+target-llvmcov
 node_modules
 .pnpm-store
+.openfoundry
+.cargo/registry
+.cargo/git
+PoC
+sdks/typescript/node_modules
+sdks/python/.venv
+sdks/java/build
+sdks/java/.gradle
 
 docs/node_modules
 docs/.svelte-kit

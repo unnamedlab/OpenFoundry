@@ -79,9 +79,9 @@ WORKDIR /workspace
 
 # Prime the sbt + Coursier caches by resolving the build first; the
 # subsequent COPY of the actual source then re-uses the cached deps.
-COPY project/build.properties project/build.properties
-COPY project/plugins.sbt project/plugins.sbt
-COPY build.sbt build.sbt
+COPY services/pipeline-runner/project/build.properties project/build.properties
+COPY services/pipeline-runner/project/plugins.sbt project/plugins.sbt
+COPY services/pipeline-runner/build.sbt build.sbt
 
 # Cache mounts: keep ~/.sbt and ~/.cache/coursier across builds.
 RUN --mount=type=cache,target=/root/.sbt,sharing=locked \
@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/root/.sbt,sharing=locked \
     sbt --batch update
 
 # Now copy the actual source and produce the jar.
-COPY src/ src/
+COPY services/pipeline-runner/src/ src/
 RUN --mount=type=cache,target=/root/.sbt,sharing=locked \
     --mount=type=cache,target=/root/.cache/coursier,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \

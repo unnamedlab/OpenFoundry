@@ -322,6 +322,34 @@ export function validatePipeline(body: ValidatePipelineRequest) {
   return api.post<PipelineValidationResponse>('/pipelines/_validate', body);
 }
 
+// FASE 3 — id-scoped, type-safe validator. The canvas calls this on
+// every config change (debounced ~250 ms) to render the squiggle
+// overlay and the per-node ✓/⚠/✗ icons.
+export interface NodeValidationError {
+  node_id: string;
+  column: string | null;
+  message: string;
+}
+
+export interface NodeValidationReport {
+  node_id: string;
+  status: 'VALID' | 'INVALID' | 'PENDING';
+  errors: NodeValidationError[];
+}
+
+export interface PipelineValidationByIdResponse {
+  pipeline_id: string;
+  all_valid: boolean;
+  nodes: NodeValidationReport[];
+}
+
+export function validatePipelineById(pipelineId: string) {
+  return api.post<PipelineValidationByIdResponse>(
+    `/pipelines/${pipelineId}/validate`,
+    {},
+  );
+}
+
 export function compilePipeline(body: CompilePipelineRequest) {
   return api.post<CompilePipelineResponse>('/pipelines/_compile', body);
 }

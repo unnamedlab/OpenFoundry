@@ -51,6 +51,9 @@ workspace = true
 [dependencies.core-models]
 workspace = true
 
+[dependencies.pipeline-expression]
+path = "../../libs/pipeline-expression"
+
 [dependencies.datafusion]
 workspace = true
 

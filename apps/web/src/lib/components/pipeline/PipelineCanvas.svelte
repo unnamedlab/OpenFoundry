@@ -20,6 +20,7 @@
 <script lang="ts">
   import {
     validatePipeline,
+    type NodeValidationReport,
     type PipelineNode,
     type PipelineScheduleConfig,
     type PipelineValidationResponse,
@@ -37,6 +38,12 @@
     onSelect?: (node: PipelineNode | null) => void;
     /** Called when validation completes (debounced). */
     onValidate?: (result: PipelineValidationResponse) => void;
+    /**
+     * FASE 3 — id-scoped, type-safe per-node reports. When supplied,
+     * each node renders a ✓/⚠/✗ icon driven by `status` and a tooltip
+     * carrying the first error message.
+     */
+    nodeReports?: Record<string, NodeValidationReport>;
   };
 
   let {
@@ -47,7 +54,30 @@
     onChange,
     onSelect,
     onValidate,
+    nodeReports = {},
   }: Props = $props();
+
+  function statusGlyph(nodeId: string): string {
+    const report = nodeReports[nodeId];
+    if (!report) return '';
+    if (report.status === 'VALID') return '✓';
+    if (report.status === 'PENDING') return '⚠';
+    return '✗';
+  }
+
+  function statusTone(nodeId: string): 'ok' | 'pending' | 'error' | 'none' {
+    const report = nodeReports[nodeId];
+    if (!report) return 'none';
+    if (report.status === 'VALID') return 'ok';
+    if (report.status === 'PENDING') return 'pending';
+    return 'error';
+  }
+
+  function statusTooltip(nodeId: string): string {
+    const report = nodeReports[nodeId];
+    if (!report || report.errors.length === 0) return '';
+    return report.errors.map((e) => e.message).join('; ');
+  }
 
   const TRANSFORM_OPTIONS = [
     { value: 'passthrough', label: 'Passthrough' },
@@ -389,6 +419,24 @@
             {node.transform_type}
             {#if node.output_dataset_id}· → ds{/if}
           </text>
+          {#if statusGlyph(node.id)}
+            <g
+              class="cpc-status"
+              data-testid={`canvas-node-status-${node.id}`}
+              data-tone={statusTone(node.id)}
+              transform={`translate(${NODE_W - 22}, 14)`}
+            >
+              <title>{statusTooltip(node.id)}</title>
+              <circle r="9" fill={statusTone(node.id) === 'error'
+                ? '#dc2626'
+                : statusTone(node.id) === 'pending'
+                  ? '#d97706'
+                  : '#16a34a'} />
+              <text x="0" y="3" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">
+                {statusGlyph(node.id)}
+              </text>
+            </g>
+          {/if}
         </g>
       {/each}
 

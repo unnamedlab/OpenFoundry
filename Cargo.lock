@@ -8786,6 +8786,7 @@ dependencies = [
  "futures",
  "md-5",
  "once_cell",
+ "pipeline-expression",
  "prometheus",
  "pyo3",
  "query-engine",
@@ -8853,6 +8854,15 @@ dependencies = [
  "uuid",
  "wasmtime",
  "wiremock",
+]
+
+[[package]]
+name = "pipeline-expression"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

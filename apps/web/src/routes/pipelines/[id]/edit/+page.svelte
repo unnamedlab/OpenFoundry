@@ -15,6 +15,8 @@
   import {
     getPipeline,
     updatePipeline,
+    validatePipelineById,
+    type NodeValidationReport,
     type Pipeline,
     type PipelineNode,
     type PipelineScheduleConfig,
@@ -42,6 +44,8 @@
   let scheduleConfig = $state<PipelineScheduleConfig>({ enabled: false, cron: null });
   let selectedNode = $state<PipelineNode | null>(null);
   let validation = $state<PipelineValidationResponse | null>(null);
+  let nodeReports = $state<Record<string, NodeValidationReport>>({});
+  let nodeReportsTimer: ReturnType<typeof setTimeout> | null = null;
 
   let pipelineId = $derived($page.params.id);
 
@@ -75,6 +79,15 @@
 
   $effect(() => { if (pipelineId) void load(); });
 
+  // FASE 3 — kick off the type-safe per-node validation as soon as the
+  // pipeline is loaded so the canvas shows ✓/✗ icons even before the
+  // operator starts editing.
+  $effect(() => {
+    if (pipeline && nodes.length > 0 && Object.keys(nodeReports).length === 0) {
+      scheduleNodeReports();
+    }
+  });
+
   function genNodeId(seed: string): string {
     const base = `${seed}_node`;
     const used = new Set(nodes.map((n) => n.id));
@@ -104,6 +117,39 @@
     nodes = nodes.map((n) => (n.id === selectedNode?.id ? updated : n));
     selectedNode = updated;
     dirty = true;
+    scheduleNodeReports();
+  }
+
+  function scheduleNodeReports() {
+    if (!pipelineId) return;
+    if (nodeReportsTimer) clearTimeout(nodeReportsTimer);
+    nodeReportsTimer = setTimeout(() => void runNodeReports(), 250);
+  }
+
+  async function runNodeReports() {
+    if (!pipelineId) return;
+    try {
+      // FASE 3 — type-safe per-node validation. Persist current edits
+      // first so the backend evaluates the latest DAG; no-op when the
+      // pipeline is clean.
+      if (dirty && pipeline) {
+        const updated = await updatePipeline(pipeline.id, {
+          nodes,
+          schedule_config: scheduleConfig,
+        });
+        pipeline = updated;
+        nodes = structuredClone(updated.dag);
+        dirty = false;
+      }
+      const report = await validatePipelineById(pipelineId);
+      const next: Record<string, NodeValidationReport> = {};
+      for (const r of report.nodes) next[r.node_id] = r;
+      nodeReports = next;
+    } catch (err) {
+      // Validation failures are non-fatal — leave previous icons in
+      // place rather than blanking them.
+      console.warn('node validation failed', err);
+    }
   }
 
   function deleteNode(nodeId: string) {
@@ -189,6 +235,7 @@
             bind:nodes
             status={pipeline.status}
             scheduleConfig={scheduleConfig}
+            {nodeReports}
             onChange={onCanvasChange}
             onSelect={(n) => (selectedNode = n)}
             onValidate={(v) => (validation = v)}
@@ -202,6 +249,7 @@
           siblings={nodes}
           onChange={patchNode}
           onDelete={deleteNode}
+          validation={selectedNode ? (nodeReports[selectedNode.id] ?? null) : null}
         />
       </div>
     {:else if tab === 'schedule'}

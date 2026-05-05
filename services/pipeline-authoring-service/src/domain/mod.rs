@@ -5,6 +5,7 @@ pub mod executor;
 pub mod expressions;
 pub mod lifecycle;
 pub mod media_nodes;
+pub mod node_validator;
 pub mod param;
 pub mod parameterized;
 pub mod pipeline_type;

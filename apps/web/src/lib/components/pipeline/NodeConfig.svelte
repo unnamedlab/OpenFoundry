@@ -4,7 +4,7 @@
   and delegates the body to <TransformEditor/>.
 -->
 <script lang="ts">
-  import type { PipelineNode } from '$lib/api/pipelines';
+  import type { NodeValidationReport, PipelineNode } from '$lib/api/pipelines';
   import MediaTransformEditor from './MediaTransformEditor.svelte';
   import TransformEditor from './TransformEditor.svelte';
 
@@ -34,9 +34,11 @@
     readonly?: boolean;
     onChange: (next: PipelineNode) => void;
     onDelete?: (nodeId: string) => void;
+    /** FASE 3 — type-safe validation report for the active node. */
+    validation?: NodeValidationReport | null;
   };
 
-  let { node, siblings, readonly = false, onChange, onDelete }: Props = $props();
+  let { node, siblings, readonly = false, onChange, onDelete, validation = null }: Props = $props();
 
   // Map the body field per transform_type to a single string we hand to
   // <TransformEditor/>. Mirrors the backend executor's body extraction.
@@ -108,6 +110,20 @@
         <button type="button" class="danger" onclick={() => onDelete(node.id)}>Delete</button>
       {/if}
     </header>
+
+    {#if validation && validation.status !== 'VALID' && validation.errors.length > 0}
+      <ul class="validation-errors" data-testid="node-config-errors">
+        {#each validation.errors as error (error.message)}
+          <li>
+            {#if error.column}
+              <code class="squiggle">{error.column}</code>
+              —
+            {/if}
+            {error.message}
+          </li>
+        {/each}
+      </ul>
+    {/if}
 
     <label>
       <span>ID</span>
@@ -302,6 +318,26 @@
   }
   .danger:hover {
     background: #b91c1c;
+  }
+  .validation-errors {
+    list-style: none;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid #b91c1c;
+    border-radius: 4px;
+    background: rgba(127, 29, 29, 0.18);
+    color: #fecaca;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .validation-errors .squiggle {
+    text-decoration: underline wavy #f87171;
+    text-underline-offset: 3px;
+    background: rgba(220, 38, 38, 0.18);
+    padding: 0 2px;
+    border-radius: 2px;
   }
   code {
     font-family: ui-monospace, 'SF Mono', Consolas, monospace;
