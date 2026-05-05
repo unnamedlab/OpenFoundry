@@ -1,6 +1,12 @@
 #[path = "../../../../libs/ml-kernel/src/handlers/models.rs"]
 pub mod models;
 
+// Experiments domain absorbed from the retired `ml-experiments-service`
+// (S8 consolidation). Routed through `libs/ml-kernel`, the same kernel
+// the legacy crate used to re-export.
+#[path = "../../../../libs/ml-kernel/src/handlers/experiments.rs"]
+pub mod experiments;
+
 use axum::{Json, http::StatusCode};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};

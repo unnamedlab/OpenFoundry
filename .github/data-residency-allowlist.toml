@@ -7,7 +7,7 @@
 version = 1
 
 [registry]
-expected_migration_dirs = 58
+expected_migration_dirs = 56
 residency_targets = ["pg-schemas", "pg-policy", "pg-lakekeeper", "pg-runtime-config", "cassandra", "legacy-archive"]
 forbidden_hot_tables = ["object_instances", "link_instances", "streaming_events", "dataset_transactions", "lineage_nodes", "refresh_tokens", "scoped_sessions"]
 
@@ -307,30 +307,21 @@ allow_new_sqlx = { files = ["services/mcp-orchestration-service/src/handlers.rs"
 tables = ["mcp_servers", "mcp_tools"]
 
 [[entries]]
-component = "services/model-adapter-service"
-service = "model-adapter-service"
-migration_dir = "services/model-adapter-service/migrations"
-schema = "model_adapter"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/model-adapter-service/src/handlers.rs"], tables = ["inference_contracts", "model_adapters"] }
-tables = ["model_adapters", "inference_contracts"]
-
-[[entries]]
 component = "services/model-catalog-service"
 service = "model-catalog-service"
 migration_dir = "services/model-catalog-service/migrations"
 schema = "model_catalog"
 residency = "pg-schemas"
-tables = ["ml_experiments", "ml_runs", "ml_models", "ml_model_versions", "ml_features", "ml_training_jobs", "ml_deployments", "ml_batch_predictions"]
-
-[[entries]]
-component = "services/model-lifecycle-service"
-service = "model-lifecycle-service"
-migration_dir = "services/model-lifecycle-service/migrations"
-schema = "model_lifecycle"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/model-lifecycle-service/src/handlers.rs"], tables = ["model_lifecycle_events", "model_submissions", "modeling_objectives"] }
-tables = ["modeling_objectives", "model_submissions", "model_lifecycle_events"]
+# S8 consolidation (ADR-0030): `model-catalog-service` is now the sole
+# runtime owner of the model_adapter (model_adapters, inference_contracts)
+# and model_lifecycle (modeling_objectives, model_submissions,
+# model_lifecycle_events) domains, in addition to its own ml_* tables.
+# The retired `model-adapter-service` / `model-lifecycle-service` /
+# `ml-experiments-service` directories no longer exist; their archival
+# handler/model source files live under
+# `services/model-catalog-service/src/{handlers,models}/{adapter,lifecycle}.rs`.
+allow_new_sqlx = { files = ["services/model-catalog-service/src/handlers/adapter.rs", "services/model-catalog-service/src/handlers/lifecycle.rs"], tables = ["inference_contracts", "model_adapters", "model_lifecycle_events", "model_submissions", "modeling_objectives"] }
+tables = ["ml_experiments", "ml_runs", "ml_models", "ml_model_versions", "ml_features", "ml_training_jobs", "ml_deployments", "ml_batch_predictions", "model_adapters", "inference_contracts", "modeling_objectives", "model_submissions", "model_lifecycle_events"]
 
 [[entries]]
 component = "services/monitoring-rules-service"
