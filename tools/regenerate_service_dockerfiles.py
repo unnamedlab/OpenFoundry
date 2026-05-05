@@ -119,6 +119,13 @@ SERVICE_OVERRIDES: dict[str, dict[str, str]] = {
         "extra_runtime_apk": "zlib zstd-libs cyrus-sasl libcurl",
         "rust_flags": "-C target-feature=-crt-static",
     },
+    # FASE 7 / Tarea 7.4 — companion CronJob binary that drives the
+    # `pending → expired` transition on `approvals.events`. Same image,
+    # different entrypoint: `infra/helm/apps/of-platform/templates/`
+    # `approvals-timeout-sweep-cronjob.yaml` overrides `command`.
+    "approvals-service": {
+        "extra_binaries": ["approvals-timeout-sweep"],
+    },
 }
 
 TEMPLATE = """# syntax=docker/dockerfile:1.7
