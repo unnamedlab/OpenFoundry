@@ -79,6 +79,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some((cdc_metadata_addr, cdc_metadata_listener, cdc_metadata_app)) = cdc_metadata_server
     {
         tracing::info!(%cdc_metadata_addr, "starting CDC metadata HTTP server");
+        // Both public surfaces are part of this binary when CDC metadata is
+        // enabled. Treat either server stopping as process termination so
+        // Kubernetes restarts the pod instead of leaving a partially healthy
+        // process behind.
         tokio::select! {
             result = grpc_server => result?,
             result = axum::serve(cdc_metadata_listener, cdc_metadata_app) => result?,
