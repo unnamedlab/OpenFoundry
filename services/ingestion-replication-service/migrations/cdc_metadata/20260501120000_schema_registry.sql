@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
     -- Monotonic per-subject version (1, 2, 3, ...).
     version INT NOT NULL,
     -- Restricted to the lowercase values returned by
-    -- `event-bus-control::schema_registry::SchemaType::as_str`.
+    -- `event_bus_control::schema_registry::SchemaType::as_str`.
     schema_type TEXT NOT NULL CHECK (schema_type IN ('avro', 'protobuf', 'json')),
     schema_text TEXT NOT NULL,
     -- SHA-256 of the canonicalised schema text. Used to short-circuit
