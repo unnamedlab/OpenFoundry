@@ -15,6 +15,45 @@ service PipelineService {
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
 }
 
+// FASE 1 — Pipeline kinds documented in
+// docs_original_palantir_foundry/foundry-docs/Data connectivity & integration/Workflows/Building pipelines/Types of pipelines.md
+// (Ref: Types of pipelines.screenshot.png).
+enum PipelineType {
+  PIPELINE_TYPE_UNSPECIFIED = 0;
+  PIPELINE_TYPE_BATCH = 1;
+  PIPELINE_TYPE_FASTER = 2;
+  PIPELINE_TYPE_INCREMENTAL = 3;
+  PIPELINE_TYPE_STREAMING = 4;
+  PIPELINE_TYPE_EXTERNAL = 5;
+}
+
+enum PipelineLifecycle {
+  PIPELINE_LIFECYCLE_UNSPECIFIED = 0;
+  PIPELINE_LIFECYCLE_DRAFT = 1;
+  PIPELINE_LIFECYCLE_VALIDATED = 2;
+  PIPELINE_LIFECYCLE_DEPLOYED = 3;
+  PIPELINE_LIFECYCLE_ARCHIVED = 4;
+}
+
+message ExternalConfig {
+  string source_system = 1; // "databricks" | "snowflake"
+  open_foundry.common.Uuid source_id = 2;
+  string compute_profile_id = 3;
+}
+
+message IncrementalConfig {
+  bool replay_on_deploy = 1;
+  repeated string watermark_columns = 2;
+  string allowed_transaction_types = 3; // comma-separated, e.g. "APPEND,UPDATE"
+}
+
+message StreamingConfig {
+  open_foundry.common.Uuid input_stream_id = 1;
+  open_foundry.common.Uuid output_stream_id = 2;
+  string streaming_profile_id = 3;
+  uint32 parallelism = 4;
+}
+
 message Pipeline {
   open_foundry.common.Uuid id = 1;
   string name = 2;
@@ -24,6 +63,13 @@ message Pipeline {
   string status = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  PipelineType type = 9;
+  PipelineLifecycle lifecycle = 10;
+  ExternalConfig external = 11;
+  IncrementalConfig incremental = 12;
+  StreamingConfig streaming = 13;
+  string compute_profile_id = 14;
+  open_foundry.common.Uuid project_id = 15;
 }
 
 message PipelineNode {
@@ -34,6 +80,10 @@ message PipelineNode {
   repeated string depends_on = 5;
   repeated open_foundry.common.Uuid input_dataset_ids = 6;
   open_foundry.common.Uuid output_dataset_id = 7;
+  bool incremental_input = 8;
+  string preview_status = 9;
+  string validation_status = 10; // VALID | INVALID | PENDING
+  repeated string validation_errors = 11;
 }
 
 message PipelineRun {

@@ -23,11 +23,11 @@ Palantir Foundry es una plataforma de operaciones de datos de nivel empresarial 
 | 1.1.5 | Generic source / custom connectors | Framework para conectores personalizados vía genéric source o REST API source[9] | [ ] |
 | 1.1.6 | IoT / IIoT data sources | Integración con sistemas industriales y sensores IoT/IIoT[10] | [ ] |
 | 1.1.7 | On-premises agent | Agente para conectar con fuentes en redes privadas o on-premises[11] | [ ] |
-| 1.1.8 | Virtual tables (zero-copy) | Acceso in-place a tablas en Databricks, BigQuery, Snowflake sin mover datos[12] | [ ] |
-| 1.1.9 | Auto-registration de tablas | Registro automático periódico de todas las tablas accesibles de una fuente[12] | [ ] |
-| 1.1.10 | Bulk registration | Registro masivo de múltiples virtual tables a la vez[12] | [ ] |
-| 1.1.11 | Update detection / versioning | Detección de cambios en fuentes externas (Delta, Iceberg) para builds incrementales[12] | [ ] |
-| 1.1.12 | Export / egress controls | Controles de egress y políticas para exportar datos hacia sistemas externos[8] | [ ] |
+| 1.1.8 | Virtual tables (zero-copy) | Acceso in-place a tablas en Databricks, BigQuery, Snowflake sin mover datos[12] | [x] D1.1.9 5/5 — `services/virtual-table-service`, `apps/web/src/lib/components/data-connection/VirtualTablesTab.svelte`, ADR-0040 |
+| 1.1.9 | Auto-registration de tablas | Registro automático periódico de todas las tablas accesibles de una fuente[12] | [x] D1.1.9 P4 — `domain::auto_registration`, `CreateAutoRegistrationModal.svelte` |
+| 1.1.10 | Bulk registration | Registro masivo de múltiples virtual tables a la vez[12] | [x] D1.1.9 P1+P3 — `domain::virtual_tables::bulk_register`, `BulkRegisterDialog.svelte` |
+| 1.1.11 | Update detection / versioning | Detección de cambios en fuentes externas (Delta, Iceberg) para builds incrementales[12] | [x] D1.1.9 P5 — `domain::update_detection`, `VirtualTableDetailsPanel.svelte` |
+| 1.1.12 | Export / egress controls | Controles de egress y políticas para exportar datos hacia sistemas externos[8] | [x] D1.1.9 P2+P6 — `domain::source_validation`, `domain::code_imports`, ADR-0040 |
 
 ### 1.2 Pipeline Builder
 
@@ -99,6 +99,23 @@ Palantir Foundry es una plataforma de operaciones de datos de nivel empresarial 
 > QualityDashboard, Application-reference conformance (cursor
 > pagination + ETag/304 + 207 batch + unified error envelope) and
 > the full E2E journey.
+
+> **D1.1.3 Media sets parity (5/5) ✅** — full Foundry media-sets surface, see
+> [ADR-0039](docs/architecture/adr/ADR-0039-media-sets-architecture.md). Closes
+> H3 Cedar + markings + audit envelope on every upload/download/delete +
+> cost-meter + 70% coverage gate, H4 Foundry-style branches
+> (`parent_branch_rid`, `head_transaction_rid`, write-modes
+> modify/replace, 10k cap, merge resolution), H5 real
+> `media-transform-runtime-service` + access patterns
+> (RECOMPUTE/PERSIST/CACHE_TTL via moka) + Usage UI tab (ECharts), H6
+> `MediaReference` as a first-class ontology property type, and H7
+> DICOM (7th schema, `render_dicom_image_layer` at 75 cs/GB) +
+> Vertex/Map raster source (`geospatial-tiles` lib + `RasterMediaLayer`
+> Svelte component) + Sensitive Data Scanner (`media-scanner` lib with
+> `PiiTag` taxonomy + `MediaScanner` trait) + Marketplace export
+> (`MarketplaceArtifact::MediaSet`) + Python incremental transforms
+> (`openfoundry_transforms` SDK with snapshot-on-commit semantics) +
+> empty-media-set checkpoint round-trip.
 
 > **D1.1.5 Builds parity (5/5) ✅** — full Foundry builds lifecycle, see
 > [ADR-0036](docs/architecture/adr/ADR-0036-builds-foundry-parity.md). Closes

@@ -183,6 +183,15 @@ workspace = true
 [dev-dependencies.reqwest]
 workspace = true
 
+[dev-dependencies.geospatial-tiles]
+workspace = true
+
+[dev-dependencies.media-scanner]
+workspace = true
+
+[dev-dependencies.marketplace-service]
+path = "../marketplace-service"
+
 [[bin]]
 path = "src/main.rs"
 name = "media-sets-service"

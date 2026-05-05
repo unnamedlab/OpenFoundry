@@ -25,6 +25,42 @@ export interface PipelineNode {
   depends_on: string[];
   input_dataset_ids: string[];
   output_dataset_id: string | null;
+  incremental_input?: boolean;
+  preview_status?: string;
+  validation_status?: string;
+  validation_errors?: string[];
+}
+
+export type PipelineType =
+  | 'BATCH'
+  | 'FASTER'
+  | 'INCREMENTAL'
+  | 'STREAMING'
+  | 'EXTERNAL';
+
+export type PipelineLifecycle =
+  | 'DRAFT'
+  | 'VALIDATED'
+  | 'DEPLOYED'
+  | 'ARCHIVED';
+
+export interface ExternalConfig {
+  source_system: string;
+  source_id?: string | null;
+  compute_profile_id?: string | null;
+}
+
+export interface IncrementalConfig {
+  replay_on_deploy: boolean;
+  watermark_columns: string[];
+  allowed_transaction_types: string;
+}
+
+export interface StreamingConfig {
+  input_stream_id?: string | null;
+  output_stream_id?: string | null;
+  streaming_profile_id?: string | null;
+  parallelism: number;
 }
 
 export interface Pipeline {
@@ -39,6 +75,13 @@ export interface Pipeline {
   next_run_at: string | null;
   created_at: string;
   updated_at: string;
+  pipeline_type?: string;
+  lifecycle?: string;
+  external_config?: ExternalConfig | null;
+  incremental_config?: IncrementalConfig | null;
+  streaming_config?: StreamingConfig | null;
+  compute_profile_id?: string | null;
+  project_id?: string | null;
 }
 
 export interface PipelineNodeResult {
@@ -192,6 +235,12 @@ export function createPipeline(body: {
   nodes: PipelineNode[];
   schedule_config?: PipelineScheduleConfig;
   retry_policy?: PipelineRetryPolicy;
+  pipeline_type?: PipelineType;
+  external?: ExternalConfig;
+  incremental?: IncrementalConfig;
+  streaming?: StreamingConfig;
+  compute_profile_id?: string;
+  project_id?: string;
 }) {
   return api.post<Pipeline>('/pipelines', body);
 }
@@ -203,6 +252,13 @@ export function updatePipeline(id: string, body: {
   nodes?: PipelineNode[];
   schedule_config?: PipelineScheduleConfig;
   retry_policy?: PipelineRetryPolicy;
+  pipeline_type?: PipelineType;
+  lifecycle?: PipelineLifecycle;
+  external?: ExternalConfig;
+  incremental?: IncrementalConfig;
+  streaming?: StreamingConfig;
+  compute_profile_id?: string;
+  project_id?: string;
 }) {
   return api.put<Pipeline>(`/pipelines/${id}`, body);
 }

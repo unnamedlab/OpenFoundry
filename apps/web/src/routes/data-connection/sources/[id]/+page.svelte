@@ -4,6 +4,8 @@
   import { goto } from '$app/navigation';
   import ConfirmDialog from '$components/workspace/ConfirmDialog.svelte';
   import MediaSetSyncWizard from '$lib/components/data-connection/MediaSetSyncWizard.svelte';
+  import VirtualTablesTab from '$lib/components/data-connection/VirtualTablesTab.svelte';
+  import type { VirtualTableProvider } from '$lib/api/virtual-tables';
   import {
     capabilityLabel,
     dataConnection,
@@ -20,7 +22,14 @@
     type TestConnectionResult,
   } from '$lib/api/data-connection';
 
-  type Tab = 'overview' | 'networking' | 'credentials' | 'capabilities' | 'runs' | 'media-syncs';
+  type Tab =
+    | 'overview'
+    | 'networking'
+    | 'credentials'
+    | 'capabilities'
+    | 'runs'
+    | 'media-syncs'
+    | 'virtual-tables';
 
   /**
    * Foundry "Media set syncs" are only available on file-storage
@@ -29,6 +38,24 @@
    * conditionally on this set.
    */
   const MEDIA_SYNC_CONNECTORS = new Set(['s3', 'onelake', 'abfs']);
+
+  /**
+   * Foundry "Virtual tables" doc § "Set up a connection for a virtual
+   * table" — the tab is gated on the seven blessed providers. We map
+   * Foundry's catalog `connector_type` strings to the canonical
+   * `VirtualTableProvider` enum the virtual-table-service expects.
+   */
+  const VIRTUAL_TABLE_PROVIDER_BY_TYPE: Record<string, VirtualTableProvider> = {
+    s3: 'AMAZON_S3',
+    onelake: 'AZURE_ABFS',
+    abfs: 'AZURE_ABFS',
+    bigquery: 'BIGQUERY',
+    databricks: 'DATABRICKS',
+    foundry: 'FOUNDRY_ICEBERG',
+    foundry_iceberg: 'FOUNDRY_ICEBERG',
+    gcs: 'GCS',
+    snowflake: 'SNOWFLAKE',
+  };
 
   const sourceId = $derived(($page.params.id ?? '') as string);
 
@@ -81,6 +108,15 @@
 
   const supportsMediaSyncs = $derived(
     !!source && MEDIA_SYNC_CONNECTORS.has(source.connector_type),
+  );
+
+  /**
+   * Map the catalog connector_type to a `VirtualTableProvider`. Returns
+   * `null` for connectors that do not back virtual tables — the tab
+   * is not rendered in that case.
+   */
+  const virtualTableProvider = $derived<VirtualTableProvider | null>(
+    source ? VIRTUAL_TABLE_PROVIDER_BY_TYPE[source.connector_type] ?? null : null,
   );
 
   async function loadMediaSyncs() {
@@ -384,20 +420,25 @@
           'credentials',
           'capabilities',
           'runs',
-          ...(supportsMediaSyncs ? (['media-syncs'] as const) : [])
+          ...(supportsMediaSyncs ? (['media-syncs'] as const) : []),
+          ...(virtualTableProvider ? (['virtual-tables'] as const) : []),
         ] as Tab[]
       ) as tab (tab)}
         <button
           type="button"
           data-testid={`tab-${tab}`}
           onclick={() => selectTab(tab)}
-          class={`border-b-2 px-3 py-2 text-sm ${tab === 'media-syncs' ? '' : 'capitalize'} ${
+          class={`border-b-2 px-3 py-2 text-sm ${tab === 'media-syncs' || tab === 'virtual-tables' ? '' : 'capitalize'} ${
             activeTab === tab
               ? 'border-blue-600 font-medium text-blue-700 dark:border-blue-400 dark:text-blue-300'
               : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
           }`}
         >
-          {tab === 'media-syncs' ? 'Media set syncs' : tab}
+          {tab === 'media-syncs'
+            ? 'Media set syncs'
+            : tab === 'virtual-tables'
+              ? 'Virtual tables'
+              : tab}
           {#if tab === 'networking'}
             <span class="ml-1 rounded-full bg-gray-100 px-1.5 text-[10px] dark:bg-gray-800"
               >{attachedPolicies.length}</span
@@ -914,6 +955,10 @@
           </ul>
         {/if}
       </section>
+    {:else if activeTab === 'virtual-tables' && virtualTableProvider}
+      <!-- ── Foundry "Virtual tables" tab (doc § "Set up a connection
+           for a virtual table") ── -->
+      <VirtualTablesTab sourceRid={sourceId} provider={virtualTableProvider} />
     {/if}
   {/if}
 </div>

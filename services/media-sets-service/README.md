@@ -296,17 +296,34 @@ tests/                 # Integration tests (testcontainers Postgres).
                            # → virtual item register/resolve.
 ```
 
+## H7 closure — D1.1.3 ✅ 5/5
+
+The full Foundry parity surface is closed end-to-end:
+
+| Axis | Where it lives | Pinning test |
+|------|----------------|--------------|
+| DICOM as 7th schema | `core_models::MediaSetSchema::Dicom` + migration `0008_dicom_schema.sql` + `render_dicom_image_layer` (75 cs/GB) catalog row | `tests/dicom_media_set_render_layer.rs` |
+| Vertex / Map raster source | `libs/geospatial-tiles` (`/tiles/{rid}/{z}/{x}/{y}.png`) + `apps/web/src/lib/components/map/RasterMediaLayer.svelte` | `tests/vertex_media_layer_geo_tiling.rs` |
+| Sensitive Data Scanner | `libs/media-scanner` (`PiiTag` + `MediaScanner` trait + mock runtime) | `tests/sds_scan_finds_pii_in_pdf_ocr.rs` |
+| Marketplace export | `MarketplaceArtifact::MediaSet { media_set, access_patterns, sync, markings }` + `PackageType::MediaSet` | `tests/marketplace_export_imports_media_set_with_access_patterns.rs` |
+| Empty media set checkpoint | `media-sets-service` accepts zero-item transactions; the `media_set_transactions` row persists for next-build baselines | `tests/empty_media_set_round_trip.rs` |
+| Python incremental transforms | `sdks/python/openfoundry_transforms` (`transform`, `incremental`, `MediaSetInput/Output`, `InMemoryMediaSetBackend.snapshot_set`) | `sdks/python/openfoundry_transforms/tests/python_incremental_media_transform_replace_mode.py` |
+
+The architecture-level decision is captured in
+[ADR-0039 — Media sets architecture](../../docs/architecture/adr/ADR-0039-media-sets-architecture.md).
+
 ## Test coverage (H3 closure)
 
 The `services/media-sets-service` crate is gated at **≥70% line
 coverage** in CI via [`cargo llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov)
 (`.github/workflows/ci.yml` → "Coverage gate (media-sets-service, 70%)").
 
-Run locally:
+Run locally (matches the CI invocation):
 
 ```sh
 cargo install cargo-llvm-cov
-cargo llvm-cov -p media-sets-service --tests --fail-under-lines 70
+cargo llvm-cov -p media-sets-service --tests --fail-under-lines 70 \
+  --ignore-filename-regex '(main\.rs|grpc\.rs|proto\.rs|handlers/health\.rs)$'
 ```
 
 ### Documented exceptions

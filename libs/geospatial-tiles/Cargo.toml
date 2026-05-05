@@ -1,0 +1,27 @@
+[package]
+name = "geospatial-tiles"
+description = "Tile-key + URL helpers for geo-anchored media-set layers (Foundry Vertex media layers, Map TIFF/NITF rasters). Pure-Rust, dep-light."
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "geospatial_tiles"
+required-features = []
+crate-type = ["lib"]

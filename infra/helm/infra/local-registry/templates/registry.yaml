@@ -37,6 +37,10 @@ spec:
       labels:
         app.kubernetes.io/name: registry
     spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: registry
           image: registry:2.8.3
@@ -87,6 +91,9 @@ metadata:
     app.kubernetes.io/name: registry
 spec:
   type: NodePort
+  {{- with .Values.service.clusterIP }}
+  clusterIP: {{ . }}
+  {{- end }}
   selector:
     app.kubernetes.io/name: registry
   ports:

@@ -1,7 +1,21 @@
 search:
   backend: opensearch
 
+image:
+  registry: registry.registry.svc.cluster.local:5000
+  tag: "0.1.0"
+
 global:
+  imagePullPolicy: IfNotPresent
+  autoscaling:
+    enabled: false
+  resourcesOverride:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
   kafka:
     bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
 

@@ -1,6 +1,6 @@
 [package]
 name = "virtual-table-service"
-description = "Virtual table query and external table orchestration"
+description = "Virtual table catalog, registration, capability matrix and update detection"
 
 [package.edition]
 workspace = true
@@ -17,6 +17,7 @@ workspace = true
 [dependencies]
 csv = "1.3"
 sha2 = "0.10"
+prometheus = { workspace = true }
 
 [dependencies.async-trait]
 workspace = true
@@ -42,12 +43,34 @@ workspace = true
 [dependencies.event-bus-control]
 workspace = true
 
+[dependencies.tonic]
+workspace = true
+
+[dependencies.prost]
+workspace = true
+
+[dependencies.prost-types]
+workspace = true
+
+[build-dependencies.tonic-build]
+workspace = true
+
+[build-dependencies.protoc-bin-vendored]
+workspace = true
+
 [features]
 default = []
 # Enables the live Kafka I/O path (rdkafka via librdkafka) in
 # `connectors::kafka`. Default off keeps CI light and the catalog-backed
 # behaviour available; production builds turn it on through the Dockerfile.
 kafka-rdkafka = ["event-bus-control/kafka-rdkafka"]
+# Provider-specific live SDK paths. Default off; the in-tree connector
+# modules contain the orchestration logic and a deterministic
+# in-process stub so unit/integration tests can exercise the contract
+# without a live SDK. P2.next swaps the stub bodies for real SDK calls
+# behind these features.
+provider-databricks = []
+provider-iceberg = []
 
 [dependencies.reqwest]
 workspace = true
@@ -71,6 +94,9 @@ workspace = true
 [dependencies.tokio]
 workspace = true
 
+[dependencies.tower-http]
+workspace = true
+
 [dependencies.tracing]
 workspace = true
 
@@ -87,3 +113,18 @@ workspace = true
 path = "src/main.rs"
 name = "virtual-table-service"
 required-features = []
+
+[lib]
+path = "src/lib.rs"
+name = "virtual_table_service"
+required-features = []
+crate-type = ["lib"]
+
+[dev-dependencies.tokio]
+workspace = true
+
+[dev-dependencies.serde_json]
+workspace = true
+
+[dev-dependencies.uuid]
+workspace = true

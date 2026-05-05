@@ -19,6 +19,12 @@ pub enum PackageType {
     AppTemplate,
     MlModel,
     AiAgent,
+    /// H7 — Foundry "Marketplace export" of a media set with all its
+    /// access patterns + (optional) bytes. Mirrors the
+    /// `Build a product / Add packaged resources / Media set` checkbox in
+    /// the Foundry doc; importer rebuilds the set on the target
+    /// workspace and re-registers each access pattern.
+    MediaSet,
 }
 
 impl PackageType {
@@ -30,6 +36,7 @@ impl PackageType {
             Self::AppTemplate => "app_template",
             Self::MlModel => "ml_model",
             Self::AiAgent => "ai_agent",
+            Self::MediaSet => "media_set",
         }
     }
 }
@@ -51,6 +58,7 @@ impl FromStr for PackageType {
             "app_template" => Ok(Self::AppTemplate),
             "ml_model" => Ok(Self::MlModel),
             "ai_agent" => Ok(Self::AiAgent),
+            "media_set" => Ok(Self::MediaSet),
             _ => Err(format!("unsupported package type: {value}")),
         }
     }
@@ -157,6 +165,20 @@ pub enum MarketplaceArtifact {
         action_type: Value,
         #[serde(default)]
         dependencies: ActionTypeDependencies,
+    },
+    /// H7 — packaged media set bundle. The doc's "Marketplace export" tab
+    /// lets a curator ship: (a) the media-set descriptor itself,
+    /// (b) the registered access-pattern rows, (c) optional sync of new
+    /// items on import, (d) the marking set the source set carried so
+    /// the target workspace re-applies them after the rid remap.
+    MediaSet {
+        media_set: Value,
+        #[serde(default)]
+        access_patterns: Vec<Value>,
+        #[serde(default)]
+        sync: bool,
+        #[serde(default)]
+        markings: Vec<String>,
     },
 }
 

@@ -199,6 +199,7 @@ pub mod audit;
 #[cfg(feature = "kafka")]
 pub mod audit_kafka;
 pub mod engine;
+pub mod iceberg_policies;
 pub mod schedule_policies;
 
 pub use audit::{

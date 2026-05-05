@@ -195,6 +195,21 @@ Current repo audit: 24 components are shipped. Enterprise auth remains the only 
       P6 dataset-quality-service binary, QualityDashboard,
       Application-reference conformance (cursor pagination + ETag/304 +
       207 batch + unified error envelope) and full E2E journey
+- [x] **D1.1.3 Media sets parity (5/5)** — full Foundry media-sets surface
+      ([ADR-0039](docs/architecture/adr/ADR-0039-media-sets-architecture.md)):
+      H3 Cedar + markings + audit envelope + cost-meter + 70% coverage gate ·
+      H4 Foundry-style branches with `parent_branch_rid`/`head_transaction_rid`,
+      write modes (modify default / replace transactional-only), 10k cap +
+      merge resolution · H5 `media-transform-runtime-service` + access
+      patterns (RECOMPUTE/PERSIST/CACHE_TTL via moka) + cost meter +
+      Usage UI tab (ECharts) · H6 `MediaReference` as first-class
+      ontology property · H7 DICOM (7th schema, `render_dicom_image_layer`
+      75 cs/GB) + Vertex/Map raster source (`geospatial-tiles` lib +
+      `RasterMediaLayer.svelte`) + SDS scanner (`media-scanner` lib +
+      `PiiTag` taxonomy) + Marketplace export
+      (`MarketplaceArtifact::MediaSet`) + Python incremental transforms
+      (`openfoundry_transforms` SDK with snapshot-on-commit) + empty
+      media set checkpoint round-trip
 
 **Phase 2 exit criteria:**
 > Teams can collaborate with proper auth/RBAC, build dashboards over their data, set up data quality monitoring, automate workflows with approvals, and receive notifications.

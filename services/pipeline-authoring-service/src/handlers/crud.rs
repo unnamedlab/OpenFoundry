@@ -4,13 +4,42 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::domain::lifecycle::PipelineLifecycle;
+use crate::domain::pipeline_type::{
+    self, ExternalConfig, IncrementalConfig, PipelineType, StreamingConfig,
+};
 use crate::domain::{compiler, executor};
+use crate::models::authoring::PipelineValidationResponse;
 use crate::models::pipeline::*;
 use auth_middleware::layer::AuthUser;
+
+/// Resolve the pipeline kind from a string, defaulting to `BATCH` when
+/// missing or unparseable. Unparseable strings still bubble up as a
+/// coherence error via the DB CHECK; we don't fail-fast here so legacy
+/// rows continue to load.
+fn resolve_pipeline_type(raw: Option<&str>) -> PipelineType {
+    raw.and_then(pipeline_type::PipelineType::parse)
+        .unwrap_or_default()
+}
+
+fn config_to_value<T: serde::Serialize>(opt: &Option<T>) -> Option<Value> {
+    opt.as_ref().and_then(|c| serde_json::to_value(c).ok())
+}
+
+fn merge_validation_errors(
+    mut response: PipelineValidationResponse,
+    extra: Vec<String>,
+) -> PipelineValidationResponse {
+    if !extra.is_empty() {
+        response.valid = false;
+        response.errors.extend(extra);
+    }
+    response
+}
 
 pub async fn create_pipeline(
     AuthUser(claims): AuthUser,
@@ -26,12 +55,22 @@ pub async fn create_pipeline(
         retry_policy,
         seed_dataset_rid,
         inputs,
+        pipeline_type: pipeline_type_raw,
+        external,
+        incremental,
+        streaming,
+        compute_profile_id,
+        project_id,
     } = body;
     let id = Uuid::now_v7();
     let description = description.unwrap_or_default();
     let status = status.unwrap_or_else(|| "draft".to_string());
     let schedule_config = schedule_config.unwrap_or_default();
     let retry_policy = retry_policy.unwrap_or_default();
+    let pipeline_kind = resolve_pipeline_type(pipeline_type_raw.as_deref());
+    // FASE 1 — every fresh pipeline starts in DRAFT lifecycle. Promotion
+    // to VALIDATED / DEPLOYED happens via update_pipeline + the FSM.
+    let lifecycle = PipelineLifecycle::Draft;
 
     // P5 — when no DAG was provided, synthesise a passthrough input
     // node from `seed_dataset_rid` / `inputs`. Mirrors Foundry's
@@ -44,18 +83,30 @@ pub async fn create_pipeline(
     };
 
     let validation = compiler::validate_definition(&status, &schedule_config, &nodes);
+    let coherence_errors = pipeline_type::validate_pipeline_type_coherence(
+        pipeline_kind,
+        external.as_ref(),
+        incremental.as_ref(),
+        streaming.as_ref(),
+    );
+    let validation = merge_validation_errors(validation, coherence_errors);
     if !validation.valid {
         return (StatusCode::BAD_REQUEST, Json(validation)).into_response();
     }
 
     let dag = serde_json::to_value(&nodes).unwrap_or_default();
     let next_run_at = executor::compute_next_run_at_from_parts(&status, &schedule_config);
+    let external_value: Option<Value> = config_to_value(&external);
+    let incremental_value: Option<Value> = config_to_value(&incremental);
+    let streaming_value: Option<Value> = config_to_value(&streaming);
 
     let result = sqlx::query_as::<_, Pipeline>(
         r#"INSERT INTO pipelines (
-               id, name, description, owner_id, dag, status, schedule_config, retry_policy, next_run_at
+               id, name, description, owner_id, dag, status, schedule_config, retry_policy, next_run_at,
+               pipeline_type, lifecycle, external_config, incremental_config, streaming_config,
+               compute_profile_id, project_id
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
            RETURNING *"#,
     )
     .bind(id)
@@ -67,6 +118,13 @@ pub async fn create_pipeline(
     .bind(serde_json::to_value(&schedule_config).unwrap_or_else(|_| json!({})))
     .bind(serde_json::to_value(&retry_policy).unwrap_or_else(|_| json!({})))
     .bind(next_run_at)
+    .bind(pipeline_kind.as_str())
+    .bind(lifecycle.as_str())
+    .bind(external_value)
+    .bind(incremental_value)
+    .bind(streaming_value)
+    .bind(&compute_profile_id)
+    .bind(project_id)
     .fetch_one(&state.db)
     .await;
 
@@ -163,6 +221,13 @@ pub async fn update_pipeline(
     let existing_dag = existing.dag.clone();
     let existing_schedule = existing.schedule();
     let existing_retry_policy = existing.parsed_retry_policy();
+    let existing_kind = existing.pipeline_kind();
+    let existing_lifecycle = existing.lifecycle_state();
+    let existing_external = existing.external_config_typed();
+    let existing_incremental = existing.incremental_config_typed();
+    let existing_streaming = existing.streaming_config_typed();
+    let existing_compute_profile = existing.compute_profile_id.clone();
+    let existing_project_id = existing.project_id;
 
     let name = body.name.unwrap_or(existing_name);
     let description = body.description.unwrap_or(existing_description);
@@ -178,13 +243,47 @@ pub async fn update_pipeline(
     };
     let schedule_config = body.schedule_config.unwrap_or(existing_schedule);
     let retry_policy = body.retry_policy.unwrap_or(existing_retry_policy);
+    let pipeline_kind = body
+        .pipeline_type
+        .as_deref()
+        .and_then(PipelineType::parse)
+        .unwrap_or(existing_kind);
+    let external: Option<ExternalConfig> = body.external.or(existing_external);
+    let incremental: Option<IncrementalConfig> = body.incremental.or(existing_incremental);
+    let streaming: Option<StreamingConfig> = body.streaming.or(existing_streaming);
+    let compute_profile_id = body.compute_profile_id.or(existing_compute_profile);
+    let project_id = body.project_id.or(existing_project_id);
+
+    let lifecycle = if let Some(raw) = body.lifecycle.as_deref() {
+        let target = match PipelineLifecycle::parse(raw) {
+            Ok(t) => t,
+            Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        };
+        match existing_lifecycle.transition(target) {
+            Ok(t) => t,
+            Err(e) => return (StatusCode::CONFLICT, e.to_string()).into_response(),
+        }
+    } else {
+        existing_lifecycle
+    };
+
     let validation = compiler::validate_definition(&status, &schedule_config, &nodes);
+    let coherence_errors = pipeline_type::validate_pipeline_type_coherence(
+        pipeline_kind,
+        external.as_ref(),
+        incremental.as_ref(),
+        streaming.as_ref(),
+    );
+    let validation = merge_validation_errors(validation, coherence_errors);
     if !validation.valid {
         return (StatusCode::BAD_REQUEST, Json(validation)).into_response();
     }
 
     let dag = serde_json::to_value(&nodes).unwrap_or(existing_dag);
     let next_run_at = executor::compute_next_run_at_from_parts(&status, &schedule_config);
+    let external_value: Option<Value> = config_to_value(&external);
+    let incremental_value: Option<Value> = config_to_value(&incremental);
+    let streaming_value: Option<Value> = config_to_value(&streaming);
 
     let result = sqlx::query_as::<_, Pipeline>(
         r#"UPDATE pipelines SET
@@ -195,6 +294,13 @@ pub async fn update_pipeline(
            schedule_config = $6,
            retry_policy = $7,
            next_run_at = $8,
+           pipeline_type = $9,
+           lifecycle = $10,
+           external_config = $11,
+           incremental_config = $12,
+           streaming_config = $13,
+           compute_profile_id = $14,
+           project_id = $15,
            updated_at = NOW()
            WHERE id = $1
            RETURNING *"#,
@@ -207,6 +313,13 @@ pub async fn update_pipeline(
     .bind(serde_json::to_value(&schedule_config).unwrap_or_else(|_| json!({})))
     .bind(serde_json::to_value(&retry_policy).unwrap_or_else(|_| json!({})))
     .bind(next_run_at)
+    .bind(pipeline_kind.as_str())
+    .bind(lifecycle.as_str())
+    .bind(external_value)
+    .bind(incremental_value)
+    .bind(streaming_value)
+    .bind(&compute_profile_id)
+    .bind(project_id)
     .fetch_optional(&state.db)
     .await;
 
@@ -252,6 +365,7 @@ fn synthesize_seed_nodes(
             depends_on: Vec::new(),
             input_dataset_ids: Vec::new(),
             output_dataset_id: None,
+            ..PipelineNode::default()
         });
     }
     nodes

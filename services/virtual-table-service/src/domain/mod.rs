@@ -1,7 +1,15 @@
 pub mod agent_registry;
+pub mod audit;
+pub mod auto_registration;
+pub mod capability_matrix;
+pub mod code_imports;
 pub mod discovery;
 pub mod egress;
 pub mod hyperauto;
+pub mod iceberg_catalogs;
 pub mod schema_inference;
 pub mod secret_manager;
+pub mod source_validation;
 pub mod type_mapping;
+pub mod update_detection;
+pub mod virtual_tables;

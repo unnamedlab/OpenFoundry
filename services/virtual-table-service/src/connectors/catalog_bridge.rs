@@ -600,9 +600,16 @@ mod tests {
             dataset_service_url: "http://localhost:50053".to_string(),
             pipeline_service_url: "http://localhost:50080".to_string(),
             ontology_service_url: "http://localhost:50103".to_string(),
+            network_boundary_service_url: "http://localhost:50119".to_string(),
+            connector_management_service_url: "http://localhost:50090".to_string(),
             allowed_egress_hosts: Vec::new(),
             allow_private_network_egress: true,
             agent_stale_after: chrono::Duration::seconds(60),
+            auto_register_poll_interval: std::time::Duration::from_secs(0),
+            update_detection_default_interval: std::time::Duration::from_secs(0),
+            max_bulk_register_batch: 500,
+            strict_source_validation: false,
+            metrics: crate::metrics::Metrics::new(),
         }
     }
 

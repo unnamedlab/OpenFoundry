@@ -1,0 +1,37 @@
+[package]
+name = "media-scanner"
+description = "Sensitive Data Scanner integration for media sets. Defines the scanner trait + finding model + a mock backend so tests + future SDS binaries share a single contract for OCR/extract_text-driven PII detection."
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dev-dependencies.tokio]
+workspace = true
+features = ["macros", "rt"]
+
+[lib]
+path = "src/lib.rs"
+name = "media_scanner"
+required-features = []
+crate-type = ["lib"]

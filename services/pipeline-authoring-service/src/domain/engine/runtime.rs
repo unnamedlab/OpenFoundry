@@ -2045,6 +2045,7 @@ mod tests {
             depends_on: Vec::new(),
             input_dataset_ids: Vec::new(),
             output_dataset_id: Some(Uuid::now_v7()),
+            ..PipelineNode::default()
         };
 
         let (endpoint, request) = build_remote_compute_request(
@@ -2133,6 +2134,7 @@ mod tests {
             depends_on: Vec::new(),
             input_dataset_ids: Vec::new(),
             output_dataset_id: None,
+            ..PipelineNode::default()
         };
 
         let error = build_remote_compute_request(
@@ -2167,6 +2169,7 @@ mod tests {
             depends_on: Vec::new(),
             input_dataset_ids: Vec::new(),
             output_dataset_id: None,
+            ..PipelineNode::default()
         };
         let prepared_inputs = vec![PreparedInput {
             alias: "orders".to_string(),

@@ -1,0 +1,22 @@
+[package]
+name = "pipeline-expression"
+description = "Pipeline Builder expression DSL — parser, type system, transform catalog and type inference"
+
+[package.edition]
+workspace = true
+
+[package.version]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.rust-version]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

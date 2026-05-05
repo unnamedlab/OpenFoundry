@@ -115,6 +115,21 @@
   <div class="text-sm text-[#b42318]">{view.error}</div>
 {:else}
   <section class="space-y-6">
+    {#if view.project && (view.project as unknown as { managed_by_service?: string }).managed_by_service === 'virtual-table-service'}
+      <!-- Foundry doc § "Auto-registration" — banner for managed projects.
+           Users cannot create or modify resources here; the
+           virtual-table-service service principal owns the writes. -->
+      <div
+        class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        data-testid="vt-managed-project-banner"
+      >
+        <strong>Foundry-managed project</strong> — virtual tables auto-register
+        from the linked Data Connection source. The folder structure mirrors
+        the source's catalog hierarchy. Manual edits to resources in this
+        project are disabled; modify the source's auto-registration settings
+        to change what gets registered here.
+      </div>
+    {/if}
     <div>
       <h2 class="m-0 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
         Folders ({rootFolders.length})

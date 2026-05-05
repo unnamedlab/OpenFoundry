@@ -28,11 +28,31 @@ spec:
   configStorageTopic: __debezium-connect-configs
   offsetStorageTopic: __debezium-connect-offsets
   statusStorageTopic: __debezium-connect-status
-  # Pre-built upstream Debezium image. Includes the Postgres
-  # connector and JSON converters; the Apicurio Avro converter is
-  # the production path (added via a Strimzi `build:` block once
-  # Apicurio is deployed) but JSON is enough for dev.
-  image: quay.io/debezium/connect:2.7.0.Final
+  # Strimzi `build:` produces a Connect image starting from the
+  # operator's base (which carries the kafka_connect_run.sh entry
+  # Strimzi expects) and layers the Debezium PostgreSQL connector
+  # plugin on top. The result is pushed to the in-cluster registry
+  # over plain HTTP — `additionalKanikoOptions` switches kaniko to
+  # insecure mode, and the kubelet/containerd mirror configured at
+  # `/etc/rancher/k3s/registries.yaml` on each node lets the Connect
+  # pod pull it back.
+  build:
+    output:
+      type: docker
+      image: registry.registry.svc.cluster.local:5000/openfoundry/debezium-connect:2.7.0
+      pushSecret: registry-local-pull
+      # The local dev registry serves plain HTTP. The Strimzi operator
+      # uses Buildah by default — `--tls-verify=false` on push tells
+      # Buildah to skip TLS for the in-cluster registry. Kaniko-style
+      # `--insecure*` flags are not accepted under the Buildah feature
+      # gate.
+      additionalPushOptions:
+        - --tls-verify=false
+    plugins:
+      - name: debezium-postgres-connector
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/2.7.0.Final/debezium-connector-postgres-2.7.0.Final-plugin.tar.gz
   {{- if .Values.kafkaAuth.enabled }}
   authentication:
     type: tls
@@ -96,6 +116,19 @@ spec:
             matchLabels:
               strimzi.io/cluster: debezium
               strimzi.io/kind: KafkaConnect
+    # Buildah extracts image layers via mount-namespace setup that
+    # needs CAP_SYS_ADMIN ("remount /, flags: 0x44000: permission
+    # denied"). For the dev cluster we let the build container run
+    # privileged — the connect runtime pods are still unprivileged.
+    # The `vfs`/`chroot` env keeps Buildah off the overlay driver.
+    buildContainer:
+      securityContext:
+        privileged: true
+      env:
+        - name: STORAGE_DRIVER
+          value: vfs
+        - name: BUILDAH_ISOLATION
+          value: chroot
 ---
 apiVersion: v1
 kind: ConfigMap

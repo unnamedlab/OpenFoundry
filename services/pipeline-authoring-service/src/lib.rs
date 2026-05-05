@@ -28,3 +28,12 @@ pub mod param;
 
 #[path = "domain/parameterized.rs"]
 pub mod parameterized;
+
+// FASE 1 — pure-Rust validators for pipeline type coherence and
+// lifecycle FSM. Re-rooted via `#[path]` so the bin and the lib share
+// the same source files.
+#[path = "domain/lifecycle.rs"]
+pub mod lifecycle;
+
+#[path = "domain/pipeline_type.rs"]
+pub mod pipeline_type;

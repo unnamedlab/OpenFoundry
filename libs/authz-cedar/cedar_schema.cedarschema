@@ -170,6 +170,63 @@ action "media_item::delete" appliesTo {
   resource:  [MediaItem],
 };
 
+// ── Virtual-table actions (D1.1.9 P3) ──────────────────────────────
+//
+// Foundry doc § "Set up a connection for a virtual table" governs
+// these resources. The clearance floor (markings inherited from the
+// source) is enforced at register-time by virtual-table-service —
+// Cedar adds the per-action authorisation layer on top.
+//
+// Capabilities are mirrored on the entity (read/write/incremental/
+// versioning/compute_pushdown) so a policy can gate
+// `virtual_table::write_data` on `resource.capabilities.write == true`
+// without a network hop into the capability matrix.
+
+entity VirtualTable = {
+  "rid": String,
+  "source_rid": String,
+  "project_rid": String,
+  "provider": String,
+  "table_type": String,
+  "markings": Set<Marking>,
+  "capabilities": {
+    "read": Bool,
+    "write": Bool,
+    "incremental": Bool,
+    "versioning": Bool,
+  },
+};
+
+action "virtual_table::view" appliesTo {
+  principal: [User],
+  resource:  [VirtualTable],
+};
+
+action "virtual_table::register" appliesTo {
+  principal: [User],
+  resource:  [VirtualTable],
+};
+
+action "virtual_table::delete" appliesTo {
+  principal: [User],
+  resource:  [VirtualTable],
+};
+
+action "virtual_table::write_data" appliesTo {
+  principal: [User],
+  resource:  [VirtualTable],
+};
+
+action "virtual_table::manage_markings" appliesTo {
+  principal: [User],
+  resource:  [VirtualTable],
+};
+
+action "virtual_table::import_to_project" appliesTo {
+  principal: [User],
+  resource:  [VirtualTable],
+};
+
 // ── Schedule + ServicePrincipal (P3 of pipeline-schedule-service) ─
 //
 // Introduces `Project`, `Schedule`, `PipelineBuildTarget` resources,
@@ -270,4 +327,104 @@ action "scim_deprovision_user" appliesTo {
 action "scim_provision_group" appliesTo {
   principal: [User],
   resource:  [ScimGroup],
+};
+
+// ── Iceberg REST Catalog (D1.1.8 P3) ──────────────────────────────────
+//
+// `iceberg-catalog-service` exposes Apache Iceberg REST Catalog
+// endpoints that external clients (PyIceberg, Spark, Trino, Snowflake)
+// hit directly. Authorization wraps every spec endpoint:
+//
+//   * Bearer / OAuth2 tokens minted by the catalog identify the
+//     caller as either a [`User`] (long-lived API token) or a
+//     [`ServicePrincipal`] (OAuth2 client_credentials grant).
+//   * Resources are `IcebergNamespace` (a Foundry-scoped container)
+//     and `IcebergTable` (the spec's table primitive).
+//   * Markings inheritance: at table creation time the catalog
+//     SNAPSHOTS the parent namespace's markings into the table row
+//     (mirrors D1.1.4 P4 dataset inheritance). Later namespace
+//     marking changes do *not* propagate retroactively — operators
+//     must explicitly reapply via the table-level `manage_markings`
+//     endpoint.
+//   * `read_metadata` is permitted to anyone with `view`; the
+//     metadata.json file does not contain row-level data so the
+//     inherited clearance check is on the structural envelope only.
+//   * `write_data` requires the principal to cover **every**
+//     marking on the table (`clearances.containsAll(markings)`).
+
+entity IcebergNamespace = {
+  "rid": String,
+  "tenant": String,
+  "project_rid": String,
+  "name": String,
+  "markings": Set<Marking>,
+};
+
+entity IcebergTable in [IcebergNamespace] = {
+  "rid": String,
+  "tenant": String,
+  "namespace_rid": String,
+  "format_version": Long,
+  "markings": Set<Marking>,
+  "explicit_markings": Set<Marking>,
+};
+
+action "iceberg::namespace::view" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergNamespace],
+};
+
+action "iceberg::namespace::create" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergNamespace],
+};
+
+action "iceberg::namespace::drop" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergNamespace],
+};
+
+action "iceberg::namespace::update_properties" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergNamespace],
+};
+
+action "iceberg::namespace::manage_markings" appliesTo {
+  principal: [User],
+  resource:  [IcebergNamespace],
+};
+
+action "iceberg::table::view" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergTable],
+};
+
+action "iceberg::table::create" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergNamespace],
+};
+
+action "iceberg::table::drop" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergTable],
+};
+
+action "iceberg::table::write_data" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergTable],
+};
+
+action "iceberg::table::alter_schema" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergTable],
+};
+
+action "iceberg::table::read_metadata" appliesTo {
+  principal: [User, ServicePrincipal],
+  resource:  [IcebergTable],
+};
+
+action "iceberg::table::manage_markings" appliesTo {
+  principal: [User],
+  resource:  [IcebergTable],
 };

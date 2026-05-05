@@ -38,6 +38,12 @@ pub enum MediaSetSchema {
     Document,
     Spreadsheet,
     Email,
+    /// H7 — DICOM imagery (medical imaging) per Foundry "Add a DICOM
+    /// media set" doc. Keeps the same `MediaReference` JSON shape as
+    /// other schemas; the runtime catalog routes it through the
+    /// `render_dicom_image_layer` access pattern (75 cs/GB) for
+    /// per-instance window/level rendering.
+    Dicom,
 }
 
 impl MediaSetSchema {
@@ -49,6 +55,7 @@ impl MediaSetSchema {
             Self::Document => "DOCUMENT",
             Self::Spreadsheet => "SPREADSHEET",
             Self::Email => "EMAIL",
+            Self::Dicom => "DICOM",
         }
     }
 }
@@ -61,7 +68,7 @@ impl std::fmt::Display for MediaSetSchema {
 
 /// Failure parsing a [`MediaSetSchema`] from its string form.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown media set schema `{0}` (expected IMAGE|AUDIO|VIDEO|DOCUMENT|SPREADSHEET|EMAIL)")]
+#[error("unknown media set schema `{0}` (expected IMAGE|AUDIO|VIDEO|DOCUMENT|SPREADSHEET|EMAIL|DICOM)")]
 pub struct UnknownMediaSetSchema(pub String);
 
 impl FromStr for MediaSetSchema {
@@ -75,6 +82,7 @@ impl FromStr for MediaSetSchema {
             "DOCUMENT" => Ok(Self::Document),
             "SPREADSHEET" => Ok(Self::Spreadsheet),
             "EMAIL" => Ok(Self::Email),
+            "DICOM" => Ok(Self::Dicom),
             other => Err(UnknownMediaSetSchema(other.to_string())),
         }
     }

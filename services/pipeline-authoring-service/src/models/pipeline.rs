@@ -4,6 +4,11 @@ use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use crate::domain::lifecycle::PipelineLifecycle;
+use crate::domain::pipeline_type::{
+    ExternalConfig, IncrementalConfig, PipelineType, StreamingConfig,
+};
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: Uuid,
@@ -17,6 +22,22 @@ pub struct Pipeline {
     pub next_run_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    // FASE 1 — pipeline kind + release lifecycle. Stored as TEXT with
+    // CHECK constraints on the DB side; typed accessors below.
+    #[serde(default)]
+    pub pipeline_type: String,
+    #[serde(default)]
+    pub lifecycle: String,
+    #[serde(default)]
+    pub external_config: Option<Value>,
+    #[serde(default)]
+    pub incremental_config: Option<Value>,
+    #[serde(default)]
+    pub streaming_config: Option<Value>,
+    #[serde(default)]
+    pub compute_profile_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
 }
 
 impl Pipeline {
@@ -44,6 +65,37 @@ impl Pipeline {
             .map(serde_json::from_value)
             .and_then(Result::ok)
             .unwrap_or_default()
+    }
+
+    /// Typed `pipeline_type`. Falls back to `BATCH` when the column is
+    /// blank (rows pre-dating FASE 1) or carries an unknown literal —
+    /// the DB CHECK guarantees the latter cannot happen for fresh rows,
+    /// but we tolerate it defensively.
+    pub fn pipeline_kind(&self) -> PipelineType {
+        PipelineType::parse(&self.pipeline_type).unwrap_or_default()
+    }
+
+    /// Typed `lifecycle`. Defaults to `DRAFT` for the same reason.
+    pub fn lifecycle_state(&self) -> PipelineLifecycle {
+        PipelineLifecycle::parse(&self.lifecycle).unwrap_or_default()
+    }
+
+    pub fn external_config_typed(&self) -> Option<ExternalConfig> {
+        self.external_config
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
+
+    pub fn incremental_config_typed(&self) -> Option<IncrementalConfig> {
+        self.incremental_config
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
+
+    pub fn streaming_config_typed(&self) -> Option<StreamingConfig> {
+        self.streaming_config
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 }
 
@@ -104,7 +156,7 @@ pub struct PipelineColumnMapping {
 }
 
 /// A single node in the pipeline DAG.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PipelineNode {
     pub id: String,
     pub label: String,
@@ -117,6 +169,21 @@ pub struct PipelineNode {
     pub input_dataset_ids: Vec<Uuid>,
     #[serde(default)]
     pub output_dataset_id: Option<Uuid>,
+    /// FASE 1 — when an input node is flagged incremental, the badge
+    /// and the `replay_on_deploy` propagation cascade through every
+    /// downstream node (Foundry "Incremental pipeline" doc).
+    #[serde(default)]
+    pub incremental_input: bool,
+    /// `READY` | `PENDING` | `STALE` — last preview status reported by
+    /// the live preview engine. Defaults to empty string when no preview
+    /// has been requested yet.
+    #[serde(default)]
+    pub preview_status: String,
+    /// `VALID` | `INVALID` | `PENDING` — type-safe per-node validation.
+    #[serde(default)]
+    pub validation_status: String,
+    #[serde(default)]
+    pub validation_errors: Vec<String>,
 }
 
 impl PipelineNode {
@@ -149,6 +216,20 @@ pub struct CreatePipelineRequest {
     /// `nodes` is left empty.
     #[serde(default)]
     pub inputs: Vec<PipelineInputSeed>,
+    /// FASE 1 — pipeline kind (BATCH | FASTER | INCREMENTAL | STREAMING | EXTERNAL).
+    /// Defaults to BATCH, the only kind every Foundry user can author.
+    #[serde(default)]
+    pub pipeline_type: Option<String>,
+    #[serde(default)]
+    pub external: Option<ExternalConfig>,
+    #[serde(default)]
+    pub incremental: Option<IncrementalConfig>,
+    #[serde(default)]
+    pub streaming: Option<StreamingConfig>,
+    #[serde(default)]
+    pub compute_profile_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
 }
 
 /// Lightweight seed for the `inputs` array on `CreatePipelineRequest`.
@@ -169,6 +250,22 @@ pub struct UpdatePipelineRequest {
     pub nodes: Option<Vec<PipelineNode>>,
     pub schedule_config: Option<PipelineScheduleConfig>,
     pub retry_policy: Option<PipelineRetryPolicy>,
+    #[serde(default)]
+    pub pipeline_type: Option<String>,
+    /// Lifecycle target. Validated against the FSM (illegal transitions
+    /// rejected with 400). Absence means "leave unchanged".
+    #[serde(default)]
+    pub lifecycle: Option<String>,
+    #[serde(default)]
+    pub external: Option<ExternalConfig>,
+    #[serde(default)]
+    pub incremental: Option<IncrementalConfig>,
+    #[serde(default)]
+    pub streaming: Option<StreamingConfig>,
+    #[serde(default)]
+    pub compute_profile_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package open_foundry.virtual_tables;
+
+import "google/protobuf/timestamp.proto";
+
+// VirtualTable is a "pointer to a table in a source system outside of
+// Foundry" (Foundry doc § Virtual tables). The pointer is the (source,
+// locator) pair, plus the capability matrix value that drives whether
+// reads / writes / compute pushdown are available downstream.
+message VirtualTable {
+  string rid = 1;
+  string source_rid = 2;
+  string project_rid = 3;
+  string name = 4;
+  string parent_folder_rid = 5;
+  Locator locator = 6;
+  TableType table_type = 7;
+  Schema schema = 8;
+  Capabilities capabilities = 9;
+  UpdateDetection update_detection = 10;
+  repeated string markings = 11;
+  map<string, string> properties = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+// One of three locator shapes. Tabular for warehouses, file for object
+// stores (S3 / GCS / ADLS), iceberg for catalog-backed tables.
+message Locator {
+  oneof kind {
+    TabularLocator tabular = 1;
+    FileLocator file = 2;
+    IcebergLocator iceberg = 3;
+  }
+}
+
+message TabularLocator {
+  string database = 1;
+  string schema = 2;
+  string table = 3;
+}
+
+message FileLocator {
+  string bucket = 1;
+  string prefix = 2;
+  string format = 3;
+}
+
+message IcebergLocator {
+  string catalog = 1;
+  string namespace = 2;
+  string table = 3;
+}
+
+enum TableType {
+  TABLE_TYPE_UNSPECIFIED = 0;
+  TABLE = 1;
+  VIEW = 2;
+  MATERIALIZED_VIEW = 3;
+  EXTERNAL_DELTA = 4;
+  MANAGED_DELTA = 5;
+  MANAGED_ICEBERG = 6;
+  PARQUET_FILES = 7;
+  AVRO_FILES = 8;
+  CSV_FILES = 9;
+  OTHER = 10;
+}
+
+message Schema {
+  repeated SchemaColumn columns = 1;
+}
+
+message SchemaColumn {
+  string name = 1;
+  string source_type = 2;
+  string inferred_type = 3;
+  bool nullable = 4;
+}
+
+// Capability matrix slice for one (source, table_type). Mirrors the
+// Foundry compatibility matrix at doc § "Virtual table compatibility
+// matrix by source & table type".
+message Capabilities {
+  bool read = 1;
+  bool write = 2;
+  bool incremental = 3;
+  bool versioning = 4;
+  // "" | "ibis" | "pyspark" | "snowpark"
+  string compute_pushdown = 5;
+  bool snapshot_supported = 6;
+  bool append_only_supported = 7;
+  FoundryCompute foundry_compute = 8;
+}
+
+message FoundryCompute {
+  bool python_single_node = 1;
+  bool python_spark = 2;
+  bool pipeline_builder_single_node = 3;
+  bool pipeline_builder_spark = 4;
+}
+
+message UpdateDetection {
+  bool enabled = 1;
+  uint32 interval_seconds = 2;
+  string last_observed_version = 3;
+  google.protobuf.Timestamp last_polled_at = 4;
+}
+
+service VirtualTableCatalog {
+  rpc ListVirtualTables(ListVirtualTablesRequest)
+      returns (ListVirtualTablesResponse);
+  rpc GetVirtualTable(GetVirtualTableRequest) returns (VirtualTable);
+  rpc RegisterVirtualTable(RegisterVirtualTableRequest)
+      returns (VirtualTable);
+  rpc BulkRegister(BulkRegisterRequest) returns (BulkRegisterResponse);
+  rpc DeleteVirtualTable(DeleteVirtualTableRequest)
+      returns (DeleteVirtualTableResponse);
+  rpc DiscoverRemoteCatalog(DiscoverRemoteCatalogRequest)
+      returns (DiscoverRemoteCatalogResponse);
+}
+
+message ListVirtualTablesRequest {
+  string project_rid = 1;
+  string source_rid = 2;
+  string name_contains = 3;
+  TableType table_type = 4;
+  uint32 page_size = 5;
+  string page_token = 6;
+}
+
+message ListVirtualTablesResponse {
+  repeated VirtualTable items = 1;
+  string next_page_token = 2;
+}
+
+message GetVirtualTableRequest {
+  string rid = 1;
+}
+
+message RegisterVirtualTableRequest {
+  string source_rid = 1;
+  string project_rid = 2;
+  string name = 3;
+  string parent_folder_rid = 4;
+  Locator locator = 5;
+  TableType table_type = 6;
+  repeated string markings = 7;
+}
+
+message BulkRegisterRequest {
+  string source_rid = 1;
+  string project_rid = 2;
+  repeated RegisterVirtualTableRequest entries = 3;
+}
+
+message BulkRegisterResponse {
+  repeated VirtualTable registered = 1;
+  repeated BulkRegisterError errors = 2;
+}
+
+message BulkRegisterError {
+  string name = 1;
+  string error = 2;
+}
+
+message DeleteVirtualTableRequest {
+  string rid = 1;
+}
+
+message DeleteVirtualTableResponse {
+  bool deleted = 1;
+}
+
+message DiscoverRemoteCatalogRequest {
+  string source_rid = 1;
+  // Hierarchical path (e.g. "db" or "db/schema") used to drill into the
+  // remote catalog. Empty string returns the top level.
+  string path = 2;
+}
+
+message DiscoverRemoteCatalogResponse {
+  repeated DiscoveredEntry entries = 1;
+}
+
+message DiscoveredEntry {
+  string display_name = 1;
+  string path = 2;
+  // "database" | "schema" | "table" | "view" | "materialized_view" |
+  // "iceberg_namespace" | "iceberg_table" | "file_prefix" | "other"
+  string kind = 3;
+  bool registrable = 4;
+  TableType inferred_table_type = 5;
+}

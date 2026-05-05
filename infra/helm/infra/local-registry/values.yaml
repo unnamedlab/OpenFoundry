@@ -1,1 +1,13 @@
 # Values for local-registry. See templates/ for the resources rendered.
+service:
+  # Pinned ClusterIP so containerd registries.yaml mirrors on the VMs
+  # (10.43.240.187:5000) match the in-cluster Service IP. Changing this
+  # requires updating /etc/rancher/k3s/registries.yaml on every node.
+  clusterIP: 10.43.240.187
+
+# Pin the registry pod to a worker with more disk than the master VM
+# (master has only 20 GiB; workers have 40 GiB). Required so the 50 GiB
+# PVC backed by local-path-provisioner has room to grow when pushing
+# the ~95 service images.
+nodeSelector:
+  kubernetes.io/hostname: lima-k3s-node1

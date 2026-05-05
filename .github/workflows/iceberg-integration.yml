@@ -1,0 +1,125 @@
+name: CI — Iceberg catalog integration
+
+# D1.1.8 P3 — closure gate for the Iceberg catalog (4/5).
+#
+# Runs three suites:
+#
+#   1. Rust integration tests with --include-ignored (testcontainer
+#      Postgres + wiremocks). The non-ignored unit-style tests run on
+#      every PR via `ci.yml`; this workflow flips the ignored
+#      Docker-bound ones on.
+#   2. Coverage threshold via `cargo llvm-cov` — the catalog must
+#      sustain ≥ 72% line coverage so a contract regression doesn't
+#      sneak through behind a new endpoint.
+#   3. PyIceberg / Snowflake-style HTTP probes against a running
+#      docker-compose stack. The suite skips itself when the catalog
+#      is unreachable; in CI the `docker compose up` step makes it
+#      reachable so the skip path doesn't hide regressions.
+#
+# Gated on paths so day-to-day work outside the catalog crate doesn't
+# trigger the full Postgres + Python matrix.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/authz-cedar/**"
+      - "services/iceberg-catalog-service/**"
+      - "tests/integration/pyiceberg/**"
+      - ".github/workflows/iceberg-integration.yml"
+  pull_request:
+    paths:
+      - "libs/authz-cedar/**"
+      - "services/iceberg-catalog-service/**"
+      - "tests/integration/pyiceberg/**"
+      - ".github/workflows/iceberg-integration.yml"
+  workflow_dispatch:
+
+jobs:
+  rust-tests-with-docker:
+    name: cargo test (--include-ignored)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: iceberg-catalog-service
+      - name: cargo test
+        run: |
+          cargo test -p iceberg-catalog-service --include-ignored \
+            --no-fail-fast --message-format=short
+
+  coverage-threshold:
+    name: cargo llvm-cov ≥ 72% lines
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: iceberg-catalog-service-cov
+      - name: install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: coverage gate
+        run: |
+          cargo llvm-cov -p iceberg-catalog-service \
+            --fail-under-lines 72 --summary-only
+
+  pyiceberg-probes:
+    name: pytest tests/integration/pyiceberg
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'iceberg-py') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose up
+        run: |
+          docker compose -f docker-compose.dev.yml up -d \
+            postgres minio identity-federation-service \
+            oauth-integration-service iceberg-catalog-service
+          # Wait for /health on the catalog (best-effort; tests skip
+          # automatically if it stays unreachable).
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8197/health > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tests/integration/pyiceberg/requirements.txt
+      - name: install python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r tests/integration/pyiceberg/requirements.txt
+      - name: pytest
+        env:
+          ICEBERG_CATALOG_URL: http://localhost:8197
+        run: |
+          python -m pytest tests/integration/pyiceberg/ -v
+
+  playwright-iceberg:
+    name: pnpm playwright (--grep iceberg)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm --dir apps/web install --frozen-lockfile
+      - name: install playwright browsers
+        run: pnpm --dir apps/web exec playwright install --with-deps chromium
+      - name: run playwright (iceberg)
+        run: pnpm --dir apps/web exec playwright test --grep iceberg

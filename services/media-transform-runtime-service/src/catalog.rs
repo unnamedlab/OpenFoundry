@@ -50,6 +50,11 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry { key: "crop",                       status: HandlerStatus::Native },
     CatalogEntry { key: "grayscale",                  status: HandlerStatus::Native },
     CatalogEntry { key: "geo_tile",                   status: HandlerStatus::NotImplemented { reason: "Geo tile pyramids land in the geospatial-intelligence-service follow-up." } },
+    // H7 — DICOM window/level rendering. Foundry's `render_dicom_image_layer`
+    // (75 cs/GB) shells out to `dcmtk`'s `dcm2pnm` for per-instance pixel
+    // extraction; cargo-side we surface it as External so the catalog
+    // shows the intended shape without forcing dcmtk on the build host.
+    CatalogEntry { key: "render_dicom_image_layer",   status: HandlerStatus::External { binary: "dcmtk" } },
     CatalogEntry { key: "ocr",                        status: HandlerStatus::External { binary: "tesseract" } },
     CatalogEntry { key: "embedding",                  status: HandlerStatus::NotImplemented { reason: "Image embeddings depend on libs/ai-kernel which is not yet wired." } },
 

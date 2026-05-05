@@ -80,7 +80,7 @@ environments:
 {{- $postgresClustersInstalled := true -}}
 {{- $cassandraClusterInstalled := true -}}
 {{- $kafkaClusterInstalled     := true -}}
-{{- $lakekeeperInstalled       := not $isDev -}}
+{{- $lakekeeperInstalled       := true -}}
 {{- /* observability ships PrometheusRule CRs — needs the Prometheus
        Operator CRDs to exist. Gate off in dev until kube-prometheus-stack
        is added as a dependency. */ -}}

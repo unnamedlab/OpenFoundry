@@ -22,9 +22,14 @@ Thumbs.db
 
 # Rust
 target/
+target-*/
 **/*.rs.bk
 *.profraw
 *.profdata
+*.profraw.zst
+llvm-cov-target/
+lcov.info
+cobertura.xml
 
 # Python (tooling under /tools)
 __pycache__/

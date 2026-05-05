@@ -8,6 +8,7 @@ use crate::models::registration::{DiscoveredSource, VirtualTableQueryResponse};
 pub mod bigquery;
 mod catalog_bridge;
 pub mod csv;
+pub mod databricks;
 pub mod http_runtime;
 pub mod iot;
 pub mod jdbc;

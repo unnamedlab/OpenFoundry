@@ -19,6 +19,11 @@ pub enum MediaSetSchema {
     Document,
     Spreadsheet,
     Email,
+    /// H7 — DICOM (medical imaging) media set per Foundry's "Add a
+    /// DICOM media set" doc. Behaves like an image schema at the
+    /// storage layer; the runtime catalog routes it through
+    /// `render_dicom_image_layer` for window/level rendering.
+    Dicom,
 }
 
 impl MediaSetSchema {
@@ -30,6 +35,7 @@ impl MediaSetSchema {
             Self::Document => "DOCUMENT",
             Self::Spreadsheet => "SPREADSHEET",
             Self::Email => "EMAIL",
+            Self::Dicom => "DICOM",
         }
     }
 }
@@ -44,6 +50,7 @@ impl FromStr for MediaSetSchema {
             "DOCUMENT" => Self::Document,
             "SPREADSHEET" => Self::Spreadsheet,
             "EMAIL" => Self::Email,
+            "DICOM" => Self::Dicom,
             other => return Err(format!("unknown MediaSetSchema `{other}`")),
         })
     }
