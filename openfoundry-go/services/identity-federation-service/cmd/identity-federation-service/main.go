@@ -23,6 +23,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/service"
+	webauthnpkg "github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/webauthn"
 )
 
 var version = "dev"
@@ -70,11 +71,19 @@ func main() {
 		AccessTTL:  cfg.AccessTTL,
 		RefreshTTL: cfg.RefreshTTL,
 	}
-	auth := &handlers.Auth{Repo: r, Issuer: issuer}
+	waStore := webauthnpkg.NewPostgresStore(pool)
+	waService, err := webauthnpkg.NewService(webauthnpkg.FromEnv(), waStore)
+	if err != nil {
+		log.Error("webauthn service init failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
+	auth := &handlers.Auth{Repo: r, Issuer: issuer, WebAuthn: waService}
 	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer}
+	wa := &handlers.WebAuthn{JWT: jwt, Repo: r, Service: waService, Issuer: issuer}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, auth, mfa, metrics)
+	srv := server.New(cfg, jwt, auth, mfa, wa, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

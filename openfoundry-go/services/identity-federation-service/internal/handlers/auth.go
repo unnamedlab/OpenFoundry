@@ -2,10 +2,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/ids"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/models"
@@ -14,9 +17,19 @@ import (
 )
 
 // Auth wires register / login / token endpoints.
+//
+// WebAuthn detection is plugged in via a tiny interface so this file
+// stays free of the heavy go-webauthn import surface (the concrete
+// implementation lives in internal/webauthn). Pass nil to disable.
 type Auth struct {
-	Repo   *repo.Repo
-	Issuer *service.Issuer
+	Repo     *repo.Repo
+	Issuer   *service.Issuer
+	WebAuthn WebAuthnChecker // nil → WebAuthn detection skipped
+}
+
+// WebAuthnChecker is the bare-minimum surface Auth needs.
+type WebAuthnChecker interface {
+	HasCredentials(ctx context.Context, userID uuid.UUID) (bool, error)
 }
 
 // BootstrapStatus handles GET /api/v1/auth/bootstrap-status.
@@ -117,10 +130,21 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	totpEnabled := totpCfg != nil && totpCfg.Enabled
-	if totpEnabled || user.MFAEnforced {
+	hasWebAuthn := false
+	if a.WebAuthn != nil {
+		var werr error
+		hasWebAuthn, werr = a.WebAuthn.HasCredentials(r.Context(), user.ID)
+		if werr != nil {
+			slog.Warn("login: webauthn lookup", slog.String("error", werr.Error()))
+		}
+	}
+	if totpEnabled || hasWebAuthn || user.MFAEnforced {
 		methods := []string{}
 		if totpEnabled {
 			methods = append(methods, "totp")
+		}
+		if hasWebAuthn {
+			methods = append(methods, "webauthn")
 		}
 		challenge, cerr := service.IssueMFAChallenge(a.Issuer.JWT, user, "password")
 		if cerr != nil {

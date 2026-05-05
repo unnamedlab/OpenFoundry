@@ -33,7 +33,7 @@ import (
 // Subsequent slices add: /auth/sessions/*, /auth/sso/*, /users/*,
 // /roles/*, /groups/*, /permissions/*, /policies/*, /control-panel/*,
 // /scim/v2/*, /jwks/rotate, /audit/metrics.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, wa *handlers.WebAuthn, m *observability.Metrics) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -52,6 +52,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Post("/login", auth.Login)
 		api.Post("/token/refresh", auth.Refresh)
 		api.Post("/mfa/totp/complete-login", mfa.CompleteLogin)
+		api.Post("/mfa/webauthn/login/challenge", wa.LoginChallenge)
+		api.Post("/mfa/webauthn/login/finish", wa.LoginFinish)
 	})
 
 	// /api/v1/auth/mfa/* — bearer-protected MFA management.
@@ -61,6 +63,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Post("/totp/enroll", mfa.Enroll)
 		api.Post("/totp/verify", mfa.Verify)
 		api.Post("/totp/disable", mfa.Disable)
+		api.Post("/webauthn/register/challenge", wa.RegisterChallenge)
+		api.Post("/webauthn/register/finish", wa.RegisterFinish)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
