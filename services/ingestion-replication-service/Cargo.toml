@@ -49,6 +49,9 @@ workspace = true
 [build-dependencies.tonic-build]
 workspace = true
 
+[build-dependencies.protoc-bin-vendored]
+workspace = true
+
 [dev-dependencies.tower-test]
 version = "0.4"
 

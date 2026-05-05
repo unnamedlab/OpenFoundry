@@ -6050,6 +6050,7 @@ dependencies = [
  "kube",
  "prost",
  "prost-types",
+ "protoc-bin-vendored",
  "reqwest",
  "schemars 0.8.22",
  "serde",
