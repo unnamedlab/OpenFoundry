@@ -7,6 +7,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/notebooks', title: 'Notebooks', description: 'Multi-kernel notebooks with Monaco-backed cells and a workspace file tree.' },
   { path: '/contour', title: 'Contour', description: 'Top-down dataset analysis: join, drill, chart-to-chart filter, materialize.' },
   { path: '/quiver', title: 'Quiver', description: 'Time-series + grouped object analytics with reusable Vega-Lite visual functions.' },
+  { path: '/vertex', title: 'Vertex', description: 'Cytoscape graph + templates + scenarios + media annotations + EChartView sidecars.' },
   { path: '/geospatial', title: 'Geospatial', description: 'MapLibre canvas with layers, queries, clustering, geocoding, routing, templates.' },
   { path: '/queries', title: 'Queries', description: 'SQL editor with saved queries, explain plan, and ontology catalog inspection.' },
   { path: '/search', title: 'Search', description: 'Discovery hub linking to object explorer, queries, and ontology.' },

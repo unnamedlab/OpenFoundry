@@ -54,6 +54,13 @@ export function Sidebar() {
           <span className="of-sidebar__label">Quiver</span>
         </NavLink>
         <NavLink
+          to="/vertex"
+          className="of-sidebar__link"
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
+        >
+          <span className="of-sidebar__label">Vertex</span>
+        </NavLink>
+        <NavLink
           to="/geospatial"
           className="of-sidebar__link"
           style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}

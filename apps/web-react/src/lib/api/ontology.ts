@@ -214,3 +214,107 @@ export function updateQuiverVisualFunction(
 export function deleteQuiverVisualFunction(id: string) {
   return api.delete(`/ontology/quiver/visual-functions/${id}`);
 }
+
+// ────────────────────────────────────────────────────────────────
+// Vertex slice — search, neighbors, scenario simulation. Used by
+// /vertex; future ontology routes can extend the same module.
+// ────────────────────────────────────────────────────────────────
+
+export interface NeighborLink {
+  direction: 'inbound' | 'outbound';
+  link_id: string;
+  link_type_id: string;
+  link_name: string;
+  object: ObjectInstance;
+}
+
+export interface SearchResult {
+  kind: string;
+  id: string;
+  object_type_id: string | null;
+  title: string;
+  subtitle: string | null;
+  snippet: string;
+  score: number;
+  route: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ScenarioSimulationOperation {
+  label?: string | null;
+  target_object_id?: string | null;
+  action_id?: string | null;
+  action_parameters?: Record<string, unknown>;
+  properties_patch?: Record<string, unknown>;
+}
+
+export interface ScenarioSimulationCandidate {
+  name: string;
+  description?: string | null;
+  operations: ScenarioSimulationOperation[];
+}
+
+export interface ScenarioSummary {
+  impacted_object_count: number;
+  changed_object_count: number;
+  deleted_object_count: number;
+  automatic_rule_matches: number;
+  automatic_rule_applications: number;
+  advisory_rule_matches: number;
+  schedule_count: number;
+  impacted_types: string[];
+  changed_properties: string[];
+  boundary_crossings: number;
+  sensitive_objects: number;
+  failed_constraints: number;
+  achieved_goals: number;
+  total_goals: number;
+  goal_score: number;
+}
+
+export interface ScenarioSimulationResult {
+  scenario_id: string;
+  name: string;
+  description: string | null;
+  graph: GraphResponse;
+  summary: ScenarioSummary;
+}
+
+export interface ObjectScenarioSimulationResponse {
+  root_object_id: string;
+  root_type_id: string;
+  compared_at: string;
+  baseline: ScenarioSimulationResult | null;
+  scenarios: ScenarioSimulationResult[];
+}
+
+export function searchOntology(body: {
+  query: string;
+  kind?: string;
+  object_type_id?: string;
+  limit?: number;
+  semantic?: boolean;
+}) {
+  return api.post<{ query: string; total: number; data: SearchResult[] }>('/ontology/search', body);
+}
+
+export function listNeighbors(typeId: string, objectId: string) {
+  return api
+    .get<{ data: NeighborLink[] }>(`/ontology/types/${typeId}/objects/${objectId}/neighbors`)
+    .then((response) => response.data);
+}
+
+export function simulateObjectScenarios(
+  typeId: string,
+  objectId: string,
+  body: {
+    scenarios: ScenarioSimulationCandidate[];
+    depth?: number;
+    include_baseline?: boolean;
+  },
+) {
+  return api.post<ObjectScenarioSimulationResponse>(
+    `/ontology/types/${typeId}/objects/${objectId}/scenarios/simulate`,
+    body,
+  );
+}

@@ -83,5 +83,14 @@ export function CytoscapeCanvas({
     cy.layout(layout ?? ({ name: 'fcose', animate: false } as LayoutOptions)).run();
   }, [elements, layout]);
 
+  // Re-apply stylesheet when it changes (e.g. node display mode toggles).
+  // The init effect already seeded the initial stylesheet; this updates it
+  // in place without recreating the cytoscape instance.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !stylesheet) return;
+    cy.style(stylesheet).update();
+  }, [stylesheet]);
+
   return <div ref={containerRef} className={className} style={{ width: '100%', height }} />;
 }
