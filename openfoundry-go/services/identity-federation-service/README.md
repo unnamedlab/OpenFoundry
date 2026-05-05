@@ -26,6 +26,17 @@ Schema (slice 1 only — wider schema lands in later slices):
 Refresh tokens are stored in **Postgres** for slice 1; slice 2 ports
 the Rust crate's Cassandra-backed `auth_runtime.refresh_tokens` table.
 
+## Slice 2 status (this commit)
+
+`libs/cassandra-kernel` (gocql + idempotent migration applier) and
+`internal/sessionscassandra/` (user_session + refresh_token DDL +
+adapter, auth_runtime keyspace, ported verbatim from Rust) are
+**scaffolded but NOT yet wired**: the active `Issuer` still keeps
+refresh tokens in Postgres. Flipping the active backend is a one-
+line swap in `cmd/.../main.go`; landing it requires a Cassandra /
+Scylla instance in the dev environment so the binary smoke-tests
+against real CQL. Both backends sit side-by-side until then.
+
 ## What slice 1 does NOT include
 
 - Sessions table (slice 2 — Cassandra)
