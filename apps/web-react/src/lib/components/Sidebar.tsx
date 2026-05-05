@@ -26,6 +26,13 @@ export function Sidebar() {
           <span className="of-sidebar__label">Dashboards</span>
         </NavLink>
         <NavLink
+          to="/lineage"
+          className="of-sidebar__link"
+          style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
+        >
+          <span className="of-sidebar__label">Lineage</span>
+        </NavLink>
+        <NavLink
           to="/settings"
           className="of-sidebar__link"
           style={({ isActive }) => ({ background: isActive ? 'var(--bg-sidebar-active)' : undefined })}
