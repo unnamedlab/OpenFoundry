@@ -34,27 +34,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
 
-    if let Some(cdc_metadata_database_url) = &config.cdc_metadata_database_url {
-        let cdc_metadata_addr: SocketAddr =
-            format!("{}:{}", config.cdc_metadata_host, config.cdc_metadata_port).parse()?;
-        let cdc_metadata_pool = PgPoolOptions::new()
-            .max_connections(8)
-            .connect(cdc_metadata_database_url)
-            .await?;
-        sqlx::migrate!("./migrations/cdc_metadata")
-            .run(&cdc_metadata_pool)
-            .await?;
-        let cdc_metadata_app = cdc_metadata::routes().with_state(cdc_metadata::AppState {
-            db: cdc_metadata_pool,
-        });
-        let cdc_metadata_listener = tokio::net::TcpListener::bind(cdc_metadata_addr).await?;
-        tokio::spawn(async move {
-            tracing::info!(%cdc_metadata_addr, "starting CDC metadata HTTP server");
-            if let Err(error) = axum::serve(cdc_metadata_listener, cdc_metadata_app).await {
-                tracing::error!(%error, "CDC metadata HTTP server encountered error");
-            }
-        });
-    }
+    let cdc_metadata_server =
+        if let Some(cdc_metadata_database_url) = &config.cdc_metadata_database_url {
+            let cdc_metadata_addr: SocketAddr =
+                format!("{}:{}", config.cdc_metadata_host, config.cdc_metadata_port).parse()?;
+            let cdc_metadata_pool = PgPoolOptions::new()
+                .max_connections(8)
+                .connect(cdc_metadata_database_url)
+                .await?;
+            sqlx::migrate!("./migrations/cdc_metadata")
+                .run(&cdc_metadata_pool)
+                .await?;
+            let cdc_metadata_app = cdc_metadata::routes().with_state(cdc_metadata::AppState {
+                db: cdc_metadata_pool,
+            });
+            let cdc_metadata_listener = tokio::net::TcpListener::bind(cdc_metadata_addr).await?;
+            Some((cdc_metadata_addr, cdc_metadata_listener, cdc_metadata_app))
+        } else {
+            None
+        };
 
     let kube_client = Client::try_default().await?;
 
@@ -72,12 +70,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         reconcile::run(reconcile_pool, reconcile_client, period).await;
     });
 
-    tracing::info!(%addr, "starting IngestionControlPlane gRPC server");
-    tonic::transport::Server::builder()
+    let grpc_server = tonic::transport::Server::builder()
         .add_service(IngestionControlPlaneServer::new(ControlPlaneService::new(
             state,
         )))
-        .serve(addr)
-        .await?;
+        .serve(addr);
+    tracing::info!(%addr, "starting IngestionControlPlane gRPC server");
+    if let Some((cdc_metadata_addr, cdc_metadata_listener, cdc_metadata_app)) = cdc_metadata_server
+    {
+        tracing::info!(%cdc_metadata_addr, "starting CDC metadata HTTP server");
+        tokio::select! {
+            result = grpc_server => result?,
+            result = axum::serve(cdc_metadata_listener, cdc_metadata_app) => result?,
+        };
+    } else {
+        grpc_server.await?;
+    }
     Ok(())
 }
