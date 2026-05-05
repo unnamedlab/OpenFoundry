@@ -5,10 +5,12 @@
 FROM rust:1.95-alpine3.23 AS builder
 WORKDIR /workspace
 
-RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3
+RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 python3-dev cyrus-sasl-dev linux-headers cmake perl zlib-dev zstd-dev curl-dev protobuf-dev
 ENV PYO3_PYTHON=python3
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-
+# Disable static CRT globally: musl-Alpine + native C deps (rdkafka, pyo3, openssl)
+# need dynamic linking. Per-service rust_flags overrides are now redundant.
+ENV RUSTFLAGS="-C target-feature=-crt-static"
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
@@ -19,7 +21,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM alpine:3.23 AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3
+RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 libcrypto3 zlib zstd-libs libcurl cyrus-sasl python3
 
 ENV HOST=0.0.0.0
 ENV PORT=50110

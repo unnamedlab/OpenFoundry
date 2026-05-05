@@ -33,6 +33,7 @@ helm/
 │   ├── spark-jobs/         # SparkApplication CRs (Iceberg compaction, …)
 │   ├── mimir/              # vendored Mimir chart
 │   ├── observability/      # shared PrometheusRules + ServiceMonitors
+│   ├── kite/               # Kite Kubernetes dashboard (UI for kube API)
 │   └── local-registry/     # dev-only in-cluster Docker registry
 ├── profiles/               # cross-release overlays per environment
 │   └── values-{dev,staging,prod,airgap,multicloud,sovereign-eu,apollo}.yaml
@@ -95,6 +96,7 @@ The dev profile keeps heavy releases off:
 | --- | :---: | :---: | :---: |
 | Vespa, Trino, Spark, Mimir, Rook-Ceph, Flink | off | partial | on |
 | Cassandra, Kafka, Postgres, Lakekeeper, Debezium | on | on | on |
+| Kite | on | on | on |
 | local-registry | on | off | off |
 
 ## Adding a new release

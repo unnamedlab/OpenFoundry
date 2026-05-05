@@ -135,10 +135,12 @@ TEMPLATE = """# syntax=docker/dockerfile:1.7
 FROM rust:1.95-alpine3.23 AS builder
 WORKDIR /workspace
 
-RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3{extra_build_apk}
+RUN apk add --no-cache build-base pkgconf openssl-dev ca-certificates python3 python3-dev cyrus-sasl-dev linux-headers cmake perl zlib-dev zstd-dev curl-dev protobuf-dev{extra_build_apk}
 ENV PYO3_PYTHON=python3
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-{rust_flags_env}
+# Disable static CRT globally: musl-Alpine + native C deps (rdkafka, pyo3, openssl)
+# need dynamic linking. Per-service rust_flags overrides are now redundant.
+ENV RUSTFLAGS="-C target-feature=-crt-static"
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \\
@@ -151,7 +153,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \\
 FROM alpine:3.23 AS runtime
 WORKDIR {workdir}
 
-RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3{extra_runtime_apk}
+RUN apk add --no-cache ca-certificates libgcc libstdc++ libssl3 libcrypto3 zlib zstd-libs libcurl cyrus-sasl python3{extra_runtime_apk}
 
 ENV HOST=0.0.0.0
 ENV PORT={port}

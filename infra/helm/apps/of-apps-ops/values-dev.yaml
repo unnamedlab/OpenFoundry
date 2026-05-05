@@ -21,3 +21,243 @@ global:
 services:
   audit-sink:
     replicas: 1
+  app-builder-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: app-builder-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: app-builder-db-dsn
+        key: reader_url
+  application-composition-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: application-composition-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: application-composition-db-dsn
+        key: reader_url
+  audit-compliance-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: audit-compliance-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: audit-compliance-db-dsn
+        key: reader_url
+  automation-operations-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: automation-operations-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: automation-operations-db-dsn
+        key: reader_url
+  code-repository-review-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: code-repository-review-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: code-repository-review-db-dsn
+        key: reader_url
+  code-security-scanning-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: code-security-scanning-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: code-security-scanning-db-dsn
+        key: reader_url
+  compute-modules-control-plane-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: compute-modules-control-plane-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: compute-modules-control-plane-db-dsn
+        key: reader_url
+  compute-modules-runtime-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: compute-modules-runtime-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: compute-modules-runtime-db-dsn
+        key: reader_url
+  custom-endpoints-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: custom-endpoints-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: custom-endpoints-db-dsn
+        key: reader_url
+  developer-console-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: developer-console-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: developer-console-db-dsn
+        key: reader_url
+  document-intelligence-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: document-intelligence-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: document-intelligence-db-dsn
+        key: reader_url
+  document-reporting-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: document-reporting-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: document-reporting-db-dsn
+        key: reader_url
+  execution-observability-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: execution-observability-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: execution-observability-db-dsn
+        key: reader_url
+  federation-product-exchange-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: federation-product-exchange-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: federation-product-exchange-db-dsn
+        key: reader_url
+  managed-workspace-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: managed-workspace-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: managed-workspace-db-dsn
+        key: reader_url
+  marketplace-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: marketplace-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: marketplace-db-dsn
+        key: reader_url
+  monitoring-rules-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: monitoring-rules-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: monitoring-rules-db-dsn
+        key: reader_url
+  nexus-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: nexus-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: nexus-db-dsn
+        key: reader_url
+  notebook-runtime-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: notebook-runtime-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: notebook-runtime-db-dsn
+        key: reader_url
+  notification-alerting-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: notification-alerting-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: notification-alerting-db-dsn
+        key: reader_url
+  report-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: report-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: report-db-dsn
+        key: reader_url
+  scenario-simulation-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: scenario-simulation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: scenario-simulation-db-dsn
+        key: reader_url
+  sdk-generation-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: sdk-generation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: sdk-generation-db-dsn
+        key: reader_url
+  sds-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: sds-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: sds-db-dsn
+        key: reader_url
+  solution-design-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: solution-design-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: solution-design-db-dsn
+        key: reader_url
+  spreadsheet-computation-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: spreadsheet-computation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: spreadsheet-computation-db-dsn
+        key: reader_url
+  tabular-analysis-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: tabular-analysis-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: tabular-analysis-db-dsn
+        key: reader_url
+  telemetry-governance-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: telemetry-governance-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: telemetry-governance-db-dsn
+        key: reader_url
+  workflow-automation-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: workflow-automation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: workflow-automation-db-dsn
+        key: reader_url
+  workflow-trace-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: workflow-trace-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: workflow-trace-db-dsn
+        key: reader_url

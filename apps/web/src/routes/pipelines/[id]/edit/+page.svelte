@@ -27,6 +27,7 @@
     type NodePaletteEntry
   } from '$lib/components/pipeline/NodePalette.svelte';
   import NodeConfig from '$lib/components/pipeline/NodeConfig.svelte';
+  import NodePreviewPanel from '$lib/components/pipeline/NodePreviewPanel.svelte';
   import ScheduleConfig from '$lib/components/pipeline/ScheduleConfig.svelte';
   import RunHistory from '$lib/components/pipeline/RunHistory.svelte';
   import LineageView from '$lib/components/pipeline/LineageView.svelte';
@@ -243,6 +244,7 @@
           {#if validation && validation.next_run_at}
             <p class="hint">Next scheduled run: {new Date(validation.next_run_at).toLocaleString()}</p>
           {/if}
+          <NodePreviewPanel pipelineId={pipeline.id} node={selectedNode} />
         </div>
         <NodeConfig
           node={selectedNode}

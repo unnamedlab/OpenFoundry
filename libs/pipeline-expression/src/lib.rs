@@ -22,9 +22,11 @@
 //!   list of [`TypeError`]s.
 
 pub mod catalog;
+pub mod eval;
 pub mod infer;
 pub mod node_check;
 pub mod parser;
+pub mod preview;
 pub mod types;
 
 pub use infer::{ColumnEnv, TypeError, infer_expr};

@@ -16,6 +16,14 @@ pub fn router(
     Router::new()
         .route("/api/v1/{*rest}", any(proxy_handler))
         .route("/api/v2/{*rest}", any(proxy_handler))
+        // ADR-0041 — surface the Iceberg REST Catalog spec endpoints
+        // and the long-lived API-token issuer through the gateway so
+        // PyIceberg / Spark / Trino / Snowflake clients can use the
+        // same base URL the rest of the platform exposes. Routing to
+        // `iceberg-catalog-service` is decided in
+        // `proxy::service_router` based on the path prefix.
+        .route("/iceberg/v1/{*rest}", any(proxy_handler))
+        .route("/v1/iceberg-clients/{*rest}", any(proxy_handler))
         .route_layer(axum_mw::from_fn_with_state(
             rate_limit_state,
             crate::middleware::rate_limit::rate_limit_layer,

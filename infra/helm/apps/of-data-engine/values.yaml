@@ -160,6 +160,38 @@ services:
         cpu: "500m"
         memory: 512Mi
 
+  # ADR-0041 — Foundry Iceberg REST Catalog [Beta]. Coexists with
+  # Lakekeeper (ADR-0008): Lakekeeper still owns the external warehouse
+  # surface (audit-sink, ai-sink, lineage-service, dataset-versioning-service,
+  # event-streaming-service all keep ICEBERG_CATALOG_URL → lakekeeper).
+  # This service exposes the spec under `/iceberg/v1/*` plus the
+  # Foundry-internal admin endpoints under `/api/v1/iceberg-tables/*`
+  # consumed by `apps/web`. Migrations (`migrations/20260504*.sql`) are
+  # applied by the binary on boot via `sqlx::migrate!` against
+  # pg-schemas, mirroring the dataset-versioning-service pattern.
+  iceberg-catalog-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8197
+    env:
+      ICEBERG_CATALOG_HOST: 0.0.0.0
+      ICEBERG_CATALOG_PORT: "8197"
+      ICEBERG_CATALOG_WAREHOUSE_URI: s3://openfoundry-iceberg
+      IDENTITY_FEDERATION_URL: http://identity-federation-service:8080
+      OAUTH_INTEGRATION_URL: http://oauth-integration-service:8080
+    envSecrets:
+      DATABASE_URL:
+        secretName: pg-schemas-app
+        key: dsn
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
   media-sets-service:
     replicas: 2
     ports:

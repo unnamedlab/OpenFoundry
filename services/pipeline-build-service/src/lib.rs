@@ -19,6 +19,8 @@ pub mod handlers;
 pub mod models;
 pub mod spark;
 
+use crate::domain::build_executor::OutputTransactionClient;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -48,4 +50,11 @@ pub struct AppState {
     pub spark_namespace: String,
     /// Default `image:` for the SparkApplication CR.
     pub pipeline_runner_image: String,
+    /// ADR-0041 — productive [`OutputTransactionClient`] for Foundry
+    /// Iceberg outputs. `Some` when `FOUNDRY_ICEBERG_CATALOG_URL` is
+    /// set at boot; `None` means the binary did not find a catalog
+    /// and `main` already logged a warn so operators know that
+    /// catalog-side row-locking + multi-table atomicity (ADR-0041 §
+    /// Decision item 2) won't fire on Iceberg dataset commits.
+    pub iceberg_output_client: Option<Arc<dyn OutputTransactionClient>>,
 }

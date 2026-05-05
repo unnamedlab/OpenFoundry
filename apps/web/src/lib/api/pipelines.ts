@@ -350,6 +350,36 @@ export function validatePipelineById(pipelineId: string) {
   );
 }
 
+// FASE 4 — node-level preview. The canvas's lower preview panel hits
+// this endpoint whenever the operator selects a node. The backend
+// walks the chain back to leaf inputs, applies each transform in
+// memory and returns a deterministic sample window.
+export interface PipelinePreviewOutput {
+  pipeline_id: string;
+  node_id: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  sample_size: number;
+  generated_at: string;
+  seed: number;
+  source_chain: string[];
+  fresh: boolean;
+}
+
+export function previewPipelineNode(
+  pipelineId: string,
+  nodeId: string,
+  params?: { sample_size?: number },
+) {
+  const qs = new URLSearchParams();
+  if (params?.sample_size) qs.set('sample_size', String(params.sample_size));
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return api.post<PipelinePreviewOutput>(
+    `/pipelines/${pipelineId}/nodes/${encodeURIComponent(nodeId)}/preview${suffix}`,
+    {},
+  );
+}
+
 export function compilePipeline(body: CompilePipelineRequest) {
   return api.post<CompilePipelineResponse>('/pipelines/_compile', body);
 }

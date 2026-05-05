@@ -2001,6 +2001,7 @@ mod tests {
             kube_client: None,
             spark_namespace: "openfoundry-spark".to_string(),
             pipeline_runner_image: "localhost:5001/pipeline-runner:0.1.0".to_string(),
+            iceberg_output_client: None,
         }
     }
 

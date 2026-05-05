@@ -9,4 +9,5 @@ pub mod node_validator;
 pub mod param;
 pub mod parameterized;
 pub mod pipeline_type;
+pub mod preview;
 pub mod virtual_table_nodes;

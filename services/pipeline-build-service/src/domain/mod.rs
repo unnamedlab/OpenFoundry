@@ -4,6 +4,7 @@ pub mod build_executor;
 pub mod build_resolution;
 pub mod engine;
 pub mod executor;
+pub mod iceberg_output_client;
 pub mod job_graph;
 pub mod job_lifecycle;
 #[allow(dead_code)]

@@ -112,7 +112,7 @@ Browser / API Client                          :
 
 | Plane                | Owning ADR(s)                                                                                                                                                                                                                       |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Storage**          | [ADR-0008 — Iceberg REST Catalog (Lakekeeper only)](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md)                                                                                                                              |
+| **Storage**          | [ADR-0008 — Iceberg REST Catalog (Lakekeeper, external warehouse)](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md) + [ADR-0041 — `iceberg-catalog-service` (Foundry-internal catalog)](./adr/ADR-0041-iceberg-catalog-service.md) |
 | **Ingestion**        | [ADR-0011 — Control vs Data bus contract](./adr/ADR-0011-control-vs-data-bus-contract.md) (Kafka data plane)                                                                                                                        |
 | **Compute**          | [ADR-0009 — Internal query fabric: DataFusion + Flight SQL](./adr/ADR-0009-internal-query-fabric-datafusion-flightsql.md)                                                                                                           |
 | **Control**          | [ADR-0011 — Control vs Data bus contract](./adr/ADR-0011-control-vs-data-bus-contract.md) (NATS JetStream control plane)                                                                                                            |
@@ -146,9 +146,19 @@ each anchored to one of the planes above:
   [ADR-0011](./adr/ADR-0011-control-vs-data-bus-contract.md))
 - **Object storage** for datasets, archives, reports, and repository
   payloads — Rook Ceph (RBD-fast block + RGW S3 EC 4+2). The lakehouse
-  layer on top of this storage uses Apache Iceberg through a single
-  Lakekeeper REST Catalog, see
-  [ADR-0008](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
+  layer on top of this storage uses Apache Iceberg through **two
+  catalogs that coexist by design**:
+    - **Lakekeeper** owns the *external warehouse* surface used by
+      internal sinks (`audit-sink`, `ai-sink`, `lineage-service`,
+      `dataset-versioning-service`, `event-streaming-service`, the
+      Spark `pipeline-runner`) — see
+      [ADR-0008](./adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md).
+    - **`iceberg-catalog-service`** owns the *Foundry-internal*
+      catalog surface (multi-table all-or-nothing commit, markings +
+      Cedar, strict schema evolution, `master`↔`main` alias) consumed
+      by external Iceberg clients (PyIceberg, Spark, Trino, Snowflake)
+      and the Foundry `/iceberg-tables` admin UI — see
+      [ADR-0041](./adr/ADR-0041-iceberg-catalog-service.md).
 - Vespa for production search **and** local DX (single-node
   `vespaengine/vespa` container in `infra/docker-compose.yml`); pgvector
   for embedded vector search co-located with relational state.

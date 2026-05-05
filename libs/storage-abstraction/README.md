@@ -73,13 +73,33 @@ impl IcebergTable {
 }
 ```
 
+### Two Iceberg catalogs in OpenFoundry (ADR-0008 + ADR-0041)
+
+OpenFoundry runs **two** Iceberg REST catalogs side by side. The
+`storage-abstraction` crate's generic client (`iceberg-catalog-rest =
+"0.9"`) talks to either one by URL — the choice of catalog is owned by
+the calling service:
+
+| Catalog                                 | URL (in-cluster)                              | Owner / scope                                                                               | Callers                                                                                                            |
+|-----------------------------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| **Lakekeeper** (ADR-0008)               | `http://lakekeeper.lakekeeper.svc:8181`       | External warehouse / object-store integration. Stateless, OIDC, presigned S3 to Ceph RGW.   | Internal producers: `audit-sink`, `ai-sink`, `lineage-service`, `dataset-versioning-service`, `event-streaming-service`, the Spark `pipeline-runner`. They all set `ICEBERG_CATALOG_URL` to this Lakekeeper Service. |
+| **`iceberg-catalog-service`** (ADR-0041) | `http://iceberg-catalog-service.<release>.svc:8197` | Foundry-pattern catalog: REST spec + multi-table all-or-nothing commit, markings + Cedar, strict schema evolution, `master`↔`main` alias. | External Iceberg clients (PyIceberg, Spark, Trino, Snowflake) and the Foundry `/iceberg-tables` admin UI. Build executor opt-in via `FOUNDRY_ICEBERG_CATALOG_URL` (`pipeline-build-service`).                  |
+
+The two catalogs operate over **disjoint table namespaces** — they
+never own the same Iceberg table. Lakekeeper backs
+`lakekeeper.of_audit.events`, `lakekeeper.of_lineage.runs`,
+`lakekeeper.of_ai.*`; `iceberg-catalog-service` mints
+`ri.foundry.main.iceberg-table.<id>` RIDs over its own Postgres state.
+ADR-0041 supersedes ADR-0008 only for the *internal* catalog surface;
+Lakekeeper remains the chosen *external warehouse* adapter.
+
 ### Example: load a table from a REST Catalog and read it
 
 ```rust,ignore
 use storage_abstraction::iceberg::IcebergTable;
 
 let table = IcebergTable::load_table(
-    "http://localhost:8181", // the OpenFoundry-supported Iceberg REST Catalog (Lakekeeper — see ADR-0008)
+    "http://localhost:8181", // Lakekeeper REST endpoint (ADR-0008)
     &["analytics"],
     "events",
 )
@@ -90,6 +110,13 @@ for batch in &batches {
     println!("got {} rows", batch.num_rows());
 }
 ```
+
+> **Picking a catalog.** If you are an internal sink writing telemetry
+> tables under `lakekeeper.of_*`, use Lakekeeper. If you need
+> Foundry-style multi-table atomicity, marking enforcement or strict
+> schema evolution on tables your build executor produces, use
+> `iceberg-catalog-service` (ADR-0041) — see
+> [`services/iceberg-catalog-service/README.md`](../../services/iceberg-catalog-service/README.md).
 
 ### Example: connecting to Lakekeeper in-cluster
 

@@ -173,6 +173,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/pipelines/{id}/validate",
             post(handlers::validate_node::validate_pipeline_by_id),
         )
+        // FASE 4 — node-level preview. The canvas's lower preview panel
+        // hits this endpoint whenever the operator selects a node.
+        .route(
+            "/pipelines/{id}/nodes/{node_id}/preview",
+            post(handlers::preview::preview_pipeline_node_handler),
+        )
         .route("/pipelines/_compile", post(handlers::compiler::compile_pipeline))
         .route("/pipelines/_prune", post(handlers::compiler::prune_pipeline))
         // P2 — JobSpec publish/list. Foundry doc § "Job graph compilation":

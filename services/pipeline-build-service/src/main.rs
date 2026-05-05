@@ -21,6 +21,8 @@ use sqlx::postgres::PgPoolOptions;
 use storage_abstraction::StorageBackend;
 use tracing_subscriber::EnvFilter;
 
+use pipeline_build_service::domain::build_executor::OutputTransactionClient;
+use pipeline_build_service::domain::iceberg_output_client::IcebergOutputClient;
 use pipeline_build_service::{AppState, config::AppConfig, domain, handlers};
 
 #[tokio::main]
@@ -61,6 +63,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    // ADR-0041 — bootstrap the Foundry Iceberg catalog client when the
+    // operator pointed us at a catalog. Absence is supported (legacy
+    // deployments) but logged so the gap is visible.
+    let iceberg_output_client: Option<Arc<dyn OutputTransactionClient>> =
+        match app_config.foundry_iceberg_catalog_url.as_deref() {
+            Some(url) if !url.is_empty() => {
+                tracing::info!(
+                    catalog_url = %url,
+                    bearer_present = app_config.foundry_iceberg_catalog_bearer.is_some(),
+                    "FoundryIcebergTxn enabled — Iceberg outputs route to iceberg-catalog-service"
+                );
+                Some(Arc::new(IcebergOutputClient::new(
+                    url,
+                    app_config.foundry_iceberg_catalog_bearer.clone(),
+                    http_client.clone(),
+                )))
+            }
+            _ => {
+                tracing::warn!(
+                    "FoundryIcebergTxn disabled, multi-table atomicity not enforced \
+                     (set FOUNDRY_ICEBERG_CATALOG_URL to enable; ADR-0041)"
+                );
+                None
+            }
+        };
+
     let state = AppState {
         db,
         jwt_config: jwt_config.clone(),
@@ -84,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kube_client,
         spark_namespace: app_config.spark_namespace.clone(),
         pipeline_runner_image: app_config.pipeline_runner_image.clone(),
+        iceberg_output_client,
     };
 
     domain::metrics::init();

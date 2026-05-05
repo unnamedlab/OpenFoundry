@@ -1,0 +1,135 @@
+---
+# Helm values for the upstream Kite Kubernetes dashboard chart.
+#
+# Chart coordinates (verify before each upgrade):
+#   repository: https://kite-org.github.io/kite/
+#   chart:      kite
+#   version:    0.11.0
+#   upstream:   https://github.com/kite-org/kite
+#   license:    Apache-2.0
+#
+# Install (kept here for parity with neighbouring values.yaml files;
+# the helmfile entrypoint at ../../helmfile.yaml.gotmpl drives real
+# installs):
+#   helm repo add kite https://kite-org.github.io/kite/
+#   helm upgrade --install kite kite/kite \
+#     -n kite --create-namespace --version 0.11.0 \
+#     -f infra/helm/infra/kite/values.yaml
+#
+# Scope
+# -----
+# Kite is a read/write web UI for Kubernetes (similar to lens / k8s-dashboard).
+# It backs onto an embedded SQLite database for users, sessions and saved
+# config. We persist that file so user state survives pod restarts and image
+# bumps. No Postgres, no external auth, no ingress wired up by default —
+# expose the Service via port-forward in dev, and add ingress + OAuth in
+# staging/prod via the profile overlays once those exist.
+#
+# Security note
+# -------------
+# `encryptKey` below ships an upstream sentinel value. Override it via a
+# pre-created Secret + `secret.existingSecret` in any non-dev profile.
+
+# Pin the application image to the chart's appVersion (v0.11.0) — leaving
+# `tag` empty intentionally so it tracks the chart and a deliberate chart
+# bump moves both image and templates together.
+image:
+  repository: ghcr.io/kite-org/kite
+  pullPolicy: IfNotPresent
+  tag: ""
+
+# SQLite + ReadWriteOnce PVC means the old pod must release the volume
+# before the new one can mount it. Rolling updates would deadlock here.
+deploymentStrategy:
+  type: Recreate
+
+replicaCount: 1
+
+# Anonymous full-admin access is convenient but insecure; require login.
+# Bootstrap an admin user via the upstream UI on first launch.
+anonymousUserEnabled: false
+
+# Persist the embedded SQLite database.
+db:
+  type: sqlite
+  sqlite:
+    persistence:
+      pvc:
+        enabled: true
+        # k3s ships `local-path` as the default StorageClass.
+        # Override per profile (e.g. `rook-ceph-block` in prod) when adding
+        # profile overlays.
+        storageClass: ""
+        accessModes: [ReadWriteOnce]
+        size: 1Gi
+      mountPath: /data
+      filename: kite.db
+    # Enable WAL + a generous busy timeout so concurrent reads from the
+    # health probes don't lock the writer out under bursty UI traffic.
+    options: "_journal_mode=WAL&_busy_timeout=5000"
+
+# Modest, predictable footprint. The dashboard streams from the kube API,
+# so steady-state usage is low; bursts come from list-all queries.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# RBAC: cluster-wide read/write. Kite is an interactive admin UI — the
+# whole point is to inspect and edit any resource — so the upstream-default
+# wildcard ClusterRole is intentional. Tighten via `config.rbac.*` (in-app
+# RBAC layered on top of OIDC) before exposing externally.
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  automount: true
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Ingress wiring intentionally left disabled. The OpenFoundry edge gateway
+# (apps/of-platform) does not yet front operations tooling, and exposing a
+# cluster-admin UI on the public ingress class without OIDC in front would
+# be unsafe. Reach the dashboard with:
+#   kubectl -n kite port-forward svc/kite 8080:8080
+ingress:
+  enabled: false
+
+# Pod hardening — non-root, drop all caps, no privilege escalation.
+# The container writes to /data (PVC) and /tmp; root-fs is read-only.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6

@@ -7,6 +7,16 @@ Iceberg clients (PyIceberg, Spark, Trino, Snowflake) consume.
 
 [rest-catalog-spec]: https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml
 
+> **Coexists with Lakekeeper.** This service is the *internal* Foundry
+> catalog defined by [ADR-0041](../../docs/architecture/adr/ADR-0041-iceberg-catalog-service.md).
+> It does **not** replace Lakekeeper, which remains the *external
+> warehouse* catalog ([ADR-0008](../../docs/architecture/adr/ADR-0008-iceberg-rest-catalog-lakekeeper.md))
+> used by `audit-sink`, `ai-sink`, `lineage-service`,
+> `dataset-versioning-service` and `event-streaming-service`. The two
+> catalogs operate over disjoint table namespaces — see
+> [`libs/storage-abstraction/README.md`](../../libs/storage-abstraction/README.md#two-iceberg-catalogs-in-openfoundry-adr-0008--adr-0041)
+> for the responsibility split.
+
 ## Status — D1.1.8 4/5 (Beta)
 
 | Phase | Scope                                            | State    |

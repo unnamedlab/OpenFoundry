@@ -34,5 +34,116 @@ services:
       targetMemoryUtilizationPercentage: 80
       keda:
         enabled: false
+    envSecrets:
+      DATABASE_URL:
+        secretName: sql-bi-gateway-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: sql-bi-gateway-db-dsn
+        key: reader_url
   pipeline-build-service:
     replicas: 1
+  analytical-logic-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: analytical-logic-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: analytical-logic-db-dsn
+        key: reader_url
+  cdc-metadata-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: cdc-metadata-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: cdc-metadata-db-dsn
+        key: reader_url
+  checkpoints-purpose-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: checkpoints-purpose-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: checkpoints-purpose-db-dsn
+        key: reader_url
+  connector-management-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: connector-management-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: connector-management-db-dsn
+        key: reader_url
+  data-asset-catalog-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: data-asset-catalog-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: data-asset-catalog-db-dsn
+        key: reader_url
+  dataset-versioning-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: dataset-versioning-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: dataset-versioning-db-dsn
+        key: reader_url
+  event-streaming-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: event-streaming-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: event-streaming-db-dsn
+        key: reader_url
+  ingestion-replication-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: ingestion-replication-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: ingestion-replication-db-dsn
+        key: reader_url
+  lineage-deletion-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: lineage-deletion-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: lineage-deletion-db-dsn
+        key: reader_url
+  pipeline-authoring-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: pipeline-authoring-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: pipeline-authoring-db-dsn
+        key: reader_url
+  retention-policy-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: retention-policy-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: retention-policy-db-dsn
+        key: reader_url
+  sql-warehousing-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: sql-warehousing-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: sql-warehousing-db-dsn
+        key: reader_url
+  time-series-data-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: time-series-data-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: time-series-data-db-dsn
+        key: reader_url

@@ -43,6 +43,12 @@ pub struct GatewayConfig {
     pub data_asset_catalog_service_url: String,
     #[serde(default = "default_dataset_quality_service_url")]
     pub dataset_quality_service_url: String,
+    /// ADR-0041 — `iceberg-catalog-service` for both the admin surface
+    /// (`/api/v1/iceberg-tables/*`, `/v1/iceberg-clients/api-tokens`)
+    /// consumed by `apps/web` and the spec endpoints (`/iceberg/v1/*`)
+    /// consumed by external clients (PyIceberg, Spark, Trino).
+    #[serde(default = "default_iceberg_catalog_service_url")]
+    pub iceberg_catalog_service_url: String,
     #[serde(default = "default_query_url")]
     pub query_service_url: String,
     #[serde(default = "default_pipeline_authoring_service_url")]
@@ -196,6 +202,9 @@ fn default_data_asset_catalog_service_url() -> String {
 }
 fn default_dataset_quality_service_url() -> String {
     "http://localhost:50072".to_string()
+}
+fn default_iceberg_catalog_service_url() -> String {
+    "http://localhost:8197".to_string()
 }
 fn default_query_url() -> String {
     "http://localhost:50133".to_string()

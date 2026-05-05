@@ -10,7 +10,7 @@ follow.
 | ADR file                                                                                                                                  | Status   | Date       | Title                                                                                  |
 | ----------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------------------------------------------- |
 | [`ADR-0007-search-engine-choice.md`](./ADR-0007-search-engine-choice.md)                                                                  | Accepted | 2026-04-29 | Search engine choice — Vespa only (no OpenSearch)                                      |
-| [`ADR-0008-iceberg-rest-catalog-lakekeeper.md`](./ADR-0008-iceberg-rest-catalog-lakekeeper.md)                                            | Accepted | 2026-04-29 | Iceberg REST Catalog — Lakekeeper only                                                 |
+| [`ADR-0008-iceberg-rest-catalog-lakekeeper.md`](./ADR-0008-iceberg-rest-catalog-lakekeeper.md)                                            | Accepted (partially superseded by [ADR-0041](./ADR-0041-iceberg-catalog-service.md) for the internal catalog surface) | 2026-04-29 | Iceberg REST Catalog — Lakekeeper (external warehouse)                                 |
 | [`ADR-0009-internal-query-fabric-datafusion-flightsql.md`](./ADR-0009-internal-query-fabric-datafusion-flightsql.md)                      | Superseded by [ADR-0014](./ADR-0014-retire-trino-flight-sql-only.md) | 2026-04-29 | Internal query fabric — DataFusion + Flight SQL (Trino as edge BI only)                |
 | [`ADR-0010-cnpg-postgres-operator.md`](./ADR-0010-cnpg-postgres-operator.md)                                                              | Accepted | 2026-04-29 | CloudNativePG (CNPG) as the single PostgreSQL operator                                 |
 | [`ADR-0011-control-vs-data-bus-contract.md`](./ADR-0011-control-vs-data-bus-contract.md)                                                  | Accepted | 2026-04-29 | Control vs Data bus — contract enforcement (NATS JetStream vs Kafka)                   |
@@ -18,6 +18,7 @@ follow.
 | [`ADR-0013-kafka-kraft-no-spof-policy.md`](./ADR-0013-kafka-kraft-no-spof-policy.md)                                                      | Accepted | 2026-04-30 | Kafka KRaft no-SPOF policy and upgrade procedure                                       |
 | [`ADR-0014-retire-trino-flight-sql-only.md`](./ADR-0014-retire-trino-flight-sql-only.md)                                                  | Accepted | 2026-04-30 | Retire Trino, single Flight SQL edge gateway                                           |
 | [`ADR-0038-event-contract-and-idempotency.md`](./ADR-0038-event-contract-and-idempotency.md)                                              | Accepted | 2026-05-04 | Event contract and idempotency for Foundry-pattern orchestration                       |
+| [`ADR-0041-iceberg-catalog-service.md`](./ADR-0041-iceberg-catalog-service.md)                                                            | Accepted (Beta) | 2026-05-05 | `iceberg-catalog-service` — Foundry-internal Iceberg REST Catalog (supersedes ADR-0008 for the internal surface) |
 
 ADR-0001 through ADR-0006 are historical placeholders and are intentionally
 not present in this repository: the data-plane consolidation effort that
@@ -63,7 +64,7 @@ disagrees, this README wins.
 
 ## Adding a new ADR
 
-1. Pick the next free four-digit number (currently **`ADR-0039`**) — never
+1. Pick the next free four-digit number (currently **`ADR-0042`**) — never
     reuse a previous number even if the ADR was retracted.
 2. Create `ADR-NNNN-short-kebab-title.md` in this directory.
 3. Use the standard heading layout already in place across `ADR-0007` …

@@ -193,7 +193,7 @@ features = ["serde"]
 
 [workspace.dependencies.uuid]
 version = "1"
-features = ["v5", "v7", "serde"]
+features = ["v4", "v5", "v7", "serde"]
 
 [workspace.dependencies.vector-store]
 path = "libs/vector-store"

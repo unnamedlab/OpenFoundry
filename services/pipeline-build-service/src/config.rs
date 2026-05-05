@@ -54,6 +54,22 @@ pub struct AppConfig {
     pub spark_namespace: String,
     #[serde(default = "default_pipeline_runner_image")]
     pub pipeline_runner_image: String,
+
+    // ADR-0041 — when set, the binary instantiates an
+    // [`iceberg_output_client::IcebergOutputClient`] pointed at this
+    // base URL so commits / aborts on Iceberg dataset RIDs hit the
+    // Foundry catalog's spec endpoints. Unset → `main` logs a warn
+    // and the executor keeps using whatever fallback client the rest
+    // of the wiring provides; the catalog's row-locked, all-or-nothing
+    // semantics are NOT enforced in that mode.
+    #[serde(default)]
+    pub foundry_iceberg_catalog_url: Option<String>,
+    /// Bearer token (typically a long-lived `ofty_*` API token) sent
+    /// on every catalog call. Unset → no `Authorization` header is
+    /// added; the catalog will reject the request unless the route is
+    /// open. Production deployments should always set this.
+    #[serde(default)]
+    pub foundry_iceberg_catalog_bearer: Option<String>,
 }
 
 fn default_host() -> String {

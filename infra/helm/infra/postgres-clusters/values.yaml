@@ -101,3 +101,77 @@ pgLakekeeper:
     workMem: 16MB
     effectiveCacheSize: 2GB
     maxConnections: "200"
+
+dsnSecrets:
+  # Auto-generate <bc>-db-dsn Secrets for each bounded context.
+  # In dev: enabled=true uses the literal placeholder password.
+  # In prod: should be replaced by External Secrets Operator syncing from Vault.
+  enabled: true
+  password: "PLACEHOLDER_ROTATE_VIA_EXTERNAL_SECRETS"
+  namespace: openfoundry
+  # bc names are SNAKE_CASE (Postgres identifiers). Must match the
+  # bcs TEXT[] arrays in the bootstrap-SQL ConfigMaps under
+  # templates/clusters/. Single source of truth for the dev environment.
+  bcs:
+    pg-schemas:
+      - data_asset_catalog
+      - dataset_versioning
+      - lineage
+      - cdc_metadata
+      - model_catalog
+      - model_adapter
+      - model_lifecycle
+      - connector_management
+      - tenancy_organizations
+      - federation_product_exchange
+      - marketplace
+      - nexus
+      - sdk_generation
+      - solution_design
+      - code_repository_review
+      - document_reporting
+      - analytical_logic
+      - event_streaming
+      - ingestion_replication
+      - ai_application_generation
+      - document_intelligence
+      - mcp_orchestration
+      - scenario_simulation
+    pg-policy:
+      - identity_federation
+      - oauth_integration
+      - network_boundary
+      - cipher
+      - security_governance
+      - sds
+      - audit_compliance
+      - retention_policy
+      - lineage_deletion
+      - checkpoints_purpose
+      - telemetry_governance
+      - code_security_scanning
+    pg-runtime-config:
+      - agent_runtime
+      - notebook_runtime
+      - managed_workspace
+      - custom_endpoints
+      - developer_console
+      - app_builder
+      - application_composition
+      - spreadsheet_computation
+      - notification_alerting
+      - monitoring_rules
+      - health_check
+      - execution_observability
+      - workflow_automation
+      - automation_operations
+      - workflow_trace
+      - pipeline_authoring
+      - compute_modules_control_plane
+      - compute_modules_runtime
+      - sql_bi_gateway
+      - sql_warehousing
+      - tabular_analysis
+      - time_series_data
+      - report
+      - reindex_coordinator

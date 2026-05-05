@@ -19,3 +19,51 @@ global:
 services:
   ai-sink:
     replicas: 1
+  agent-runtime-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: agent-runtime-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: agent-runtime-db-dsn
+        key: reader_url
+  ai-application-generation-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: ai-application-generation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: ai-application-generation-db-dsn
+        key: reader_url
+  mcp-orchestration-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: mcp-orchestration-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: mcp-orchestration-db-dsn
+        key: reader_url
+  model-adapter-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: model-adapter-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: model-adapter-db-dsn
+        key: reader_url
+  model-catalog-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: model-catalog-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: model-catalog-db-dsn
+        key: reader_url
+  model-lifecycle-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: model-lifecycle-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: model-lifecycle-db-dsn
+        key: reader_url

@@ -14,6 +14,12 @@ metadata:
   name: of-cass-dev
   namespace: {{ $.Release.Namespace }}
 spec:
+  # Disable auth in dev — services using cassandra-kernel construct
+  # ClusterConfig via `..dev_local()` which discards CASSANDRA_USERNAME
+  # /CASSANDRA_PASSWORD env vars (TODO: read env vars in dev_local()).
+  # Until that lib fix lands, dev clusters skip auth so services connect
+  # anonymously. Prod uses auth: true via cluster-prod.yaml.
+  auth: false
   cassandra:
     serverVersion: "5.0.2"
     serverType: cassandra

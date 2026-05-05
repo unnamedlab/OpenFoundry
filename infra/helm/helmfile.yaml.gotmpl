@@ -48,6 +48,8 @@ repositories:
     url: https://downloads.apache.org/flink/flink-kubernetes-operator-1.13.0/
   - name: lakekeeper
     url: https://lakekeeper.github.io/lakekeeper-charts
+  - name: kite
+    url: https://kite-org.github.io/kite/
 
 environments:
   default:   { values: [{ profile: dev     }] }
@@ -284,6 +286,16 @@ releases:
     chart: ./infra/local-registry
     values:
       - ./infra/local-registry/values.yaml
+
+  # Kite — Kubernetes dashboard (https://github.com/kite-org/kite).
+  # Read-mostly UI consumed against the kube API server. No upstream
+  # operator dependency; safe to install in every profile including dev.
+  - name: kite
+    namespace: kite
+    chart: kite/kite
+    version: "0.11.0"
+    values:
+      - ./infra/kite/values.yaml
 
   # ───────────────────────────────────────────────────────────────────
   # Layer 3 — OpenFoundry application charts

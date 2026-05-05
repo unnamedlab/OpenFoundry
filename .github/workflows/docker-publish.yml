@@ -31,6 +31,7 @@ jobs:
           - audit-compliance-service
           - data-asset-catalog-service
           - edge-gateway-service
+          - iceberg-catalog-service
           - identity-federation-service
           - ontology-actions-service
           - ontology-definition-service

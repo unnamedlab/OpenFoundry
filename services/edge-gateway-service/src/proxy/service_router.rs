@@ -148,6 +148,19 @@ pub async fn proxy_handler(
         && (path.ends_with("/quality") || path.contains("/quality/") || path.ends_with("/lint"))
     {
         &config.dataset_quality_service_url
+    } else if path.starts_with("/api/v1/iceberg-tables")
+        || path.starts_with("/iceberg/v1/")
+        || path == "/iceberg/v1"
+        || path.starts_with("/v1/iceberg-clients")
+    {
+        // ADR-0041 — both the Foundry admin surface
+        // (`/api/v1/iceberg-tables/*` for the `/iceberg-tables` UI in
+        // `apps/web`) and the Iceberg REST Catalog spec endpoints
+        // (`/iceberg/v1/*` consumed by PyIceberg / Spark / Trino /
+        // Snowflake) are owned by `iceberg-catalog-service`.
+        // `/v1/iceberg-clients/api-tokens` is the API-token issuer the
+        // UI calls when a user mints a long-lived `ofty_*` token.
+        &config.iceberg_catalog_service_url
     } else if path.starts_with("/api/v1/datasets/")
         && (path.ends_with("/versions")
             || path.ends_with("/transactions")
@@ -628,12 +641,21 @@ mod tests {
     }
 
     fn gateway_config(catalog_url: &str, versioning_url: &str) -> GatewayConfig {
+        gateway_config_with_iceberg(catalog_url, versioning_url, catalog_url)
+    }
+
+    fn gateway_config_with_iceberg(
+        catalog_url: &str,
+        versioning_url: &str,
+        iceberg_url: &str,
+    ) -> GatewayConfig {
         let source = format!(
             r#"
                 jwt_secret = "test-secret"
                 data_asset_catalog_service_url = "{catalog_url}"
                 dataset_versioning_service_url = "{versioning_url}"
                 dataset_quality_service_url = "{catalog_url}"
+                iceberg_catalog_service_url = "{iceberg_url}"
             "#
         );
         ::config::Config::builder()
@@ -650,6 +672,10 @@ mod tests {
     fn test_router(config: GatewayConfig) -> Router {
         Router::new()
             .route("/api/v1/{*rest}", any(proxy_handler))
+            // ADR-0041 — gateway exposes the catalog spec endpoints
+            // and the API-token issuer alongside `/api/v1/*`.
+            .route("/iceberg/v1/{*rest}", any(proxy_handler))
+            .route("/v1/iceberg-clients/{*rest}", any(proxy_handler))
             .with_state((config, Client::new(), JwtConfig::new("test-secret")))
     }
 
@@ -711,6 +737,70 @@ mod tests {
                 request(&router, method, uri.clone()).await,
                 StatusCode::OK,
                 "{uri} should proxy successfully"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn iceberg_admin_and_spec_paths_proxy_to_iceberg_catalog_service() {
+        // ADR-0041 — both the Foundry admin surface
+        // (`/api/v1/iceberg-tables/*`) consumed by `apps/web` and the
+        // Iceberg REST Catalog spec endpoints (`/iceberg/v1/*`)
+        // consumed by external clients land on
+        // `iceberg-catalog-service`. The spec endpoints are NOT under
+        // `/api/v1` so they need a dedicated proxy mount.
+        let other = MockServer::start().await;
+        let iceberg = MockServer::start().await;
+        let router = test_router(gateway_config_with_iceberg(
+            &other.uri(),
+            &other.uri(),
+            &iceberg.uri(),
+        ));
+        let id = Uuid::nil();
+
+        // Admin surface (UI). Path is forwarded verbatim to the
+        // catalog because the proxy does not rewrite this prefix.
+        expect_mock(&iceberg, "GET", "/api/v1/iceberg-tables".to_string()).await;
+        expect_mock(&iceberg, "GET", format!("/api/v1/iceberg-tables/{id}")).await;
+        expect_mock(
+            &iceberg,
+            "GET",
+            format!("/api/v1/iceberg-tables/{id}/snapshots"),
+        )
+        .await;
+        // Spec surface (PyIceberg / Spark / Trino).
+        expect_mock(&iceberg, "GET", "/iceberg/v1/config".to_string()).await;
+        expect_mock(
+            &iceberg,
+            "POST",
+            "/iceberg/v1/transactions/commit".to_string(),
+        )
+        .await;
+        // API-token issuer.
+        expect_mock(
+            &iceberg,
+            "POST",
+            "/v1/iceberg-clients/api-tokens".to_string(),
+        )
+        .await;
+
+        let checks = vec![
+            (Method::GET, "/api/v1/iceberg-tables".to_string()),
+            (Method::GET, format!("/api/v1/iceberg-tables/{id}")),
+            (
+                Method::GET,
+                format!("/api/v1/iceberg-tables/{id}/snapshots"),
+            ),
+            (Method::GET, "/iceberg/v1/config".to_string()),
+            (Method::POST, "/iceberg/v1/transactions/commit".to_string()),
+            (Method::POST, "/v1/iceberg-clients/api-tokens".to_string()),
+        ];
+
+        for (method, uri) in checks {
+            assert_eq!(
+                request(&router, method, uri.clone()).await,
+                StatusCode::OK,
+                "{uri} should proxy to iceberg-catalog-service"
             );
         }
     }
