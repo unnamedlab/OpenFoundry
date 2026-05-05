@@ -221,11 +221,15 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/retrieval-context-service/src/document_intelligence/handlers.rs"], tables = ["document_intelligence_extractions", "document_intelligence_jobs", "document_intelligence_status_events"] }
 tables = ["document_intelligence_jobs", "document_intelligence_status_events", "document_intelligence_extractions"]
 
+# S8 / ADR-0030: `document-reporting-service` merged →
+# `notebook-runtime-service`. The notepad schema lives under
+# `services/notebook-runtime-service/migrations/` and the runtime
+# owner is `notebook-runtime-service`.
 [[entries]]
-component = "services/document-reporting-service"
-service = "document-reporting-service"
-migration_dir = "services/document-reporting-service/migrations"
-schema = "document_reporting"
+component = "services/notebook-runtime-service"
+service = "notebook-runtime-service"
+migration_dir = "services/notebook-runtime-service/migrations"
+schema = "notepad"
 residency = "pg-schemas"
 tables = ["notepad_documents", "notepad_presence"]
 
@@ -469,13 +473,15 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/solution-design-service/src/handlers.rs"], tables = ["solution_diagrams", "solution_references"] }
 tables = ["solution_diagrams", "solution_references"]
 
+# S8 / ADR-0030: `spreadsheet-computation-service` merged →
+# `notebook-runtime-service`. The source was a scaffold placeholder;
+# the schema is preserved on `notebook-pg` for future work.
 [[entries]]
-component = "services/spreadsheet-computation-service"
-service = "spreadsheet-computation-service"
-migration_dir = "services/spreadsheet-computation-service/migrations"
+component = "services/notebook-runtime-service"
+service = "notebook-runtime-service"
+migration_dir = "services/notebook-runtime-service/migrations"
 schema = "spreadsheet_computation"
 residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/spreadsheet-computation-service/src/handlers.rs"], tables = ["spreadsheet_recalcs", "spreadsheet_sheets"] }
 tables = ["spreadsheet_sheets", "spreadsheet_recalcs"]
 
 [[entries]]

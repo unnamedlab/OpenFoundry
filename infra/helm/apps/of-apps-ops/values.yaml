@@ -420,18 +420,10 @@ services:
   # belong to the apps-ops plane; this release no longer renders a
   # Deployment for it. ──
 
-  document-reporting-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `document-reporting-service` merged →
+  # `notebook-runtime-service`. The notepad domain
+  # (`notepad_documents` schema, `/api/v1/notepad/*` HTTP surface)
+  # now lives in the notebook runtime; no Deployment renders here.
 
   execution-observability-service:
     replicas: 2
@@ -576,18 +568,11 @@ services:
         cpu: "500m"
         memory: 512Mi
 
-  spreadsheet-computation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 — `spreadsheet-computation-service` merged →
+  # `notebook-runtime-service`. The source was a scaffold placeholder
+  # (`fn main() {}`, generic CRUD over `spreadsheet_sheets` /
+  # `spreadsheet_recalcs`); schema preserved on `notebook-pg`. No
+  # Deployment renders here.
 
   tabular-analysis-service:
     # S8 / ADR-0030: retired — merged into `sql-bi-gateway-service`

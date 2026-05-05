@@ -7,9 +7,10 @@
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
 > Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
-> code-repository-review + workflow-trace + event-streaming
-> consolidation). The live repository has **81 directories** under
-> `services/` (`ls services/ | wc -l`). S8 is now measured as
+> code-repository-review + workflow-trace + event-streaming +
+> notebook-runtime consolidation). The live repository has **79
+> directories** under `services/` (`ls services/ | wc -l`). S8 is now
+> measured as
 > ownership/deployment consolidation, not as physical reduction of the
 > source tree to 30 directories. The three retired stubs
 > `health-check-service`, `tool-registry-service` and
@@ -81,7 +82,7 @@
 | `dataset-versioning-service` | `dataset-versioning-service` | keep | sole runtime owner of `dataset_versions`, `dataset_branches`, `dataset_transactions`; Iceberg owns snapshots/data state |
 | `developer-console-service` | `application-composition-service` | merge → `application-composition-service` | |
 | `document-intelligence-service` | `retrieval-context-service` | merged → `retrieval-context-service` | S8: directory removed; sketch handlers/models preserved under `services/retrieval-context-service/src/document_intelligence/` and gated behind a new `parsers` Cargo feature so parser pipelines stay out of the default CI compile path. The `document_intelligence_jobs` / `_status_events` / `_extractions` migration is folded into `services/retrieval-context-service/migrations/0001_document_intelligence_foundation.sql`; tables stay on `pg-schemas`. |
-| `document-reporting-service` | `notebook-runtime-service` | merge → `notebook-runtime-service` | |
+| `document-reporting-service` | `notebook-runtime-service` | merged → `notebook-runtime-service` | S8: directory removed; the notepad domain (`domain/notepad.rs`, `handlers/notepad.rs`, `models/notepad.rs`) was already byte-identical between source and target before this merge — the source crate had degenerated to `fn main() {}` plus three `pub mod notepad;` shims. Migration `20260425193000_notepad_documents.sql` moved to `services/notebook-runtime-service/migrations/`. Edge gateway `/api/v1/notepad/*` retargeted at `notebook-runtime-service`. Helm Deployment retired from `of-apps-ops`. |
 | `edge-gateway-service` | `edge-gateway-service` | keep | |
 | `entity-resolution-service` | `entity-resolution-service` | keep | specialised matching |
 | `event-streaming-service` | `ingestion-replication-service` | merged → `ingestion-replication-service` | S8: directory removed; ~100 source files (`backends/`, `domain/`, `grpc/`, `handlers/`, `models/`, `outbox`, `router/`, `runtime/`, `storage/`) absorbed under `services/ingestion-replication-service/src/event_streaming/` preserving the source `AppState`. Cargo features merged: `kafka-rdkafka`, `kafka-it`, `rocksdb-state`, `flink-runtime`. 20 SQL migrations moved to `services/ingestion-replication-service/migrations/streaming/` (schema namespace `event_streaming` on `pg-schemas` preserved). 18 integration tests moved to `services/ingestion-replication-service/tests/`. `proto/streaming/{router,streams}.proto` now compiled with both server and client stubs by the consolidated build.rs. Helm Deployment retired from `of-data-engine`; `EVENT_STREAMING_SERVICE_URL` repointed at `ingestion-replication-service:50121`. The streaming runtime wiring into the consolidated binary's main is a follow-up. |
@@ -142,7 +143,7 @@
 | `security-governance-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
 | `session-governance-service` | `identity-federation-service` | merge → `identity-federation-service` | |
 | `solution-design-service` | `solution-design-service` | keep | |
-| `spreadsheet-computation-service` | `notebook-runtime-service` | merge → `notebook-runtime-service` | |
+| `spreadsheet-computation-service` | `notebook-runtime-service` | merged → `notebook-runtime-service` | S8: directory removed; source was a `tools/scaffold_p59_p85.py` placeholder (`fn main() {}` stub, generic CRUD over `spreadsheet_sheets` / `spreadsheet_recalcs` with JSONB payloads, no production callers of `/api/v1/spreadsheets/*`). Migration `20260427070600_03_spreadsheet_sheets_foundation.sql` moved to `services/notebook-runtime-service/migrations/` so the schema remains on `notebook-pg`. Helm Deployment retired from `of-apps-ops`. |
 | `sql-bi-gateway-service` | `sql-bi-gateway-service` | keep | absorbs warehousing, tabular, analytical-logic |
 | `sql-warehousing-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; `warehouse_jobs` / `warehouse_transformations` / `warehouse_storage_artifacts` schemas folded into `services/sql-bi-gateway-service/migrations/`; CRUD served at `/api/v1/warehouse/*`. |
 | `tabular-analysis-service` | `sql-bi-gateway-service` | merged → `sql-bi-gateway-service` | S8: directory removed; `tabular_analysis_jobs` / `tabular_analysis_results` schemas folded into `services/sql-bi-gateway-service/migrations/`; CRUD served at `/api/v1/tabular/*`. |
@@ -169,12 +170,12 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 38 |
-| merged → X (completed) | 18 |
+| merge → X (pending) | 36 |
+| merged → X (completed) | 20 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **81** |
+| **Total current service directories** | **79** |
 | **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 

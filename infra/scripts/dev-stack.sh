@@ -20,7 +20,6 @@ SERVICES=(
   agent-runtime-service
   workflow-automation-service
   notebook-runtime-service
-  document-reporting-service
   app-builder-service
   report-service
   marketplace-service

@@ -84,14 +84,8 @@ services:
   # tables now ship under retrieval-context-service' migrations against
   # `pg-schemas`; the retrieval-context DSN gets wired in of-ml-aip's
   # values-dev.yaml when its runtime is implemented.
-  document-reporting-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: document-reporting-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: document-reporting-db-dsn
-        key: reader_url
+  # S8 / ADR-0030: document-reporting-service merged → notebook-runtime-service.
+  # The notepad domain reuses the notebook-runtime DSN.
   execution-observability-service:
     envSecrets:
       DATABASE_URL:
@@ -196,14 +190,9 @@ services:
       DATABASE_READ_URL:
         secretName: solution-design-db-dsn
         key: reader_url
-  spreadsheet-computation-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: spreadsheet-computation-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: spreadsheet-computation-db-dsn
-        key: reader_url
+  # S8 / ADR-0030: spreadsheet-computation-service merged → notebook-runtime-service.
+  # The spreadsheet schema reuses the notebook-runtime DSN; the runtime
+  # owner today is a stub (scaffold placeholder source).
   tabular-analysis-service:
     envSecrets:
       DATABASE_URL:

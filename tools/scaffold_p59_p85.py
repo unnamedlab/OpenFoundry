@@ -51,16 +51,9 @@ SERVICES_SPEC = [
         "notebook_runtime_sessions",
         "notebook_id UUID NOT NULL, kernel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'idle'",
     ),
-    (
-        "spreadsheet-computation-service",
-        "Collaborative spreadsheets: formulas, recalculation and writeback",
-        50135,
-        "/api/v1/spreadsheets/sheets",
-        "spreadsheet_sheets",
-        "name TEXT NOT NULL, owner_id UUID NOT NULL, schema JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "spreadsheet_recalcs",
-        "sheet_id UUID NOT NULL, status TEXT NOT NULL DEFAULT 'queued', result JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `spreadsheet-computation-service` (was port 50135, /api/v1/spreadsheets/sheets)
+    # merged → `notebook-runtime-service` per ADR-0030 (S8). Schema
+    # (`spreadsheet_sheets` / `spreadsheet_recalcs`) preserved on `notebook-pg`.
     # S8 / ADR-0030: `analytical-logic-service` was merged into
     # `sql-bi-gateway-service` and reduced to the internal
     # `libs/analytical-logic` crate. It is intentionally absent here so

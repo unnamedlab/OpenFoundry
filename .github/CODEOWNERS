@@ -196,7 +196,6 @@
 /services/pipeline-authoring-service/                   @open-foundry/data-platform
 /services/pipeline-build-service/                       @open-foundry/data-platform
 /services/pipeline-schedule-service/                    @open-foundry/data-platform
-/services/spreadsheet-computation-service/              @open-foundry/data-platform
 /services/sql-bi-gateway-service/                       @open-foundry/data-platform @open-foundry/analytics-team
 /services/sql-warehousing-service/                      @open-foundry/data-platform
 /services/tabular-analysis-service/                     @open-foundry/data-platform @open-foundry/analytics-team
@@ -212,7 +211,6 @@
 /services/workflow-automation-service/                  @open-foundry/workflow-team
 
 # --- Analytics / reports / geospatial / nexus ---
-/services/document-reporting-service/                   @open-foundry/analytics-team
 /services/federation-product-exchange-service/          @open-foundry/analytics-team @open-foundry/data-platform
 /services/geospatial-intelligence-service/              @open-foundry/analytics-team
 /services/nexus-service/                                @open-foundry/analytics-team

@@ -5,7 +5,7 @@ SERVICES = [
     ("ontology-timeseries-analytics-service", 50132, "ontology_timeseries_analytics", "OPENFOUNDRY_ONTOLOGY_TIMESERIES_ANALYTICS_HOST_PORT"),
     ("sql-bi-gateway-service", 50133, "sql_bi_gateway", "OPENFOUNDRY_SQL_BI_GATEWAY_HOST_PORT"),
     ("notebook-runtime-service", 50134, "notebook_runtime", "OPENFOUNDRY_NOTEBOOK_RUNTIME_HOST_PORT"),
-    ("spreadsheet-computation-service", 50135, "spreadsheet_computation", "OPENFOUNDRY_SPREADSHEET_COMPUTATION_HOST_PORT"),
+    # `spreadsheet-computation-service` (was 50135) merged → `notebook-runtime-service` per ADR-0030 (S8).
     # S8 / ADR-0030: `analytical-logic-service` retired — see
     # `tools/scaffold_p59_p85.py` and `libs/analytical-logic`.
     ("workflow-automation-service", 50137, "workflow_automation", "OPENFOUNDRY_WORKFLOW_AUTOMATION_HOST_PORT"),

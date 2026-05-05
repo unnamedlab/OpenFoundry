@@ -4062,25 +4062,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "document-reporting-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "axum-extra",
- "chrono",
- "config",
- "core-models",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tonic",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10814,25 +10795,6 @@ checksum = "1d9efca8738c78ee9484207732f728b1ef517bbb1833d6fc0879ca898a522f6f"
 dependencies = [
  "base64ct",
  "der 0.8.0",
-]
-
-[[package]]
-name = "spreadsheet-computation-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

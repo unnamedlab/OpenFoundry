@@ -249,7 +249,11 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/notebooks") {
         &config.notebook_service_url
     } else if path.starts_with("/api/v1/notepad") {
-        &config.document_reporting_service_url
+        // S8 / ADR-0030: document-reporting-service merged →
+        // notebook-runtime-service. Notepad routes now hit the notebook
+        // runtime; the legacy `document_reporting_service_url` config is
+        // kept for backwards compat with deployed values files.
+        &config.notebook_service_url
     } else if path.starts_with("/api/v1/notifications") {
         &config.notification_service_url
     } else if path.starts_with("/api/v1/ml/experiments") || path.starts_with("/api/v1/ml/runs") {

@@ -1,3 +1,5 @@
+-- S8 / ADR-0030: schema absorbed from the retired `document-reporting-service`.
+-- Tables live on the `notebook-pg` cluster; runtime owner is `notebook-runtime-service`.
 CREATE TABLE IF NOT EXISTS notepad_documents (
     id              UUID PRIMARY KEY,
     title           TEXT NOT NULL,
