@@ -32,4 +32,3 @@ COPY --from=builder /tmp/reindex-coordinator-service /usr/local/bin/reindex-coor
 COPY --from=builder /tmp/reindex-request /usr/local/bin/reindex-request
 EXPOSE 9090
 CMD ["/usr/local/bin/reindex-coordinator-service"]
-

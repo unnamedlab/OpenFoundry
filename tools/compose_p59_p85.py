@@ -24,7 +24,7 @@ SERVICES = [
     ("monitoring-rules-service", 50150, "monitoring_rules", "OPENFOUNDRY_MONITORING_RULES_HOST_PORT"),
     ("execution-observability-service", 50152, "execution_observability", "OPENFOUNDRY_EXECUTION_OBSERVABILITY_HOST_PORT"),
     ("telemetry-governance-service", 50153, "telemetry_governance", "OPENFOUNDRY_TELEMETRY_GOVERNANCE_HOST_PORT"),
-    ("code-security-scanning-service", 50154, "code_security_scanning", "OPENFOUNDRY_CODE_SECURITY_SCANNING_HOST_PORT"),
+    # `code-security-scanning-service` (was 50154) merged → `code-repository-review-service` per ADR-0030 (S8).
 ]
 
 BLOCK = """  {slug}:

@@ -375,33 +375,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "approvals-service"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus-data",
- "idempotency",
- "outbox",
- "prometheus",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "state-machine",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "ar_archive_writer"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1133,33 +1106,6 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-
-[[package]]
-name = "automation-operations-service"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus-data",
- "idempotency",
- "outbox",
- "prometheus",
- "reqwest",
- "saga",
- "serde",
- "serde_json",
- "sqlx",
- "testcontainers",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
 
 [[package]]
 name = "aws-config"
@@ -2576,35 +2522,28 @@ dependencies = [
 name = "code-repository-review-service"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "auth-middleware",
  "axum 0.8.9",
  "chrono",
  "config",
  "core-models",
+ "event-bus-control",
+ "event-bus-data",
+ "http-body-util",
+ "outbox",
  "reqwest",
  "serde",
  "serde_json",
  "sqlx",
+ "testcontainers",
+ "testing",
+ "thiserror 2.0.18",
  "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "code-security-scanning-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
+ "tonic",
+ "tower 0.5.3",
+ "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4123,25 +4062,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "document-intelligence-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "document-reporting-service"
 version = "0.0.1"
 dependencies = [
@@ -5083,36 +5003,6 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
-
-[[package]]
-name = "global-branch-service"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "event-bus-control",
- "event-bus-data",
- "http-body-util",
- "outbox",
- "serde",
- "serde_json",
- "sqlx",
- "testcontainers",
- "testing",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
- "tower 0.5.3",
- "tower-http 0.6.8",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
 
 [[package]]
 name = "globset"
@@ -6318,25 +6208,6 @@ checksum = "9e24a010dd405bd7ed803e5253182815b41bf2e6a80cc3bfc066658e03a198aa"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
-]
-
-[[package]]
-name = "knowledge-index-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
- "vector-store",
 ]
 
 [[package]]
@@ -9754,6 +9625,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "vector-store",
 ]
@@ -13653,13 +13525,13 @@ dependencies = [
 name = "workflow-automation-service"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "async-trait",
  "auth-middleware",
  "axum 0.8.9",
  "chrono",
  "config",
  "core-models",
- "cron",
  "event-bus-control",
  "event-bus-data",
  "futures",
@@ -13667,31 +13539,14 @@ dependencies = [
  "outbox",
  "prometheus",
  "reqwest",
+ "saga",
  "serde",
  "serde_json",
  "sqlx",
  "state-machine",
+ "testcontainers",
  "testing",
  "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "workflow-trace-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "chrono",
- "config",
- "core-models",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

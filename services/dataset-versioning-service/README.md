@@ -111,7 +111,9 @@ Every section below maps doc claims to code paths.
 | Lifecycle / Audit | Outbox event per branch action | [`domain/branch_events.rs`](src/domain/branch_events.rs) → `foundry.branch.events.v1` |
 
 For the cross-plane companion (datasets ↔ pipelines ↔ ontology) see
-[`services/global-branch-service/README.md`](../global-branch-service/README.md)
+the `global_branch` module under
+[`services/code-repository-review-service/src/global_branch/`](../code-repository-review-service/src/global_branch/)
+(absorbed from the retired `global-branch-service` per ADR-0030)
 and [ADR-0033](../../docs/architecture/adr/ADR-0033-branching-foundry-parity.md).
 
 ## Datasets parity (D1.1.1 — 5/5)

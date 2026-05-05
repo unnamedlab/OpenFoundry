@@ -6,11 +6,13 @@
 > Tracks per-service status of the consolidation work declared in
 > Stream S8.1 of the Cassandra/Foundry parity migration plan.
 >
-> Audit date: 2026-05-05 (S8 sql/BI consolidation). The live repository
-> has **90 directories** under `services/` (`ls services/ | wc -l`). S8
-> is now measured as ownership/deployment consolidation, not as physical
-> reduction of the source tree to 30 directories. The three retired
-> stubs `health-check-service`, `tool-registry-service` and
+> Audit date: 2026-05-05 (S8 workflow-automation + retrieval-context +
+> code-repository-review consolidation). The live repository has
+> **83 directories** under `services/` (`ls services/ | wc -l`). S8 is
+> now measured as
+> ownership/deployment consolidation, not as physical reduction of the
+> source tree to 30 directories. The three retired stubs
+> `health-check-service`, `tool-registry-service` and
 > `widget-registry-service` are documented below the current map and
 > must not appear in Helm or compose runtime surfaces. The model-plane
 > consolidation completed on 2026-05-05 retired `ml-experiments-service`,
@@ -20,6 +22,14 @@
 > `analytical-logic-service` into `sql-bi-gateway-service`; the
 > analytical-expressions surface collapsed further into the new
 > internal `libs/analytical-logic` crate (no duplicated HTTP routes).
+> Also on 2026-05-05, the retrieval consolidation retired
+> `knowledge-index-service` and `document-intelligence-service` into
+> `retrieval-context-service`, the workflow-automation consolidation
+> retired `automation-operations-service` and `approvals-service` into
+> `workflow-automation-service`, and the code-repository-review
+> consolidation retired `global-branch-service` and
+> `code-security-scanning-service` into
+> `code-repository-review-service`.
 >
 > ADR-0030's original "95 dirs → 33 ownership boundaries + 3 sinks" framing
 > is amended by ADR-0042 to "99 dirs → 36 ownership boundaries + 3 sinks +
@@ -60,7 +70,7 @@
 | `checkpoints-purpose-service` | `authorization-policy-service` | merge → `authorization-policy-service` | |
 | `cipher-service` | `authorization-policy-service` | merge → `authorization-policy-service` | shares same secret store |
 | `code-repository-review-service` | `code-repository-review-service` | keep | absorbs `global-branch-service`, `code-security-scanning-service` |
-| `code-security-scanning-service` | `code-repository-review-service` | merge → `code-repository-review-service` | |
+| `code-security-scanning-service` | `code-repository-review-service` | merged → `code-repository-review-service` | S8: directory removed; handlers/config/models folded into `services/code-repository-review-service/src/code_security.rs`. Migration `20260427070600_22_code_security_scans_foundation.sql` moved to `services/code-repository-review-service/migrations/`. Helm Deployment retired from `of-apps-ops`. |
 | `compute-modules-control-plane-service` | `pipeline-build-service` | merge → `pipeline-build-service` | same orchestrator |
 | `compute-modules-runtime-service` | `pipeline-build-service` | merge → `pipeline-build-service` | runtime is sidecar of build |
 | `connector-management-service` | `connector-management-service` | keep | absorbs `virtual-table-service`, OAuth-data side of `oauth-integration-service` |
@@ -78,7 +88,7 @@
 | `execution-observability-service` | `telemetry-governance-service` | merge → `telemetry-governance-service` | |
 | `federation-product-exchange-service` | `federation-product-exchange-service` | keep | absorbs `marketplace-service`, `marketplace-catalog-service`, `product-distribution-service` |
 | `geospatial-intelligence-service` | `ontology-exploratory-analysis-service` | merge → `ontology-exploratory-analysis-service` | |
-| `global-branch-service` | `code-repository-review-service` | merge → `code-repository-review-service` | |
+| `global-branch-service` | `code-repository-review-service` | merged → `code-repository-review-service` | S8: directory removed; sources moved under `services/code-repository-review-service/src/global_branch/` (handlers, store, subscriber, model). Migration `20260504000031_global_branches.sql` folded into `services/code-repository-review-service/migrations/`. Helm Deployment retired from `of-apps-ops`. |
 | `iceberg-catalog-service` | `iceberg-catalog-service` | keep | Foundry-flavoured Iceberg REST Catalog (ADR-0041); supersedes Lakekeeper for the internal catalog surface, owns Foundry transaction/markings/schema-evolution semantics. |
 | `identity-federation-service` | `identity-federation-service` | keep | absorbs `oauth-integration-service` (auth side), `session-governance-service` |
 | `ingestion-replication-service` | `ingestion-replication-service` | keep | |
@@ -159,13 +169,13 @@ directories under `services/` and must not be rendered by Helm or compose:
 | Status | Count |
 | ------ | ----- |
 | keep / ownership boundary | 36 |
-| merge → X (pending) | 51 |
-| merged → X (completed) | 5 |
+| merge → X (pending) | 40 |
+| merged → X (completed) | 16 |
 | delete scheduled for active legacy dirs | 3 |
 | sink | 3 |
 | image (non-Rust runtime image) | 1 |
-| **Total current service directories** | **94** |
-| **Retired service directories tracked for references** | **6** |
+| **Total current service directories** | **83** |
+| **Retired service directories tracked for references** | **3** |
 | **Current target metric** | **36 ownership boundaries + 3 sinks + 1 non-Rust runtime image across 5 Helm releases** |
 
 ## Execution sequence

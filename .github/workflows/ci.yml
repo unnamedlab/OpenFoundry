@@ -78,7 +78,7 @@ jobs:
             -p dataset-versioning-service \
             -p pipeline-build-service \
             -p pipeline-authoring-service \
-            -p global-branch-service
+            -p code-repository-review-service
       # P6 — Datasets parity (5/5) gate. Runs the testcontainers-backed
       # health + API-conformance suite. Mirrors the doc § "Datasets" +
       # § "Application reference" + ADR-0034.

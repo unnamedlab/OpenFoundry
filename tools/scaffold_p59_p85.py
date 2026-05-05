@@ -225,16 +225,8 @@ SERVICES_SPEC = [
         "telemetry_policies",
         "export_id UUID NOT NULL, kind TEXT NOT NULL, body JSONB NOT NULL DEFAULT '{}'::jsonb",
     ),
-    (
-        "code-security-scanning-service",
-        "Static security analysis, code smells and CI quality policy enforcement",
-        50154,
-        "/api/v1/code-security/scans",
-        "code_security_scans",
-        "repository TEXT NOT NULL, ref TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', summary JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "code_security_findings",
-        "scan_id UUID NOT NULL, severity TEXT NOT NULL, rule TEXT NOT NULL, location TEXT NOT NULL, message TEXT NOT NULL",
-    ),
+    # `code-security-scanning-service` (was port 50154, /api/v1/code-security/scans)
+    # merged → `code-repository-review-service` per ADR-0030 (S8).
 ]
 
 

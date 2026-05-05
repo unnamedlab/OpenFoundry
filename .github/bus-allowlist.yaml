@@ -55,9 +55,9 @@ services:
     - control
   federation-product-exchange-service:
     - control
-  geospatial-intelligence-service:
+  code-repository-review-service:
     - control
-  global-branch-service:
+  geospatial-intelligence-service:
     - control
   identity-federation-service:
     - control
