@@ -90,14 +90,9 @@ pub trait MediaFunctionRuntime: Send + Sync {
     async fn read_raw(&self, item: &MediaItemHandle) -> MediaFunctionResult<Bytes>;
     async fn ocr(&self, item: &MediaItemHandle) -> MediaFunctionResult<String>;
     async fn extract_text(&self, item: &MediaItemHandle) -> MediaFunctionResult<String>;
-    async fn transcribe_audio(
-        &self,
-        item: &MediaItemHandle,
-    ) -> MediaFunctionResult<Transcription>;
-    async fn read_metadata(
-        &self,
-        item: &MediaItemHandle,
-    ) -> MediaFunctionResult<serde_json::Value>;
+    async fn transcribe_audio(&self, item: &MediaItemHandle) -> MediaFunctionResult<Transcription>;
+    async fn read_metadata(&self, item: &MediaItemHandle)
+    -> MediaFunctionResult<serde_json::Value>;
 }
 
 // ───────────────────── Public function entry points ──────────────────────
@@ -169,15 +164,24 @@ impl MockMediaRuntime {
     }
 
     pub fn put_raw(&self, item_rid: &str, bytes: impl Into<Bytes>) -> &Self {
-        self.raw.lock().unwrap().insert(item_rid.into(), bytes.into());
+        self.raw
+            .lock()
+            .unwrap()
+            .insert(item_rid.into(), bytes.into());
         self
     }
     pub fn put_ocr(&self, item_rid: &str, text: impl Into<String>) -> &Self {
-        self.ocr.lock().unwrap().insert(item_rid.into(), text.into());
+        self.ocr
+            .lock()
+            .unwrap()
+            .insert(item_rid.into(), text.into());
         self
     }
     pub fn put_text(&self, item_rid: &str, text: impl Into<String>) -> &Self {
-        self.text.lock().unwrap().insert(item_rid.into(), text.into());
+        self.text
+            .lock()
+            .unwrap()
+            .insert(item_rid.into(), text.into());
         self
     }
     pub fn put_transcript(&self, item_rid: &str, t: Transcription) -> &Self {
@@ -247,10 +251,7 @@ impl MediaFunctionRuntime for MockMediaRuntime {
             })
     }
 
-    async fn transcribe_audio(
-        &self,
-        item: &MediaItemHandle,
-    ) -> MediaFunctionResult<Transcription> {
+    async fn transcribe_audio(&self, item: &MediaItemHandle) -> MediaFunctionResult<Transcription> {
         self.call_log
             .lock()
             .unwrap()

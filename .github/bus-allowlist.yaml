@@ -81,13 +81,7 @@ services:
     - control
   ontology-definition-service:
     - control
-  ontology-functions-service:
-    - control
-  ontology-funnel-service:
-    - control
   ontology-query-service:
-    - control
-  ontology-security-service:
     - control
   pipeline-authoring-service:
     - control
@@ -159,13 +153,7 @@ services:
 #     - control
 #   ontology-definition-service:
 #     - control
-#   ontology-functions-service:
-#     - control
-#   ontology-funnel-service:
-#     - control
 #   ontology-query-service:
-#     - control
-#   ontology-security-service:
 #     - control
 #   pipeline-authoring-service:
 #     - control

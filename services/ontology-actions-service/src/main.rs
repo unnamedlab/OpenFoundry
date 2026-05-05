@@ -1,10 +1,15 @@
 //! `ontology-actions-service` binary entry point.
 //!
-//! Owns the writeback surface of the Action types feature
-//! (`/api/v1/ontology/actions/*` and the per-property inline-edit route).
-//! All business logic lives in `libs/ontology-kernel::handlers::actions`;
-//! this binary just wires configuration, the Postgres pool, the JWT layer
-//! and the Axum router built by [`ontology_actions_service::build_router`].
+//! S8.1 (per ADR-0030 / `service-consolidation-map.md`) — sole runtime
+//! owner of the ontology action / funnel / function / rule domains.
+//! Mounts the consolidated HTTP surface
+//! (`/api/v1/ontology/{actions,funnel,functions,rules,storage/insights,
+//! types/.../rules,objects/.../rule-runs}` and the per-property
+//! inline-edit route). All business logic lives in
+//! `libs/ontology-kernel::handlers::{actions,funnel,functions,rules,storage}`;
+//! this binary just wires configuration, the Postgres pool, the JWT
+//! layer and the Axum router built by
+//! [`ontology_actions_service::build_router`].
 //!
 //! ## S1.4 wiring
 //!

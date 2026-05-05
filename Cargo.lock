@@ -7968,9 +7968,11 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 name = "ontology-actions-service"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "auth-middleware",
  "axum 0.8.9",
  "axum-extra",
+ "bytes",
  "cassandra-kernel",
  "chrono",
  "config",
@@ -8037,68 +8039,6 @@ dependencies = [
  "serde_json",
  "storage-abstraction",
  "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "ontology-functions-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "axum-extra",
- "cassandra-kernel",
- "chrono",
- "config",
- "core-models",
- "event-bus-control",
- "futures",
- "ontology-kernel",
- "pyo3",
- "reqwest",
- "search-abstraction",
- "semver",
- "serde",
- "serde_json",
- "sqlx",
- "storage-abstraction",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
- "tower-http 0.6.8",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "ontology-funnel-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "axum-extra",
- "cassandra-kernel",
- "chrono",
- "config",
- "core-models",
- "event-bus-control",
- "futures",
- "ontology-kernel",
- "pyo3",
- "reqwest",
- "search-abstraction",
- "semver",
- "serde",
- "serde_json",
- "sqlx",
- "storage-abstraction",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
- "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -8173,37 +8113,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tower 0.5.3",
- "tower-http 0.6.8",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "ontology-security-service"
-version = "0.0.1"
-dependencies = [
- "auth-middleware",
- "axum 0.8.9",
- "axum-extra",
- "cassandra-kernel",
- "chrono",
- "config",
- "core-models",
- "event-bus-control",
- "futures",
- "ontology-kernel",
- "pyo3",
- "reqwest",
- "search-abstraction",
- "semver",
- "serde",
- "serde_json",
- "sqlx",
- "storage-abstraction",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
  "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",

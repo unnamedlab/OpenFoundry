@@ -168,6 +168,50 @@ async fn list_action_types_requires_bearer_token() {
     assert_eq!(json["total"].as_i64(), Some(0));
 }
 
+/// S8.1 — verifies that the routes absorbed from
+/// `ontology-funnel-service`, `ontology-functions-service` and
+/// `ontology-security-service` are mounted on the consolidated
+/// router and still require a valid Bearer token (ADR-0030 step 5).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Docker; run with `cargo test --test health -- --include-ignored`"]
+async fn absorbed_routes_require_bearer_token() {
+    let (_container, pool) = boot_postgres().await;
+    let jwt_config = jwt_config_from_secret(JWT_SECRET);
+    let app = build_router(build_state(pool, jwt_config.clone()));
+
+    // One representative GET per absorbed bounded context.
+    let absorbed = [
+        "/api/v1/ontology/funnel/sources",
+        "/api/v1/ontology/storage/insights",
+        "/api/v1/ontology/functions",
+        "/api/v1/ontology/rules",
+    ];
+
+    for path in absorbed {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("GET")
+                    .uri(path)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("router responded");
+
+        // The auth layer rejects with 401; the only way to *also* get
+        // 404 here would be the route not being mounted, which is
+        // exactly what this test guards against.
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+            "absorbed route `{path}` must be mounted and require Bearer auth (got {})",
+            response.status()
+        );
+    }
+}
+
 #[test]
 fn jwt_round_trip_compiles_against_kernel_jwt_layer() {
     // Compile-time sanity: build a token with the same helper the smoke

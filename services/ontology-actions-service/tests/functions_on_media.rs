@@ -11,9 +11,9 @@
 //!     data — transcripts, metadata — without re-encoding).
 
 use bytes::Bytes;
-use ontology_functions_service::media_functions::{
-    MediaFunctionError, MediaFunctionRuntime, MediaItemHandle, MockMediaRuntime, TranscriptSegment,
-    Transcription, extract_text, ocr, read_metadata, read_raw, transcribe_audio,
+use ontology_actions_service::media_functions::{
+    MediaFunctionError, MediaItemHandle, MockMediaRuntime, TranscriptSegment, Transcription,
+    extract_text, ocr, read_metadata, read_raw, transcribe_audio,
 };
 use serde_json::json;
 
@@ -30,13 +30,18 @@ async fn read_raw_round_trips_scripted_bytes_and_records_the_call() {
     runtime.put_raw("doc-1", Bytes::from_static(b"%PDF-1.4 raw bytes"));
 
     let item = handle("doc-1");
-    let bytes = read_raw(&runtime, &item).await.expect("read_raw must succeed");
+    let bytes = read_raw(&runtime, &item)
+        .await
+        .expect("read_raw must succeed");
     assert_eq!(bytes, Bytes::from_static(b"%PDF-1.4 raw bytes"));
 
     let log = runtime.calls();
     assert_eq!(log.len(), 1);
     assert_eq!(log[0].0, "read_raw");
-    assert_eq!(log[0].1, item, "MediaItemHandle must reach the runtime verbatim");
+    assert_eq!(
+        log[0].1, item,
+        "MediaItemHandle must reach the runtime verbatim"
+    );
 }
 
 #[tokio::test]
@@ -82,7 +87,9 @@ async fn transcribe_audio_round_trips_segments() {
             ],
         },
     );
-    let t = transcribe_audio(&runtime, &handle("audio-1")).await.unwrap();
+    let t = transcribe_audio(&runtime, &handle("audio-1"))
+        .await
+        .unwrap();
     assert_eq!(t.text, "Welcome to the briefing.");
     assert_eq!(t.segments.len(), 2);
     assert_eq!(t.segments[0].text, "Welcome");
