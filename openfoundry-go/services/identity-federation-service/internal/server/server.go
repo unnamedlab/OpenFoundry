@@ -57,6 +57,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Get("/sso/providers", sso.ListProviders)
 		api.Get("/sso/{provider}/start", sso.Start)
 		api.Get("/sso/{provider}/callback", sso.Callback)
+		api.Post("/sso/{provider}/acs", sso.AssertionConsumerService)
 	})
 
 	// /api/v1/auth/mfa/* — bearer-protected MFA management.
