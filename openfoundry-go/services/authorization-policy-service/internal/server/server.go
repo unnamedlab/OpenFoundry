@@ -48,6 +48,20 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Delete("/abac-policies/{id}", h.DeleteABACPolicy)
 
 		api.Post("/policy-evaluations", h.EvaluatePolicy)
+
+		api.Get("/governance-template-applications", h.ListGovernanceTemplateApplications)
+		api.Post("/governance-template-applications", h.ApplyGovernanceTemplate)
+		api.Delete("/governance-template-applications/{id}", h.DeleteGovernanceTemplateApplication)
+
+		api.Get("/project-constraints", h.ListProjectConstraints)
+		api.Post("/project-constraints", h.CreateProjectConstraint)
+		api.Patch("/project-constraints/{id}", h.UpdateProjectConstraint)
+		api.Delete("/project-constraints/{id}", h.DeleteProjectConstraint)
+
+		api.Get("/structural-security-rules", h.ListStructuralSecurityRules)
+		api.Post("/structural-security-rules", h.CreateStructuralSecurityRule)
+		api.Patch("/structural-security-rules/{id}", h.UpdateStructuralSecurityRule)
+		api.Delete("/structural-security-rules/{id}", h.DeleteStructuralSecurityRule)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
