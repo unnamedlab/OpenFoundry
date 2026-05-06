@@ -263,6 +263,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/ml/MlPage')).MlPage }),
       },
       {
+        path: 'action-types',
+        lazy: async () => ({ Component: (await import('./routes/action-types/ActionTypesPage')).ActionTypesPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

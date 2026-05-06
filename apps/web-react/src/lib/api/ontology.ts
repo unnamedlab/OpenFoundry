@@ -545,6 +545,144 @@ export function listActionTypes(params?: {
   );
 }
 
+export interface CreateActionTypeBody {
+  name: string;
+  display_name?: string;
+  description?: string;
+  object_type_id: string;
+  operation_kind: ActionOperationKind;
+  input_schema?: ActionInputField[];
+  form_schema?: ActionFormSchema;
+  config?: unknown;
+  confirmation_required?: boolean;
+  permission_key?: string;
+  authorization_policy?: ActionAuthorizationPolicy;
+}
+
+export interface UpdateActionTypeBody {
+  display_name?: string;
+  description?: string;
+  operation_kind?: ActionOperationKind;
+  input_schema?: ActionInputField[];
+  form_schema?: ActionFormSchema;
+  config?: unknown;
+  confirmation_required?: boolean;
+  permission_key?: string;
+  authorization_policy?: ActionAuthorizationPolicy;
+}
+
+export interface ActionWhatIfBranch {
+  id: string;
+  action_id: string;
+  target_object_id: string | null;
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  preview: Record<string, unknown>;
+  before_object: Record<string, unknown> | null;
+  after_object: Record<string, unknown> | null;
+  deleted: boolean;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ValidateActionResponse {
+  valid: boolean;
+  errors: string[];
+  preview: unknown;
+}
+
+export interface ExecuteActionResponse {
+  action: ActionType;
+  target_object_id: string | null;
+  deleted: boolean;
+  preview: unknown;
+  object: unknown | null;
+  link: unknown | null;
+  result: unknown | null;
+}
+
+export interface ExecuteBatchActionResponse {
+  action: ActionType;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<Record<string, unknown>>;
+}
+
+export interface ActionMetricsResponse {
+  action_id: string;
+  window: string;
+  success_count: number;
+  failure_count: number;
+  p95_duration_ms: number | null;
+  failure_categories: Record<string, number>;
+}
+
+export function createActionType(body: CreateActionTypeBody) {
+  return api.post<ActionType>('/ontology/actions', body);
+}
+
+export function updateActionType(id: string, body: UpdateActionTypeBody) {
+  return api.put<ActionType>(`/ontology/actions/${id}`, body);
+}
+
+export function deleteActionType(id: string) {
+  return api.delete(`/ontology/actions/${id}`);
+}
+
+export function validateAction(id: string, body: { target_object_id?: string; parameters?: Record<string, unknown> }) {
+  return api.post<ValidateActionResponse>(`/ontology/actions/${id}/validate`, body);
+}
+
+export function executeAction(id: string, body: {
+  target_object_id?: string;
+  parameters?: Record<string, unknown>;
+  justification?: string;
+}) {
+  return api.post<ExecuteActionResponse>(`/ontology/actions/${id}/execute`, body);
+}
+
+export function executeActionBatch(id: string, body: {
+  target_object_ids: string[];
+  parameters?: Record<string, unknown>;
+  justification?: string;
+}) {
+  return api.post<ExecuteBatchActionResponse>(`/ontology/actions/${id}/execute-batch`, body);
+}
+
+export function getActionMetrics(actionId: string, params?: { window?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.window) qs.set('window', params.window);
+  const tail = qs.toString();
+  return api.get<ActionMetricsResponse>(`/ontology/actions/${actionId}/metrics${tail ? `?${tail}` : ''}`);
+}
+
+export function listActionWhatIfBranches(
+  id: string,
+  params?: { target_object_id?: string; page?: number; per_page?: number },
+) {
+  const qs = new URLSearchParams();
+  if (params?.target_object_id) qs.set('target_object_id', params.target_object_id);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: ActionWhatIfBranch[]; total: number; page: number; per_page: number }>(
+    `/ontology/actions/${id}/what-if?${qs}`,
+  );
+}
+
+export function createActionWhatIfBranch(
+  id: string,
+  body: { target_object_id?: string; parameters?: Record<string, unknown>; name?: string; description?: string },
+) {
+  return api.post<ActionWhatIfBranch>(`/ontology/actions/${id}/what-if`, body);
+}
+
+export function deleteActionWhatIfBranch(id: string, branchId: string) {
+  return api.delete(`/ontology/actions/${id}/what-if/${branchId}`);
+}
+
 export function listProjects(params?: { page?: number; per_page?: number; search?: string }) {
   const qs = new URLSearchParams();
   if (params?.page) qs.set('page', String(params.page));

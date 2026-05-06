@@ -44,6 +44,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/functions', title: 'Functions', description: 'Function package CRUD with capabilities JSON, source editor, metrics, runs, and execute.' },
   { path: '/pipelines', title: 'Pipelines', description: 'Hybrid batch + streaming pipelines with DAG editor, schedule, retry, runs, and validate.' },
   { path: '/ml', title: 'ML Studio', description: 'Experiments + runs + models + features + training + deployments + drift + batch predictions.' },
+  { path: '/action-types', title: 'Action types', description: 'Author + validate + execute object-type actions, what-if branches, metrics.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
