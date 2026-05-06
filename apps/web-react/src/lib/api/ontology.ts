@@ -803,3 +803,11 @@ export function attachInterfaceToType(typeId: string, interfaceId: string) {
 export function detachInterfaceFromType(typeId: string, interfaceId: string) {
   return api.delete(`/ontology/types/${typeId}/interfaces/${interfaceId}`);
 }
+
+export function updateObject(
+  typeId: string,
+  objectId: string,
+  body: { properties: Record<string, unknown>; replace?: boolean; marking?: string },
+) {
+  return api.patch<ObjectInstance>(`/ontology/types/${typeId}/objects/${objectId}`, body);
+}
