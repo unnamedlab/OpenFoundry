@@ -1,5 +1,5 @@
 {
-  "name": "@open-foundry/web-react",
+  "name": "@open-foundry/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,6 +10,7 @@
     "check": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:unit": "vitest run",
     "test:e2e": "playwright test"
   },
   "dependencies": {
