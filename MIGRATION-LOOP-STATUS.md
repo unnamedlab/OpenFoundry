@@ -30,18 +30,22 @@ Stubs that were claimed pending but are now real production code:
 
 ## True remaining work
 
-### P1 — Unblock 8 AI/ML services (ROI máximo)
+### P1 — Unblock 8 AI/ML services (✅ FULLY COMPLETE 2026-05-06)
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 1.1 | port `libs/ml-kernel-go/domain/interop` | ✅ done | committed `2541be78` |
-| 1.2 | port `libs/ai-kernel-go/domain/llm/runtime` | 🟡 ported, awaiting commit | runtime.go 644 LOC + runtime_test.go 342 LOC, build+test green |
-| 1.2b | wire `handlers/chat.{CreateChatCompletion,AskCopilot,BenchmarkProviders}` | ⏳ pending | 3× 501 stubs in `libs/ai-kernel-go/handlers/chat.go:437,452,467` |
-| 1.3 | port `libs/ai-kernel-go/domain/agents/executor` | ⏳ pending | Rust source 1307 LOC at `libs/ai-kernel/src/domain/agents/executor.rs` |
-| 1.3b | wire `handlers/agents.ExecuteAgent` | ⏳ pending | 1× 501 stub at `libs/ai-kernel-go/handlers/agents.go:229` |
-| 1.4 | port `libs/ml-kernel-go/training/{runner,execute_training}` | ✅ done | committed `069c3e9a` |
-| 1.5 | wire `handlers/experiments.{ListRuns,CreateRun,UpdateRun,CompareRuns}` | ⏳ pending | 4× 501 stubs at `libs/ml-kernel-go/handlers/experiments.go:303-333`. Needs ml_runs SQL scaffolding + interop.MergeRunParams + interop.MergeRunArtifacts + evaluation.QualityScore for compare |
-| 1.6 | wire `handlers/experiments.GetExperimentAssetLineage` | ⏳ pending | 1× 501 stub at `libs/ml-kernel-go/handlers/experiments.go:293`. ~459 LOC pure logic — 6-tier graph builder (experiment → runs → training jobs → model versions → models → deployments) |
+| # | Task | Status | Commit |
+|---|------|--------|--------|
+| 1.1 | port `libs/ml-kernel-go/domain/interop` | ✅ done | `2541be78` |
+| 1.2 | port `libs/ai-kernel-go/domain/llm/runtime` | ✅ done | `fa09208e` + `ecf9e28d` |
+| 1.2b.1 | wire `handlers/chat.BenchmarkProviders` | ✅ done | `40801e9b` |
+| 1.2b.2 | wire `handlers/chat.AskCopilot` | ✅ done | `24e751f4` |
+| 1.2b.3 | wire `handlers/chat.CreateChatCompletion` | ✅ done | `9c8bd0be` |
+| 1.3 | port `libs/ai-kernel-go/domain/agents/executor` + wire `ExecuteAgent` | ✅ done | `ed46de5b` |
+| 1.4 | port `libs/ml-kernel-go/training/{runner,execute}` | ✅ done | `069c3e9a` |
+| 1.5 | wire `handlers/experiments.{ListRuns,CreateRun,UpdateRun,CompareRuns}` | ✅ done | parallel iter (`runs.go` 352 LOC) |
+| 1.6 | wire `handlers/experiments.GetExperimentAssetLineage` | ✅ done | parallel iter (`asset_lineage.go` 566 LOC) |
+
+**Net result:** 0 of 8 chat/agents/experiments 501 stubs remain. All
+8 ai/ml services unblocked at the handler layer.
 
 ### P2 — Phase 4 (Data & Ontology)
 
