@@ -127,6 +127,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/build-schedules/BuildSchedulesPage')).BuildSchedulesPage }),
       },
       {
+        path: 'build-schedules/sweep',
+        lazy: async () => ({ Component: (await import('./routes/build-schedules/SweepPage')).SweepPage }),
+      },
+      {
         path: 'fusion',
         lazy: async () => ({ Component: (await import('./routes/fusion/FusionPage')).FusionPage }),
       },
