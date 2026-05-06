@@ -61,8 +61,10 @@ Stubs that were claimed pending but are now real production code:
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | ⏳ pending | crewjam/saml + russellhaering/goxmldsig; needs IdP test certs + metadata fixtures |
-| 3.7b | identity-federation slice 8 (Cedar + JWKS + Vault + SCIM) | ⏳ pending | cedar-go Option A chosen 2026-05-06; port `libs/authz-cedar-go` first as de-risking step |
+| 3.7a | identity-federation slice 5b (SAML 2.0 + XML signing) | ⏳ pending | crewjam/saml + russellhaering/goxmldsig; needs IdP test certs + metadata fixtures. Rust source: handlers/sso.rs (850 LOC) + testdata/saml fixtures already exist. |
+| 3.7b.1 | slice 8: Cedar wiring (`internal/cedarauthz`) | ✅ done | commit `c465caf5` (789 LOC: cedarauthz.go + guard.go + 17 tests). AdminGuard middleware hydrates kind/mfa_age_secs/groups from claims.Attributes and emits Group/Role parent entities. |
+| 3.7b.2 | slice 8: JWKS rotation handler + Vault transit signer | ⏳ pending | hardening/jwks_rotation.rs (818 LOC) + vault_signer.rs (759 LOC) + handlers/security_ops.rs (239 LOC). Multi-iteration. Wires `AdminGuard(ActionRotateJwks, JwksKeyResource)` from 3.7b.1. |
+| 3.7b.3 | slice 8: SCIM endpoints | ⏳ pending | handlers/scim.rs (1951 LOC) + hardening/scim.rs (515 LOC). Multi-iteration. RFC 7644 conformance + bulk provision/deprovision User + Group. Wires `AdminGuard(ActionScimProvision*, Scim*Resource)`. |
 
 ### P4 — Phase 5 decision (HUMAN INPUT REQUIRED)
 
@@ -153,6 +155,28 @@ SAML or slice 8 Cedar/SCIM) OR P5.9 CI buf-generate guard.
 P3.7 is more impactful (closes the identity-federation backlog)
 but more work; P5.9 is small + high-leverage (catches proto
 drift). Could also defer to user choice.
+
+### Iter 4 — 2026-05-06 (later)
+
+User asked to attack P3.7 directly. Iter 4 closed the
+de-risking step for slice 8 (Cedar wiring) and broke the rest
+into independently-tractable sub-slices.
+
+| # | Commit    | Slice                                                |
+|---|-----------|------------------------------------------------------|
+| 1 | `c465caf5`| 3.7b.1 — internal/cedarauthz (Cedar wiring + AdminGuard) |
+
+**P3.7 sub-slice ledger after iter 4:**
+- 3.7a (SAML, slice 5b) — pending
+- 3.7b.1 (Cedar wiring) — ✅ DONE
+- 3.7b.2 (JWKS rotation + Vault) — pending (~1600 LOC Rust)
+- 3.7b.3 (SCIM endpoints) — pending (~2466 LOC Rust)
+
+**Next action (iter 5):** pick from 3.7b.2 (JWKS rotation +
+Vault transit signer) or 3.7b.3 (SCIM endpoints, multi-iter).
+3.7b.2 is the natural next step since it directly consumes the
+cedarauthz.AdminGuard(ActionRotateJwks, JwksKeyResource)
+middleware that landed in 3.7b.1.
 
 ---
 
