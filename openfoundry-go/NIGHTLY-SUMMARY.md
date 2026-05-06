@@ -439,3 +439,179 @@ chunk_chars + chunk.id format.
 The ai-kernel-go handlers slice is the next big unblock for
 llm-catalog, ai-evaluation, retrieval-context, and the tools surface
 of agent-runtime.
+
+---
+
+# Run 4 — 2026-05-06 (continuation)
+
+User said "puedes continuar por favor ?" — kept going on the
+kernel-library handler + domain backlog Run 3 left behind. This run
+finished the ai-kernel-go and ml-kernel-go HTTP handler surfaces and
+landed every remaining pure-logic domain slice except the four heavy
+runtime / executor / interop / training-runner ports.
+
+## What landed
+
+14 commits, all on `frontend/settings-mfa-apikeys-sso`, never pushed:
+
+| # | Commit    | Slice                                                          |
+|---|-----------|----------------------------------------------------------------|
+| 1 | `945d0e7e`| libs/ai-kernel-go — handlers/prompts (CRUD + render)          |
+| 2 | `7f3a1dc6`| libs/ai-kernel-go — handlers/knowledge + domain/llm runtime placeholder |
+| 3 | `b9cf66ed`| libs/ai-kernel-go — handlers/agents (CRUD + execute stub)     |
+| 4 | `8a6cb8ec`| libs/ai-kernel-go — handlers/chat slice 1 + domain/evaluation |
+| 5 | `3cd17370`| libs/ml-kernel-go — domain/predictions (record-prediction)    |
+| 6 | `916e6c9d`| libs/ml-kernel-go — domain/training/hyperparameter            |
+| 7 | `3a83a0cf`| libs/ai-kernel-go — domain/copilot (deterministic draft)      |
+| 8 | `2da114c7`| libs/ml-kernel-go — handlers/overview                         |
+| 9 | `b076a516`| libs/ml-kernel-go — handlers/predictions (realtime + batch)   |
+| 10| `b50a5835`| libs/ml-kernel-go — handlers/features (feature-store CRUD)    |
+| 11| `7592f503`| libs/ml-kernel-go — handlers/deployments + drift report       |
+| 12| `21ab73f0`| libs/ml-kernel-go — handlers/training (list + create stub)    |
+| 13| `6b1ac389`| libs/ml-kernel-go — handlers/models (model + version slice)   |
+| 14| `e8a11216`| libs/ml-kernel-go — handlers/experiments (CRUD + run stubs)   |
+
+## Wire-compat invariants pinned this run
+
+**ai-kernel-go handlers**:
+- ErrorResponse {"error": "..."} envelope; tools/prompts/knowledge/
+  agents/chat each pin their empty-name / bad-JSON 400 messages.
+- jsonOrEmptyObject + jsonOrFallback canonicalise null/empty JSONB
+  to "{}" matching the Rust serde defaults.
+- knowledge: resolveEmbeddingProvider parses "provider:<uuid>"
+  prefixes, returns 404 on unknown IDs, and falls through to nil for
+  non-prefix references — handler then picks rag.IndexDocument /
+  rag.EmbedText (offline) vs llm.EmbedText (provider runtime).
+- chat: ConversationSummary uses last-message-preview from final
+  ChatMessage with summarizeTitle's 60-rune limit; "New conversation"
+  fallback. Provider create/update flips health_state.status on
+  enable/disable transitions.
+- chat / training: chat completion + copilot + benchmark + create
+  training job stub at 501 with input-validation envelope preserved
+  (the runtime port lands those).
+
+**ml-kernel-go handlers**:
+- overview pins 10 SQL counters verbatim (incl. drift_report->>
+  'recommend_retraining' boolean cast and cache_hit_rate via the
+  evaluation helper).
+- predictions: realtime path persists every batch into ml_batch_
+  predictions with status='realtime', completed_at=created_at,
+  output_destination=NULL — write is fire-and-forget (response stays
+  200 even if the audit insert fails). runPredictions filter_map
+  drops records without matching split or runtime.
+- deployments: normaliseTrafficSplit replicates the Rust round-and-
+  remainder allocation rebalance (single → 100; ab_test sums to
+  exactly 100; last entry absorbs rounding remainder).
+  generate_drift_report queues a 'drift_recovery' training job when
+  report.recommend_retraining + body.auto_retrain.
+- models: production-singleton invariant (existing production
+  version flips to staging on transition), refreshModelRollup picks
+  current_stage from production > staging > candidate > none.
+- features: last_materialized_at = Some(now) only when samples
+  non-empty; last_online_sync_at gated by online_enabled AND samples
+  non-empty.
+
+**ai-kernel-go domain**:
+- evaluation: cache_hit_rate (capped at 100), risk_score (1.0 when
+  blocked, len/5.0 capped at 0.95 otherwise), safety_score = 1.0 -
+  risk_score clamped, estimated_cost_usd = (pt/1k)·in_rate +
+  (ct/1k)·out_rate (zero on cache_hit), quality_score (rubric
+  fraction or word_count/120 clamped 0.35–0.9 when no rubric),
+  normalized_score (clamped + inverse), overall_benchmark_score
+  (0.45·quality + 0.25·safety + 0.15·latency + 0.15·cost).
+- copilot: dataset-id present + include_sql → 30-day SELECT against
+  dataset_<simple-uuid>; "sql"/"query" keyword → 7-day fallback;
+  pipeline_plan toggle emits fixed 3-row plan; ontology_type_id +
+  "ontology"/"object" keyword combine into hint list.
+
+**ml-kernel-go domain**:
+- predictions: RouteVariant deterministic with bucket=(ord*37)%100;
+  PredictRecord has model_state branch (sigmoid + clamp 0.001–0.999)
+  + sin-wave fallback (clamp 0.02–0.98); both produce
+  "record-N" IDs and truncate explain contributions to top 3.
+  scalarScore covers numbers/strings (len/100 cap)/bools (0.65/0.35).
+- training/hyperparameter: candidate_sets defaults (lr 0.05/0.08/
+  0.12, epochs 250/350/500, l2 0.0/0.001/0.01); ValueAsFloat64 /
+  ValueAsUint64 with negative-int fallback semantics.
+
+## Tests added this run
+
+90+ new test cases across 14 commits, all green at every commit.
+Notable nailed-down edges:
+- normaliseTrafficSplit ab_test rebalance to exactly 100 with three
+  30-allocation entries (rounding remainder → last entry).
+- runPredictions filter_map shape (records without matching runtime
+  drop silently rather than erroring).
+- evaluation float32 numerics pinned to Rust assertions (cost
+  estimate within 0.0001, quality_score within 0.02 for rubric).
+- conversation_summary fallback ("No messages yet" when empty,
+  "..." suffix when content > 60 runes).
+- summarizeTitle rune semantics (60-rune limit; empty string →
+  "New conversation").
+
+## Decisions deferred for human review
+
+1. **libs/ai-kernel-go/domain/llm/runtime (581 LOC)** — full per-
+   provider HTTP request/response shapes, retries, credential
+   injection. Placeholder shim returns the offline 12-dim embedding
+   so the surrounding handlers stay wire-compatible. Lands in its
+   own iteration.
+2. **libs/ai-kernel-go/domain/agents/executor (1307 LOC)** — agent
+   plan-act-observe runtime. Own iteration (was already deferred in
+   Run 3). The handlers/agents.ExecuteAgent stub at 501 documents
+   the dependency.
+3. **libs/ml-kernel-go/domain/interop (769 LOC)** — model-version
+   schema normalisation + tracking-source merging + framework /
+   adapter inference. Used by training, models, experiments
+   handlers. Each handler embeds shallow JSON-extraction shims
+   (modelAdapterFromSchema, registrySourceFromSchema,
+   trackingSourceFromSchema, trackingSourceFromTrainingConfig) that
+   pluck the typed object + filter on HasSignal but skip the
+   whitespace + casing normalisation. Full port lands in its own
+   slice.
+4. **libs/ml-kernel-go/domain/training/runner (418 LOC)** + train
+   execution path (training/mod 191) — depends on interop. Lands
+   alongside or after the interop port.
+5. **handlers/runs slice** — list_runs / create_run / update_run /
+   compare_runs (5×stubs in handlers/experiments.go). Independent
+   of interop; needs the ml_runs row scaffolding (params/metrics/
+   artifacts JSONB, external_tracking via interop, evaluation.
+   QualityScore for compare_runs).
+6. **handlers/experiments asset-lineage builder (~459 LOC)** —
+   builds the 6-tier graph (experiment → runs → training jobs →
+   model versions → models → deployments) with every neighbour
+   edge. Pure logic but heavy enough for its own iteration.
+7. **handlers/chat slice 2** — chat completion + ask copilot +
+   benchmark providers (~530 LOC of Rust + the runtime port). Lands
+   when the runtime is in.
+8. **handlers/models create_model_version** — chains interop heavily
+   for normalize_model_version_schema + merge_metrics +
+   preferred_artifact_uri. Lands with interop.
+
+## Status snapshot after Run 4
+
+- **libs/ai-kernel-go**: 7/7 models, 5/5 handler files
+  (tools/prompts/knowledge/agents/chat) — chat slice 2 stubbed;
+  domain/{llm pure-logic + runtime placeholder, agents memory+
+  planner, rag full, evaluation, copilot}. Pending: llm/runtime
+  full, agents/executor.
+- **libs/ml-kernel-go**: 10/10 models, 7/7 handler files
+  (overview/predictions/training/features/deployments/models/
+  experiments) — runs + asset-lineage + create_model_version +
+  create_training_job stubbed at 501 with shape-stable envelopes;
+  domain/{drift, predictions, training/hyperparameter}. Pending:
+  domain/{interop, training/runner, training/execute_training}.
+- **Handlers slice complete enough to wire** every consuming
+  service today: llm-catalog, ai-evaluation, retrieval-context,
+  agent-runtime (tools / prompts / knowledge / agents-CRUD /
+  guardrails), model-deployment, model-catalog, experiment-tracking,
+  feature-store. The 501 stubs are intentional and documented.
+- All builds + vets + tests green workspace-wide at every commit.
+
+## Build warnings worth flagging
+
+None. `go build ./...` and `go test ./libs/...` both clean.
+
+The next iteration's natural starting point is libs/ml-kernel-go/
+domain/interop (769 LOC pure logic; unblocks 4 handler stubs). The
+runtime port can run in parallel since it's a different lib.
