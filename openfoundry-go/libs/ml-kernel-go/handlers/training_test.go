@@ -26,14 +26,10 @@ func TestCreateTrainingJob_RejectsEmptyName(t *testing.T) {
 	assert.Equal(t, "training job name is required", body.Error)
 }
 
-func TestCreateTrainingJob_StubReturns501OnValidInput(t *testing.T) {
-	t.Parallel()
-	h := &TrainingHandlers{Pool: nil}
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"my-job"}`))
-	w := httptest.NewRecorder()
-	h.CreateTrainingJob(w, req)
-	assert.Equal(t, http.StatusNotImplemented, w.Code)
-}
+// CreateTrainingJob with valid input now goes to ExecuteTraining
+// and tries to insert into the DB; with nil pool it panics. Test
+// only the input-validation path (kept above) — DB-bound paths are
+// covered by the consuming service's integration tests.
 
 func TestCreateTrainingJob_RejectsBadJSON(t *testing.T) {
 	t.Parallel()
