@@ -20,6 +20,7 @@ import {
   type ObjectType,
 } from '@/lib/api/ontology';
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { Tabs } from '@/lib/components/Tabs';
 
 type Tab = 'authoring' | 'operate' | 'inline-edits' | 'monitoring';
 
@@ -323,27 +324,7 @@ export function ActionTypesPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['authoring', 'operate', 'inline-edits', 'monitoring'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              fontSize: 12,
-              borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-              background: 'transparent',
-              border: 'none',
-              padding: '8px 16px',
-              cursor: 'pointer',
-              color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={['authoring', 'operate', 'inline-edits', 'monitoring'] as const} active={tab} onChange={setTab} />
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 0.9fr) minmax(0, 1.1fr)' }}>
         <section className="of-panel" style={{ padding: 16 }}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { Pagination } from '@/lib/components/Pagination';
 import { deleteDataset, getCatalogFacets, listDatasets, type Dataset } from '@/lib/api/datasets';
 
 export function DatasetsListPage() {
@@ -114,10 +115,8 @@ export function DatasetsListPage() {
           ))}
           {datasets.length === 0 && <li className="of-text-muted">No datasets.</li>}
         </ul>
-        <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-          <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="of-button" style={{ fontSize: 11 }}>← Prev</button>
-          <span className="of-text-muted" style={{ fontSize: 11, alignSelf: 'center' }}>page {page}</span>
-          <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page * 20 >= total} className="of-button" style={{ fontSize: 11 }}>Next →</button>
+        <div style={{ marginTop: 8 }}>
+          <Pagination page={page} perPage={20} total={total} onChange={setPage} />
         </div>
       </section>
     </section>

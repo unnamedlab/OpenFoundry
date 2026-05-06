@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { Tabs } from '@/lib/components/Tabs';
 import {
   bindProjectResource,
   createProjectFolder,
@@ -186,27 +187,7 @@ export function ProjectDetailPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['overview', 'folders', 'resources', 'memberships'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              fontSize: 12,
-              borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-              background: 'transparent',
-              border: 'none',
-              padding: '8px 16px',
-              cursor: 'pointer',
-              color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={['overview', 'folders', 'resources', 'memberships'] as const} active={tab} onChange={setTab} />
 
       {tab === 'overview' && (
         <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 8 }}>

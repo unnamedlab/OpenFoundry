@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { Tabs } from '@/lib/components/Tabs';
 import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
 import {
   getPipeline,
@@ -185,29 +186,7 @@ export function PipelineEditPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['nodes', 'config', 'runs', 'validate'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className="of-button"
-            style={{
-              fontSize: 12,
-              borderRadius: 0,
-              borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-              background: 'transparent',
-              border: 'none',
-              padding: '8px 16px',
-              cursor: 'pointer',
-              color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={['nodes', 'config', 'runs', 'validate'] as const} active={tab} onChange={setTab} />
 
       {tab === 'nodes' && (
         <PipelineNodeList

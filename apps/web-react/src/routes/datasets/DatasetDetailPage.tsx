@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { Tabs } from '@/lib/components/Tabs';
 import {
   deleteDataset,
   getDataset,
@@ -169,27 +170,11 @@ export function DatasetDetailPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['preview', 'schema', 'files', 'transactions', 'versions', 'quality', 'metadata'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => void loadTab(t)}
-            style={{
-              fontSize: 12,
-              borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-              background: 'transparent',
-              border: 'none',
-              padding: '8px 16px',
-              cursor: 'pointer',
-              color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={['preview', 'schema', 'files', 'transactions', 'versions', 'quality', 'metadata'] as const}
+        active={tab}
+        onChange={(t) => void loadTab(t)}
+      />
 
       {tab === 'preview' && (
         <section className="of-panel" style={{ padding: 16, overflow: 'auto' }}>

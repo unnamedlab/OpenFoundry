@@ -32,6 +32,7 @@ import {
   type TrainingJob,
 } from '@/lib/api/ml';
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { Tabs } from '@/lib/components/Tabs';
 
 type Tab = 'overview' | 'experiments' | 'models' | 'features' | 'training' | 'deployments' | 'batch';
 
@@ -155,27 +156,11 @@ export function MlPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['overview', 'experiments', 'models', 'features', 'training', 'deployments', 'batch'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              fontSize: 12,
-              borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-              background: 'transparent',
-              border: 'none',
-              padding: '8px 16px',
-              cursor: 'pointer',
-              color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={['overview', 'experiments', 'models', 'features', 'training', 'deployments', 'batch'] as const}
+        active={tab}
+        onChange={setTab}
+      />
 
       {tab === 'overview' && overview && (
         <section className="of-panel" style={{ padding: 16 }}>

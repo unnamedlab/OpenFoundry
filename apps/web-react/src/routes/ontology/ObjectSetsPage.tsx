@@ -10,9 +10,11 @@ import {
   materializeObjectSet,
   type ObjectSetDefinition,
   type ObjectSetEvaluationResponse,
+  type ObjectSetFilter,
   type ObjectType,
 } from '@/lib/api/ontology';
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { ObjectSetFilterBuilder } from '@/lib/components/ontology/ObjectSetFilterBuilder';
 
 function parseJson<T>(text: string, fallback: T): T {
   const trimmed = text.trim();
@@ -155,7 +157,20 @@ export function ObjectSetsPage() {
           Description
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
         </label>
-        <JsonEditor label="Filters JSON" value={filtersText} onChange={setFiltersText} minHeight={100} />
+        <ObjectSetFilterBuilder
+          filters={(() => {
+            try { return JSON.parse(filtersText) as ObjectSetFilter[]; }
+            catch { return []; }
+          })()}
+          onChange={(next) => setFiltersText(JSON.stringify(next, null, 2))}
+          disabled={busy}
+        />
+        <details>
+          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>Filters as raw JSON</summary>
+          <div style={{ marginTop: 6 }}>
+            <JsonEditor value={filtersText} onChange={setFiltersText} minHeight={100} />
+          </div>
+        </details>
         <JsonEditor label="Traversals JSON" value={traversalsText} onChange={setTraversalsText} minHeight={80} />
         <JsonEditor label="Join JSON (or null)" value={joinText} onChange={setJoinText} minHeight={80} />
         <label style={{ fontSize: 13 }}>

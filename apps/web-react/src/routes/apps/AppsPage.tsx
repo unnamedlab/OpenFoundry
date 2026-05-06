@@ -19,6 +19,7 @@ import {
 } from '@/lib/api/apps';
 import { AppPagesEditor } from '@/lib/components/apps/AppPagesEditor';
 import { JsonEditor } from '@/lib/components/JsonEditor';
+import { Tabs } from '@/lib/components/Tabs';
 
 type Tab = 'definition' | 'pages' | 'settings' | 'theme' | 'versions' | 'slate';
 
@@ -285,31 +286,15 @@ export function AppsPage() {
         </section>
 
         <section className="of-panel" style={{ padding: 16 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-            {(['definition', 'pages', 'settings', 'theme', 'versions', 'slate'] as Tab[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => {
-                  setTab(t);
-                  if (t === 'versions' && draft.id) void loadVersions(draft.id);
-                  if (t === 'slate' && draft.id) void loadSlate(draft.id);
-                }}
-                style={{
-                  fontSize: 12,
-                  borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-                  background: 'transparent',
-                  border: 'none',
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            tabs={['definition', 'pages', 'settings', 'theme', 'versions', 'slate'] as const}
+            active={tab}
+            onChange={(t) => {
+              setTab(t);
+              if (t === 'versions' && draft.id) void loadVersions(draft.id);
+              if (t === 'slate' && draft.id) void loadSlate(draft.id);
+            }}
+          />
 
           {tab === 'definition' && (
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>

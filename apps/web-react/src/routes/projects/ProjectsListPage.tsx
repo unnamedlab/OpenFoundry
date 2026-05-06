@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { Tabs } from '@/lib/components/Tabs';
 import { createProject, deleteProject, listProjects, type OntologyProject } from '@/lib/api/ontology';
 import {
   listSharedWithMe,
@@ -154,27 +155,15 @@ export function ProjectsListPage() {
         </section>
       )}
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-default)' }}>
-        {(['projects', 'shared', 'trash'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              fontSize: 12,
-              borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
-              background: 'transparent',
-              border: 'none',
-              padding: '8px 16px',
-              cursor: 'pointer',
-              color: tab === t ? 'var(--text-default)' : 'var(--text-muted)',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t === 'shared' ? 'Shared with me' : t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={[
+          { id: 'projects' as const, label: 'Projects' },
+          { id: 'shared' as const, label: 'Shared with me' },
+          { id: 'trash' as const, label: 'Trash' },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
 
       {tab === 'projects' && (
         <>
