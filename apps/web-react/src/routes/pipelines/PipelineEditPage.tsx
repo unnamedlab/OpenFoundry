@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { JsonEditor } from '@/lib/components/JsonEditor';
 import {
   getPipeline,
   listRuns,
@@ -225,33 +226,9 @@ export function PipelineEditPage() {
               <option value="archived">archived</option>
             </select>
           </label>
-          <label style={{ fontSize: 13 }}>
-            Nodes JSON (DAG)
-            <textarea
-              value={nodesJson}
-              onChange={(e) => setNodesJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 320 }}
-            />
-          </label>
-          <label style={{ fontSize: 13 }}>
-            Schedule config JSON
-            <textarea
-              value={scheduleJson}
-              onChange={(e) => setScheduleJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }}
-            />
-          </label>
-          <label style={{ fontSize: 13 }}>
-            Retry policy JSON
-            <textarea
-              value={retryJson}
-              onChange={(e) => setRetryJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }}
-            />
-          </label>
+          <JsonEditor label="Nodes JSON (DAG)" value={nodesJson} onChange={setNodesJson} minHeight={320} />
+          <JsonEditor label="Schedule config JSON" value={scheduleJson} onChange={setScheduleJson} minHeight={80} />
+          <JsonEditor label="Retry policy JSON" value={retryJson} onChange={setRetryJson} minHeight={80} />
         </section>
       )}
 

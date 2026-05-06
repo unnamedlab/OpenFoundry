@@ -12,6 +12,7 @@ import {
   type ObjectSetEvaluationResponse,
   type ObjectType,
 } from '@/lib/api/ontology';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 
 function parseJson<T>(text: string, fallback: T): T {
   const trimmed = text.trim();
@@ -154,18 +155,9 @@ export function ObjectSetsPage() {
           Description
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
         </label>
-        <label style={{ fontSize: 13 }}>
-          Filters JSON
-          <textarea value={filtersText} onChange={(e) => setFiltersText(e.target.value)} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 100 }} />
-        </label>
-        <label style={{ fontSize: 13 }}>
-          Traversals JSON
-          <textarea value={traversalsText} onChange={(e) => setTraversalsText(e.target.value)} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }} />
-        </label>
-        <label style={{ fontSize: 13 }}>
-          Join JSON (or null)
-          <textarea value={joinText} onChange={(e) => setJoinText(e.target.value)} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }} />
-        </label>
+        <JsonEditor label="Filters JSON" value={filtersText} onChange={setFiltersText} minHeight={100} />
+        <JsonEditor label="Traversals JSON" value={traversalsText} onChange={setTraversalsText} minHeight={80} />
+        <JsonEditor label="Join JSON (or null)" value={joinText} onChange={setJoinText} minHeight={80} />
         <label style={{ fontSize: 13 }}>
           Projections (comma-separated paths)
           <input value={projectionsText} onChange={(e) => setProjectionsText(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
@@ -174,10 +166,7 @@ export function ObjectSetsPage() {
           What-if label
           <input value={whatIfLabel} onChange={(e) => setWhatIfLabel(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
         </label>
-        <label style={{ fontSize: 13 }}>
-          Policy JSON
-          <textarea value={policyText} onChange={(e) => setPolicyText(e.target.value)} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }} />
-        </label>
+        <JsonEditor label="Policy JSON" value={policyText} onChange={setPolicyText} minHeight={80} />
         <button type="submit" disabled={busy} className="of-button of-button--primary">Create object set</button>
       </form>
 

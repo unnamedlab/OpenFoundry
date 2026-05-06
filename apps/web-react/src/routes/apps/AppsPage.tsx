@@ -17,6 +17,7 @@ import {
   type AppVersion,
   type SlatePackageResponse,
 } from '@/lib/api/apps';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 
 type Tab = 'definition' | 'pages' | 'settings' | 'theme' | 'versions' | 'slate';
 
@@ -360,30 +361,33 @@ export function AppsPage() {
           )}
 
           {tab === 'pages' && (
-            <textarea
-              value={draft.pages_json}
-              onChange={(e) => setDraft((d) => ({ ...d, pages_json: e.target.value }))}
-              className="of-input"
-              style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 360 }}
-            />
+            <div style={{ marginTop: 8 }}>
+              <JsonEditor
+                value={draft.pages_json}
+                onChange={(v) => setDraft((d) => ({ ...d, pages_json: v }))}
+                minHeight={360}
+              />
+            </div>
           )}
 
           {tab === 'settings' && (
-            <textarea
-              value={draft.settings_json}
-              onChange={(e) => setDraft((d) => ({ ...d, settings_json: e.target.value }))}
-              className="of-input"
-              style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 360 }}
-            />
+            <div style={{ marginTop: 8 }}>
+              <JsonEditor
+                value={draft.settings_json}
+                onChange={(v) => setDraft((d) => ({ ...d, settings_json: v }))}
+                minHeight={360}
+              />
+            </div>
           )}
 
           {tab === 'theme' && (
-            <textarea
-              value={draft.theme_json}
-              onChange={(e) => setDraft((d) => ({ ...d, theme_json: e.target.value }))}
-              className="of-input"
-              style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 240 }}
-            />
+            <div style={{ marginTop: 8 }}>
+              <JsonEditor
+                value={draft.theme_json}
+                onChange={(v) => setDraft((d) => ({ ...d, theme_json: v }))}
+                minHeight={240}
+              />
+            </div>
           )}
 
           {tab === 'versions' && (
@@ -407,12 +411,7 @@ export function AppsPage() {
                 <p className="of-text-muted" style={{ marginTop: 8 }}>Click slate tab to fetch package.</p>
               )}
               <p className="of-eyebrow" style={{ marginTop: 14 }}>Import slate package</p>
-              <textarea
-                value={importBody}
-                onChange={(e) => setImportBody(e.target.value)}
-                className="of-input"
-                style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 160 }}
-              />
+              <JsonEditor value={importBody} onChange={setImportBody} minHeight={160} />
               <button type="button" onClick={() => void runImportSlate()} disabled={busy} className="of-button" style={{ marginTop: 6 }}>
                 Import
               </button>

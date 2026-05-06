@@ -37,6 +37,7 @@ import {
   type PromptTemplate,
   type ToolDefinition,
 } from '@/lib/api/ai';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 import { notifications } from '@stores/notifications';
 
 type Tab = 'overview' | 'providers' | 'prompts' | 'knowledge' | 'tools' | 'agents' | 'chat' | 'guardrails';
@@ -431,12 +432,7 @@ export function AiPage() {
               ))}
             </ul>
             <p className="of-eyebrow" style={{ marginTop: 14 }}>Add document JSON</p>
-            <textarea
-              value={documentJson}
-              onChange={(e) => setDocumentJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 120 }}
-            />
+            <JsonEditor value={documentJson} onChange={setDocumentJson} minHeight={120} />
             <button
               type="button"
               disabled={busy || !selectedKnowledgeBaseId}
@@ -458,12 +454,7 @@ export function AiPage() {
             </button>
 
             <p className="of-eyebrow" style={{ marginTop: 14 }}>Search KB</p>
-            <textarea
-              value={searchJson}
-              onChange={(e) => setSearchJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 80 }}
-            />
+            <JsonEditor value={searchJson} onChange={setSearchJson} minHeight={80} />
             <button
               type="button"
               disabled={busy || !selectedKnowledgeBaseId}
@@ -527,12 +518,7 @@ export function AiPage() {
           />
           <section className="of-panel" style={{ padding: 20 }}>
             <p className="of-eyebrow">Execute first agent</p>
-            <textarea
-              value={executionJson}
-              onChange={(e) => setExecutionJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 140 }}
-            />
+            <JsonEditor value={executionJson} onChange={setExecutionJson} minHeight={140} />
             <button
               type="button"
               disabled={busy || agents.length === 0}
@@ -587,12 +573,9 @@ export function AiPage() {
               ))}
             </select>
           )}
-          <textarea
-            value={chatJson}
-            onChange={(e) => setChatJson(e.target.value)}
-            className="of-input"
-            style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 220 }}
-          />
+          <div style={{ marginTop: 8 }}>
+            <JsonEditor value={chatJson} onChange={setChatJson} minHeight={220} />
+          </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button
               type="button"
@@ -738,12 +721,7 @@ function Section<T extends { id: string }>({
         {items.length === 0 && <li className="of-text-muted">No entries yet.</li>}
       </ul>
       <p className="of-eyebrow" style={{ marginTop: 14 }}>Create JSON</p>
-      <textarea
-        value={json}
-        onChange={(e) => onJsonChange(e.target.value)}
-        className="of-input"
-        style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 200 }}
-      />
+      <JsonEditor value={json} onChange={onJsonChange} minHeight={200} />
       <button type="button" onClick={onSave} disabled={busy} className="of-button of-button--primary" style={{ marginTop: 8 }}>
         Save
       </button>

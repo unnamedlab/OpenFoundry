@@ -23,6 +23,7 @@ import {
   type WorkflowDefinition,
   type WorkflowRun,
 } from '@/lib/api/workflows';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 
 interface RuleDraft {
   id?: string;
@@ -336,24 +337,18 @@ export function FoundryRulesPage() {
                 <option value="automatic">automatic</option>
               </select>
             </label>
-            <label style={{ fontSize: 13 }}>
-              Trigger spec JSON
-              <textarea
-                value={draft.trigger_text}
-                onChange={(e) => setDraft((d) => ({ ...d, trigger_text: e.target.value }))}
-                className="of-input"
-                style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-              />
-            </label>
-            <label style={{ fontSize: 13 }}>
-              Effect spec JSON
-              <textarea
-                value={draft.effect_text}
-                onChange={(e) => setDraft((d) => ({ ...d, effect_text: e.target.value }))}
-                className="of-input"
-                style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-              />
-            </label>
+            <JsonEditor
+              label="Trigger spec JSON"
+              value={draft.trigger_text}
+              onChange={(v) => setDraft((d) => ({ ...d, trigger_text: v }))}
+              minHeight={140}
+            />
+            <JsonEditor
+              label="Effect spec JSON"
+              value={draft.effect_text}
+              onChange={(v) => setDraft((d) => ({ ...d, effect_text: v }))}
+              minHeight={140}
+            />
             <div style={{ display: 'flex', gap: 6 }}>
               <button type="button" onClick={() => void saveRule()} disabled={busy} className="of-button of-button--primary">
                 {draft.id ? 'Update' : 'Create'}

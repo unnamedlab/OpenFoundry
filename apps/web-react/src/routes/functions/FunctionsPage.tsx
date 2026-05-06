@@ -12,6 +12,7 @@ import {
   type FunctionPackageMetrics,
   type FunctionPackageRun,
 } from '@/lib/api/ontology';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 
 interface PackageDraft {
   id?: string;
@@ -232,10 +233,12 @@ export function FunctionsPage() {
               Source
               <textarea value={draft.source} onChange={(e) => setDraft((d) => ({ ...d, source: e.target.value }))} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 200 }} />
             </label>
-            <label style={{ fontSize: 13 }}>
-              Capabilities JSON
-              <textarea value={draft.capabilities_json} onChange={(e) => setDraft((d) => ({ ...d, capabilities_json: e.target.value }))} className="of-input" style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }} />
-            </label>
+            <JsonEditor
+              label="Capabilities JSON"
+              value={draft.capabilities_json}
+              onChange={(v) => setDraft((d) => ({ ...d, capabilities_json: v }))}
+              minHeight={140}
+            />
             <div style={{ display: 'flex', gap: 6 }}>
               <button type="button" onClick={() => void save()} disabled={busy} className="of-button of-button--primary">
                 {draft.id ? 'Update' : 'Create'}
@@ -251,12 +254,7 @@ export function FunctionsPage() {
           {draft.id && (
             <>
               <p className="of-eyebrow" style={{ marginTop: 14 }}>Execute</p>
-              <textarea
-                value={executeInputJson}
-                onChange={(e) => setExecuteInputJson(e.target.value)}
-                className="of-input"
-                style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }}
-              />
+              <JsonEditor value={executeInputJson} onChange={setExecuteInputJson} minHeight={80} placeholder='{"input": ...}' />
               <button type="button" onClick={() => void execute()} disabled={busy} className="of-button of-button--primary" style={{ marginTop: 6 }}>
                 Run
               </button>

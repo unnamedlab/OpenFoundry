@@ -19,6 +19,7 @@ import {
   type ActionWhatIfBranch,
   type ObjectType,
 } from '@/lib/api/ontology';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 
 type Tab = 'authoring' | 'operate' | 'inline-edits' | 'monitoring';
 
@@ -431,42 +432,30 @@ export function ActionTypesPage() {
                 Permission key
                 <input value={draft.permission_key} onChange={(e) => setDraft((d) => ({ ...d, permission_key: e.target.value }))} className="of-input" style={{ marginTop: 4 }} />
               </label>
-              <label style={{ fontSize: 13 }}>
-                Input schema JSON
-                <textarea
-                  value={draft.input_schema_json}
-                  onChange={(e) => setDraft((d) => ({ ...d, input_schema_json: e.target.value }))}
-                  className="of-input"
-                  style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 120 }}
-                />
-              </label>
-              <label style={{ fontSize: 13 }}>
-                Form schema JSON
-                <textarea
-                  value={draft.form_schema_json}
-                  onChange={(e) => setDraft((d) => ({ ...d, form_schema_json: e.target.value }))}
-                  className="of-input"
-                  style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }}
-                />
-              </label>
-              <label style={{ fontSize: 13 }}>
-                Config JSON
-                <textarea
-                  value={draft.config_json}
-                  onChange={(e) => setDraft((d) => ({ ...d, config_json: e.target.value }))}
-                  className="of-input"
-                  style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-                />
-              </label>
-              <label style={{ fontSize: 13 }}>
-                Authorization policy JSON
-                <textarea
-                  value={draft.authorization_policy_json}
-                  onChange={(e) => setDraft((d) => ({ ...d, authorization_policy_json: e.target.value }))}
-                  className="of-input"
-                  style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }}
-                />
-              </label>
+              <JsonEditor
+                label="Input schema JSON"
+                value={draft.input_schema_json}
+                onChange={(v) => setDraft((d) => ({ ...d, input_schema_json: v }))}
+                minHeight={120}
+              />
+              <JsonEditor
+                label="Form schema JSON"
+                value={draft.form_schema_json}
+                onChange={(v) => setDraft((d) => ({ ...d, form_schema_json: v }))}
+                minHeight={80}
+              />
+              <JsonEditor
+                label="Config JSON"
+                value={draft.config_json}
+                onChange={(v) => setDraft((d) => ({ ...d, config_json: v }))}
+                minHeight={140}
+              />
+              <JsonEditor
+                label="Authorization policy JSON"
+                value={draft.authorization_policy_json}
+                onChange={(v) => setDraft((d) => ({ ...d, authorization_policy_json: v }))}
+                minHeight={80}
+              />
               <div style={{ display: 'flex', gap: 6 }}>
                 <button type="button" onClick={() => void save()} disabled={busy} className="of-button of-button--primary">
                   {draft.id ? 'Update' : 'Create'}
@@ -489,15 +478,12 @@ export function ActionTypesPage() {
                     Target object id
                     <input value={executeTargetId} onChange={(e) => setExecuteTargetId(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
                   </label>
-                  <label style={{ fontSize: 13 }}>
-                    Parameters JSON
-                    <textarea
-                      value={executeParamsJson}
-                      onChange={(e) => setExecuteParamsJson(e.target.value)}
-                      className="of-input"
-                      style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 100 }}
-                    />
-                  </label>
+                  <JsonEditor
+                    label="Parameters JSON"
+                    value={executeParamsJson}
+                    onChange={setExecuteParamsJson}
+                    minHeight={100}
+                  />
                   <label style={{ fontSize: 13 }}>
                     Justification
                     <input value={executeJustification} onChange={(e) => setExecuteJustification(e.target.value)} className="of-input" style={{ marginTop: 4 }} />
@@ -554,12 +540,7 @@ export function ActionTypesPage() {
                       </li>
                     ))}
                   </ul>
-                  <textarea
-                    value={whatIfDraftJson}
-                    onChange={(e) => setWhatIfDraftJson(e.target.value)}
-                    className="of-input"
-                    style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 100 }}
-                  />
+                  <JsonEditor value={whatIfDraftJson} onChange={setWhatIfDraftJson} minHeight={100} />
                   <button type="button" onClick={() => void createWhatIf()} disabled={busy} className="of-button of-button--primary" style={{ marginTop: 6 }}>
                     Create branch
                   </button>

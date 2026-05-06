@@ -31,6 +31,7 @@ import {
   type RegisteredModel,
   type TrainingJob,
 } from '@/lib/api/ml';
+import { JsonEditor } from '@/lib/components/JsonEditor';
 
 type Tab = 'overview' | 'experiments' | 'models' | 'features' | 'training' | 'deployments' | 'batch';
 
@@ -188,12 +189,7 @@ export function MlPage() {
         <>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Create experiment</p>
-            <textarea
-              value={expDraftJson}
-              onChange={(e) => setExpDraftJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-            />
+            <JsonEditor value={expDraftJson} onChange={setExpDraftJson} minHeight={140} />
             <button
               type="button"
               onClick={() => void withBusy(() => createExperiment(JSON.parse(expDraftJson)), 'Create experiment')}
@@ -232,12 +228,7 @@ export function MlPage() {
           {runDraftExpId && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Add run to {runDraftExpId}</p>
-              <textarea
-                value={runDraftJson}
-                onChange={(e) => setRunDraftJson(e.target.value)}
-                className="of-input"
-                style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-              />
+              <JsonEditor value={runDraftJson} onChange={setRunDraftJson} minHeight={140} />
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button
                   type="button"
@@ -261,12 +252,7 @@ export function MlPage() {
         <>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Create model</p>
-            <textarea
-              value={modelDraftJson}
-              onChange={(e) => setModelDraftJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 120 }}
-            />
+            <JsonEditor value={modelDraftJson} onChange={setModelDraftJson} minHeight={120} />
             <button
               type="button"
               onClick={() => void withBusy(() => createModel(JSON.parse(modelDraftJson)), 'Create model')}
@@ -318,12 +304,7 @@ export function MlPage() {
           {versionDraftModelId && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Add version to {versionDraftModelId}</p>
-              <textarea
-                value={versionDraftJson}
-                onChange={(e) => setVersionDraftJson(e.target.value)}
-                className="of-input"
-                style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 120 }}
-              />
+              <JsonEditor value={versionDraftJson} onChange={setVersionDraftJson} minHeight={120} />
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button
                   type="button"
@@ -347,12 +328,7 @@ export function MlPage() {
         <>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Create feature</p>
-            <textarea
-              value={featureDraftJson}
-              onChange={(e) => setFeatureDraftJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-            />
+            <JsonEditor value={featureDraftJson} onChange={setFeatureDraftJson} minHeight={140} />
             <button
               type="button"
               onClick={() => void withBusy(() => createFeature(JSON.parse(featureDraftJson)), 'Create feature')}
@@ -381,12 +357,7 @@ export function MlPage() {
         <>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Submit training job</p>
-            <textarea
-              value={trainingDraftJson}
-              onChange={(e) => setTrainingDraftJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-            />
+            <JsonEditor value={trainingDraftJson} onChange={setTrainingDraftJson} minHeight={140} />
             <button
               type="button"
               onClick={() => void withBusy(() => createTrainingJob(JSON.parse(trainingDraftJson)), 'Create training job')}
@@ -415,12 +386,7 @@ export function MlPage() {
         <>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Create deployment</p>
-            <textarea
-              value={deployDraftJson}
-              onChange={(e) => setDeployDraftJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-            />
+            <JsonEditor value={deployDraftJson} onChange={setDeployDraftJson} minHeight={140} />
             <button
               type="button"
               onClick={() => void withBusy(() => createDeployment(JSON.parse(deployDraftJson)), 'Create deployment')}
@@ -464,12 +430,7 @@ export function MlPage() {
           {predictDeployId && (
             <section className="of-panel" style={{ padding: 16 }}>
               <p className="of-eyebrow">Predict ({predictDeployId})</p>
-              <textarea
-                value={predictInputJson}
-                onChange={(e) => setPredictInputJson(e.target.value)}
-                className="of-input"
-                style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 80 }}
-              />
+              <JsonEditor value={predictInputJson} onChange={setPredictInputJson} minHeight={80} />
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button
                   type="button"
@@ -520,12 +481,7 @@ export function MlPage() {
         <>
           <section className="of-panel" style={{ padding: 16 }}>
             <p className="of-eyebrow">Submit batch prediction</p>
-            <textarea
-              value={batchDraftJson}
-              onChange={(e) => setBatchDraftJson(e.target.value)}
-              className="of-input"
-              style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, minHeight: 140 }}
-            />
+            <JsonEditor value={batchDraftJson} onChange={setBatchDraftJson} minHeight={140} />
             <button
               type="button"
               onClick={() => void withBusy(() => createBatchPrediction(JSON.parse(batchDraftJson)), 'Create batch prediction')}
