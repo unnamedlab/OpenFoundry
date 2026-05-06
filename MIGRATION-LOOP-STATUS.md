@@ -80,8 +80,8 @@ Stubs that were claimed pending but are now real production code:
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 5.9 | CI job runs `buf generate` and fails on dirty tree | ⏳ pending | guards proto drift since `openfoundry-go/proto/` is empty (consumes Rust proto/ via buf) |
-| 5.10 | refresh `openfoundry-go/README.md` and `INVENTORY-PHASE6.md` | ⏳ pending | both lag the actual state; README still describes Phase 0 |
+| 5.9 | CI job runs `buf generate` and fails on dirty tree | 🟡 partially done — blocked on proto bug | The `.github/workflows/openfoundry-go.yml` `proto` job already runs `buf generate` and checks `git status --porcelain libs/proto-gen`. Two separate concerns surfaced during review: (a) `openfoundry-go/.gitignore` excludes `libs/proto-gen/**/*.pb.go`, so the drift check is currently a no-op; (b) `buf generate` itself fails today because `proto/pipeline/builds.proto:46` declares `FAILED` twice in the same enum scope — a pre-existing Rust-crate proto bug needing human review before the guard can be sharpened. Logging here, not fixing unilaterally. |
+| 5.10 | refresh `openfoundry-go/README.md` and `INVENTORY-PHASE6.md` | ✅ done | commits `f3f50875` (README), `5e9f1c38` (INVENTORY). README status block now lists Phases 0–6 + ai/ml libs accurately; INVENTORY notes identity-federation + tier-2 libs landed. |
 | 5.11 | decide on the 16 empty lib dirs | ⏸ blocked-on-human | options: delete, or add doc.go with TODO. Sub-decision per lib. |
 
 ---
@@ -337,6 +337,57 @@ And the **decisory backlog (human input required):**
 **Next action (iter 10):** P5.9 CI buf-generate guard. Tractable
 small slice (~20-line GitHub Action workflow) or P5.10 docs
 refresh. Will pick the smaller one.
+
+### Iter 10 — 2026-05-06 (autonomous loop wakeup)
+
+Closed P3.7a remaining bits (handler wiring 5a/5b) and the
+non-decisory P5 hygiene work:
+
+| # | Commit    | Slice                                                  |
+|---|-----------|--------------------------------------------------------|
+| 1 | `cc8add75`| 3.7a.5a — saml.Registry + 0009_slice5b_saml.sql        |
+| 2 | `9afe79a4`| 3.7a.5b — handlers/sso.go SAML routing + ACS POST      |
+| 3 | `3cec7af3`| status doc update (P3.7 closed)                        |
+| 4 | `f3f50875`| README refresh — Phases 0–6 + ai/ml libs               |
+| 5 | `5e9f1c38`| INVENTORY-PHASE6 refresh                               |
+
+P5.9 audit: the guard already exists in
+`.github/workflows/openfoundry-go.yml` (`proto` job runs `buf
+generate` + checks `git status --porcelain libs/proto-gen`). Two
+follow-ups need human review:
+1. `openfoundry-go/.gitignore` excludes generated .pb.go files,
+   making the drift check effectively a no-op.
+2. `buf generate` itself currently fails because
+   `proto/pipeline/builds.proto:46` declares `FAILED` twice in the
+   same enum scope — a pre-existing bug in the Rust-crate proto
+   needing human review before the guard can be sharpened.
+
+## Loop exit summary
+
+The loop's exit condition is met:
+- ✅ P1 — 8 ai/ml services unblocked at the handler layer
+- ✅ P2 — Phase 4 data libs (cassandra-kernel + state-machine +
+  scheduling-cron + saga + search-abstraction)
+- ✅ P3 — identity-federation slice 5b (SAML) and slice 8
+  (Cedar/JWKS/SCIM)
+- ✅ P5 non-decisory tasks (5.10 docs refresh; 5.9 surfaced
+  pre-existing proto bug, guard infrastructure already in place)
+- ⏸ P4.8 (pyo3 sidecars) and P5.11 (empty libs) explicitly
+  blocked-on-human
+
+Total: ~50 commits across 10 iterations, ~20-25k LOC of Go,
+several hundred unit tests + integration tests against
+testcontainers, no pushes, no merges.
+
+Human follow-ups outside the loop's scope:
+1. **P4.8** — go/no-go on pyo3 sidecars
+   (notebook-runtime, pipeline-build, ontology-actions).
+2. **P5.11** — delete the 16 empty lib dirs vs. stub them with
+   doc.go TODO. Per-lib decision.
+3. **P5.9 follow-up** — fix `proto/pipeline/builds.proto`
+   duplicate `FAILED` enum value, then either commit
+   `libs/proto-gen/**/*.pb.go` (drop from .gitignore) or rewire
+   the drift check to read the ignored tree.
 
 ---
 
