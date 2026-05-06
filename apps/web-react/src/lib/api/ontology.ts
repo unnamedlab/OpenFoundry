@@ -762,6 +762,38 @@ export function unbindProjectResource(id: string, resourceKind: string, resource
   return api.delete(`/ontology/projects/${id}/resources/${resourceKind}/${resourceId}`);
 }
 
+export function upsertProjectMembership(id: string, body: { user_id: string; role: OntologyProjectRole }) {
+  return api.post<OntologyProjectMembership>(`/ontology/projects/${id}/memberships`, body);
+}
+
+export function deleteProjectMembership(id: string, userId: string) {
+  return api.delete(`/ontology/projects/${id}/memberships/${userId}`);
+}
+
+export function replaceProjectWorkingState(id: string, changes: OntologyStagedChange[]) {
+  return api.put<OntologyProjectWorkingState>(`/ontology/projects/${id}/working-state`, { changes });
+}
+
+export function getActionType(id: string) {
+  return api.get<ActionType>(`/ontology/actions/${id}`);
+}
+
+export function getFunctionPackage(id: string) {
+  return api.get<FunctionPackage>(`/ontology/functions/${id}`);
+}
+
+export function getFunctionPackageMetricsForId(id: string) {
+  return api.get<FunctionPackageMetrics>(`/ontology/functions/${id}/metrics`);
+}
+
+export function getOntologyFunnelSource(id: string) {
+  return api.get<OntologyFunnelSource>(`/ontology/funnel/sources/${id}`);
+}
+
+export function getObjectInstance(typeId: string, objectId: string) {
+  return api.get<ObjectInstance>(`/ontology/types/${typeId}/objects/${objectId}`);
+}
+
 // ────────────────────────────────────────────────────────────────
 // Object-type bindings (dataset → object type materialization)
 // ────────────────────────────────────────────────────────────────
