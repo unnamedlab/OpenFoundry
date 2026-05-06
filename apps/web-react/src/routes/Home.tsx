@@ -31,6 +31,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/object-views', title: 'Object views', description: 'Configure full-page and side-panel object views per type with localStorage version history.' },
   { path: '/object-explorer', title: 'Object explorer', description: 'Lexical + semantic search across the ontology with object-set creation and evaluation.' },
   { path: '/iceberg-tables', title: 'Iceberg tables', description: 'List + detail (8 tabs): schema, snapshots, metadata, branches, markings, catalog access tokens.' },
+  { path: '/ontology-indexing', title: 'Ontology indexing', description: 'Funnel sources + property mappings + run history + health summary for ontology hydration.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },

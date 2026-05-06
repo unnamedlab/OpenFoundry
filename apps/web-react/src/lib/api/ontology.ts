@@ -957,3 +957,189 @@ export function evaluateObjectSet(id: string, body?: { limit?: number }) {
 export function materializeObjectSet(id: string, body?: { limit?: number }) {
   return api.post<ObjectSetEvaluationResponse>(`/ontology/object-sets/${id}/materialize`, body ?? {});
 }
+
+// ────────────────────────────────────────────────────────────────
+// Ontology funnel sources / runs / health — used by /ontology-indexing.
+// ────────────────────────────────────────────────────────────────
+
+export interface OntologyFunnelPropertyMapping {
+  source_field: string;
+  target_property: string;
+}
+
+export interface OntologyFunnelSource {
+  id: string;
+  name: string;
+  description: string;
+  object_type_id: string;
+  dataset_id: string;
+  pipeline_id: string | null;
+  dataset_branch: string | null;
+  dataset_version: number | null;
+  preview_limit: number;
+  default_marking: string;
+  status: string;
+  property_mappings: OntologyFunnelPropertyMapping[];
+  trigger_context: Record<string, unknown>;
+  owner_id: string;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OntologyFunnelRun {
+  id: string;
+  source_id: string;
+  object_type_id: string;
+  dataset_id: string;
+  pipeline_id: string | null;
+  pipeline_run_id: string | null;
+  status: string;
+  trigger_type: string;
+  started_by: string | null;
+  rows_read: number;
+  inserted_count: number;
+  updated_count: number;
+  skipped_count: number;
+  error_count: number;
+  details: Record<string, unknown>;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface OntologyFunnelSourceHealth {
+  source: OntologyFunnelSource;
+  health_status: string;
+  health_reason: string;
+  total_runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  warning_runs: number;
+  success_rate: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+  max_duration_ms: number | null;
+  latest_run_status: string | null;
+  last_run_at: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_warning_at: string | null;
+  rows_read: number;
+  inserted_count: number;
+  updated_count: number;
+  skipped_count: number;
+  error_count: number;
+}
+
+export interface OntologyFunnelHealthSummary {
+  stale_after_hours: number;
+  total_sources: number;
+  active_sources: number;
+  paused_sources: number;
+  healthy_sources: number;
+  degraded_sources: number;
+  failing_sources: number;
+  stale_sources: number;
+  never_run_sources: number;
+  total_runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  warning_runs: number;
+  success_rate: number;
+  rows_read: number;
+  inserted_count: number;
+  updated_count: number;
+  skipped_count: number;
+  error_count: number;
+  last_run_at: string | null;
+  sources: OntologyFunnelSourceHealth[];
+}
+
+export function getOntologyFunnelHealth(params?: {
+  object_type_id?: string;
+  stale_after_hours?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.stale_after_hours) qs.set('stale_after_hours', String(params.stale_after_hours));
+  return api.get<OntologyFunnelHealthSummary>(`/ontology/funnel/health?${qs}`);
+}
+
+export function listOntologyFunnelSources(params?: {
+  object_type_id?: string;
+  status?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.object_type_id) qs.set('object_type_id', params.object_type_id);
+  if (params?.status) qs.set('status', params.status);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: OntologyFunnelSource[]; total: number; page: number; per_page: number }>(
+    `/ontology/funnel/sources?${qs}`,
+  );
+}
+
+export function createOntologyFunnelSource(body: {
+  name: string;
+  description?: string;
+  object_type_id: string;
+  dataset_id: string;
+  pipeline_id?: string | null;
+  dataset_branch?: string | null;
+  dataset_version?: number | null;
+  preview_limit?: number;
+  default_marking?: string;
+  status?: string;
+  property_mappings?: OntologyFunnelPropertyMapping[];
+  trigger_context?: Record<string, unknown>;
+}) {
+  return api.post<OntologyFunnelSource>('/ontology/funnel/sources', body);
+}
+
+export function updateOntologyFunnelSource(
+  id: string,
+  body: {
+    name?: string;
+    description?: string;
+    pipeline_id?: string | null;
+    dataset_branch?: string | null;
+    dataset_version?: number | null;
+    preview_limit?: number;
+    default_marking?: string;
+    status?: string;
+    property_mappings?: OntologyFunnelPropertyMapping[];
+    trigger_context?: Record<string, unknown>;
+  },
+) {
+  return api.patch<OntologyFunnelSource>(`/ontology/funnel/sources/${id}`, body);
+}
+
+export function deleteOntologyFunnelSource(id: string) {
+  return api.delete(`/ontology/funnel/sources/${id}`);
+}
+
+export function triggerOntologyFunnelRun(
+  id: string,
+  body?: {
+    limit?: number;
+    dataset_branch?: string;
+    dataset_version?: number;
+    skip_pipeline?: boolean;
+    dry_run?: boolean;
+    trigger_context?: Record<string, unknown>;
+  },
+) {
+  return api.post<OntologyFunnelRun>(`/ontology/funnel/sources/${id}/run`, body ?? {});
+}
+
+export function listOntologyFunnelRuns(id: string, params?: { page?: number; per_page?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  return api.get<{ data: OntologyFunnelRun[]; total: number; page: number; per_page: number }>(
+    `/ontology/funnel/sources/${id}/runs?${qs}`,
+  );
+}

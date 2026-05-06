@@ -179,6 +179,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/iceberg-tables/IcebergTableDetailPage')).IcebergTableDetailPage }),
       },
       {
+        path: 'ontology-indexing',
+        lazy: async () => ({ Component: (await import('./routes/ontology-indexing/OntologyIndexingPage')).OntologyIndexingPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

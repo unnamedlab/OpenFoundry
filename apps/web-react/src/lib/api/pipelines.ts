@@ -115,3 +115,35 @@ export function triggerLineageBuilds(
 ) {
   return api.post<LineageBuildResult>(`/lineage/datasets/${datasetId}/builds`, body ?? {});
 }
+
+// ────────────────────────────────────────────────────────────────
+// Minimal pipelines list (used by /ontology-indexing). Full pipeline
+// CRUD ships with /pipelines route migration.
+// ────────────────────────────────────────────────────────────────
+
+export interface PipelineSummary {
+  id: string;
+  name: string;
+  description?: string;
+  status?: string;
+  pipeline_type?: string;
+  next_run_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export function listPipelines(params?: {
+  page?: number;
+  per_page?: number;
+  search?: string;
+  status?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.per_page) qs.set('per_page', String(params.per_page));
+  if (params?.search) qs.set('search', params.search);
+  if (params?.status) qs.set('status', params.status);
+  return api.get<{ data: PipelineSummary[]; total: number; page: number; per_page: number }>(
+    `/pipelines${qs.toString() ? `?${qs}` : ''}`,
+  );
+}
