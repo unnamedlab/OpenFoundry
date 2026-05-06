@@ -35,10 +35,6 @@ type UserRecord struct {
 // UserStore is the persistence-shaped contract the SCIM User
 // surface delegates reads/writes to. Mirrors the SQL helpers in
 // the Rust handler (load_user / list_users / count / etc.).
-//
-// Slice 3.7b.3.1 only consumes the read methods; CreateUser /
-// PatchUser / DeleteUser land in the next slice and consume Put /
-// SoftDelete.
 type UserStore interface {
 	// Get returns the user with the given id, or (nil, nil) when
 	// no row matches.
@@ -51,7 +47,32 @@ type UserStore interface {
 	// filtered by an EqFilter. Returns (rows, total) where
 	// total is the unpaginated count under the same filter.
 	List(ctx context.Context, filter *EqFilter, startIndex, count int) ([]UserRecord, int, error)
+	// Put inserts when no row with `record.ID` exists, or
+	// updates in place when one does. The implementation MUST
+	// honour the userName uniqueness constraint and surface a
+	// distinguishable error so callers can map to 409 +
+	// scimType="uniqueness".
+	Put(ctx context.Context, record UserRecord) error
+	// SoftDelete flips is_active = false (mirrors the Rust
+	// "DELETE = deactivate" contract). Returns (false, nil) when
+	// the user does not exist.
+	SoftDelete(ctx context.Context, id uuid.UUID) (bool, error)
 }
+
+// IsUniqueViolation reports whether `err` carries the SCIM
+// userName-uniqueness signal. The InMemoryUserStore returns
+// ErrUserNameTaken; the Postgres impl (lands in 3.7b.3.4) will
+// translate pgx unique-constraint errors. The handler maps both
+// to 409 + scimType="uniqueness".
+func IsUniqueViolation(err error) bool {
+	return errors.Is(err, ErrUserNameTaken)
+}
+
+// ErrUserNameTaken is the canonical sentinel for a userName
+// uniqueness conflict. Surfaced by InMemoryUserStore.Put when
+// another row already owns the same email; mirrors the Rust
+// is_unique_violation classifier.
+var ErrUserNameTaken = errors.New("scim: userName already exists")
 
 // ─── In-memory store ────────────────────────────────────────────────
 
@@ -161,6 +182,46 @@ func matchesUserFilter(r UserRecord, filter *EqFilter) bool {
 		return r.ScimExternalID != nil && *r.ScimExternalID == filter.Value
 	}
 	return false
+}
+
+// Put satisfies UserStore. Honours the userName uniqueness
+// constraint by scanning for any other row with the same email and
+// returning ErrUserNameTaken when found. Sets CreatedAt on
+// insert, bumps UpdatedAt on every write.
+func (s *InMemoryUserStore) Put(_ context.Context, record UserRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, existing := range s.rows {
+		if id != record.ID && existing.Email == record.Email {
+			return ErrUserNameTaken
+		}
+	}
+	now := time.Now().UTC()
+	if existing, ok := s.rows[record.ID]; ok {
+		// Preserve the original CreatedAt on update.
+		record.CreatedAt = existing.CreatedAt
+	} else if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.rows[record.ID] = record
+	return nil
+}
+
+// SoftDelete satisfies UserStore. Returns (false, nil) when the
+// user doesn't exist; otherwise flips is_active = false +
+// updated_at = NOW().
+func (s *InMemoryUserStore) SoftDelete(_ context.Context, id uuid.UUID) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.rows[id]
+	if !ok {
+		return false, nil
+	}
+	rec.IsActive = false
+	rec.UpdatedAt = time.Now().UTC()
+	s.rows[id] = rec
+	return true, nil
 }
 
 // ErrUnsupportedFilter is returned when the caller asks the store

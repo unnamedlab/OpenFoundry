@@ -15,17 +15,25 @@ import (
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
 
-// Handlers wires the read-side SCIM endpoints (this slice).
-// CreateUser / PatchUser / DeleteUser + the Group surface land in
-// follow-up slices (3.7b.3.2 / 3.7b.3.3).
+// Handlers wires every SCIM endpoint this service exposes:
+// discovery (ServiceProviderConfig / Schemas / ResourceTypes),
+// User CRUD (Create / Get / List / Patch / Delete). Group endpoints
+// land with slice 3.7b.3.3.
 //
-// BaseURL is the public origin of the service (e.g.
-// `https://id.example.com`); Handlers stitch that prefix into
-// every Meta.Location, ResourceType and Schema URL so SCIM
-// clients see a stable absolute URL.
+// Field semantics:
+//   - BaseURL: public origin (e.g. `https://id.example.com`).
+//     Stitched into every Meta.Location + ResourceType + Schema
+//     URL so SCIM clients see a stable absolute URL.
+//   - Users: persistence-shaped UserStore (in-memory for tests,
+//     Postgres in prod once 3.7b.3.4 lands).
+//   - Organizations: optional resolver for the
+//     `attributes.scim.openfoundry.organizationSlug` lookup. nil
+//     means slug resolution surfaces 400 invalidValue (callers
+//     that don't push slug-shaped extensions can leave this nil).
 type Handlers struct {
-	BaseURL string
-	Users   UserStore
+	BaseURL       string
+	Users         UserStore
+	Organizations OrganizationResolver
 }
 
 // ─── Discovery endpoints ────────────────────────────────────────────
