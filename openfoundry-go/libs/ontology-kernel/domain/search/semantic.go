@@ -353,8 +353,8 @@ func embedOllama(ctx context.Context, client *http.Client, provider EmbeddingPro
 	if !ok || len(arr) == 0 {
 		return nil, fmt.Errorf("embedding payload did not include an embedding vector")
 	}
-	out, err := valueArrayToFloat32(arr)
-	if err != nil || len(out) == 0 {
+	out, _ := valueArrayToFloat32(arr)
+	if len(out) == 0 {
 		return nil, fmt.Errorf("embedding payload did not include an embedding vector")
 	}
 	return out, nil
@@ -373,15 +373,28 @@ func parseOpenAIEmbedding(payload map[string]any) ([]float32, error) {
 	if !ok || len(arr) == 0 {
 		return nil, fmt.Errorf("embedding payload did not include an embedding vector")
 	}
-	return valueArrayToFloat32(arr)
+	out, _ := valueArrayToFloat32(arr)
+	if len(out) == 0 {
+		// Rust `value_array_to_f32` returns `Vec::new()` on the first
+		// non-numeric entry; the surrounding `.filter(|emb| !emb.is_empty())`
+		// then surfaces the same payload-shape error.
+		return nil, fmt.Errorf("embedding payload did not include an embedding vector")
+	}
+	return out, nil
 }
 
+// valueArrayToFloat32 mirrors Rust `fn value_array_to_f32`: on the
+// FIRST non-numeric entry it silently returns an empty slice (and
+// nil error). The caller's `len(out) == 0` check then surfaces the
+// canonical "embedding payload did not include an embedding vector"
+// error, byte-identical to Rust. Returning a typed error here would
+// drift the user-visible message.
 func valueArrayToFloat32(values []any) ([]float32, error) {
 	out := make([]float32, 0, len(values))
 	for _, v := range values {
 		f, ok := v.(float64)
 		if !ok {
-			return nil, fmt.Errorf("non-numeric value in embedding")
+			return []float32{}, nil
 		}
 		out = append(out, float32(f))
 	}

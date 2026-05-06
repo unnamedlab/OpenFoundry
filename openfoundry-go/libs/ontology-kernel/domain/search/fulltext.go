@@ -6,11 +6,21 @@
 
 package search
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // Tokenize mirrors `pub fn tokenize`. Splits on any character that
 // is not alphanumeric, `_`, or `-`, drops empty fragments, and
-// lower-cases each surviving token.
+// lower-cases each surviving token. Uses Go's `unicode.IsLetter` +
+// `unicode.IsDigit` so the alphanumeric predicate matches Rust's
+// `char::is_alphanumeric` across every Unicode script (Hebrew,
+// Arabic letters, Devanagari, Thai, Hangul, Latin Extended Additional,
+// …) — the previous hand-rolled predicate covered only Latin-Extended
+// + Greek + Cyrillic + CJK + Hiragana/Katakana + Arabic-Indic digits,
+// which would tokenize non-Latin queries differently between Rust and
+// Go.
 func Tokenize(input string) []string {
 	out := []string{}
 	current := strings.Builder{}
@@ -31,46 +41,32 @@ func Tokenize(input string) []string {
 	return out
 }
 
+// isTokenChar matches Rust:
+//
+//	|c: char| !c.is_alphanumeric() && c != '_' && c != '-'
+//
+// inverted — return true when the character SHOULD stay inside the
+// current token. Rust's `is_alphanumeric` is the union of:
+//
+//   - Alphabetic property: Letter (L) ∪ Letter_Number (Nl) ∪
+//     Other_Alphabetic (the property that pulls in script-specific
+//     vowel marks like Thai U+0E31, Arabic combining marks, …),
+//   - Numeric: Number (N), which `unicode.IsNumber` covers (Nd, Nl, No).
+//
+// Go's `unicode.IsLetter` only covers L (Lu, Ll, Lt, Lm, Lo), so a
+// Thai word like "สวัสดี" — whose vowel marks are Mn-with-
+// Other_Alphabetic — would split mid-token without `Other_Alphabetic`.
+// Adding `unicode.In(r, unicode.Other_Alphabetic)` plus
+// `unicode.IsNumber` brings the predicate in line with Rust across
+// every script we exercise.
 func isTokenChar(r rune) bool {
 	if r == '_' || r == '-' {
 		return true
 	}
-	if r >= '0' && r <= '9' {
+	if unicode.IsLetter(r) || unicode.IsNumber(r) {
 		return true
 	}
-	if r >= 'a' && r <= 'z' {
-		return true
-	}
-	if r >= 'A' && r <= 'Z' {
-		return true
-	}
-	// Honour `is_alphanumeric` for non-ASCII letters/digits.
-	return isUnicodeLetter(r) || isUnicodeDigit(r)
-}
-
-// isUnicodeLetter / isUnicodeDigit — minimal unicode predicates so we
-// match Rust `char::is_alphanumeric` for the common Latin-extended +
-// CJK token shapes search hits across.
-func isUnicodeLetter(r rune) bool {
-	switch {
-	case r < 0x80:
-		return false
-	case r >= 0x00C0 && r <= 0x024F:
-		return true
-	case r >= 0x0370 && r <= 0x03FF:
-		return true
-	case r >= 0x0400 && r <= 0x04FF:
-		return true
-	case r >= 0x4E00 && r <= 0x9FFF:
-		return true
-	case r >= 0x3040 && r <= 0x30FF:
-		return true
-	}
-	return false
-}
-
-func isUnicodeDigit(r rune) bool {
-	return r >= 0x0660 && r <= 0x0669 // Arabic-Indic digits, the most common non-ASCII numeric shape callers feed into search.
+	return unicode.In(r, unicode.Other_Alphabetic)
 }
 
 // LexicalScore mirrors `pub fn score` from `fulltext.rs`. Returns
