@@ -24,6 +24,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/fusion', title: 'Fusion', description: 'Identity resolution: match rules + merge strategies + jobs + clusters + reviews + golden records.' },
   { path: '/nexus', title: 'Nexus', description: 'Cross-org sharing: peers + contracts + spaces + shares + federated query + audit bridge.' },
   { path: '/audit', title: 'Audit', description: 'Immutable audit chain + retention policies + GDPR workflows + governance templates.' },
+  { path: '/code-repos', title: 'Code repos', description: 'Object-backed repos: branches + commits + CI + merge requests + reviewers + comments.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
