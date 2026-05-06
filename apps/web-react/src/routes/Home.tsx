@@ -50,6 +50,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/data-connection', title: 'Data Connection', description: 'Sources + connector catalog + egress policies + agents + batch syncs + streaming + media-set syncs.' },
   { path: '/projects', title: 'Projects', description: 'Workspace project list + shared-with-me + trash + project detail (overview/folders/resources/memberships) + folder.' },
   { path: '/ontology-manager', title: 'Ontology manager', description: 'Hub for object types, interfaces, shared properties, links, projects + dataset bindings wizard.' },
+  { path: '/ontology', title: 'Ontology', description: 'Landing + semantic search + object type browser; create/types, /graph, /object-sets sub-routes.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },

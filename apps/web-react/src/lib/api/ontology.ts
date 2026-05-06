@@ -133,6 +133,18 @@ export interface QuiverVisualFunction {
   updated_at: string;
 }
 
+export function getObjectType(id: string) {
+  return api.get<ObjectType>(`/ontology/types/${id}`);
+}
+
+export function createObject(typeId: string, body: { properties: Record<string, unknown> }) {
+  return api.post<ObjectInstance>(`/ontology/types/${typeId}/objects`, body);
+}
+
+export function deleteObject(typeId: string, objectId: string) {
+  return api.delete(`/ontology/types/${typeId}/objects/${objectId}`);
+}
+
 export function listObjects(typeId: string, params?: { page?: number; per_page?: number }) {
   const qs = new URLSearchParams();
   if (params?.page) qs.set('page', String(params.page));

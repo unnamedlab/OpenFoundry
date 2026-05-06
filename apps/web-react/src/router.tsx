@@ -339,6 +339,26 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/ontology-manager/BindingsWizardPage')).BindingsWizardPage }),
       },
       {
+        path: 'ontology',
+        lazy: async () => ({ Component: (await import('./routes/ontology/OntologyHomePage')).OntologyHomePage }),
+      },
+      {
+        path: 'ontology/types',
+        lazy: async () => ({ Component: (await import('./routes/ontology/CreateObjectTypePage')).CreateObjectTypePage }),
+      },
+      {
+        path: 'ontology/graph',
+        lazy: async () => ({ Component: (await import('./routes/ontology/OntologyGraphPage')).OntologyGraphPage }),
+      },
+      {
+        path: 'ontology/object-sets',
+        lazy: async () => ({ Component: (await import('./routes/ontology/ObjectSetsPage')).ObjectSetsPage }),
+      },
+      {
+        path: 'ontology/:id',
+        lazy: async () => ({ Component: (await import('./routes/ontology/ObjectTypeDetailPage')).ObjectTypeDetailPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },
