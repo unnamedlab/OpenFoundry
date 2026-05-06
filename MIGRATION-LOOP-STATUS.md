@@ -53,9 +53,9 @@ Stubs that were claimed pending but are now real production code:
 |---|------|--------|-------|
 | 2.5 | complete `libs/cassandra-kernel` with gocql | ✅ done | 5 stores ported (Object/Link/Schema/Session/ActionLog) — commits `cf324045..f95f700c`. Includes new `libs/storage-abstraction` (repositories interfaces). ~3500 LOC + 60+ unit tests across 6 slices. |
 | 2.6a | port `libs/state-machine` | ✅ done | commit `b1b9f73a` (282 LOC + 12 tests) |
-| 2.6b | port `libs/scheduling-cron` | ⏳ pending | currently 0 files. Rust source 1381 LOC across 7 files. Gating cron lib for workflow-automation + reindex-coordinator. |
-| 2.6c | port `libs/saga` | ⏳ pending | currently 0 files. Rust source 1591 LOC across 3 files. Gates workflow-automation saga consumer. |
-| 2.6d | port `libs/search-abstraction` | ⏳ pending | currently 0 files. Rust source 1465 LOC across 4 files. Vespa/OpenSearch backend traits + index/search/vector surfaces — paired with the `ObjectSet*` and `SearchBackend` types deferred from P2.5.1. |
+| 2.6b | port `libs/scheduling-cron` | ✅ done | commit `6e403e56` (1126 LOC: schedule + parser + evaluator + 24 tests). DST handling via Go time.Location with the same forward-skip / backward-double semantics as the Rust impl. |
+| 2.6c | port `libs/saga` | ✅ done | commit `602047e0` (973 LOC: events + saga runner + 15 tests). Generic SagaStep[I, O] interface + ExecuteStep[I, O] free function (Go interfaces can't have generic methods). |
+| 2.6d | port `libs/search-abstraction` | 🟡 foundation done | commit `cb9770aa` (734 LOC: search trait surface in storage-abstraction + InMemorySearchBackend + lib.go with BackendChoice/SanitizeDocType/factory registry + 15 tests). vespa.go/opensearch.go HTTP backends deferred to consuming service (ontology-indexer) per the same strategy as cassandra-kernel network paths. |
 
 ### P3 — Identity / Authz follow-ups
 
@@ -119,6 +119,40 @@ Discoveries:
 **Next action (iter 3):** pick from P2.6b/c/d (scheduling-cron /
 saga / search-abstraction). Each is 1.4-1.6k LOC of Rust → its
 own multi-iteration slice. Start with scheduling-cron (smallest).
+
+### Iter 3 — 2026-05-06 (later, woken by /loop autonomous)
+
+User left the loop self-paced; iter 3 closed P2.6 entirely (all
+four "empty libs" addressed at the API-surface level). 4 commits:
+
+| # | Commit    | Slice                                                |
+|---|-----------|------------------------------------------------------|
+| 1 | `6e403e56`| libs/scheduling-cron — Foundry-parity cron parser + evaluator |
+| 2 | `602047e0`| libs/saga — saga choreography helper                 |
+| 3 | `cb9770aa`| libs/search-abstraction + storage-abstraction/search — trait surface + InMemorySearchBackend |
+
+Discoveries:
+- scheduling-cron's DST handling required a custom localResult
+  helper since Go's time.Date doesn't expose chrono's
+  LocalResult::None / Single / Ambiguous trichotomy directly. The
+  fall-back-overlap detection probes candidate+1h: if its local
+  fields still match, the wall-clock occurs twice.
+- saga runner uses generic ExecuteStep[I, O] free function
+  rather than a method, because Go interface methods can't be
+  generic. Runner stores compensations as type-erased
+  `func(ctx) error` closures so the LIFO chain is heterogeneous.
+- search-abstraction's vespa.go/opensearch.go HTTP backends were
+  deferred — same strategy as cassandra-kernel network paths.
+  The pure-logic surface (sanitize_doc_type, BackendChoice,
+  factory registry, in-memory fake) is fully ported and tested,
+  so consumers can wire search-abstraction today and the
+  network backends land alongside ontology-indexer.
+
+**Next action (iter 4):** P3.7 (identity-federation slice 5b
+SAML or slice 8 Cedar/SCIM) OR P5.9 CI buf-generate guard.
+P3.7 is more impactful (closes the identity-federation backlog)
+but more work; P5.9 is small + high-leverage (catches proto
+drift). Could also defer to user choice.
 
 ---
 
