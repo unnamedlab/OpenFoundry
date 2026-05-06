@@ -319,6 +319,18 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/data-connection/SourceDetailPage')).SourceDetailPage }),
       },
       {
+        path: 'projects',
+        lazy: async () => ({ Component: (await import('./routes/projects/ProjectsListPage')).ProjectsListPage }),
+      },
+      {
+        path: 'projects/:projectId',
+        lazy: async () => ({ Component: (await import('./routes/projects/ProjectDetailPage')).ProjectDetailPage }),
+      },
+      {
+        path: 'projects/:projectId/:folderId',
+        lazy: async () => ({ Component: (await import('./routes/projects/ProjectFolderPage')).ProjectFolderPage }),
+      },
+      {
         path: 'charts-demo',
         lazy: async () => ({ Component: (await import('./routes/charts-demo/ChartsDemoPage')).ChartsDemoPage }),
       },

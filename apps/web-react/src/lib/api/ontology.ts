@@ -699,6 +699,57 @@ export function listProjectMemberships(id: string) {
     .then((response) => response.data);
 }
 
+export function createProject(body: {
+  slug: string;
+  display_name?: string;
+  description?: string;
+  workspace_slug?: string;
+  folders?: Array<{ name: string; description?: string; parent_folder_id?: string | null }>;
+}) {
+  return api.post<OntologyProject>('/ontology/projects', body);
+}
+
+export function getProject(id: string) {
+  return api.get<OntologyProject>(`/ontology/projects/${id}`);
+}
+
+export function updateProject(id: string, body: {
+  display_name?: string;
+  description?: string;
+  workspace_slug?: string | null;
+}) {
+  return api.patch<OntologyProject>(`/ontology/projects/${id}`, {
+    ...body,
+    workspace_slug: typeof body.workspace_slug === 'undefined' ? undefined : body.workspace_slug,
+  });
+}
+
+export function deleteProject(id: string) {
+  return api.delete(`/ontology/projects/${id}`);
+}
+
+export function listProjectFolders(id: string) {
+  return api
+    .get<{ data: OntologyProjectFolder[] }>(`/ontology/projects/${id}/folders`)
+    .then((response) => response.data);
+}
+
+export function createProjectFolder(id: string, body: {
+  name: string;
+  description?: string;
+  parent_folder_id?: string | null;
+}) {
+  return api.post<OntologyProjectFolder>(`/ontology/projects/${id}/folders`, body);
+}
+
+export function bindProjectResource(id: string, body: { resource_kind: string; resource_id: string }) {
+  return api.post<OntologyProjectResourceBinding>(`/ontology/projects/${id}/resources`, body);
+}
+
+export function unbindProjectResource(id: string, resourceKind: string, resourceId: string) {
+  return api.delete(`/ontology/projects/${id}/resources/${resourceKind}/${resourceId}`);
+}
+
 // ────────────────────────────────────────────────────────────────
 // Rules + machinery — used by /dynamic-scheduling.
 // ────────────────────────────────────────────────────────────────

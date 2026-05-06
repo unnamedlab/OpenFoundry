@@ -48,6 +48,7 @@ const MIGRATED_ROUTES: { path: string; title: string; description: string }[] = 
   { path: '/datasets', title: 'Datasets', description: 'Catalog browser + upload + detail (preview, schema, files, transactions, quality) + branches.' },
   { path: '/apps', title: 'Apps', description: 'Workshop app builder: pages + settings + theme JSON, versions, publish, slate import/export.' },
   { path: '/data-connection', title: 'Data Connection', description: 'Sources + connector catalog + egress policies + agents + batch syncs + streaming + media-set syncs.' },
+  { path: '/projects', title: 'Projects', description: 'Workspace project list + shared-with-me + trash + project detail (overview/folders/resources/memberships) + folder.' },
   { path: '/auth/login', title: 'Sign in', description: 'Login + register + MFA + SSO callback.' },
   { path: '/charts-demo', title: 'Charts demo', description: 'ECharts wrapper validator.' },
   { path: '/monaco-demo', title: 'Monaco demo', description: 'Monaco editor wrapper validator.' },
