@@ -283,3 +283,87 @@ func scanABACPolicy(r rowLikeT) (*models.ABACPolicy, error) {
 	}
 	return p, nil
 }
+
+// ListEnabledABACPoliciesMatching returns enabled abac_policies
+// matching (resource, action) — wildcards `*` accepted on either side.
+// Used by the ABAC evaluator (slice 3).
+func (r *Repo) ListEnabledABACPoliciesMatching(ctx context.Context, resource, action string) ([]models.ABACPolicy, error) {
+	rows, err := r.Pool.Query(ctx,
+		abacSelect+`
+		WHERE enabled = TRUE
+		  AND (resource = $1 OR resource = '*')
+		  AND (action = $2 OR action = '*')
+		ORDER BY created_at ASC`,
+		resource, action)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.ABACPolicy, 0)
+	for rows.Next() {
+		p, err := scanABACPolicy(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+// ─── Restricted views (read-only cross-service) ─────────────────────
+
+// RestrictedView mirrors the restricted_views row read by the ABAC
+// evaluator. The table is owned operationally by
+// identity-federation-service (slice 7a CRUD); we read it here only.
+type RestrictedView struct {
+	ID                  uuid.UUID
+	Name                string
+	Resource            string
+	Action              string
+	Conditions          json.RawMessage
+	RowFilter           *string
+	HiddenColumns       []string
+	AllowedOrgIDs       []uuid.UUID
+	AllowedMarkings     []string
+	ConsumerModeEnabled bool
+	AllowGuestAccess    bool
+}
+
+// ListEnabledRestrictedViewsMatching returns enabled restricted_views
+// matching (resource, action) — wildcards `*` accepted.
+func (r *Repo) ListEnabledRestrictedViewsMatching(ctx context.Context, resource, action string) ([]RestrictedView, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT id, name, resource, action, conditions, row_filter,
+		        hidden_columns, allowed_org_ids, allowed_markings,
+		        consumer_mode_enabled, allow_guest_access
+		   FROM restricted_views
+		  WHERE enabled = TRUE
+		    AND (resource = $1 OR resource = '*')
+		    AND (action = $2 OR action = '*')
+		  ORDER BY created_at ASC`,
+		resource, action)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RestrictedView, 0)
+	for rows.Next() {
+		var (
+			v               RestrictedView
+			hiddenJSON      []byte
+			allowedOrgJSON  []byte
+			allowedMarkJSON []byte
+		)
+		if err := rows.Scan(&v.ID, &v.Name, &v.Resource, &v.Action,
+			&v.Conditions, &v.RowFilter,
+			&hiddenJSON, &allowedOrgJSON, &allowedMarkJSON,
+			&v.ConsumerModeEnabled, &v.AllowGuestAccess); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(hiddenJSON, &v.HiddenColumns)
+		_ = json.Unmarshal(allowedOrgJSON, &v.AllowedOrgIDs)
+		_ = json.Unmarshal(allowedMarkJSON, &v.AllowedMarkings)
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

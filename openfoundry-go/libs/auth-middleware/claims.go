@@ -175,6 +175,54 @@ func (c *Claims) AllowsHTTPMethod(method string) bool {
 	return false
 }
 
+// AllowedOrgIDs returns the effective org-id allowlist. Admins receive
+// nil to mean "no restriction" (matches the Rust shape of returning
+// the full set unfiltered).
+func (c *Claims) AllowedOrgIDs() []uuid.UUID {
+	if c.SessionScope == nil {
+		return nil
+	}
+	out := make([]uuid.UUID, len(c.SessionScope.AllowedOrgIDs))
+	copy(out, c.SessionScope.AllowedOrgIDs)
+	return out
+}
+
+// AllowsOrgID reports whether the resource's org id is reachable. Nil
+// resourceOrg means "unscoped" → only allowed when scope is unset, or
+// the caller is admin.
+func (c *Claims) AllowsOrgID(resourceOrg *uuid.UUID) bool {
+	if c.HasRole("admin") {
+		return true
+	}
+	if c.SessionScope == nil || len(c.SessionScope.AllowedOrgIDs) == 0 {
+		return true
+	}
+	if resourceOrg == nil {
+		return false
+	}
+	for _, id := range c.SessionScope.AllowedOrgIDs {
+		if id == *resourceOrg {
+			return true
+		}
+	}
+	return false
+}
+
+// RestrictedViewIDs returns scope.RestrictedViewIDs (empty when scope is nil).
+func (c *Claims) RestrictedViewIDs() []uuid.UUID {
+	if c.SessionScope == nil {
+		return nil
+	}
+	out := make([]uuid.UUID, len(c.SessionScope.RestrictedViewIDs))
+	copy(out, c.SessionScope.RestrictedViewIDs)
+	return out
+}
+
+// ConsumerModeEnabled mirrors `Claims::consumer_mode_enabled` from Rust.
+func (c *Claims) ConsumerModeEnabled() bool {
+	return c.SessionScope != nil && c.SessionScope.ConsumerMode
+}
+
 // AllowsPath returns true when `path` is under one of the scope's
 // allow-listed prefixes (or no scope is set).
 func (c *Claims) AllowsPath(path string) bool {

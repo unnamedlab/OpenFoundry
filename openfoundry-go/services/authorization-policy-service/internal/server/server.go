@@ -46,6 +46,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/abac-policies/{id}", h.GetABACPolicy)
 		api.Patch("/abac-policies/{id}", h.UpdateABACPolicy)
 		api.Delete("/abac-policies/{id}", h.DeleteABACPolicy)
+
+		api.Post("/policy-evaluations", h.EvaluatePolicy)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
