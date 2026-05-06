@@ -52,6 +52,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ws *wo
 			wr.Delete("/favorites/{kind}/{id}", ws.DeleteFavorite)
 			wr.Get("/recents", ws.ListRecents)
 			wr.Post("/recents", ws.RecordAccess)
+			wr.Post("/resources/{kind}/{id}/share", ws.CreateShare)
+			wr.Get("/resources/{kind}/{id}/shares", ws.ListResourceShares)
+			wr.Delete("/shares/{id}", ws.RevokeShare)
+			wr.Get("/shared-with-me", ws.ListSharedWithMe)
+			wr.Get("/shared-by-me", ws.ListSharedByMe)
 		})
 	})
 

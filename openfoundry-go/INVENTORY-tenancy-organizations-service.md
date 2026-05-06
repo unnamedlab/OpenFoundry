@@ -24,7 +24,7 @@ Live mount in Rust today: `/api/v1/workspace/*` only, via
 | `handlers/favorites.rs`            | 157 | ✅            | **2** ✅    |
 | `handlers/recents.rs`              | 131 | ✅            | **2** ✅    |
 | `handlers/workspace.rs` (primitives)| 106 | ✅            | **2** ✅    |
-| `handlers/sharing.rs`              | 326 | ✅            | **3** pending |
+| `handlers/sharing.rs`              | 326 | ✅            | **3** ✅    |
 | `handlers/spaces.rs`               | 179 | ❌ retired    | deferred    |
 | `handlers/projects.rs`             | 786 | ❌ retired    | deferred    |
 | `handlers/trash.rs`                | 340 | ❌ retired    | deferred    |
@@ -43,7 +43,7 @@ expose proper APIs (per the Rust `main.rs` comment above).
 | `20260427000100_tenancy_organizations_foundation.sql` | ✅ | `0001_tenancy_organizations_foundation.sql` |
 | `20260501000300_user_favorites.sql`                | ✅    | `0002_user_favorites.sql`          |
 | `20260501000400_resource_access_log.sql`           | ✅    | `0003_resource_access_log.sql`     |
-| `20260501000500_resource_shares.sql`               | pending — slice 3 | —                  |
+| `20260501000500_resource_shares.sql`               | ✅    | `0004_resource_shares.sql`         |
 | `20260423091500_nexus_foundation.sql`              | ❌ retired (nexus_*) | —             |
 | `20260425223000_spaces_and_admin_lifecycle.sql`    | ❌ retired (spaces) | —              |
 
