@@ -33,6 +33,21 @@ func decodePNG(t *testing.T, src []byte) image.Image {
 	return img
 }
 
+func makeEncodedImage(t *testing.T, w, h int, c color.RGBA, mime string) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for x := 0; x < w; x++ {
+		for y := 0; y < h; y++ {
+			img.Set(x, y, c)
+		}
+	}
+	f, err := formatForMime(mime, "test")
+	require.NoError(t, err)
+	out, err := encodeImage(img, f)
+	require.NoError(t, err)
+	return out
+}
+
 func TestThumbnailStaysInsideMaxDim(t *testing.T) {
 	t.Parallel()
 	src := makePNG(t, 512, 256, color.RGBA{A: 255})
@@ -103,6 +118,20 @@ func TestGrayscalePreservesDimensions(t *testing.T) {
 	assert.Equal(t, 1, img.Bounds().Dy())
 }
 
+func TestGrayscaleEmitsEqualRGBChannels(t *testing.T) {
+	t.Parallel()
+	src := makePNG(t, 1, 1, color.RGBA{R: 200, G: 40, B: 10, A: 255})
+	out, err := Grayscale("image/png", src)
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", out.OutputMimeType)
+
+	img := decodePNG(t, out.OutputBytes)
+	r, g, b, a := img.At(0, 0).RGBA()
+	assert.Equal(t, r, g)
+	assert.Equal(t, g, b)
+	assert.Equal(t, uint32(0xffff), a)
+}
+
 func TestResizeExactDimensions(t *testing.T) {
 	t.Parallel()
 	src := makePNG(t, 8, 8, color.RGBA{A: 255})
@@ -111,6 +140,34 @@ func TestResizeExactDimensions(t *testing.T) {
 	img := decodePNG(t, out.OutputBytes)
 	assert.Equal(t, 2, img.Bounds().Dx())
 	assert.Equal(t, 4, img.Bounds().Dy())
+}
+
+func TestResizeExactDimensionsAcrossRustImageMimes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		mime string
+	}{
+		{name: "png", mime: "image/png"},
+		{name: "jpeg", mime: "image/jpeg"},
+		{name: "webp", mime: "image/webp"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := makeEncodedImage(t, 9, 6, color.RGBA{R: 64, G: 128, B: 192, A: 255}, tc.mime)
+			out, err := Resize(tc.mime, json.RawMessage(`{"width": 3, "height": 2}`), src)
+			require.NoError(t, err)
+			assert.Equal(t, tc.mime, out.OutputMimeType)
+			require.NotEmpty(t, out.OutputBytes)
+
+			decoded, _, err := decodeImage(out.OutputBytes, tc.mime, "resize")
+			require.NoError(t, err)
+			assert.Equal(t, 3, decoded.Bounds().Dx())
+			assert.Equal(t, 2, decoded.Bounds().Dy())
+		})
+	}
 }
 
 func TestResizeWithinBoundingBoxPreservesAspect(t *testing.T) {
