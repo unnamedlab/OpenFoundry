@@ -31,6 +31,13 @@ type Repository interface {
 	ListInstalls(ctx context.Context, limit, offset int) ([]models.InstallRecord, int, error)
 	CreateInstall(ctx context.Context, req models.CreateInstallRequest) (*models.InstallRecord, error)
 	PreviewDependencyPlan(ctx context.Context, req models.DependencyPlanRequest) (*models.DependencyPlanResponse, error)
+	ListVersions(ctx context.Context, listingID uuid.UUID) ([]models.PackageVersion, error)
+	IncludeActionInProduct(ctx context.Context, listingID uuid.UUID, req models.IncludeActionRequest) (*models.PackageVersion, error)
+	CreateDatasetProduct(ctx context.Context, rid string, req models.CreateDatasetProductRequest) (*models.DatasetProduct, error)
+	GetDatasetProduct(ctx context.Context, productID uuid.UUID) (*models.DatasetProduct, error)
+	InstallDatasetProduct(ctx context.Context, productID uuid.UUID, req models.InstallDatasetProductRequest) (*models.DatasetProductInstall, error)
+	AddScheduleManifest(ctx context.Context, req models.AddScheduleManifestRequest) (*models.AddScheduleManifestResponse, error)
+	MaterialiseInstallSchedules(ctx context.Context, req models.InstallSchedulesRequest) (*models.InstallSchedulesResponse, error)
 }
 
 type PGXRepository struct{ Pool *pgxpool.Pool }

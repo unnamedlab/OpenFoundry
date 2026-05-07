@@ -42,10 +42,12 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
-	})
+	}
+	r.Get("/healthz", healthHandler)
+	r.Get("/health", healthHandler)
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
@@ -64,6 +66,38 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 			api.Get("/installs", h.ListInstalls)
 			api.Post("/installs", h.CreateInstall)
 			api.Post("/dependency-plan", h.PreviewDependencyPlan)
+		})
+
+		r.Route("/v1/marketplace", func(api chi.Router) {
+			if jwt != nil {
+				api.Use(authmw.Middleware(jwt))
+			}
+			api.Get("/overview", h.GetOverview)
+			api.Get("/categories", h.ListCategories)
+			api.Get("/listings", h.ListListingsEnvelope)
+			api.Post("/listings", h.CreateListing)
+			api.Get("/listings/{id}", h.GetListing)
+			api.Patch("/listings/{id}", h.UpdateListing)
+			api.Get("/listings/{id}/versions", h.ListVersions)
+			api.Post("/listings/{id}/versions", h.PublishVersion)
+			api.Post("/listings/{id}/actions", h.IncludeActionInProduct)
+			api.Get("/search", h.SearchListings)
+			api.Get("/installs", h.ListInstalls)
+			api.Post("/installs", h.CreateInstall)
+			api.Post("/products/from-dataset/{rid}", h.CreateDatasetProduct)
+			api.Get("/products/{id}", h.GetDatasetProduct)
+			api.Post("/products/{id}/install", h.InstallDatasetProduct)
+		})
+
+		r.Route("/v1/products", func(api chi.Router) {
+			if jwt != nil {
+				api.Use(authmw.Middleware(jwt))
+			}
+			api.Post("/from-dataset/{rid}", h.CreateDatasetProduct)
+			api.Get("/{id}", h.GetDatasetProduct)
+			api.Post("/{id}/install", h.InstallDatasetProduct)
+			api.Post("/{id}/schedules", h.AddScheduleManifest)
+			api.Post("/{id}/install:schedules", h.MaterialiseInstallSchedules)
 		})
 	}
 

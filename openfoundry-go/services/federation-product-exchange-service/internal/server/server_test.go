@@ -255,14 +255,16 @@ func doJSON(t *testing.T, method, url, token string, payload any, wantStatus int
 }
 
 type memoryRepo struct {
-	mu       sync.Mutex
-	listings map[uuid.UUID]models.ListingDefinition
-	versions map[uuid.UUID][]models.PackageVersion
-	installs []models.InstallRecord
+	mu              sync.Mutex
+	listings        map[uuid.UUID]models.ListingDefinition
+	versions        map[uuid.UUID][]models.PackageVersion
+	installs        []models.InstallRecord
+	datasetProducts map[uuid.UUID]models.DatasetProduct
+	schedules       map[uuid.UUID][]models.ScheduleManifest
 }
 
 func newMemoryRepo() *memoryRepo {
-	return &memoryRepo{listings: map[uuid.UUID]models.ListingDefinition{}, versions: map[uuid.UUID][]models.PackageVersion{}, installs: []models.InstallRecord{}}
+	return &memoryRepo{listings: map[uuid.UUID]models.ListingDefinition{}, versions: map[uuid.UUID][]models.PackageVersion{}, installs: []models.InstallRecord{}, datasetProducts: map[uuid.UUID]models.DatasetProduct{}, schedules: map[uuid.UUID][]models.ScheduleManifest{}}
 }
 
 func (r *memoryRepo) CreateListing(_ context.Context, req models.CreateListingRequest) (*models.ListingDefinition, error) {
