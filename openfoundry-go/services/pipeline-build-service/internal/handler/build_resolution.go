@@ -160,8 +160,10 @@ func DryRunResolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
 		return
 	}
-	if rid := chi.URLParam(r, "id"); body.PipelineRID == "" && rid != "" {
-		body.PipelineRID = rid
+	for _, key := range []string{"id", "pipeline_rid"} {
+		if rid := chi.URLParam(r, key); body.PipelineRID == "" && rid != "" {
+			body.PipelineRID = rid
+		}
 	}
 	if err := validateResolveRequest(body.PipelineRID, body.BuildBranch, body.OutputDatasetRIDs); err != nil {
 		writeJSON(w, http.StatusBadRequest, err.Error())

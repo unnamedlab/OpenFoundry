@@ -67,6 +67,33 @@ func (f *fakeAppendStore) CommitTable(_ context.Context, _ string, _ []string, _
 func (f *fakeAppendStore) ListSnapshots(context.Context, uuid.UUID) ([]models.Snapshot, error) {
 	return nil, nil
 }
+func (f *fakeAppendStore) GetSnapshot(context.Context, uuid.UUID, int64) (*models.Snapshot, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) ListRefs(context.Context, uuid.UUID) ([]models.TableRef, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) GetRef(context.Context, uuid.UUID, string) (*models.TableRef, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) UpsertRef(context.Context, uuid.UUID, string, *models.UpdateRefRequest) (*models.TableRef, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) DeleteRef(context.Context, uuid.UUID, string) (bool, error) {
+	return false, nil
+}
+func (f *fakeAppendStore) ListMetadataFiles(context.Context, uuid.UUID) ([]models.MetadataFile, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) GetMetadataFile(context.Context, uuid.UUID, int32) (*models.MetadataFile, error) {
+	return nil, nil
+}
+func (f *fakeAppendStore) DropTable(context.Context, string, []string, string, bool) (bool, error) {
+	return false, nil
+}
+func (f *fakeAppendStore) RenameTable(context.Context, string, []string, string, []string, string) (*models.IcebergTable, error) {
+	return nil, nil
+}
 
 func TestAppendBatchAuditContractFixtureCommits(t *testing.T) {
 	t.Parallel()

@@ -18,9 +18,17 @@
 //   - /api/v1/dry-run/resolve                 (dry_run)
 //   - /api/v1/dry-run/validate                (dry_run)
 //   - /api/v1/execute                         (execute)
-//   - /api/v1/data-integration/spark-runs                                          (spark_runs)
-//   - /api/v1/data-integration/spark-runs/{id}                                     (spark_runs)
-//   - /api/v1/data-integration/pipelines/{id}/runs/{run_id}/spec                   (spark_runs)
+//   - /api/v1/data-integration/pipelines/{id}/runs                 (runs)
+//   - /api/v1/data-integration/pipelines/{id}/runs/{run_id}        (runs)
+//   - /api/v1/data-integration/pipelines/{id}/runs/{run_id}/retry  (runs)
+//   - /api/v1/data-integration/builds                              (builds queue)
+//   - /api/v1/data-integration/builds/_summary                     (builds queue)
+//   - /api/v1/data-integration/builds/{run_id}/abort               (builds queue)
+//   - /api/v1/data-integration/pipelines/_scheduler/run-due        (scheduler)
+//   - /api/v1/data-integration/pipelines/{pipeline_rid}/dry-run-resolve (dry_run)
+//   - /api/v1/data-integration/spark-runs                          (spark_runs)
+//   - /api/v1/data-integration/spark-runs/{id}                     (spark_runs)
+//   - /api/v1/data-integration/pipelines/{id}/runs/{run_id}/spec   (spark_runs)
 package server
 
 import (
@@ -100,13 +108,39 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
 		api.Post("/pipelines/{id}/runs/{run_id}/retry", handler.RetryPipelineRun)
 		api.Post("/pipelines/{id}/runs/{run_id}/cancel", handler.CancelPipelineRun)
 
-		// SparkApplication-backed runs (FASE 3 / Tarea 3.4).
+		// Rust-compatible data-integration route group plus SparkApplication helpers.
 		api.Route("/data-integration", func(di chi.Router) {
+			di.Get("/pipelines/{id}/runs", handler.ListPipelineRuns)
+			di.Post("/pipelines/{id}/runs", handler.TriggerPipelineRun)
+			di.Get("/pipelines/{id}/runs/{run_id}", handler.GetPipelineRun)
+			di.Post("/pipelines/{id}/runs/{run_id}/retry", handler.RetryPipelineRun)
+			di.Get("/builds", handler.ListDataIntegrationBuilds)
+			di.Get("/builds/_summary", handler.DataIntegrationQueueSummary)
+			di.Post("/builds/{run_id}/abort", handler.AbortDataIntegrationBuild)
+			di.Post("/pipelines/_scheduler/run-due", handler.RunDueScheduledPipelines)
+			di.Post("/pipelines/{pipeline_rid}/dry-run-resolve", handler.DryRunResolve)
+
 			di.Get("/spark-runs", handler.ListSparkRuns)
 			di.Post("/spark-runs", handler.SubmitSparkRun)
 			di.Get("/spark-runs/{id}", handler.GetSparkRun)
 			di.Get("/pipelines/{id}/runs/{run_id}/spec", handler.GetSpecForRun)
 		})
+	})
+
+	r.Route("/v1", func(v1 chi.Router) {
+		v1.Use(authmw.Middleware(jwt))
+		v1.Get("/builds", handler.ListBuildsV1)
+		v1.Post("/builds", handler.CreateBuildV1)
+		v1.Get("/builds/{rid}", handler.GetBuildV1)
+		v1.Post("/builds/{rid}:abort", handler.AbortBuildV1)
+		v1.Get("/datasets/{rid}/builds", handler.ListDatasetBuildsV1)
+		v1.Get("/jobs/{rid}/outputs", handler.GetJobOutputsV1)
+		v1.Get("/jobs/{rid}/input-resolutions", handler.GetJobInputResolutionsV1)
+		v1.Post("/job-specs/{kind}", handler.CreateJobSpecV1)
+		v1.Get("/jobs/{rid}/logs", handler.ListJobLogsV1)
+		v1.Post("/jobs/{rid}/logs", handler.EmitJobLogV1)
+		v1.Get("/jobs/{rid}/logs/stream", handler.StreamJobLogsV1)
+		v1.Get("/jobs/{rid}/logs/ws", handler.WSJobLogsV1)
 	})
 
 	return r

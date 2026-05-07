@@ -37,6 +37,18 @@ type PipelineRunRepository interface {
 	FinishPipelineRun(ctx context.Context, runID uuid.UUID, status string, nodeResults json.RawMessage, errorMessage *string) error
 }
 
+type DataIntegrationRunRepository interface {
+	PipelineRunRepository
+	ListPipelineRuns(ctx context.Context, pipelineID uuid.UUID, page, perPage int64) ([]models.PipelineRun, error)
+	GetPipelineRun(ctx context.Context, pipelineID, runID uuid.UUID) (*models.PipelineRun, error)
+	OpenPipelineRunWithOptions(ctx context.Context, pipeline *models.Pipeline, req models.TriggerPipelineRequest, startedBy *uuid.UUID, triggerType string, fromNodeID *string, retryOfRunID *uuid.UUID, attemptNumber int32, contextJSON json.RawMessage) (*models.PipelineRun, error)
+	ListBuildQueue(ctx context.Context, query BuildQueueQuery) ([]models.PipelineRun, error)
+	AbortPipelineRun(ctx context.Context, runID uuid.UUID) (*models.PipelineRun, bool, error)
+	QueueSummary(ctx context.Context) (map[string]int64, error)
+	ListDuePipelines(ctx context.Context) ([]models.Pipeline, error)
+	UpdatePipelineNextRun(ctx context.Context, pipelineID uuid.UUID, nextRunAt *time.Time) error
+}
+
 type ExecutionPorts struct {
 	Plans        BuildPlanRepository
 	Runs         PipelineRunRepository

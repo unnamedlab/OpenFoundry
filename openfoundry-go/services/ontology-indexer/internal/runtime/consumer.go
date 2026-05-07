@@ -14,7 +14,7 @@ import (
 // KafkaReader is the kafka-go reader surface used by the indexer
 // consumer. Tests can still inject fakes, while integration tests use
 // a real *kafka.Reader and broker.
-type KafkaReader interface {
+type ConsumerKafkaReader interface {
 	FetchMessage(ctx context.Context) (kafka.Message, error)
 	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
 	Close() error
@@ -32,14 +32,14 @@ type IndexBackend interface {
 // is committed and skipped so one poison event cannot wedge a
 // partition.
 type Consumer struct {
-	Reader  KafkaReader
+	Reader  ConsumerKafkaReader
 	Backend IndexBackend
 	Log     *slog.Logger
 }
 
-// NewKafkaReader constructs the concrete kafka-go reader used by the
+// NewConsumerKafkaReader constructs the concrete kafka-go reader used by the
 // ontology indexer. CommitInterval=0 disables auto commit.
-func NewKafkaReader(brokers []string, groupID string, topics []string) *kafka.Reader {
+func NewConsumerKafkaReader(brokers []string, groupID string, topics []string) *kafka.Reader {
 	if groupID == "" {
 		groupID = ConsumerGroup
 	}

@@ -15,8 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
+	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/postgres"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/server"
 )
 
@@ -46,6 +51,28 @@ func main() {
 	if cfg.FoundryIcebergCatalogURL == "" {
 		log.Warn("FoundryIcebergTxn disabled, multi-table atomicity not enforced " +
 			"(set FOUNDRY_ICEBERG_CATALOG_URL to enable; ADR-0041)")
+	}
+
+	var pool *pgxpool.Pool
+	if cfg.DatabaseURL != "" {
+		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Error("postgres pool init failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		defer pool.Close()
+		if err := postgres.RunMigrations(ctx, pool); err != nil {
+			log.Error("postgres migrations failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		repo := postgres.NewRepositoryFromPool(pool)
+		handler.SetBuildLifecyclePorts(handler.BuildLifecyclePorts{JobSpecs: repo, Versioning: repo, Locks: repo, Builds: repo})
+		handler.SetExecutionPorts(handler.ExecutionPorts{Plans: repo, Runs: repo, Transactions: repo, Committer: repo, Parallelism: cfg.DistributedPipelineWorkers})
+		handler.SetBuildQueryRepository(repo)
+		handler.SetJobLogService(&livellogs.Service{Store: repo, Subscriber: livellogs.NewMemoryService()})
+		log.Info("postgres repositories wired", slog.String("database_url", "set"))
+	} else {
+		log.Warn("DATABASE_URL unset — production repositories disabled; supported handlers return explicit 503 instead of fake success")
 	}
 
 	metrics := observability.NewMetrics()

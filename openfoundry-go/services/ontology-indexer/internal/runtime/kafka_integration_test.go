@@ -61,7 +61,7 @@ func produceKafkaMessage(t *testing.T, brokers []string, topic string, value []b
 
 func fetchOneKafkaMessage(t *testing.T, brokers []string, topic, group string, timeout time.Duration) (kafka.Message, error) {
 	t.Helper()
-	r := NewKafkaReader(brokers, group, []string{topic})
+	r := NewConsumerKafkaReader(brokers, group, []string{topic})
 	defer r.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -101,7 +101,7 @@ func TestConsumerWithRealKafkaValidMalformedAndRetry(t *testing.T) {
 		produceKafkaMessage(t, brokers, topic, body)
 
 		backend := &recordingIndexBackend{}
-		consumer := &Consumer{Reader: NewKafkaReader(brokers, group, []string{topic}), Backend: backend}
+		consumer := &Consumer{Reader: NewConsumerKafkaReader(brokers, group, []string{topic}), Backend: backend}
 		t.Cleanup(func() { _ = consumer.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -123,7 +123,7 @@ func TestConsumerWithRealKafkaValidMalformedAndRetry(t *testing.T) {
 		produceKafkaMessage(t, brokers, topic, body)
 
 		backend := &recordingIndexBackend{}
-		consumer := &Consumer{Reader: NewKafkaReader(brokers, group, []string{topic}), Backend: backend}
+		consumer := &Consumer{Reader: NewConsumerKafkaReader(brokers, group, []string{topic}), Backend: backend}
 		t.Cleanup(func() { _ = consumer.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -144,7 +144,7 @@ func TestConsumerWithRealKafkaValidMalformedAndRetry(t *testing.T) {
 		body := []byte(`{"event_type":"ontology.object.changed.v1","object_id":"obj-2","op":"upsert"}`)
 		produceKafkaMessage(t, brokers, topic, body)
 
-		consumer := &Consumer{Reader: NewKafkaReader(brokers, group, []string{topic}), Backend: &recordingIndexBackend{err: errors.New("backend down")}}
+		consumer := &Consumer{Reader: NewConsumerKafkaReader(brokers, group, []string{topic}), Backend: &recordingIndexBackend{err: errors.New("backend down")}}
 		t.Cleanup(func() { _ = consumer.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

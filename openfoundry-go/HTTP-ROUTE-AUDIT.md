@@ -19,32 +19,32 @@ This script is regex-based and optimized for the Axum/chi route declaration styl
 
 ## pipeline-build-service
 
-Rust routes: 24. Go routes: 29.
-State counts: 501: 12, empty envelope: 6, implemented: 11, missing: 23.
+Rust routes: 24. Go routes: 38.
+State counts: 501: 5, empty envelope: 6, implemented: 27, missing: 14.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
 | `/api/v1/builds` | GET | — | `handler.ListBuilds`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:73</sub> | empty envelope |
-| `/api/v1/builds` | POST | — | `handler.CreateBuild`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:74</sub> | 501 |
+| `/api/v1/builds` | POST | — | `handler.CreateBuild`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:74</sub> | implemented |
 | `/api/v1/builds/{id}` | GET | — | `handler.GetBuild`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:75</sub> | implemented |
-| `/api/v1/builds/{id}/abort` | POST | — | `handler.AbortBuild`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:76</sub> | 501 |
+| `/api/v1/builds/{id}/abort` | POST | — | `handler.AbortBuild`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:76</sub> | implemented |
 | `/api/v1/builds/{id}/jobs` | GET | — | `handler.ListJobs`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:77</sub> | empty envelope |
-| `/api/v1/data-integration/builds` | GET | `handlers::builds::list_builds`<br><sub>services/pipeline-build-service/src/main.rs:135</sub> | — | missing |
-| `/api/v1/data-integration/builds/_summary` | GET | `handlers::builds::queue_summary`<br><sub>services/pipeline-build-service/src/main.rs:136</sub> | — | missing |
-| `/api/v1/data-integration/builds/{run_id}/abort` | POST | `handlers::builds::abort_build`<br><sub>services/pipeline-build-service/src/main.rs:137</sub> | — | missing |
-| `/api/v1/data-integration/pipelines/_scheduler/run-due` | POST | `handlers::execute::run_due_scheduled_pipelines`<br><sub>services/pipeline-build-service/src/main.rs:141</sub> | — | missing |
-| `/api/v1/data-integration/pipelines/{pipeline_rid}/dry-run-resolve` | POST | `handlers::dry_run::dry_run_resolve`<br><sub>services/pipeline-build-service/src/main.rs:147</sub> | — | missing |
-| `/api/v1/data-integration/pipelines/{id}/runs` | GET | `handlers::runs::list_runs`<br><sub>services/pipeline-build-service/src/main.rs:123</sub> | — | missing |
-| `/api/v1/data-integration/pipelines/{id}/runs` | POST | `handlers::execute::trigger_run`<br><sub>services/pipeline-build-service/src/main.rs:123</sub> | — | missing |
-| `/api/v1/data-integration/pipelines/{id}/runs/{run_id}` | GET | `handlers::runs::get_run`<br><sub>services/pipeline-build-service/src/main.rs:127</sub> | — | missing |
-| `/api/v1/data-integration/pipelines/{id}/runs/{run_id}/retry` | POST | `handlers::execute::retry_run`<br><sub>services/pipeline-build-service/src/main.rs:131</sub> | — | missing |
+| `/api/v1/data-integration/builds` | GET | `handlers::builds::list_builds`<br><sub>services/pipeline-build-service/src/main.rs:135</sub> | `handler.ListDataIntegrationBuilds`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:110</sub> | implemented |
+| `/api/v1/data-integration/builds/_summary` | GET | `handlers::builds::queue_summary`<br><sub>services/pipeline-build-service/src/main.rs:136</sub> | `handler.DataIntegrationQueueSummary`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:111</sub> | implemented |
+| `/api/v1/data-integration/builds/{run_id}/abort` | POST | `handlers::builds::abort_build`<br><sub>services/pipeline-build-service/src/main.rs:137</sub> | `handler.AbortDataIntegrationBuild`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:112</sub> | implemented |
+| `/api/v1/data-integration/pipelines/_scheduler/run-due` | POST | `handlers::execute::run_due_scheduled_pipelines`<br><sub>services/pipeline-build-service/src/main.rs:141</sub> | `handler.RunDueScheduledPipelines`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:113</sub> | implemented |
+| `/api/v1/data-integration/pipelines/{pipeline_rid}/dry-run-resolve` | POST | `handlers::dry_run::dry_run_resolve`<br><sub>services/pipeline-build-service/src/main.rs:147</sub> | `handler.DryRunResolve`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:114</sub> | implemented |
+| `/api/v1/data-integration/pipelines/{id}/runs` | GET | `handlers::runs::list_runs`<br><sub>services/pipeline-build-service/src/main.rs:123</sub> | `handler.ListPipelineRuns`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:106</sub> | implemented |
+| `/api/v1/data-integration/pipelines/{id}/runs` | POST | `handlers::execute::trigger_run`<br><sub>services/pipeline-build-service/src/main.rs:123</sub> | `handler.TriggerPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:107</sub> | implemented |
+| `/api/v1/data-integration/pipelines/{id}/runs/{run_id}` | GET | `handlers::runs::get_run`<br><sub>services/pipeline-build-service/src/main.rs:127</sub> | `handler.GetPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:108</sub> | implemented |
+| `/api/v1/data-integration/pipelines/{id}/runs/{run_id}/retry` | POST | `handlers::execute::retry_run`<br><sub>services/pipeline-build-service/src/main.rs:131</sub> | `handler.RetryPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:109</sub> | implemented |
 | `/api/v1/data-integration/pipelines/{id}/runs/{run_id}/spec` | GET | — | `handler.GetSpecForRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:108</sub> | implemented |
 | `/api/v1/data-integration/spark-runs` | GET | — | `handler.ListSparkRuns`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:105</sub> | empty envelope |
-| `/api/v1/data-integration/spark-runs` | POST | — | `handler.SubmitSparkRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:106</sub> | 501 |
+| `/api/v1/data-integration/spark-runs` | POST | — | `handler.SubmitSparkRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:106</sub> | implemented |
 | `/api/v1/data-integration/spark-runs/{id}` | GET | — | `handler.GetSparkRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:107</sub> | implemented |
-| `/api/v1/dry-run/resolve` | POST | — | `handler.DryRunResolve`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:85</sub> | 501 |
+| `/api/v1/dry-run/resolve` | POST | — | `handler.DryRunResolve`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:85</sub> | implemented |
 | `/api/v1/dry-run/validate` | POST | — | `handler.DryRunValidate`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:86</sub> | 501 |
-| `/api/v1/execute` | POST | — | `handler.ExecutePipeline`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:87</sub> | 501 |
+| `/api/v1/execute` | POST | — | `handler.ExecutePipeline`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:87</sub> | implemented |
 | `/api/v1/jobs/{id}` | GET | — | `handler.GetJob`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:80</sub> | implemented |
 | `/api/v1/jobs/{id}/logs` | GET | — | `handler.ListJobLogs`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:81</sub> | empty envelope |
 | `/api/v1/jobs/{id}/logs/stream` | GET | — | `handler.StreamJobLogs`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:82</sub> | implemented |
@@ -57,10 +57,10 @@ State counts: 501: 12, empty envelope: 6, implemented: 11, missing: 23.
 | `/api/v1/pipelines/{id}` | PATCH | — | `handler.UpdatePipeline`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:93</sub> | 501 |
 | `/api/v1/pipelines/{id}` | PUT | — | `handler.UpdatePipeline`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:94</sub> | 501 |
 | `/api/v1/pipelines/{id}/runs` | GET | — | `handler.ListPipelineRuns`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:97</sub> | empty envelope |
-| `/api/v1/pipelines/{id}/runs` | POST | — | `handler.TriggerPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:98</sub> | 501 |
+| `/api/v1/pipelines/{id}/runs` | POST | — | `handler.TriggerPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:98</sub> | implemented |
 | `/api/v1/pipelines/{id}/runs/{run_id}` | GET | — | `handler.GetPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:99</sub> | implemented |
 | `/api/v1/pipelines/{id}/runs/{run_id}/cancel` | POST | — | `handler.CancelPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:101</sub> | 501 |
-| `/api/v1/pipelines/{id}/runs/{run_id}/retry` | POST | — | `handler.RetryPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:100</sub> | 501 |
+| `/api/v1/pipelines/{id}/runs/{run_id}/retry` | POST | — | `handler.RetryPipelineRun`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:100</sub> | implemented |
 | `/health` | GET | — | `func(w`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:60</sub> | implemented |
 | `/healthz` | GET | `||`<br><sub>services/pipeline-build-service/src/main.rs:218</sub> | `func(w`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:56</sub> | implemented |
 | `/metrics` | GET | — | `m.Handler(`<br><sub>openfoundry-go/services/pipeline-build-service/internal/server/server.go:65</sub> | implemented |
@@ -79,57 +79,57 @@ State counts: 501: 12, empty envelope: 6, implemented: 11, missing: 23.
 
 ## notebook-runtime-service
 
-Rust routes: 0. Go routes: 40.
-State counts: 501: 5, empty envelope: 4, implemented: 19.
+Rust routes: 0. Go routes: 51.
+State counts: empty envelope: 2, implemented: 26.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
-| `/api/v1/notebooks` | GET | — | `state.ListNotebooks`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:58</sub> | empty envelope |
-| `/api/v1/notebooks` | POST | — | `state.CreateNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:59</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}` | DELETE | — | `state.DeleteNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:63</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}` | GET | — | `state.GetNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:60</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}` | PATCH | — | `state.UpdateNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:62</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}` | PUT | — | `state.UpdateNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:61</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/cells` | POST | — | `state.AddCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:66</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/cells/execute-all` | POST | — | `state.ExecuteAllCells`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:77</sub> | 501 |
-| `/api/v1/notebooks/{notebook_id}/cells/{cell_id}` | DELETE | — | `state.DeleteCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:68</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/cells/{cell_id}` | PATCH | — | `state.UpdateCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:67</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/cells/{cell_id}/execute` | POST | — | `state.ExecuteCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:76</sub> | 501 |
-| `/api/v1/notebooks/{notebook_id}/sessions` | GET | — | `state.ListSessions`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:71</sub> | empty envelope |
-| `/api/v1/notebooks/{notebook_id}/sessions` | POST | — | `state.CreateSession`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:72</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/sessions/{session_id}/stop` | POST | — | `state.StopSession`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:73</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/workspace` | DELETE | — | `state.DeleteWorkspaceFile`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:82</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/workspace` | GET | — | `state.ListWorkspaceFiles`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:80</sub> | implemented |
-| `/api/v1/notebooks/{notebook_id}/workspace` | PUT | — | `state.UpsertWorkspaceFile`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:81</sub> | implemented |
-| `/api/v1/notepad/documents` | GET | — | `state.ListDocuments`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:85</sub> | empty envelope |
-| `/api/v1/notepad/documents` | POST | — | `state.CreateDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:86</sub> | 501 |
-| `/api/v1/notepad/documents/{document_id}` | DELETE | — | `state.DeleteDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:89</sub> | implemented |
-| `/api/v1/notepad/documents/{document_id}` | GET | — | `state.GetDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:87</sub> | implemented |
-| `/api/v1/notepad/documents/{document_id}` | PATCH | — | `state.UpdateDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:88</sub> | 501 |
-| `/api/v1/notepad/documents/{document_id}/export` | POST | — | `state.ExportDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:92</sub> | implemented |
-| `/api/v1/notepad/documents/{document_id}/presence` | GET | — | `state.ListPresence`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:90</sub> | empty envelope |
-| `/api/v1/notepad/documents/{document_id}/presence` | POST | — | `state.UpsertPresence`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:91</sub> | 501 |
-| `/health` | GET | — | `func(w`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:45</sub> | implemented |
-| `/healthz` | GET | — | `func(w`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:41</sub> | implemented |
-| `/metrics` | GET | — | `m.Handler(`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:50</sub> | implemented |
+| `/api/v1/notebooks` | GET | — | `state.ListNotebooks`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:66</sub> | empty envelope |
+| `/api/v1/notebooks` | POST | — | `state.CreateNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:67</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}` | DELETE | — | `state.DeleteNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:71</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}` | GET | — | `state.GetNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:68</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}` | PATCH | — | `state.UpdateNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:70</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}` | PUT | — | `state.UpdateNotebook`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:69</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/cells` | POST | — | `state.AddCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:74</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/cells/execute-all` | POST | — | `state.ExecuteAllCells`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:85</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/cells/{cell_id}` | DELETE | — | `state.DeleteCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:76</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/cells/{cell_id}` | PATCH | — | `state.UpdateCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:75</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/cells/{cell_id}/execute` | POST | — | `state.ExecuteCell`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:84</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/sessions` | GET | — | `state.ListSessions`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:79</sub> | empty envelope |
+| `/api/v1/notebooks/{notebook_id}/sessions` | POST | — | `state.CreateSession`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:80</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/sessions/{session_id}/stop` | POST | — | `state.StopSession`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:81</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/workspace` | DELETE | — | `state.DeleteWorkspaceFile`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:90</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/workspace` | GET | — | `state.ListWorkspaceFiles`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:88</sub> | implemented |
+| `/api/v1/notebooks/{notebook_id}/workspace` | PUT | — | `state.UpsertWorkspaceFile`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:89</sub> | implemented |
+| `/api/v1/notepad/documents` | GET | — | `state.ListDocuments`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:93</sub> | implemented |
+| `/api/v1/notepad/documents` | POST | — | `state.CreateDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:94</sub> | implemented |
+| `/api/v1/notepad/documents/{document_id}` | DELETE | — | `state.DeleteDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:97</sub> | implemented |
+| `/api/v1/notepad/documents/{document_id}` | GET | — | `state.GetDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:95</sub> | implemented |
+| `/api/v1/notepad/documents/{document_id}` | PATCH | — | `state.UpdateDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:96</sub> | implemented |
+| `/api/v1/notepad/documents/{document_id}/export` | POST | — | `state.ExportDocument`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:100</sub> | implemented |
+| `/api/v1/notepad/documents/{document_id}/presence` | GET | — | `state.ListPresence`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:98</sub> | implemented |
+| `/api/v1/notepad/documents/{document_id}/presence` | POST | — | `state.UpsertPresence`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:99</sub> | implemented |
+| `/health` | GET | — | `func(w`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:53</sub> | implemented |
+| `/healthz` | GET | — | `func(w`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:49</sub> | implemented |
+| `/metrics` | GET | — | `m.Handler(`<br><sub>openfoundry-go/services/notebook-runtime-service/internal/server/server.go:58</sub> | implemented |
 
 ## ontology-query-service
 
 Rust routes: 3. Go routes: 4.
-State counts: 501: 2, implemented: 2, missing: 1.
+State counts: implemented: 4, missing: 1.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
-| `/api/v1/ontology/objects/{tenant}/by-type/{type_id}` | GET | `handlers::list_objects_by_type`<br><sub>services/ontology-query-service/src/lib.rs:42</sub> | `h.ListObjectsByType`<br><sub>openfoundry-go/services/ontology-query-service/internal/server/server.go:38</sub> | 501 |
-| `/api/v1/ontology/objects/{tenant}/{object_id}` | GET | `handlers::get_object`<br><sub>services/ontology-query-service/src/lib.rs:41</sub> | `h.GetObject`<br><sub>openfoundry-go/services/ontology-query-service/internal/server/server.go:37</sub> | 501 |
+| `/api/v1/ontology/objects/{tenant}/by-type/{type_id}` | GET | `handlers::list_objects_by_type`<br><sub>services/ontology-query-service/src/lib.rs:42</sub> | `h.ListObjectsByType`<br><sub>openfoundry-go/services/ontology-query-service/internal/server/server.go:38</sub> | implemented |
+| `/api/v1/ontology/objects/{tenant}/{object_id}` | GET | `handlers::get_object`<br><sub>services/ontology-query-service/src/lib.rs:41</sub> | `h.GetObject`<br><sub>openfoundry-go/services/ontology-query-service/internal/server/server.go:37</sub> | implemented |
 | `/health` | GET | `||`<br><sub>services/ontology-query-service/src/main.rs:79</sub> | — | missing |
 | `/healthz` | GET | — | `func(w`<br><sub>openfoundry-go/services/ontology-query-service/internal/server/server.go:28</sub> | implemented |
 | `/metrics` | GET | — | `m.Handler(`<br><sub>openfoundry-go/services/ontology-query-service/internal/server/server.go:32</sub> | implemented |
 
 ## connector-management-service
 
-Rust routes: 47. Go routes: 7.
-State counts: implemented: 7, missing: 46.
+Rust routes: 47. Go routes: 21.
+State counts: implemented: 21, missing: 46.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
@@ -138,6 +138,20 @@ State counts: implemented: 7, missing: 46.
 | `/api/v1/connections/{id}` | DELETE | — | `h.DeleteConnection`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:41</sub> | implemented |
 | `/api/v1/connections/{id}` | GET | — | `h.GetConnection`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:39</sub> | implemented |
 | `/api/v1/connections/{id}` | PATCH | — | `h.UpdateConnection`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:40</sub> | implemented |
+| `/api/v1/data-connection/media-set-syncs/{sync_id}` | GET | — | `h.GetMediaSetSync`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:51</sub> | implemented |
+| `/api/v1/data-connection/media-set-syncs/{sync_id}` | PATCH | — | `h.UpdateMediaSetSync`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:52</sub> | implemented |
+| `/api/v1/data-connection/media-set-syncs/{sync_id}/run` | POST | — | `h.RunMediaSetSync`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:53</sub> | implemented |
+| `/api/v1/data-connection/sources/{id}/media-set-syncs` | GET | — | `h.ListMediaSetSyncs`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:49</sub> | implemented |
+| `/api/v1/data-connection/sources/{id}/media-set-syncs` | POST | — | `h.CreateMediaSetSync`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:50</sub> | implemented |
+| `/api/v1/data-connection/sources/{id}/syncs` | GET | — | `h.ListSyncJobs`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:43</sub> | implemented |
+| `/api/v1/data-connection/syncs` | POST | — | `h.CreateSyncJob`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:44</sub> | implemented |
+| `/api/v1/data-connection/syncs/{sync_id}` | GET | — | `h.GetSyncJob`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:45</sub> | implemented |
+| `/api/v1/data-connection/syncs/{sync_id}` | PATCH | — | `h.UpdateSyncJob`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:46</sub> | implemented |
+| `/api/v1/data-connection/syncs/{sync_id}/run` | POST | — | `h.RunSyncJob`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:47</sub> | implemented |
+| `/api/v1/virtual-table/sources/{source_rid}/enable` | POST | — | `h.EnableVirtualTableSource`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:55</sub> | implemented |
+| `/api/v1/virtual-table/sources/{source_rid}/virtual-tables` | POST | — | `h.CreateVirtualTable`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:56</sub> | implemented |
+| `/api/v1/virtual-tables` | GET | — | `h.ListVirtualTables`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:57</sub> | implemented |
+| `/api/v1/virtual-tables/{rid}` | GET | — | `h.GetVirtualTable`<br><sub>openfoundry-go/services/connector-management-service/internal/server/server.go:58</sub> | implemented |
 | `/auth/bootstrap-status` | GET | `handlers::dev_auth::bootstrap_status`<br><sub>services/connector-management-service/src/main.rs:281</sub> | — | missing |
 | `/auth/login` | POST | `handlers::dev_auth::login`<br><sub>services/connector-management-service/src/main.rs:279</sub> | — | missing |
 | `/auth/refresh` | POST | `handlers::dev_auth::refresh`<br><sub>services/connector-management-service/src/main.rs:280</sub> | — | missing |
@@ -189,8 +203,8 @@ State counts: implemented: 7, missing: 46.
 
 ## dataset-versioning-service
 
-Rust routes: 78. Go routes: 7.
-State counts: implemented: 7, missing: 68.
+Rust routes: 78. Go routes: 16.
+State counts: implemented: 16, missing: 68.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
@@ -199,6 +213,11 @@ State counts: implemented: 7, missing: 68.
 | `/api/v1/datasets/{id}` | DELETE | — | `h.DeleteDataset`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:41</sub> | implemented |
 | `/api/v1/datasets/{id}` | GET | — | `h.GetDataset`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:39</sub> | implemented |
 | `/api/v1/datasets/{id}` | PATCH | — | `h.UpdateDataset`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:40</sub> | implemented |
+| `/api/v1/datasets/{id}/branches` | GET | — | `h.ListBranches`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:47</sub> | implemented |
+| `/api/v1/datasets/{id}/branches` | POST | — | `h.CreateBranch`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:48</sub> | implemented |
+| `/api/v1/datasets/{id}/branches/{branch}` | GET | — | `h.GetBranch`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:49</sub> | implemented |
+| `/api/v1/datasets/{id}/files` | GET | — | `h.ListFiles`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:51</sub> | implemented |
+| `/api/v1/datasets/{id}/files/{file_id}/download` | GET | — | `h.DownloadFile`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:52</sub> | implemented |
 | `/api/v1/datasets/{rid}/health` | GET | `handlers::health::get_dataset_health`<br><sub>services/dataset-versioning-service/src/dataset_quality/mod.rs:66</sub> | — | missing |
 | `/api/v1/datasets/{id}/lint` | GET | `handlers::lint::get_dataset_lint`<br><sub>services/dataset-versioning-service/src/dataset_quality/mod.rs:56</sub> | — | missing |
 | `/api/v1/datasets/{id}/quality` | GET | `handlers::quality::get_dataset_quality`<br><sub>services/dataset-versioning-service/src/dataset_quality/mod.rs:38</sub> | — | missing |
@@ -206,6 +225,10 @@ State counts: implemented: 7, missing: 68.
 | `/api/v1/datasets/{id}/quality/rules` | POST | `handlers::quality::create_quality_rule`<br><sub>services/dataset-versioning-service/src/dataset_quality/mod.rs:46</sub> | — | missing |
 | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | DELETE | `handlers::quality::delete_quality_rule`<br><sub>services/dataset-versioning-service/src/dataset_quality/mod.rs:50</sub> | — | missing |
 | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | PATCH | `handlers::quality::update_quality_rule`<br><sub>services/dataset-versioning-service/src/dataset_quality/mod.rs:50</sub> | — | missing |
+| `/api/v1/datasets/{id}/transactions/{txn}/files` | POST | — | `h.CreateFileUploadURL`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:53</sub> | implemented |
+| `/api/v1/datasets/{id}/versions` | GET | — | `h.ListVersions`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:43</sub> | implemented |
+| `/api/v1/datasets/{id}/versions` | POST | — | `h.CreateVersion`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:44</sub> | implemented |
+| `/api/v1/datasets/{id}/versions/{version}` | GET | — | `h.GetVersion`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:45</sub> | implemented |
 | `/health` | GET | `handlers::health::healthz`<br><sub>services/dataset-versioning-service/src/lib.rs:226</sub> | — | missing |
 | `/healthz` | GET | `handlers::health::healthz`<br><sub>services/dataset-versioning-service/src/lib.rs:225</sub> | `func(w`<br><sub>openfoundry-go/services/dataset-versioning-service/internal/server/server.go:28</sub> | implemented |
 | `/internal/datasets/{rid}/metadata` | GET | `handlers::internal::get_dataset_metadata`<br><sub>services/dataset-versioning-service/src/data_asset_catalog/mod.rs:137</sub> | — | missing |
@@ -272,16 +295,25 @@ State counts: implemented: 7, missing: 68.
 
 ## ingestion-replication-service
 
-Rust routes: 12. Go routes: 7.
-State counts: empty envelope: 1, implemented: 6, missing: 12.
+Rust routes: 12. Go routes: 16.
+State counts: empty envelope: 1, implemented: 15, missing: 12.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
+| `/api/v1/cdc/streams` | GET | — | `h.ListCdcStreams`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:48</sub> | implemented |
+| `/api/v1/cdc/streams` | POST | — | `h.RegisterCdcStream`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:49</sub> | implemented |
+| `/api/v1/cdc/streams/{id}` | GET | — | `h.GetCdcStream`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:50</sub> | implemented |
+| `/api/v1/cdc/streams/{id}/checkpoint` | GET | — | `h.GetCdcCheckpoint`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:51</sub> | implemented |
+| `/api/v1/cdc/streams/{id}/resolution` | GET | — | `h.GetCdcResolution`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:52</sub> | implemented |
 | `/api/v1/ingest-jobs` | GET | — | `h.ListIngestJobs`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:37</sub> | empty envelope |
 | `/api/v1/ingest-jobs` | POST | — | `h.CreateIngestJob`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:38</sub> | implemented |
 | `/api/v1/ingest-jobs/{id}` | DELETE | — | `h.DeleteIngestJob`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:41</sub> | implemented |
 | `/api/v1/ingest-jobs/{id}` | GET | — | `h.GetIngestJob`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:39</sub> | implemented |
 | `/api/v1/ingest-jobs/{id}` | PATCH | — | `h.UpdateIngestJob`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:40</sub> | implemented |
+| `/api/v1/streams` | GET | — | `h.ListStreams`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:43</sub> | implemented |
+| `/api/v1/streams` | POST | — | `h.CreateStream`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:44</sub> | implemented |
+| `/api/v1/streams/{id}` | GET | — | `h.GetStream`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:45</sub> | implemented |
+| `/api/v1/streams/{id}` | PATCH | — | `h.UpdateStream`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:46</sub> | implemented |
 | `/compatibility/subjects/:name/versions/:version` | POST | `check_compatibility`<br><sub>services/ingestion-replication-service/src/cdc_metadata/schema_registry.rs:47</sub> | — | missing |
 | `/healthz` | GET | — | `func(w`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:28</sub> | implemented |
 | `/metrics` | GET | — | `m.Handler(`<br><sub>openfoundry-go/services/ingestion-replication-service/internal/server/server.go:32</sub> | implemented |
@@ -299,8 +331,8 @@ State counts: empty envelope: 1, implemented: 6, missing: 12.
 
 ## iceberg-catalog-service
 
-Rust routes: 29. Go routes: 7.
-State counts: implemented: 7, missing: 28.
+Rust routes: 29. Go routes: 36.
+State counts: implemented: 36, missing: 23.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
@@ -314,6 +346,20 @@ State counts: implemented: 7, missing: 28.
 | `/api/v1/namespaces/{id}` | DELETE | — | `h.DeleteNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:41</sub> | implemented |
 | `/api/v1/namespaces/{id}` | GET | — | `h.GetNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:39</sub> | implemented |
 | `/api/v1/namespaces/{id}` | PATCH | — | `h.UpdateNamespace`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:40</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables` | GET | — | `h.ListTables`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:43</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables` | POST | — | `h.CreateTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:44</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}` | DELETE | — | `h.DropTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:48</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}` | GET | — | `h.LoadTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:46</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}` | POST | — | `h.CommitTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:47</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/metadata` | GET | — | `h.ListMetadataFiles`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:53</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/metadata/{version}` | GET | — | `h.GetMetadataFile`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:54</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs` | GET | — | `h.ListRefs`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:49</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | DELETE | — | `h.DeleteRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:52</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | GET | — | `h.GetRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:50</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | PUT | — | `h.UpsertRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:51</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/snapshots` | GET | — | `h.ListSnapshots`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:55</sub> | implemented |
+| `/api/v1/namespaces/{namespace}/tables/{table}/snapshots/{snapshot_id}` | GET | — | `h.GetSnapshot`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:56</sub> | implemented |
+| `/api/v1/tables/rename` | POST | — | `h.RenameTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:45</sub> | implemented |
 | `/health` | GET | `||`<br><sub>services/iceberg-catalog-service/src/lib.rs:144</sub> | — | missing |
 | `/healthz` | GET | — | `func(w`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:28</sub> | implemented |
 | `/iceberg/v1/config` | GET | `handlers::rest_catalog::config::get_config`<br><sub>services/iceberg-catalog-service/src/lib.rs:41</sub> | — | missing |
@@ -326,30 +372,59 @@ State counts: implemented: 7, missing: 28.
 | `/iceberg/v1/namespaces/{namespace}/markings` | POST | `handlers::markings::update_namespace_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:88</sub> | — | missing |
 | `/iceberg/v1/namespaces/{namespace}/properties` | GET | `handlers::rest_catalog::namespaces::get_properties`<br><sub>services/iceberg-catalog-service/src/lib.rs:56</sub> | — | missing |
 | `/iceberg/v1/namespaces/{namespace}/properties` | POST | `handlers::rest_catalog::namespaces::update_properties`<br><sub>services/iceberg-catalog-service/src/lib.rs:56</sub> | — | missing |
-| `/iceberg/v1/namespaces/{namespace}/tables` | GET | `handlers::rest_catalog::tables::list_tables`<br><sub>services/iceberg-catalog-service/src/lib.rs:62</sub> | — | missing |
-| `/iceberg/v1/namespaces/{namespace}/tables` | POST | `handlers::rest_catalog::tables::create_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:62</sub> | — | missing |
-| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | DELETE | `handlers::rest_catalog::tables::drop_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | — | missing |
-| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | GET | `handlers::rest_catalog::tables::load_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/tables` | GET | `handlers::rest_catalog::tables::list_tables`<br><sub>services/iceberg-catalog-service/src/lib.rs:62</sub> | `h.ListTables`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:63</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables` | POST | `handlers::rest_catalog::tables::create_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:62</sub> | `h.CreateTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:64</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | DELETE | `handlers::rest_catalog::tables::drop_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | `h.DropTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:68</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | GET | `handlers::rest_catalog::tables::load_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | `h.LoadTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:66</sub> | implemented |
 | `/iceberg/v1/namespaces/{namespace}/tables/{table}` | HEAD | `handlers::rest_catalog::tables::table_exists`<br><sub>services/iceberg-catalog-service/src/lib.rs:73</sub> | — | missing |
-| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | POST | `handlers::rest_catalog::tables::commit_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}` | POST | `handlers::rest_catalog::tables::commit_table`<br><sub>services/iceberg-catalog-service/src/lib.rs:67</sub> | `h.CommitTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:67</sub> | implemented |
 | `/iceberg/v1/namespaces/{namespace}/tables/{table}/alter-schema` | POST | `handlers::rest_catalog::tables::alter_schema`<br><sub>services/iceberg-catalog-service/src/lib.rs:78</sub> | — | missing |
 | `/iceberg/v1/namespaces/{namespace}/tables/{table}/markings` | GET | `handlers::markings::get_table_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:93</sub> | — | missing |
 | `/iceberg/v1/namespaces/{namespace}/tables/{table}/markings` | PATCH | `handlers::markings::update_table_markings`<br><sub>services/iceberg-catalog-service/src/lib.rs:93</sub> | — | missing |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/metadata` | GET | — | `h.ListMetadataFiles`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:73</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/metadata/{version}` | GET | — | `h.GetMetadataFile`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:74</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs` | GET | — | `h.ListRefs`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:69</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | DELETE | — | `h.DeleteRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:72</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | GET | — | `h.GetRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:70</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/refs/{ref}` | PUT | — | `h.UpsertRef`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:71</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/snapshots` | GET | — | `h.ListSnapshots`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:75</sub> | implemented |
+| `/iceberg/v1/namespaces/{namespace}/tables/{table}/snapshots/{snapshot_id}` | GET | — | `h.GetSnapshot`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:76</sub> | implemented |
 | `/iceberg/v1/oauth/tokens` | POST | `handlers::auth::oauth::issue_token`<br><sub>services/iceberg-catalog-service/src/lib.rs:108</sub> | — | missing |
+| `/iceberg/v1/tables/rename` | POST | — | `h.RenameTable`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:65</sub> | implemented |
 | `/iceberg/v1/transactions/commit` | POST | `handlers::rest_catalog::transactions::multi_table_commit`<br><sub>services/iceberg-catalog-service/src/lib.rs:83</sub> | — | missing |
 | `/metrics` | GET | `metrics::render_metrics`<br><sub>services/iceberg-catalog-service/src/lib.rs:145</sub> | `m.Handler(`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:32</sub> | implemented |
+| `/openfoundry/iceberg/v1/append` | POST | — | `h.AppendBatch`<br><sub>openfoundry-go/services/iceberg-catalog-service/internal/server/server.go:59</sub> | implemented |
 | `/v1/iceberg-clients/api-tokens` | POST | `handlers::auth::api_tokens::create_api_token`<br><sub>services/iceberg-catalog-service/src/lib.rs:112</sub> | — | missing |
 
 ## federation-product-exchange-service
 
-Rust routes: 23. Go routes: 2.
-State counts: implemented: 2, missing: 21.
+Rust routes: 23. Go routes: 21.
+State counts: implemented: 21, missing: 21.
 
 | Route | Method | Rust handler | Go handler | State |
 | --- | --- | --- | --- | --- |
+| `/api/v1/marketplace/dependency-plan` | POST | — | `h.PreviewDependencyPlan`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:66</sub> | implemented |
+| `/api/v1/marketplace/installs` | GET | — | `h.ListInstalls`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:64</sub> | implemented |
+| `/api/v1/marketplace/installs` | POST | — | `h.CreateInstall`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:65</sub> | implemented |
+| `/api/v1/marketplace/listings` | GET | — | `h.ListListings`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:58</sub> | implemented |
+| `/api/v1/marketplace/listings` | POST | — | `h.CreateListing`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:59</sub> | implemented |
+| `/api/v1/marketplace/listings/slug/{slug}` | GET | — | `h.GetListing`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:60</sub> | implemented |
+| `/api/v1/marketplace/listings/{ref}` | GET | — | `h.GetListing`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:61</sub> | implemented |
+| `/api/v1/marketplace/listings/{id}` | PATCH | — | `h.UpdateListing`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:62</sub> | implemented |
+| `/api/v1/marketplace/listings/{id}/versions` | POST | — | `h.PublishVersion`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:63</sub> | implemented |
+| `/api/v1/product-distribution/peers` | GET | — | `d.ListPeers`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:75</sub> | implemented |
+| `/api/v1/product-distribution/peers` | POST | — | `d.CreatePeer`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:76</sub> | implemented |
+| `/api/v1/product-distribution/peers/{id}` | DELETE | — | `d.DeletePeer`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:79</sub> | implemented |
+| `/api/v1/product-distribution/peers/{id}` | GET | — | `d.GetPeer`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:77</sub> | implemented |
+| `/api/v1/product-distribution/peers/{id}` | PATCH | — | `d.UpdatePeer`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:78</sub> | implemented |
+| `/api/v1/product-distribution/shares` | GET | — | `d.ListShareManifests`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:80</sub> | implemented |
+| `/api/v1/product-distribution/shares` | POST | — | `d.CreateShareManifest`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:81</sub> | implemented |
+| `/api/v1/product-distribution/shares/{id}` | GET | — | `d.GetShareManifest`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:82</sub> | implemented |
+| `/api/v1/product-distribution/shares/{id}/sync-status` | PATCH | — | `d.UpdateSyncStatus`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:84</sub> | implemented |
+| `/api/v1/product-distribution/sync-statuses` | GET | — | `d.ListSyncStatuses`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:83</sub> | implemented |
 | `/health` | GET | `handlers::health::healthz`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:117</sub> | — | missing |
-| `/healthz` | GET | `handlers::health::healthz`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:116</sub> | `func(w`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:44</sub> | implemented |
-| `/metrics` | GET | `handlers::health::metrics`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:118</sub> | `m.Handler(`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:49</sub> | implemented |
+| `/healthz` | GET | `handlers::health::healthz`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:116</sub> | `func(w`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:45</sub> | implemented |
+| `/metrics` | GET | `handlers::health::metrics`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:118</sub> | `m.Handler(`<br><sub>openfoundry-go/services/federation-product-exchange-service/internal/server/server.go:50</sub> | implemented |
 | `/v1/marketplace/categories` | GET | `handlers::browse::list_categories`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:43</sub> | — | missing |
 | `/v1/marketplace/installs` | GET | `handlers::install::list_installs`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:71</sub> | — | missing |
 | `/v1/marketplace/installs` | POST | `handlers::install::create_install`<br><sub>services/federation-product-exchange-service/src/marketplace/mod.rs:71</sub> | — | missing |

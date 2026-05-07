@@ -18,6 +18,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,10 +29,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
 )
 
@@ -42,12 +46,35 @@ type jobLogStreamConfig struct {
 	HeartbeatInterval time.Duration
 }
 
-var jobLogService atomic.Value    // stores *livellogs.Service
-var streamConfig atomic.Value     // stores jobLogStreamConfig
-var sparkClientValue atomic.Value // stores *sparkClientSlot
+var jobLogService atomic.Value        // stores *livellogs.Service
+var streamConfig atomic.Value         // stores jobLogStreamConfig
+var sparkClientValue atomic.Value     // stores *sparkClientSlot
+var buildQueryRepository atomic.Value // stores *buildQuerySlot
 
 type sparkClientSlot struct {
 	client sparkpkg.SparkClient
+}
+
+type BuildQueryRepository interface {
+	ListBuilds(ctx context.Context, query models.ListBuildsQuery) ([]models.BuildEnvelope, error)
+	GetBuild(ctx context.Context, idOrRID string) (*models.BuildEnvelope, error)
+	ListJobsForBuildID(ctx context.Context, idOrRID string) ([]models.Job, error)
+}
+
+type BuildV1Repository interface {
+	BuildQueryRepository
+	ListDatasetBuilds(ctx context.Context, datasetRID string, limit int64) ([]models.Build, error)
+	GetJobOutputs(ctx context.Context, jobRID string) (*JobOutputsResponse, error)
+	GetJobInputResolutions(ctx context.Context, jobRID string) (json.RawMessage, error)
+	PublishJobSpec(ctx context.Context, kind string, req CreateJobSpecRequest, createdBy string) (PublishedJobSpec, error)
+}
+
+type LogAppendStore interface {
+	AppendLogByRID(ctx context.Context, jobRID string, level livellogs.LogLevel, message string, params json.RawMessage) (livellogs.LogEntry, error)
+}
+
+type buildQuerySlot struct {
+	repo BuildQueryRepository
 }
 
 func init() {
@@ -84,16 +111,99 @@ func SetSparkClient(client sparkpkg.SparkClient) func() {
 	return func() { sparkClientValue.Store(previous) }
 }
 
+// SetBuildQueryRepository injects read-side build/job repositories for list/get
+// handlers. Without it, those handlers return an explicit 503 instead of a
+// silent empty success.
+func SetBuildQueryRepository(repo BuildQueryRepository) func() {
+	previous, _ := buildQueryRepository.Load().(*buildQuerySlot)
+	buildQueryRepository.Store(&buildQuerySlot{repo: repo})
+	return func() { buildQueryRepository.Store(previous) }
+}
+
+func currentBuildQueryRepository() (BuildQueryRepository, bool) {
+	slot, _ := buildQueryRepository.Load().(*buildQuerySlot)
+	if slot == nil || slot.repo == nil {
+		return nil, false
+	}
+	return slot.repo, true
+}
+
 // Builds (v1).
-func ListBuilds(w http.ResponseWriter, _ *http.Request) { writeEmptyList(w) }
-func GetBuild(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotFound, nil)
+func ListBuilds(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured", "detail": "ListBuilds requires DATABASE_URL-backed repository wiring"})
+		return
+	}
+	limit := int64(50)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			limit = parsed
+		}
+	}
+	items, err := repo.ListBuilds(r.Context(), models.ListBuildsQuery{Branch: r.URL.Query().Get("branch"), Status: r.URL.Query().Get("status"), PipelineRID: r.URL.Query().Get("pipeline_rid"), Limit: &limit})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list_builds_failed", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "total": len(items)})
+}
+func GetBuild(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured", "detail": "GetBuild requires DATABASE_URL-backed repository wiring"})
+		return
+	}
+	env, err := repo.GetBuild(r.Context(), buildIDParam(r))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get_build_failed", "detail": err.Error()})
+		return
+	}
+	if env == nil {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, env)
 }
 
 // Jobs and job logs.
-func ListJobs(w http.ResponseWriter, _ *http.Request)    { writeEmptyList(w) }
-func GetJob(w http.ResponseWriter, _ *http.Request)      { writeJSON(w, http.StatusNotFound, nil) }
-func ListJobLogs(w http.ResponseWriter, _ *http.Request) { writeEmptyList(w) }
+func ListJobs(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured", "detail": "ListJobs requires DATABASE_URL-backed repository wiring"})
+		return
+	}
+	items, err := repo.ListJobsForBuildID(r.Context(), buildIDParam(r))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list_jobs_failed", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "total": len(items)})
+}
+func GetJob(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusNotFound, nil) }
+func ListJobLogs(w http.ResponseWriter, r *http.Request) {
+	service, _ := jobLogService.Load().(*livellogs.Service)
+	if service == nil || service.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "live_logs_not_configured", "detail": "ListJobLogs requires DATABASE_URL-backed log store wiring"})
+		return
+	}
+	query, err := parseLogsQuery(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_logs_query", "detail": err.Error()})
+		return
+	}
+	query.Follow = false
+	items, err := service.Store.History(r.Context(), jobRIDFromRequest(r), query)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "log_store_unavailable", "detail": err.Error()})
+		return
+	}
+	rows := make([]livellogs.RowDTO, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, item.RowDTO())
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": rows, "total": len(rows)})
+}
 
 // StreamJobLogs streams Rust-compatible Server-Sent Events for job logs.
 func StreamJobLogs(w http.ResponseWriter, r *http.Request) {
@@ -203,13 +313,7 @@ func DeletePipeline(w http.ResponseWriter, _ *http.Request) {
 }
 
 // Pipeline runs (legacy run table; coexists with the new builds table).
-func ListPipelineRuns(w http.ResponseWriter, _ *http.Request) { writeEmptyList(w) }
-
-func GetPipelineRun(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotFound, nil)
-}
-func RetryPipelineRun(w http.ResponseWriter, r *http.Request)  { notImplemented(w, r) }
-func CancelPipelineRun(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+// Implemented in data_integration.go.
 
 // SparkApplication-backed runs (FASE 3 / Tarea 3.4). When kube_client
 // is unavailable the Rust crate returns 503; we mirror that shape.
@@ -515,4 +619,268 @@ func (noSparkClient) SubmitPipelineRun(context.Context, sparkpkg.PipelineRunInpu
 }
 func (noSparkClient) GetPipelineRunStatus(context.Context, string, string) (*sparkpkg.SparkRunStatusReport, error) {
 	return nil, &sparkpkg.UnavailableError{}
+}
+
+// V1 Builds API wrappers. These mount the Rust `/v1` route group while
+// reusing the existing resolver/executor/log ports.
+func CreateBuildV1(w http.ResponseWriter, r *http.Request) { CreateBuild(w, r) }
+
+func ListBuildsV1(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured", "detail": "ListBuildsV1 requires DATABASE_URL-backed repository wiring"})
+		return
+	}
+	limit := int64(50)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			limit = parsed
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	var since *time.Time
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+			since = &parsed
+		}
+	}
+	items, err := repo.ListBuilds(r.Context(), models.ListBuildsQuery{Branch: r.URL.Query().Get("branch"), Status: r.URL.Query().Get("status"), PipelineRID: r.URL.Query().Get("pipeline_rid"), Cursor: r.URL.Query().Get("cursor"), Since: since, Limit: &limit})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list_builds_failed", "detail": err.Error()})
+		return
+	}
+	var next *string
+	if len(items) > 0 {
+		cursor := items[len(items)-1].CreatedAt.UTC().Format(time.RFC3339Nano)
+		next = &cursor
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items, "next_cursor": next, "limit": limit})
+}
+
+func GetBuildV1(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured", "detail": "GetBuildV1 requires DATABASE_URL-backed repository wiring"})
+		return
+	}
+	env, err := repo.GetBuild(r.Context(), chi.URLParam(r, "rid"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get_build_failed", "detail": err.Error()})
+		return
+	}
+	if env == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	etag := buildETag(env)
+	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+		w.Header().Set("ETag", etag)
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("ETag", etag)
+	writeJSON(w, http.StatusOK, env)
+}
+
+func AbortBuildV1(w http.ResponseWriter, r *http.Request) { AbortBuild(w, r) }
+
+func ListDatasetBuildsV1(w http.ResponseWriter, r *http.Request) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured", "detail": "ListDatasetBuilds requires DATABASE_URL-backed repository wiring"})
+		return
+	}
+	v1, ok := repo.(BuildV1Repository)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_v1_repository_not_configured"})
+		return
+	}
+	rows, err := v1.ListDatasetBuilds(r.Context(), chi.URLParam(r, "rid"), 100)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list_dataset_builds_failed", "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": rows, "dataset_rid": chi.URLParam(r, "rid")})
+}
+
+type JobOutputRow struct {
+	OutputDatasetRID string `json:"output_dataset_rid"`
+	TransactionRID   string `json:"transaction_rid"`
+	Committed        bool   `json:"committed"`
+	Aborted          bool   `json:"aborted"`
+}
+
+type JobOutputsResponse struct {
+	RID          string         `json:"rid"`
+	State        string         `json:"state"`
+	StaleSkipped bool           `json:"stale_skipped"`
+	Outputs      []JobOutputRow `json:"outputs"`
+}
+
+func GetJobOutputsV1(w http.ResponseWriter, r *http.Request) {
+	v1, ok := currentV1Repository(w)
+	if !ok {
+		return
+	}
+	resp, err := v1.GetJobOutputs(r.Context(), chi.URLParam(r, "rid"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get_job_outputs_failed", "detail": err.Error()})
+		return
+	}
+	if resp == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func GetJobInputResolutionsV1(w http.ResponseWriter, r *http.Request) {
+	v1, ok := currentV1Repository(w)
+	if !ok {
+		return
+	}
+	raw, err := v1.GetJobInputResolutions(r.Context(), chi.URLParam(r, "rid"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get_job_input_resolutions_failed", "detail": err.Error()})
+		return
+	}
+	if raw == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rid": chi.URLParam(r, "rid"), "input_view_resolutions": json.RawMessage(raw)})
+}
+
+type CreateJobSpecRequest struct {
+	PipelineRID       string             `json:"pipeline_rid"`
+	BranchName        string             `json:"branch_name"`
+	Inputs            []models.InputSpec `json:"inputs,omitempty"`
+	OutputDatasetRIDs []string           `json:"output_dataset_rids,omitempty"`
+	LogicPayload      json.RawMessage    `json:"logic_payload,omitempty"`
+	ContentHash       *string            `json:"content_hash,omitempty"`
+}
+
+type PublishedJobSpec struct {
+	RID         string `json:"rid"`
+	LogicKind   string `json:"logic_kind"`
+	ContentHash string `json:"content_hash"`
+}
+
+func CreateJobSpecV1(w http.ResponseWriter, r *http.Request) {
+	v1, ok := currentV1Repository(w)
+	if !ok {
+		return
+	}
+	var body CreateJobSpecRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+	kind := strings.ToUpper(chi.URLParam(r, "kind"))
+	published, err := v1.PublishJobSpec(r.Context(), kind, body, "")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, published)
+}
+
+func ListJobLogsV1(w http.ResponseWriter, r *http.Request) { ListJobLogs(w, r) }
+
+func EmitJobLogV1(w http.ResponseWriter, r *http.Request) {
+	service, _ := jobLogService.Load().(*livellogs.Service)
+	if service == nil || service.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "live_logs_not_configured", "detail": "EmitJobLog requires DATABASE_URL-backed log store wiring"})
+		return
+	}
+	appender, ok := service.Store.(LogAppendStore)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "log_append_not_configured"})
+		return
+	}
+	var body struct {
+		Level   livellogs.LogLevel `json:"level"`
+		Message string             `json:"message"`
+		Params  json.RawMessage    `json:"params,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "detail": err.Error()})
+		return
+	}
+	entry, err := appender.AppendLogByRID(r.Context(), chi.URLParam(r, "rid"), body.Level, body.Message, body.Params)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "emit_log_failed", "detail": err.Error()})
+		return
+	}
+	if mem, ok := service.Subscriber.(*livellogs.MemoryService); ok {
+		mem.Emit(chi.URLParam(r, "rid"), body.Level, body.Message, body.Params)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rid": chi.URLParam(r, "rid"), "sequence": entry.Sequence})
+}
+
+func StreamJobLogsV1(w http.ResponseWriter, r *http.Request) { StreamJobLogs(w, r) }
+
+func WSJobLogsV1(w http.ResponseWriter, r *http.Request) {
+	service, _ := jobLogService.Load().(*livellogs.Service)
+	if service == nil || service.Subscriber == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "live_logs_not_configured", "detail": "websocket logs require a subscriber"})
+		return
+	}
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	ch, cancel, err := service.Subscriber.Subscribe(r.Context(), chi.URLParam(r, "rid"))
+	if err != nil {
+		_ = conn.Close(websocket.StatusInternalError, err.Error())
+		return
+	}
+	defer cancel()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case entry, ok := <-ch:
+			if !ok {
+				return
+			}
+			if err := wsWriteJSON(r.Context(), conn, entry.RowDTO()); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func currentV1Repository(w http.ResponseWriter) (BuildV1Repository, bool) {
+	repo, ok := currentBuildQueryRepository()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_query_repository_not_configured"})
+		return nil, false
+	}
+	v1, ok := repo.(BuildV1Repository)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "build_v1_repository_not_configured"})
+		return nil, false
+	}
+	return v1, true
+}
+
+func buildETag(env *models.BuildEnvelope) string {
+	raw, _ := json.Marshal(env)
+	sum := sha256.Sum256(raw)
+	return `"` + hex.EncodeToString(sum[:]) + `"`
+}
+
+func wsWriteJSON(ctx context.Context, conn *websocket.Conn, value any) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return conn.Write(ctx, websocket.MessageText, raw)
 }

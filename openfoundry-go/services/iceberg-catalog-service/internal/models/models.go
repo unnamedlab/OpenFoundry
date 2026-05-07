@@ -174,6 +174,8 @@ type ListSnapshotsResponse struct {
 type RenameTableRequest struct {
 	Source      TableIdentifier `json:"source"`
 	Destination TableIdentifier `json:"destination"`
+}
+
 // FieldSpec is the compact schema shape used by OpenFoundry sink writers when
 // appending rows through the in-process table-writer adapter endpoint.
 type FieldSpec struct {
