@@ -86,6 +86,51 @@ func (h *Handlers) UpdateListing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, listing)
 }
 
+func (h *Handlers) ListInstalls(w http.ResponseWriter, r *http.Request) {
+	limit, offset, err := parsePagination(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, total, err := h.Repo.ListInstalls(r.Context(), limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database operation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, models.PaginatedListResponse[models.InstallRecord]{
+		Items:      items,
+		Pagination: models.Pagination{Limit: limit, Offset: offset, Total: total},
+	})
+}
+
+func (h *Handlers) CreateInstall(w http.ResponseWriter, r *http.Request) {
+	var req models.CreateInstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	install, err := h.Repo.CreateInstall(r.Context(), req)
+	if err != nil {
+		handleRepoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, install)
+}
+
+func (h *Handlers) PreviewDependencyPlan(w http.ResponseWriter, r *http.Request) {
+	var req models.DependencyPlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	plan, err := h.Repo.PreviewDependencyPlan(r.Context(), req)
+	if err != nil {
+		handleRepoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
 func (h *Handlers) PublishVersion(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
@@ -128,6 +173,8 @@ func handleRepoError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		writeError(w, http.StatusNotFound, "listing not found")
+	case errors.Is(err, ErrVersionNotFound):
+		writeError(w, http.StatusNotFound, "listing version not found")
 	case errors.Is(err, ErrValidation):
 		writeError(w, http.StatusBadRequest, stringsAfterColon(err.Error()))
 	default:

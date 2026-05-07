@@ -106,7 +106,7 @@ func TestExecuteRollbackMultiOutputOnPartialCommitFailure(t *testing.T) {
 	require.Equal(t, models.BuildFailed, outcome.FinalState)
 	require.Equal(t, 1, outcome.Failed)
 	require.Equal(t, []string{"out.alpha", "out.beta"}, committer.committedDatasets())
-	require.Equal(t, []string{"out.beta"}, tx.abortedDatasets(), "Rust aborts uncommitted outputs after a partial commit failure")
+	require.Equal(t, []string{"out.alpha", "out.beta"}, tx.abortedDatasets(), "partial commit failure rolls back committed outputs and aborts the failed output")
 }
 
 func TestExecuteRetriesUntilSuccess(t *testing.T) {

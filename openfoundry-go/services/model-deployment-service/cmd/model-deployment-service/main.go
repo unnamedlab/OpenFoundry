@@ -1,6 +1,6 @@
 // Command model-deployment-service hosts the model deployment surface.
 // The HTTP routes are wired to libs/ml-kernel-go deployment handlers,
-// with an in-process store/runtime for local startup and tests.
+// backed by configured Postgres storage and a serving-runtime adapter.
 package main
 
 import (
@@ -39,12 +39,12 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
-	if cfg.DatabaseURL == "" {
-		log.Warn("DATABASE_URL unset — using in-process deployment store/runtime")
-	}
-
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	srv, err := server.NewE(cfg, metrics)
+	if err != nil {
+		log.Error("server setup failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

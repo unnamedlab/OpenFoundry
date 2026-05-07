@@ -129,6 +129,7 @@ type Outcome struct {
 	Aborted    int
 	Attempts   map[string]int
 	Nodes      map[string]NodeState
+	Reasons    map[string]string
 }
 
 // Error contracts exposed by Execute.
@@ -191,6 +192,7 @@ func Execute(ctx context.Context, plan Plan, runner NodeRunner, txManager Transa
 	completed := map[string]struct{}{}
 	failed := map[string]struct{}{}
 	aborted := map[string]struct{}{}
+	reasons := map[string]string{}
 	inFlight := map[string]struct{}{}
 	for _, node := range graph.nodes {
 		state[node.ID] = NodeWaiting
@@ -243,6 +245,9 @@ func Execute(ctx context.Context, plan Plan, runner NodeRunner, txManager Transa
 		result := <-results
 		delete(inFlight, result.nodeID)
 		attempts[result.nodeID] = result.attempts
+		if result.reason != "" {
+			reasons[result.nodeID] = result.reason
+		}
 		state[result.nodeID] = result.state
 		switch result.state {
 		case NodeCompleted:
@@ -267,7 +272,7 @@ func Execute(ctx context.Context, plan Plan, runner NodeRunner, txManager Transa
 		}
 	}
 
-	out := Outcome{Attempts: attempts, Nodes: state}
+	out := Outcome{Attempts: attempts, Nodes: state, Reasons: reasons}
 	for _, s := range state {
 		switch s {
 		case NodeCompleted:
@@ -399,12 +404,19 @@ func commitAllOutputs(ctx context.Context, committer OutputCommitter, txManager 
 	if len(commitErrors) == 0 {
 		return nil
 	}
+	var rollbackErrors []string
 	for _, output := range outputs {
+		reason := "output aborted"
 		if _, alreadyCommitted := committed[output.DatasetRID]; alreadyCommitted {
-			continue
+			reason = "output rolled back"
 		}
-		_ = txManager.Abort(context.Background(), output)
-		_ = audit.Record(context.Background(), AuditEvent{At: time.Now().UTC(), BuildID: buildID, NodeID: nodeID, Reason: "output aborted", DatasetRID: output.DatasetRID})
+		if err := txManager.Abort(context.Background(), output); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("%s: %s", output.DatasetRID, err.Error()))
+		}
+		_ = audit.Record(context.Background(), AuditEvent{At: time.Now().UTC(), BuildID: buildID, NodeID: nodeID, Reason: reason, DatasetRID: output.DatasetRID})
+	}
+	if len(rollbackErrors) > 0 {
+		return fmt.Errorf("multi-output commit failed: %s; rollback failed: %s", joinStrings(commitErrors, "; "), joinStrings(rollbackErrors, "; "))
 	}
 	return fmt.Errorf("multi-output commit failed: %s", joinStrings(commitErrors, "; "))
 }

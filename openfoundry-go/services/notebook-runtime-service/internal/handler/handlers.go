@@ -9,17 +9,19 @@
 //   - Workspace file CRUD: filesystem-backed via `domain/environment`.
 //   - Notepad export: HTML rendering via `domain/notepad`.
 //   - Cell execute (`ExecuteCell` / `ExecuteAllCells`): Python cells run
-//     through the python-sidecar gRPC boundary; SQL/R/LLM return explicit
-//     kernel-not-supported errors until equivalent sidecars exist.
+//     through the python-sidecar gRPC boundary. SQL mirrors Rust by POSTing
+//     to query-service, R shells out to Rscript, and LLM mirrors Rust by
+//     POSTing to ai-service chat completions while tracking conversations.
 //
-// Notepad documents + presence still return the empty envelope; their
-// repository slice lands when the notepad UI ships its own backend.
+// Notepad documents + presence are repository-backed. The no-DB test/smoke
+// path uses the in-memory repository; production uses Postgres.
 package handler
 
 import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +33,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/domain/environment"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/domain/notepad"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/models"
+	nbrepo "github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/repo"
 )
 
 // State carries the deps every handler needs.
@@ -38,6 +41,10 @@ type State struct {
 	Cfg          *config.Config
 	Pool         *pgxpool.Pool
 	PythonKernel NotebookPythonKernel
+	SQLKernel    NotebookSQLKernel
+	RKernel      NotebookRKernel
+	LLMKernel    NotebookLLMKernel
+	NotepadRepo  nbrepo.NotepadRepository
 	MemoryRepo   *MemoryNotebookRepo
 }
 
@@ -95,51 +102,274 @@ func (s *State) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ── Notepad (export wired 1:1; CRUD stubbed) ──────────────────────────
+// ── Notepad documents + presence ───────────────────────────────────
 
-func (s *State) ListDocuments(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": []any{}, "total": 0, "page": 1, "per_page": 20})
+func (s *State) notepadRepo() nbrepo.NotepadRepository {
+	if s.NotepadRepo != nil {
+		return s.NotepadRepo
+	}
+	if s.Pool != nil {
+		s.NotepadRepo = nbrepo.NewPostgresNotepadRepository(s.Pool)
+		return s.NotepadRepo
+	}
+	s.NotepadRepo = nbrepo.NewInMemoryNotepadRepository()
+	return s.NotepadRepo
+}
+
+func (s *State) ListDocuments(w http.ResponseWriter, r *http.Request) {
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	page := parseInt64Query(r, "page", 1)
+	perPage := parseInt64Query(r, "per_page", 20)
+	result, err := s.notepadRepo().ListDocuments(r.Context(), nbrepo.ListDocumentsParams{
+		OwnerID: claims.Sub,
+		Page:    page,
+		PerPage: perPage,
+		Search:  r.URL.Query().Get("search"),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *State) CreateDocument(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r)
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	var body models.CreateNotepadDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid body"))
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		writeJSON(w, http.StatusBadRequest, errBody("title is required"))
+		return
+	}
+	doc, err := s.notepadRepo().CreateDocument(r.Context(), nbrepo.CreateDocumentParams{
+		Title:       title,
+		Description: strPtrValue(body.Description),
+		OwnerID:     claims.Sub,
+		Content:     strPtrValue(body.Content),
+		TemplateKey: nonEmptyPtr(body.TemplateKey),
+		Widgets:     body.Widgets,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusCreated, doc)
 }
 
-func (s *State) GetDocument(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotFound, nil)
+func (s *State) GetDocument(w http.ResponseWriter, r *http.Request) {
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
+		return
+	}
+	doc, ok, err := s.notepadRepo().GetDocument(r.Context(), documentID, claims.Sub)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 func (s *State) UpdateDocument(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r)
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
+		return
+	}
+	var body models.UpdateNotepadDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid body"))
+		return
+	}
+	doc, ok, err := s.notepadRepo().UpdateDocument(r.Context(), nbrepo.UpdateDocumentParams{
+		ID:            documentID,
+		OwnerID:       claims.Sub,
+		Title:         nonEmptyPtr(body.Title),
+		Description:   body.Description,
+		Content:       body.Content,
+		TemplateKey:   nonEmptyPtr(body.TemplateKey),
+		Widgets:       body.Widgets,
+		LastIndexedAt: body.LastIndexedAt,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
-func (s *State) DeleteDocument(w http.ResponseWriter, _ *http.Request) {
+func (s *State) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
+		return
+	}
+	ok, err := s.notepadRepo().DeleteDocument(r.Context(), documentID, claims.Sub)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *State) ListPresence(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": []any{}})
+func (s *State) ListPresence(w http.ResponseWriter, r *http.Request) {
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
+		return
+	}
+	presence, err := s.notepadRepo().ListPresence(r.Context(), documentID, claims.Sub)
+	if errors.Is(err, nbrepo.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": presence})
 }
 
 func (s *State) UpsertPresence(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r)
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
+		return
+	}
+	var body models.UpsertNotepadPresenceRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid body"))
+		return
+	}
+	sessionID := strings.TrimSpace(body.SessionID)
+	displayName := strings.TrimSpace(body.DisplayName)
+	if sessionID == "" || displayName == "" {
+		writeJSON(w, http.StatusBadRequest, errBody("session_id and display_name are required"))
+		return
+	}
+	presence, err := s.notepadRepo().UpsertPresence(r.Context(), nbrepo.UpsertPresenceParams{
+		DocumentID:  documentID,
+		OwnerID:     claims.Sub,
+		UserID:      claims.Sub,
+		SessionID:   sessionID,
+		DisplayName: displayName,
+		CursorLabel: strPtrValue(body.CursorLabel),
+		Color:       defaultStr(strPtrValue(body.Color), "#0f766e"),
+	})
+	if errors.Is(err, nbrepo.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, presence)
 }
 
-// ExportDocument is fully wired — it consumes the `notepad` package
-// 1:1 ported from Rust. When the repository layer is ready the input
-// will come from Postgres; for now the handler accepts the document
-// JSON as the request body so the rendering code path is reachable
-// for end-to-end browser tests.
 func (s *State) ExportDocument(w http.ResponseWriter, r *http.Request) {
-	var doc models.NotepadDocument
-	if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
-		// Fall back to the not-found shape when the caller did not
-		// pass an inline document — the rendering route is still the
-		// only piece that doesn't need a DB.
+	claims := requireClaims(w, r)
+	if claims == nil {
+		return
+	}
+	var inline models.NotepadDocument
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&inline); err == nil && inline.ID != uuid.Nil {
+			writeJSON(w, http.StatusOK, notepad.RenderExportPayload(&inline))
+			return
+		}
+	}
+	documentID, err := pathUUID(r, "document_id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody("invalid document id"))
+		return
+	}
+	doc, ok, err := s.notepadRepo().GetDocument(r.Context(), documentID, claims.Sub)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	if !ok {
 		writeJSON(w, http.StatusNotFound, nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, notepad.RenderExportPayload(&doc))
+}
+
+func parseInt64Query(r *http.Request, key string, fallback int64) int64 {
+	if raw := r.URL.Query().Get(key); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return v
+		}
+	}
+	return fallback
+}
+
+func strPtrValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func nonEmptyPtr(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*v)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func defaultStr(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 // ── Auth helper ──────────────────────────────────────────────────────
@@ -176,11 +406,4 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	if body != nil {
 		_ = json.NewEncoder(w).Encode(body)
 	}
-}
-
-func notImplemented(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{
-		"error":  "not_implemented",
-		"detail": "kernel runtime (Python/SQL/R/LLM) not yet ported (see service README)",
-	})
 }

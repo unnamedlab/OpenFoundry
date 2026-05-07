@@ -1,13 +1,17 @@
 package actions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
@@ -371,5 +375,91 @@ func TestExecutePlanInlinePythonPreservesRevertUndoAndMediaMetadata(t *testing.T
 	media, ok := result["media_upload"].(map[string]any)
 	if !ok || media["status"] != "placeholder" {
 		t.Fatalf("media placeholder missing: %v", result)
+	}
+}
+
+func TestExecutePlanInlinePythonRuntimeNotConfigured(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	action := models.ActionType{ID: uuid.New(), ObjectTypeID: uuid.New(), OperationKind: "invoke_function", Name: "run_py"}
+	_, err := executePlan(context.Background(), state, &authmw.Claims{Sub: uuid.New()}, action, inlinePythonPlan("result = {'ok': True}"))
+	if !errors.Is(err, domain.ErrPythonRuntimeNotWired) {
+		t.Fatalf("expected ErrPythonRuntimeNotWired, got %v", err)
+	}
+}
+
+type ctxAwareInlineSidecar struct{}
+
+func (ctxAwareInlineSidecar) ExecuteInline(ctx context.Context, _ string, _ []byte, _ uint32) (*ontologykernel.InlineRuntimeResult, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestExecutePlanInlinePythonTimeoutPropagates(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	state.PythonRuntime = ctxAwareInlineSidecar{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	action := models.ActionType{ID: uuid.New(), ObjectTypeID: uuid.New(), OperationKind: "invoke_function", Name: "run_py"}
+	_, err := executePlan(ctx, state, &authmw.Claims{Sub: uuid.New()}, action, inlinePythonPlan("while True: pass"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+}
+
+type staticActionFunctionRuntime struct {
+	result json.RawMessage
+	err    error
+}
+
+func (f staticActionFunctionRuntime) ExecuteInlineFunction(context.Context, *ontologykernel.AppState, *authmw.Claims, *models.ActionType, *domain.ObjectInstance, map[string]json.RawMessage, *domain.ResolvedInlineFunction, *string) (json.RawMessage, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
+}
+
+func TestExecuteActionAuditFailureDoesNotBreakSuccessResponse(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	state.HTTPClient = http.DefaultClient
+	state.AuditServiceURL = "http://127.0.0.1:1"
+	action := models.ActionType{
+		ID:            uuid.New(),
+		ObjectTypeID:  uuid.New(),
+		OperationKind: "invoke_function",
+		Name:          "run_py",
+		DisplayName:   "Run Python",
+		Config:        json.RawMessage(`{"runtime":"python","source":"result = {'ok': True}"}`),
+		OwnerID:       uuid.New(),
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	record, err := domain.ActionToRecord(action)
+	if err != nil {
+		t.Fatalf("ActionToRecord: %v", err)
+	}
+	if _, err := state.Stores.Definitions.Put(context.Background(), record, nil); err != nil {
+		t.Fatalf("seed action: %v", err)
+	}
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", action.ID.String())
+	claims := &authmw.Claims{Sub: uuid.New(), Email: "alice@example.com", Roles: []string{"admin"}}
+	ctx := context.WithValue(authmw.ContextWithClaims(context.Background(), claims), chi.RouteCtxKey, rctx)
+	req := httptest.NewRequest(http.MethodPost, "/ontology/actions/"+action.ID.String()+"/execute", bytes.NewReader([]byte(`{"parameters":{}}`))).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	ExecuteActionWithRuntime(state, staticActionFunctionRuntime{result: json.RawMessage(`{"ok":true}`)}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	var body models.ExecuteActionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response json: %v", err)
+	}
+	if string(body.Result) != `{"ok":true}` {
+		t.Fatalf("result drift: %s", body.Result)
 	}
 }

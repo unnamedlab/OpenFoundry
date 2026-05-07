@@ -1,17 +1,19 @@
 // Package handler hosts the HTTP handlers for pipeline-build-service.
 //
 // Status: every URL the Rust crate exposes is mounted with the same
-// path / verb. Handler bodies are stubbed to the empty-envelope or
-// 501 shape because the bulk of pipeline-build-service is the
-// resolver / DAG executor / Spark runner / Iceberg client (~30 KLOC of
-// Rust). Those domain modules are tracked as separate Go ports —
-// see the README for the breakdown.
+// path / verb. Most handler bodies still use the empty-envelope or 501 shape while
+// Iceberg and remaining legacy CRUD surfaces finish migrating. The critical
+// resolver-backed CreateBuild / DryRunResolve paths and executor-backed
+// ExecutePipeline / TriggerPipelineRun paths are wired through injectable
+// ports; see the README for the full port-status breakdown.
 //
 // What IS ported 1:1 in this binary:
 //
 //   - Models (build, job, pipeline, run) — `internal/models`
 //   - Job lifecycle state machine — `internal/domain/joblifecycle`
 //   - Marking propagation SQL — `internal/domain/markings`
+//   - Build resolver — `internal/domain/resolver` plus HTTP wiring
+//   - DAG executor — `internal/domain/executor` plus HTTP wiring
 package handler
 
 import (
@@ -83,12 +85,10 @@ func SetSparkClient(client sparkpkg.SparkClient) func() {
 }
 
 // Builds (v1).
-func ListBuilds(w http.ResponseWriter, _ *http.Request)  { writeEmptyList(w) }
-func CreateBuild(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+func ListBuilds(w http.ResponseWriter, _ *http.Request) { writeEmptyList(w) }
 func GetBuild(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusNotFound, nil)
 }
-func AbortBuild(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
 
 // Jobs and job logs.
 func ListJobs(w http.ResponseWriter, _ *http.Request)    { writeEmptyList(w) }
@@ -187,9 +187,7 @@ func StreamJobLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // Dry-run + execute (resolution preview / immediate trigger).
-func DryRunResolve(w http.ResponseWriter, r *http.Request)   { notImplemented(w, r) }
-func DryRunValidate(w http.ResponseWriter, r *http.Request)  { notImplemented(w, r) }
-func ExecutePipeline(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+func DryRunValidate(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
 
 // Pipeline CRUD (legacy surface that still owns the cron schedule rows).
 func ListPipelines(w http.ResponseWriter, _ *http.Request) {
@@ -205,8 +203,8 @@ func DeletePipeline(w http.ResponseWriter, _ *http.Request) {
 }
 
 // Pipeline runs (legacy run table; coexists with the new builds table).
-func ListPipelineRuns(w http.ResponseWriter, _ *http.Request)   { writeEmptyList(w) }
-func TriggerPipelineRun(w http.ResponseWriter, r *http.Request) { notImplemented(w, r) }
+func ListPipelineRuns(w http.ResponseWriter, _ *http.Request) { writeEmptyList(w) }
+
 func GetPipelineRun(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusNotFound, nil)
 }

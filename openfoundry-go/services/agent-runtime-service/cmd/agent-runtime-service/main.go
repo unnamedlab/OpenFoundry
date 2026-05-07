@@ -1,10 +1,11 @@
 // Command agent-runtime-service hosts the agent runtime + tool
 // registry plane (S8.1.b ADR-0030 absorbed tool-registry-service).
 //
-// Foundation port: full agents CRUD + runs + steps + human-approval
-// + OpenAI-style chat-completion stub + copilot stub. The
-// tool-registry HTTP routes (`/api/v1/agent-runtime/tools`) port
-// alongside libs/ai-kernel-go/handlers/tools in a follow-up slice.
+// Foundation port: full agents CRUD + runs + steps + human-approval,
+// plus OpenAI-style chat-completions and copilot ask routes backed by
+// the injectable ai-kernel-go LLM runtime. The tool-registry HTTP
+// routes (`/api/v1/agent-runtime/tools`) port alongside
+// libs/ai-kernel-go/handlers/tools in a follow-up slice.
 //
 // AI-event Kafka producer wires alongside libs/event-bus-data-go in a
 // follow-up slice; the Topic, TxnIDPrefix, AiEventKind enum and

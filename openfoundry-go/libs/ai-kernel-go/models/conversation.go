@@ -184,6 +184,31 @@ type CopilotRequest struct {
 	PreferredProviderID  *uuid.UUID  `json:"preferred_provider_id,omitempty"`
 }
 
+func (r *CopilotRequest) UnmarshalJSON(data []byte) error {
+	type alias CopilotRequest
+	aux := struct {
+		IncludeSQL          *bool `json:"include_sql"`
+		IncludePipelinePlan *bool `json:"include_pipeline_plan"`
+		*alias
+	}{
+		alias: (*alias)(r),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.IncludeSQL == nil {
+		r.IncludeSQL = DefaultIncludeSQL
+	} else {
+		r.IncludeSQL = *aux.IncludeSQL
+	}
+	if aux.IncludePipelinePlan == nil {
+		r.IncludePipelinePlan = DefaultIncludePipeline
+	} else {
+		r.IncludePipelinePlan = *aux.IncludePipelinePlan
+	}
+	return nil
+}
+
 type CopilotResponse struct {
 	Answer              string                  `json:"answer"`
 	SuggestedSQL        *string                 `json:"suggested_sql"`

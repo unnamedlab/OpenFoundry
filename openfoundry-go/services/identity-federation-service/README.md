@@ -4,7 +4,13 @@ Identity & federation: register, login, JWT issuance, refresh-token
 rotation. **Slice 1 of 8** in the migration plan documented at
 [`openfoundry-go/INVENTORY-identity-federation-service.md`](../../INVENTORY-identity-federation-service.md).
 
-## Slice 1 scope (this commit)
+## Implemented surface
+
+In addition to the original auth bootstrap/login endpoints, the Go service now
+contains the identity-admin surfaces from later slices, including RBAC, API keys,
+SCIM, and restricted views.
+
+### Auth bootstrap/login
 
 Endpoints (all under `/api/v1/auth`, no bearer required):
 
@@ -37,18 +43,27 @@ line swap in `cmd/.../main.go`; landing it requires a Cassandra /
 Scylla instance in the dev environment so the binary smoke-tests
 against real CQL. Both backends sit side-by-side until then.
 
-## What slice 1 does NOT include
+## Remaining follow-up work
 
-- Sessions table (slice 2 — Cassandra)
-- Session governance / revocation (slice 2)
-- MFA TOTP (slice 3) — `mfa_enforced=true` users currently get a stub `{"status":"mfa_required","methods":[]}` response
-- WebAuthn (slice 4)
-- OAuth + SAML SSO (slice 5)
-- User / Role / Group / Permission / Policy CRUD endpoints (slice 6)
-- Control panel + scoped sessions + restricted views + ABAC (slice 7)
-- Cedar authz + JWKS rotation + Vault Transit signing + SCIM 2.0 (slice 8 — STOP-and-ask on Cedar)
-- Rate limiting (the Rust crate uses Redis per-(user,IP); deferred to slice 8)
-- Audit publishing to Kafka `audit.identity.v1` (slice 8)
+- Cassandra-backed sessions are scaffolded but not the active refresh-token backend.
+- Control panel + scoped-session governance + ABAC administration still need a
+  dedicated current-state audit. Restricted-view CRUD is implemented here and
+  consumed by authorization-policy-service evaluations.
+- Vault Transit signing integration remains deferred.
+- Rate limiting (the Rust crate uses Redis per-(user,IP)) remains deferred.
+- Audit publishing to Kafka `audit.identity.v1` remains deferred.
+
+## Restricted views ownership
+
+`identity-federation-service` is the canonical Go owner for restricted-view CRUD
+(`GET|POST /api/v1/restricted-views`, `GET|PUT|PATCH|DELETE
+/api/v1/restricted-views/{id}`). This consolidates the Rust
+`authorization-policy-service` CRUD handler with identity-side CBAC/session
+configuration so SCIM groups, scoped sessions, and identity claims share one
+source of truth. `authorization-policy-service` remains the evaluator: its
+`POST /api/v1/policy-evaluations` endpoint reads enabled `restricted_views` rows
+and applies their row filters, hidden columns, allowed org IDs, allowed markings,
+guest-access, and consumer-mode flags.
 
 ## Wire-format invariants preserved
 

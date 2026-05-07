@@ -2,7 +2,11 @@ package writer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -92,5 +96,120 @@ func TestIcebergWriterPropagatesAICommitFailure(t *testing.T) {
 	batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, Kind: envelope.KindPrompt, Payload: []byte(`{}`)}}}
 	if err := w.Append(context.Background(), batch); !errors.Is(err, ErrCommitFailed) {
 		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterAIContract(t *testing.T) {
+	runID := uuid.MustParse("00000000-0000-7000-8000-000000000123")
+	traceID := "trace-1"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.URL.Path != "/openfoundry/iceberg/v1/append" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+
+		var batch AppendBatch
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		wantSpec := TableSpec{
+			Catalog:            aiCatalog,
+			Warehouse:          "warehouse-1",
+			Namespace:          "of_ai",
+			Table:              envelope.TableResponses,
+			PartitionTransform: "day(at)",
+			SortOrder:          "at ASC",
+			Schema:             aiSchema(),
+		}
+		if !reflect.DeepEqual(batch.Spec, wantSpec) {
+			t.Fatalf("spec = %#v, want %#v", batch.Spec, wantSpec)
+		}
+		if len(batch.Rows) != 1 {
+			t.Fatalf("rows = %#v", batch.Rows)
+		}
+		row := batch.Rows[0]
+		if row["event_id"] != "00000000-0000-7000-8000-000000000001" {
+			t.Fatalf("event_id = %#v", row["event_id"])
+		}
+		if row["at"] != float64(1700000000000000) {
+			t.Fatalf("at = %#v", row["at"])
+		}
+		if row["kind"] != "response" {
+			t.Fatalf("kind = %#v", row["kind"])
+		}
+		if row["run_id"] != runID.String() {
+			t.Fatalf("run_id = %#v", row["run_id"])
+		}
+		if row["trace_id"] != traceID {
+			t.Fatalf("trace_id = %#v", row["trace_id"])
+		}
+		if row["producer"] != "agent-runtime-service" {
+			t.Fatalf("producer = %#v", row["producer"])
+		}
+		if row["schema_version"] != float64(1) {
+			t.Fatalf("schema_version = %#v", row["schema_version"])
+		}
+		if row["payload"] != `{"tokens":42}` {
+			t.Fatalf("payload = %#v", row["payload"])
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_ai")
+	batch := map[string][]envelope.AiEventEnvelope{
+		envelope.TableResponses: {{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1700000000000000, Kind: envelope.KindResponse, RunID: &runID, TraceID: &traceID, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"tokens":42}`)}},
+	}
+	if err := writer.Append(context.Background(), batch); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterAIErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{name: "404 table not found", status: http.StatusNotFound, want: ErrTableNotFound},
+		{name: "409 schema mismatch", status: http.StatusConflict, want: ErrSchemaMismatch},
+		{name: "422 schema mismatch", status: http.StatusUnprocessableEntity, want: ErrSchemaMismatch},
+		{name: "500 commit failed", status: http.StatusInternalServerError, want: ErrCommitFailed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/openfoundry/iceberg/v1/append" {
+					t.Fatalf("path = %s", r.URL.Path)
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer server.Close()
+
+			writer := NewIcebergWriter(server.URL, "warehouse-1", "of_ai")
+			batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, At: 1, Kind: envelope.KindPrompt, Producer: "producer", SchemaVersion: 1, Payload: []byte(`{}`)}}}
+			err := writer.Append(context.Background(), batch)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Append() error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTTPTableWriterAdapterAINetworkFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := server.URL
+	server.Close()
+
+	writer := NewIcebergWriter(url, "warehouse-1", "of_ai")
+	batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, At: 1, Kind: envelope.KindPrompt, Producer: "producer", SchemaVersion: 1, Payload: []byte(`{}`)}}}
+	err := writer.Append(context.Background(), batch)
+	if !errors.Is(err, ErrCommitFailed) {
+		t.Fatalf("Append() error = %v, want %v", err, ErrCommitFailed)
 	}
 }

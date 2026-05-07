@@ -1,16 +1,23 @@
 // Command authorization-policy-service is the writer + custodian of
 // every Cedar policy + ABAC rule in the platform (per ADR-0027).
 //
-// Slice 1 (foundation, this binary): Cedar policy CRUD over Postgres
-// with strict schema validation via libs/authz-cedar-go before every
-// write; optional NATS publish on `authz.policy.changed` so peer
-// services hot-reload via libs/authz-cedar-go's PolicyReloadSubscriber.
+// Current Go surface: Cedar policy CRUD with strict validation and
+// optional `authz.policy.changed` publish, ABAC policy evaluation, RBAC
+// roles/groups/permissions, governance/project constraints,
+// checkpoints/purpose records, cipher catalogs, and network-boundary
+// resources. The Rust crate still has no wired `main`, so this Go
+// binary is the canonical runnable implementation for these routes.
+// This Go port is the canonical implementation while the Rust crate's
+// consolidated binary remains a stub. The live surface includes Cedar policy
+// CRUD, tenant-scoped ABAC policy management/evaluation, top-level RBAC
+// roles/groups/permissions, governance, checkpoint/purpose, cipher, and
+// network-boundary routes.
 //
-// The Rust crate is currently `fn main() {}` (per ADR-0030 / S8 / B14
-// consolidation pending), so this Go port becomes the canonical
-// implementation. RBAC, groups, restricted views, ABAC evaluator,
-// security_governance / checkpoints_purpose / cipher /
-// network_boundary sub-modules land in follow-up slices.
+// RBAC source-of-truth split: identity-federation owns identity-local user
+// lifecycle, login/session, API-key, and SCIM group administration. This
+// service owns authorization-policy RBAC grants used to protect policy
+// management and authorization evaluation (tenant-scoped roles, groups,
+// permissions, user-role assignments, group membership, and group-role grants).
 package main
 
 import (

@@ -1,10 +1,9 @@
 // Package handler — kernel session CRUD. 1:1 port of
 // `services/notebook-runtime-service/src/handlers/sessions.rs`.
 //
-// Python session lifecycle is wired to python-sidecar when configured:
-// create_session ensures the sidecar globals dict and stop_session
-// drops it after marking the row dead. Other kernels remain persisted
-// only until equivalent sidecars exist.
+// Python session lifecycle is wired to python-sidecar when configured.
+// LLM sessions persist conversation ids in the LLM kernel adapter. SQL and R
+// are stateless, matching Rust ensure_session behaviour.
 package handler
 
 import (
@@ -130,8 +129,15 @@ func (s *State) StopSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
 	}
-	if sess.Kernel == "python" && s.PythonKernel != nil {
-		_ = s.PythonKernel.DropSession(r.Context(), sessionID)
+	switch sess.Kernel {
+	case "python":
+		if s.PythonKernel != nil {
+			_ = s.PythonKernel.DropSession(r.Context(), sessionID)
+		}
+	case "llm":
+		if s.LLMKernel != nil {
+			_ = s.LLMKernel.DropSession(r.Context(), sessionID)
+		}
 	}
 	writeJSON(w, http.StatusOK, sess)
 }

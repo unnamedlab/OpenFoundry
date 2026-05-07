@@ -25,7 +25,7 @@ import (
 func TestSubstrateHealthzMounted(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	srv := httptest.NewServer(BuildRouter(cfg, nil, nil, observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, nil, nil, nil, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/healthz")
@@ -110,6 +110,66 @@ func TestUpdateListingAndPublishVersion(t *testing.T) {
 	assert.Equal(t, version.ID, detail.LatestVersion.ID)
 }
 
+func TestCreateInstallOK(t *testing.T) {
+	t.Parallel()
+	srv, token := newMarketplaceTestServer(t)
+	listing := createListing(t, srv.URL, token, map[string]any{"name": "Runtime", "slug": "runtime", "summary": "runtime", "publisher": "P", "category_slug": "connectors", "package_kind": "connector", "repository_slug": "runtime"})
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/listings/"+listing.ID.String()+"/versions", token, map[string]any{"version": "1.0.0", "changelog": "initial"}, http.StatusOK)
+
+	body := doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": listing.ID.String(), "version": "1.0.0", "workspace_name": "staging"}, http.StatusOK)
+	var install models.InstallRecord
+	require.NoError(t, json.Unmarshal(body, &install))
+	assert.Equal(t, listing.ID, install.ListingID)
+	assert.Equal(t, "installed", install.Status)
+	assert.Equal(t, "marketplace_record", install.Activation.Kind)
+}
+
+func TestDependencyConflict(t *testing.T) {
+	t.Parallel()
+	srv, token := newMarketplaceTestServer(t)
+	runtime := createListing(t, srv.URL, token, map[string]any{"name": "Ops Runtime", "slug": "ops-runtime", "summary": "runtime", "publisher": "P", "category_slug": "connectors", "package_kind": "connector", "repository_slug": "ops-runtime"})
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/listings/"+runtime.ID.String()+"/versions", token, map[string]any{"version": "1.0.0", "changelog": "initial"}, http.StatusOK)
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": runtime.ID.String(), "version": "1.0.0", "workspace_name": "staging"}, http.StatusOK)
+	consumer := createListing(t, srv.URL, token, map[string]any{"name": "Consumer", "slug": "consumer", "summary": "consumer", "publisher": "P", "category_slug": "connectors", "package_kind": "connector", "repository_slug": "consumer"})
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/listings/"+consumer.ID.String()+"/versions", token, map[string]any{"version": "1.0.0", "changelog": "initial", "dependencies": []map[string]any{{"package_slug": "ops-runtime", "version_req": "^2.0", "required": true}}}, http.StatusOK)
+
+	planBody := doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/dependency-plan", token, map[string]any{"listing_id": consumer.ID.String(), "version": "1.0.0", "workspace_name": "staging"}, http.StatusOK)
+	var plan models.DependencyPlanResponse
+	require.NoError(t, json.Unmarshal(planBody, &plan))
+	require.Len(t, plan.Conflicts, 1)
+	assert.Equal(t, "ops-runtime", plan.Conflicts[0].PackageSlug)
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": consumer.ID.String(), "version": "1.0.0", "workspace_name": "staging"}, http.StatusBadRequest)
+}
+
+func TestInstallListingVersionNotFound(t *testing.T) {
+	t.Parallel()
+	srv, token := newMarketplaceTestServer(t)
+	listing := createListing(t, srv.URL, token, map[string]any{"name": "Widget", "slug": "widget", "summary": "widget", "publisher": "P", "category_slug": "widgets", "package_kind": "widget", "repository_slug": "widget"})
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": listing.ID.String(), "version": "9.9.9", "workspace_name": "staging"}, http.StatusNotFound)
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": uuid.New().String(), "version": "1.0.0", "workspace_name": "staging"}, http.StatusNotFound)
+}
+
+func TestListInstallsWithPagination(t *testing.T) {
+	t.Parallel()
+	srv, token := newMarketplaceTestServer(t)
+	listing := createListing(t, srv.URL, token, map[string]any{"name": "Connector", "slug": "connector", "summary": "connector", "publisher": "P", "category_slug": "connectors", "package_kind": "connector", "repository_slug": "connector"})
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/listings/"+listing.ID.String()+"/versions", token, map[string]any{"version": "1.0.0", "changelog": "initial"}, http.StatusOK)
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": listing.ID.String(), "version": "1.0.0", "workspace_name": "a"}, http.StatusOK)
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": listing.ID.String(), "version": "1.0.0", "workspace_name": "b"}, http.StatusOK)
+	doJSON(t, http.MethodPost, srv.URL+"/api/v1/marketplace/installs", token, map[string]any{"listing_id": listing.ID.String(), "version": "1.0.0", "workspace_name": "c"}, http.StatusOK)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/marketplace/installs?limit=2&offset=1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	var body models.PaginatedListResponse[models.InstallRecord]
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Len(t, body.Items, 2)
+	assert.Equal(t, models.Pagination{Limit: 2, Offset: 1, Total: 3}, body.Pagination)
+}
+
 func TestListingNotFound(t *testing.T) {
 	t.Parallel()
 	srv, token := newMarketplaceTestServer(t)
@@ -135,7 +195,7 @@ func newMarketplaceTestServer(t *testing.T) (*httptest.Server, string) {
 	cfg := testConfig()
 	jwt := authmw.NewJWTConfig("test-secret")
 	token := testToken(t, jwt)
-	srv := httptest.NewServer(BuildRouter(cfg, jwt, marketplace.NewHandlers(newMemoryRepo()), observability.NewMetrics()))
+	srv := httptest.NewServer(BuildRouter(cfg, jwt, marketplace.NewHandlers(newMemoryRepo()), nil, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 	return srv, token
 }
@@ -198,10 +258,11 @@ type memoryRepo struct {
 	mu       sync.Mutex
 	listings map[uuid.UUID]models.ListingDefinition
 	versions map[uuid.UUID][]models.PackageVersion
+	installs []models.InstallRecord
 }
 
 func newMemoryRepo() *memoryRepo {
-	return &memoryRepo{listings: map[uuid.UUID]models.ListingDefinition{}, versions: map[uuid.UUID][]models.PackageVersion{}}
+	return &memoryRepo{listings: map[uuid.UUID]models.ListingDefinition{}, versions: map[uuid.UUID][]models.PackageVersion{}, installs: []models.InstallRecord{}}
 }
 
 func (r *memoryRepo) CreateListing(_ context.Context, req models.CreateListingRequest) (*models.ListingDefinition, error) {
@@ -333,4 +394,93 @@ func (r *memoryRepo) PublishVersion(_ context.Context, listingID uuid.UUID, req 
 	version := models.PackageVersion{ID: id, ListingID: listingID, Version: req.Version, ReleaseChannel: req.ReleaseChannel, Changelog: req.Changelog, DependencyMode: req.DependencyMode, Dependencies: req.Dependencies, PackagedResources: req.PackagedResources, Manifest: req.Manifest, PublishedAt: time.Now().UTC()}
 	r.versions[listingID] = append([]models.PackageVersion{version}, r.versions[listingID]...)
 	return &version, nil
+}
+
+func (r *memoryRepo) ListInstalls(_ context.Context, limit, offset int) ([]models.InstallRecord, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := append([]models.InstallRecord(nil), r.installs...)
+	sort.Slice(items, func(i, j int) bool { return items[i].InstalledAt.After(items[j].InstalledAt) })
+	total := len(items)
+	if offset >= total {
+		return []models.InstallRecord{}, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return items[offset:end], total, nil
+}
+
+func (r *memoryRepo) CreateInstall(_ context.Context, req models.CreateInstallRequest) (*models.InstallRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	plan, listing, err := r.previewDependencyPlanLocked(req.ListingID, req.Version, req.ReleaseChannel, req.WorkspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if len(plan.Conflicts) > 0 {
+		return nil, marketplace.ErrValidation
+	}
+	id, _ := uuid.NewV7()
+	now := time.Now().UTC()
+	notes := "No runtime activation hook is configured for this package kind yet."
+	install := models.InstallRecord{ID: id, ListingID: listing.ID, ListingName: listing.Name, Version: plan.Version, ReleaseChannel: plan.ReleaseChannel, WorkspaceName: req.WorkspaceName, Status: "installed", DependencyPlan: plan.Items, Activation: models.InstallActivation{Kind: "marketplace_record", Status: "recorded", Notes: &notes}, InstalledAt: now, ReadyAt: &now}
+	r.installs = append(r.installs, install)
+	listing.InstallCount++
+	r.listings[listing.ID] = *listing
+	return &install, nil
+}
+
+func (r *memoryRepo) PreviewDependencyPlan(_ context.Context, req models.DependencyPlanRequest) (*models.DependencyPlanResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	plan, _, err := r.previewDependencyPlanLocked(req.ListingID, req.Version, req.ReleaseChannel, req.WorkspaceName)
+	return plan, err
+}
+
+func (r *memoryRepo) previewDependencyPlanLocked(listingID uuid.UUID, version, channel, workspace string) (*models.DependencyPlanResponse, *models.ListingDefinition, error) {
+	listing, ok := r.listings[listingID]
+	if !ok {
+		return nil, nil, marketplace.ErrNotFound
+	}
+	if channel == "" {
+		channel = "stable"
+	}
+	var selected *models.PackageVersion
+	for i := range r.versions[listingID] {
+		candidate := &r.versions[listingID][i]
+		if version != "" && candidate.Version != version {
+			continue
+		}
+		if candidate.ReleaseChannel == channel {
+			selected = candidate
+			break
+		}
+	}
+	if selected == nil {
+		return nil, nil, marketplace.ErrVersionNotFound
+	}
+	var deps []models.DependencyRequirement
+	if len(selected.Dependencies) > 0 {
+		reqErr := json.Unmarshal(selected.Dependencies, &deps)
+		if reqErr != nil {
+			return nil, nil, reqErr
+		}
+	}
+	installed := map[string]string{}
+	for _, install := range r.installs {
+		if install.WorkspaceName == workspace {
+			if installedListing, ok := r.listings[install.ListingID]; ok {
+				installed[installedListing.Slug] = install.Version
+			}
+		}
+	}
+	conflicts := []models.DependencyConflict{}
+	for _, dep := range deps {
+		if installedVersion, ok := installed[dep.PackageSlug]; ok && dep.VersionReq == "^2.0" && installedVersion == "1.0.0" {
+			conflicts = append(conflicts, models.DependencyConflict{PackageSlug: dep.PackageSlug, VersionReq: dep.VersionReq, InstalledVersion: installedVersion, Message: "installed version does not satisfy dependency"})
+		}
+	}
+	return &models.DependencyPlanResponse{ListingID: listing.ID, ListingSlug: listing.Slug, Version: selected.Version, ReleaseChannel: selected.ReleaseChannel, WorkspaceName: workspace, Items: deps, Conflicts: conflicts}, &listing, nil
 }

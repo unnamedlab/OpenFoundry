@@ -19,8 +19,7 @@
 //     activation, fleets, maintenance windows.
 //   - marketplace_catalog sub-domain: catalog browsing, slug routing,
 //     listing search.
-//   - product_distribution sub-domain: import, peer registry, share
-//     manifest, sync status projection, replication.
+//   - product_distribution sub-domain: peer registry, share manifest, sync status projection, import, replication.
 //   - Per-area handlers + Postgres repos for: peers, contracts, spaces,
 //     shares, access grants, exchanges, sync_status updates.
 //   - Domain pieces: federation registry, schema_compat, encryption,
@@ -41,6 +40,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/marketplace"
+	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/productdistribution"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/server"
 )
@@ -91,10 +91,12 @@ func main() {
 	metrics := observability.NewMetrics()
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	var marketplaceHandlers *marketplace.Handlers
+	var distributionHandlers *productdistribution.Handlers
 	if pool != nil {
 		marketplaceHandlers = marketplace.NewHandlers(marketplace.NewPGXRepository(pool))
+		distributionHandlers = productdistribution.NewHandlers(productdistribution.NewPGXRepository(pool))
 	}
-	srv := server.New(cfg, jwt, marketplaceHandlers, metrics)
+	srv := server.New(cfg, jwt, marketplaceHandlers, distributionHandlers, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

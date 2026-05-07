@@ -84,12 +84,12 @@ func main() {
 	}
 
 	if state != nil && cfg.PythonSidecarBinary != "" {
-		mgr, err := pythonsidecar.New(pythonsidecar.Config{BinaryPath: cfg.PythonSidecarBinary}, log)
+		mgr, err := pythonsidecar.New(pythonSidecarConfig(cfg), log)
 		if err != nil {
 			log.Error("python-sidecar config invalid", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		startCtx, cancelStart := context.WithTimeout(ctx, 15*time.Second)
+		startCtx, cancelStart := context.WithTimeout(ctx, cfg.PythonSidecarTimeout)
 		if err := mgr.Start(startCtx); err != nil {
 			cancelStart()
 			log.Error("python-sidecar start failed", slog.String("error", err.Error()))
@@ -101,6 +101,7 @@ func main() {
 		log.Info("python sidecar wired", slog.String("binary", cfg.PythonSidecarBinary))
 	} else if state != nil {
 		log.Warn("PYTHON_SIDECAR_BINARY unset — inline Python functions will return ErrPythonRuntimeNotWired")
+		log.Warn("PYTHON_SIDECAR_BINARY unset — inline Python functions will explicitly return ErrPythonRuntimeNotWired")
 	}
 
 	metrics := observability.NewMetrics()
@@ -108,6 +109,16 @@ func main() {
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
+	}
+}
+
+func pythonSidecarConfig(cfg *config.Config) pythonsidecar.Config {
+	return pythonsidecar.Config{
+		BinaryPath:      cfg.PythonSidecarBinary,
+		Args:            append([]string(nil), cfg.PythonSidecarArgs...),
+		Env:             append([]string(nil), cfg.PythonSidecarEnv...),
+		StartupTimeout:  cfg.PythonSidecarTimeout,
+		HardCallTimeout: cfg.PythonSidecarTimeout,
 	}
 }
 

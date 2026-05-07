@@ -40,6 +40,9 @@ type BranchLockRepository interface {
 
 // ResolveBuildArgs mirrors Rust build_resolution::ResolveBuildArgs.
 type ResolveBuildArgs struct {
+	// BuildID lets HTTP/repo adapters open the build record before resolution,
+	// matching the Rust lifecycle transaction. When nil, ResolveBuild creates one.
+	BuildID           *uuid.UUID
 	PipelineRID       string
 	BuildBranch       string
 	JobSpecFallback   []string
@@ -154,9 +157,15 @@ func ResolveBuild(ctx context.Context, args ResolveBuildArgs, jobSpecs JobSpecRe
 		return nil, err
 	}
 
-	buildID, err := uuid.NewV7()
-	if err != nil {
-		buildID = uuid.New()
+	var buildID uuid.UUID
+	if args.BuildID != nil {
+		buildID = *args.BuildID
+	} else {
+		var err error
+		buildID, err = uuid.NewV7()
+		if err != nil {
+			buildID = uuid.New()
+		}
 	}
 	if locks != nil {
 		inputRIDs := externalInputDatasetRIDs(specs)

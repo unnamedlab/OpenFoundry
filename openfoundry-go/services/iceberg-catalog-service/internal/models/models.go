@@ -124,3 +124,88 @@ type CommitTableResponse struct {
 	Metadata         json.RawMessage `json:"metadata"`
 	MetadataLocation string          `json:"metadata-location"`
 }
+
+type TableRef struct {
+	ID                 uuid.UUID `json:"id,omitempty"`
+	TableID            uuid.UUID `json:"table_id,omitempty"`
+	Name               string    `json:"name"`
+	Kind               string    `json:"type"`
+	SnapshotID         int64     `json:"snapshot-id"`
+	MaxRefAgeMS        *int64    `json:"max-ref-age-ms,omitempty"`
+	MaxSnapshotAgeMS   *int64    `json:"max-snapshot-age-ms,omitempty"`
+	MinSnapshotsToKeep *int32    `json:"min-snapshots-to-keep,omitempty"`
+	CreatedAt          time.Time `json:"created_at,omitempty"`
+}
+
+type ListRefsResponse struct {
+	Refs map[string]TableRef `json:"refs"`
+}
+
+type UpdateRefRequest struct {
+	Type               string `json:"type"`
+	SnapshotID         int64  `json:"snapshot-id"`
+	MaxRefAgeMS        *int64 `json:"max-ref-age-ms,omitempty"`
+	MaxSnapshotAgeMS   *int64 `json:"max-snapshot-age-ms,omitempty"`
+	MinSnapshotsToKeep *int32 `json:"min-snapshots-to-keep,omitempty"`
+}
+
+type MetadataFile struct {
+	ID        uuid.UUID `json:"id,omitempty"`
+	TableID   uuid.UUID `json:"table_id,omitempty"`
+	Version   int32     `json:"version"`
+	Path      string    `json:"path"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+type ListMetadataFilesResponse struct {
+	MetadataFiles []MetadataFile `json:"metadata-files"`
+}
+
+type MetadataFileResponse struct {
+	Metadata         json.RawMessage `json:"metadata"`
+	MetadataLocation string          `json:"metadata-location"`
+	Version          int32           `json:"version"`
+}
+
+type ListSnapshotsResponse struct {
+	Snapshots []Snapshot `json:"snapshots"`
+}
+
+type RenameTableRequest struct {
+	Source      TableIdentifier `json:"source"`
+	Destination TableIdentifier `json:"destination"`
+// FieldSpec is the compact schema shape used by OpenFoundry sink writers when
+// appending rows through the in-process table-writer adapter endpoint.
+type FieldSpec struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Required bool   `json:"required"`
+}
+
+// TableSpec identifies and validates an append target for
+// POST /openfoundry/iceberg/v1/append.
+type TableSpec struct {
+	Catalog            string      `json:"catalog"`
+	Warehouse          string      `json:"warehouse,omitempty"`
+	Namespace          string      `json:"namespace"`
+	Table              string      `json:"table"`
+	PartitionTransform string      `json:"partition_transform"`
+	SortOrder          string      `json:"sort_order"`
+	Schema             []FieldSpec `json:"schema"`
+}
+
+// AppendBatch is the request body consumed by the OpenFoundry Iceberg HTTP
+// table-writer adapter used by audit-sink and ai-sink.
+type AppendBatch struct {
+	Spec TableSpec        `json:"spec"`
+	Rows []map[string]any `json:"rows"`
+}
+
+// AppendBatchResponse summarizes a committed append.
+type AppendBatchResponse struct {
+	Namespace        string `json:"namespace"`
+	Table            string `json:"table"`
+	Rows             int    `json:"rows"`
+	MetadataLocation string `json:"metadata_location"`
+}

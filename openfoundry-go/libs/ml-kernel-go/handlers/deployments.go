@@ -75,7 +75,7 @@ func (h *DeploymentsHandlers) deploymentRuntime() serving.DeploymentRuntime {
 	if h.Runtime != nil {
 		return h.Runtime
 	}
-	return serving.NoopDeploymentRuntime{}
+	return serving.UnavailableDeploymentRuntime{Reason: "deployment runtime not configured"}
 }
 
 // normaliseTrafficSplit mirrors the Rust normalize_traffic_split:

@@ -5,11 +5,25 @@ ADR-0027). The Rust binary is currently `fn main() {}` (S8 / B14
 consolidation pending), so the Go port is the **canonical
 implementation**.
 
-## Foundation slice (this commit)
+## Port status (2026-05-07)
+
+The Go binary is no longer just the Cedar-policy foundation slice. It
+wires the consolidated `/api/v1` authorization surface: Cedar policy
+CRUD with strict validation, ABAC policies and `/policy-evaluations`,
+RBAC roles/groups/permissions, governance-template applications,
+project constraints, structural-security rules, checkpoints/purpose
+records, cipher channels/licenses, and network-boundary resources.
+
+The latest stub scan found **no productive `StatusNotImplemented` or
+placeholder handler matches** in this service. Test-only matches live in
+`*_test.go` and are excluded from the production scan.
+## Implemented surface
 
 Cedar policy CRUD over Postgres with strict schema validation via
 `libs/authz-cedar-go` before every write. Optional NATS publish on
-`authz.policy.changed` so peer services hot-reload.
+`authz.policy.changed` so peer services hot-reload. The service also mounts the
+Rust top-level authorization surface: tenant-scoped ABAC policies/evaluation and
+RBAC roles/groups/permissions.
 
 Endpoints (all under `/api/v1`, JWT-protected):
 
@@ -18,8 +32,33 @@ Endpoints (all under `/api/v1`, JWT-protected):
 - `GET    /cedar-policies/{id}`        — fetch
 - `PATCH  /cedar-policies/{id}`        — partial update; bumps `version` on `source` change, re-validates
 - `DELETE /cedar-policies/{id}`        — delete
+- `GET    /abac-policies` / `POST /abac-policies` / `GET|PATCH|DELETE /abac-policies/{id}` — tenant-scoped ABAC policy catalog
+- `POST   /policy-evaluations`         — Cedar/ABAC access decision evaluation
+- `GET    /permissions` / `POST /permissions` — authorization permission catalog
+- `GET|POST /roles`, `GET|PUT|PATCH|DELETE /roles/{id}` — role CRUD with permission grants in `permission_ids`
+- `GET|POST /groups`, `GET|PUT|PATCH|DELETE /groups/{id}` — group CRUD with group→role grants in `role_ids`
+- `POST   /users/{id}/roles`, `DELETE /users/{id}/roles/{role_id}` — user-role grants
+- `POST   /users/{id}/groups`, `DELETE /users/{id}/groups/{group_id}` — membership
 
 Plus `/healthz` + `/metrics`.
+
+## RBAC and restricted-view ownership decisions
+
+Identity-federation also exposes identity-local RBAC for users, login/session
+administration, API keys, and SCIM group provisioning. To avoid duplicating the
+wrong source of truth, authorization-policy-service owns only authorization
+policy RBAC: tenant-scoped roles, groups, permissions, membership, user-role
+grants, and group→role grants that protect this service's policy/evaluation
+surface. The route audit test in `internal/server/rbac_routes_test.go` locks that
+top-level RBAC surface in this service.
+
+Restricted-view CRUD is consolidated in `identity-federation-service` because
+restricted views are CBAC/session-scoping configuration authored alongside
+identity claims, SCIM groups, and scoped sessions. This service intentionally does
+not expose `/api/v1/restricted-views`; instead, `POST /api/v1/policy-evaluations`
+reads enabled `restricted_views` rows and applies their row filters, hidden
+columns, allowed organization IDs, markings, guest access, and consumer-mode
+settings during ABAC evaluation.
 
 ## Configuration
 
@@ -85,19 +124,19 @@ A bad source therefore fails with `400 Bad Request` and the row is
 never persisted. The active validator state is hermetic per request
 so concurrent malformed writes can't poison one another.
 
-## Follow-up slices (deferred)
+## Remaining migration notes
 
-Per the [INVENTORY](../../INVENTORY-authorization-policy-service.md):
+Per the [stub audit](../../STUB-AUDIT.md), this service currently has no
+productive stub matches in production Go files. Keep future work focused
+on conformance depth (Cedar/ABAC/RBAC fixtures and cross-service policy
+reload behavior), not on replacing placeholder route handlers.
+## Remaining follow-up slices
 
-- Top-level RBAC: roles, groups, permissions, group→role grants (~700 LOC).
-- ABAC evaluator (`domain/abac.rs`, ~400 LOC) — depends on the Cedar engine.
-- Restricted views (alternative implementation; see also
-  identity-federation slice 7a).
-- `security_governance/` sub-module (~800 LOC).
-- `checkpoints_purpose/` sub-module (~700 LOC).
-- `cipher/` sub-module (~800 LOC).
-- `network_boundary/` sub-module (~600 LOC).
-- AWS Cedar conformance suite mirror (in `libs/authz-cedar-go/`).
+Per the [INVENTORY](../../INVENTORY-authorization-policy-service.md), the
+remaining gap is broader Cedar conformance coverage. Top-level RBAC, restricted
+view evaluation, ABAC evaluation, governance, checkpoint/purpose, cipher, and
+network-boundary routes are mounted or intentionally consolidated as documented
+above.
 
 ## Build / test
 

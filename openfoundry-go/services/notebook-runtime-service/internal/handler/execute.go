@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/domain/environment"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/models"
@@ -27,6 +30,35 @@ type NotebookPythonKernel interface {
 	EnsureSession(ctx context.Context, sessionID uuid.UUID) error
 	ExecuteCell(ctx context.Context, sessionID, notebookID uuid.UUID, source, workspaceDir string, timeoutSeconds uint32) (*pythonsidecar.NotebookCellResult, error)
 	DropSession(ctx context.Context, sessionID uuid.UUID) error
+}
+
+type NotebookSQLKernel interface {
+	ExecuteSQL(ctx context.Context, claims *authmw.Claims, source string) (*pythonsidecar.NotebookCellResult, error)
+}
+
+type NotebookRKernel interface {
+	ExecuteR(ctx context.Context, source, workspaceDir string) (*pythonsidecar.NotebookCellResult, error)
+}
+
+type NotebookLLMKernel interface {
+	ExecuteLLM(ctx context.Context, sessionID *uuid.UUID, notebookID uuid.UUID, source, workspaceDir string, workspaceFiles []models.NotebookWorkspaceFile, claims *authmw.Claims) (*pythonsidecar.NotebookCellResult, error)
+	DropSession(ctx context.Context, sessionID uuid.UUID) error
+}
+
+type httpSQLKernel struct {
+	Client          *http.Client
+	QueryServiceURL string
+	JWTConfig       *authmw.JWTConfig
+}
+
+type rscriptKernel struct{}
+
+type httpLLMKernel struct {
+	Client        *http.Client
+	AIServiceURL  string
+	JWTConfig     *authmw.JWTConfig
+	mu            sync.Mutex
+	conversations map[uuid.UUID]uuid.UUID
 }
 
 // memoryNotebookRepo is the minimal no-DB repository slice used by unit
@@ -113,8 +145,254 @@ func (m *MemoryNotebookRepo) persistOutput(cellID uuid.UUID, output models.CellO
 	m.cells[cellID] = c
 }
 
+type executeQueryRequest struct {
+	SQL   string `json:"sql"`
+	Limit *int   `json:"limit,omitempty"`
+}
+
+type queryColumn struct {
+	Name     string `json:"name"`
+	DataType string `json:"data_type"`
+}
+
+type executeQueryResponse struct {
+	Columns         []queryColumn `json:"columns"`
+	Rows            [][]string    `json:"rows"`
+	TotalRows       int           `json:"total_rows"`
+	ExecutionTimeMs uint64        `json:"execution_time_ms"`
+}
+
+func (k *httpSQLKernel) ExecuteSQL(ctx context.Context, claims *authmw.Claims, source string) (*pythonsidecar.NotebookCellResult, error) {
+	if k == nil || strings.TrimSpace(k.QueryServiceURL) == "" {
+		return nil, errors.New("query-service URL is not configured")
+	}
+	if k.JWTConfig == nil {
+		return nil, errors.New("query-service token requires JWT config")
+	}
+	token, err := authmw.EncodeToken(k.JWTConfig, claims)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign query-service token: %w", err)
+	}
+	limit := 1000
+	body, _ := json.Marshal(executeQueryRequest{SQL: source, Limit: &limit})
+	url := strings.TrimRight(k.QueryServiceURL, "/") + "/api/v1/queries/execute"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("authorization", "Bearer "+token)
+	req.Header.Set("content-type", "application/json")
+	client := k.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("query-service request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		var payload map[string]json.RawMessage
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return nil, errors.New(resp.Status)
+		}
+		if raw, ok := payload["error"]; ok {
+			var msg string
+			if json.Unmarshal(raw, &msg) == nil && msg != "" {
+				return nil, errors.New(msg)
+			}
+		}
+		return nil, errors.New("query execution failed")
+	}
+	var payload executeQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("invalid query-service response: %w", err)
+	}
+	content, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize SQL result: %w", err)
+	}
+	return &pythonsidecar.NotebookCellResult{OutputType: "table", ContentJSON: content}, nil
+}
+
+func (rscriptKernel) ExecuteR(ctx context.Context, source, workspaceDir string) (*pythonsidecar.NotebookCellResult, error) {
+	cmd := exec.CommandContext(ctx, "Rscript", "-e", buildRScript(source, workspaceDir))
+	if workspaceDir != "" {
+		cmd.Dir = workspaceDir
+	}
+	out, err := cmd.Output()
+	if err == nil {
+		content, _ := json.Marshal(string(out))
+		return &pythonsidecar.NotebookCellResult{OutputType: "text", ContentJSON: content, Stdout: string(out)}, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		stderr := string(exitErr.Stderr)
+		if strings.TrimSpace(stderr) == "" {
+			return nil, errors.New("R execution failed")
+		}
+		return nil, errors.New(stderr)
+	}
+	return nil, fmt.Errorf("failed to start Rscript: %w", err)
+}
+
+func buildRScript(source, workspaceDir string) string {
+	workspaceDir = strings.ReplaceAll(strings.ReplaceAll(workspaceDir, `\`, "/"), `'`, `\'`)
+	return fmt.Sprintf("workspace_dir <- '%s'\nif (nzchar(workspace_dir)) { setwd(workspace_dir) }\n%s\n", workspaceDir, source)
+}
+
+type chatCompletionRequest struct {
+	ConversationID  *uuid.UUID `json:"conversation_id,omitempty"`
+	UserMessage     string     `json:"user_message"`
+	SystemPrompt    string     `json:"system_prompt"`
+	FallbackEnabled bool       `json:"fallback_enabled"`
+	MaxTokens       int        `json:"max_tokens"`
+}
+
+type chatCompletionResponse struct {
+	ConversationID uuid.UUID       `json:"conversation_id"`
+	ProviderName   string          `json:"provider_name"`
+	Reply          string          `json:"reply"`
+	Citations      json.RawMessage `json:"citations"`
+	Usage          json.RawMessage `json:"usage"`
+	CreatedAt      string          `json:"created_at"`
+}
+
+func (k *httpLLMKernel) ExecuteLLM(ctx context.Context, sessionID *uuid.UUID, notebookID uuid.UUID, source, workspaceDir string, workspaceFiles []models.NotebookWorkspaceFile, claims *authmw.Claims) (*pythonsidecar.NotebookCellResult, error) {
+	if k == nil || strings.TrimSpace(k.AIServiceURL) == "" {
+		return nil, errors.New("AI service URL is not configured")
+	}
+	if k.JWTConfig == nil {
+		return nil, errors.New("AI service token requires JWT config")
+	}
+	token, err := authmw.EncodeToken(k.JWTConfig, claims)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign AI service token: %w", err)
+	}
+	var conversationID *uuid.UUID
+	if sessionID != nil {
+		k.mu.Lock()
+		if k.conversations != nil {
+			if existing, ok := k.conversations[*sessionID]; ok {
+				copy := existing
+				conversationID = &copy
+			}
+		}
+		k.mu.Unlock()
+	}
+	requestPayload := chatCompletionRequest{
+		ConversationID:  conversationID,
+		UserMessage:     source,
+		SystemPrompt:    buildLLMSystemPrompt(notebookID, workspaceDir, workspaceFiles),
+		FallbackEnabled: true,
+		MaxTokens:       900,
+	}
+	body, _ := json.Marshal(requestPayload)
+	url := strings.TrimRight(k.AIServiceURL, "/") + "/api/v1/ai/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("authorization", "Bearer "+token)
+	req.Header.Set("content-type", "application/json")
+	client := k.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ai-service request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		var payload map[string]json.RawMessage
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return nil, errors.New(resp.Status)
+		}
+		if raw, ok := payload["error"]; ok {
+			var msg string
+			if json.Unmarshal(raw, &msg) == nil && msg != "" {
+				return nil, errors.New(msg)
+			}
+		}
+		return nil, errors.New("LLM completion failed")
+	}
+	var payload chatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("invalid ai-service response: %w", err)
+	}
+	if sessionID != nil {
+		k.mu.Lock()
+		if k.conversations == nil {
+			k.conversations = map[uuid.UUID]uuid.UUID{}
+		}
+		k.conversations[*sessionID] = payload.ConversationID
+		k.mu.Unlock()
+	}
+	if len(payload.Citations) == 0 {
+		payload.Citations = json.RawMessage(`[]`)
+	}
+	if len(payload.Usage) == 0 {
+		payload.Usage = json.RawMessage(`{}`)
+	}
+	content, err := json.Marshal(map[string]json.RawMessage{
+		"reply":           mustJSON(payload.Reply),
+		"provider_name":   mustJSON(payload.ProviderName),
+		"conversation_id": mustJSON(payload.ConversationID),
+		"citations":       payload.Citations,
+		"usage":           payload.Usage,
+		"created_at":      mustJSON(payload.CreatedAt),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &pythonsidecar.NotebookCellResult{OutputType: "llm", ContentJSON: content}, nil
+}
+
+func (k *httpLLMKernel) DropSession(_ context.Context, sessionID uuid.UUID) error {
+	if k == nil {
+		return nil
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	delete(k.conversations, sessionID)
+	return nil
+}
+
+func mustJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+func buildLLMSystemPrompt(notebookID uuid.UUID, workspaceDir string, workspaceFiles []models.NotebookWorkspaceFile) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "You are assisting inside an OpenFoundry notebook cell.\nNotebook ID: %s\n", notebookID)
+	if workspaceDir != "" {
+		fmt.Fprintf(&b, "Workspace directory: %s\n", workspaceDir)
+	}
+	if len(workspaceFiles) > 0 {
+		b.WriteString("Workspace files in scope:\n")
+		for i, file := range workspaceFiles {
+			if i >= 5 {
+				break
+			}
+			fmt.Fprintf(&b, "--- %s ---\n%s\n", file.Path, truncateString(file.Content, 900))
+		}
+	}
+	b.WriteString("\nBe concise, technical, and notebook-friendly. When the user asks for code, return runnable code or precise operational guidance.")
+	return b.String()
+}
+
+func truncateString(value string, maxChars int) string {
+	if len([]rune(value)) <= maxChars {
+		return value
+	}
+	return string([]rune(value)[:maxChars]) + "\n...[truncated]"
+}
+
 func (s *State) ExecuteCell(w http.ResponseWriter, r *http.Request) {
-	if requireClaims(w, r) == nil {
+	claims := requireClaims(w, r)
+	if claims == nil {
 		return
 	}
 	notebookID, err := pathUUID(r, "notebook_id")
@@ -169,13 +447,14 @@ func (s *State) ExecuteCell(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	output, count := s.executeCodeCell(r.Context(), notebookID, cell, body.SessionID)
+	output, count := s.executeCodeCell(r.Context(), notebookID, cell, body.SessionID, claims)
 	writeJSON(w, http.StatusOK, output)
 	_ = count
 }
 
 func (s *State) ExecuteAllCells(w http.ResponseWriter, r *http.Request) {
-	if requireClaims(w, r) == nil {
+	claims := requireClaims(w, r)
+	if claims == nil {
 		return
 	}
 	notebookID, err := pathUUID(r, "notebook_id")
@@ -214,7 +493,7 @@ func (s *State) ExecuteAllCells(w http.ResponseWriter, r *http.Request) {
 		if sharedSession != nil && sharedSession.Kernel == cell.Kernel && sharedSession.Status != "dead" {
 			sid = &sharedSession.ID
 		}
-		output, _ := s.executeCodeCell(r.Context(), notebookID, cell, sid)
+		output, _ := s.executeCodeCell(r.Context(), notebookID, cell, sid, claims)
 		results = append(results, map[string]any{"cell_id": cell.ID, "output": output})
 	}
 
@@ -224,7 +503,7 @@ func (s *State) ExecuteAllCells(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-func (s *State) executeCodeCell(ctx context.Context, notebookID uuid.UUID, cell models.Cell, sessionID *uuid.UUID) (models.CellOutput, int32) {
+func (s *State) executeCodeCell(ctx context.Context, notebookID uuid.UUID, cell models.Cell, sessionID *uuid.UUID, claims *authmw.Claims) (models.CellOutput, int32) {
 	if sessionID != nil {
 		sess, ok, err := s.loadSession(ctx, *sessionID)
 		if err != nil {
@@ -242,7 +521,7 @@ func (s *State) executeCodeCell(ctx context.Context, notebookID uuid.UUID, cell 
 		s.updateSessionStatus(ctx, sess.ID, "busy")
 	}
 
-	result, err := s.executeKernel(ctx, notebookID, cell, sessionID)
+	result, err := s.executeKernel(ctx, notebookID, cell, sessionID, claims)
 	count := executionCount(cell)
 	output := outputFromKernelResult(result, err, count)
 	s.persistCellOutput(ctx, cell.ID, output, count)
@@ -253,7 +532,7 @@ func (s *State) executeCodeCell(ctx context.Context, notebookID uuid.UUID, cell 
 	return output, count
 }
 
-func (s *State) executeKernel(ctx context.Context, notebookID uuid.UUID, cell models.Cell, sessionID *uuid.UUID) (*pythonsidecar.NotebookCellResult, error) {
+func (s *State) executeKernel(ctx context.Context, notebookID uuid.UUID, cell models.Cell, sessionID *uuid.UUID, claims *authmw.Claims) (*pythonsidecar.NotebookCellResult, error) {
 	switch strings.ToLower(cell.Kernel) {
 	case "python":
 		if s.PythonKernel == nil {
@@ -275,11 +554,64 @@ func (s *State) executeKernel(ctx context.Context, notebookID uuid.UUID, cell mo
 			return nil, err
 		}
 		return s.PythonKernel.ExecuteCell(ctx, sid, notebookID, cell.Source, workspaceDir, s.notebookCellTimeoutSeconds())
-	case "sql", "r", "llm":
-		return nil, fmt.Errorf("%s kernel execution is not supported by the python sidecar", cell.Kernel)
+	case "sql":
+		return s.sqlKernel().ExecuteSQL(ctx, claims, cell.Source)
+	case "r":
+		dataDir := ""
+		if s.Cfg != nil {
+			dataDir = s.Cfg.DataDir
+		}
+		workspaceDir := environment.WorkspaceRoot(dataDir, notebookID)
+		if err := environment.EnsureSeed(dataDir, notebookID); err != nil {
+			return nil, err
+		}
+		return s.rKernel().ExecuteR(ctx, cell.Source, workspaceDir)
+	case "llm":
+		dataDir := ""
+		if s.Cfg != nil {
+			dataDir = s.Cfg.DataDir
+		}
+		workspaceDir := environment.WorkspaceRoot(dataDir, notebookID)
+		_ = environment.EnsureSeed(dataDir, notebookID)
+		workspaceFiles, _ := environment.ListWorkspaceFiles(dataDir, notebookID)
+		return s.llmKernel().ExecuteLLM(ctx, sessionID, notebookID, cell.Source, workspaceDir, workspaceFiles, claims)
 	default:
 		return nil, fmt.Errorf("unsupported kernel: %s", cell.Kernel)
 	}
+}
+
+func (s *State) sqlKernel() NotebookSQLKernel {
+	if s.SQLKernel != nil {
+		return s.SQLKernel
+	}
+	queryURL := ""
+	jwtSecret := ""
+	if s.Cfg != nil {
+		queryURL = s.Cfg.QueryServiceURL
+		jwtSecret = s.Cfg.JWTSecret
+	}
+	return &httpSQLKernel{Client: http.DefaultClient, QueryServiceURL: queryURL, JWTConfig: authmw.NewJWTConfig(jwtSecret)}
+}
+
+func (s *State) rKernel() NotebookRKernel {
+	if s.RKernel != nil {
+		return s.RKernel
+	}
+	return rscriptKernel{}
+}
+
+func (s *State) llmKernel() NotebookLLMKernel {
+	if s.LLMKernel != nil {
+		return s.LLMKernel
+	}
+	aiURL := ""
+	jwtSecret := ""
+	if s.Cfg != nil {
+		aiURL = s.Cfg.AIServiceURL
+		jwtSecret = s.Cfg.JWTSecret
+	}
+	s.LLMKernel = &httpLLMKernel{Client: http.DefaultClient, AIServiceURL: aiURL, JWTConfig: authmw.NewJWTConfig(jwtSecret)}
+	return s.LLMKernel
 }
 
 func (s *State) errorOutput(cell models.Cell, message string) (models.CellOutput, int32) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
@@ -32,7 +33,17 @@ func (h *DeploymentsHandlers) deploymentStore() DeploymentStore {
 	return &PGDeploymentStore{Pool: h.Pool}
 }
 
-type PGDeploymentStore struct{ Pool *pgxpool.Pool }
+type deploymentDB interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+type PGDeploymentStore struct{ Pool deploymentDB }
+
+func NewPGDeploymentStore(pool *pgxpool.Pool) *PGDeploymentStore {
+	return &PGDeploymentStore{Pool: pool}
+}
 
 func (s *PGDeploymentStore) ListDeployments(ctx context.Context) ([]models.ModelDeployment, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+deploymentColumns+` FROM ml_deployments ORDER BY updated_at DESC, created_at DESC`)

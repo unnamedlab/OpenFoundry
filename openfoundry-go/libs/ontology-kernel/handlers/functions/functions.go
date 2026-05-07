@@ -12,6 +12,7 @@
 package functions
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,63 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ontology-kernel/models"
 	storage "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 )
+
+// FunctionPackageLoader is the injectable package lookup boundary used by
+// simulation tests. Production delegates to PostgreSQL via AppState.DB.
+type FunctionPackageLoader interface {
+	LoadFunctionPackage(ctx context.Context, state *ontologykernel.AppState, id uuid.UUID) (*models.FunctionPackage, error)
+}
+
+type defaultFunctionPackageLoader struct{}
+
+func (defaultFunctionPackageLoader) LoadFunctionPackage(ctx context.Context, state *ontologykernel.AppState, id uuid.UUID) (*models.FunctionPackage, error) {
+	return loadPackageByID(ctx, state, id)
+}
+
+// FunctionPackageExecutor is the runtime boundary used by simulation.
+// Production delegates to domain.ExecuteInlineFunction, which reaches the
+// real Python sidecar through AppState.PythonRuntime for Python packages.
+type FunctionPackageExecutor interface {
+	ExecuteInlineFunction(ctx context.Context, state *ontologykernel.AppState, claims *authmw.Claims, action *models.ActionType, target *domain.ObjectInstance, parameters map[string]json.RawMessage, resolved *domain.ResolvedInlineFunction, justification *string) (json.RawMessage, error)
+}
+
+type defaultFunctionPackageExecutor struct{}
+
+func (defaultFunctionPackageExecutor) ExecuteInlineFunction(ctx context.Context, state *ontologykernel.AppState, claims *authmw.Claims, action *models.ActionType, target *domain.ObjectInstance, parameters map[string]json.RawMessage, resolved *domain.ResolvedInlineFunction, justification *string) (json.RawMessage, error) {
+	return domain.ExecuteInlineFunction(ctx, state, claims, action, target, parameters, resolved, justification)
+}
+
+// FunctionPackageRunRecorder captures simulation/action ledger writes.
+// Production uses domain.RecordFunctionPackageRun; tests inject fakes to
+// verify success/failure rows without a PostgreSQL server.
+type FunctionPackageRunRecorder interface {
+	RecordFunctionPackageRun(ctx context.Context, state *ontologykernel.AppState, pkg models.FunctionPackageSummary, runCtx domain.FunctionPackageRunContext, startedAt time.Time, completedAt time.Time, durationMs int64, status string, errorMessage *string) error
+}
+
+type defaultFunctionPackageRunRecorder struct{}
+
+func (defaultFunctionPackageRunRecorder) RecordFunctionPackageRun(ctx context.Context, state *ontologykernel.AppState, pkg models.FunctionPackageSummary, runCtx domain.FunctionPackageRunContext, startedAt time.Time, completedAt time.Time, durationMs int64, status string, errorMessage *string) error {
+	return domain.RecordFunctionPackageRun(ctx, state.DB, pkg, runCtx, startedAt, completedAt, durationMs, status, errorMessage)
+}
+
+type functionPackageSimulationDeps struct {
+	Loader   FunctionPackageLoader
+	Executor FunctionPackageExecutor
+	Recorder FunctionPackageRunRecorder
+}
+
+func normalizeSimulationDeps(deps functionPackageSimulationDeps) functionPackageSimulationDeps {
+	if deps.Loader == nil {
+		deps.Loader = defaultFunctionPackageLoader{}
+	}
+	if deps.Executor == nil {
+		deps.Executor = defaultFunctionPackageExecutor{}
+	}
+	if deps.Recorder == nil {
+		deps.Recorder = defaultFunctionPackageRunRecorder{}
+	}
+	return deps
+}
 
 // Mount registers every functions-handler endpoint on the chi router
 // under the same path / verb shape as `lib.rs::build_router::functions_routes`.
@@ -352,6 +410,11 @@ func ValidateFunctionPackage(state *ontologykernel.AppState) http.HandlerFunc {
 
 // SimulateFunctionPackage mirrors `pub async fn simulate_function_package`.
 func SimulateFunctionPackage(state *ontologykernel.AppState) http.HandlerFunc {
+	return SimulateFunctionPackageWithDeps(state, functionPackageSimulationDeps{})
+}
+
+func SimulateFunctionPackageWithDeps(state *ontologykernel.AppState, deps functionPackageSimulationDeps) http.HandlerFunc {
+	deps = normalizeSimulationDeps(deps)
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := authmw.FromContext(r.Context())
 		if !ok {
@@ -369,7 +432,7 @@ func SimulateFunctionPackage(state *ontologykernel.AppState) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
-		pkg, err := loadPackage(r, state, id)
+		pkg, err := deps.Loader.LoadFunctionPackage(ctx, state, id)
 		if err != nil {
 			dbError(w, err.Error())
 			return
@@ -426,7 +489,7 @@ func SimulateFunctionPackage(state *ontologykernel.AppState) http.HandlerFunc {
 
 		startedAt := time.Now().UTC()
 		startTimer := time.Now()
-		outcome, execErr := domain.ExecuteInlineFunction(ctx, state, claims, action, target, parameters, resolved, body.Justification)
+		outcome, execErr := deps.Executor.ExecuteInlineFunction(ctx, state, claims, action, target, parameters, resolved, body.Justification)
 		completedAt := time.Now().UTC()
 		durationMs := time.Since(startTimer).Milliseconds()
 
@@ -438,7 +501,7 @@ func SimulateFunctionPackage(state *ontologykernel.AppState) http.HandlerFunc {
 		}
 		summary := pkg.Summary()
 		if execErr == nil {
-			_ = domain.RecordFunctionPackageRun(ctx, state.DB, summary, runCtx,
+			_ = deps.Recorder.RecordFunctionPackageRun(ctx, state, summary, runCtx,
 				startedAt, completedAt, durationMs, "success", nil)
 			writeJSON(w, http.StatusOK, models.SimulateFunctionPackageResponse{
 				Package: summary,
@@ -448,7 +511,7 @@ func SimulateFunctionPackage(state *ontologykernel.AppState) http.HandlerFunc {
 			return
 		}
 		errMessage := execErr.Error()
-		_ = domain.RecordFunctionPackageRun(ctx, state.DB, summary, runCtx,
+		_ = deps.Recorder.RecordFunctionPackageRun(ctx, state, summary, runCtx,
 			startedAt, completedAt, durationMs, "failure", &errMessage)
 		// Python sentinel surfaces 501; everything else is 500.
 		if errors.Is(execErr, domain.ErrPythonRuntimeNotWired) {
@@ -633,8 +696,12 @@ func validatePackageSource(runtime, source, entrypoint string, capabilities mode
 }
 
 func loadPackage(r *http.Request, state *ontologykernel.AppState, id uuid.UUID) (*models.FunctionPackage, error) {
+	return loadPackageByID(r.Context(), state, id)
+}
+
+func loadPackageByID(ctx context.Context, state *ontologykernel.AppState, id uuid.UUID) (*models.FunctionPackage, error) {
 	var row models.FunctionPackageRow
-	err := state.DB.QueryRow(r.Context(), `
+	err := state.DB.QueryRow(ctx, `
 		SELECT id, name, version, display_name, description, runtime, source, entrypoint,
 		       capabilities, owner_id, created_at, updated_at
 		FROM ontology_function_packages WHERE id = $1`, id,

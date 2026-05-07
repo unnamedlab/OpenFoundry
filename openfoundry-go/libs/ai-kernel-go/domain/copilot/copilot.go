@@ -20,6 +20,35 @@ type Draft struct {
 	OntologyHints       []string
 }
 
+const SystemPrompt = "You are OpenFoundry Copilot. Ground answers in retrieval context and suggested platform actions."
+
+// BuildPrompt formats the LLM user prompt used to turn the deterministic
+// copilot draft plus caller context into a provider-authored answer. It
+// mirrors the Rust ai-kernel copilot handler while preserving explicit
+// request context for agent-runtime-service, where knowledge documents may
+// not be locally available.
+func BuildPrompt(
+	question string,
+	draft Draft,
+	datasetIDs []uuid.UUID,
+	ontologyTypeIDs []uuid.UUID,
+	knowledgeBaseIDs []uuid.UUID,
+	knowledgeHits []models.KnowledgeSearchResult,
+) string {
+	suggestedSQL := ""
+	if draft.SuggestedSQL != nil {
+		suggestedSQL = *draft.SuggestedSQL
+	}
+	knowledgeContext := make([]string, 0, len(knowledgeHits))
+	for _, hit := range knowledgeHits {
+		knowledgeContext = append(knowledgeContext, fmt.Sprintf("- %s: %s", hit.DocumentTitle, hit.Excerpt))
+	}
+	return fmt.Sprintf(
+		"Question: %s\nDataset IDs: %v\nOntology type IDs: %v\nKnowledge base IDs: %v\nDraft answer: %s\nSuggested SQL: %q\nPipeline suggestions: %v\nOntology hints: %v\nKnowledge context:\n%s",
+		question, datasetIDs, ontologyTypeIDs, knowledgeBaseIDs, draft.Answer, suggestedSQL,
+		draft.PipelineSuggestions, draft.OntologyHints, strings.Join(knowledgeContext, "\n"))
+}
+
 func Assist(
 	question string,
 	datasetIDs []uuid.UUID,

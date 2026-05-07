@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/copilot"
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
 	aimodels "github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/models"
 	"github.com/openfoundry/openfoundry-go/services/agent-runtime-service/internal/models"
@@ -278,14 +280,108 @@ func (h *Handlers) CreateChatCompletion(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// AskCopilot is the copilot-style stub the Rust binary returns.
+// AskCopilot exposes the Rust-compatible copilot request/response shape
+// backed by the ai-kernel copilot draft helper and injectable LLM runtime.
 func (h *Handlers) AskCopilot(w http.ResponseWriter, r *http.Request) {
-	var body json.RawMessage
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	resp := map[string]any{
-		"id":      uuid.New(),
-		"answer":  "agent-runtime stub: copilot answer not yet implemented",
-		"context": body,
+	var body aimodels.CopilotRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	if strings.TrimSpace(body.Question) == "" {
+		writeError(w, http.StatusBadRequest, "copilot question is required")
+		return
+	}
+
+	provider := h.completionProvider()
+	citedKnowledge := []aimodels.KnowledgeSearchResult{}
+	draft := copilot.Assist(
+		body.Question,
+		body.DatasetIDs,
+		body.OntologyTypeIDs,
+		citedKnowledge,
+		body.IncludeSQL,
+		body.IncludePipelinePlan,
+	)
+	userPrompt := copilot.BuildPrompt(
+		body.Question,
+		draft,
+		body.DatasetIDs,
+		body.OntologyTypeIDs,
+		body.KnowledgeBaseIDs,
+		citedKnowledge,
+	)
+	if body.PurposeJustification != nil && strings.TrimSpace(*body.PurposeJustification) != "" {
+		userPrompt += "\nPurpose justification: " + strings.TrimSpace(*body.PurposeJustification)
+	}
+
+	maxTokens := provider.MaxOutputTokens
+	if maxTokens <= 0 {
+		maxTokens = aimodels.DefaultMaxTokens
+	}
+	if maxTokens > 512 {
+		maxTokens = 512
+	}
+	startedAt := time.Now()
+	completion, err := h.completionRuntime().CompleteText(r.Context(), llm.CompletionRequest{
+		Provider:     provider,
+		SystemPrompt: copilot.SystemPrompt,
+		UserPrompt:   userPrompt,
+		Temperature:  aimodels.DefaultTemperature,
+		MaxTokens:    maxTokens,
+	})
+	latencyMs := int32(time.Since(startedAt).Milliseconds())
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	promptTokens := completion.PromptTokens
+	if promptTokens <= 0 {
+		promptTokens = llm.EstimateTokens(copilot.SystemPrompt + " " + userPrompt)
+	}
+	completionTokens := completion.CompletionTokens
+	if completionTokens <= 0 {
+		completionTokens = llm.EstimateTokens(completion.Text)
+	}
+	totalTokens := completion.TotalTokens
+	if totalTokens <= 0 {
+		totalTokens = promptTokens + completionTokens
+	}
+	usage := aimodels.LlmUsageSummary{
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		EstimatedCostUSD: estimateCompletionCost(provider, promptTokens, completionTokens),
+		LatencyMs:        latencyMs,
+		NetworkScope:     provider.RouteRules.NetworkScope,
+		CacheHit:         false,
+	}
+
+	writeJSON(w, http.StatusOK, aimodels.CopilotResponse{
+		Answer:              completion.Text,
+		SuggestedSQL:        draft.SuggestedSQL,
+		PipelineSuggestions: draft.PipelineSuggestions,
+		OntologyHints:       draft.OntologyHints,
+		CitedKnowledge:      citedKnowledge,
+		ProviderName:        provider.Name,
+		Cache: aimodels.SemanticCacheMetadata{
+			CacheKey:        "",
+			Hit:             false,
+			SimilarityScore: 0,
+		},
+		Usage:     usage,
+		CreatedAt: time.Now().UTC(),
+	})
+}
+
+func estimateCompletionCost(provider *aimodels.LlmProvider, promptTokens, completionTokens int32) float32 {
+	if provider == nil {
+		return 0
+	}
+	return (float32(promptTokens)/1000)*provider.RouteRules.InputCostPer1KTokensUSD +
+		(float32(completionTokens)/1000)*provider.RouteRules.OutputCostPer1KTokensUSD
 }

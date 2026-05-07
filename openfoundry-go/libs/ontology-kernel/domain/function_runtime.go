@@ -22,8 +22,8 @@ package domain
 
 import (
 	"context"
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -626,6 +626,9 @@ func ExecuteInlinePythonFunction(
 	}
 	if len(out.ResultJSON) == 0 {
 		return json.RawMessage(`null`), nil
+	}
+	if !json.Valid(out.ResultJSON) {
+		return nil, fmt.Errorf("failed to decode Python function response: malformed result JSON")
 	}
 	return json.RawMessage(out.ResultJSON), nil
 }

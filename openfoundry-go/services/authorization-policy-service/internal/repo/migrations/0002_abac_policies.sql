@@ -1,9 +1,9 @@
 -- ABAC policies table — pre-Cedar legacy authorization rules.
 --
 -- These rules predate Cedar and live alongside cedar_policies. The
--- ABAC evaluator (slice 3, follow-up) walks `conditions JSONB` against
--- the request claims + resource attributes; Cedar policies are the
--- preferred path for new rules. ABAC is kept for backwards-compat
+-- mounted ABAC evaluator walks `conditions JSONB` against the request
+-- claims + resource attributes; Cedar policies are the preferred path
+-- for new rules. ABAC is kept for backwards-compat
 -- with rules authored before ADR-0027.
 --
 -- Mirrors the schema in identity-federation-service's

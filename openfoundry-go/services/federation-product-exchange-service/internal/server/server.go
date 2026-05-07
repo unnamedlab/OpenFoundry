@@ -1,6 +1,6 @@
 // Package server hosts the federation-product-exchange-service HTTP surface.
 // It exposes public health/metrics endpoints plus the first marketplace
-// listings slice under /api/v1/marketplace when handlers are wired.
+// listings and install planning slice under /api/v1/marketplace when handlers are wired.
 package server
 
 import (
@@ -20,10 +20,11 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/marketplace"
+	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/productdistribution"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, jwt, h, m)
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics) *http.Server {
+	r := buildRouter(cfg, jwt, h, d, m)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -32,11 +33,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, m *
 	}
 }
 
-func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, jwt, h, m)
+func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics) http.Handler {
+	return buildRouter(cfg, jwt, h, d, m)
 }
 
-func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handlers, d *productdistribution.Handlers, m *observability.Metrics) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -60,6 +61,27 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *marketplace.Handl
 			api.Get("/listings/{ref}", h.GetListing)
 			api.Patch("/listings/{id}", h.UpdateListing)
 			api.Post("/listings/{id}/versions", h.PublishVersion)
+			api.Get("/installs", h.ListInstalls)
+			api.Post("/installs", h.CreateInstall)
+			api.Post("/dependency-plan", h.PreviewDependencyPlan)
+		})
+	}
+
+	if d != nil {
+		r.Route("/api/v1/product-distribution", func(api chi.Router) {
+			if jwt != nil {
+				api.Use(authmw.Middleware(jwt))
+			}
+			api.Get("/peers", d.ListPeers)
+			api.Post("/peers", d.CreatePeer)
+			api.Get("/peers/{id}", d.GetPeer)
+			api.Patch("/peers/{id}", d.UpdatePeer)
+			api.Delete("/peers/{id}", d.DeletePeer)
+			api.Get("/shares", d.ListShareManifests)
+			api.Post("/shares", d.CreateShareManifest)
+			api.Get("/shares/{id}", d.GetShareManifest)
+			api.Get("/sync-statuses", d.ListSyncStatuses)
+			api.Patch("/shares/{id}/sync-status", d.UpdateSyncStatus)
 		})
 	}
 

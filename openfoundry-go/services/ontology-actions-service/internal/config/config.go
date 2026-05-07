@@ -8,6 +8,8 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type Config struct {
@@ -38,9 +40,25 @@ type Config struct {
 	CassandraLocalDC       string
 
 	// PythonSidecarBinary is the absolute path to the openfoundry-pyruntime
-	// executable. When empty, inline Python functions return
-	// ErrPythonRuntimeNotWired (legacy behaviour).
+	// executable. When empty, inline Python functions explicitly return
+	// ErrPythonRuntimeNotWired rather than taking the normal production path.
+	//
+	// PYTHON_SIDECAR_BINARY is canonical; PYTHON_SIDECAR_BIN is accepted as a
+	// legacy alias for existing deployments.
 	PythonSidecarBinary string
+
+	// PythonSidecarArgs are extra args appended after the manager-owned
+	// `--bind <socket>` flags. Configure with PYTHON_SIDECAR_ARGS.
+	PythonSidecarArgs []string
+
+	// PythonSidecarEnv entries (KEY=VALUE) are appended to the inherited
+	// process environment. Configure with PYTHON_SIDECAR_ENV as comma or
+	// newline separated entries.
+	PythonSidecarEnv []string
+
+	// PythonSidecarTimeout caps sidecar startup and manager hard-call timeout.
+	// Configure with PYTHON_SIDECAR_TIMEOUT (Go duration like 15s or seconds).
+	PythonSidecarTimeout time.Duration
 }
 
 func FromEnv() (*Config, error) {
@@ -63,6 +81,10 @@ func FromEnv() (*Config, error) {
 	c.CassandraContactPoints = os.Getenv("CASSANDRA_CONTACT_POINTS")
 	c.CassandraLocalDC = defaultStr(os.Getenv("CASSANDRA_LOCAL_DC"), "dc1")
 	c.PythonSidecarBinary = os.Getenv("PYTHON_SIDECAR_BINARY")
+	c.PythonSidecarBinary = defaultStr(os.Getenv("PYTHON_SIDECAR_BINARY"), os.Getenv("PYTHON_SIDECAR_BIN"))
+	c.PythonSidecarArgs = splitFields(os.Getenv("PYTHON_SIDECAR_ARGS"))
+	c.PythonSidecarEnv = splitEnvList(os.Getenv("PYTHON_SIDECAR_ENV"))
+	c.PythonSidecarTimeout = parseDuration(os.Getenv("PYTHON_SIDECAR_TIMEOUT"), 15*time.Second)
 	return c, nil
 }
 
@@ -82,4 +104,38 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func splitFields(v string) []string {
+	return strings.Fields(v)
+}
+
+func splitEnvList(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseDuration(v string, fallback time.Duration) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return fallback
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		return d
+	}
+	seconds, err := strconv.ParseUint(v, 10, 32)
+	if err != nil || seconds == 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }

@@ -100,6 +100,83 @@ type PublishVersionRequest struct {
 	Manifest          json.RawMessage `json:"manifest"`
 }
 
+// DependencyRequirement describes a marketplace package dependency and the
+// version range required by the package version being installed.
+type DependencyRequirement struct {
+	PackageSlug string `json:"package_slug"`
+	VersionReq  string `json:"version_req"`
+	Required    bool   `json:"required"`
+}
+
+// DependencyPlanResponse is returned by dependency preview and install
+// planning. Conflicts are blocking for create-install.
+type DependencyPlanResponse struct {
+	ListingID      uuid.UUID               `json:"listing_id"`
+	ListingSlug    string                  `json:"listing_slug"`
+	Version        string                  `json:"version"`
+	ReleaseChannel string                  `json:"release_channel"`
+	WorkspaceName  string                  `json:"workspace_name"`
+	Items          []DependencyRequirement `json:"items"`
+	Conflicts      []DependencyConflict    `json:"conflicts"`
+}
+
+// DependencyConflict captures an already-installed package that does not
+// satisfy a requested dependency version constraint.
+type DependencyConflict struct {
+	PackageSlug      string `json:"package_slug"`
+	VersionReq       string `json:"version_req"`
+	InstalledVersion string `json:"installed_version"`
+	Message          string `json:"message"`
+}
+
+// InstallActivation records the service-side activation outcome. Go currently
+// mirrors the Rust default marketplace-record activation while retaining the
+// JSON shape for future activation hooks.
+type InstallActivation struct {
+	Kind         string     `json:"kind"`
+	Status       string     `json:"status"`
+	ResourceID   *uuid.UUID `json:"resource_id"`
+	ResourceSlug *string    `json:"resource_slug"`
+	PublicURL    *string    `json:"public_url"`
+	Notes        *string    `json:"notes"`
+}
+
+// InstallRecord is the persisted marketplace install shape.
+type InstallRecord struct {
+	ID                 uuid.UUID               `json:"id"`
+	ListingID          uuid.UUID               `json:"listing_id"`
+	ListingName        string                  `json:"listing_name"`
+	Version            string                  `json:"version"`
+	ReleaseChannel     string                  `json:"release_channel"`
+	WorkspaceName      string                  `json:"workspace_name"`
+	Status             string                  `json:"status"`
+	DependencyPlan     []DependencyRequirement `json:"dependency_plan"`
+	Activation         InstallActivation       `json:"activation"`
+	FleetID            *uuid.UUID              `json:"fleet_id"`
+	FleetName          *string                 `json:"fleet_name"`
+	AutoUpgradeEnabled bool                    `json:"auto_upgrade_enabled"`
+	MaintenanceWindow  json.RawMessage         `json:"maintenance_window,omitempty"`
+	EnrollmentBranch   *string                 `json:"enrollment_branch"`
+	InstalledAt        time.Time               `json:"installed_at"`
+	ReadyAt            *time.Time              `json:"ready_at"`
+}
+
+type CreateInstallRequest struct {
+	ListingID        uuid.UUID  `json:"listing_id"`
+	Version          string     `json:"version"`
+	WorkspaceName    string     `json:"workspace_name"`
+	ReleaseChannel   string     `json:"release_channel"`
+	FleetID          *uuid.UUID `json:"fleet_id"`
+	EnrollmentBranch *string    `json:"enrollment_branch"`
+}
+
+type DependencyPlanRequest struct {
+	ListingID      uuid.UUID `json:"listing_id"`
+	Version        string    `json:"version"`
+	WorkspaceName  string    `json:"workspace_name"`
+	ReleaseChannel string    `json:"release_channel"`
+}
+
 type ListingDetail struct {
 	Listing       ListingDefinition `json:"listing"`
 	LatestVersion *PackageVersion   `json:"latest_version"`

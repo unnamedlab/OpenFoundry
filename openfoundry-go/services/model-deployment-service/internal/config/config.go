@@ -22,8 +22,10 @@ type Config struct {
 		Host string
 		Port uint16
 	}
-	DatabaseURL string
-	JWTSecret   string
+	DatabaseURL       string
+	JWTSecret         string
+	DeploymentRuntime string
+	ServingBackendURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -34,6 +36,8 @@ func FromEnv() (*Config, error) {
 	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50086)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	cfg.DeploymentRuntime = os.Getenv("OF_MODEL_DEPLOYMENT_RUNTIME")
+	cfg.ServingBackendURL = firstNonEmpty(os.Getenv("OF_MODEL_SERVING_BACKEND_URL"), os.Getenv("MODEL_SERVING_BACKEND_URL"))
 	return cfg, nil
 }
 
@@ -53,4 +57,13 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
