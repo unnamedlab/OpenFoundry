@@ -69,6 +69,9 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handl
 	if h != nil {
 		h.MountViews(r)
 		h.MountMaps(r)
+		if h.Actions != nil {
+			h.MountWriteback(r)
+		}
 	}
 
 	return r

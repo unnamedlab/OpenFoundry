@@ -39,6 +39,9 @@ func newRouter(h *handlers.Handlers) chi.Router {
 	r := chi.NewRouter()
 	h.MountViews(r)
 	h.MountMaps(r)
+	if h.Actions != nil {
+		h.MountWriteback(r)
+	}
 	return r
 }
 
