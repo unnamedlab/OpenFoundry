@@ -105,6 +105,9 @@ type fakeStore struct {
 	fileIndex          map[uuid.UUID][]models.DatasetFileIndexEntry
 	views              map[uuid.UUID][]models.DatasetView
 	schemas            map[uuid.UUID]models.SchemaResponse
+	quality            map[uuid.UUID]*models.DatasetQualityResponse
+	health             map[string]*models.DatasetHealth
+	lint               map[uuid.UUID]*models.DatasetLintSummary
 	versionConflict    bool
 	branchConflict     bool
 	permissionConflict bool
@@ -116,7 +119,7 @@ func newFakeStore(owner uuid.UUID) *fakeStore {
 		StoragePath: "s3://bucket/sales", OwnerID: owner, CurrentVersion: 1,
 		Tags: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
-	return &fakeStore{datasets: []models.Dataset{ds}, versions: map[uuid.UUID][]models.DatasetVersion{}, branches: map[uuid.UUID][]models.DatasetBranch{}, files: map[uuid.UUID][]models.DatasetFile{}, transactions: map[uuid.UUID]string{}, markings: map[uuid.UUID][]models.EffectiveMarking{}, permissions: map[uuid.UUID][]models.DatasetPermissionEdge{}, lineageLinks: map[uuid.UUID][]models.DatasetLineageLink{}, fileIndex: map[uuid.UUID][]models.DatasetFileIndexEntry{}, views: map[uuid.UUID][]models.DatasetView{}, schemas: map[uuid.UUID]models.SchemaResponse{}}
+	return &fakeStore{datasets: []models.Dataset{ds}, versions: map[uuid.UUID][]models.DatasetVersion{}, branches: map[uuid.UUID][]models.DatasetBranch{}, files: map[uuid.UUID][]models.DatasetFile{}, transactions: map[uuid.UUID]string{}, markings: map[uuid.UUID][]models.EffectiveMarking{}, permissions: map[uuid.UUID][]models.DatasetPermissionEdge{}, lineageLinks: map[uuid.UUID][]models.DatasetLineageLink{}, fileIndex: map[uuid.UUID][]models.DatasetFileIndexEntry{}, views: map[uuid.UUID][]models.DatasetView{}, schemas: map[uuid.UUID]models.SchemaResponse{}, quality: map[uuid.UUID]*models.DatasetQualityResponse{}, health: map[string]*models.DatasetHealth{}, lint: map[uuid.UUID]*models.DatasetLintSummary{}}
 }
 
 func (f *fakeStore) ListDatasets(_ context.Context, ownerID *uuid.UUID, _ int) ([]models.Dataset, error) {
@@ -558,6 +561,70 @@ func (f *fakeStore) ValidateSchema(_ context.Context, _ uuid.UUID, schema models
 		}
 	}
 	return &models.ValidateResponse{Conforms: len(errs) == 0, Files: []models.FileValidationReport{}, SchemaErrors: errs}, nil
+}
+
+func (f *fakeStore) GetDatasetQuality(_ context.Context, datasetID uuid.UUID) (*models.DatasetQualityResponse, error) {
+	if q := f.quality[datasetID]; q != nil {
+		return q, nil
+	}
+	return &models.DatasetQualityResponse{History: []models.DatasetQualityHistoryEntry{}, Alerts: []models.DatasetQualityAlert{}, Rules: []models.DatasetQualityRule{}}, nil
+}
+func (f *fakeStore) UpsertQualityRule(ctx context.Context, datasetID uuid.UUID, body *models.CreateQualityRuleRequest) (*models.DatasetQualityRule, error) {
+	q, _ := f.GetDatasetQuality(ctx, datasetID)
+	severity := "medium"
+	if body.Severity != nil && *body.Severity != "" {
+		severity = *body.Severity
+	}
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	rule := models.DatasetQualityRule{ID: uuid.New(), DatasetID: datasetID, Name: body.Name, RuleType: body.RuleType, Severity: severity, Config: body.Config, Enabled: enabled, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	q.Rules = append(q.Rules, rule)
+	f.quality[datasetID] = q
+	return &rule, nil
+}
+func (f *fakeStore) UpdateQualityRule(ctx context.Context, datasetID uuid.UUID, ruleID uuid.UUID, body *models.UpdateQualityRuleRequest) error {
+	q, _ := f.GetDatasetQuality(ctx, datasetID)
+	for i := range q.Rules {
+		if q.Rules[i].ID == ruleID {
+			if body.Name != nil {
+				q.Rules[i].Name = *body.Name
+			}
+			if body.Severity != nil {
+				q.Rules[i].Severity = *body.Severity
+			}
+			if body.Enabled != nil {
+				q.Rules[i].Enabled = *body.Enabled
+			}
+			if body.Config != nil {
+				q.Rules[i].Config = body.Config
+			}
+			f.quality[datasetID] = q
+			return nil
+		}
+	}
+	return repo.ErrNotFound
+}
+func (f *fakeStore) DeleteQualityRule(ctx context.Context, datasetID uuid.UUID, ruleID uuid.UUID) error {
+	q, _ := f.GetDatasetQuality(ctx, datasetID)
+	for i := range q.Rules {
+		if q.Rules[i].ID == ruleID {
+			q.Rules = append(q.Rules[:i], q.Rules[i+1:]...)
+			f.quality[datasetID] = q
+			return nil
+		}
+	}
+	return repo.ErrNotFound
+}
+func (f *fakeStore) DatasetLintSummary(_ context.Context, datasetID uuid.UUID) (*models.DatasetLintSummary, error) {
+	if summary := f.lint[datasetID]; summary != nil {
+		return summary, nil
+	}
+	return &models.DatasetLintSummary{}, nil
+}
+func (f *fakeStore) GetDatasetHealth(_ context.Context, datasetRID string) (*models.DatasetHealth, error) {
+	return f.health[datasetRID], nil
 }
 
 func authedReq(method, target, body string, sub uuid.UUID) *http.Request {
@@ -1133,4 +1200,123 @@ func TestStorageDetailsAndMultipartUpload(t *testing.T) {
 	got, err := fs.ReadLocalObject("base/datasets/" + datasetID.String() + "/incoming/data.csv")
 	require.NoError(t, err)
 	require.Equal(t, "a,b\n1,2\n", string(got))
+}
+
+func TestQualityRuleLifecycleHandlers(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	h := &handlers.Handlers{Repo: store}
+	claims := &authmw.Claims{Sub: owner, Permissions: []string{"dataset.write"}}
+
+	req := catalogReq(http.MethodPost, store, claims, `{"name":"non-null-id","rule_type":"not_null","config":{"column":"id"}}`)
+	rec := httptest.NewRecorder()
+	h.CreateQualityRule(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.DatasetQualityResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.Len(t, created.Rules, 1)
+	assert.Equal(t, "non-null-id", created.Rules[0].Name)
+	assert.Equal(t, "medium", created.Rules[0].Severity)
+
+	newName := "id-not-null"
+	req = withRouteParam(catalogReq(http.MethodPatch, store, claims, `{"name":"`+newName+`","severity":"high"}`), "rule_id", created.Rules[0].ID.String())
+	rec = httptest.NewRecorder()
+	h.UpdateQualityRule(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var updated models.DatasetQualityResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.Len(t, updated.Rules, 1)
+	assert.Equal(t, newName, updated.Rules[0].Name)
+	assert.Equal(t, "high", updated.Rules[0].Severity)
+
+	req = withRouteParam(catalogReq(http.MethodDelete, store, claims, ``), "rule_id", created.Rules[0].ID.String())
+	rec = httptest.NewRecorder()
+	h.DeleteQualityRule(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var deleted models.DatasetQualityResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleted))
+	assert.Empty(t, deleted.Rules)
+
+	req = catalogReq(http.MethodPost, store, claims, `{}`)
+	rec = httptest.NewRecorder()
+	h.CreateQualityRule(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, store.quality[datasetID].Rules)
+}
+
+func TestQualityReadAndRefreshHandlers(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	score := 0.97
+	profiledAt := time.Now().UTC()
+	store.quality[datasetID] = &models.DatasetQualityResponse{Score: &score, ProfiledAt: &profiledAt, History: []models.DatasetQualityHistoryEntry{}, Alerts: []models.DatasetQualityAlert{}, Rules: []models.DatasetQualityRule{}}
+	h := &handlers.Handlers{Repo: store}
+	claims := &authmw.Claims{Sub: owner}
+
+	req := catalogReq(http.MethodGet, store, claims, ``)
+	rec := httptest.NewRecorder()
+	h.GetDatasetQuality(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"score":0.97`)
+
+	req = catalogReq(http.MethodPost, store, claims, ``)
+	rec = httptest.NewRecorder()
+	h.RefreshDatasetQuality(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "upload data before generating a quality profile")
+
+	store.files[datasetID] = []models.DatasetFile{{ID: uuid.New(), DatasetID: datasetID, LogicalPath: "part-000.parquet", PhysicalURI: "local:///part-000.parquet", Status: "active", SizeBytes: 42}}
+	req = catalogReq(http.MethodPost, store, claims, ``)
+	rec = httptest.NewRecorder()
+	h.RefreshDatasetQuality(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"score":0.97`)
+}
+
+func TestDatasetLintHandlerBuildsFindings(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	store.lint[datasetID] = &models.DatasetLintSummary{TrackedVersions: 24, BranchCount: 7, StaleBranchCount: 3, ActiveAlertCount: 2, SmallFileCount: 75}
+	h := &handlers.Handlers{Repo: store}
+
+	req := catalogReq(http.MethodGet, store, &authmw.Claims{Sub: owner}, ``)
+	rec := httptest.NewRecorder()
+	h.GetDatasetLint(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out models.DatasetLintResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, datasetID, out.DatasetID)
+	assert.Equal(t, "sales", out.DatasetName)
+	assert.Equal(t, 4, out.Summary.TotalFindings)
+	assert.Equal(t, 2, out.Summary.HighSeverity)
+	assert.Len(t, out.Findings, 4)
+	assert.Len(t, out.Recommendations, 4)
+}
+
+func TestDatasetHealthHandlerReadsPersistedSnapshot(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	rid := "ri.foundry.main.dataset." + datasetID.String()
+	now := time.Now().UTC()
+	store.health[rid] = &models.DatasetHealth{DatasetRID: rid, DatasetID: &datasetID, RowCount: 123, ColCount: 4, NullPctByColumn: map[string]float64{"id": 0}, FreshnessSeconds: 30, LastBuildStatus: "SUCCEEDED", Extras: []byte(`{}`), LastComputedAt: now}
+	h := &handlers.Handlers{Repo: store}
+
+	req := catalogReq(http.MethodGet, store, &authmw.Claims{Sub: owner}, ``)
+	rec := httptest.NewRecorder()
+	h.GetDatasetHealth(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out models.DatasetHealth
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, rid, out.DatasetRID)
+	assert.Equal(t, int64(123), out.RowCount)
+
+	delete(store.health, rid)
+	req = catalogReq(http.MethodGet, store, &authmw.Claims{Sub: owner}, ``)
+	rec = httptest.NewRecorder()
+	h.GetDatasetHealth(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

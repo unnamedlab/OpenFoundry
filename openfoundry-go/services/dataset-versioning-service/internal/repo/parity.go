@@ -1044,6 +1044,17 @@ func (r *Repo) UpdateQualityRule(ctx context.Context, datasetID uuid.UUID, ruleI
 	return nil
 }
 
+func (r *Repo) DeleteQualityRule(ctx context.Context, datasetID uuid.UUID, ruleID uuid.UUID) error {
+	cmd, err := r.Pool.Exec(ctx, `DELETE FROM dataset_quality_rules WHERE dataset_id = $1 AND id = $2`, datasetID, ruleID)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repo) GetDatasetHealth(ctx context.Context, datasetRID string) (*models.DatasetHealth, error) {
 	row := r.Pool.QueryRow(ctx, `SELECT dataset_rid, dataset_id, row_count, col_count, null_pct_by_column,
 		freshness_seconds, last_commit_at, txn_failure_rate_24h, last_build_status, schema_drift_flag,

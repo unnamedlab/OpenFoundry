@@ -80,6 +80,12 @@ type Store interface {
 	PreviewData(ctx context.Context, datasetID uuid.UUID, viewID *uuid.UUID, q models.PreviewQuery) (*models.PreviewDataResponse, error)
 	ValidateSchema(ctx context.Context, datasetID uuid.UUID, schema models.DatasetSchema) (*models.ValidateResponse, error)
 	StorageDetails(ctx context.Context, datasetID uuid.UUID, fsID string, driver string, baseDir string, ttlSeconds uint64) (*models.StorageDetailsOut, error)
+	GetDatasetQuality(ctx context.Context, datasetID uuid.UUID) (*models.DatasetQualityResponse, error)
+	UpsertQualityRule(ctx context.Context, datasetID uuid.UUID, body *models.CreateQualityRuleRequest) (*models.DatasetQualityRule, error)
+	UpdateQualityRule(ctx context.Context, datasetID uuid.UUID, ruleID uuid.UUID, body *models.UpdateQualityRuleRequest) error
+	DeleteQualityRule(ctx context.Context, datasetID uuid.UUID, ruleID uuid.UUID) error
+	DatasetLintSummary(ctx context.Context, datasetID uuid.UUID) (*models.DatasetLintSummary, error)
+	GetDatasetHealth(ctx context.Context, datasetRID string) (*models.DatasetHealth, error)
 }
 
 type Handlers struct {

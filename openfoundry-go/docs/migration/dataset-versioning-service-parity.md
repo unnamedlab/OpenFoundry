@@ -19,7 +19,7 @@ Manual validation sources:
 - Rust quality router: `services/dataset-versioning-service/src/dataset_quality/mod.rs`
 - Go chi router: `openfoundry-go/services/dataset-versioning-service/internal/server/server.go`
 
-Route-audit summary after the Data Asset Catalog handler port on 2026-05-07: Rust routes: 70; Go routes: 87; state counts: `implemented: 61`, `config-gated: 8`, `501: 18`, `missing: 0`. The absorbed dataset model/metadata/markings/permissions/lineage/file-index and advanced branch lifecycle, views/schema/preview, and files/backing filesystem routes now execute real Go handlers; the remaining work is explicit handler implementation behind mounted routes, not missing HTTP paths.
+Route-audit summary after the quality/lint/health handler port on 2026-05-07: Rust routes: 70; Go routes: 87; state counts: `implemented: 69`, `config-gated: 8`, `501: 10`, `missing: 0`. The absorbed dataset model/metadata/markings/permissions/lineage/file-index, advanced branch lifecycle, views/schema/preview, files/backing filesystem, and quality/lint/health routes now execute real Go handlers; the remaining work is explicit transaction/catalog/compare/internal handler implementation behind mounted routes, not missing HTTP paths.
 
 Status meanings used below:
 
@@ -165,14 +165,14 @@ These Go routes remain mounted for the existing Go subset and compatibility, in 
 
 | Method | Rust path | Rust handler | Go path | Go handler | Status | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/datasets/{id}/quality` | `handlers::quality::get_dataset_quality` | `/api/v1/datasets/{id}/quality` | `h.GetDatasetQuality` | stub | none found |
-| POST | `/api/v1/datasets/{id}/quality/profile` | `handlers::quality::refresh_dataset_quality` | `/api/v1/datasets/{id}/quality/profile` | `h.RefreshDatasetQuality` | stub | none found |
-| POST | `/api/v1/datasets/{id}/quality/rules` | `handlers::quality::create_quality_rule` | `/api/v1/datasets/{id}/quality/rules` | `h.CreateQualityRule` | stub | none found |
-| PATCH | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `handlers::quality::update_quality_rule` | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `h.UpdateQualityRule` | stub | none found |
-| DELETE | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `handlers::quality::delete_quality_rule` | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `h.DeleteQualityRule` | stub | none found |
-| GET | `/api/v1/datasets/{id}/lint` | `handlers::lint::get_dataset_lint` | `/api/v1/datasets/{id}/lint` | `h.GetDatasetLint` | stub | none found |
-| GET | `/v1/datasets/{rid}/health` | `handlers::health::get_dataset_health` | `/v1/datasets/{rid}/health` | `h.GetDatasetHealth` | stub | none found |
-| GET | `/api/v1/datasets/{rid}/health` | `handlers::health::get_dataset_health` | `/api/v1/datasets/{rid}/health` | `h.GetDatasetHealth` | stub | none found |
+| GET | `/api/v1/datasets/{id}/quality` | `handlers::quality::get_dataset_quality` | `/api/v1/datasets/{id}/quality` | `h.GetDatasetQuality` | implemented | none found |
+| POST | `/api/v1/datasets/{id}/quality/profile` | `handlers::quality::refresh_dataset_quality` | `/api/v1/datasets/{id}/quality/profile` | `h.RefreshDatasetQuality` | implemented | none found |
+| POST | `/api/v1/datasets/{id}/quality/rules` | `handlers::quality::create_quality_rule` | `/api/v1/datasets/{id}/quality/rules` | `h.CreateQualityRule` | implemented | none found |
+| PATCH | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `handlers::quality::update_quality_rule` | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `h.UpdateQualityRule` | implemented | none found |
+| DELETE | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `handlers::quality::delete_quality_rule` | `/api/v1/datasets/{id}/quality/rules/{rule_id}` | `h.DeleteQualityRule` | implemented | none found |
+| GET | `/api/v1/datasets/{id}/lint` | `handlers::lint::get_dataset_lint` | `/api/v1/datasets/{id}/lint` | `h.GetDatasetLint` | implemented | none found |
+| GET | `/v1/datasets/{rid}/health` | `handlers::health::get_dataset_health` | `/v1/datasets/{rid}/health` | `h.GetDatasetHealth` | implemented | none found |
+| GET | `/api/v1/datasets/{rid}/health` | `handlers::health::get_dataset_health` | `/api/v1/datasets/{rid}/health` | `h.GetDatasetHealth` | implemented | none found |
 
 ### retention worker
 
@@ -255,6 +255,6 @@ Go has a copied/ported migration set under `openfoundry-go/services/dataset-vers
 4. **Transactions slice**: port transaction start/get/list/batchGet/action dispatch for `:commit` and `:abort`, including invariants and pagination/conformance tests.
 5. **Views/files/schema slice**: port current/at/list/create/action/preview/data/files/schema routes and schema-per-view models.
 6. **Backing filesystem and upload slice**: finish LocalBackingFs/Iceberg/backing filesystem abstractions, presigned download/upload-url, storage-details, and multipart upload parity.
-7. **Quality/lint/health slice**: port `/api/v1/datasets/*/quality`, lint, and dataset health routes plus quality metrics/models.
+7. **Quality/lint/health slice**: route handlers are ported for `/api/v1/datasets/*/quality`, lint, and dataset health. Follow-up can deepen live profiling/metrics recomputation beyond persisted profile/snapshot repository reads.
 8. **Retention worker slice**: add Go worker package and scheduling/config equivalents for branch/transaction retention.
 9. **Rust test migration matrix**: port the Rust integration tests listed above as Go tests in the same slice order, keeping route-audit and contract fixtures as required checks.
