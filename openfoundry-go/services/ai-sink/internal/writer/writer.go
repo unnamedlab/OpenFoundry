@@ -3,8 +3,9 @@
 // Two implementations:
 //
 //   - IcebergWriter — production path. It targets an explicit
-//     OpenFoundry Iceberg table-writer adapter that performs the
-//     Parquet data-file write plus Iceberg snapshot commit, one append
+//     OpenFoundry Iceberg table-writer adapter. The sink sends the
+//     Lakekeeper catalog URL plus the of_ai table spec, and the adapter
+//     performs the Parquet data-file write plus Iceberg snapshot commit, one append
 //     per non-empty table group. The adapter is used because iceberg-go
 //     still lacks a stable write-side API matching Rust's
 //     `append_record_batches`.

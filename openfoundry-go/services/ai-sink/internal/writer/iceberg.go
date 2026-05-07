@@ -35,6 +35,7 @@ type FieldSpec struct {
 
 type TableSpec struct {
 	Catalog            string      `json:"catalog"`
+	CatalogURL         string      `json:"catalog_url,omitempty"`
 	Warehouse          string      `json:"warehouse,omitempty"`
 	Namespace          string      `json:"namespace"`
 	Table              string      `json:"table"`
@@ -75,25 +76,35 @@ type IcebergTableAppender interface {
 // other non-2xx responses to ErrCommitFailed. Tests can inject a fake catalog
 // with NewIcebergWriterWithCatalog.
 type IcebergWriter struct {
+	// CatalogURL is the Lakekeeper/Iceberg REST catalog URL used by the
+	// table-writer adapter to load and commit of_ai tables.
 	CatalogURL string
-	Warehouse  string
-	Namespace  string
-	catalog    IcebergCatalog
+	// TableWriterURL is the OpenFoundry append adapter endpoint. It may be
+	// the same origin as CatalogURL in dev deployments that proxy both APIs.
+	TableWriterURL string
+	Warehouse      string
+	Namespace      string
+	catalog        IcebergCatalog
 }
 
 func NewIcebergWriter(catalogURL, warehouse, namespace string) *IcebergWriter {
+	return NewIcebergWriterWithAdapter(catalogURL, catalogURL, warehouse, namespace)
+}
+
+func NewIcebergWriterWithAdapter(catalogURL, tableWriterURL, warehouse, namespace string) *IcebergWriter {
 	return NewIcebergWriterWithCatalog(
-		catalogURL, warehouse, namespace,
-		NewHTTPTableWriterCatalog(catalogURL, warehouse),
+		catalogURL, tableWriterURL, warehouse, namespace,
+		NewHTTPTableWriterCatalog(tableWriterURL, catalogURL, warehouse),
 	)
 }
 
-func NewIcebergWriterWithCatalog(catalogURL, warehouse, namespace string, catalog IcebergCatalog) *IcebergWriter {
+func NewIcebergWriterWithCatalog(catalogURL, tableWriterURL, warehouse, namespace string, catalog IcebergCatalog) *IcebergWriter {
 	return &IcebergWriter{
-		CatalogURL: catalogURL,
-		Warehouse:  warehouse,
-		Namespace:  namespace,
-		catalog:    catalog,
+		CatalogURL:     catalogURL,
+		TableWriterURL: tableWriterURL,
+		Warehouse:      warehouse,
+		Namespace:      namespace,
+		catalog:        catalog,
 	}
 }
 
@@ -123,6 +134,7 @@ func (i *IcebergWriter) Close() error { return nil }
 func (i *IcebergWriter) tableSpec(table string) TableSpec {
 	return TableSpec{
 		Catalog:            aiCatalog,
+		CatalogURL:         i.CatalogURL,
 		Warehouse:          i.Warehouse,
 		Namespace:          i.Namespace,
 		Table:              table,
@@ -179,18 +191,31 @@ func aiSchema() []FieldSpec {
 }
 
 type HTTPTableWriterCatalog struct {
-	baseURL string
-	client  *http.Client
+	baseURL    string
+	catalogURL string
+	warehouse  string
+	client     *http.Client
 }
 
-func NewHTTPTableWriterCatalog(catalogURL, warehouse string) *HTTPTableWriterCatalog {
+func NewHTTPTableWriterCatalog(tableWriterURL, catalogURL, warehouse string) *HTTPTableWriterCatalog {
 	return &HTTPTableWriterCatalog{
-		baseURL: strings.TrimRight(catalogURL, "/"),
-		client:  &http.Client{Timeout: 30 * time.Second},
+		baseURL:    strings.TrimRight(tableWriterURL, "/"),
+		catalogURL: strings.TrimRight(catalogURL, "/"),
+		warehouse:  warehouse,
+		client:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
 func (c *HTTPTableWriterCatalog) LoadTable(_ context.Context, spec TableSpec) (IcebergTableAppender, error) {
+	if c.baseURL == "" {
+		return nil, fmt.Errorf("%w: table-writer URL must be non-empty", ErrCommitFailed)
+	}
+	if spec.CatalogURL == "" {
+		spec.CatalogURL = c.catalogURL
+	}
+	if spec.Warehouse == "" {
+		spec.Warehouse = c.warehouse
+	}
 	if spec.Namespace == "" || spec.Table == "" {
 		return nil, fmt.Errorf("%w: namespace/table must be non-empty", ErrTableNotFound)
 	}
@@ -203,6 +228,15 @@ type httpTableWriter struct {
 }
 
 func (t *httpTableWriter) Append(ctx context.Context, batch AppendBatch) error {
+	if batch.Spec.Catalog == "" || batch.Spec.Namespace == "" || batch.Spec.Table == "" {
+		batch.Spec = t.spec
+	}
+	if batch.Spec.CatalogURL == "" {
+		batch.Spec.CatalogURL = t.spec.CatalogURL
+	}
+	if batch.Spec.Warehouse == "" {
+		batch.Spec.Warehouse = t.spec.Warehouse
+	}
 	payload, err := json.Marshal(batch)
 	if err != nil {
 		return err

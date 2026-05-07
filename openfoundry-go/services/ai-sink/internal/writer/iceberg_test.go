@@ -42,7 +42,7 @@ func TestIcebergWriterAppendBuildsRustCompatibleAIBatches(t *testing.T) {
 	traceID := "trace-1"
 	table := &fakeAITable{}
 	catalog := &fakeAICatalog{table: table}
-	w := NewIcebergWriterWithCatalog("http://catalog", "wh", "of_ai", catalog)
+	w := NewIcebergWriterWithCatalog("http://lakekeeper", "http://table-writer", "wh", "of_ai", catalog)
 
 	byTable := map[string][]envelope.AiEventEnvelope{
 		envelope.TableResponses: {{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1700000000000000, Kind: envelope.KindResponse, RunID: &runID, TraceID: &traceID, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"tokens":42}`)}},
@@ -68,15 +68,53 @@ func TestIcebergWriterAppendBuildsRustCompatibleAIBatches(t *testing.T) {
 	}
 }
 
+func TestIcebergWriterAppendsEachNonEmptyAITargetWithFakeAppender(t *testing.T) {
+	table := &fakeAITable{}
+	catalog := &fakeAICatalog{table: table}
+	w := NewIcebergWriterWithCatalog("http://lakekeeper:8181", "http://table-writer:8080", "warehouse-1", "of_ai", catalog)
+
+	batch := map[string][]envelope.AiEventEnvelope{
+		envelope.TablePrompts: {
+			{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1, Kind: envelope.KindPrompt, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"prompt":"hi"}`)},
+		},
+		envelope.TableResponses: {
+			{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000002"), At: 2, Kind: envelope.KindResponse, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"response":"hello"}`)},
+		},
+		envelope.TableEvaluations: {},
+		envelope.TableTraces: {
+			{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000003"), At: 3, Kind: envelope.KindTrace, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"span":"root"}`)},
+		},
+	}
+	if err := w.Append(context.Background(), batch); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	wantTables := []string{envelope.TablePrompts, envelope.TableResponses, envelope.TableTraces}
+	if len(catalog.seen) != len(wantTables) || len(table.batches) != len(wantTables) {
+		t.Fatalf("LoadTable specs = %#v; batches = %#v", catalog.seen, table.batches)
+	}
+	for i, wantTable := range wantTables {
+		if catalog.seen[i].CatalogURL != "http://lakekeeper:8181" {
+			t.Fatalf("spec[%d].CatalogURL = %q", i, catalog.seen[i].CatalogURL)
+		}
+		if catalog.seen[i].Table != wantTable {
+			t.Fatalf("spec[%d].Table = %q, want %q", i, catalog.seen[i].Table, wantTable)
+		}
+		if table.batches[i].Spec.Table != wantTable || len(table.batches[i].Rows) != 1 {
+			t.Fatalf("batch[%d] = %#v", i, table.batches[i])
+		}
+	}
+}
+
 func TestIcebergWriterRejectsEmptyAIBatch(t *testing.T) {
-	w := NewIcebergWriterWithCatalog("", "", "of_ai", &fakeAICatalog{table: &fakeAITable{}})
+	w := NewIcebergWriterWithCatalog("", "", "", "of_ai", &fakeAICatalog{table: &fakeAITable{}})
 	if err := w.Append(context.Background(), map[string][]envelope.AiEventEnvelope{}); !errors.Is(err, ErrEmptyBatch) {
 		t.Fatalf("Append(empty) error = %v", err)
 	}
 }
 
 func TestIcebergWriterPropagatesAITableNotFound(t *testing.T) {
-	w := NewIcebergWriterWithCatalog("", "", "of_ai", &fakeAICatalog{err: ErrTableNotFound})
+	w := NewIcebergWriterWithCatalog("", "", "", "of_ai", &fakeAICatalog{err: ErrTableNotFound})
 	batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, Kind: envelope.KindPrompt, Payload: []byte(`{}`)}}}
 	if err := w.Append(context.Background(), batch); !errors.Is(err, ErrTableNotFound) {
 		t.Fatalf("Append() error = %v", err)
@@ -84,7 +122,7 @@ func TestIcebergWriterPropagatesAITableNotFound(t *testing.T) {
 }
 
 func TestIcebergWriterPropagatesAISchemaMismatch(t *testing.T) {
-	w := NewIcebergWriterWithCatalog("", "", "of_ai", &fakeAICatalog{table: &fakeAITable{err: ErrSchemaMismatch}})
+	w := NewIcebergWriterWithCatalog("", "", "", "of_ai", &fakeAICatalog{table: &fakeAITable{err: ErrSchemaMismatch}})
 	batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, Kind: envelope.KindPrompt, Payload: []byte(`{}`)}}}
 	if err := w.Append(context.Background(), batch); !errors.Is(err, ErrSchemaMismatch) {
 		t.Fatalf("Append() error = %v", err)
@@ -92,7 +130,7 @@ func TestIcebergWriterPropagatesAISchemaMismatch(t *testing.T) {
 }
 
 func TestIcebergWriterPropagatesAICommitFailure(t *testing.T) {
-	w := NewIcebergWriterWithCatalog("", "", "of_ai", &fakeAICatalog{table: &fakeAITable{err: ErrCommitFailed}})
+	w := NewIcebergWriterWithCatalog("", "", "", "of_ai", &fakeAICatalog{table: &fakeAITable{err: ErrCommitFailed}})
 	batch := map[string][]envelope.AiEventEnvelope{envelope.TablePrompts: {{EventID: uuid.Nil, Kind: envelope.KindPrompt, Payload: []byte(`{}`)}}}
 	if err := w.Append(context.Background(), batch); !errors.Is(err, ErrCommitFailed) {
 		t.Fatalf("Append() error = %v", err)
@@ -102,6 +140,7 @@ func TestIcebergWriterPropagatesAICommitFailure(t *testing.T) {
 func TestHTTPTableWriterAdapterAIContract(t *testing.T) {
 	runID := uuid.MustParse("00000000-0000-7000-8000-000000000123")
 	traceID := "trace-1"
+	catalogURL := "http://lakekeeper:8181"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %s", r.Method)
@@ -119,6 +158,7 @@ func TestHTTPTableWriterAdapterAIContract(t *testing.T) {
 		}
 		wantSpec := TableSpec{
 			Catalog:            aiCatalog,
+			CatalogURL:         catalogURL,
 			Warehouse:          "warehouse-1",
 			Namespace:          "of_ai",
 			Table:              envelope.TableResponses,
@@ -161,7 +201,7 @@ func TestHTTPTableWriterAdapterAIContract(t *testing.T) {
 	}))
 	defer server.Close()
 
-	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_ai")
+	writer := NewIcebergWriterWithAdapter(catalogURL, server.URL, "warehouse-1", "of_ai")
 	batch := map[string][]envelope.AiEventEnvelope{
 		envelope.TableResponses: {{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1700000000000000, Kind: envelope.KindResponse, RunID: &runID, TraceID: &traceID, Producer: "agent-runtime-service", SchemaVersion: 1, Payload: []byte(`{"tokens":42}`)}},
 	}

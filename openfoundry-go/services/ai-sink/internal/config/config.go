@@ -38,15 +38,16 @@ type Config struct {
 		Name    string
 		Version string
 	}
-	DataBus     databus.Config
-	CatalogURL  string
-	Warehouse   string
-	BatchPolicy BatchPolicy
-	MetricsAddr string
+	DataBus        databus.Config
+	CatalogURL     string
+	TableWriterURL string
+	Warehouse      string
+	BatchPolicy    BatchPolicy
+	MetricsAddr    string
 
 	// JSONLWriterDir is the directory the JSONL writer creates one
 	// `<table>.jsonl` per table inside. Empty string selects the
-	// Iceberg writer stub instead.
+	// Iceberg writer instead.
 	JSONLWriterDir string
 }
 
@@ -68,9 +69,14 @@ func FromEnv() (*Config, error) {
 	if bootstrap == "" {
 		return nil, &MissingEnvError{Key: "KAFKA_BOOTSTRAP_SERVERS"}
 	}
+	jsonlDir := os.Getenv("AI_SINK_JSONL_DIR")
 	catalogURL := os.Getenv("ICEBERG_CATALOG_URL")
-	if catalogURL == "" {
+	if catalogURL == "" && jsonlDir == "" {
 		return nil, &MissingEnvError{Key: "ICEBERG_CATALOG_URL"}
+	}
+	tableWriterURL := defaultStr(os.Getenv("AI_SINK_TABLE_WRITER_URL"), os.Getenv("ICEBERG_TABLE_WRITER_URL"))
+	if tableWriterURL == "" {
+		tableWriterURL = catalogURL
 	}
 
 	dbCfg := databus.NewConfig(splitCSV(bootstrap), buildPrincipal())
@@ -90,10 +96,11 @@ func FromEnv() (*Config, error) {
 	cfg := &Config{
 		DataBus:        dbCfg,
 		CatalogURL:     catalogURL,
+		TableWriterURL: tableWriterURL,
 		Warehouse:      os.Getenv("ICEBERG_WAREHOUSE"),
 		BatchPolicy:    policy,
 		MetricsAddr:    defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090"),
-		JSONLWriterDir: os.Getenv("AI_SINK_JSONL_DIR"),
+		JSONLWriterDir: jsonlDir,
 	}
 	cfg.Service.Name = "ai-sink"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
