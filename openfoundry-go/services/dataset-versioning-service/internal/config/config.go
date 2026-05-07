@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
@@ -17,6 +18,13 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 	MetricsAddr string
+	// RetentionWorkerEnabled controls the in-process branch-archive
+	// worker (Foundry "Branch retention" doc). Off by default — operators
+	// turn it on per environment. Mirrors the Rust feature toggle.
+	RetentionWorkerEnabled bool
+	// RetentionWorkerInterval is the tick cadence of the worker. Defaults
+	// to one hour to match Rust.
+	RetentionWorkerInterval time.Duration
 }
 
 func FromEnv() (*Config, error) {
@@ -34,7 +42,31 @@ func FromEnv() (*Config, error) {
 		return nil, &MissingEnvError{Key: "JWT_SECRET"}
 	}
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.RetentionWorkerEnabled = parseBool(os.Getenv("RETENTION_WORKER_ENABLED"), false)
+	cfg.RetentionWorkerInterval = parseDuration(os.Getenv("RETENTION_WORKER_INTERVAL"), time.Hour)
 	return cfg, nil
+}
+
+func parseBool(v string, fallback bool) bool {
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
+}
+
+func parseDuration(v string, fallback time.Duration) time.Duration {
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
 
 type MissingEnvError struct{ Key string }

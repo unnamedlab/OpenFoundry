@@ -24,6 +24,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/repo"
+	retentionworker "github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/runtime/retention"
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/server"
 )
 
@@ -67,8 +68,17 @@ func main() {
 		baseURL = "http://" + srvAddr(cfg.Server.Host, cfg.Server.Port)
 	}
 	backingFS := storageabstraction.NewLocalBackingFS(baseURL, os.Getenv("DATASET_FILES_BASE_DIR"), []byte(cfg.JWTSecret))
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, BackingFS: backingFS, PresignTTL: 15 * time.Minute}
+	store := &repo.Repo{Pool: pool}
+	h := &handlers.Handlers{Repo: store, BackingFS: backingFS, PresignTTL: 15 * time.Minute}
 	metrics := observability.NewMetrics()
+
+	if cfg.RetentionWorkerEnabled {
+		w := retentionworker.New(retentionworker.NewRepoStore(store))
+		w.TickInterval = cfg.RetentionWorkerInterval
+		w.Logger = log
+		go w.RunLoop(ctx)
+		log.Info("branch retention worker started", slog.Duration("interval", cfg.RetentionWorkerInterval))
+	}
 
 	srv := server.New(cfg, jwt, h, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
