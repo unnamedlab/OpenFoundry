@@ -19,13 +19,19 @@ trade-off the Rust crate makes — see ADR-0022 § Consumer-side contract.
 
 | Implementation   | Trigger                              | Status                      |
 | ---------------- | ------------------------------------ | --------------------------- |
-| `JSONLWriter`    | `AUDIT_SINK_JSONL_PATH` set          | Production-suitable for staging / observability |
-| `IcebergWriter`  | (default — when JSONL path is unset) | **Stub** — fails the first batch with `ErrNotImplemented` until iceberg-go's write API stabilises |
+| `IcebergWriter`  | (default — when JSONL path is unset) | Production path via the OpenFoundry Iceberg table-writer adapter |
+| `JSONLWriter`    | `AUDIT_SINK_JSONL_PATH` set          | Explicit dev/staging fallback for local observability |
 
-The stub is deliberately loud so an operator who forgets to set the
-JSONL path notices on the first batch instead of silently dropping audit
-events. Wire the real Iceberg writer once `apache/iceberg-go` ships
-write-side stability docs.
+The Go Iceberg writer now mirrors the Rust contract (`of_audit.events`,
+`day(at)`, `at ASC`, and one durable append per flushed batch). Because
+`apache/iceberg-go` still does not expose a stable end-to-end writer
+matching Rust's `append_record_batches`, the production path is an
+explicit HTTP adapter at `ICEBERG_CATALOG_URL/openfoundry/iceberg/v1/append`.
+That adapter is responsible for writing Parquet data files and committing
+the Iceberg snapshot atomically. It fails loudly: empty batches,
+missing tables, schema mismatches, and commit failures all return typed
+writer errors; JSONL is never selected unless `AUDIT_SINK_JSONL_PATH` is
+set.
 
 ## Configuration
 
@@ -43,7 +49,7 @@ single Helm `values.yaml` drives both implementations during cutover.
 | `ICEBERG_WAREHOUSE`                 |          | Warehouse location override               |
 | `AUDIT_SINK_BATCH_MAX_RECORDS`      |          | Default 100k                              |
 | `AUDIT_SINK_BATCH_MAX_WAIT_SECONDS` |          | Default 60s                               |
-| `AUDIT_SINK_JSONL_PATH`             |          | Path to JSONL output file (`-` = stdout). When set, JSONLWriter is used instead of the Iceberg stub |
+| `AUDIT_SINK_JSONL_PATH`             |          | Path to JSONL output file (`-` = stdout). When set, JSONLWriter is used instead of the Iceberg adapter |
 | `METRICS_ADDR`                      |          | Default `0.0.0.0:9090`                    |
 | `OTEL_TRACES_EXPORTER`              |          | `none` to disable tracing                 |
 | `LOG_FORMAT`                        |          | `json` for production                     |
@@ -61,7 +67,9 @@ single Helm `values.yaml` drives both implementations during cutover.
 make build-services
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
 ICEBERG_CATALOG_URL=http://localhost:8181 \
-AUDIT_SINK_JSONL_PATH=/var/log/audit.jsonl \
 OTEL_TRACES_EXPORTER=none \
 ./bin/audit-sink
+
+# Dev/staging JSONL fallback:
+AUDIT_SINK_JSONL_PATH=/var/log/audit.jsonl ./bin/audit-sink
 ```
