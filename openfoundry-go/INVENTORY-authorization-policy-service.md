@@ -17,19 +17,15 @@ User signed off on **Option A** (cedar-go) over the sidecar (B) and the
 
 ### De-risking step before the full service port
 
-Before porting `authorization-policy-service` itself (~5 200 LOC), port
-`libs/authz-cedar` → `libs/authz-cedar-go` first (1 671 LOC of glue +
-cedar-go wrappers). That validates cedar-go in a bounded scope and ships
-a reusable lib. Only after `libs/authz-cedar-go` passes its conformance
-suite do we start porting handlers/domain in slices.
+This de-risking step has landed: `libs/authz-cedar-go` exists and the Go
+`authorization-policy-service` now mounts the sliced handler/domain surface.
+Keep extending conformance coverage as Cedar usage expands.
 
 ### Open question (non-blocking)
 
-The Rust binary's `fn main() {}` may be intentional (project on hold) or
-a TODO (consolidated binary pending). The Go port can proceed
-independently of that answer — if the Rust binary stays a stub, the Go
-port becomes the canonical implementation. Worth confirming
-post-implementation but does not gate the work.
+The Rust binary's `fn main() {}` remains historical source material. The Go
+port is the canonical implementation unless the Rust binary is deliberately
+revived in a later architecture decision.
 
 ---
 
@@ -49,14 +45,13 @@ candidate** for two independent reasons:
    fn main() {}
    ```
 
-   with all five S8/B14 sub-modules (`audit_wiring`, `checkpoints_purpose`,
-   `cipher`, `network_boundary`, `security_governance`) included as
-   `#[allow(dead_code)] mod …` "until the consolidated binary's main is
-   wired in a follow-up". There is no live HTTP surface to compare
-   against and no production callers exercising any handler today.
+   with S8/B14 sub-modules included as dead-code modules. The Go port is now
+   the live authorization-policy-service surface for Cedar/ABAC, governance,
+   checkpoint/purpose, cipher, network-boundary, and top-level RBAC.
 
-Combined: this is the highest-risk port in Phase 3. **Do not start the
-port until a human signs off on the Cedar strategy.**
+Historical note: this was the highest-risk port in Phase 3 before the Go
+Cedar strategy landed. `libs/authz-cedar-go` and the Go service are now present;
+keep this inventory updated against the Go implementation.
 
 ## Service shape
 
@@ -84,7 +79,7 @@ config + handlers + models — porting them as discrete slices is feasible.
 | `handlers/permission_mgmt.rs`     |  69 | Permission catalog                        |
 | `handlers/group_mgmt.rs`          | 286 | Group CRUD, membership, group→role grants |
 | `handlers/policy_mgmt.rs`         | 183 | Cedar policy CRUD + reload                |
-| `handlers/restricted_views.rs`    | 226 | CBAC restricted views (alternative implementation; see slice-7a in identity-federation) |
+| `handlers/restricted_views.rs`    | 226 | CBAC restricted-view CRUD, consolidated in identity-federation Go slice-7a |
 | `domain/rbac.rs`                  |  97 | RBAC evaluator                           |
 | `domain/abac.rs`                  | 383 | ABAC + Cedar evaluator (depends on authz-cedar) |
 | `domain/access.rs`                |  55 | Top-level access decision composer       |
@@ -97,7 +92,8 @@ config + handlers + models — porting them as discrete slices is feasible.
 | `20260427020100_security_governance_foundation.sql` | governance reviews + posture  |
 | `20260427080100_network_boundary_foundation.sql`    | egress rules + boundaries     |
 | `20260427050100_cipher_foundation.sql`              | key catalogs + envelope keys  |
-| (Top-level RBAC migrations live in identity-federation; see slice-6 inventory) | — |
+| `openfoundry-go/services/authorization-policy-service/internal/repo/migrations/0007_rbac_policy_management.sql` | authorization-policy RBAC: roles, groups, permissions, grants |
+| Identity-federation slice-6 migrations | identity-local users, login/admin RBAC, API keys, SCIM groups |
 
 ## Cedar-go viability research
 
@@ -155,57 +151,56 @@ add a conformance-test commitment. Concretely:
   reload, NATS reload, iceberg-policies adapter, schedule policies).
 - Mirror the upstream cedar-rust ↔ cedar-go conformance tests so any
   policy that authorizes Allow on Rust also authorizes Allow on Go.
-- Only after the lib passes its conformance suite, port the
-  authorization-policy-service binary itself (in slices: top-level
-  RBAC/groups/policies → security_governance → checkpoints_purpose →
-  cipher → network_boundary).
+- The Go service now includes the sliced authorization-policy surface:
+  top-level RBAC/groups/policies, security_governance, checkpoints_purpose,
+  cipher, and network_boundary. Keep extending conformance coverage as Cedar
+  usage expands.
 
 **Option B (sidecar)** is the right path *if* the team wants to ship Go
 faster and is OK with a polyglot deployment. The Rust sidecar is a
 50-LOC tonic gRPC server wrapping authz-cedar.
 
-This decision is **out of scope** for the autonomous loop. Surfaces a
-pending todo: "Pick Cedar strategy (A/B/C) for authorization-policy-service".
+The sidecar option is no longer the active path; Cedar-go is the accepted path
+for the Go port.
 
-## Wire-format invariants (when port resumes)
+## Wire-format invariants
 
-Will need to be locked when implementation starts:
+Locked/maintained by the Go implementation:
 - Cedar policy IDs (UUIDs) preserved across the wire so audit logs match.
 - `AuthzAuditEvent` JSON shape (timestamp, principal, action, resource,
   decision, tenant, policy_ids, diagnostics) must match the Rust struct
   byte-for-byte — currently emitted to Kafka via `audit-trail`.
-- RBAC role + permission slugs (existing convention from
-  identity-federation slice 6 — already locked).
+- RBAC role + permission slugs. Ownership is split deliberately:
+  identity-federation owns identity-local user/session/API-key/SCIM RBAC, while
+  authorization-policy-service owns tenant-scoped authorization-policy roles,
+  groups, permissions, memberships, user-role grants, and group→role grants.
 - Cedar entity URID format: `Type::"value"` exactly as the Rust impl
   serializes.
 
-## Sliced port plan (post-decision)
+## Current Go port status
 
-Once Cedar strategy is signed off:
-
-1. **Lib** — `libs/authz-cedar-go` (1 671 LOC of glue + cedar-go wrappers).
-2. **Top-level RBAC** — roles, groups, permissions, group→role grants (~700 LOC).
-3. **Cedar policies** — policy CRUD + reload (~200 LOC).
-4. **ABAC evaluator** — domain/abac.rs (~400 LOC) — depends on cedar engine.
-5. **Restricted views** (alternative; coordinate with identity-federation slice-7a).
-6. **security_governance** sub-module (~800 LOC).
-7. **checkpoints_purpose** sub-module (~700 LOC).
-8. **cipher** sub-module (~800 LOC).
-9. **network_boundary** sub-module (~600 LOC).
-10. **HTTP wire-up** — replace `fn main() {}` stub with real router.
-
-Each slice is independently committable. Total estimated effort:
-~10 iterations of ~1500 LOC each, gated on cedar-go conformance tests
-passing.
+1. **Lib** — `libs/authz-cedar-go` is present.
+2. **Top-level RBAC** — roles, groups, permissions, membership, user-role grants,
+   and group→role grants are implemented and mounted in
+   `services/authorization-policy-service`.
+3. **Cedar policies** — policy CRUD + reload is implemented.
+4. **ABAC evaluator** — policy evaluation is implemented against the Cedar/ABAC
+   domain.
+5. **security_governance** routes are implemented and mounted.
+6. **checkpoints_purpose** routes are implemented and mounted.
+7. **cipher** routes are implemented and mounted.
+8. **network_boundary** routes are implemented and mounted.
+9. **HTTP wire-up** is complete in the Go router; the Rust `fn main() {}` stub is
+   retained only as historical source material.
+10. **Restricted views** CRUD is consolidated in identity-federation slice-7a;
+    authorization-policy-service keeps read-time evaluation parity through
+    `POST /api/v1/policy-evaluations`, which reads enabled `restricted_views`
+    rows and applies row filters, hidden columns, allowed org IDs, markings,
+    guest access, and consumer-mode flags.
 
 ## Decisions for human review
 
-1. **Cedar strategy**: Option A (cedar-go), Option B (sidecar), or Option C (wait)?
-2. **Conformance commitment**: Are we OK adopting AWS's cedar
-   conformance test suite as a CI gate?
-3. **Slice priority**: Top-level RBAC first, or one of the absorbed
-   sub-modules (security_governance has the most live wiring upstream)?
-4. **`fn main() {}` semantics**: Is the Rust crate intentionally on hold,
-   or is there a separate timeline for wiring its main? If on hold, the
-   Go port could become the canonical implementation rather than a
-   strangler-fig replacement.
+1. **Conformance commitment**: Are we OK adopting AWS's Cedar conformance test
+   suite as a CI gate beyond the current `libs/authz-cedar-go` coverage?
+2. **Rust stub lifecycle**: Is the Rust crate intentionally retained as reference
+   code, or should it be deleted once Go parity is accepted?

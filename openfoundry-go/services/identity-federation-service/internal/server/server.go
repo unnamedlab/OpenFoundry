@@ -23,12 +23,13 @@ import (
 // New builds the http.Server with slice-1 routes.
 //
 // Slice 1 mounts:
-//   GET    /healthz
-//   GET    /metrics
-//   GET    /api/v1/auth/bootstrap-status
-//   POST   /api/v1/auth/register
-//   POST   /api/v1/auth/login
-//   POST   /api/v1/auth/token/refresh
+//
+//	GET    /healthz
+//	GET    /metrics
+//	GET    /api/v1/auth/bootstrap-status
+//	POST   /api/v1/auth/register
+//	POST   /api/v1/auth/login
+//	POST   /api/v1/auth/token/refresh
 //
 // Subsequent slices add: /auth/sessions/*, /auth/sso/*, /users/*,
 // /roles/*, /groups/*, /permissions/*, /policies/*, /control-panel/*,
@@ -113,6 +114,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Get("/restricted-views", rv.List)
 		api.Post("/restricted-views", rv.Create)
 		api.Get("/restricted-views/{id}", rv.Get)
+		api.Put("/restricted-views/{id}", rv.Update)
 		api.Patch("/restricted-views/{id}", rv.Update)
 		api.Delete("/restricted-views/{id}", rv.Delete)
 	})

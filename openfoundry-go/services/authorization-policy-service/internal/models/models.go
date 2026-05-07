@@ -1,8 +1,9 @@
 // Package models holds wire types for authorization-policy-service.
 //
-// Foundation slice (slice 1): CedarPolicy CRUD wire format. Roles,
-// groups, permissions, restricted views, and ABAC evaluator land in
-// follow-up slices — see INVENTORY-authorization-policy-service.md.
+// CedarPolicy, ABAC, governance, cipher, network-boundary, and top-level RBAC
+// wire formats live here. Restricted-view CRUD is consolidated in
+// identity-federation while evaluation remains here; see
+// INVENTORY-authorization-policy-service.md.
 package models
 
 import (
@@ -61,8 +62,7 @@ type ListResponse[T any] struct {
 
 // ABACPolicy mirrors `abac_policies` rows — pre-Cedar legacy rules
 // kept around for backwards-compat with policies authored before
-// ADR-0027. The ABAC evaluator (follow-up slice) walks `Conditions`
-// against the request context.
+// ADR-0027. The ABAC evaluator walks `Conditions` against the request context.
 type ABACPolicy struct {
 	ID          uuid.UUID       `json:"id"`
 	Name        string          `json:"name"`

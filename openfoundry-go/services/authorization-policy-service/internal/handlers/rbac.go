@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/models"
@@ -28,6 +29,27 @@ func requirePermission(w http.ResponseWriter, r *http.Request, resource, action 
 }
 
 func tenantFromClaims(c *authmw.Claims) *uuid.UUID { return c.OrgID }
+
+func rbacWriteErrorStatus(err error) (int, string) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return http.StatusNotFound, "referenced RBAC object not found"
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			return http.StatusConflict, "RBAC object already exists"
+		case "23503":
+			return http.StatusNotFound, "referenced RBAC object not found"
+		}
+	}
+	return http.StatusInternalServerError, err.Error()
+}
+
+func writeRBACMutationErr(w http.ResponseWriter, err error) {
+	status, msg := rbacWriteErrorStatus(err)
+	writeJSONErr(w, status, msg)
+}
 
 func parseUUIDParam(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(chi.URLParam(r, name))
@@ -69,7 +91,7 @@ func (h *Handlers) CreatePermission(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.Repo.CreatePermission(r.Context(), tenantFromClaims(claims), &body)
 	if err != nil {
-		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		writeRBACMutationErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -124,7 +146,7 @@ func (h *Handlers) CreateRole(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := h.Repo.CreateRole(r.Context(), tenantFromClaims(claims), &body)
 	if err != nil {
-		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		writeRBACMutationErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -274,7 +296,7 @@ func (h *Handlers) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := h.Repo.CreateGroup(r.Context(), tenantFromClaims(claims), &body)
 	if err != nil {
-		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		writeRBACMutationErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
