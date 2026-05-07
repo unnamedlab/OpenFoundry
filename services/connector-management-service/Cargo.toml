@@ -43,6 +43,9 @@ workspace = true
 [build-dependencies.tonic-build]
 workspace = true
 
+[build-dependencies.protoc-bin-vendored]
+workspace = true
+
 [dependencies.auth-middleware]
 workspace = true
 
@@ -133,6 +136,13 @@ workspace = true
 
 [dependencies.cron]
 version = "0.12"
+
+# --- Deps absorbed from virtual-table-service per ADR-0030 (S8 / B17).
+[dependencies.prost-types]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
 
 [[bin]]
 path = "src/main.rs"

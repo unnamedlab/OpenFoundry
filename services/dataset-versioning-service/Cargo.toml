@@ -1,6 +1,6 @@
 [package]
 name = "dataset-versioning-service"
-description = "Dataset versioning, transactions, and branching"
+description = "Dataset versioning, transactions, and branching, plus the absorbed data-asset-catalog (catalog, preview, upload, schema validate) and dataset-quality (lint, profiler, scoring, health) domains per ADR-0030 (S8)"
 
 [package.edition]
 workspace = true
@@ -14,12 +14,45 @@ workspace = true
 [package.rust-version]
 workspace = true
 
+[dependencies.anyhow]
+workspace = true
+
+[dependencies.arrow]
+version = "53"
+
 [dependencies.auth-middleware]
 workspace = true
 
 [dependencies.axum]
 workspace = true
 features = ["multipart"]
+
+[dependencies.axum-extra]
+workspace = true
+
+[dependencies.datafusion]
+workspace = true
+
+[dependencies.event-bus-control]
+workspace = true
+
+[dependencies.futures]
+workspace = true
+
+[dependencies.moka]
+workspace = true
+
+[dependencies.query-engine]
+workspace = true
+
+[dependencies.regex]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.urlencoding]
+version = "2"
 
 [dependencies.bytes]
 workspace = true

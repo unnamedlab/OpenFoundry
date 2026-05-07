@@ -1,0 +1,119 @@
+package authmw_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+)
+
+func TestLoadOrGeneratePersistsAndReusesSecret(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "openfoundry-jwt-"+uuid.New().String())
+	path := filepath.Join(dir, "jwt.secret")
+
+	first, err := authmw.LoadOrGenerate(path)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	second, err := authmw.LoadOrGenerate(path)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+
+	// Round-trip a token with the first config and verify the
+	// second reads the identical secret. We use this as the
+	// secret-equality check because JWTConfig.secret is private.
+	now := time.Now().Unix()
+	c := authmw.Claims{Sub: uuid.New(), IAT: now, EXP: now + 3600, JTI: uuid.New()}
+	tok, err := authmw.EncodeToken(first, &c)
+	require.NoError(t, err)
+	_, err = authmw.DecodeToken(second, tok)
+	require.NoError(t, err)
+
+	// The on-disk format is hex-encoded, never the raw bytes.
+	onDisk, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, authmw.GeneratedSecretBytes*2, len(onDisk))
+	for _, b := range onDisk {
+		assert.True(t, isHexDigit(b), "non-hex byte on disk: %q", b)
+	}
+}
+
+func TestLoadOrGenerateRejectsEmptySecretFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jwt.secret")
+	require.NoError(t, os.WriteFile(path, []byte("   \n"), 0o600))
+
+	_, err := authmw.LoadOrGenerate(path)
+	require.Error(t, err)
+	var loadErr *authmw.SecretLoadError
+	require.True(t, errors.As(err, &loadErr))
+	assert.Equal(t, authmw.SecretLoadEmpty, loadErr.Kind)
+	assert.Equal(t, path, loadErr.Path)
+}
+
+func TestResolveUnattendedPrefersEnvSecretOverPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jwt.secret")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "env-secret")
+
+	cfg, err := authmw.ResolveUnattended(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// File must NOT have been created when env wins.
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr), "default path should not be touched: %v", statErr)
+}
+
+func TestResolveUnattendedHonoursPathEnvOverDefault(t *testing.T) {
+	dir := t.TempDir()
+	configured := filepath.Join(dir, "configured.secret")
+	defaultPath := filepath.Join(dir, "default.secret")
+	t.Setenv("OPENFOUNDRY_JWT_SECRET_PATH", configured)
+	t.Setenv("OPENFOUNDRY_JWT_SECRET", "")
+
+	_, err := authmw.ResolveUnattended(defaultPath)
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(configured)
+	require.NoError(t, statErr, "configured path should be created")
+	_, statErr = os.Stat(defaultPath)
+	assert.True(t, os.IsNotExist(statErr), "default path should not be touched")
+}
+
+func TestWithEnvDefaultsPopulatesIssuerAudienceKeyID(t *testing.T) {
+	t.Setenv("OPENFOUNDRY_JWT_ISSUER", "https://auth.test")
+	t.Setenv("OPENFOUNDRY_JWT_AUDIENCE", "openfoundry")
+	t.Setenv("OPENFOUNDRY_JWT_KID", "kid-test")
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+	cfg = cfg.WithEnvDefaults()
+	assert.Equal(t, "https://auth.test", cfg.Issuer)
+	assert.Equal(t, "openfoundry", cfg.Audience)
+	assert.Equal(t, "kid-test", cfg.KeyID)
+}
+
+func TestWithEnvDefaultsFallsBackToHS256OnPartialRSA(t *testing.T) {
+	// Only the public key is present — Rust logs a warning and
+	// falls back to HS256. We assert that Algorithm() stays HS256.
+	t.Setenv("OPENFOUNDRY_JWT_PUBLIC_KEY_PEM", "-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----")
+	t.Setenv("OPENFOUNDRY_JWT_PRIVATE_KEY_PEM", "")
+	t.Setenv("OPENFOUNDRY_JWT_PRIVATE_KEY_PATH", "")
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+	cfg = cfg.WithEnvDefaults()
+	assert.Equal(t, authmw.AlgHS256, cfg.Algorithm())
+}
+
+func isHexDigit(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
+}

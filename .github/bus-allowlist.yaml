@@ -37,10 +37,8 @@
 
 # === current === (active; parsed by tools/bus-lint/check_bus.py)
 services:
-  app-builder-service:
-    - control
-  application-curation-service:
-    - control
+  # S8 / ADR-0030 (C2): app-builder-service retired (legacy); covered by application-composition-service.
+  # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
   audit-compliance-service:
     - control
   connector-management-service:
@@ -51,26 +49,23 @@ services:
     - control
   entity-resolution-service:
     - control
-  event-streaming-service:
-    - control
+  # `event-streaming-service` merged → `ingestion-replication-service`
+  # per ADR-0030 (S8). Streaming control-plane traffic now flows
+  # through the ingestion-replication runtime owner.
   federation-product-exchange-service:
     - control
-  geospatial-intelligence-service:
+  code-repository-review-service:
     - control
-  global-branch-service:
-    - control
+  # S8 / ADR-0030 (B20): geospatial-intelligence-service merged → ontology-exploratory-analysis-service.
   identity-federation-service:
     - control
   ingestion-replication-service:
     - control
   lineage-service:
     - control
-  marketplace-catalog-service:
-    - control
-  marketplace-service:
-    - control
-  nexus-service:
-    - control
+  # S8 / ADR-0030 (B21): marketplace-service and marketplace-catalog-service
+  # merged → federation-product-exchange-service.
+  # S8 / ADR-0030 (C3): nexus-service retired (legacy); covered by tenancy-organizations-service.
   notebook-runtime-service:
     - control
   notification-alerting-service:
@@ -83,20 +78,15 @@ services:
     - control
   ontology-query-service:
     - control
-  pipeline-authoring-service:
-    - control
+  # S8 / ADR-0030: pipeline-authoring-service and pipeline-schedule-service
+  # merged → pipeline-build-service.
   pipeline-build-service:
     - control
-  pipeline-schedule-service:
-    - control
-  product-distribution-service:
-    - control
-  report-service:
-    - control
+  # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
+  # S8 / ADR-0030 (C4): report-service retired (legacy); covered by notebook-runtime-service.
   sql-bi-gateway-service:
     - control
-  virtual-table-service:
-    - control
+  # S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
   workflow-automation-service:
     - control
 

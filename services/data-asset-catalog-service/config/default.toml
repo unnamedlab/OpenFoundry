@@ -1,5 +1,0 @@
-[lakehouse_prefixes]
-bronze = "bronze"
-silver = "silver"
-gold = "gold"
-serving_extracts = "serving/extracts"

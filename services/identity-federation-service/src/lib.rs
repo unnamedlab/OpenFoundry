@@ -36,6 +36,15 @@ pub mod domain;
 pub mod handlers;
 pub mod hardening;
 pub mod models;
+// S8 / ADR-0030 (B16): absorbed namespaces from session-governance-service
+// and oauth-integration-service. Held as library namespaces (dead code
+// until target main wires them). For oauth-integration the map declares
+// a logical split between auth-side (here) and data-side
+// (connector-management-service); the source code is currently
+// co-located here as `oauth_integration::*`, with the data-side
+// extraction queued as a follow-up.
+pub mod oauth_integration;
+pub mod session_governance;
 pub mod sessions_cassandra;
 
 #[derive(Clone)]

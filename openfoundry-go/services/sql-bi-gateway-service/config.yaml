@@ -1,0 +1,20 @@
+service:
+  name: sql-bi-gateway-service
+  version: 0.1.0
+
+server:
+  host: "0.0.0.0"
+  port: 50133            # Flight SQL gRPC primary surface
+  healthz_port: 50134    # HTTP side router
+
+jwt:
+  secret: ""
+
+backends:
+  warehousing_flight_sql_url: ""
+  vespa_flight_sql_url: ""
+  postgres_flight_sql_url: ""
+  trino_flight_sql_url: ""
+
+# Local dev / CI only. Production must keep this false.
+allow_anonymous: false

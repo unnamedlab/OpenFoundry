@@ -1,0 +1,21 @@
+service:
+  name: notebook-runtime-service
+  version: 0.1.0
+
+server:
+  host: "0.0.0.0"
+  port: 50134
+
+jwt:
+  secret: ""
+
+storage:
+  data_dir: "/var/lib/openfoundry/notebooks"
+
+downstream:
+  query_service_url: "http://sql-bi-gateway-service.openfoundry.svc:50133"
+  ai_service_url: "http://ai-orchestrator-service.openfoundry.svc:50127"
+
+telemetry:
+  otlp_endpoint: "localhost:4317"
+  log_format: "plain"

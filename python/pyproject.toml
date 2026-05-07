@@ -1,0 +1,26 @@
+# pyproject for the openfoundry-pyruntime sidecar binary.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openfoundry-pyruntime"
+version = "0.1.0"
+description = "Python sidecar runtime for OpenFoundry Go services (replaces pyo3)."
+requires-python = ">=3.10"
+dependencies = [
+  "grpcio>=1.60",
+  "grpcio-health-checking>=1.60",
+  "protobuf>=4.25",
+]
+
+[project.scripts]
+openfoundry-pyruntime = "openfoundry_pyruntime.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openfoundry_pyruntime*"]
+
+[tool.setuptools.package-data]
+openfoundry_pyruntime = ["_pb/runtime/*.py"]

@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: openfoundry-pyruntime
+Version: 0.1.0
+Summary: Python sidecar runtime for OpenFoundry Go services (replaces pyo3).
+Requires-Python: >=3.10
+Requires-Dist: grpcio>=1.60
+Requires-Dist: grpcio-health-checking>=1.60
+Requires-Dist: protobuf>=4.25

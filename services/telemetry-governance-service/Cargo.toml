@@ -53,6 +53,14 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+# --- Deps absorbed from monitoring-rules + execution-observability per
+# --- ADR-0030 (S8 / B22).
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "telemetry-governance-service"

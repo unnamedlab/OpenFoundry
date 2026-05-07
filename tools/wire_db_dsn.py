@@ -72,7 +72,7 @@ UMBRELLAS = [
 # is in BCS. They won't deploy, but we don't want a noisy half-config.
 SKIP_SERVICES = {
     "lineage-service",
-    "pipeline-schedule-service",
+    # S8 / ADR-0030: pipeline-schedule-service merged → pipeline-build-service.
     "ontology-functions-service",
 }
 

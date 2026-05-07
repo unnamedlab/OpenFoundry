@@ -27,22 +27,8 @@ services:
       DATABASE_READ_URL:
         secretName: agent-runtime-db-dsn
         key: reader_url
-  ai-application-generation-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: ai-application-generation-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: ai-application-generation-db-dsn
-        key: reader_url
-  mcp-orchestration-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: mcp-orchestration-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: mcp-orchestration-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B18): ai-application-generation-service and
+  # mcp-orchestration-service merged → ai-evaluation-service.
   model-adapter-service:
     envSecrets:
       DATABASE_URL:

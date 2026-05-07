@@ -21,16 +21,8 @@ SERVICES = ROOT / "services"
 # (slug, description, port, primary_route, primary_table, primary_columns, secondary_table, secondary_columns)
 # primary_columns/secondary_columns: list of (name, sql_type, rust_type) — first column "id UUID" implicit.
 SERVICES_SPEC = [
-    (
-        "ontology-timeseries-analytics-service",
-        "Dashboards and analytics combining ontology entities with time-series workloads",
-        50132,
-        "/api/v1/ontology-timeseries/dashboards",
-        "ontology_timeseries_dashboards",
-        "definition JSONB NOT NULL DEFAULT '{}'::jsonb, owner_id UUID NOT NULL",
-        "ontology_timeseries_queries",
-        "dashboard_id UUID NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `ontology-timeseries-analytics-service` (was port 50132) merged →
+    # `ontology-exploratory-analysis-service` per ADR-0030 (S8 / B20).
     (
         "sql-bi-gateway-service",
         "SQL and BI gateway: execute, explain, saved queries and BI tool compatibility",
@@ -51,16 +43,9 @@ SERVICES_SPEC = [
         "notebook_runtime_sessions",
         "notebook_id UUID NOT NULL, kernel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'idle'",
     ),
-    (
-        "spreadsheet-computation-service",
-        "Collaborative spreadsheets: formulas, recalculation and writeback",
-        50135,
-        "/api/v1/spreadsheets/sheets",
-        "spreadsheet_sheets",
-        "name TEXT NOT NULL, owner_id UUID NOT NULL, schema JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "spreadsheet_recalcs",
-        "sheet_id UUID NOT NULL, status TEXT NOT NULL DEFAULT 'queued', result JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `spreadsheet-computation-service` (was port 50135, /api/v1/spreadsheets/sheets)
+    # merged → `notebook-runtime-service` per ADR-0030 (S8). Schema
+    # (`spreadsheet_sheets` / `spreadsheet_recalcs`) preserved on `notebook-pg`.
     # S8 / ADR-0030: `analytical-logic-service` was merged into
     # `sql-bi-gateway-service` and reduced to the internal
     # `libs/analytical-logic` crate. It is intentionally absent here so
@@ -85,16 +70,10 @@ SERVICES_SPEC = [
         "automation_queue_runs",
         "queue_id UUID NOT NULL, run_ref TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending'",
     ),
-    (
-        "workflow-trace-service",
-        "Workflow run history, traces, logs and provenance across functions, actions, models and apps",
-        50139,
-        "/api/v1/workflow-traces/runs",
-        "workflow_trace_runs",
-        "workflow_id UUID NOT NULL, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), status TEXT NOT NULL DEFAULT 'running'",
-        "workflow_trace_events",
-        "run_id UUID NOT NULL, kind TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `workflow-trace-service` (was port 50139, /api/v1/workflow-traces/runs)
+    # merged → `lineage-service` per ADR-0030 (S8). The
+    # `workflow_trace_runs` / `workflow_trace_events` schemas were
+    # preserved and now live on the `lineage-pg` cluster.
     (
         "application-composition-service",
         "Composition runtime: views, state, bindings, page layout and event orchestration",
@@ -105,16 +84,8 @@ SERVICES_SPEC = [
         "composition_bindings",
         "view_id UUID NOT NULL, target TEXT NOT NULL, expression JSONB NOT NULL DEFAULT '{}'::jsonb",
     ),
-    (
-        "scenario-simulation-service",
-        "What-if branches, immutable forks and scenario runs over actions and models",
-        50141,
-        "/api/v1/scenarios/simulations",
-        "scenario_simulations",
-        "name TEXT NOT NULL, base_state JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'draft'",
-        "scenario_runs",
-        "simulation_id UUID NOT NULL, status TEXT NOT NULL DEFAULT 'queued', result JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `scenario-simulation-service` (was port 50141) merged →
+    # `ontology-exploratory-analysis-service` per ADR-0030 (S8 / B20).
     (
         "solution-design-service",
         "Architecture knowledge base: diagrams, patterns and platform references",
@@ -125,16 +96,8 @@ SERVICES_SPEC = [
         "solution_references",
         "diagram_id UUID NOT NULL, ref_kind TEXT NOT NULL, ref_value TEXT NOT NULL",
     ),
-    (
-        "developer-console-service",
-        "Developer console for application admin, scopes, subdomains, releases and config",
-        50143,
-        "/api/v1/developer-console/applications",
-        "developer_applications",
-        "name TEXT NOT NULL, subdomain TEXT NOT NULL UNIQUE, scopes JSONB NOT NULL DEFAULT '[]'::jsonb",
-        "developer_releases",
-        "application_id UUID NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft'",
-    ),
+    # `developer-console-service` (was port 50143) merged →
+    # `application-composition-service` per ADR-0030 (S8 / B19).
     (
         "sdk-generation-service",
         "SDK and OpenAPI contract generation, publication and versioning",
@@ -145,36 +108,11 @@ SERVICES_SPEC = [
         "sdk_generation_publications",
         "job_id UUID NOT NULL, location TEXT NOT NULL, version TEXT NOT NULL",
     ),
-    (
-        "managed-workspace-service",
-        "Managed dev workspaces: profiles, dataset aliases, builder branches and context resolution",
-        50145,
-        "/api/v1/managed-workspaces/workspaces",
-        "managed_workspaces",
-        "name TEXT NOT NULL, profile JSONB NOT NULL DEFAULT '{}'::jsonb, owner_id UUID NOT NULL",
-        "managed_workspace_aliases",
-        "workspace_id UUID NOT NULL, alias TEXT NOT NULL, target TEXT NOT NULL",
-    ),
-    (
-        "custom-endpoints-service",
-        "Custom endpoint set publishing, versioning and HTTP remap to actions and functions",
-        50146,
-        "/api/v1/custom-endpoints/sets",
-        "custom_endpoint_sets",
-        "name TEXT NOT NULL, version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft'",
-        "custom_endpoints",
-        "set_id UUID NOT NULL, path TEXT NOT NULL, method TEXT NOT NULL, target JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
-    (
-        "mcp-orchestration-service",
-        "MCP exposure of internal and ontological tools for agents, apps and external consumers",
-        50147,
-        "/api/v1/mcp/servers",
-        "mcp_servers",
-        "name TEXT NOT NULL, transport TEXT NOT NULL, config JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "mcp_tools",
-        "server_id UUID NOT NULL, name TEXT NOT NULL, schema JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ),
+    # `managed-workspace-service` (was port 50145) and `custom-endpoints-service`
+    # (was port 50146) merged → `application-composition-service` per ADR-0030 (S8 / B19).
+    # `mcp-orchestration-service` (was port 50147, /api/v1/mcp/servers)
+    # merged → `ai-evaluation-service` per ADR-0030 (S8 / B18). Schema
+    # (`mcp_servers` / `mcp_tools`) preserved on `pg-ai-eval`.
     (
         "compute-modules-control-plane-service",
         "Compute modules control plane: lifecycle, deployment, replicas, diagnostics and config",
@@ -195,26 +133,9 @@ SERVICES_SPEC = [
         "compute_module_metrics",
         "run_id UUID NOT NULL, kind TEXT NOT NULL, value DOUBLE PRECISION NOT NULL",
     ),
-    (
-        "monitoring-rules-service",
-        "Monitoring rules engine: monitors, scopes, severities and subscribers at scale",
-        50150,
-        "/api/v1/monitoring/rules",
-        "monitoring_rules",
-        "name TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info', scope JSONB NOT NULL DEFAULT '{}'::jsonb, definition JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "monitoring_subscribers",
-        "rule_id UUID NOT NULL, channel TEXT NOT NULL, target TEXT NOT NULL",
-    ),
-    (
-        "execution-observability-service",
-        "Run history, log search, distributed tracing and execution debug",
-        50152,
-        "/api/v1/execution-observability/runs",
-        "execution_runs",
-        "source TEXT NOT NULL, run_ref TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running', metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "execution_logs",
-        "run_id UUID NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL, ts TIMESTAMPTZ NOT NULL DEFAULT now()",
-    ),
+    # `monitoring-rules-service` (was port 50150, /api/v1/monitoring/rules) and
+    # `execution-observability-service` (was port 50152, /api/v1/execution-observability/runs)
+    # merged → `telemetry-governance-service` per ADR-0030 (S8 / B22).
     (
         "telemetry-governance-service",
         "Telemetry permissions, log/metric/event export and governance policies",
@@ -225,16 +146,8 @@ SERVICES_SPEC = [
         "telemetry_policies",
         "export_id UUID NOT NULL, kind TEXT NOT NULL, body JSONB NOT NULL DEFAULT '{}'::jsonb",
     ),
-    (
-        "code-security-scanning-service",
-        "Static security analysis, code smells and CI quality policy enforcement",
-        50154,
-        "/api/v1/code-security/scans",
-        "code_security_scans",
-        "repository TEXT NOT NULL, ref TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', summary JSONB NOT NULL DEFAULT '{}'::jsonb",
-        "code_security_findings",
-        "scan_id UUID NOT NULL, severity TEXT NOT NULL, rule TEXT NOT NULL, location TEXT NOT NULL, message TEXT NOT NULL",
-    ),
+    # `code-security-scanning-service` (was port 50154, /api/v1/code-security/scans)
+    # merged → `code-repository-review-service` per ADR-0030 (S8).
 ]
 
 

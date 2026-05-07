@@ -272,28 +272,10 @@ services:
   # ontology-actions-service per ADR-0030 + service-consolidation-map.md
   # (S8.1, ontology plane). The actions service is now the sole runtime
   # owner of the funnel, function and rule HTTP surfaces.
-  ontology-timeseries-analytics-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B20) — `ontology-timeseries-analytics-service` merged →
+  # `ontology-exploratory-analysis-service`. No Deployment renders here.
 
-  knowledge-index-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # ── S8 / ADR-0030 — knowledge-index-service merged into
+  # retrieval-context-service (Helm release `of-ml-aip`). It does not
+  # belong to the ontology plane; this release no longer renders a
+  # Deployment for it. ──

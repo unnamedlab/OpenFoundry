@@ -1,0 +1,2 @@
+[console_scripts]
+openfoundry-pyruntime = openfoundry_pyruntime.server:main

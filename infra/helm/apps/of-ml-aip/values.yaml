@@ -217,93 +217,24 @@ services:
   # `ml-experiments-service` were merged into `model-catalog-service`
   # (S8 consolidation, ADR-0030); they no longer ship as standalone
   # Deployments.
-  model-serving-service:
-    replicas: 3
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: "2"
-        memory: 4Gi
+  # S8 / ADR-0030 — `model-serving-service`, `model-evaluation-service`
+  # and `model-inference-history-service` merged →
+  # `model-deployment-service`. All three were substrate-only shims
+  # over `libs/ml-kernel`; the `/api/v1/ml/{deployments/{id}/predict,
+  # deployments/{id}/drift, batch-predictions}` HTTP surfaces now hit
+  # `model-deployment-service`.
 
-  model-evaluation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B18) — `ai-application-generation-service` and
+  # `mcp-orchestration-service` merged → `ai-evaluation-service`. Both
+  # sources were `tools/scaffold_p59_p85.py` placeholders (`fn main() {}`
+  # stubs, generic CRUD); the schemas (`app_generation_*`, `mcp_servers`,
+  # `mcp_tools`) are preserved on the consolidated `pg-ai-eval` cluster.
 
-  model-inference-history-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `conversation-state-service` merged →
+  # `agent-runtime-service`. The source was a substrate-only shim
+  # over `libs/ai-kernel`; agent-runtime-service is the runtime owner.
 
-  ai-application-generation-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
-
-  conversation-state-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  mcp-orchestration-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
-
-  prompt-workflow-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `prompt-workflow-service` merged →
+  # `agent-runtime-service`. The source was a substrate-only shim
+  # over `libs/ai-kernel` (plus a producer-specific `ai_events.rs`
+  # mirror that has been retired in favour of agent-runtime's own).

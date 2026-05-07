@@ -28,6 +28,7 @@ pub mod cdc;
 pub mod cdc_metadata;
 pub mod control_plane;
 pub mod crds;
+pub mod event_streaming;
 pub mod grpc_service;
 pub mod reconcile;
 pub mod repository;

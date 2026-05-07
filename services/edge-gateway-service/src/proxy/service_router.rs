@@ -35,7 +35,10 @@ pub async fn proxy_handler(
         || path.starts_with("/api/v1/oauth/clients")
         || path.starts_with("/api/v1/external-integrations")
     {
-        &config.oauth_integration_service_url
+        // S8 / ADR-0030 (B16): oauth-integration-service merged →
+        // identity-federation-service (auth-side; data-side extraction
+        // to connector-management-service is a follow-up).
+        &config.identity_federation_service_url
     } else if path.starts_with("/api/v1/auth/register")
         || path.starts_with("/api/v1/auth/login")
         || path.starts_with("/api/v1/auth/refresh")
@@ -50,7 +53,8 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/control-panel")
         || path.starts_with("/api/v2/admin/control-panel")
     {
-        &config.session_governance_service_url
+        // S8 / ADR-0030 (B16): session-governance-service merged → identity-federation-service.
+        &config.identity_federation_service_url
     } else if path.starts_with("/api/v1/users/")
         && (path.contains("/roles") || path.contains("/groups"))
     {
@@ -98,9 +102,11 @@ pub async fn proxy_handler(
         || path.ends_with("/applicable-policies")
         || path.ends_with("/retention-preview")
     {
-        &config.retention_policy_service_url
+        // S8 / ADR-0030 (B15): retention-policy-service merged → audit-compliance-service.
+        &config.audit_compliance_service_url
     } else if path.starts_with("/api/v1/lineage-deletions") || path == "/api/v1/audit/gdpr/erase" {
-        &config.lineage_deletion_service_url
+        // S8 / ADR-0030 (B15): lineage-deletion-service merged → audit-compliance-service.
+        &config.audit_compliance_service_url
     } else if path == "/api/v1/audit/overview"
         || path == "/api/v1/audit/events"
         || path.starts_with("/api/v1/audit/events/")
@@ -137,7 +143,8 @@ pub async fn proxy_handler(
             || path.contains("/registrations")
             || path.ends_with("/virtual-tables/query"))
     {
-        &config.virtual_table_service_url
+        // S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
+        &config.connector_management_service_url
     } else if path.starts_with("/api/v1/connections/") && path.contains("/hyperauto/") {
         &config.connector_management_service_url
     } else if path.starts_with("/api/v1/connectors/catalog")
@@ -147,7 +154,8 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/datasets/")
         && (path.ends_with("/quality") || path.contains("/quality/") || path.ends_with("/lint"))
     {
-        &config.dataset_quality_service_url
+        // S8 / ADR-0030: dataset-quality-service merged → dataset-versioning-service.
+        &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/iceberg-tables")
         || path.starts_with("/iceberg/v1/")
         || path == "/iceberg/v1"
@@ -192,17 +200,20 @@ pub async fn proxy_handler(
     {
         &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/datasets") || path.starts_with("/api/v2/filesystem") {
-        &config.data_asset_catalog_service_url
+        // S8 / ADR-0030: data-asset-catalog-service merged → dataset-versioning-service.
+        &config.dataset_versioning_service_url
     } else if path.starts_with("/api/v1/queries") {
         &config.query_service_url
     } else if path.starts_with("/api/v1/pipelines/triggers/cron/") {
-        &config.pipeline_schedule_service_url
+        // S8 / ADR-0030: pipeline-schedule-service merged → pipeline-build-service.
+        &config.pipeline_build_service_url
     } else if path.starts_with("/api/v1/pipelines/")
         && (path.ends_with("/run") || path.contains("/runs/") || path.ends_with("/runs"))
     {
         &config.pipeline_build_service_url
     } else if path.starts_with("/api/v1/pipelines") {
-        &config.pipeline_authoring_service_url
+        // S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
+        &config.pipeline_build_service_url
     } else if path.starts_with("/api/v1/lineage") {
         &config.lineage_service_url
     } else if path.starts_with("/api/v1/ontology/functions")
@@ -249,7 +260,11 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/notebooks") {
         &config.notebook_service_url
     } else if path.starts_with("/api/v1/notepad") {
-        &config.document_reporting_service_url
+        // S8 / ADR-0030: document-reporting-service merged →
+        // notebook-runtime-service. Notepad routes now hit the notebook
+        // runtime; the legacy `document_reporting_service_url` config is
+        // kept for backwards compat with deployed values files.
+        &config.notebook_service_url
     } else if path.starts_with("/api/v1/notifications") {
         &config.notification_service_url
     } else if path.starts_with("/api/v1/ml/experiments") || path.starts_with("/api/v1/ml/runs") {
@@ -259,11 +274,14 @@ pub async fn proxy_handler(
     {
         &config.model_catalog_service_url
     } else if path.starts_with("/api/v1/ml/deployments/") && path.ends_with("/drift") {
-        &config.model_evaluation_service_url
+        // S8 / ADR-0030: model-evaluation-service merged → model-deployment-service.
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml/deployments/") && path.ends_with("/predict") {
-        &config.model_serving_service_url
+        // S8 / ADR-0030: model-serving-service merged → model-deployment-service.
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml/batch-predictions") {
-        &config.model_inference_history_service_url
+        // S8 / ADR-0030: model-inference-history-service merged → model-deployment-service.
+        &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml/deployments") {
         &config.model_deployment_service_url
     } else if path.starts_with("/api/v1/ml") {
@@ -293,6 +311,11 @@ pub async fn proxy_handler(
     } else if path.starts_with("/api/v1/reports") {
         &config.report_service_url
     } else if path.starts_with("/api/v1/geospatial") {
+        // S8 / ADR-0030 (B20): geospatial-intelligence-service merged →
+        // ontology-exploratory-analysis-service. The
+        // `geospatial_intelligence_service_url` config field is
+        // retained for backwards compat; in production it points at
+        // the consolidated owner.
         &config.geospatial_intelligence_service_url
     } else if path.starts_with("/api/v1/code-repos/repositories/") && path.ends_with("/branches") {
         &config.global_branch_service_url
@@ -305,11 +328,14 @@ pub async fn proxy_handler(
     {
         &config.federation_product_exchange_service_url
     } else if path.starts_with("/api/v1/marketplace/devops") {
-        &config.product_distribution_service_url
+        // S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
+        &config.federation_product_exchange_service_url
     } else if path.starts_with("/api/v1/marketplace") {
-        &config.marketplace_catalog_service_url
+        // S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
+        &config.federation_product_exchange_service_url
     } else if path.starts_with("/api/v1/audit/sds") {
-        &config.sds_service_url
+        // S8 / ADR-0030 (B15): sds-service merged → audit-compliance-service.
+        &config.audit_compliance_service_url
     } else if path.starts_with("/api/v1/audit") {
         &config.audit_compliance_service_url
     } else if path.starts_with("/api/v1/widgets") {
@@ -321,7 +347,8 @@ pub async fn proxy_handler(
         || (path.starts_with("/api/v1/apps/") && path.ends_with("/versions"))
         || (path.starts_with("/api/v1/apps/") && path.ends_with("/publish"))
     {
-        &config.application_curation_service_url
+        // S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
+        &config.application_composition_service_url
     } else if path.starts_with("/api/v1/apps") {
         &config.app_builder_service_url
     } else {

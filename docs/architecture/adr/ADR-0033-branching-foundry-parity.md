@@ -192,7 +192,7 @@ Section-by-section status against the canonical Foundry docs.
 |-----------|--------|----------|
 | Cross-plane workstream label. | ✅ | `global_branches` table |
 | Per-resource link with status. | ✅ | `global_branch_resource_links` |
-| Auto-link via `global_branch=<rid>` event label. | ✅ | [PostgresSubscriber](../../services/global-branch-service/src/global/subscriber.rs) |
+| Auto-link via `global_branch=<rid>` event label. | ✅ | [PostgresSubscriber](../../services/code-repository-review-service/src/global_branch/subscriber.rs) (S8: absorbed from retired `global-branch-service`) |
 | Promote emits cross-plane request. | ✅ | `POST /global-branches/{id}/promote` |
 | Workshop rebase / conflict resolver UI. | 🟡 | Partial (BranchCompare surfaces conflicts; rebase-merge UX deferred) |
 

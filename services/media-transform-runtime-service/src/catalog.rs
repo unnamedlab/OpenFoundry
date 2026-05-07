@@ -87,7 +87,7 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry { key: "vlm_extract",                status: HandlerStatus::NotImplemented { reason: "VLM extraction depends on libs/ai-kernel which is not yet wired." } },
 
     // ── Spreadsheet ───────────────────────────────────────────────
-    CatalogEntry { key: "render_sheet",               status: HandlerStatus::NotImplemented { reason: "Spreadsheet rendering depends on services/spreadsheet-computation-service which is not yet wired into the runtime." } },
+    CatalogEntry { key: "render_sheet",               status: HandlerStatus::NotImplemented { reason: "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired." } },
 ];
 
 /// Lookup the implementation status of a key. Returns `None` if the

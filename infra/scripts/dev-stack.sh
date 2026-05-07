@@ -14,17 +14,11 @@ SERVICES=(
   connector-management-service
   data-asset-catalog-service
   sql-bi-gateway-service
-  pipeline-authoring-service
   ontology-definition-service
   model-catalog-service
   agent-runtime-service
   workflow-automation-service
   notebook-runtime-service
-  document-reporting-service
-  app-builder-service
-  report-service
-  marketplace-service
-  nexus-service
   notification-alerting-service
   gateway
 )

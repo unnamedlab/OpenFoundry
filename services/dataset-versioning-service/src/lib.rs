@@ -28,6 +28,8 @@ use storage_abstraction::backing_fs::BackingFileSystem;
 pub use crate::storage::DatasetWriter;
 
 pub mod config;
+pub mod data_asset_catalog;
+pub mod dataset_quality;
 pub mod domain;
 pub mod handlers;
 pub mod metrics;

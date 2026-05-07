@@ -35,14 +35,9 @@ residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/agent-runtime-service/src/handlers.rs"], tables = ["agent_definitions", "agent_run_steps", "agent_runs"] }
 tables = ["ai_providers", "ai_prompt_templates", "ai_knowledge_bases", "ai_knowledge_documents", "ai_tools", "ai_agents", "ai_conversations", "ai_semantic_cache", "ai_llm_usage_events", "agent_definitions", "agent_runs", "agent_run_steps"]
 
-[[entries]]
-component = "services/ai-application-generation-service"
-service = "ai-application-generation-service"
-migration_dir = "services/ai-application-generation-service/migrations"
-schema = "ai_application_generation"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/ai-application-generation-service/src/handlers.rs"], tables = ["app_generation_events", "app_generation_seeds", "app_generation_sessions"] }
-tables = ["app_generation_seeds", "app_generation_sessions", "app_generation_events"]
+# S8 / ADR-0030 (B18): ai-application-generation-service merged →
+# ai-evaluation-service. Schemas absorbed; `pg-schemas` residency
+# preserved.
 
 [[entries]]
 component = "services/analytical-logic-service"
@@ -53,14 +48,8 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/analytical-logic-service/src/handlers.rs"], tables = ["analytical_expression_versions", "analytical_expressions"] }
 tables = ["analytical_expressions", "analytical_expression_versions"]
 
-[[entries]]
-component = "services/app-builder-service"
-service = "app-builder-service"
-migration_dir = "services/app-builder-service/migrations"
-schema = "app_builder"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/app-builder-service/src/handlers/apps.rs", "services/app-builder-service/src/handlers/mod.rs", "services/app-builder-service/src/handlers/publish.rs"], tables = ["app_templates", "app_versions", "apps"] }
-tables = ["apps", "app_versions", "app_templates"]
+# S8 / ADR-0030 (C2): app-builder-service retired (legacy); domain
+# covered by application-composition-service. Schema absorbed.
 
 [[entries]]
 component = "services/application-composition-service"
@@ -98,40 +87,39 @@ residency = "cdc-metadata-pg"
 allow_new_sqlx = { files = ["services/ingestion-replication-service/src/cdc_metadata/schema_registry.rs"], tables = ["schema_compatibility_audit", "schema_references", "schema_subjects", "schema_versions"] }
 tables = ["cdc_streams", "cdc_incremental_checkpoints", "cdc_resolution_state", "schema_subjects", "schema_versions", "schema_references", "schema_compatibility_audit"]
 
-[[entries]]
-component = "services/checkpoints-purpose-service"
-service = "checkpoints-purpose-service"
-migration_dir = "services/checkpoints-purpose-service/migrations"
-schema = "checkpoints_purpose"
-residency = "pg-policy"
-tables = ["checkpoint_policies", "sensitive_interaction_configs", "purpose_templates", "purpose_records"]
+# S8 / ADR-0030 (B14): checkpoints-purpose-service and cipher-service
+# merged → authorization-policy-service. The schemas now live under
+# the consolidated authorization-policy entry; `pg-policy` residency
+# preserved.
 
-[[entries]]
-component = "services/cipher-service"
-service = "cipher-service"
-migration_dir = "services/cipher-service/migrations"
-schema = "cipher"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/cipher-service/src/handlers/cipher.rs"], tables = ["cipher_channels", "cipher_licenses", "cipher_permissions"] }
-tables = ["cipher_permissions", "cipher_channels", "cipher_licenses"]
-
+# S8 / ADR-0030 — `global-branch-service` and `code-security-scanning-service`
+# merged → `code-repository-review-service`. The `code_security_scanning`
+# schema moved from `pg-policy` to `pg-schemas` so the merged service has
+# a single DSN; `global_branches` / `global_branch_resource_links` join the
+# same schema.
 [[entries]]
 component = "services/code-repository-review-service"
 service = "code-repository-review-service"
 migration_dir = "services/code-repository-review-service/migrations"
 schema = "code_repository_review"
 residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/code-repository-review-service/src/handlers.rs"], tables = ["ci_runs", "commits", "merge_requests", "repositories", "review_comments"] }
-tables = ["repositories", "commits", "merge_requests", "review_comments", "ci_runs"]
-
-[[entries]]
-component = "services/code-security-scanning-service"
-service = "code-security-scanning-service"
-migration_dir = "services/code-security-scanning-service/migrations"
-schema = "code_security_scanning"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/code-security-scanning-service/src/handlers.rs"], tables = ["code_security_findings", "code_security_scans"] }
-tables = ["code_security_scans", "code_security_findings"]
+allow_new_sqlx = { files = [
+    "services/code-repository-review-service/src/global_branch/store.rs",
+    "services/code-repository-review-service/src/global_branch/handlers.rs",
+    "services/code-repository-review-service/src/global_branch/subscriber.rs",
+    "services/code-repository-review-service/tests/promote_emits_request_event.rs",
+    "services/code-repository-review-service/tests/subscribes_and_links_branch_with_label.rs",
+], tables = [
+    "ci_runs", "commits", "merge_requests", "repositories", "review_comments",
+    "code_security_findings", "code_security_scans",
+    "global_branches", "global_branch_resource_links",
+    "outbox.events",
+] }
+tables = [
+    "repositories", "commits", "merge_requests", "review_comments", "ci_runs",
+    "code_security_scans", "code_security_findings",
+    "global_branches", "global_branch_resource_links",
+]
 
 [[entries]]
 component = "services/compute-modules-control-plane-service"
@@ -160,24 +148,14 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/connector-management-service/src/domain/agent_registry.rs", "services/connector-management-service/src/domain/auto_registration.rs", "services/connector-management-service/src/domain/dataset_versioning.rs", "services/connector-management-service/src/domain/sync_engine.rs", "services/connector-management-service/src/domain/update_detection.rs", "services/connector-management-service/src/handlers/catalog.rs", "services/connector-management-service/src/handlers/connections.rs", "services/connector-management-service/src/handlers/data_connection.rs", "services/connector-management-service/src/handlers/hyperauto.rs", "services/connector-management-service/src/handlers/iceberg_catalog.rs", "services/connector-management-service/src/handlers/registrations.rs"], tables = ["connection_registrations", "connections", "connector_agents", "source_policy_bindings", "sync_jobs", "sync_runs"] }
 tables = ["connections", "sync_jobs", "connector_agents", "connection_registrations", "source_credentials", "source_policy_bindings", "batch_sync_defs", "sync_runs"]
 
-[[entries]]
-component = "services/custom-endpoints-service"
-service = "custom-endpoints-service"
-migration_dir = "services/custom-endpoints-service/migrations"
-schema = "custom_endpoints"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/custom-endpoints-service/src/handlers.rs"], tables = ["custom_endpoint_sets", "custom_endpoints"] }
-tables = ["custom_endpoint_sets", "custom_endpoints"]
+# S8 / ADR-0030 (B19): custom-endpoints-service merged →
+# application-composition-service. Schema absorbed.
 
-[[entries]]
-component = "services/data-asset-catalog-service"
-service = "data-asset-catalog-service"
-migration_dir = "services/data-asset-catalog-service/migrations"
-schema = "data_asset_catalog"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/data-asset-catalog-service/src/domain/catalog.rs", "services/data-asset-catalog-service/src/domain/markings.rs", "services/data-asset-catalog-service/src/domain/runtime.rs", "services/data-asset-catalog-service/src/handlers/crud.rs", "services/data-asset-catalog-service/src/handlers/export.rs", "services/data-asset-catalog-service/src/handlers/internal.rs", "services/data-asset-catalog-service/src/handlers/preview.rs", "services/data-asset-catalog-service/src/handlers/views.rs"], tables = ["dataset_branches", "dataset_markings", "dataset_schemas", "dataset_versions", "dataset_views", "datasets"] }
-legacy_archive_tables = ["dataset_transactions"]
-tables = ["datasets", "dataset_schemas", "dataset_versions", "dataset_profiles", "dataset_quality_rules", "dataset_quality_history", "dataset_quality_alerts", "dataset_branches", "dataset_views", "dataset_transactions", "dataset_markings"]
+# S8 / ADR-0030: `data-asset-catalog-service` and `dataset-quality-service`
+# merged → `dataset-versioning-service`. The catalog and quality
+# tables are now owned by `dataset-versioning-service`; the existing
+# entry below for `dataset-versioning-service` covers the residency
+# contract.
 
 [[entries]]
 component = "services/dataset-versioning-service"
@@ -189,50 +167,51 @@ allow_new_sqlx = { files = ["services/dataset-versioning-service/src/handlers/br
 legacy_archive_tables = ["dataset_transactions"]
 tables = ["datasets", "dataset_branches", "dataset_versions", "dataset_transactions", "dataset_views", "dataset_view_files", "dataset_transaction_files", "dataset_branch_fallbacks"]
 
-[[entries]]
-component = "services/developer-console-service"
-service = "developer-console-service"
-migration_dir = "services/developer-console-service/migrations"
-schema = "developer_console"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/developer-console-service/src/handlers.rs"], tables = ["developer_applications", "developer_releases"] }
-tables = ["developer_applications", "developer_releases"]
+# S8 / ADR-0030 (B19): developer-console-service merged →
+# application-composition-service. Schema absorbed.
 
+# S8 / ADR-0030: document-intelligence-service merged into
+# retrieval-context-service. Tables stay in `pg-schemas`; the
+# `document_intelligence` schema is now owned by retrieval-context-service.
 [[entries]]
-component = "services/document-intelligence-service"
-service = "document-intelligence-service"
-migration_dir = "services/document-intelligence-service/migrations"
+component = "services/retrieval-context-service"
+service = "retrieval-context-service"
+migration_dir = "services/retrieval-context-service/migrations"
 schema = "document_intelligence"
 residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/document-intelligence-service/src/handlers.rs"], tables = ["document_intelligence_extractions", "document_intelligence_jobs", "document_intelligence_status_events"] }
+allow_new_sqlx = { files = ["services/retrieval-context-service/src/document_intelligence/handlers.rs"], tables = ["document_intelligence_extractions", "document_intelligence_jobs", "document_intelligence_status_events"] }
 tables = ["document_intelligence_jobs", "document_intelligence_status_events", "document_intelligence_extractions"]
 
+# S8 / ADR-0030: `document-reporting-service` merged →
+# `notebook-runtime-service`. The notepad schema lives under
+# `services/notebook-runtime-service/migrations/` and the runtime
+# owner is `notebook-runtime-service`.
 [[entries]]
-component = "services/document-reporting-service"
-service = "document-reporting-service"
-migration_dir = "services/document-reporting-service/migrations"
-schema = "document_reporting"
+component = "services/notebook-runtime-service"
+service = "notebook-runtime-service"
+migration_dir = "services/notebook-runtime-service/migrations"
+schema = "notepad"
 residency = "pg-schemas"
 tables = ["notepad_documents", "notepad_presence"]
 
+# S8 / ADR-0030: `event-streaming-service` merged →
+# `ingestion-replication-service`. Streaming schemas now live under
+# `services/ingestion-replication-service/migrations/streaming/` and
+# the runtime owner is `ingestion-replication-service`. The
+# `pg-schemas` residency and `event_streaming` schema name are
+# preserved.
 [[entries]]
-component = "services/event-streaming-service"
-service = "event-streaming-service"
-migration_dir = "services/event-streaming-service/migrations"
+component = "services/ingestion-replication-service"
+service = "ingestion-replication-service"
+migration_dir = "services/ingestion-replication-service/migrations/streaming"
 schema = "event_streaming"
 residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/event-streaming-service/src/domain/archiver.rs", "services/event-streaming-service/src/domain/checkpoints.rs", "services/event-streaming-service/src/domain/engine/processor.rs", "services/event-streaming-service/src/handlers/branches.rs", "services/event-streaming-service/src/handlers/checkpoints.rs", "services/event-streaming-service/src/handlers/flink.rs", "services/event-streaming-service/src/handlers/schemas.rs", "services/event-streaming-service/src/handlers/streams.rs", "services/event-streaming-service/src/handlers/topologies.rs", "services/event-streaming-service/src/runtime/flink/deployer.rs", "services/event-streaming-service/src/runtime/flink/metrics_poller.rs"], tables = ["streaming_dead_letters", "streaming_lineage_edges", "streaming_stream_branches", "streaming_stream_schema_history", "streaming_streams", "streaming_topologies", "streaming_topology_runs", "streaming_windows"] }
+allow_new_sqlx = { files = ["services/ingestion-replication-service/src/event_streaming/domain/archiver.rs", "services/ingestion-replication-service/src/event_streaming/domain/checkpoints.rs", "services/ingestion-replication-service/src/event_streaming/domain/engine/processor.rs", "services/ingestion-replication-service/src/event_streaming/handlers/branches.rs", "services/ingestion-replication-service/src/event_streaming/handlers/checkpoints.rs", "services/ingestion-replication-service/src/event_streaming/handlers/flink.rs", "services/ingestion-replication-service/src/event_streaming/handlers/schemas.rs", "services/ingestion-replication-service/src/event_streaming/handlers/streams.rs", "services/ingestion-replication-service/src/event_streaming/handlers/topologies.rs", "services/ingestion-replication-service/src/event_streaming/runtime/flink/deployer.rs", "services/ingestion-replication-service/src/event_streaming/runtime/flink/metrics_poller.rs"], tables = ["streaming_dead_letters", "streaming_lineage_edges", "streaming_stream_branches", "streaming_stream_schema_history", "streaming_streams", "streaming_topologies", "streaming_topology_runs", "streaming_windows"] }
 legacy_archive_tables = ["streaming_events"]
 tables = ["streaming_streams", "streaming_windows", "streaming_topologies", "streaming_topology_runs", "streaming_events", "streaming_checkpoints", "streaming_lineage_edges", "streaming_dead_letters", "streaming_cold_archives", "streaming_topology_checkpoints", "streaming_stream_branches", "streaming_stream_schema_history"]
 
-[[entries]]
-component = "services/execution-observability-service"
-service = "execution-observability-service"
-migration_dir = "services/execution-observability-service/migrations"
-schema = "execution_observability"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/execution-observability-service/src/handlers.rs"], tables = ["execution_logs", "execution_runs"] }
-tables = ["execution_runs", "execution_logs"]
+# S8 / ADR-0030 (B22): execution-observability-service merged →
+# telemetry-governance-service. Schema absorbed.
 
 [[entries]]
 component = "services/federation-product-exchange-service"
@@ -261,14 +240,9 @@ schema = "ingestion_replication"
 residency = "pg-schemas"
 tables = ["ingest_jobs", "ingestion_checkpoints"]
 
-[[entries]]
-component = "services/lineage-deletion-service"
-service = "lineage-deletion-service"
-migration_dir = "services/lineage-deletion-service/migrations"
-schema = "lineage_deletion"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/lineage-deletion-service/src/domain/deletion.rs", "services/lineage-deletion-service/src/handlers/deletion.rs"], tables = ["lineage_deletion_requests"] }
-tables = ["lineage_deletion_requests"]
+# S8 / ADR-0030 (B15): lineage-deletion-service merged →
+# audit-compliance-service. Schema absorbed; `pg-policy` residency
+# preserved.
 
 [[entries]]
 component = "services/lineage-service"
@@ -279,32 +253,15 @@ residency = "pg-schemas"
 legacy_archive_tables = ["lineage_nodes"]
 tables = ["lineage_nodes", "lineage_relations"]
 
-[[entries]]
-component = "services/managed-workspace-service"
-service = "managed-workspace-service"
-migration_dir = "services/managed-workspace-service/migrations"
-schema = "managed_workspace"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/managed-workspace-service/src/handlers.rs"], tables = ["managed_workspace_aliases", "managed_workspaces"] }
-tables = ["managed_workspaces", "managed_workspace_aliases"]
+# S8 / ADR-0030 (B19): managed-workspace-service merged →
+# application-composition-service. Schema absorbed.
 
-[[entries]]
-component = "services/marketplace-service"
-service = "marketplace-service"
-migration_dir = "services/marketplace-service/migrations"
-schema = "marketplace"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/marketplace-service/src/handlers/devops.rs", "services/marketplace-service/src/handlers/install.rs", "services/marketplace-service/src/handlers/mod.rs", "services/marketplace-service/src/handlers/publish.rs", "services/marketplace-service/src/handlers/reviews.rs"], tables = ["marketplace_enrollment_branches", "marketplace_fleet_promotion_gates", "marketplace_installs", "marketplace_listings", "marketplace_package_versions", "marketplace_product_fleets", "marketplace_reviews"] }
-tables = ["marketplace_listings", "marketplace_package_versions", "marketplace_reviews", "marketplace_installs", "marketplace_product_fleets", "marketplace_enrollment_branches", "marketplace_fleet_promotion_gates"]
+# S8 / ADR-0030 (B21): marketplace-service merged →
+# federation-product-exchange-service. Schemas absorbed.
 
-[[entries]]
-component = "services/mcp-orchestration-service"
-service = "mcp-orchestration-service"
-migration_dir = "services/mcp-orchestration-service/migrations"
-schema = "mcp_orchestration"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/mcp-orchestration-service/src/handlers.rs"], tables = ["mcp_servers", "mcp_tools"] }
-tables = ["mcp_servers", "mcp_tools"]
+# S8 / ADR-0030 (B18): mcp-orchestration-service merged →
+# ai-evaluation-service. Schemas absorbed; `pg-schemas` residency
+# preserved.
 
 [[entries]]
 component = "services/model-catalog-service"
@@ -323,32 +280,16 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/model-catalog-service/src/handlers/adapter.rs", "services/model-catalog-service/src/handlers/lifecycle.rs"], tables = ["inference_contracts", "model_adapters", "model_lifecycle_events", "model_submissions", "modeling_objectives"] }
 tables = ["ml_experiments", "ml_runs", "ml_models", "ml_model_versions", "ml_features", "ml_training_jobs", "ml_deployments", "ml_batch_predictions", "model_adapters", "inference_contracts", "modeling_objectives", "model_submissions", "model_lifecycle_events"]
 
-[[entries]]
-component = "services/monitoring-rules-service"
-service = "monitoring-rules-service"
-migration_dir = "services/monitoring-rules-service/migrations"
-schema = "monitoring_rules"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/monitoring-rules-service/src/handlers.rs"], tables = ["monitoring_rules", "monitoring_subscribers"] }
-tables = ["monitoring_rules", "monitoring_subscribers"]
+# S8 / ADR-0030 (B22): monitoring-rules-service merged →
+# telemetry-governance-service. Schema absorbed.
 
-[[entries]]
-component = "services/network-boundary-service"
-service = "network-boundary-service"
-migration_dir = "services/network-boundary-service/migrations"
-schema = "network_boundary"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/network-boundary-service/src/domain/boundary.rs"], tables = ["network_boundary_policies", "network_private_links", "network_proxy_definitions"] }
-tables = ["network_boundary_policies", "network_private_links", "network_proxy_definitions"]
+# S8 / ADR-0030 (B14): network-boundary-service merged →
+# authorization-policy-service. Schema absorbed; `pg-policy`
+# residency preserved.
 
-[[entries]]
-component = "services/nexus-service"
-service = "nexus-service"
-migration_dir = "services/nexus-service/migrations"
-schema = "nexus"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/nexus-service/src/handlers/contracts.rs", "services/nexus-service/src/handlers/mod.rs", "services/nexus-service/src/handlers/peers.rs", "services/nexus-service/src/handlers/shares.rs", "services/nexus-service/src/handlers/spaces.rs"], tables = ["nexus_access_grants", "nexus_contracts", "nexus_peers", "nexus_shares", "nexus_spaces", "nexus_sync_statuses"] }
-tables = ["nexus_peers", "nexus_contracts", "nexus_shares", "nexus_access_grants", "nexus_sync_statuses", "nexus_spaces"]
+# S8 / ADR-0030 (C3): nexus-service retired (legacy); domain
+# covered by tenancy-organizations-service +
+# federation-product-exchange-service. Schemas absorbed.
 
 [[entries]]
 component = "services/notebook-runtime-service"
@@ -368,14 +309,10 @@ residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/notification-alerting-service/src/handlers/history.rs", "services/notification-alerting-service/src/handlers/send.rs"], tables = ["notification_deliveries", "notification_preferences", "notifications"] }
 tables = ["notifications", "notification_deliveries", "notification_preferences"]
 
-[[entries]]
-component = "services/oauth-integration-service"
-service = "oauth-integration-service"
-migration_dir = "services/oauth-integration-service/migrations"
-schema = "oauth_integration"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/oauth-integration-service/src/handlers/applications.rs", "services/oauth-integration-service/src/handlers/external_integrations.rs", "services/oauth-integration-service/src/handlers/oauth_clients.rs"], tables = ["oauth_application_credentials", "oauth_external_integrations", "oauth_inbound_clients", "oauth_registered_applications"] }
-tables = ["oauth_registered_applications", "oauth_application_credentials", "oauth_inbound_clients", "oauth_external_integrations"]
+# S8 / ADR-0030 (B16): oauth-integration-service merged →
+# identity-federation-service (auth-side; data-side extraction
+# to connector-management-service is a follow-up). Schemas absorbed
+# under the consolidated identity-federation entry.
 
 [[entries]]
 component = "services/pipeline-authoring-service"
@@ -387,32 +324,15 @@ allow_new_sqlx = { files = ["services/pipeline-authoring-service/src/domain/exec
 legacy_archive_tables = ["lineage_nodes"]
 tables = ["pipelines", "pipeline_runs", "lineage_edges", "column_lineage_edges", "lineage_nodes", "lineage_relations"]
 
-[[entries]]
-component = "services/report-service"
-service = "report-service"
-migration_dir = "services/report-service/migrations"
-schema = "report"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/report-service/src/handlers/crud.rs", "services/report-service/src/handlers/generate.rs", "services/report-service/src/handlers/mod.rs"], tables = ["report_definitions", "report_executions"] }
-tables = ["report_definitions", "report_executions"]
+# S8 / ADR-0030 (C4): report-service retired (legacy); domain
+# covered by notebook-runtime-service. Schema absorbed.
 
-[[entries]]
-component = "services/retention-policy-service"
-service = "retention-policy-service"
-migration_dir = "services/retention-policy-service/migrations"
-schema = "retention_policy"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/retention-policy-service/src/domain/retention.rs", "services/retention-policy-service/src/handlers/retention.rs"], tables = ["retention_jobs", "retention_policies"] }
-tables = ["retention_policies", "retention_jobs"]
+# S8 / ADR-0030 (B15): retention-policy-service merged →
+# audit-compliance-service. Schema absorbed; `pg-policy` residency
+# preserved.
 
-[[entries]]
-component = "services/scenario-simulation-service"
-service = "scenario-simulation-service"
-migration_dir = "services/scenario-simulation-service/migrations"
-schema = "scenario_simulation"
-residency = "pg-schemas"
-allow_new_sqlx = { files = ["services/scenario-simulation-service/src/handlers.rs"], tables = ["scenario_runs", "scenario_simulations"] }
-tables = ["scenario_simulations", "scenario_runs"]
+# S8 / ADR-0030 (B20): scenario-simulation-service merged →
+# ontology-exploratory-analysis-service. Schema absorbed.
 
 [[entries]]
 component = "services/sdk-generation-service"
@@ -423,22 +343,12 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/sdk-generation-service/src/handlers.rs"], tables = ["sdk_generation_jobs", "sdk_generation_publications"] }
 tables = ["sdk_generation_jobs", "sdk_generation_publications"]
 
-[[entries]]
-component = "services/sds-service"
-service = "sds-service"
-migration_dir = "services/sds-service/migrations"
-schema = "sds"
-residency = "pg-policy"
-allow_new_sqlx = { files = ["services/sds-service/src/domain/sds.rs", "services/sds-service/src/handlers/sds.rs"], tables = ["sds_issues", "sds_scan_jobs"] }
-tables = ["sds_scan_jobs", "sds_issues", "sds_remediation_rules"]
+# S8 / ADR-0030 (B15): sds-service merged → audit-compliance-service.
+# Schema absorbed; `pg-policy` residency preserved.
 
-[[entries]]
-component = "services/security-governance-service"
-service = "security-governance-service"
-migration_dir = "services/security-governance-service/migrations"
-schema = "security_governance"
-residency = "pg-policy"
-tables = ["governance_template_applications", "project_constraints", "structural_security_rules"]
+# S8 / ADR-0030 (B14): security-governance-service merged →
+# authorization-policy-service. Schema absorbed; `pg-policy`
+# residency preserved.
 
 [[entries]]
 component = "services/solution-design-service"
@@ -449,13 +359,15 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/solution-design-service/src/handlers.rs"], tables = ["solution_diagrams", "solution_references"] }
 tables = ["solution_diagrams", "solution_references"]
 
+# S8 / ADR-0030: `spreadsheet-computation-service` merged →
+# `notebook-runtime-service`. The source was a scaffold placeholder;
+# the schema is preserved on `notebook-pg` for future work.
 [[entries]]
-component = "services/spreadsheet-computation-service"
-service = "spreadsheet-computation-service"
-migration_dir = "services/spreadsheet-computation-service/migrations"
+component = "services/notebook-runtime-service"
+service = "notebook-runtime-service"
+migration_dir = "services/notebook-runtime-service/migrations"
 schema = "spreadsheet_computation"
 residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/spreadsheet-computation-service/src/handlers.rs"], tables = ["spreadsheet_recalcs", "spreadsheet_sheets"] }
 tables = ["spreadsheet_sheets", "spreadsheet_recalcs"]
 
 [[entries]]
@@ -502,13 +414,8 @@ residency = "pg-schemas"
 allow_new_sqlx = { files = ["services/tenancy-organizations-service/src/handlers/enrollments.rs", "services/tenancy-organizations-service/src/handlers/organizations.rs", "services/tenancy-organizations-service/src/handlers/recents.rs"], tables = ["resource_access_log", "tenancy_enrollments", "tenancy_organizations"] }
 tables = ["tenancy_organizations", "tenancy_enrollments", "user_favorites", "resource_access_log", "resource_shares"]
 
-[[entries]]
-component = "services/time-series-data-service"
-service = "time-series-data-service"
-migration_dir = "services/time-series-data-service/migrations"
-schema = "time_series_data"
-residency = "pg-runtime-config"
-tables = ["time_series", "time_series_points", "time_series_storage_partitions"]
+# S8 / ADR-0030 (B20): time-series-data-service merged →
+# ontology-exploratory-analysis-service. Schema absorbed.
 
 [[entries]]
 component = "services/workflow-automation-service"
@@ -518,13 +425,4 @@ schema = "workflow_automation"
 residency = "pg-runtime-config"
 allow_new_sqlx = { files = ["services/workflow-automation-service/src/handlers/approvals.rs", "services/workflow-automation-service/src/handlers/crud.rs", "services/workflow-automation-service/src/handlers/runs.rs"], tables = ["workflow_runs", "workflows"] }
 tables = ["workflows", "workflow_runs", "workflow_approvals"]
-
-[[entries]]
-component = "services/workflow-trace-service"
-service = "workflow-trace-service"
-migration_dir = "services/workflow-trace-service/migrations"
-schema = "workflow_trace"
-residency = "pg-runtime-config"
-allow_new_sqlx = { files = ["services/workflow-trace-service/src/handlers.rs"], tables = ["workflow_trace_events", "workflow_trace_runs"] }
-tables = ["workflow_trace_runs", "workflow_trace_events"]
 

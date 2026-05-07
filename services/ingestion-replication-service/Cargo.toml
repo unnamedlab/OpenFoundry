@@ -1,6 +1,6 @@
 [package]
 name = "ingestion-replication-service"
-description = "Connector agents, sync scheduling, and ingestion replication runtime"
+description = "Connector agents, sync scheduling, ingestion replication runtime, plus the absorbed event-streaming control plane (REST + gRPC) per ADR-0030 (S8)"
 
 [package.edition]
 workspace = true
@@ -94,9 +94,22 @@ workspace = true
 [features]
 default = []
 # Enables the live Kafka I/O path (rdkafka via librdkafka) in
-# `connectors::kafka`. Default off keeps CI light and the catalog-backed
-# behaviour available; production builds turn it on through the Dockerfile.
-kafka-rdkafka = ["event-bus-control/kafka-rdkafka"]
+# `connectors::kafka` and `event_streaming::backends::kafka`. Default
+# off keeps CI light and the catalog-backed behaviour available;
+# production builds turn it on through the Dockerfile.
+kafka-rdkafka = ["event-bus-control/kafka-rdkafka", "dep:rdkafka", "dep:event-bus-data"]
+# Integration tests that need a real Kafka broker (testcontainers).
+kafka-it = ["kafka-rdkafka", "event-bus-data/it"]
+# Persistent operator state via RocksDB. The Cargo build of
+# `librocksdb-sys` is multi-minute (vendored C++ tree) so it is gated
+# behind this feature. Production images opt in.
+rocksdb-state = ["dep:rocksdb"]
+# Flink runtime integration via kube-rs (`kubectl patch flinkdeployment ...`).
+# Marker only — kube/k8s-openapi are already non-optional deps for
+# the ingestion control plane; this feature gates the
+# `event_streaming::runtime::flink` modules so the binary does not
+# pull Flink-specific code unless deployed alongside the operator.
+flink-runtime = []
 
 [dependencies.reqwest]
 workspace = true
@@ -122,6 +135,7 @@ workspace = true
 
 [dependencies.tokio-stream]
 version = "0.1"
+features = ["sync"]
 
 [dependencies.tracing]
 workspace = true
@@ -146,6 +160,68 @@ workspace = true
 
 [dev-dependencies.serde_json]
 workspace = true
+
+# --- Deps absorbed from the retired `event-streaming-service` per
+# --- ADR-0030 (S8). These power the streaming control plane that now
+# --- lives under `src/event_streaming/`.
+
+[dependencies.async-nats]
+workspace = true
+
+[dependencies.audit-trail]
+workspace = true
+
+[dependencies.bytes]
+workspace = true
+
+[dependencies.cassandra-kernel]
+workspace = true
+
+[dependencies.globset]
+workspace = true
+
+[dependencies.outbox]
+workspace = true
+
+[dependencies.prometheus]
+workspace = true
+
+[dependencies.regex]
+workspace = true
+
+[dependencies.serde_yaml]
+workspace = true
+
+# Optional Kafka backend wiring used by the streaming router.
+# `event-bus-data` already wraps `rdkafka` 0.36 with sane defaults
+# (idempotent producer, acks=all, explicit commits). We reuse its
+# `DataBusConfig` so the streaming router shares the exact same client
+# tuning as the data-plane bus.
+[dependencies.event-bus-data]
+workspace = true
+optional = true
+
+# Pulled in transitively via `event-bus-data` but declared here too so
+# Cargo's `dep:rdkafka` feature toggle works and the streaming backend
+# can `use rdkafka::...` directly without bouncing through the wrapper.
+# Feature set must match `event-bus-data` to avoid duplicate librdkafka
+# builds.
+[dependencies.rdkafka]
+version = "0.36"
+default-features = false
+features = ["cmake-build", "ssl", "sasl", "tokio"]
+optional = true
+
+# Optional state backend used by the streaming engine's checkpointing.
+# Pulled in only when `rocksdb-state` is on.
+[dependencies.rocksdb]
+version = "0.22"
+default-features = false
+features = ["lz4"]
+optional = true
+
+[dev-dependencies.tempfile]
+version = "3"
 
 [[bin]]
 path = "src/main.rs"

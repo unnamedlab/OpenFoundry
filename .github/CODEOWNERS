@@ -162,97 +162,54 @@
 /services/ontology-definition-service/                  @open-foundry/ontology-team
 /services/ontology-exploratory-analysis-service/        @open-foundry/ontology-team
 /services/ontology-query-service/                       @open-foundry/ontology-team
-/services/ontology-timeseries-analytics-service/        @open-foundry/ontology-team @open-foundry/analytics-team
 /services/object-database-service/                      @open-foundry/ontology-team @open-foundry/data-platform
 /services/entity-resolution-service/                    @open-foundry/ontology-team
 
 # --- AI / ML / Models ---
 /services/agent-runtime-service/                        @open-foundry/ai-platform
-/services/ai-application-generation-service/            @open-foundry/ai-platform
 /services/ai-evaluation-service/                        @open-foundry/ai-platform
-/services/conversation-state-service/                   @open-foundry/ai-platform
 /services/llm-catalog-service/                          @open-foundry/ai-platform
-/services/mcp-orchestration-service/                    @open-foundry/ai-platform
 /services/model-catalog-service/                        @open-foundry/ai-platform
 /services/model-deployment-service/                     @open-foundry/ai-platform
-/services/model-evaluation-service/                     @open-foundry/ai-platform
-/services/model-inference-history-service/              @open-foundry/ai-platform
-/services/model-serving-service/                        @open-foundry/ai-platform
 /services/notebook-runtime-service/                     @open-foundry/ai-platform
-/services/prompt-workflow-service/                      @open-foundry/ai-platform
 /services/retrieval-context-service/                    @open-foundry/ai-platform
 /services/document-intelligence-service/                @open-foundry/ai-platform
 /services/knowledge-index-service/                      @open-foundry/ai-platform
 
 # --- Data platform / pipelines / datasets ---
 /services/connector-management-service/                 @open-foundry/data-platform
-/services/data-asset-catalog-service/                   @open-foundry/data-platform
-/services/dataset-quality-service/                      @open-foundry/data-platform
 /services/dataset-versioning-service/                   @open-foundry/data-platform
 /services/global-branch-service/                        @open-foundry/data-platform
 /services/ingestion-replication-service/                @open-foundry/data-platform
-/services/lineage-deletion-service/                     @open-foundry/data-platform
 /services/lineage-service/                              @open-foundry/data-platform
-/services/pipeline-authoring-service/                   @open-foundry/data-platform
 /services/pipeline-build-service/                       @open-foundry/data-platform
-/services/pipeline-schedule-service/                    @open-foundry/data-platform
-/services/spreadsheet-computation-service/              @open-foundry/data-platform
 /services/sql-bi-gateway-service/                       @open-foundry/data-platform @open-foundry/analytics-team
 /services/sql-warehousing-service/                      @open-foundry/data-platform
 /services/tabular-analysis-service/                     @open-foundry/data-platform @open-foundry/analytics-team
-/services/time-series-data-service/                     @open-foundry/data-platform
-/services/virtual-table-service/                        @open-foundry/data-platform
 /services/analytical-logic-service/                     @open-foundry/data-platform @open-foundry/analytics-team
 
 # --- Workflow / automation / notifications ---
 /services/approvals-service/                            @open-foundry/workflow-team
 /services/automation-operations-service/                @open-foundry/workflow-team
 /services/notification-alerting-service/                @open-foundry/workflow-team
-/services/scenario-simulation-service/                  @open-foundry/workflow-team
 /services/workflow-automation-service/                  @open-foundry/workflow-team
-/services/workflow-trace-service/                       @open-foundry/workflow-team
 
 # --- Analytics / reports / geospatial / nexus ---
-/services/document-reporting-service/                   @open-foundry/analytics-team
 /services/federation-product-exchange-service/          @open-foundry/analytics-team @open-foundry/data-platform
-/services/geospatial-intelligence-service/              @open-foundry/analytics-team
-/services/nexus-service/                                @open-foundry/analytics-team
-/services/report-service/                               @open-foundry/analytics-team
 /services/solution-design-service/                      @open-foundry/analytics-team @open-foundry/developer-platform
 
 # --- Developer platform / app builder / marketplace / SDKs ---
-/services/app-builder-service/                          @open-foundry/developer-platform @open-foundry/frontend-team
 /services/application-composition-service/              @open-foundry/developer-platform @open-foundry/frontend-team
-/services/application-curation-service/                 @open-foundry/developer-platform
 /services/code-repository-review-service/               @open-foundry/developer-platform
-/services/custom-endpoints-service/                     @open-foundry/developer-platform
-/services/developer-console-service/                    @open-foundry/developer-platform
-/services/marketplace-catalog-service/                  @open-foundry/developer-platform
-/services/marketplace-service/                          @open-foundry/developer-platform
-/services/product-distribution-service/                 @open-foundry/developer-platform
 /services/sdk-generation-service/                       @open-foundry/developer-platform @open-foundry/architecture-council
 
 # --- Security / governance / identity ---
 /services/audit-compliance-service/                     @open-foundry/security-team
 /services/authorization-policy-service/                 @open-foundry/security-team
-/services/checkpoints-purpose-service/                  @open-foundry/security-team
-/services/cipher-service/                               @open-foundry/security-team
 /services/code-security-scanning-service/               @open-foundry/security-team
 /services/identity-federation-service/                  @open-foundry/security-team
-/services/network-boundary-service/                     @open-foundry/security-team @open-foundry/platform-runtime
-/services/oauth-integration-service/                    @open-foundry/security-team
-/services/retention-policy-service/                     @open-foundry/security-team @open-foundry/data-platform
-/services/security-governance-service/                  @open-foundry/security-team
-/services/session-governance-service/                   @open-foundry/security-team
-/services/sds-service/                                  @open-foundry/security-team
 /services/telemetry-governance-service/                 @open-foundry/security-team @open-foundry/observability-team
 
 # --- Platform runtime / observability / tenancy ---
-/services/compute-modules-control-plane-service/        @open-foundry/platform-runtime
-/services/compute-modules-runtime-service/              @open-foundry/platform-runtime
 /services/edge-gateway-service/                         @open-foundry/platform-runtime
-/services/event-streaming-service/                      @open-foundry/platform-runtime
-/services/execution-observability-service/              @open-foundry/observability-team @open-foundry/platform-runtime
-/services/managed-workspace-service/                    @open-foundry/platform-runtime
-/services/monitoring-rules-service/                     @open-foundry/observability-team
 /services/tenancy-organizations-service/                @open-foundry/platform-runtime @open-foundry/security-team

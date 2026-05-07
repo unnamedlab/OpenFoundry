@@ -19,7 +19,10 @@
 
 mod common;
 
-use marketplace_service::models::package::{MarketplaceArtifact, PackageType};
+// S8 / ADR-0030 (B21): marketplace-service merged → federation-product-exchange-service.
+use federation_product_exchange_service::marketplace::models::package::{
+    MarketplaceArtifact, PackageType,
+};
 use media_sets_service::handlers::access_patterns::register_access_pattern_op;
 use media_sets_service::models::{
     PersistencePolicy, RegisterAccessPatternBody, TransactionPolicy,

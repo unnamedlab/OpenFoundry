@@ -8,8 +8,6 @@ pub struct AppConfig {
     pub port: u16,
     pub database_url: String,
     pub jwt_secret: String,
-    #[serde(default = "default_approvals_service_url")]
-    pub approvals_service_url: String,
     #[serde(default = "default_notification_service_url")]
     pub notification_service_url: String,
     #[serde(default = "default_ontology_service_url")]
@@ -18,11 +16,17 @@ pub struct AppConfig {
     pub pipeline_service_url: String,
     #[serde(default = "default_nats_url")]
     pub nats_url: String,
-    /// Optional service bearer token for the
-    /// `/workflows/approvals/{id}/continue` HTTP proxy request to
-    /// `approvals-service` (FASE 7 / Tarea 7.3). Empty in dev.
+    /// `audit-compliance-service` base URL — the approvals decide
+    /// handler POSTs a synchronous audit row on every terminal
+    /// transition (S8 merge — inherited from `approvals-service`).
+    #[serde(default = "default_audit_compliance_service_url")]
+    pub audit_compliance_service_url: String,
     #[serde(default)]
-    pub approvals_service_bearer_token: Option<String>,
+    pub audit_compliance_bearer_token: Option<String>,
+    /// Default approval deadline (hours) — applied when the caller
+    /// omits `expires_at`.
+    #[serde(default = "default_approval_ttl_hours")]
+    pub approval_ttl_hours: u32,
 }
 
 fn default_host() -> String {
@@ -31,10 +35,6 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     50137
-}
-
-fn default_approvals_service_url() -> String {
-    "http://localhost:50071".to_string()
 }
 
 fn default_notification_service_url() -> String {
@@ -51,6 +51,14 @@ fn default_pipeline_service_url() -> String {
 
 fn default_nats_url() -> String {
     "nats://localhost:4222".to_string()
+}
+
+fn default_audit_compliance_service_url() -> String {
+    "http://localhost:50115".to_string()
+}
+
+fn default_approval_ttl_hours() -> u32 {
+    24
 }
 
 impl AppConfig {

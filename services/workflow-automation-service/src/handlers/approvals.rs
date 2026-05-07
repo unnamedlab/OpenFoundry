@@ -1,14 +1,14 @@
-//! HTTP proxy from `POST /api/v1/workflows/approvals/{id}/continue`
-//! to `approvals-service::POST /api/v1/approvals/{id}/decide`.
+//! `POST /api/v1/workflows/approvals/{id}/continue` — the legacy
+//! "continue after approval" route originally consumed by the
+//! SvelteKit client (`apps/web/src/lib/api/workflows.ts`).
 //!
-//! The authoritative store of approvals is
-//! `audit_compliance.approval_requests` in `approvals-service`. The
-//! decision happens via a synchronous HTTP call; the
-//! `approvals-service` handler updates the state-machine row +
-//! publishes `approval.completed.v1` via the transactional outbox.
-//!
-//! The route stays mounted at the same URL so the SvelteKit client
-//! (`apps/web/src/lib/api/workflows.ts`) does not need to change.
+//! Pre-S8 this handler proxied to a separate `approvals-service` over
+//! HTTP. After the S8 merge the approvals state machine lives in
+//! this crate (see [`crate::approvals`]) so the route now applies the
+//! decision in-process via
+//! [`crate::approvals::handlers::approvals::apply_decision_and_publish`].
+//! The URL + verb + payload shape are unchanged so no client needs
+//! to be updated.
 
 use axum::{
     Json,
@@ -16,117 +16,72 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::{AppState, models::approval::InternalApprovalContinuationRequest};
+use crate::{
+    AppState, approvals::domain::approval_request::ApprovalRequestEvent,
+    models::approval::InternalApprovalContinuationRequest,
+};
 
 pub async fn continue_after_approval(
     State(state): State<AppState>,
     Path(approval_id): Path<Uuid>,
     Json(body): Json<InternalApprovalContinuationRequest>,
 ) -> impl IntoResponse {
-    let decision = match parse_decision(&body) {
+    let event = match decision_event_from_body(&body) {
         Ok(value) => value,
         Err(error) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": error })),
-            )
-                .into_response();
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response();
         }
     };
 
-    // Forward to approvals-service. The downstream handler is
-    // idempotent on the deterministic outbox event_id, so a retry
-    // here is safe.
-    let endpoint = format!(
-        "{}/api/v1/approvals/{approval_id}/decide",
-        state.approvals_service_url.trim_end_matches('/')
-    );
-    let mut request = state
-        .http_client
-        .post(endpoint)
-        .header("x-audit-correlation-id", approval_id.to_string())
-        .json(&decision);
-    if let Some(token) = state.approvals_service_bearer_token.as_deref() {
-        if !token.is_empty() {
-            let header = if token.to_ascii_lowercase().starts_with("bearer ") {
-                token.to_string()
-            } else {
-                format!("Bearer {token}")
-            };
-            request = request.header("authorization", header);
-        }
-    }
-
-    match request.send().await {
-        Ok(response) => {
-            let status = response.status();
-            if status.is_success() {
-                StatusCode::ACCEPTED.into_response()
-            } else {
-                let body = response.text().await.unwrap_or_default();
-                tracing::warn!(
-                    %approval_id,
-                    %status,
-                    %body,
-                    "approvals-service rejected the decision"
-                );
-                (
-                    map_remote_status(status),
-                    Json(json!({ "error": format!("approvals-service returned {status}: {body}") })),
-                )
-                    .into_response()
-            }
-        }
+    match crate::approvals::handlers::approvals::apply_decision_and_publish(
+        &state,
+        approval_id,
+        event,
+    )
+    .await
+    {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => {
-            tracing::error!(%approval_id, ?error, "approvals-service request failed");
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({ "error": error.to_string() })),
-            )
-                .into_response()
+            tracing::error!(%approval_id, ?error, "approval continuation failed");
+            // 409 Conflict if the row was not in pending — covers
+            // the "already decided" + "already expired" cases.
+            let status = if error.contains("transition") || error.contains("not found") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, Json(json!({ "error": error }))).into_response()
         }
     }
 }
 
-fn parse_decision(
+fn decision_event_from_body(
     body: &InternalApprovalContinuationRequest,
-) -> Result<serde_json::Value, String> {
+) -> Result<ApprovalRequestEvent, String> {
     let approver = body
         .context
         .get("approver")
-        .and_then(serde_json::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or("system")
         .to_string();
     let comment = body
         .context
         .get("comment")
-        .and_then(serde_json::Value::as_str)
+        .and_then(Value::as_str)
         .map(str::to_string);
     match body.decision.to_ascii_lowercase().as_str() {
-        "approve" | "approved" => Ok(serde_json::json!({
-            "decision": "approve",
-            "comment": comment,
-            "payload": { "approver": approver },
-        })),
-        "reject" | "rejected" => Ok(serde_json::json!({
-            "decision": "reject",
-            "comment": comment,
-            "payload": { "approver": approver },
-        })),
+        "approve" | "approved" => Ok(ApprovalRequestEvent::Approve {
+            decided_by: approver,
+            comment,
+        }),
+        "reject" | "rejected" => Ok(ApprovalRequestEvent::Reject {
+            decided_by: approver,
+            comment,
+        }),
         other => Err(format!("unsupported approval decision '{other}'")),
-    }
-}
-
-fn map_remote_status(status: reqwest::StatusCode) -> StatusCode {
-    // Surface 4xx from the upstream as-is so the UI gets the right
-    // error class; everything else collapses to 502 Bad Gateway.
-    if status.is_client_error() {
-        StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_REQUEST)
-    } else {
-        StatusCode::BAD_GATEWAY
     }
 }
 
@@ -136,7 +91,7 @@ mod tests {
 
     #[test]
     fn parse_decision_maps_approve_payload_to_state_machine_event() {
-        let decision = parse_decision(&InternalApprovalContinuationRequest {
+        let event = decision_event_from_body(&InternalApprovalContinuationRequest {
             workflow_id: Uuid::now_v7(),
             workflow_run_id: Uuid::now_v7(),
             step_id: "approval-step".into(),
@@ -147,14 +102,21 @@ mod tests {
             }),
         })
         .expect("decision");
-        assert_eq!(decision["decision"], "approve");
-        assert_eq!(decision["comment"], "looks good");
-        assert_eq!(decision["payload"]["approver"], "user-1");
+        match event {
+            ApprovalRequestEvent::Approve {
+                decided_by,
+                comment,
+            } => {
+                assert_eq!(decided_by, "user-1");
+                assert_eq!(comment.as_deref(), Some("looks good"));
+            }
+            other => panic!("expected Approve, got {other:?}"),
+        }
     }
 
     #[test]
     fn parse_decision_rejects_unknown_strings() {
-        let err = parse_decision(&InternalApprovalContinuationRequest {
+        let err = decision_event_from_body(&InternalApprovalContinuationRequest {
             workflow_id: Uuid::now_v7(),
             workflow_run_id: Uuid::now_v7(),
             step_id: "approval-step".into(),

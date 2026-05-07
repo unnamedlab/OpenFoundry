@@ -59,6 +59,23 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+# --- Deps absorbed from marketplace + marketplace-catalog +
+# --- product-distribution per ADR-0030 (S8 / B21).
+[dependencies.anyhow]
+workspace = true
+
+[dependencies.prometheus]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "federation-product-exchange-service"

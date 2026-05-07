@@ -59,14 +59,8 @@ services:
       DATABASE_READ_URL:
         secretName: cdc-metadata-db-dsn
         key: reader_url
-  checkpoints-purpose-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: checkpoints-purpose-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: checkpoints-purpose-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B14): checkpoints-purpose-service merged →
+  # authorization-policy-service (of-platform).
   connector-management-service:
     envSecrets:
       DATABASE_URL:
@@ -91,14 +85,12 @@ services:
       DATABASE_READ_URL:
         secretName: dataset-versioning-db-dsn
         key: reader_url
-  event-streaming-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: event-streaming-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: event-streaming-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 — `event-streaming-service` merged →
+  # `ingestion-replication-service`. The streaming DSN secret
+  # (`event-streaming-db-dsn`) is no longer mounted; the streaming
+  # runtime, when wired into the consolidated binary, will reuse
+  # the ingestion-replication DSN or take a dedicated streaming
+  # DSN through a follow-up secret-mount change.
   ingestion-replication-service:
     envSecrets:
       DATABASE_URL:
@@ -107,30 +99,11 @@ services:
       DATABASE_READ_URL:
         secretName: ingestion-replication-db-dsn
         key: reader_url
-  lineage-deletion-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: lineage-deletion-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: lineage-deletion-db-dsn
-        key: reader_url
-  pipeline-authoring-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: pipeline-authoring-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: pipeline-authoring-db-dsn
-        key: reader_url
-  retention-policy-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: retention-policy-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: retention-policy-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B15): lineage-deletion-service and
+  # retention-policy-service merged → audit-compliance-service
+  # (of-platform).
+  # S8 / ADR-0030: pipeline-authoring-service merged → pipeline-build-service.
+  # The authoring schema reuses pipeline-build's DSN.
   sql-warehousing-service:
     envSecrets:
       DATABASE_URL:
@@ -139,11 +112,5 @@ services:
       DATABASE_READ_URL:
         secretName: sql-warehousing-db-dsn
         key: reader_url
-  time-series-data-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: time-series-data-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: time-series-data-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B20): time-series-data-service merged →
+  # ontology-exploratory-analysis-service.

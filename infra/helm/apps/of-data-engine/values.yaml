@@ -179,7 +179,8 @@ services:
       ICEBERG_CATALOG_PORT: "8197"
       ICEBERG_CATALOG_WAREHOUSE_URI: s3://openfoundry-iceberg
       IDENTITY_FEDERATION_URL: http://identity-federation-service:8080
-      OAUTH_INTEGRATION_URL: http://oauth-integration-service:8080
+      # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
+      OAUTH_INTEGRATION_URL: http://identity-federation-service:8080
     envSecrets:
       DATABASE_URL:
         secretName: pg-schemas-app
@@ -207,6 +208,23 @@ services:
       limits:
         cpu: "500m"
         memory: 512Mi
+
+  # ADR-0042 / ADR-0039 — sibling runtime to `media-sets-service`:
+  # executes the typed image/audio/video/document/spreadsheet access
+  # patterns, bills compute-seconds, emits the
+  # `media_set.access_pattern_invoked` audit envelope.
+  media-transform-runtime-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
 
   lineage-service:
     replicas: 2
@@ -296,70 +314,27 @@ services:
   # and their HTTP/Flight SQL surfaces are served by the gateway pods.
   # Tabular-analysis lived under the ops chart previously and is removed
   # from `infra/helm/apps/of-apps-ops/values.yaml`.
-  dataset-quality-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `data-asset-catalog-service` and
+  # `dataset-quality-service` merged → `dataset-versioning-service`.
+  # The catalog (preview, upload, schema validate, dataset_model)
+  # and quality (lint, profiler, scoring, health) HTTP surfaces now
+  # live in dataset-versioning-service. Phase 1 absorbed the code as
+  # a library (`dataset_versioning_service::{data_asset_catalog,
+  # dataset_quality}::*`); the consolidated binary is wired in a
+  # follow-up.
 
-  data-asset-catalog-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B15) — `lineage-deletion-service` merged →
+  # `audit-compliance-service` (lives in `of-platform`). No
+  # Deployment renders here.
 
-  lineage-deletion-service:
-    replicas: 1
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  pipeline-authoring-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  pipeline-schedule-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 — `pipeline-authoring-service` and
+  # `pipeline-schedule-service` merged → `pipeline-build-service`.
+  # The authoring (job specs, expressions, media nodes, parameterized
+  # views) and scheduling (cron triggers, build dispatcher, run store)
+  # surfaces are now part of the consolidated pipeline-build runtime.
+  # The `compute-modules-control-plane-service` and
+  # `compute-modules-runtime-service` scaffolds were also retired in
+  # the same commit (their migrations preserved on `pg-pipeline`).
 
   sql-warehousing-service:
     # S8 / ADR-0030: retired — merged into `sql-bi-gateway-service` above.
@@ -368,84 +343,27 @@ services:
     # pre-install Job (`templates/sql-bi-gateway-migrations.yaml`).
     enabled: false
 
-  virtual-table-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B17) — `virtual-table-service` merged →
+  # `connector-management-service`. No standalone Deployment here.
 
-  time-series-data-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 (B20) — `time-series-data-service` merged →
+  # `ontology-exploratory-analysis-service` (lives in `of-ontology`).
+  # No Deployment renders here.
 
-  event-streaming-service:
-    replicas: 3
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
+  # S8 / ADR-0030 — `event-streaming-service` merged →
+  # `ingestion-replication-service`. The streaming control plane
+  # (REST + gRPC) is now hosted by ingestion-replication-service.
+  # No separate Deployment renders here.
 
+  # S8 / ADR-0030 — `global-branch-service` merged →
+  # `code-repository-review-service` (lives in `of-apps-ops`, not this release).
+  # S8 / ADR-0030 (B15) — `retention-policy-service` merged →
+  # `audit-compliance-service` (lives in `of-platform`). No
+  # Deployment renders here.
 
-  global-branch-service:
-    replicas: 2
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  retention-policy-service:
-    replicas: 1
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
-
-  checkpoints-purpose-service:
-    replicas: 1
-    ports:
-      - name: http
-        containerPort: 8080
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "500m"
-        memory: 512Mi
+  # S8 / ADR-0030 (B14) — `checkpoints-purpose-service` merged →
+  # `authorization-policy-service` (lives in `of-platform`, not this
+  # release). No Deployment renders here.
 
   analytical-logic-service:
     # S8 / ADR-0030: retired — reusable expressions are now an internal

@@ -111,13 +111,16 @@ Every section below maps doc claims to code paths.
 | Lifecycle / Audit | Outbox event per branch action | [`domain/branch_events.rs`](src/domain/branch_events.rs) → `foundry.branch.events.v1` |
 
 For the cross-plane companion (datasets ↔ pipelines ↔ ontology) see
-[`services/global-branch-service/README.md`](../global-branch-service/README.md)
+the `global_branch` module under
+[`services/code-repository-review-service/src/global_branch/`](../code-repository-review-service/src/global_branch/)
+(absorbed from the retired `global-branch-service` per ADR-0030)
 and [ADR-0033](../../docs/architecture/adr/ADR-0033-branching-foundry-parity.md).
 
 ## Datasets parity (D1.1.1 — 5/5)
 
 The full Datasets surface lands across this service plus
-[`dataset-quality-service`](../dataset-quality-service/) and
+the `dataset_quality` module (absorbed from the retired
+`dataset-quality-service` per ADR-0030) and
 [`apps/web/src/lib/components/dataset/`](../../apps/web/src/lib/components/dataset/).
 Every section below maps Foundry doc claims to code paths.
 
@@ -137,13 +140,13 @@ Every section below maps Foundry doc claims to code paths.
 | Compare | Side-by-side compare against another dataset/view | [`handlers/compare.rs`](src/handlers/compare.rs) + [`CompareTab.svelte`](../../apps/web/src/lib/components/dataset/CompareTab.svelte) |
 | Open in… | Marketplace + downstream tool launchers | [`PublishToMarketplaceModal.svelte`](../../apps/web/src/lib/components/dataset/PublishToMarketplaceModal.svelte) |
 | Data Health | Six-card dashboard self-fetched from `/health` | [`QualityDashboard.svelte`](../../apps/web/src/lib/components/dataset/QualityDashboard.svelte) |
-| Data Health | `compute_health(rid)` — freshness, drift, txn rate, build status | [`dataset-quality-service/src/domain/health.rs`](../dataset-quality-service/src/domain/health.rs) |
-| Health checks | Policy types: freshness / txn_failure_rate / schema_drift / row_drop | `dataset_health_policies` ([migration](../dataset-quality-service/migrations/20260503000004_dataset_health.sql)) |
+| Data Health | `compute_health(rid)` — freshness, drift, txn rate, build status | [`dataset_quality/domain/health.rs`](src/dataset_quality/domain/health.rs) |
+| Health checks | Policy types: freshness / txn_failure_rate / schema_drift / row_drop | `dataset_health_policies` ([migration](migrations/20260503000004_dataset_health.sql)) |
 | Application reference | Cursor pagination — `?cursor=&limit=` returning `{ data, next_cursor, has_more }` | [`handlers/conformance.rs::Page`](src/handlers/conformance.rs) wired into `list_versions`, `list_branches`, `list_transactions` |
 | Application reference | ETag / 304 Not Modified on resource GETs | [`handlers/conformance.rs::json_with_etag`](src/handlers/conformance.rs) wired into `get_branch`, `get_transaction` |
 | Application reference | 207 Multi-Status batch responses | `POST /v1/datasets/{rid}/transactions:batchGet` + [`handlers/conformance.rs::batch_response`](src/handlers/conformance.rs) |
 | Application reference | Unified error envelope `{ code, message, details, request_id }` | [`handlers/conformance.rs::ErrorEnvelope`](src/handlers/conformance.rs) |
-| Observability | Per-dataset Prometheus metrics | [`dataset-quality-service/src/metrics.rs`](../dataset-quality-service/src/metrics.rs) — `dataset_freshness_seconds`, `dataset_row_count`, `dataset_txn_failures_total` |
+| Observability | Per-dataset Prometheus metrics | [`dataset_quality/metrics.rs`](src/dataset_quality/metrics.rs) — `dataset_freshness_seconds`, `dataset_row_count`, `dataset_txn_failures_total` |
 
 See [ADR-0034](../../docs/architecture/adr/ADR-0034-datasets-foundry-parity.md)
 for the full design rationale and the mermaid diagram of the

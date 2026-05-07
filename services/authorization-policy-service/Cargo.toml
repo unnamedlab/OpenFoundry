@@ -57,6 +57,26 @@ workspace = true
 [dependencies.thiserror]
 workspace = true
 
+# --- Deps absorbed from cipher/network-boundary/checkpoints-purpose/
+# --- security-governance per ADR-0030 (S8 / B14).
+[dependencies.base64]
+workspace = true
+
+[dependencies.rand]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+
+[dependencies.hmac]
+version = "0.12"
+
+[dependencies.sha2]
+version = "0.10"
+
 [[bin]]
 path = "src/main.rs"
 name = "authorization-policy-service"

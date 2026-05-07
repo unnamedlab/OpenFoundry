@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+// Python runtime sidecar — the gRPC contract spoken by the Python
+// subprocess that replaces the Rust pyo3 embedded interpreter.
+//
+// Three Go services own the lifecycle of one of these sidecars and
+// invoke it via UDS or loopback TCP:
+//   - ontology-actions-service / libs/ontology-kernel  (inline functions)
+//   - pipeline-build-service                            (python transforms)
+//   - notebook-runtime-service                          (notebook cells)
+//
+// The contract is intentionally narrow: every payload is opaque JSON so
+// the sidecar can ship without a hard schema dependency on the host.
+//
+// Health check uses the standard grpc.health.v1 protocol (separate
+// service, not redefined here).
+package runtime;
+
+// PythonRuntime is the single service exposed by the sidecar binary.
+service PythonRuntimeService {
+  // ExecuteInlineFunction runs an ontology inline Python function.
+  // Mirrors `execute_inline_python_function` in the Rust kernel.
+  rpc ExecuteInlineFunction(ExecuteInlineFunctionRequest)
+      returns (ExecuteInlineFunctionResponse);
+
+  // ExecutePipelineTransform runs a pipeline node's Python transform.
+  // Mirrors `execute_python_transform` in pipeline-build-service.
+  rpc ExecutePipelineTransform(ExecutePipelineTransformRequest)
+      returns (ExecutePipelineTransformResponse);
+
+  // ExecuteNotebookCell runs one notebook cell against a (maybe new)
+  // session. Mirrors `domain::kernel::python::execute`.
+  rpc ExecuteNotebookCell(ExecuteNotebookCellRequest)
+      returns (ExecuteNotebookCellResponse);
+
+  // EnsureSession is a no-op for non-stateful runtimes; the notebook
+  // runtime materialises a session globals dict on first call.
+  rpc EnsureSession(EnsureSessionRequest) returns (EnsureSessionResponse);
+
+  // DropSession discards a notebook session's globals.
+  rpc DropSession(DropSessionRequest) returns (DropSessionResponse);
+}
+
+// ExecuteInlineFunctionRequest carries the JSON envelope assembled by
+// the Go caller. `input_json` is the same shape Rust passed to PyO3:
+// `{ context: { action, targetObject, parameters, objectSet,
+//    linkedObjects, justification, contextNow }, policy,
+//    functionPackage, serviceToken, ontologyServiceUrl, aiServiceUrl }`.
+message ExecuteInlineFunctionRequest {
+  string source = 1;
+  string input_json = 2;
+  uint32 timeout_seconds = 3;
+}
+
+message ExecuteInlineFunctionResponse {
+  // Raw JSON of the Python function's return value (already enriched
+  // with `stdout` / `stderr` arrays when the runtime added them).
+  string result_json = 1;
+  string stdout = 2;
+  string stderr = 3;
+  string error = 4;
+}
+
+// ExecutePipelineTransformRequest mirrors the locals injected by the
+// Rust pipeline transform: the user source plus three JSON blobs.
+message ExecutePipelineTransformRequest {
+  string source = 1;
+  string config_json = 2;
+  string prepared_inputs_json = 3;
+  repeated string input_dataset_ids = 4;
+  string output_dataset_id = 5;
+  uint32 timeout_seconds = 6;
+}
+
+message ExecutePipelineTransformResponse {
+  // Optional: -1 sentinel means "not set" (proto3 ints are not nullable).
+  int64 rows_affected = 1;
+  bool rows_affected_set = 2;
+  // JSON: { stdout, result, sample_rows }
+  string output_json = 3;
+  // JSON array of row objects when the transform set `result_rows`.
+  string result_rows_json = 4;
+  string stdout = 5;
+  string error = 6;
+}
+
+message ExecuteNotebookCellRequest {
+  // 16-byte UUID (or zero-length when stateless).
+  bytes session_id = 1;
+  string source = 2;
+  string workspace_dir = 3;
+  bytes notebook_id = 4;
+  uint32 timeout_seconds = 5;
+}
+
+message ExecuteNotebookCellResponse {
+  string output_type = 1;
+  string content_json = 2;
+  string stdout = 3;
+  string error = 4;
+}
+
+message EnsureSessionRequest {
+  bytes session_id = 1;
+}
+
+message EnsureSessionResponse {}
+
+message DropSessionRequest {
+  bytes session_id = 1;
+}
+
+message DropSessionResponse {}

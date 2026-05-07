@@ -1,0 +1,37 @@
+service:
+  name: pipeline-build-service
+  version: 0.1.0
+
+server:
+  host: "0.0.0.0"
+  port: 50081
+
+jwt:
+  secret: ""
+
+storage:
+  backend: local
+  bucket: ""
+  local_root: "/var/lib/openfoundry/pipeline-build"
+
+downstream:
+  dataset_service_url: "http://dataset-versioning-service.openfoundry.svc:50079"
+  workflow_service_url: "http://workflow-automation-service.openfoundry.svc:50080"
+  ai_service_url: "http://ai-orchestrator-service.openfoundry.svc:50127"
+
+distributed:
+  pipeline_workers: 4
+  compute_poll_interval_ms: 1000
+  compute_timeout_secs: 1800
+
+spark:
+  namespace: openfoundry-spark
+  pipeline_runner_image: openfoundry/pipeline-runner:dev
+
+iceberg:
+  catalog_url: ""
+  catalog_bearer: ""
+
+telemetry:
+  otlp_endpoint: "localhost:4317"
+  log_format: "plain"

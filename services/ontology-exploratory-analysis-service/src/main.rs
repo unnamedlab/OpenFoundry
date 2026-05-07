@@ -29,6 +29,10 @@ mod config;
 mod handlers;
 #[allow(dead_code)]
 mod models;
+// S8 / ADR-0030 (B20) — geospatial-intelligence-service absorbed.
+// Held as dead-code library namespace until target main wires it.
+#[allow(dead_code)]
+mod geospatial;
 
 use std::{net::SocketAddr, sync::Arc};
 

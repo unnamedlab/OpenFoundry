@@ -16,6 +16,10 @@ mod ingestion_bridge;
 mod metrics;
 mod models;
 mod outbox;
+// S8 / ADR-0030 (B17) — absorbed virtual-table-service namespace.
+// Held as dead-code library namespace until target main wires it.
+#[allow(dead_code)]
+mod virtual_table;
 
 use std::net::SocketAddr;
 use std::time::Duration;

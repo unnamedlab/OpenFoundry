@@ -1,11 +1,12 @@
-//! Build script: compiles the `IngestionControlPlane` proto for the new
-//! Kubernetes-native control plane. The legacy `data_integration/sync.proto`
-//! and `common/types.proto` are intentionally not compiled by this crate
-//! (they belong to the legacy skeleton that is no longer wired in).
+//! Build script: compiles the `IngestionControlPlane` proto plus the
+//! streaming protos absorbed from the retired `event-streaming-service`
+//! per ADR-0030 (S8).
 //!
-//! Also compiles the `EventRouter` client stubs from
-//! `proto/streaming/router.proto` so the CDC worker can publish envelopes to
-//! `event-streaming-service` over gRPC.
+//! The `EventRouter` and `Streams` services from
+//! `proto/streaming/{router,streams}.proto` are compiled with both
+//! server and client stubs so this crate hosts both sides: server-side
+//! for the absorbed `Publish` / `Subscribe` gRPC facade, client-side
+//! for the in-process CDC worker that publishes envelopes.
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protoc = protoc_bin_vendored::protoc_bin_path()?;
@@ -13,21 +14,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::set_var("PROTOC", protoc);
     }
 
-    let proto = "proto/ingestion_control_plane.proto";
+    let ingestion_proto = "proto/ingestion_control_plane.proto";
     let router_proto = "../../proto/streaming/router.proto";
-    println!("cargo:rerun-if-changed={proto}");
+    let streams_proto = "../../proto/streaming/streams.proto";
+    println!("cargo:rerun-if-changed={ingestion_proto}");
     println!("cargo:rerun-if-changed={router_proto}");
+    println!("cargo:rerun-if-changed={streams_proto}");
+
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .compile_protos(&[proto], &["proto"])?;
+        .compile_protos(&[ingestion_proto], &["proto"])?;
 
-    // Streaming router: client only, no serde derive (keeps payloads as
-    // raw bytes vectors).
+    // Streaming protos: server + client (no serde derive — keeps
+    // payloads as raw bytes vectors, matching the original
+    // `event-streaming-service` build).
     tonic_build::configure()
-        .build_server(false)
+        .build_server(true)
         .build_client(true)
-        .compile_protos(&[router_proto], &["../../proto"])?;
+        .compile_protos(&[router_proto, streams_proto], &["../../proto"])?;
     Ok(())
 }

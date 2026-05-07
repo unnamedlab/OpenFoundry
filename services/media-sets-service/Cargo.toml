@@ -189,8 +189,9 @@ workspace = true
 [dev-dependencies.media-scanner]
 workspace = true
 
-[dev-dependencies.marketplace-service]
-path = "../marketplace-service"
+# S8 / ADR-0030 (B21): marketplace-service merged → federation-product-exchange-service.
+[dev-dependencies.federation-product-exchange-service]
+path = "../federation-product-exchange-service"
 
 [[bin]]
 path = "src/main.rs"

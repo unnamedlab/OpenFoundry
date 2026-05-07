@@ -119,6 +119,37 @@ workspace = true
 [dependencies.uuid]
 workspace = true
 
+# --- Deps absorbed from the retired pipeline-authoring + pipeline-schedule
+# --- crates per ADR-0030 (S8 / B11). These power the `pipeline_authoring/`
+# --- and `pipeline_schedule/` library namespaces.
+
+[dependencies.anyhow]
+workspace = true
+
+[dependencies.chrono-tz]
+workspace = true
+
+[dependencies.event-bus-data]
+workspace = true
+
+[dependencies.event-scheduler]
+workspace = true
+
+[dependencies.pipeline-expression]
+path = "../../libs/pipeline-expression"
+
+[dependencies.regex]
+workspace = true
+
+[dependencies.scheduling-cron]
+workspace = true
+
+[dependencies.scheduling-linter]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "pipeline-build-service"

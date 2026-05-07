@@ -1,0 +1,30 @@
+service:
+  name: ontology-actions-service
+  version: 0.1.0
+
+server:
+  host: "0.0.0.0"
+  port: 50106
+  shutdown_timeout: 15s
+
+jwt:
+  secret: ""
+  issuer: "https://auth.openfoundry.local"
+  audience: "openfoundry"
+
+downstream:
+  audit_service_url: "http://audit-compliance-service.openfoundry.svc:50115"
+  dataset_service_url: "http://dataset-versioning-service.openfoundry.svc:50079"
+  ontology_service_url: "http://ontology-definition-service.openfoundry.svc:50103"
+  pipeline_service_url: "http://pipeline-build-service.openfoundry.svc:50081"
+  ai_service_url: "http://ai-orchestrator-service.openfoundry.svc:50127"
+  notification_service_url: "http://notification-alerting-service.openfoundry.svc:50114"
+  connector_management_service_url: "http://connector-management-service.openfoundry.svc:50130"
+
+cassandra:
+  contact_points: ""
+  local_dc: "dc1"
+
+telemetry:
+  otlp_endpoint: "localhost:4317"
+  log_format: "plain"

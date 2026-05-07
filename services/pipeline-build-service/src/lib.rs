@@ -17,6 +17,8 @@ pub mod config;
 pub mod domain;
 pub mod handlers;
 pub mod models;
+pub mod pipeline_authoring;
+pub mod pipeline_schedule;
 pub mod spark;
 
 use crate::domain::build_executor::OutputTransactionClient;

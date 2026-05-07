@@ -92,6 +92,29 @@ default = []
 # environment variables it expects.
 it-debezium = ["dep:outbox", "dep:rdkafka", "dep:testcontainers"]
 
+# --- Deps absorbed from sds/retention-policy/lineage-deletion per
+# --- ADR-0030 (S8 / B15).
+[dependencies.async-trait]
+workspace = true
+
+[dependencies.once_cell]
+version = "1"
+
+[dependencies.prometheus]
+workspace = true
+
+[dependencies.reqwest]
+workspace = true
+
+[dependencies.storage-abstraction]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.tower-http]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "audit-compliance-service"

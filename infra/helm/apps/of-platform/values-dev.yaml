@@ -40,38 +40,11 @@ services:
       DATABASE_READ_URL:
         secretName: identity-federation-db-dsn
         key: reader_url
-  cipher-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: cipher-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: cipher-db-dsn
-        key: reader_url
-  network-boundary-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: network-boundary-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: network-boundary-db-dsn
-        key: reader_url
-  oauth-integration-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: oauth-integration-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: oauth-integration-db-dsn
-        key: reader_url
-  security-governance-service:
-    envSecrets:
-      DATABASE_URL:
-        secretName: security-governance-db-dsn
-        key: writer_url
-      DATABASE_READ_URL:
-        secretName: security-governance-db-dsn
-        key: reader_url
+  # S8 / ADR-0030 (B14): cipher-service and network-boundary-service
+  # merged → authorization-policy-service. Schemas reuse pg-policy.
+  # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
+  # S8 / ADR-0030 (B14): security-governance-service merged →
+  # authorization-policy-service. Schema reuses pg-policy.
   tenancy-organizations-service:
     envSecrets:
       DATABASE_URL:
