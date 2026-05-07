@@ -20,6 +20,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/reconcile"
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/server"
 )
@@ -63,6 +64,15 @@ func main() {
 		&handlers.HTTPKafkaAdmin{BaseURL: os.Getenv("KAFKA_RUNTIME_URL")},
 		&handlers.HTTPFlinkDeployer{BaseURL: os.Getenv("FLINK_RUNTIME_URL")},
 	)
+	// Reconciler defaults to LoggingApplier (no-op). When
+	// INGESTION_CONTROL_PLANE_URL is set, swap in the HTTP applier that talks
+	// to the Kubernetes-backed control plane (mirrors the Rust hot-standby
+	// reconcile loop in services/ingestion-replication-service/src/reconcile.rs).
+	reconciler := &reconcile.Reconciler{Logger: log}
+	if cpURL := os.Getenv("INGESTION_CONTROL_PLANE_URL"); cpURL != "" {
+		reconciler.Applier = &reconcile.HTTPApplier{BaseURL: cpURL, Logger: log}
+	}
+	_ = reconciler // wired for future reconcile-loop hookup; keeps applier reachable.
 	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, Runtime: runtime}
 	metrics := observability.NewMetrics()
 
