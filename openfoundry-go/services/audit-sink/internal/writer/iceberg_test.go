@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -151,6 +152,22 @@ func TestHTTPTableWriterAdapterAuditContract(t *testing.T) {
 	}
 }
 
+func TestHTTPTableWriterAdapterIsProductionPathNotStub(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_audit", "events")
+	err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, At: 1, Kind: "kind", Payload: []byte(`{}`)}})
+	if errors.Is(err, ErrNotImplemented) {
+		t.Fatalf("Append() returned legacy stub error %v", err)
+	}
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
 func TestHTTPTableWriterAdapterAuditErrors(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -169,6 +186,7 @@ func TestHTTPTableWriterAdapterAuditErrors(t *testing.T) {
 					t.Fatalf("path = %s", r.URL.Path)
 				}
 				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte("catalog said no"))
 			}))
 			defer server.Close()
 
@@ -176,6 +194,9 @@ func TestHTTPTableWriterAdapterAuditErrors(t *testing.T) {
 			err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, At: 1, Kind: "kind", Payload: []byte(`{}`)}})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("Append() error = %v, want %v", err, tc.want)
+			}
+			if !strings.Contains(err.Error(), "catalog said no") {
+				t.Fatalf("Append() error = %v, want table-writer detail", err)
 			}
 		})
 	}

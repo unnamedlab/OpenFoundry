@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -189,14 +190,24 @@ func (t *httpTableWriter) Append(ctx context.Context, batch AppendBatch) error {
 		return fmt.Errorf("%w: %v", ErrCommitFailed, err)
 	}
 	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent:
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
 		return nil
-	case http.StatusNotFound:
-		return ErrTableNotFound
-	case http.StatusConflict, http.StatusUnprocessableEntity:
-		return ErrSchemaMismatch
-	default:
-		return fmt.Errorf("%w: HTTP %d from table-writer adapter", ErrCommitFailed, resp.StatusCode)
 	}
+	detail := tableWriterErrorDetail(resp)
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return fmt.Errorf("%w%s", ErrTableNotFound, detail)
+	case http.StatusConflict, http.StatusUnprocessableEntity:
+		return fmt.Errorf("%w%s", ErrSchemaMismatch, detail)
+	default:
+		return fmt.Errorf("%w: HTTP %d from table-writer adapter%s", ErrCommitFailed, resp.StatusCode, detail)
+	}
+}
+
+func tableWriterErrorDetail(resp *http.Response) string {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+	if err != nil || len(bytes.TrimSpace(body)) == 0 {
+		return ""
+	}
+	return ": " + string(bytes.TrimSpace(body))
 }

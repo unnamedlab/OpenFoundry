@@ -45,7 +45,7 @@ single Helm `values.yaml` drives both implementations during cutover.
 | `KAFKA_SASL_PASSWORD`               |          | When unset → PLAINTEXT (dev / docker-compose)            |
 | `KAFKA_SASL_MECHANISM`              |          | Default `SCRAM-SHA-512`                   |
 | `KAFKA_SECURITY_PROTOCOL`           |          | Default `SASL_SSL`                        |
-| `ICEBERG_CATALOG_URL`               | ✅       | Lakekeeper REST URL                       |
+| `ICEBERG_CATALOG_URL`               | ✅ in Iceberg mode | Lakekeeper REST URL and base URL for the table-writer adapter. Optional only when `AUDIT_SINK_JSONL_PATH` selects explicit JSONL dev mode |
 | `ICEBERG_WAREHOUSE`                 |          | Warehouse location override               |
 | `AUDIT_SINK_BATCH_MAX_RECORDS`      |          | Default 100k                              |
 | `AUDIT_SINK_BATCH_MAX_WAIT_SECONDS` |          | Default 60s                               |
@@ -60,6 +60,21 @@ single Helm `values.yaml` drives both implementations during cutover.
 - `GET /metrics` — Prometheus scrape (`audit_sink_lag_seconds`,
   `audit_sink_records_total`, `audit_sink_batch_size_records`,
   `audit_sink_commits_total{outcome=success|failure|poison}`).
+
+## Failure mode
+
+The Iceberg adapter returns typed errors so the runtime fails loud and leaves
+Kafka offsets uncommitted for replay:
+
+- `ErrTableNotFound` for adapter `404` responses.
+- `ErrSchemaMismatch` for adapter `409` / `422` responses.
+- `ErrCommitFailed` for network failures and other non-2xx responses.
+
+Adapter response bodies are preserved in the wrapped error (bounded to 4 KiB)
+for operator diagnostics. JSONL mode is intentionally opt-in; production should
+leave `AUDIT_SINK_JSONL_PATH` unset so selecting Iceberg cannot fall back to a
+dev file sink. See `openfoundry-go/docs/migration/audit-sink-iceberg.md` for
+the Rust contract review and cutover details.
 
 ## Build / run
 

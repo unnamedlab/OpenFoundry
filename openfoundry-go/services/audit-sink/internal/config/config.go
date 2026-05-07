@@ -18,11 +18,11 @@ import (
 // Iceberg target identifiers — pinned constants. A typo here is a
 // compile error, not a silent topic-redirect.
 const (
-	IcebergCatalog          = "lakekeeper"
-	IcebergNamespace        = "of_audit"
-	IcebergTable            = "events"
+	IcebergCatalog            = "lakekeeper"
+	IcebergNamespace          = "of_audit"
+	IcebergTable              = "events"
 	IcebergPartitionTransform = "day(at)"
-	IcebergSortOrder        = "at ASC"
+	IcebergSortOrder          = "at ASC"
 )
 
 // Topic + consumer-group constants.
@@ -51,8 +51,7 @@ type Config struct {
 
 	// JSONLWriterPath is non-empty when the writer should be the
 	// JSONL-file fallback (development / staging). When empty, the
-	// runtime uses the real Iceberg writer (still a stub — see
-	// internal/writer/iceberg.go).
+	// runtime uses the production Iceberg writer.
 	JSONLWriterPath string
 }
 
@@ -74,8 +73,9 @@ func FromEnv() (*Config, error) {
 	if bootstrap == "" {
 		return nil, &MissingEnvError{Key: "KAFKA_BOOTSTRAP_SERVERS"}
 	}
+	jsonlPath := os.Getenv("AUDIT_SINK_JSONL_PATH")
 	catalogURL := os.Getenv("ICEBERG_CATALOG_URL")
-	if catalogURL == "" {
+	if catalogURL == "" && jsonlPath == "" {
 		return nil, &MissingEnvError{Key: "ICEBERG_CATALOG_URL"}
 	}
 
@@ -103,7 +103,7 @@ func FromEnv() (*Config, error) {
 		Warehouse:       os.Getenv("ICEBERG_WAREHOUSE"),
 		BatchPolicy:     policy,
 		MetricsAddr:     defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090"),
-		JSONLWriterPath: os.Getenv("AUDIT_SINK_JSONL_PATH"),
+		JSONLWriterPath: jsonlPath,
 	}
 	cfg.Service.Name = "audit-sink"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")

@@ -104,9 +104,9 @@ func main() {
 // buildWriter picks the Writer implementation per config.
 //
 // Default: when AUDIT_SINK_JSONL_PATH is set, the JSONL writer is used.
-// Otherwise the Iceberg writer (currently a stub) is selected — the
-// runtime fails loudly on the first batch via writer.ErrNotImplemented
-// so an operator who forgets to set the JSONL path notices immediately.
+// Otherwise the production Iceberg HTTP table-writer adapter is selected.
+// JSONL is intentionally opt-in so production cannot silently downgrade
+// away from the durable Iceberg sink.
 func buildWriter(cfg *config.Config) (writer.Writer, error) {
 	if cfg.JSONLWriterPath != "" {
 		return writer.NewJSONLWriter(cfg.JSONLWriterPath)
