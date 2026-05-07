@@ -16,7 +16,7 @@ Generated route baseline:
 cd openfoundry-go && go run ./tools/route-audit -services connector-management-service
 ```
 
-Current route-audit result after the route-surface slice: 47 Rust routes and 58 Go routes, with **0 Rust routes reported as `missing`**. The extra Go routes are existing foundation/read-update helpers (`PATCH /connections/{id}`, `GET/PATCH /data-connection/syncs/{id}`, media-set get/update/run, and the Go virtual-table primitive surface). The audit canonicalizes connector-management Rust routes mounted inside Rust's `/api/v1` closure so the comparison reflects the externally effective HTTP surface.
+Current route-audit result after this parity slice: 47 Rust routes and 59 Go routes, with **0 Rust routes reported as `missing`**. The audit classifies 42 routes as implemented, with remaining 501/config-gated/empty-envelope items outside the requested connector-management parity group (dev-auth, credentials/egress, sync run listing, and optional media/webhook runtime depth). The extra Go routes are existing foundation/read-update helpers (`PATCH /connections/{id}`, `GET/PATCH /data-connection/syncs/{id}`, media-set get/update/run, and the Go virtual-table primitive surface). The audit canonicalizes connector-management Rust routes mounted inside Rust's `/api/v1` closure so the comparison reflects the externally effective HTTP surface.
 
 ## Status vocabulary
 
@@ -49,6 +49,20 @@ Machine-readable pending errors use this shape:
 {"error":"<code>","code":"<code>","message":"route mounted for Rust parity; implementation pending"}
 ```
 
+
+## 2026-05-07 parity close update
+
+This slice replaced the remaining connector-management route-parity placeholders for the requested groups:
+
+- Registration routes now have Go handlers plus repository methods over `connection_registrations`: list, discovery, bulk register, dry-run preview, one-shot auto register, auto-registration config/status, delete, JSON query, and Arrow-stream response. Discovery/query semantics are intentionally adapter-light for now: Go derives selectors from inline `connections.config.tables` or a default source entry until the full Rust connector adapter matrix is ported.
+- `test-connection` now returns the Rust-style success/message/latency/details response and updates connection status; it does not yet dispatch into every Rust connector runtime.
+- `/api/v1/data-connection/streaming-sources` serves the static streaming-source contract catalog.
+- `/api/v1/webhooks/{id}/invoke` loads webhook definitions from connection config, forwards the HTTP call, and returns `status`, `response`, and `output_parameters`.
+- `/iceberg/v1/config`, namespaces, tables, and table loading are backed by zero-copy registrations. Load-table returns upstream `metadata_location` when registration metadata carries it, otherwise a Foundry-vended synthetic metadata/config response.
+- Handler tests now cover registration, auto-registration, connection test, webhook invoke, streaming/catalog golden surfaces, and the Iceberg REST catalog group.
+
+Remaining non-parity gaps are connector-runtime depth rather than HTTP route availability: credentials/egress/dev-auth remain pending, sync run listing remains pending, and full per-adapter discovery/query/Arrow IPC fidelity remains future work.
+
 ## Rust test corpus inspected
 
 - Connector/runtime integration: `tests/kafka_real_broker.rs`, `tests/postgres_cdc_e2e.rs`, `tests/s3_minio.rs`, `tests/schema_registry_compat.rs`.
@@ -74,9 +88,9 @@ Machine-readable pending errors use this shape:
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/data-connection/catalog` | `handlers::catalog::get_connector_catalog` | `/api/v1/data-connection/catalog` | `h.GetConnectorCatalog` | 501 | static connector catalog, connector modules | connector module tests |
-| GET | `/api/v1/data-connection/catalog/contracts` | `handlers::catalog::get_connector_contracts` | `/api/v1/data-connection/catalog/contracts` | `h.GetConnectorContracts` | 501 | static connector contracts | connector/contract fixture expectations |
-| GET | `/api/v1/data-connection/streaming-sources` | `handlers::streaming_syncs::list_streaming_sources` | `/api/v1/data-connection/streaming-sources` | `h.ListStreamingSources` | 501 | static streaming-source contracts | Kafka/schema-registry tests |
+| GET | `/api/v1/data-connection/catalog` | `handlers::catalog::get_connector_catalog` | `/api/v1/data-connection/catalog` | `h.GetConnectorCatalog` | implemented | static connector catalog, connector modules | connector module tests |
+| GET | `/api/v1/data-connection/catalog/contracts` | `handlers::catalog::get_connector_contracts` | `/api/v1/data-connection/catalog/contracts` | `h.GetConnectorContracts` | implemented | static connector contracts | connector/contract fixture expectations |
+| GET | `/api/v1/data-connection/streaming-sources` | `handlers::streaming_syncs::list_streaming_sources` | `/api/v1/data-connection/streaming-sources` | `h.ListStreamingSources` | implemented | static streaming-source contracts | Kafka/schema-registry tests |
 
 ### sources/connections CRUD/test/capabilities
 
@@ -86,8 +100,8 @@ Machine-readable pending errors use this shape:
 | POST | `/api/v1/data-connection/sources` | `handlers::connections::create_connection` | `/api/v1/data-connection/sources` | `h.CreateConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | GET | `/api/v1/data-connection/sources/{id}` | `handlers::connections::get_connection` | `/api/v1/data-connection/sources/{id}` | `h.GetConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | DELETE | `/api/v1/data-connection/sources/{id}` | `handlers::connections::delete_connection` | `/api/v1/data-connection/sources/{id}` | `h.DeleteConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
-| POST | `/api/v1/data-connection/sources/{id}/test-connection` | `handlers::connections::test_connection` | `/api/v1/data-connection/sources/{id}/test-connection` | `h.TestConnection` | 501 | `connections`; connector adapter modules | connector adapter tests, real-broker/minio/e2e tests |
-| GET | `/api/v1/data-connection/sources/{id}/capabilities` | `handlers::catalog::get_connection_capabilities` | `/api/v1/data-connection/sources/{id}/capabilities` | `h.GetConnectionCapabilities` | 501 | `connections`, connector catalog | connector/domain capability tests |
+| POST | `/api/v1/data-connection/sources/{id}/test-connection` | `handlers::connections::test_connection` | `/api/v1/data-connection/sources/{id}/test-connection` | `h.TestConnection` | partial | `connections`; connector adapter modules | connector adapter tests, real-broker/minio/e2e tests |
+| GET | `/api/v1/data-connection/sources/{id}/capabilities` | `handlers::catalog::get_connection_capabilities` | `/api/v1/data-connection/sources/{id}/capabilities` | `h.GetConnectionCapabilities` | implemented | `connections`, connector catalog | connector/domain capability tests |
 
 ### credentials vending/storage
 
@@ -125,16 +139,16 @@ Machine-readable pending errors use this shape:
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/data-connection/sources/{id}/registrations` | `handlers::registrations::list_registrations` | same | `h.ListRegistrations` | 501 | `connection_registrations`, `virtual_tables` | virtual-table domain/model tests |
-| POST | `/api/v1/data-connection/sources/{id}/registrations/discover` | `handlers::registrations::discover` | same | `h.DiscoverRegistrations` | 501 | connector adapters, `connection_registrations` | discovery/schema inference tests |
-| POST | `/api/v1/data-connection/sources/{id}/registrations/bulk` | `handlers::registrations::bulk_register` | same | `h.BulkRegister` | 501 | `connection_registrations`, `virtual_tables`, `virtual_table_audit` | registration tests |
-| POST | `/api/v1/data-connection/sources/{id}/registrations/bulk/preview` | `handlers::registrations::bulk_register_preview` | same | `h.BulkRegisterPreview` | 501 | connector adapters | preview tests |
-| POST | `/api/v1/data-connection/sources/{id}/registrations/auto` | `handlers::registrations::auto_register` | same | `h.AutoRegister` | 501 | `virtual_table_sources_link`, `auto_register_runs`, `virtual_table_audit` | auto-registration tests |
-| PUT | `/api/v1/data-connection/sources/{id}/registrations/auto` | `handlers::registrations::update_auto_registration` | same | `h.UpdateAutoRegistration` | 501 | `virtual_table_sources_link` | auto-registration tests |
-| GET | `/api/v1/data-connection/sources/{id}/registrations/auto/status` | `handlers::registrations::auto_register_status` | same | `h.AutoRegisterStatus` | 501 | `auto_register_runs`, `virtual_table_sources_link` | auto-registration tests |
-| DELETE | `/api/v1/data-connection/sources/{source_id}/registrations/{registration_id}` | `handlers::registrations::delete_registration` | same | `h.DeleteRegistration` | 501 | `connection_registrations`, `virtual_tables`, `virtual_table_audit` | registration tests |
-| POST | `/api/v1/data-connection/sources/{source_id}/registrations/{registration_id}/query` | `handlers::registrations::query_registration` | same | `h.QueryRegistration` | 501 | `connection_registrations`, connector adapters | query tests |
-| POST | `/api/v1/data-connection/sources/{source_id}/registrations/{registration_id}/query/arrow` | `handlers::registrations::query_registration_arrow` | same | `h.QueryRegistrationArrow` | 501 | `connection_registrations`, connector adapters, Arrow IPC | Arrow/materialization tests |
+| GET | `/api/v1/data-connection/sources/{id}/registrations` | `handlers::registrations::list_registrations` | same | `h.ListRegistrations` | implemented | `connection_registrations`, `virtual_tables` | virtual-table domain/model tests |
+| POST | `/api/v1/data-connection/sources/{id}/registrations/discover` | `handlers::registrations::discover` | same | `h.DiscoverRegistrations` | partial | connector adapters, `connection_registrations` | discovery/schema inference tests |
+| POST | `/api/v1/data-connection/sources/{id}/registrations/bulk` | `handlers::registrations::bulk_register` | same | `h.BulkRegister` | implemented | `connection_registrations`, `virtual_tables`, `virtual_table_audit` | registration tests |
+| POST | `/api/v1/data-connection/sources/{id}/registrations/bulk/preview` | `handlers::registrations::bulk_register_preview` | same | `h.BulkRegisterPreview` | implemented | connector adapters | preview tests |
+| POST | `/api/v1/data-connection/sources/{id}/registrations/auto` | `handlers::registrations::auto_register` | same | `h.AutoRegister` | partial | `virtual_table_sources_link`, `auto_register_runs`, `virtual_table_audit` | auto-registration tests |
+| PUT | `/api/v1/data-connection/sources/{id}/registrations/auto` | `handlers::registrations::update_auto_registration` | same | `h.UpdateAutoRegistration` | partial | `virtual_table_sources_link` | auto-registration tests |
+| GET | `/api/v1/data-connection/sources/{id}/registrations/auto/status` | `handlers::registrations::auto_register_status` | same | `h.AutoRegisterStatus` | partial | `auto_register_runs`, `virtual_table_sources_link` | auto-registration tests |
+| DELETE | `/api/v1/data-connection/sources/{source_id}/registrations/{registration_id}` | `handlers::registrations::delete_registration` | same | `h.DeleteRegistration` | implemented | `connection_registrations`, `virtual_tables`, `virtual_table_audit` | registration tests |
+| POST | `/api/v1/data-connection/sources/{source_id}/registrations/{registration_id}/query` | `handlers::registrations::query_registration` | same | `h.QueryRegistration` | partial | `connection_registrations`, connector adapters | query tests |
+| POST | `/api/v1/data-connection/sources/{source_id}/registrations/{registration_id}/query/arrow` | `handlers::registrations::query_registration_arrow` | same | `h.QueryRegistrationArrow` | partial | `connection_registrations`, connector adapters, Arrow IPC | Arrow/materialization tests |
 
 ### virtual table source enable/list/get/create
 
@@ -149,11 +163,11 @@ Machine-readable pending errors use this shape:
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/iceberg/v1/config` | `handlers::iceberg_catalog::get_config` | `/iceberg/v1/config` | `h.IcebergGetConfig` | 501 | `virtual_tables`, `virtual_table_sources_link` | Iceberg catalog/domain tests |
-| GET | `/iceberg/v1/namespaces` | `handlers::iceberg_catalog::list_namespaces` | `/iceberg/v1/namespaces` | `h.IcebergListNamespaces` | 501 | `virtual_tables` | Iceberg catalog/domain tests |
-| GET | `/iceberg/v1/namespaces/{namespace}` | `handlers::iceberg_catalog::get_namespace` | `/iceberg/v1/namespaces/{namespace}` | `h.IcebergGetNamespace` | 501 | `virtual_tables` | Iceberg catalog/domain tests |
-| GET | `/iceberg/v1/namespaces/{namespace}/tables` | `handlers::iceberg_catalog::list_tables` | `/iceberg/v1/namespaces/{namespace}/tables` | `h.IcebergListTables` | 501 | `virtual_tables`, `connection_registrations` | Iceberg catalog/domain tests |
-| GET | `/iceberg/v1/namespaces/{namespace}/tables/{table}` | `handlers::iceberg_catalog::load_table` | `/iceberg/v1/namespaces/{namespace}/tables/{table}` | `h.IcebergLoadTable` | 501 | `virtual_tables`, `connection_registrations` | Iceberg catalog/domain tests |
+| GET | `/iceberg/v1/config` | `handlers::iceberg_catalog::get_config` | `/iceberg/v1/config` | `h.IcebergGetConfig` | implemented | `virtual_tables`, `virtual_table_sources_link` | Iceberg catalog/domain tests |
+| GET | `/iceberg/v1/namespaces` | `handlers::iceberg_catalog::list_namespaces` | `/iceberg/v1/namespaces` | `h.IcebergListNamespaces` | implemented | `virtual_tables` | Iceberg catalog/domain tests |
+| GET | `/iceberg/v1/namespaces/{namespace}` | `handlers::iceberg_catalog::get_namespace` | `/iceberg/v1/namespaces/{namespace}` | `h.IcebergGetNamespace` | implemented | `virtual_tables` | Iceberg catalog/domain tests |
+| GET | `/iceberg/v1/namespaces/{namespace}/tables` | `handlers::iceberg_catalog::list_tables` | `/iceberg/v1/namespaces/{namespace}/tables` | `h.IcebergListTables` | implemented | `virtual_tables`, `connection_registrations` | Iceberg catalog/domain tests |
+| GET | `/iceberg/v1/namespaces/{namespace}/tables/{table}` | `handlers::iceberg_catalog::load_table` | `/iceberg/v1/namespaces/{namespace}/tables/{table}` | `h.IcebergLoadTable` | partial | `virtual_tables`, `connection_registrations` | Iceberg catalog/domain tests |
 
 ### legacy `/connections` aliases
 
@@ -163,13 +177,13 @@ Machine-readable pending errors use this shape:
 | POST | `/api/v1/connections` | `handlers::connections::create_connection` | `/api/v1/connections` | `h.CreateConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | GET | `/api/v1/connections/{id}` | `handlers::connections::get_connection` | `/api/v1/connections/{id}` | `h.GetConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
 | DELETE | `/api/v1/connections/{id}` | `handlers::connections::delete_connection` | `/api/v1/connections/{id}` | `h.DeleteConnection` | implemented | `connections`; `20260419100002_initial_connectors.sql` | connection handler tests |
-| POST | `/api/v1/connections/{id}/test` | `handlers::connections::test_connection` | `/api/v1/connections/{id}/test` | `h.TestConnection` | 501 | `connections`, connector adapters | connector adapter tests |
+| POST | `/api/v1/connections/{id}/test` | `handlers::connections::test_connection` | `/api/v1/connections/{id}/test` | `h.TestConnection` | partial | `connections`, connector adapters | connector adapter tests |
 
 ### webhooks
 
 | Method | Rust path | Rust handler | Go path | Go handler | State | Tables/migrations | Rust tests |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| POST | `/api/v1/webhooks/{id}/invoke` | `handlers::webhooks::invoke_webhook` | `/api/v1/webhooks/{id}/invoke` | `h.InvokeWebhook` | 501 | `connections`, sync/runtime target tables depending webhook definition | webhook handler/domain expectations |
+| POST | `/api/v1/webhooks/{id}/invoke` | `handlers::webhooks::invoke_webhook` | `/api/v1/webhooks/{id}/invoke` | `h.InvokeWebhook` | implemented | `connections`, sync/runtime target tables depending webhook definition | webhook handler/domain expectations |
 
 ### dev-auth shim
 
@@ -212,7 +226,7 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 | Conformance area | Rust source of truth | Go coverage today | Gap |
 | --- | --- | --- | --- |
 | Route parity | `src/main.rs` | router tests and `tools/route-audit`; audit reports no Rust `missing` routes | Keep route-audit in CI while replacing 501s. |
-| HTTP handler contracts | `src/handlers/*.rs` | router tests cover mounted routes, auth-required behavior, and dev-auth env gating | Implement catalog, credentials, egress, test-connection, capabilities, registrations, Iceberg, webhook, dev-auth behavior. |
+| HTTP handler contracts | `src/handlers/*.rs` | router tests cover mounted routes, auth-required behavior, and dev-auth env gating | Credentials, egress, sync run listing, full connector adapter dispatch, and dev-auth behavior remain. |
 | Persistence migrations | Rust migrations | Go migrations mirror filenames | Need repo methods for all carried tables and outbox writes. |
 | Connector behavior | `src/connectors/*.rs`, `src/virtual_table/connectors/*.rs` | contract fixture test and mounted pending endpoints | Need adapter-level unit/integration parity. |
 | Runtime dispatch | `ingestion_bridge`, `dataset_versioning`, media-set runtime | Go DB-only sync run plus media-set HTTP runtime | Need ingestion-replication dispatch, dataset version recording, run listing/status semantics. |
@@ -220,16 +234,16 @@ No Rust routes are mounted directly under adapter modules, but Rust request hand
 
 ## Prioritized PR/slices to close migration
 
-1. **Catalog/contracts/streaming-source slice**: replace 501 handlers with Rust static catalog/contracts plus streaming source contract response shapes and tests.
-2. **Connection test/capabilities slice**: port connector capability matrix, `test_connection` dispatch, core validation, and adapter unit tests for highest-use connectors.
+1. **Done — catalog/contracts/streaming-source slice**: Rust static catalog/contracts plus streaming source contract response shapes and tests are present.
+2. **Partial — connection test/capabilities slice**: capability matrix and a non-dispatching `test_connection` response are present; per-connector runtime dispatch remains.
 3. **Credential storage/vending slice**: port encrypted `source_credentials` CRUD and vended credential helpers, including key derivation/encryption compatibility tests.
 4. **Egress policy slice**: port source policy binding handlers and domain URL/allowlist/private-network validation; keep network-boundary ownership external.
 5. **Sync runtime slice**: complete `run_sync` parity by dispatching to ingestion-replication, materializing payloads, recording dataset versions/content hashes, and implementing `GET /syncs/{id}/runs`.
 6. **Media-set parity slice**: reconcile Rust-only create/list vs Go extended run/get/update API, then wire runtime config and filter/classification parity tests.
-7. **Virtual registrations slice**: replace registration 501s with list/discover/bulk/preview/delete/query/Arrow endpoints and repo methods over `connection_registrations`/`virtual_tables`/audit tables.
+7. **Done/partial — virtual registrations slice**: list/discover/bulk/preview/delete/query/Arrow endpoints and repo methods over `connection_registrations` are present; full adapter-backed query and audit-table writes remain.
 8. **Auto-registration/update-detection workers slice**: replace status/update 501s plus scheduler/update-detection workers and config gates.
-9. **Iceberg REST Catalog slice**: replace `/iceberg/v1/*` 501s with config/namespaces/table-loading semantics, including foundry-vended vs upstream metadata behavior.
-10. **Webhooks slice**: port webhook lookup/invoke flow and side-effect tests.
+9. **Done/partial — Iceberg REST Catalog slice**: `/iceberg/v1/*` endpoints expose config/namespaces/table-loading semantics with foundry-vended vs upstream metadata behavior; full credential vending remains.
+10. **Done — Webhooks slice**: webhook lookup/invoke flow and side-effect tests are present.
 11. **Dev-auth shim slice**: implement `OPENFOUNDRY_DEV_AUTH=1` gated local web-app compatibility behavior.
 12. **Connector adapter breadth slice**: port remaining adapters in batches (object/file, DB/warehouse, streaming, SaaS/BI/API, runtime bridges) with integration tests where Rust has real-service coverage.
 13. **Outbox/conformance hardening slice**: add transactional outbox emission, route-audit CI assertions, golden JSON fixtures, and end-to-end conformance tests across Rust-compatible paths.

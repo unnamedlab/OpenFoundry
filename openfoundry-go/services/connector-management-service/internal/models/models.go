@@ -523,9 +523,13 @@ type QueryRegistrationBody struct {
 }
 
 type UpdateAutoRegistrationBody struct {
-	Enabled         bool     `json:"enabled"`
-	IntervalSeconds *int32   `json:"interval_seconds"`
-	TagFilters      []string `json:"tag_filters"`
+	Enabled          *bool    `json:"enabled,omitempty"`
+	RegistrationMode *string  `json:"registration_mode,omitempty"`
+	AutoSync         *bool    `json:"auto_sync,omitempty"`
+	UpdateDetection  *bool    `json:"update_detection,omitempty"`
+	Selectors        []string `json:"selectors,omitempty"`
+	IntervalSeconds  *int32   `json:"interval_seconds,omitempty"`
+	TagFilters       []string `json:"tag_filters,omitempty"`
 }
 
 type HyperAutoErpRequest struct {

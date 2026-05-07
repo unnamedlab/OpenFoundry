@@ -519,3 +519,118 @@ func scanMediaSetSync(r rowLikeT) (*models.MediaSetSync, error) {
 	}
 	return v, nil
 }
+
+const registrationSelect = `SELECT id, connection_id, selector, display_name, source_kind,
+	registration_mode, auto_sync, update_detection, target_dataset_id, last_source_signature,
+	last_dataset_version, metadata, created_at, updated_at FROM connection_registrations`
+
+func (r *Repo) ListRegistrations(ctx context.Context, sourceID uuid.UUID) ([]models.ConnectionRegistration, error) {
+	rows, err := r.Pool.Query(ctx, registrationSelect+` WHERE connection_id = $1 ORDER BY created_at DESC`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.ConnectionRegistration{}
+	for rows.Next() {
+		v, err := scanRegistration(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) UpsertRegistration(ctx context.Context, sourceID uuid.UUID, source models.DiscoveredSource, mode string, autoSync bool, updateDetection bool, targetDatasetID *uuid.UUID, metadata json.RawMessage) (*models.ConnectionRegistration, error) {
+	if len(metadata) == 0 || string(metadata) == "null" {
+		metadata = []byte(`{}`)
+	}
+	row := r.Pool.QueryRow(ctx, `WITH upserted AS (
+		INSERT INTO connection_registrations (id, connection_id, selector, display_name, source_kind, registration_mode, auto_sync, update_detection, target_dataset_id, last_source_signature, metadata)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (connection_id, selector) DO UPDATE SET display_name = EXCLUDED.display_name, source_kind = EXCLUDED.source_kind,
+			registration_mode = EXCLUDED.registration_mode, auto_sync = EXCLUDED.auto_sync, update_detection = EXCLUDED.update_detection,
+			target_dataset_id = EXCLUDED.target_dataset_id, last_source_signature = EXCLUDED.last_source_signature,
+			metadata = EXCLUDED.metadata, updated_at = NOW()
+		RETURNING id, connection_id, selector, display_name, source_kind, registration_mode, auto_sync, update_detection, target_dataset_id, last_source_signature, last_dataset_version, metadata, created_at, updated_at)
+		SELECT id, connection_id, selector, display_name, source_kind, registration_mode, auto_sync, update_detection, target_dataset_id, last_source_signature, last_dataset_version, metadata, created_at, updated_at FROM upserted`, uuid.New(), sourceID, source.Selector, source.DisplayName, source.SourceKind, mode, autoSync, updateDetection, targetDatasetID, source.SourceSignature, metadata)
+	v, err := scanRegistration(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) GetRegistration(ctx context.Context, sourceID uuid.UUID, registrationID uuid.UUID) (*models.ConnectionRegistration, error) {
+	row := r.Pool.QueryRow(ctx, registrationSelect+` WHERE connection_id = $1 AND id = $2`, sourceID, registrationID)
+	v, err := scanRegistration(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) DeleteRegistration(ctx context.Context, sourceID uuid.UUID, registrationID uuid.UUID) (bool, error) {
+	ct, err := r.Pool.Exec(ctx, `DELETE FROM connection_registrations WHERE connection_id = $1 AND id = $2`, sourceID, registrationID)
+	return ct.RowsAffected() > 0, err
+}
+
+func (r *Repo) UpdateConnectionConfig(ctx context.Context, id uuid.UUID, config json.RawMessage) (*models.Connection, error) {
+	row := r.Pool.QueryRow(ctx, `UPDATE connections SET config = $2, updated_at = NOW() WHERE id = $1 RETURNING id, name, connector_type, config, status, owner_id, last_sync_at, created_at, updated_at`, id, config)
+	v, err := scanConnection(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) ListIcebergNamespaces(ctx context.Context) ([]models.Connection, error) {
+	rows, err := r.Pool.Query(ctx, connectionSelect+` WHERE EXISTS (SELECT 1 FROM connection_registrations reg WHERE reg.connection_id = connections.id AND COALESCE((reg.metadata->>'supports_zero_copy')::bool, false) = true) ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.Connection{}
+	for rows.Next() {
+		v, err := scanConnection(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetIcebergConnection(ctx context.Context, namespace string) (*models.Connection, error) {
+	row := r.Pool.QueryRow(ctx, connectionSelect+` WHERE name = $1 OR regexp_replace(name, '[^A-Za-z0-9_-]', '_', 'g') = $1 LIMIT 1`, namespace)
+	v, err := scanConnection(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) ListIcebergTables(ctx context.Context, connectionID uuid.UUID) ([]models.ConnectionRegistration, error) {
+	rows, err := r.Pool.Query(ctx, registrationSelect+` WHERE connection_id = $1 AND COALESCE((metadata->>'supports_zero_copy')::bool, false) = true ORDER BY selector`, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.ConnectionRegistration{}
+	for rows.Next() {
+		v, err := scanRegistration(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *v)
+	}
+	return out, rows.Err()
+}
+
+func scanRegistration(r rowLikeT) (*models.ConnectionRegistration, error) {
+	v := &models.ConnectionRegistration{}
+	if err := r.Scan(&v.ID, &v.ConnectionID, &v.Selector, &v.DisplayName, &v.SourceKind, &v.RegistrationMode, &v.AutoSync, &v.UpdateDetection, &v.TargetDatasetID, &v.LastSourceSignature, &v.LastDatasetVersion, &v.Metadata, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return v, nil
+}

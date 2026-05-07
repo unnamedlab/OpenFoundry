@@ -38,6 +38,14 @@ type Store interface {
 	CreateVirtualTable(ctx context.Context, sourceRID string, actorID string, body *models.CreateVirtualTableRequest) (*models.VirtualTable, error)
 	ListVirtualTables(ctx context.Context, ownerID string, project, source string, limit int) ([]models.VirtualTable, error)
 	GetVirtualTable(ctx context.Context, rid string, ownerID string) (*models.VirtualTable, error)
+	ListRegistrations(ctx context.Context, sourceID uuid.UUID) ([]models.ConnectionRegistration, error)
+	UpsertRegistration(ctx context.Context, sourceID uuid.UUID, source models.DiscoveredSource, mode string, autoSync bool, updateDetection bool, targetDatasetID *uuid.UUID, metadata json.RawMessage) (*models.ConnectionRegistration, error)
+	GetRegistration(ctx context.Context, sourceID uuid.UUID, registrationID uuid.UUID) (*models.ConnectionRegistration, error)
+	DeleteRegistration(ctx context.Context, sourceID uuid.UUID, registrationID uuid.UUID) (bool, error)
+	UpdateConnectionConfig(ctx context.Context, id uuid.UUID, config json.RawMessage) (*models.Connection, error)
+	ListIcebergNamespaces(ctx context.Context) ([]models.Connection, error)
+	GetIcebergConnection(ctx context.Context, namespace string) (*models.Connection, error)
+	ListIcebergTables(ctx context.Context, connectionID uuid.UUID) ([]models.ConnectionRegistration, error)
 }
 
 type RuntimeConfig struct {
@@ -113,10 +121,6 @@ func (h *Handlers) GetConnectorContracts(w http.ResponseWriter, r *http.Request)
 
 func (h *Handlers) ListStreamingSources(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]models.StreamingSourceContract{"data": models.StreamingSourceContracts()})
-}
-
-func (h *Handlers) TestConnection(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "connection_test_pending", true)
 }
 
 func (h *Handlers) GetConnectionCapabilities(w http.ResponseWriter, r *http.Request) {
@@ -210,50 +214,6 @@ func (h *Handlers) ListRuns(w http.ResponseWriter, r *http.Request) {
 	h.notImplemented(w, r, "sync_runs_pending", true)
 }
 
-func (h *Handlers) ListRegistrations(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registrations_pending", true)
-}
-
-func (h *Handlers) DiscoverRegistrations(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registration_discovery_pending", true)
-}
-
-func (h *Handlers) BulkRegister(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registration_bulk_pending", true)
-}
-
-func (h *Handlers) BulkRegisterPreview(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registration_bulk_preview_pending", true)
-}
-
-func (h *Handlers) AutoRegister(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "auto_registration_pending", true)
-}
-
-func (h *Handlers) UpdateAutoRegistration(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "auto_registration_pending", true)
-}
-
-func (h *Handlers) AutoRegisterStatus(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "auto_registration_status_pending", true)
-}
-
-func (h *Handlers) DeleteRegistration(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registration_delete_pending", true)
-}
-
-func (h *Handlers) QueryRegistration(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registration_query_pending", true)
-}
-
-func (h *Handlers) QueryRegistrationArrow(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "registration_query_arrow_pending", true)
-}
-
-func (h *Handlers) InvokeWebhook(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "webhook_invoke_pending", true)
-}
-
 func (h *Handlers) DevAuthLogin(w http.ResponseWriter, r *http.Request) {
 	h.notImplemented(w, r, "dev_auth_pending", false)
 }
@@ -268,26 +228,6 @@ func (h *Handlers) DevAuthBootstrapStatus(w http.ResponseWriter, r *http.Request
 
 func (h *Handlers) DevAuthMe(w http.ResponseWriter, r *http.Request) {
 	h.notImplemented(w, r, "dev_auth_me_pending", true)
-}
-
-func (h *Handlers) IcebergGetConfig(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "iceberg_catalog_pending", true)
-}
-
-func (h *Handlers) IcebergListNamespaces(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "iceberg_catalog_pending", true)
-}
-
-func (h *Handlers) IcebergGetNamespace(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "iceberg_catalog_pending", true)
-}
-
-func (h *Handlers) IcebergListTables(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "iceberg_catalog_pending", true)
-}
-
-func (h *Handlers) IcebergLoadTable(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r, "iceberg_catalog_pending", true)
 }
 
 func (h *Handlers) ListConnections(w http.ResponseWriter, r *http.Request) {

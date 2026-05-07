@@ -106,6 +106,31 @@ func (s *routerStore) GetVirtualTable(context.Context, string, string) (*models.
 	return &models.VirtualTable{RID: "ri.virtual", SourceRID: "ri.source", CreatedBy: stringPtr(s.owner.String())}, nil
 }
 
+func (s *routerStore) ListRegistrations(context.Context, uuid.UUID) ([]models.ConnectionRegistration, error) {
+	return []models.ConnectionRegistration{{ID: uuid.New(), ConnectionID: s.source, Selector: "pg", DisplayName: "pg", SourceKind: "postgres", RegistrationMode: "zero_copy", Metadata: json.RawMessage(`{"supports_zero_copy":true}`)}}, nil
+}
+func (s *routerStore) UpsertRegistration(context.Context, uuid.UUID, models.DiscoveredSource, string, bool, bool, *uuid.UUID, json.RawMessage) (*models.ConnectionRegistration, error) {
+	return &models.ConnectionRegistration{ID: uuid.New(), ConnectionID: s.source, Selector: "pg", DisplayName: "pg", SourceKind: "postgres", RegistrationMode: "sync", Metadata: json.RawMessage(`{"supports_zero_copy":true}`)}, nil
+}
+func (s *routerStore) GetRegistration(context.Context, uuid.UUID, uuid.UUID) (*models.ConnectionRegistration, error) {
+	return &models.ConnectionRegistration{ID: uuid.New(), ConnectionID: s.source, Selector: "pg", DisplayName: "pg", SourceKind: "postgres", RegistrationMode: "zero_copy", Metadata: json.RawMessage(`{"supports_zero_copy":true}`)}, nil
+}
+func (s *routerStore) DeleteRegistration(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return true, nil
+}
+func (s *routerStore) UpdateConnectionConfig(context.Context, uuid.UUID, json.RawMessage) (*models.Connection, error) {
+	return &models.Connection{ID: s.source, Name: "pg", ConnectorType: "postgres", OwnerID: s.owner, Config: json.RawMessage(`{}`)}, nil
+}
+func (s *routerStore) ListIcebergNamespaces(context.Context) ([]models.Connection, error) {
+	return []models.Connection{{ID: s.source, Name: "pg", ConnectorType: "postgres", OwnerID: s.owner, Config: json.RawMessage(`{}`)}}, nil
+}
+func (s *routerStore) GetIcebergConnection(context.Context, string) (*models.Connection, error) {
+	return &models.Connection{ID: s.source, Name: "pg", ConnectorType: "postgres", OwnerID: s.owner, Config: json.RawMessage(`{}`)}, nil
+}
+func (s *routerStore) ListIcebergTables(context.Context, uuid.UUID) ([]models.ConnectionRegistration, error) {
+	return []models.ConnectionRegistration{{ID: uuid.New(), ConnectionID: s.source, Selector: "pg", DisplayName: "pg", SourceKind: "postgres", RegistrationMode: "zero_copy", Metadata: json.RawMessage(`{"supports_zero_copy":true}`)}}, nil
+}
+
 func stringPtr(v string) *string { return &v }
 
 func testServer(t *testing.T, devAuth bool) (*http.Server, *authmw.JWTConfig, *routerStore) {

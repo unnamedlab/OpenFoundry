@@ -75,17 +75,18 @@ func TestListConnectionsRequiresAuth(t *testing.T) {
 }
 
 type fakeStore struct {
-	connections []models.Connection
-	syncJobs    map[uuid.UUID][]models.SyncJob
-	mediaSyncs  map[uuid.UUID][]models.MediaSetSync
-	runs        map[uuid.UUID][]models.SyncRun
-	links       map[string]models.VirtualTableSourceLink
-	vtables     map[string]models.VirtualTable
+	connections   []models.Connection
+	syncJobs      map[uuid.UUID][]models.SyncJob
+	mediaSyncs    map[uuid.UUID][]models.MediaSetSync
+	runs          map[uuid.UUID][]models.SyncRun
+	links         map[string]models.VirtualTableSourceLink
+	vtables       map[string]models.VirtualTable
+	registrations map[uuid.UUID][]models.ConnectionRegistration
 }
 
 func newFakeStore(owner uuid.UUID) *fakeStore {
 	conn := models.Connection{ID: uuid.New(), Name: "pg", ConnectorType: "postgresql", Config: json.RawMessage(`{}`), Status: "connected", OwnerID: owner, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
-	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}}
+	return &fakeStore{connections: []models.Connection{conn}, syncJobs: map[uuid.UUID][]models.SyncJob{}, mediaSyncs: map[uuid.UUID][]models.MediaSetSync{}, runs: map[uuid.UUID][]models.SyncRun{}, links: map[string]models.VirtualTableSourceLink{}, vtables: map[string]models.VirtualTable{}, registrations: map[uuid.UUID][]models.ConnectionRegistration{}}
 }
 
 func (f *fakeStore) ListConnections(_ context.Context, ownerID *uuid.UUID) ([]models.Connection, error) {
@@ -222,6 +223,92 @@ func (f *fakeStore) GetVirtualTable(_ context.Context, rid string, ownerID strin
 		return nil, nil
 	}
 	return &v, nil
+}
+
+func (f *fakeStore) ListRegistrations(_ context.Context, sourceID uuid.UUID) ([]models.ConnectionRegistration, error) {
+	return f.registrations[sourceID], nil
+}
+func (f *fakeStore) UpsertRegistration(_ context.Context, sourceID uuid.UUID, source models.DiscoveredSource, mode string, autoSync bool, updateDetection bool, targetDatasetID *uuid.UUID, metadata json.RawMessage) (*models.ConnectionRegistration, error) {
+	if len(metadata) == 0 || string(metadata) == "null" {
+		metadata = []byte(`{}`)
+	}
+	for i := range f.registrations[sourceID] {
+		if f.registrations[sourceID][i].Selector == source.Selector {
+			f.registrations[sourceID][i].DisplayName = source.DisplayName
+			f.registrations[sourceID][i].SourceKind = source.SourceKind
+			f.registrations[sourceID][i].RegistrationMode = mode
+			f.registrations[sourceID][i].AutoSync = autoSync
+			f.registrations[sourceID][i].UpdateDetection = updateDetection
+			f.registrations[sourceID][i].TargetDatasetID = targetDatasetID
+			f.registrations[sourceID][i].Metadata = metadata
+			f.registrations[sourceID][i].UpdatedAt = time.Now().UTC()
+			return &f.registrations[sourceID][i], nil
+		}
+	}
+	reg := models.ConnectionRegistration{ID: uuid.New(), ConnectionID: sourceID, Selector: source.Selector, DisplayName: source.DisplayName, SourceKind: source.SourceKind, RegistrationMode: mode, AutoSync: autoSync, UpdateDetection: updateDetection, TargetDatasetID: targetDatasetID, LastSourceSignature: source.SourceSignature, Metadata: metadata, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	f.registrations[sourceID] = append([]models.ConnectionRegistration{reg}, f.registrations[sourceID]...)
+	return &reg, nil
+}
+func (f *fakeStore) GetRegistration(_ context.Context, sourceID uuid.UUID, registrationID uuid.UUID) (*models.ConnectionRegistration, error) {
+	for i := range f.registrations[sourceID] {
+		if f.registrations[sourceID][i].ID == registrationID {
+			return &f.registrations[sourceID][i], nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) DeleteRegistration(_ context.Context, sourceID uuid.UUID, registrationID uuid.UUID) (bool, error) {
+	regs := f.registrations[sourceID]
+	for i := range regs {
+		if regs[i].ID == registrationID {
+			f.registrations[sourceID] = append(regs[:i], regs[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (f *fakeStore) UpdateConnectionConfig(_ context.Context, id uuid.UUID, config json.RawMessage) (*models.Connection, error) {
+	for i := range f.connections {
+		if f.connections[i].ID == id {
+			f.connections[i].Config = config
+			f.connections[i].UpdatedAt = time.Now().UTC()
+			return &f.connections[i], nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) ListIcebergNamespaces(_ context.Context) ([]models.Connection, error) {
+	out := []models.Connection{}
+	for _, c := range f.connections {
+		for _, r := range f.registrations[c.ID] {
+			var meta map[string]any
+			_ = json.Unmarshal(r.Metadata, &meta)
+			if meta["supports_zero_copy"] == true {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+func (f *fakeStore) GetIcebergConnection(_ context.Context, namespace string) (*models.Connection, error) {
+	for i := range f.connections {
+		if f.connections[i].Name == namespace || strings.NewReplacer("-", "-", " ", "_", ".", "_").Replace(f.connections[i].Name) == namespace {
+			return &f.connections[i], nil
+		}
+	}
+	return nil, nil
+}
+func (f *fakeStore) ListIcebergTables(_ context.Context, connectionID uuid.UUID) ([]models.ConnectionRegistration, error) {
+	out := []models.ConnectionRegistration{}
+	for _, r := range f.registrations[connectionID] {
+		var meta map[string]any
+		_ = json.Unmarshal(r.Metadata, &meta)
+		if meta["supports_zero_copy"] == true {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListMediaSetSyncs(_ context.Context, sourceID uuid.UUID, ownerID uuid.UUID) ([]models.MediaSetSync, error) {
@@ -632,4 +719,127 @@ func assertJSONGolden(t *testing.T, golden string, got []byte) {
 	require.NoError(t, json.Unmarshal(want, &wantJSON))
 	require.NoError(t, json.Unmarshal(got, &gotJSON))
 	assert.Equal(t, wantJSON, gotJSON)
+}
+
+func TestRegistrationHandlerFlow(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	source := store.connections[0].ID
+	store.connections[0].Config = json.RawMessage(`{"tables":[{"selector":"public.orders","display_name":"Orders","source_kind":"table","supports_zero_copy":true}]}`)
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(authedReq(http.MethodPost, "/discover", ``, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.DiscoverRegistrations(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "public.orders")
+
+	body := `{"registrations":[{"selector":"public.orders","registration_mode":"zero_copy","auto_sync":true}]}`
+	req = withRouteParam(authedReq(http.MethodPost, "/bulk/preview", body, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.BulkRegisterPreview(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "matched")
+
+	req = withRouteParam(authedReq(http.MethodPost, "/bulk", body, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.BulkRegister(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	reg := store.registrations[source][0]
+
+	req = withRouteParam(authedReq(http.MethodGet, "/registrations", ``, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.ListRegistrations(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(withRouteParam(authedReq(http.MethodPost, "/query", `{"limit":1}`, owner), "source_id", source.String()), "registration_id", reg.ID.String())
+	rec = httptest.NewRecorder()
+	h.QueryRegistration(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(withRouteParam(authedReq(http.MethodPost, "/query/arrow", `{"limit":1}`, owner), "source_id", source.String()), "registration_id", reg.ID.String())
+	rec = httptest.NewRecorder()
+	h.QueryRegistrationArrow(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "application/vnd.apache.arrow.stream", rec.Header().Get("Content-Type"))
+
+	req = withRouteParam(withRouteParam(authedReq(http.MethodDelete, "/registrations/"+reg.ID.String(), ``, owner), "source_id", source.String()), "registration_id", reg.ID.String())
+	rec = httptest.NewRecorder()
+	h.DeleteRegistration(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+func TestAutoRegistrationHandlers(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	source := store.connections[0].ID
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(authedReq(http.MethodPut, "/auto", `{"enabled":true,"registration_mode":"sync","selectors":["pg"]}`, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.UpdateAutoRegistration(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(authedReq(http.MethodGet, "/auto/status", ``, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.AutoRegisterStatus(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "settings")
+
+	req = withRouteParam(authedReq(http.MethodPost, "/auto", `{}`, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.AutoRegister(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotEmpty(t, store.registrations[source])
+}
+
+func TestConnectionWebhookAndIcebergHandlers(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	source := store.connections[0].ID
+
+	req := withRouteParam(authedReq(http.MethodPost, "/test", ``, owner), "id", source.String())
+	rec := httptest.NewRecorder()
+	h.TestConnection(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"output_parameters":{"ok":true}}`))
+	}))
+	defer srv.Close()
+	store.connections[0].ConnectorType = "webhook"
+	store.connections[0].Config = json.RawMessage(`{"url":"` + srv.URL + `","method":"POST"}`)
+	req = withRouteParam(authedReq(http.MethodPost, "/webhooks/"+source.String()+"/invoke", `{"inputs":{"x":1}}`, owner), "id", source.String())
+	rec = httptest.NewRecorder()
+	h.InvokeWebhook(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "output_parameters")
+
+	store.connections[0].ConnectorType = "postgresql"
+	store.registrations[source] = []models.ConnectionRegistration{{ID: uuid.New(), ConnectionID: source, Selector: "public.orders", DisplayName: "Orders", SourceKind: "table", RegistrationMode: "zero_copy", Metadata: json.RawMessage(`{"supports_zero_copy":true}`)}}
+	req = authedReq(http.MethodGet, "/iceberg/v1/config", ``, owner)
+	rec = httptest.NewRecorder()
+	h.IcebergGetConfig(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = authedReq(http.MethodGet, "/iceberg/v1/namespaces", ``, owner)
+	rec = httptest.NewRecorder()
+	h.IcebergListNamespaces(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(authedReq(http.MethodGet, "/iceberg/v1/namespaces/pg", ``, owner), "namespace", "pg")
+	rec = httptest.NewRecorder()
+	h.IcebergGetNamespace(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(authedReq(http.MethodGet, "/iceberg/v1/namespaces/pg/tables", ``, owner), "namespace", "pg")
+	rec = httptest.NewRecorder()
+	h.IcebergListTables(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = withRouteParam(withRouteParam(authedReq(http.MethodGet, "/iceberg/v1/namespaces/pg/tables/public.orders", ``, owner), "namespace", "pg"), "table", "public.orders")
+	rec = httptest.NewRecorder()
+	h.IcebergLoadTable(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
