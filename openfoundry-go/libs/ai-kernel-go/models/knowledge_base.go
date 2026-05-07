@@ -101,6 +101,31 @@ type SearchKnowledgeBaseRequest struct {
 	MinScore float32 `json:"min_score"`
 }
 
+func (r *SearchKnowledgeBaseRequest) UnmarshalJSON(data []byte) error {
+	type alias SearchKnowledgeBaseRequest
+	aux := struct {
+		TopK     *uint32  `json:"top_k"`
+		MinScore *float32 `json:"min_score"`
+		*alias
+	}{
+		alias: (*alias)(r),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.TopK == nil {
+		r.TopK = DefaultSearchTopK
+	} else {
+		r.TopK = *aux.TopK
+	}
+	if aux.MinScore == nil {
+		r.MinScore = DefaultSearchMinScore
+	} else {
+		r.MinScore = *aux.MinScore
+	}
+	return nil
+}
+
 type SearchKnowledgeBaseResponse struct {
 	KnowledgeBaseID uuid.UUID               `json:"knowledge_base_id"`
 	Query           string                  `json:"query"`
@@ -109,9 +134,9 @@ type SearchKnowledgeBaseResponse struct {
 }
 
 const (
-	DefaultKnowledgeStatus     = "active"
-	DefaultEmbeddingProvider   = "deterministic-hash"
-	DefaultChunkingStrategy    = "balanced"
-	DefaultSearchTopK   uint32 = 5
-	DefaultSearchMinScore float32 = 0.55
+	DefaultKnowledgeStatus           = "active"
+	DefaultEmbeddingProvider         = "deterministic-hash"
+	DefaultChunkingStrategy          = "balanced"
+	DefaultSearchTopK        uint32  = 5
+	DefaultSearchMinScore    float32 = 0.55
 )

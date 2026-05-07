@@ -56,13 +56,13 @@ type ChatMessage struct {
 
 // LlmUsageSummary is the per-call cost + latency footer.
 type LlmUsageSummary struct {
-	PromptTokens       int32   `json:"prompt_tokens"`
-	CompletionTokens   int32   `json:"completion_tokens"`
-	TotalTokens        int32   `json:"total_tokens"`
-	EstimatedCostUSD   float32 `json:"estimated_cost_usd"`
-	LatencyMs          int32   `json:"latency_ms"`
-	NetworkScope       string  `json:"network_scope"`
-	CacheHit           bool    `json:"cache_hit"`
+	PromptTokens     int32   `json:"prompt_tokens"`
+	CompletionTokens int32   `json:"completion_tokens"`
+	TotalTokens      int32   `json:"total_tokens"`
+	EstimatedCostUSD float32 `json:"estimated_cost_usd"`
+	LatencyMs        int32   `json:"latency_ms"`
+	NetworkScope     string  `json:"network_scope"`
+	CacheHit         bool    `json:"cache_hit"`
 }
 
 // ChatRoutingMetadata explains which providers got picked + why.
@@ -95,13 +95,13 @@ type Conversation struct {
 
 // ConversationSummary is the trimmed list-view row.
 type ConversationSummary struct {
-	ID                  uuid.UUID  `json:"id"`
-	Title               string     `json:"title"`
-	LastMessagePreview  string     `json:"last_message_preview"`
-	ProviderID          *uuid.UUID `json:"provider_id"`
-	MessageCount        int32      `json:"message_count"`
-	LastCacheHit        bool       `json:"last_cache_hit"`
-	LastActivityAt      time.Time  `json:"last_activity_at"`
+	ID                 uuid.UUID  `json:"id"`
+	Title              string     `json:"title"`
+	LastMessagePreview string     `json:"last_message_preview"`
+	ProviderID         *uuid.UUID `json:"provider_id"`
+	MessageCount       int32      `json:"message_count"`
+	LastCacheHit       bool       `json:"last_cache_hit"`
+	LastActivityAt     time.Time  `json:"last_activity_at"`
 }
 
 type ListConversationsResponse struct {
@@ -111,34 +111,65 @@ type ListConversationsResponse struct {
 // ChatCompletionRequest defaults: fallback_enabled=true,
 // temperature=0.2, max_tokens=1024.
 type ChatCompletionRequest struct {
-	ConversationID         *uuid.UUID       `json:"conversation_id,omitempty"`
-	SystemPrompt           *string          `json:"system_prompt,omitempty"`
-	UserMessage            string           `json:"user_message"`
-	PurposeJustification   *string          `json:"purpose_justification,omitempty"`
-	PromptTemplateID       *uuid.UUID       `json:"prompt_template_id,omitempty"`
-	PromptVariables        json.RawMessage  `json:"prompt_variables,omitempty"`
-	KnowledgeBaseID        *uuid.UUID       `json:"knowledge_base_id,omitempty"`
-	PreferredProviderID    *uuid.UUID       `json:"preferred_provider_id,omitempty"`
-	Attachments            []ChatAttachment `json:"attachments,omitempty"`
-	FallbackEnabled        bool             `json:"fallback_enabled"`
-	RequirePrivateNetwork  bool             `json:"require_private_network"`
-	Temperature            float32          `json:"temperature"`
-	MaxTokens              int32            `json:"max_tokens"`
+	ConversationID        *uuid.UUID       `json:"conversation_id,omitempty"`
+	SystemPrompt          *string          `json:"system_prompt,omitempty"`
+	UserMessage           string           `json:"user_message"`
+	PurposeJustification  *string          `json:"purpose_justification,omitempty"`
+	PromptTemplateID      *uuid.UUID       `json:"prompt_template_id,omitempty"`
+	PromptVariables       json.RawMessage  `json:"prompt_variables,omitempty"`
+	KnowledgeBaseID       *uuid.UUID       `json:"knowledge_base_id,omitempty"`
+	PreferredProviderID   *uuid.UUID       `json:"preferred_provider_id,omitempty"`
+	Attachments           []ChatAttachment `json:"attachments,omitempty"`
+	FallbackEnabled       bool             `json:"fallback_enabled"`
+	RequirePrivateNetwork bool             `json:"require_private_network"`
+	Temperature           float32          `json:"temperature"`
+	MaxTokens             int32            `json:"max_tokens"`
+}
+
+func (r *ChatCompletionRequest) UnmarshalJSON(data []byte) error {
+	type alias ChatCompletionRequest
+	aux := struct {
+		FallbackEnabled *bool    `json:"fallback_enabled"`
+		Temperature     *float32 `json:"temperature"`
+		MaxTokens       *int32   `json:"max_tokens"`
+		*alias
+	}{
+		alias: (*alias)(r),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.FallbackEnabled == nil {
+		r.FallbackEnabled = DefaultFallbackEnabled
+	} else {
+		r.FallbackEnabled = *aux.FallbackEnabled
+	}
+	if aux.Temperature == nil {
+		r.Temperature = DefaultTemperature
+	} else {
+		r.Temperature = *aux.Temperature
+	}
+	if aux.MaxTokens == nil {
+		r.MaxTokens = DefaultMaxTokens
+	} else {
+		r.MaxTokens = *aux.MaxTokens
+	}
+	return nil
 }
 
 type ChatCompletionResponse struct {
-	ConversationID    uuid.UUID               `json:"conversation_id"`
-	ProviderID        uuid.UUID               `json:"provider_id"`
-	ProviderName      string                  `json:"provider_name"`
-	Reply             string                  `json:"reply"`
-	Citations         []KnowledgeSearchResult `json:"citations"`
-	Guardrail         GuardrailVerdict        `json:"guardrail"`
-	Cache             SemanticCacheMetadata   `json:"cache"`
-	PromptUsed        string                  `json:"prompt_used"`
-	CompletionTokens  int32                   `json:"completion_tokens"`
-	Usage             LlmUsageSummary         `json:"usage"`
-	Routing           ChatRoutingMetadata     `json:"routing"`
-	CreatedAt         time.Time               `json:"created_at"`
+	ConversationID   uuid.UUID               `json:"conversation_id"`
+	ProviderID       uuid.UUID               `json:"provider_id"`
+	ProviderName     string                  `json:"provider_name"`
+	Reply            string                  `json:"reply"`
+	Citations        []KnowledgeSearchResult `json:"citations"`
+	Guardrail        GuardrailVerdict        `json:"guardrail"`
+	Cache            SemanticCacheMetadata   `json:"cache"`
+	PromptUsed       string                  `json:"prompt_used"`
+	CompletionTokens int32                   `json:"completion_tokens"`
+	Usage            LlmUsageSummary         `json:"usage"`
+	Routing          ChatRoutingMetadata     `json:"routing"`
+	CreatedAt        time.Time               `json:"created_at"`
 }
 
 // CopilotRequest defaults: include_sql=true, include_pipeline_plan=true.
@@ -212,14 +243,14 @@ type ProviderBenchmarkResult struct {
 }
 
 type ProviderBenchmarkResponse struct {
-	BenchmarkGroupID         uuid.UUID                 `json:"benchmark_group_id"`
-	UseCase                  string                    `json:"use_case"`
-	PromptExcerpt            string                    `json:"prompt_excerpt"`
-	RequiredModalities       []string                  `json:"required_modalities"`
-	RequestedPrivateNetwork  bool                      `json:"requested_private_network"`
-	RecommendedProviderID    *uuid.UUID                `json:"recommended_provider_id"`
-	Results                  []ProviderBenchmarkResult `json:"results"`
-	CreatedAt                time.Time                 `json:"created_at"`
+	BenchmarkGroupID        uuid.UUID                 `json:"benchmark_group_id"`
+	UseCase                 string                    `json:"use_case"`
+	PromptExcerpt           string                    `json:"prompt_excerpt"`
+	RequiredModalities      []string                  `json:"required_modalities"`
+	RequestedPrivateNetwork bool                      `json:"requested_private_network"`
+	RecommendedProviderID   *uuid.UUID                `json:"recommended_provider_id"`
+	Results                 []ProviderBenchmarkResult `json:"results"`
+	CreatedAt               time.Time                 `json:"created_at"`
 }
 
 // Conversation defaults — exposed for the HTTP-handler slice.

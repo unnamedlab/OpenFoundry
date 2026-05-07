@@ -96,18 +96,18 @@ func TestAiPlatformOverviewSnakeCaseShape(t *testing.T) {
 func TestLlmProviderJSONFields(t *testing.T) {
 	t.Parallel()
 	p := LlmProvider{
-		Name:                "openai-prod",
-		ProviderType:        "openai",
-		ModelName:           "gpt-4.1-mini",
-		EndpointURL:         "https://api.openai.com/v1",
-		APIMode:             "chat_completions",
-		Enabled:             true,
-		LoadBalanceWeight:   100,
-		MaxOutputTokens:     2048,
-		CostTier:            "standard",
-		Tags:                []string{"prod"},
-		RouteRules:          DefaultProviderRoutingRules(),
-		HealthState:         ProviderHealthState{Status: "healthy", AvgLatencyMs: 620, ErrorRate: 0.01},
+		Name:                 "openai-prod",
+		ProviderType:         "openai",
+		ModelName:            "gpt-4.1-mini",
+		EndpointURL:          "https://api.openai.com/v1",
+		APIMode:              "chat_completions",
+		Enabled:              true,
+		LoadBalanceWeight:    100,
+		MaxOutputTokens:      2048,
+		CostTier:             "standard",
+		Tags:                 []string{"prod"},
+		RouteRules:           DefaultProviderRoutingRules(),
+		HealthState:          ProviderHealthState{Status: "healthy", AvgLatencyMs: 620, ErrorRate: 0.01},
 		CredentialConfigured: false,
 	}
 	b, err := json.Marshal(p)
@@ -152,4 +152,13 @@ func TestKnowledgeChunkEmbeddingOmitempty(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(b), "embedding")
 	assert.NotContains(t, string(b), "metadata")
+}
+
+func TestChatCompletionRequestDefaultsOnUnmarshal(t *testing.T) {
+	t.Parallel()
+	var req ChatCompletionRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"user_message":"hello"}`), &req))
+	assert.True(t, req.FallbackEnabled)
+	assert.Equal(t, DefaultTemperature, req.Temperature)
+	assert.Equal(t, DefaultMaxTokens, req.MaxTokens)
 }

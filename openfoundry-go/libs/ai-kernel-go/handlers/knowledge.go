@@ -28,7 +28,9 @@ import (
 //   - POST   create_document
 //   - POST   search_knowledge_base
 type KnowledgeHandlers struct {
-	Pool *pgxpool.Pool
+	Pool        *pgxpool.Pool
+	Store       KnowledgeStore
+	VectorStore rag.VectorStore
 }
 
 const knowledgeBaseColumns = `id, name, description, status,
@@ -124,16 +126,7 @@ func scanProvider(s toolScanner) (models.LlmProvider, error) {
 }
 
 func (h *KnowledgeHandlers) loadKnowledgeBase(ctx context.Context, id uuid.UUID) (*models.KnowledgeBase, error) {
-	row := h.Pool.QueryRow(ctx,
-		`SELECT `+knowledgeBaseColumns+` FROM ai_knowledge_bases WHERE id = $1`, id)
-	kb, err := scanKnowledgeBase(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &kb, nil
+	return h.knowledgeStore().GetKnowledgeBase(ctx, id)
 }
 
 func (h *KnowledgeHandlers) loadProvider(ctx context.Context, id uuid.UUID) (*models.LlmProvider, error) {
@@ -177,24 +170,12 @@ func (h *KnowledgeHandlers) resolveEmbeddingProvider(w http.ResponseWriter, r *h
 
 // ListKnowledgeBases handles `GET /api/v1/knowledge-bases`.
 func (h *KnowledgeHandlers) ListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.Pool.Query(r.Context(),
-		`SELECT `+knowledgeBaseColumns+` FROM ai_knowledge_bases
-          ORDER BY updated_at DESC, created_at DESC`)
+	bases, err := h.knowledgeStore().ListKnowledgeBases(r.Context())
 	if err != nil {
 		dbError(w, err)
 		return
 	}
-	defer rows.Close()
-	out := make([]models.KnowledgeBase, 0)
-	for rows.Next() {
-		kb, err := scanKnowledgeBase(rows)
-		if err != nil {
-			dbError(w, err)
-			return
-		}
-		out = append(out, kb)
-	}
-	writeJSON(w, http.StatusOK, models.ListKnowledgeBasesResponse{Data: out})
+	writeJSON(w, http.StatusOK, models.ListKnowledgeBasesResponse{Data: bases})
 }
 
 // CreateKnowledgeBase handles `POST /api/v1/knowledge-bases`.
@@ -209,27 +190,35 @@ func (h *KnowledgeHandlers) CreateKnowledgeBase(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	description := derefString(body.Description, "")
-	status := derefString(body.Status, models.DefaultKnowledgeStatus)
-	embeddingProvider := derefString(body.EmbeddingProvider, models.DefaultEmbeddingProvider)
-	chunkingStrategy := derefString(body.ChunkingStrategy, models.DefaultChunkingStrategy)
-	tags := body.Tags
-	if tags == nil {
-		tags = []string{}
+	kb := models.KnowledgeBase{
+		ID:                uuid.New(),
+		Name:              strings.TrimSpace(body.Name),
+		Description:       derefString(body.Description, ""),
+		Status:            derefString(body.Status, models.DefaultKnowledgeStatus),
+		EmbeddingProvider: derefString(body.EmbeddingProvider, models.DefaultEmbeddingProvider),
+		ChunkingStrategy:  derefString(body.ChunkingStrategy, models.DefaultChunkingStrategy),
+		Tags:              body.Tags,
 	}
-	tagsJSON, _ := json.Marshal(tags)
-
-	row := h.Pool.QueryRow(r.Context(),
-		`INSERT INTO ai_knowledge_bases
-              (id, name, description, status, embedding_provider,
-               chunking_strategy, tags, document_count, chunk_count)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0)
-            RETURNING `+knowledgeBaseColumns,
-		uuid.New(), strings.TrimSpace(body.Name), description, status,
-		embeddingProvider, chunkingStrategy, tagsJSON)
-	kb, err := scanKnowledgeBase(row)
+	if kb.Tags == nil {
+		kb.Tags = []string{}
+	}
+	created, err := h.knowledgeStore().CreateKnowledgeBase(r.Context(), kb)
 	if err != nil {
 		dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, created)
+}
+
+// GetKnowledgeBase handles `GET /api/v1/knowledge-bases/{id}`.
+func (h *KnowledgeHandlers) GetKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
+	kb, err := h.knowledgeStore().GetKnowledgeBase(r.Context(), kbID)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	if kb == nil {
+		writeError(w, http.StatusNotFound, "knowledge base not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, kb)
@@ -237,7 +226,7 @@ func (h *KnowledgeHandlers) CreateKnowledgeBase(w http.ResponseWriter, r *http.R
 
 // UpdateKnowledgeBase handles `PATCH /api/v1/knowledge-bases/{id}`.
 func (h *KnowledgeHandlers) UpdateKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
-	current, err := h.loadKnowledgeBase(r.Context(), kbID)
+	current, err := h.knowledgeStore().GetKnowledgeBase(r.Context(), kbID)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -253,29 +242,20 @@ func (h *KnowledgeHandlers) UpdateKnowledgeBase(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	name := derefString(body.Name, current.Name)
-	desc := derefString(body.Description, current.Description)
-	status := derefString(body.Status, current.Status)
-	embeddingProvider := derefString(body.EmbeddingProvider, current.EmbeddingProvider)
-	chunkingStrategy := derefString(body.ChunkingStrategy, current.ChunkingStrategy)
-	tags := current.Tags
+	updated := *current
+	updated.Name = derefString(body.Name, current.Name)
+	updated.Description = derefString(body.Description, current.Description)
+	updated.Status = derefString(body.Status, current.Status)
+	updated.EmbeddingProvider = derefString(body.EmbeddingProvider, current.EmbeddingProvider)
+	updated.ChunkingStrategy = derefString(body.ChunkingStrategy, current.ChunkingStrategy)
 	if body.Tags != nil {
-		tags = *body.Tags
+		updated.Tags = *body.Tags
 	}
-	if tags == nil {
-		tags = []string{}
+	if updated.Tags == nil {
+		updated.Tags = []string{}
 	}
-	tagsJSON, _ := json.Marshal(tags)
 
-	row := h.Pool.QueryRow(r.Context(),
-		`UPDATE ai_knowledge_bases SET
-            name = $2, description = $3, status = $4,
-            embedding_provider = $5, chunking_strategy = $6, tags = $7,
-            updated_at = NOW()
-          WHERE id = $1
-          RETURNING `+knowledgeBaseColumns,
-		kbID, name, desc, status, embeddingProvider, chunkingStrategy, tagsJSON)
-	kb, err := scanKnowledgeBase(row)
+	kb, err := h.knowledgeStore().UpdateKnowledgeBase(r.Context(), updated)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -283,9 +263,9 @@ func (h *KnowledgeHandlers) UpdateKnowledgeBase(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, kb)
 }
 
-// ListDocuments handles `GET /api/v1/knowledge-bases/{id}/documents`.
-func (h *KnowledgeHandlers) ListDocuments(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
-	kb, err := h.loadKnowledgeBase(r.Context(), kbID)
+// DeleteKnowledgeBase handles `DELETE /api/v1/knowledge-bases/{id}`.
+func (h *KnowledgeHandlers) DeleteKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
+	kb, err := h.knowledgeStore().GetKnowledgeBase(r.Context(), kbID)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -294,34 +274,52 @@ func (h *KnowledgeHandlers) ListDocuments(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "knowledge base not found")
 		return
 	}
+	if err := h.knowledgeStore().DeleteKnowledgeBase(r.Context(), kbID); err != nil {
+		dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
 
-	rows, err := h.Pool.Query(r.Context(),
-		`SELECT `+knowledgeDocumentColumns+` FROM ai_knowledge_documents
-          WHERE knowledge_base_id = $1
-          ORDER BY updated_at DESC, created_at DESC`, kbID)
+// ListDocuments handles `GET /api/v1/knowledge-bases/{id}/documents`.
+func (h *KnowledgeHandlers) ListDocuments(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
+	kb, err := h.knowledgeStore().GetKnowledgeBase(r.Context(), kbID)
 	if err != nil {
 		dbError(w, err)
 		return
 	}
-	defer rows.Close()
-	out := make([]models.KnowledgeDocument, 0)
-	for rows.Next() {
-		d, err := scanKnowledgeDocument(rows)
-		if err != nil {
-			dbError(w, err)
-			return
-		}
-		out = append(out, d)
+	if kb == nil {
+		writeError(w, http.StatusNotFound, "knowledge base not found")
+		return
 	}
-	writeJSON(w, http.StatusOK, models.ListKnowledgeDocumentsResponse{Data: out})
+	docs, err := h.knowledgeStore().ListDocuments(r.Context(), kbID)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListKnowledgeDocumentsResponse{Data: docs})
+}
+
+// GetDocument handles `GET /api/v1/knowledge-bases/{id}/documents/{document_id}`.
+func (h *KnowledgeHandlers) GetDocument(w http.ResponseWriter, r *http.Request, kbID, documentID uuid.UUID) {
+	doc, err := h.knowledgeStore().GetDocument(r.Context(), kbID, documentID)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	if doc == nil {
+		writeError(w, http.StatusNotFound, "knowledge document not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 // CreateDocument handles `POST /api/v1/knowledge-bases/{id}/documents`.
 // Validates title + content, resolves the optional embedding provider,
-// chunks the content, embeds each chunk, and stores the document.
-// Bumps the parent KB's document_count + chunk_count atomically.
+// chunks the content, embeds each chunk, persists the document, and indexes
+// it in the optional VectorStore.
 func (h *KnowledgeHandlers) CreateDocument(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
-	kb, err := h.loadKnowledgeBase(r.Context(), kbID)
+	kb, err := h.knowledgeStore().GetKnowledgeBase(r.Context(), kbID)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -347,71 +345,68 @@ func (h *KnowledgeHandlers) CreateDocument(w http.ResponseWriter, r *http.Reques
 	}
 
 	documentID := uuid.New()
-	var chunks []models.KnowledgeChunk
-	if provider != nil {
-		maxChars := 520
-		if kb.ChunkingStrategy == "fine" {
-			maxChars = 320
-		}
-		metadata, _ := json.Marshal(map[string]string{
-			"strategy":           kb.ChunkingStrategy,
-			"embedding_provider": kb.EmbeddingProvider,
-		})
-		for _, c := range rag.ChunkText(body.Content, maxChars) {
-			emb, err := llm.EmbedText(r.Context(), provider, c.Text)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			chunks = append(chunks, models.KnowledgeChunk{
-				ID:         fmt.Sprintf("%s-%d", documentID, c.Position),
-				Position:   c.Position,
-				Text:       c.Text,
-				TokenCount: int32(len(strings.Fields(c.Text))),
-				Embedding:  emb,
-				Metadata:   metadata,
-			})
-		}
-	} else {
-		chunks = rag.IndexDocument(documentID, body.Content, kb.ChunkingStrategy)
+	chunks, err := h.indexChunks(r.Context(), documentID, *kb, body.Content, provider)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if chunks == nil {
 		chunks = []models.KnowledgeChunk{}
 	}
 
-	metadataJSON := jsonOrEmptyObject(rawMessagePtr(body.Metadata))
-	chunksJSON, _ := json.Marshal(chunks)
-
-	row := h.Pool.QueryRow(r.Context(),
-		`INSERT INTO ai_knowledge_documents
-              (id, knowledge_base_id, title, content, source_uri,
-               metadata, status, chunk_count, chunks)
-            VALUES ($1, $2, $3, $4, $5, $6, 'indexed', $7, $8)
-            RETURNING `+knowledgeDocumentColumns,
-		documentID, kbID, strings.TrimSpace(body.Title), body.Content,
-		body.SourceURI, metadataJSON, int32(len(chunks)), chunksJSON)
-	doc, err := scanKnowledgeDocument(row)
+	doc := models.KnowledgeDocument{
+		ID:              documentID,
+		KnowledgeBaseID: kbID,
+		Title:           strings.TrimSpace(body.Title),
+		Content:         body.Content,
+		SourceURI:       body.SourceURI,
+		Metadata:        jsonOrEmptyObject(rawMessagePtr(body.Metadata)),
+		Status:          "indexed",
+		ChunkCount:      int32(len(chunks)),
+		Chunks:          chunks,
+	}
+	created, err := h.knowledgeStore().CreateDocument(r.Context(), doc)
 	if err != nil {
 		dbError(w, err)
 		return
 	}
+	if h.VectorStore != nil {
+		if err := h.VectorStore.UpsertDocument(r.Context(), created); err != nil {
+			dbError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, created)
+}
 
-	if _, err := h.Pool.Exec(r.Context(),
-		`UPDATE ai_knowledge_bases
-            SET document_count = document_count + 1,
-                chunk_count    = chunk_count + $2,
-                updated_at     = NOW()
-          WHERE id = $1`, kbID, int64(len(chunks))); err != nil {
+// DeleteDocument handles `DELETE /api/v1/knowledge-bases/{id}/documents/{document_id}`.
+func (h *KnowledgeHandlers) DeleteDocument(w http.ResponseWriter, r *http.Request, kbID, documentID uuid.UUID) {
+	doc, err := h.knowledgeStore().GetDocument(r.Context(), kbID, documentID)
+	if err != nil {
 		dbError(w, err)
 		return
 	}
-
-	writeJSON(w, http.StatusOK, doc)
+	if doc == nil {
+		writeError(w, http.StatusNotFound, "knowledge document not found")
+		return
+	}
+	if err := h.knowledgeStore().DeleteDocument(r.Context(), kbID, documentID); err != nil {
+		dbError(w, err)
+		return
+	}
+	if h.VectorStore != nil {
+		if err := h.VectorStore.DeleteDocument(r.Context(), kbID, documentID); err != nil {
+			dbError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
 // SearchKnowledgeBase handles `POST /api/v1/knowledge-bases/{id}/search`.
-// Embeds the query (via the resolved provider or the offline embedder)
-// and runs SearchWithEmbedding over all the KB's documents.
+// Embeds the query (via the resolved provider or the offline embedder) and
+// retrieves from the injectable VectorStore when configured, otherwise from
+// documents persisted in the KnowledgeStore.
 func (h *KnowledgeHandlers) SearchKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID uuid.UUID) {
 	var body models.SearchKnowledgeBaseRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -423,7 +418,7 @@ func (h *KnowledgeHandlers) SearchKnowledgeBase(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	kb, err := h.loadKnowledgeBase(r.Context(), kbID)
+	kb, err := h.knowledgeStore().GetKnowledgeBase(r.Context(), kbID)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -437,37 +432,26 @@ func (h *KnowledgeHandlers) SearchKnowledgeBase(w http.ResponseWriter, r *http.R
 	if wrote {
 		return
 	}
+	queryEmbedding, err := h.queryEmbedding(r.Context(), body.Query, provider)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-	rows, err := h.Pool.Query(r.Context(),
-		`SELECT `+knowledgeDocumentColumns+` FROM ai_knowledge_documents
-          WHERE knowledge_base_id = $1
-          ORDER BY updated_at DESC, created_at DESC`, kbID)
+	var results []models.KnowledgeSearchResult
+	if h.VectorStore != nil {
+		results, err = h.VectorStore.Search(r.Context(), kbID, queryEmbedding, body.TopK, body.MinScore)
+	} else {
+		var docs []models.KnowledgeDocument
+		docs, err = h.knowledgeStore().ListDocuments(r.Context(), kbID)
+		if err == nil {
+			results = rag.SearchWithEmbedding(queryEmbedding, docs, body.TopK, body.MinScore)
+		}
+	}
 	if err != nil {
 		dbError(w, err)
 		return
 	}
-	defer rows.Close()
-	docs := make([]models.KnowledgeDocument, 0)
-	for rows.Next() {
-		d, err := scanKnowledgeDocument(rows)
-		if err != nil {
-			dbError(w, err)
-			return
-		}
-		docs = append(docs, d)
-	}
-
-	var queryEmbedding []float32
-	if provider != nil {
-		queryEmbedding, err = llm.EmbedText(r.Context(), provider, body.Query)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else {
-		queryEmbedding = rag.EmbedText(body.Query)
-	}
-	results := rag.SearchWithEmbedding(queryEmbedding, docs, body.TopK, body.MinScore)
 	if results == nil {
 		results = []models.KnowledgeSearchResult{}
 	}
@@ -478,6 +462,43 @@ func (h *KnowledgeHandlers) SearchKnowledgeBase(w http.ResponseWriter, r *http.R
 		Results:         results,
 		RetrievedAt:     time.Now().UTC(),
 	})
+}
+
+func (h *KnowledgeHandlers) indexChunks(ctx context.Context, documentID uuid.UUID, kb models.KnowledgeBase, content string, provider *models.LlmProvider) ([]models.KnowledgeChunk, error) {
+	if provider == nil {
+		return rag.IndexDocument(documentID, content, kb.ChunkingStrategy), nil
+	}
+	maxChars := 520
+	if kb.ChunkingStrategy == "fine" {
+		maxChars = 320
+	}
+	metadata, _ := json.Marshal(map[string]string{
+		"strategy":           kb.ChunkingStrategy,
+		"embedding_provider": kb.EmbeddingProvider,
+	})
+	chunks := make([]models.KnowledgeChunk, 0)
+	for _, c := range rag.ChunkText(content, maxChars) {
+		emb, err := llm.EmbedText(ctx, provider, c.Text)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, models.KnowledgeChunk{
+			ID:         fmt.Sprintf("%s-%d", documentID, c.Position),
+			Position:   c.Position,
+			Text:       c.Text,
+			TokenCount: int32(len(strings.Fields(c.Text))),
+			Embedding:  emb,
+			Metadata:   metadata,
+		})
+	}
+	return chunks, nil
+}
+
+func (h *KnowledgeHandlers) queryEmbedding(ctx context.Context, query string, provider *models.LlmProvider) ([]float32, error) {
+	if provider != nil {
+		return llm.EmbedText(ctx, provider, query)
+	}
+	return rag.EmbedText(query), nil
 }
 
 func rawMessagePtr(m json.RawMessage) *json.RawMessage {

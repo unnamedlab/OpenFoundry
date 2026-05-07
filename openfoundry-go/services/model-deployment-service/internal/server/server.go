@@ -12,10 +12,19 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/serving"
+	mlhandlers "github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/handlers"
+	mlmodels "github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/model-deployment-service/internal/config"
+)
+
+var (
+	SeedModelID        = uuid.MustParse("10000000-0000-0000-0000-000000000001")
+	SeedModelVersionID = uuid.MustParse("10000000-0000-0000-0000-000000000101")
 )
 
 func New(cfg *config.Config, m *observability.Metrics) *http.Server {
@@ -33,6 +42,7 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics) http.Handler {
 }
 
 func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
+	deploymentHandler := defaultDeploymentHandler()
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -44,7 +54,47 @@ func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}
+	mountDeploymentRoutes(r, "/api/v1/deployments", deploymentHandler)
+	mountDeploymentRoutes(r, "/api/v1/model-deployment/deployments", deploymentHandler)
 	return r
+}
+
+func defaultDeploymentHandler() *mlhandlers.DeploymentsHandlers {
+	store := mlhandlers.NewFakeDeploymentStore()
+	store.SeedModel(mlmodels.RegisteredModel{
+		ID:          SeedModelID,
+		Name:        "seed-model",
+		ProblemType: mlmodels.DefaultProblemType,
+		Status:      "active",
+	}, mlmodels.ModelVersion{
+		ID:            SeedModelVersionID,
+		ModelID:       SeedModelID,
+		VersionNumber: 1,
+		VersionLabel:  "v1",
+		Stage:         "production",
+	})
+	return &mlhandlers.DeploymentsHandlers{Store: store, Runtime: serving.NewFakeDeploymentRuntime()}
+}
+
+func mountDeploymentRoutes(r chi.Router, prefix string, h *mlhandlers.DeploymentsHandlers) {
+	r.Get(prefix, h.ListDeployments)
+	r.Post(prefix, h.CreateDeployment)
+	r.Get(prefix+"/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, "id must be a uuid", http.StatusBadRequest)
+			return
+		}
+		h.GetDeployment(w, r, id)
+	})
+	r.Patch(prefix+"/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, "id must be a uuid", http.StatusBadRequest)
+			return
+		}
+		h.UpdateDeployment(w, r, id)
+	})
 }
 
 func Run(ctx context.Context, srv *http.Server, log *slog.Logger) error {

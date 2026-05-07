@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -31,9 +32,7 @@ func TestSubstrateHealthzMounted(t *testing.T) {
 	assert.Equal(t, "model-deployment-service", body["service"])
 }
 
-func TestNoDeploymentRoutesYet(t *testing.T) {
-	// Wire-compat: Rust binary is `fn main(){}`. /api/v1/* mounts
-	// alongside libs/ml-kernel-go/handlers slice.
+func TestDeploymentRoutesMounted(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{}
 	cfg.Service.Name = "model-deployment-service"
@@ -47,7 +46,63 @@ func TestNoDeploymentRoutesYet(t *testing.T) {
 	} {
 		resp, err := http.Get(srv.URL + path)
 		require.NoError(t, err)
-		_ = resp.Body.Close()
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "path %s should not be mounted yet", path)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "path %s should be mounted", path)
 	}
+}
+
+func TestModelDeploymentServiceCreateAndGetDeployment(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	cfg.Service.Name = "model-deployment-service"
+	cfg.Service.Version = "test"
+	srv := httptest.NewServer(BuildRouter(cfg, nil))
+	t.Cleanup(srv.Close)
+
+	payload := map[string]any{
+		"model_id":      SeedModelID,
+		"name":          "seed-prod",
+		"endpoint_path": "/predict/seed",
+		"traffic_split": []map[string]any{{"model_version_id": SeedModelVersionID, "allocation": 100}},
+	}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	resp, err := http.Post(srv.URL+"/api/v1/model-deployment/deployments", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var created map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	id, ok := created["id"].(string)
+	require.True(t, ok)
+
+	getResp, err := http.Get(srv.URL + "/api/v1/model-deployment/deployments/" + id)
+	require.NoError(t, err)
+	defer getResp.Body.Close()
+	require.Equal(t, http.StatusOK, getResp.StatusCode)
+	var got map[string]any
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&got))
+	assert.Equal(t, "seed-prod", got["name"])
+}
+
+func TestModelDeploymentServiceRejectsInvalidVersion(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	cfg.Service.Name = "model-deployment-service"
+	cfg.Service.Version = "test"
+	srv := httptest.NewServer(BuildRouter(cfg, nil))
+	t.Cleanup(srv.Close)
+
+	payload := map[string]any{
+		"model_id":      SeedModelID,
+		"name":          "bad-version",
+		"endpoint_path": "/predict/bad",
+		"traffic_split": []map[string]any{{"model_version_id": "20000000-0000-0000-0000-000000000999", "allocation": 100}},
+	}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	resp, err := http.Post(srv.URL+"/api/v1/model-deployment/deployments", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
