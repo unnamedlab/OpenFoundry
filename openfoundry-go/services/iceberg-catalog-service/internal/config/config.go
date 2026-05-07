@@ -14,10 +14,16 @@ type Config struct {
 		Host string
 		Port uint16
 	}
-	DatabaseURL  string
-	JWTSecret    string
-	MetricsAddr  string
-	WarehouseURI string
+	DatabaseURL          string
+	JWTSecret            string
+	MetricsAddr          string
+	WarehouseURI         string
+	JWTIssuer            string
+	JWTAudience          string
+	DefaultTokenTTLSecs  int64
+	LongLivedTokenTTLSec int64
+	OAuthIntegrationURL  string
+	DefaultTenant        string
 }
 
 func FromEnv() (*Config, error) {
@@ -36,6 +42,12 @@ func FromEnv() (*Config, error) {
 	}
 	cfg.WarehouseURI = defaultStr(os.Getenv("ICEBERG_CATALOG_WAREHOUSE_URI"), "s3://openfoundry-warehouse")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.JWTIssuer = defaultStr(os.Getenv("ICEBERG_JWT_ISSUER"), "foundry-iceberg")
+	cfg.JWTAudience = defaultStr(os.Getenv("ICEBERG_JWT_AUDIENCE"), "iceberg-catalog")
+	cfg.DefaultTokenTTLSecs = parseInt64(os.Getenv("ICEBERG_DEFAULT_TOKEN_TTL_SECS"), 3600)
+	cfg.LongLivedTokenTTLSec = parseInt64(os.Getenv("ICEBERG_LONG_LIVED_TOKEN_TTL_SECS"), 90*24*3600)
+	cfg.OAuthIntegrationURL = defaultStr(os.Getenv("OAUTH_INTEGRATION_URL"), "http://oauth-integration-service:8080")
+	cfg.DefaultTenant = defaultStr(os.Getenv("ICEBERG_DEFAULT_TENANT"), "default")
 	return cfg, nil
 }
 
@@ -63,4 +75,15 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func parseInt64(v string, fallback int64) int64 {
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return n
 }

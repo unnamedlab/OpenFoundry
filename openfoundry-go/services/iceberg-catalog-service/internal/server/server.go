@@ -18,9 +18,23 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/iceberg-catalog-service/internal/handlers/auth"
 )
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics) *http.Server {
+// Deps bundles every collaborator the chi router needs. Built once in
+// `cmd/iceberg-catalog-service/main.go` so the server signature stays
+// stable as new endpoints land.
+type Deps struct {
+	Handlers       *handlers.Handlers
+	Markings       *handlers.MarkingsHandlers
+	Bearer         *auth.Config
+	BearerStore    auth.TokenStore
+	IssueAPIStore  auth.IssueAPITokenStore
+	OAuthValidator auth.OAuthClientValidator
+}
+
+func New(cfg *config.Config, jwt *authmw.JWTConfig, deps Deps, m *observability.Metrics) *http.Server {
+	h := deps.Handlers
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -57,6 +71,39 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	})
 
 	r.Post("/openfoundry/iceberg/v1/append", h.AppendBatch)
+
+	// OAuth2 token endpoint — public per the REST Catalog spec.
+	if deps.Bearer != nil {
+		r.Post("/iceberg/v1/oauth/tokens", auth.IssueTokenHandler(deps.Bearer, deps.OAuthValidator))
+	}
+
+	// API-token issuance is gated by the Foundry JWT middleware.
+	if deps.IssueAPIStore != nil {
+		r.Route("/v1/iceberg-clients", func(api chi.Router) {
+			api.Use(authmw.Middleware(jwt))
+			ttl := int64(0)
+			if cfg != nil {
+				ttl = cfg.LongLivedTokenTTLSec
+			}
+			api.Post("/api-tokens", auth.CreateAPITokenHandler(deps.IssueAPIStore, ttl))
+		})
+	}
+
+	// Markings endpoints sit on a SEPARATE router so they can run the
+	// new bearer middleware (with read/write scope enforcement) while
+	// the rest of /iceberg/v1 keeps the Foundry JWT chain.
+	if deps.Markings != nil && deps.Bearer != nil {
+		r.Route("/iceberg/v1/namespaces/{namespace}/markings", func(api chi.Router) {
+			api.Use(auth.Middleware(deps.Bearer, deps.BearerStore))
+			api.Get("/", deps.Markings.GetNamespaceMarkings)
+			api.Post("/", deps.Markings.UpdateNamespaceMarkings)
+		})
+		r.Route("/iceberg/v1/namespaces/{namespace}/tables/{table}/markings", func(api chi.Router) {
+			api.Use(auth.Middleware(deps.Bearer, deps.BearerStore))
+			api.Get("/", deps.Markings.GetTableMarkings)
+			api.Patch("/", deps.Markings.UpdateTableMarkings)
+		})
+	}
 
 	r.Route("/iceberg/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
