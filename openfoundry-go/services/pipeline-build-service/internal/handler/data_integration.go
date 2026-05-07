@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/schedule"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 )
 
@@ -207,7 +208,9 @@ func RunDueScheduledPipelines(w http.ResponseWriter, r *http.Request) {
 		req := models.TriggerPipelineRequest{SkipUnchanged: true}
 		if _, err := startPipelineRun(r, pipeline, req, nil, "scheduled", nil, nil, 1, contextJSON, repo); err == nil {
 			triggered++
-			_ = repo.UpdatePipelineNextRun(r.Context(), pipeline.ID, nil)
+			cfg := pipeline.Schedule()
+			next := schedule.ComputeNextRunAt(pipeline.Status, cfg.Enabled, cfg.Cron, time.Now().UTC())
+			_ = repo.UpdatePipelineNextRun(r.Context(), pipeline.ID, next)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"triggered_runs": triggered})

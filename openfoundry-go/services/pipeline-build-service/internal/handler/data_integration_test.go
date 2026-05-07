@@ -100,12 +100,42 @@ func TestEventTriggerObservedPersistsUntilRun(t *testing.T) {
 	require.True(t, repo.nextRunUpdated)
 }
 
+func TestRunDueScheduledPipelinesRecomputesNextRunAtFromCron(t *testing.T) {
+	repo := newDataIntegrationRepo(t)
+	// Override the schedule_config to carry a real cron expression so the
+	// scheduler must reach for ComputeNextRunAt to advance the watermark.
+	repo.pipeline.ScheduleConfig = json.RawMessage(`{"enabled":true,"cron":"0 9 * * *"}`)
+	repo.due = []models.Pipeline{repo.pipeline}
+	restore := SetExecutionPorts(ExecutionPorts{Runs: repo, NodeRunner: successNodeRunner{}, Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}, Parallelism: 1})
+	defer restore()
+	rr := httptest.NewRecorder()
+	RunDueScheduledPipelines(rr, httptest.NewRequest(http.MethodPost, "/api/v1/data-integration/pipelines/_scheduler/run-due", nil))
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.True(t, repo.nextRunUpdated, "scheduler must persist the recomputed next_run_at")
+	require.NotNil(t, repo.nextRunAt, "valid cron must yield a non-nil next_run_at (regression: legacy code always wrote nil)")
+	require.True(t, repo.nextRunAt.After(time.Now().Add(-time.Minute)), "next_run_at must be in the future, got %v", repo.nextRunAt)
+}
+
+func TestRunDueScheduledPipelinesLeavesNextRunAtNilWhenCronInvalid(t *testing.T) {
+	repo := newDataIntegrationRepo(t)
+	repo.pipeline.ScheduleConfig = json.RawMessage(`{"enabled":true,"cron":"not a cron"}`)
+	repo.due = []models.Pipeline{repo.pipeline}
+	restore := SetExecutionPorts(ExecutionPorts{Runs: repo, NodeRunner: successNodeRunner{}, Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}, Parallelism: 1})
+	defer restore()
+	rr := httptest.NewRecorder()
+	RunDueScheduledPipelines(rr, httptest.NewRequest(http.MethodPost, "/api/v1/data-integration/pipelines/_scheduler/run-due", nil))
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.True(t, repo.nextRunUpdated)
+	require.Nil(t, repo.nextRunAt, "invalid cron must clear next_run_at to keep the pipeline out of the run-due loop")
+}
+
 type dataIntegrationRepo struct {
 	pipeline       models.Pipeline
 	runs           map[uuid.UUID]models.PipelineRun
 	due            []models.Pipeline
 	summary        map[string]int64
 	nextRunUpdated bool
+	nextRunAt      *time.Time
 }
 
 func newDataIntegrationRepo(t *testing.T) *dataIntegrationRepo {
@@ -169,8 +199,9 @@ func (r *dataIntegrationRepo) QueueSummary(context.Context) (map[string]int64, e
 func (r *dataIntegrationRepo) ListDuePipelines(context.Context) ([]models.Pipeline, error) {
 	return r.due, nil
 }
-func (r *dataIntegrationRepo) UpdatePipelineNextRun(context.Context, uuid.UUID, *time.Time) error {
+func (r *dataIntegrationRepo) UpdatePipelineNextRun(_ context.Context, _ uuid.UUID, nextRunAt *time.Time) error {
 	r.nextRunUpdated = true
+	r.nextRunAt = nextRunAt
 	return nil
 }
 func (r *dataIntegrationRepo) allRuns() []models.PipelineRun {

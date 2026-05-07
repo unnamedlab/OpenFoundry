@@ -70,11 +70,11 @@ Stubs that were claimed pending but are now real production code:
 | 3.7b.2 | **slice 8: JWKS rotation half COMPLETE** | ✅ done | 4 sub-slices, ~3520 LOC of Go (types + interfaces + Postgres + Vault HTTP + HTTP handlers + ~75 tests). |
 | 3.7b.3 | slice 8: SCIM endpoints | ⏳ pending | handlers/scim.rs (1951 LOC) + hardening/scim.rs (515 LOC). Multi-iteration. RFC 7644 conformance + bulk provision/deprovision User + Group. Wires `AdminGuard(ActionScimProvision*, Scim*Resource)`. |
 
-### P4 — Phase 5 decision (RESOLVED 2026-05-06)
+### P4 — Phase 5 decision (RESOLVED 2026-05-06, fully closed 2026-05-07)
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 4.8 | go/no-go on pyo3 sidecars | ✅ resolved | User approved gRPC sidecar per `docs/architecture/migration-rust-to-go.md`. Implementation: `proto/runtime/python_runtime.proto` + `python/openfoundry_pyruntime/` (sidecar) + `openfoundry-go/libs/python-sidecar/` (Manager/Client over UDS) + `libs/ontology-kernel/python_runtime.go` (PythonInlineRuntime contract). e2e test passes (`go test ./libs/python-sidecar -run SidecarEndToEnd` with `PYRUNTIME_BINARY` set). Wired into `ontology-actions-service` via `pythonRuntimeAdapter` (PYTHON_SIDECAR_BIN env). Adapters scaffolded for `notebook-runtime-service/internal/kernel/python.go` and `pipeline-build-service/internal/runtime/python.go` — pending handler ports to consume them. Phase 6 unblocked. |
+| 4.8 | go/no-go on pyo3 sidecars | ✅ done | gRPC sidecar pattern: `proto/runtime/python_runtime.proto` + `python/openfoundry_pyruntime/` (sidecar) + `openfoundry-go/libs/python-sidecar/` (Manager/Client over UDS) + `libs/ontology-kernel/python_runtime.go` (PythonInlineRuntime contract). All 3 consumers wired: `ontology-actions-service`, `notebook-runtime-service`, `pipeline-build-service`. **Deployment manifests landed in P4.8 closing pass (T4–T7, 2026-05-07):** all 3 Go Dockerfiles are two-stage (golang:1.25 → python:3.11-slim-bookworm) and bundle `openfoundry-pyruntime` at `/opt/pyruntime/bin/openfoundry-pyruntime` with `PYTHON_SIDECAR_BINARY` exported via Dockerfile ENV; Helm values in `infra/helm/apps/{of-data-engine,of-apps-ops,of-ontology}/values.yaml` re-state the env so operators can override; compose blocks for the 3 services document the Go-image cutover path. Topology decision: **co-process, single image, single container** (one parent owns lifecycle in dev/CI/prod, no kube-only debug path, one image to ship). Phase 6 unblocked. |
 
 ### P5 — Hygiene
 
@@ -396,9 +396,133 @@ Human follow-ups outside the loop's scope:
 
 ## Decisions deferred for human review
 
-1. **Phase 5 pyo3 sidecars** — go/no-go decision still required.
-2. **16 empty lib dirs** — delete or stub with doc.go? Per-lib decision.
-3. **Audit-sink + ai-sink Iceberg writer** (existing deferral from Run 2) — wait for iceberg-go ≥1.0.
+1. **16 empty lib dirs** — delete or stub with doc.go? Per-lib decision.
+2. **Audit-sink + ai-sink Iceberg writer** (existing deferral from Run 2) — wait for iceberg-go ≥1.0.
+
+## P4.8 closing pass — 2026-05-07
+
+All deployment-manifest follow-ups landed:
+
+- **Dockerfiles (T4)** — `openfoundry-go/services/{ontology-actions,notebook-runtime,pipeline-build}-service/Dockerfile` rewritten to two-stage (golang:1.25 → python:3.11-slim-bookworm). Each image installs `openfoundry-pyruntime` from `python/` into `/opt/pyruntime` (venv) and exports `PYTHON_SIDECAR_BINARY=/opt/pyruntime/bin/openfoundry-pyruntime`. Build context shifted from `openfoundry-go/` to the repo root so the Dockerfile can `COPY python /py/sidecar`.
+- **Compose (T4)** — comments added to the 3 service blocks in `infra/compose/docker-compose.yml` documenting the Go-image cutover path (`context: ../..`, `dockerfile: openfoundry-go/services/<svc>/Dockerfile`). The default compose still builds the Rust crates; flipping it to Go is a separate cutover step.
+- **Helm (T4)** — `PYTHON_SIDECAR_BINARY` re-stated under `service.env` in `infra/helm/apps/of-data-engine/values.yaml` (pipeline-build), `infra/helm/apps/of-apps-ops/values.yaml` (notebook-runtime), `infra/helm/apps/of-ontology/values.yaml` (ontology-actions).
+- **Cargo cleanup (T5)** — `pyo3` declaration removed from the 3 services where it was orphan (declared, never imported in `src/`): `services/{lineage,ontology-actions,object-database}-service/Cargo.toml`. Deliberately **not** removed from `services/{notebook-runtime,pipeline-build}-service/Cargo.toml` because their Rust source still imports `pyo3` directly (`src/domain/kernel/python.rs` and `src/**/runtime.rs`). Those declarations get deleted at crate-retirement time, not now.
+- **Docs (T6)** — `docs/architecture/migration-rust-to-go.md` row 5 marked ✅, "Python sidecar architecture (P4.8 — closed)" section added documenting the protocol, transport, topology, image layout, health/restart, helm wiring, failure modes, and tests. Service READMEs (ontology-actions, notebook-runtime, pipeline-build) now have a "Python runtime" section pointing at the architecture doc with dev / prod / Helm guidance.
+- **Topology decision** — co-process, single image, single container. Rejected the alternative two-container/emptyDir-UDS pattern because (a) one parent owns lifecycle in dev, CI, and prod with no divergence, (b) no kube-only path to debug locally, (c) one image to ship per service.
+
+### Verification (T7)
+
+`openfoundry-go/` build invariant ran 2026-05-07 against the closing-pass tree:
+
+```
+go build ./...                                         ✅ exit 0
+go vet ./...                                           ✅ exit 0
+go test -race -count=1 ./libs/python-sidecar/... \
+                       ./services/{ontology-actions,
+                                   notebook-runtime,
+                                   pipeline-build}-service/...   ✅ exit 0
+go test -race -count=1 ./...                           ❌ exit 1 — pre-existing
+   failures in dataset-versioning-service/internal/server (panic in
+   resolveDatasetForCatalog) and ontology-indexer/internal/runtime
+   (TestRunWith*). Confirmed pre-existing by stash-popping the closing-pass
+   diff and reproducing on the unmodified main tree. Not caused by P4.8.
+```
+
+The full smoke (3 services + Postgres + sidecar against POST `/actions/.../execute`,
+`/notebooks/{id}/cells/{id}/execute`, and a build with a Python transform) is
+**operator-pending** and not run in this iteration. The smoke playbook below is
+self-contained:
+
+```sh
+# 1. Bring up infra
+docker compose -f infra/compose/docker-compose.yml up -d postgres minio
+
+# 2. Build the sidecar binary
+python -m venv "${PWD}/.pyruntime-venv"
+"${PWD}/.pyruntime-venv/bin/pip" install --upgrade pip
+"${PWD}/.pyruntime-venv/bin/pip" install ./python
+export PYTHON_SIDECAR_BINARY="${PWD}/.pyruntime-venv/bin/openfoundry-pyruntime"
+
+# 3. Run each Go service
+cd openfoundry-go
+DATABASE_URL=postgres://openfoundry:openfoundry@localhost:5432/openfoundry_ontology_service \
+  PYTHON_PACKAGES_ENABLED=true \
+  go run ./services/ontology-actions-service/cmd/ontology-actions-service &
+DATABASE_URL=postgres://openfoundry:openfoundry@localhost:5432/openfoundry_notebook_service \
+  go run ./services/notebook-runtime-service/cmd/notebook-runtime-service &
+DATABASE_URL=postgres://openfoundry:openfoundry@localhost:5432/openfoundry_pipeline_service \
+  go run ./services/pipeline-build-service/cmd/pipeline-build-service &
+
+# 4. Drive each Python entrypoint
+TOKEN=$(printf '%s' "$JWT_SECRET" | jwt-cli ...)   # dev token, see auth-middleware-go
+curl -X POST http://localhost:50106/api/v1/ontology/actions/<actionId>/execute \
+     -H "Authorization: Bearer ${TOKEN}" -d '{"params": {...}}'
+curl -X POST http://localhost:50134/api/v1/notebooks/<id>/cells/<id>/execute \
+     -H "Authorization: Bearer ${TOKEN}"
+curl -X POST http://localhost:50081/api/v1/pipeline/builds \
+     -H "Authorization: Bearer ${TOKEN}" -d @transform-with-python.json
+
+# 5. Verify the sidecar accepted the call (logs should show
+#    "python sidecar wired" + an Execute* gRPC trace, no
+#    `python_runtime_not_wired` / `transform_runtime_not_wired:python`).
+```
+
+Operator runs this against staging, pastes timestamps + curl outputs in
+this section, and flips T7.2/T7.3 from ⏳ to ✅.
+
+### Iter — PB-4 follow-up: scheduler `next_run_at` recompute (2026-05-07)
+
+The user invoked PB-4 (Pipeline Execution Engine) for the next slice.
+Audit showed the engine layer (DAG planner, distributed-worker
+scheduler, fingerprint, transform-runtime stubs) is already on disk
+under `openfoundry-go/services/pipeline-build-service/internal/domain/engine/`,
+the build executor under `internal/domain/executor/`, and HTTP handlers
+under `internal/handler/{execution,data_integration}.go` are wired to
+`TriggerPipelineRun` / `RetryPipelineRun` / `RunDueScheduledPipelines`.
+The HTTP route audit reports 24 / 24 Rust pipeline-build-service routes
+implemented in Go.
+
+**Real gap found** — `RunDueScheduledPipelines` was always writing
+`next_run_at = nil` after a scheduled trigger, which silently drops
+the pipeline out of the run-due loop forever. Rust's `executor.rs`
+calls `compute_next_run_at(pipeline)` to advance the watermark to the
+next cron tick.
+
+**Slice landed (this iteration):**
+
+- New `internal/domain/schedule/nextrun.go` — 1:1 port of
+  `compute_next_run_at_from_parts` using `libs/scheduling-cron`
+  (Unix-5 flavor in UTC, `NextFireAfter` for strict-greater-than
+  semantics matching `Schedule::upcoming(Utc).next()`).
+- `internal/domain/schedule/nextrun_test.go` — 6 unit tests covering
+  paused / disabled / nil-cron / empty-cron / invalid-cron / valid-cron
+  / current-minute boundary.
+- `internal/handler/data_integration.go` — `RunDueScheduledPipelines`
+  now reaches for `schedule.ComputeNextRunAt(pipeline.Status,
+  cfg.Enabled, cfg.Cron, time.Now().UTC())` instead of always passing
+  `nil`. 2 new handler tests
+  (`TestRunDueScheduledPipelinesRecomputesNextRunAtFromCron`,
+  `TestRunDueScheduledPipelinesLeavesNextRunAtNilWhenCronInvalid`)
+  capture the regression.
+
+Verification:
+
+```
+go build ./...                                                          ✅
+go vet ./...                                                            ✅
+go test -race ./services/pipeline-build-service/...                     ✅
+go test -short ./...                                                    ❌ pre-existing
+   dataset-versioning-service/internal/server.TestPlaceholderRoutes...
+   confirmed pre-existing on main via stash-pop (same as P4.8 closing
+   pass note).
+```
+
+Pipeline CRUD `compute_next_run_at` (Rust `pipeline_authoring/handlers/crud.rs`)
+is **not** newly wired in this slice because `CreatePipeline` /
+`UpdatePipeline` are still 503-stubbed in Go
+(`pipeline_authoring_repository_not_configured`) — the call site
+doesn't exist yet. When the authoring CRUD lands, the same
+`schedule.ComputeNextRunAt` helper plugs straight in.
 
 ---
 
