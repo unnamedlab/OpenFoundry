@@ -1,15 +1,10 @@
 // Command ontology-query-service hosts the read path of the ontology
 // plane (per S1.5 of the Cassandra-Foundry parity plan).
 //
-// Foundation slice scope: skeleton + 2 Cassandra-bound endpoints that
-// 501 until libs/cassandra-kernel-go + libs/storage-abstraction-go
-// ports land. Per the Rust S1.5.e note this service has no SQL surface;
-// the schema lives in Cassandra.
-//
-// Follow-up: hook libs/cassandra-kernel-go (already scaffolded under
-// identity-federation slice 2), the moka-equivalent in-memory cache,
-// the NATS invalidation subscriber on `ontology.write.v1`, and the
-// per-handler reads against the ObjectStore trait.
+// The read endpoints are backed by storage-abstraction stores. In
+// production these are cassandra-kernel ObjectStore/LinkStore/SchemaStore
+// instances; tests can inject fakes through handlers.AppState. Per the Rust
+// S1.5.e note this service has no SQL surface; the schema lives in Cassandra.
 package main
 
 import (
@@ -21,6 +16,7 @@ import (
 	"syscall"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	cassandrakernel "github.com/openfoundry/openfoundry-go/libs/cassandra-kernel"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ontology-query-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/ontology-query-service/internal/handlers"
@@ -50,12 +46,21 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
+	state := handlers.AppState{}
+	var closeCassandra func()
 	if cfg.CassandraContactPoints == "" {
-		log.Warn("CASSANDRA_CONTACT_POINTS unset — read endpoints will return 501")
+		log.Warn("CASSANDRA_CONTACT_POINTS unset — object reads will return backend configuration errors")
+	} else {
+		state, closeCassandra, err = buildStoreState()
+		if err != nil {
+			log.Error("cassandra store wiring failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		defer closeCassandra()
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
-	h := &handlers.Handlers{}
+	h := handlers.New(state)
 	metrics := observability.NewMetrics()
 
 	srv := server.New(cfg, jwt, h, metrics)
@@ -63,4 +68,22 @@ func main() {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+func buildStoreState() (handlers.AppState, func(), error) {
+	cluster, err := cassandrakernel.FromEnv()
+	if err != nil {
+		return handlers.AppState{}, nil, err
+	}
+	session, err := cluster.Connect()
+	if err != nil {
+		return handlers.AppState{}, nil, err
+	}
+	closeFn := func() { session.Close() }
+	state := handlers.AppState{
+		Objects: cassandrakernel.NewObjectStore(session),
+		Links:   cassandrakernel.NewLinkStore(session),
+		Schemas: cassandrakernel.NewSchemaStore(session),
+	}
+	return state, closeFn, nil
 }
