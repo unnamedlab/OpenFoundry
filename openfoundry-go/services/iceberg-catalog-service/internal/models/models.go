@@ -124,3 +124,39 @@ type CommitTableResponse struct {
 	Metadata         json.RawMessage `json:"metadata"`
 	MetadataLocation string          `json:"metadata-location"`
 }
+
+// FieldSpec is the compact schema shape used by OpenFoundry sink writers when
+// appending rows through the in-process table-writer adapter endpoint.
+type FieldSpec struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Required bool   `json:"required"`
+}
+
+// TableSpec identifies and validates an append target for
+// POST /openfoundry/iceberg/v1/append.
+type TableSpec struct {
+	Catalog            string      `json:"catalog"`
+	Warehouse          string      `json:"warehouse,omitempty"`
+	Namespace          string      `json:"namespace"`
+	Table              string      `json:"table"`
+	PartitionTransform string      `json:"partition_transform"`
+	SortOrder          string      `json:"sort_order"`
+	Schema             []FieldSpec `json:"schema"`
+}
+
+// AppendBatch is the request body consumed by the OpenFoundry Iceberg HTTP
+// table-writer adapter used by audit-sink and ai-sink.
+type AppendBatch struct {
+	Spec TableSpec        `json:"spec"`
+	Rows []map[string]any `json:"rows"`
+}
+
+// AppendBatchResponse summarizes a committed append.
+type AppendBatchResponse struct {
+	Namespace        string `json:"namespace"`
+	Table            string `json:"table"`
+	Rows             int    `json:"rows"`
+	MetadataLocation string `json:"metadata_location"`
+}
