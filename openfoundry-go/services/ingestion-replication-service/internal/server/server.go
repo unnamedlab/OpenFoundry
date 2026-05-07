@@ -39,6 +39,17 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/ingest-jobs/{id}", h.GetIngestJob)
 		api.Patch("/ingest-jobs/{id}", h.UpdateIngestJob)
 		api.Delete("/ingest-jobs/{id}", h.DeleteIngestJob)
+
+		api.Get("/streams", h.ListStreams)
+		api.Post("/streams", h.CreateStream)
+		api.Get("/streams/{id}", h.GetStream)
+		api.Patch("/streams/{id}", h.UpdateStream)
+
+		api.Get("/cdc/streams", h.ListCdcStreams)
+		api.Post("/cdc/streams", h.RegisterCdcStream)
+		api.Get("/cdc/streams/{id}", h.GetCdcStream)
+		api.Get("/cdc/streams/{id}/checkpoint", h.GetCdcCheckpoint)
+		api.Get("/cdc/streams/{id}/resolution", h.GetCdcResolution)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

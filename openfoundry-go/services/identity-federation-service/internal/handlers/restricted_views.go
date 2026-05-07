@@ -2,8 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/models"
 )
@@ -51,8 +55,8 @@ func (h *RestrictedViews) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if body.Name == "" || body.Resource == "" || body.Action == "" {
-		writeJSONErr(w, http.StatusBadRequest, "name, resource and action required")
+	if err := validateCreateRestrictedViewRequest(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	v, err := h.Auth.Repo.CreateRestrictedView(r.Context(), &body, caller)
@@ -73,6 +77,10 @@ func (h *RestrictedViews) Update(w http.ResponseWriter, r *http.Request) {
 	var body models.UpdateRestrictedViewRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := validateUpdateRestrictedViewRequest(&body, r.Method == http.MethodPut); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	v, err := h.Auth.Repo.UpdateRestrictedView(r.Context(), id, &body)
@@ -98,4 +106,89 @@ func (h *RestrictedViews) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func validateCreateRestrictedViewRequest(body *models.CreateRestrictedViewRequest) error {
+	body.Name = strings.TrimSpace(body.Name)
+	body.Resource = strings.TrimSpace(body.Resource)
+	body.Action = strings.TrimSpace(body.Action)
+	if body.Name == "" || body.Resource == "" || body.Action == "" {
+		return fmt.Errorf("name, resource and action required")
+	}
+	if body.Enabled == nil {
+		return fmt.Errorf("enabled is required")
+	}
+	return validateRestrictedViewJSONFields(body.HiddenColumns, body.AllowedOrgIDs, body.AllowedMarkings)
+}
+
+func validateUpdateRestrictedViewRequest(body *models.UpdateRestrictedViewRequest, requireFull bool) error {
+	if requireFull {
+		if body.Name == nil || body.Resource == nil || body.Action == nil || body.Enabled == nil {
+			return fmt.Errorf("name, resource, action and enabled required")
+		}
+	}
+	if body.Name != nil {
+		name := strings.TrimSpace(*body.Name)
+		if name == "" {
+			return fmt.Errorf("name is required")
+		}
+		body.Name = &name
+	}
+	if body.Resource != nil {
+		resource := strings.TrimSpace(*body.Resource)
+		if resource == "" {
+			return fmt.Errorf("resource is required")
+		}
+		body.Resource = &resource
+	}
+	if body.Action != nil {
+		action := strings.TrimSpace(*body.Action)
+		if action == "" {
+			return fmt.Errorf("action is required")
+		}
+		body.Action = &action
+	}
+	return validateRestrictedViewJSONFields(body.HiddenColumns, body.AllowedOrgIDs, body.AllowedMarkings)
+}
+
+func validateRestrictedViewJSONFields(hiddenColumns, allowedOrgIDs, allowedMarkings json.RawMessage) error {
+	if err := validateRestrictedViewStringArray(hiddenColumns, "hidden_columns", false); err != nil {
+		return err
+	}
+	if len(allowedOrgIDs) > 0 {
+		var ids []uuid.UUID
+		if err := json.Unmarshal(allowedOrgIDs, &ids); err != nil {
+			return fmt.Errorf("allowed_org_ids must be an array of UUIDs")
+		}
+	}
+	return validateRestrictedViewStringArray(allowedMarkings, "allowed_markings", true)
+}
+
+func validateRestrictedViewStringArray(raw json.RawMessage, field string, validateMarkings bool) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return fmt.Errorf("%s must be an array of strings", field)
+	}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("%s cannot contain empty values", field)
+		}
+		if validateMarkings && !isRestrictedViewMarking(trimmed) {
+			return fmt.Errorf("invalid marking '%s', valid markings: [public confidential pii]", trimmed)
+		}
+	}
+	return nil
+}
+
+func isRestrictedViewMarking(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "public", "confidential", "pii":
+		return true
+	default:
+		return false
+	}
 }

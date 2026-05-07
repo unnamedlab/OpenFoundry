@@ -19,8 +19,7 @@
 //     activation, fleets, maintenance windows.
 //   - marketplace_catalog sub-domain: catalog browsing, slug routing,
 //     listing search.
-//   - product_distribution sub-domain: import, peer registry, share
-//     manifest, sync status projection, replication.
+//   - product_distribution sub-domain: peer registry, share manifest, sync status projection, import, replication.
 //   - Per-area handlers + Postgres repos for: peers, contracts, spaces,
 //     shares, access grants, exchanges, sync_status updates.
 //   - Domain pieces: federation registry, schema_compat, encryption,
@@ -37,8 +36,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/marketplace"
+	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/productdistribution"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/federation-product-exchange-service/internal/server"
 )
@@ -66,8 +68,13 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
-	if cfg.DatabaseURL != "" {
-		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	var pool *pgxpool.Pool
+	databaseURL := cfg.DatabaseURL
+	if databaseURL == "" {
+		databaseURL = cfg.MarketplaceDatabaseURL
+	}
+	if databaseURL != "" {
+		pool, err = pgxpool.New(ctx, databaseURL)
 		if err != nil {
 			log.Error("pgx pool failed", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -78,14 +85,18 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		log.Warn("DATABASE_URL unset — migrations skipped (handlers land with follow-up slices)")
-	}
-	if cfg.MarketplaceDatabaseURL == "" {
-		log.Warn("MARKETPLACE_DATABASE_URL unset — marketplace sub-domain handlers will fail closed in the follow-up slice")
+		log.Warn("DATABASE_URL and MARKETPLACE_DATABASE_URL unset — migrations skipped and marketplace handlers disabled")
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
+	var marketplaceHandlers *marketplace.Handlers
+	var distributionHandlers *productdistribution.Handlers
+	if pool != nil {
+		marketplaceHandlers = marketplace.NewHandlers(marketplace.NewPGXRepository(pool))
+		distributionHandlers = productdistribution.NewHandlers(productdistribution.NewPGXRepository(pool))
+	}
+	srv := server.New(cfg, jwt, marketplaceHandlers, distributionHandlers, metrics)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

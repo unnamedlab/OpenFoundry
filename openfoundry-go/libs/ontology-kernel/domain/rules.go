@@ -7,11 +7,10 @@
 // are byte-for-byte equivalent to the Rust impl and exhaustively
 // unit-tested.
 //
-// One sub-phase deferral: ApplyRuleEffect wraps writeback::apply_object_with_outbox
-// (Rust `domain/writeback.rs`, ~246 LOC) plus three object-handler
-// helpers; the writeback port lands as a follow-up so the function
-// returns a typed `ErrApplyEffectNotWired` while the catalog read
-// paths and the rule evaluator are fully usable today.
+// Rule apply handlers now compose the DB-backed writeback/outbox path
+// through handlers/rules.ApplyRuleEffectReal. The legacy
+// ApplyRuleEffect symbol remains as a typed compatibility guard for
+// direct callers that have not moved to the wired handler helper.
 package domain
 
 import (
@@ -36,11 +35,10 @@ import (
 
 const ruleRunKind = "rule_run"
 
-// ErrApplyEffectNotWired is returned by ApplyRuleEffect until the
-// writeback.go port lands. The handler layer maps it to HTTP 501 so
-// the client sees a clear "not yet implemented" response instead of
-// a silent no-op.
-var ErrApplyEffectNotWired = errors.New("apply_rule_effect: writeback.apply_object_with_outbox not yet ported (see migration plan)")
+// ErrApplyEffectNotWired is returned only by the legacy ApplyRuleEffect
+// compatibility symbol. HTTP rule apply uses handlers/rules.ApplyRuleEffectReal,
+// which is wired to writeback.ApplyObjectWithOutbox.
+var ErrApplyEffectNotWired = errors.New("apply_rule_effect: use handlers/rules.ApplyRuleEffectReal for DB-backed writeback")
 
 // ── Pure helpers (1:1 with Rust private functions) ──────────────────
 
@@ -681,12 +679,9 @@ func EvaluateRuleAgainstObject(
 
 // ApplyRuleEffect mirrors `pub async fn apply_rule_effect`.
 //
-// Sub-phase deferred: writeback.apply_object_with_outbox + the three
-// object-handler helpers it composes (load_repo_object_from_store,
-// apply_object_write, append_object_revision) need to land first.
-// Until then this function returns ErrApplyEffectNotWired so the
-// handler can map it to a clean 501 instead of pretending the patch
-// was applied.
+// Compatibility guard: HTTP apply_rule no longer calls this symbol.
+// Use handlers/rules.ApplyRuleEffectReal when composing the DB-backed
+// writeback/outbox path from handler code.
 func ApplyRuleEffect(
 	_ context.Context,
 	_ *ontologykernel.AppState,

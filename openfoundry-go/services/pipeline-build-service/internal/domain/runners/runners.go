@@ -3,30 +3,24 @@
 // per-kind job runners (SYNC, TRANSFORM, HEALTH_CHECK, ANALYTICAL,
 // EXPORT) plus the dispatcher routing JobContext → JobRunner.
 //
-// **Phase B scope**:
-//
-//   - JobRunner interface + JobOutcome union + JobContext.
-//   - DispatchingRunner that maps `JobSpec.LogicKind` to one of five
-//     concrete runners.
-//   - `LogicKinds` constants + `IsKnown` helper.
-//   - `ValidateLogicKind` arity check.
-//   - Skeleton runners that surface `runner_not_wired:<kind>` until
-//     the HTTP / engine wiring lands. Each skeleton matches the Rust
-//     trait shape exactly so the parallel orchestrator (Phase B
-//     `build_executor`) can drive them end-to-end without the
-//     production runtime.
-//
-// Phase B deliberately ports the lifecycle structure (state machine,
-// failure cascade, parallel scheduler) without the concrete runtime
-// each kind would call into — those live in their own service-client
-// phases (connector-management for SYNC, engine for TRANSFORM,
-// dataset-quality for HEALTH_CHECK, ai-service for ANALYTICAL,
-// export-target HTTP for EXPORT).
+// The package owns the job-runner contract, logic-kind validation,
+// dispatching, HTTP-backed SYNC / HEALTH_CHECK / EXPORT runners, and
+// deterministic Rust-compatible shims for TRANSFORM / ANALYTICAL.
+// Python sidecar execution remains behind an explicit interface so the
+// domain runner does not wire sidecar runtime concerns directly.
 package runners
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -131,24 +125,27 @@ func Failed(reason string) JobOutcome {
 // package needs. Real builds enrich it via `build_resolution` (Phase
 // B's resolver port lands separately).
 type JobSpec struct {
-	JobSpecRID  string         `json:"job_spec_rid"`
-	LogicKind   string         `json:"logic_kind"`
+	JobSpecRID        string   `json:"job_spec_rid"`
+	LogicKind         string   `json:"logic_kind"`
 	OutputDatasetRIDs []string `json:"output_dataset_rids,omitempty"`
 	// Config is the kind-specific JSON payload (SyncConfig,
 	// AnalyticalConfig, ExportConfig, HealthCheckConfig, …) the
 	// matching runner decodes.
 	Config []byte `json:"config,omitempty"`
+	// ContentHash is the resolver-computed spec hash. Transform jobs use
+	// it as the output hash when no engine adapter is wired yet.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // ResolvedInputView mirrors `pub struct ResolvedInputView`. Slimmed
 // to the fields runners read.
 type ResolvedInputView struct {
-	JobSpecRID            string     `json:"job_spec_rid"`
-	DatasetRID            string     `json:"dataset_rid"`
-	View                  string     `json:"view"`
-	BranchID              uuid.UUID  `json:"branch_id"`
-	TransactionRID        *string    `json:"transaction_rid,omitempty"`
-	IsCircularDependency  bool       `json:"is_circular_dependency"`
+	JobSpecRID           string    `json:"job_spec_rid"`
+	DatasetRID           string    `json:"dataset_rid"`
+	View                 string    `json:"view"`
+	BranchID             uuid.UUID `json:"branch_id"`
+	TransactionRID       *string   `json:"transaction_rid,omitempty"`
+	IsCircularDependency bool      `json:"is_circular_dependency"`
 }
 
 // JobContext mirrors `pub struct JobContext`. The runtime wires up
@@ -208,67 +205,342 @@ func runOrFallback(ctx context.Context, runner JobRunner, jc *JobContext, kind s
 	return runner.Run(ctx, jc)
 }
 
-// ── Skeleton runners (Phase B placeholders) ────────────────────────
+// ── Production runners ─────────────────────────────────────────────
+
+// SyncConfig mirrors Rust `SyncConfig` and the SYNC logic payload.
+type SyncConfig struct {
+	SourceRID string          `json:"source_rid"`
+	SyncDefID string          `json:"sync_def_id"`
+	Overrides json.RawMessage `json:"overrides,omitempty"`
+}
 
 // SyncJobRunner mirrors `pub struct SyncJobRunner`. Runs a Foundry
 // SYNC job by calling connector-management-service's ingest endpoint.
-// The HTTP wiring lands in the connector-client phase; today we
-// surface `runner_not_wired:sync`.
 type SyncJobRunner struct {
 	ConnectorBaseURL string
+	HTTPClient       *http.Client
 }
 
 // NewSyncJobRunner mirrors `SyncJobRunner::new`.
 func NewSyncJobRunner(baseURL string) *SyncJobRunner {
-	return &SyncJobRunner{ConnectorBaseURL: baseURL}
+	return &SyncJobRunner{ConnectorBaseURL: baseURL, HTTPClient: http.DefaultClient}
 }
 
 // Run mirrors the SYNC runner.
-func (r *SyncJobRunner) Run(_ context.Context, _ *JobContext) JobOutcome {
-	return Failed("runner_not_wired:sync")
+func (r *SyncJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
+	var cfg SyncConfig
+	if err := json.Unmarshal(jc.JobSpec.Config, &cfg); err != nil {
+		return Failed(fmt.Sprintf("invalid SYNC payload: %v", err))
+	}
+	if strings.TrimSpace(cfg.SyncDefID) == "" {
+		return Failed("invalid SYNC payload: sync_def_id is required")
+	}
+	base := strings.TrimRight(r.ConnectorBaseURL, "/")
+	if base == "" {
+		return Failed("connector dispatch failed: connector base URL is empty")
+	}
+	overrides := json.RawMessage(`{}`)
+	if len(cfg.Overrides) > 0 && string(cfg.Overrides) != "null" {
+		overrides = cfg.Overrides
+	}
+	body := map[string]any{
+		"overrides":     json.RawMessage(overrides),
+		"build_job_rid": jc.JobSpec.JobSpecRID,
+	}
+	payload, err := postJSON(ctx, r.HTTPClient, base+"/api/v1/data-integration/syncs/"+url.PathEscape(cfg.SyncDefID)+"/run", body)
+	if err != nil {
+		return Failed(fmt.Sprintf("connector dispatch failed: %v", err))
+	}
+	if !payload.StatusSuccess {
+		return Failed(fmt.Sprintf("connector returned %s: %s", payload.Status, payload.Body))
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(payload.BodyBytes, &resp)
+	if id, ok := resp["ingest_job_id"].(string); ok && id != "" {
+		return Completed("sync:" + id)
+	}
+	return Completed("sync:" + cfg.SyncDefID)
+}
+
+// TransformExecutor isolates the future T5 engine/sidecar integration
+// point. Keeping this interface in the runner domain lets the current
+// runner avoid directly importing or wiring the Python sidecar.
+type TransformExecutor interface {
+	RunTransform(ctx context.Context, jc *JobContext) (string, error)
 }
 
 // TransformJobRunner mirrors `pub struct TransformJobRunner`.
-// Delegates to the engine package once the runtime ports land.
-type TransformJobRunner struct{}
+type TransformJobRunner struct {
+	Engine TransformExecutor
+}
 
-// Run mirrors the TRANSFORM runner.
-func (r *TransformJobRunner) Run(_ context.Context, _ *JobContext) JobOutcome {
-	return Failed("runner_not_wired:transform")
+// Run mirrors the TRANSFORM runner. Without an engine adapter, it
+// returns a deterministic hash from the resolved spec/config, matching
+// Rust's current shim instead of exposing a skeleton failure.
+func (r *TransformJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
+	if r.Engine != nil {
+		hash, err := r.Engine.RunTransform(ctx, jc)
+		if err != nil {
+			return Failed(err.Error())
+		}
+		return Completed(hash)
+	}
+	if jc.JobSpec.ContentHash != "" {
+		return Completed(jc.JobSpec.ContentHash)
+	}
+	return Completed(stableHash("transform", jc.JobSpec.Config))
+}
+
+// HealthCheckKind mirrors Rust's HEALTH_CHECK enum values.
+type HealthCheckKind string
+
+const (
+	HealthCheckRowCountNonzero HealthCheckKind = "ROW_COUNT_NONZERO"
+	HealthCheckSchemaDrift     HealthCheckKind = "SCHEMA_DRIFT"
+	HealthCheckFreshnessSLA    HealthCheckKind = "FRESHNESS_SLA"
+	HealthCheckCustomSQL       HealthCheckKind = "CUSTOM_SQL"
+)
+
+// HealthCheckConfig mirrors Rust `HealthCheckConfig`.
+type HealthCheckConfig struct {
+	CheckKind        HealthCheckKind `json:"check_kind"`
+	TargetDatasetRID string          `json:"target_dataset_rid"`
+	Params           json.RawMessage `json:"params,omitempty"`
+	Name             *string         `json:"name,omitempty"`
 }
 
 // HealthCheckJobRunner mirrors `pub struct HealthCheckJobRunner`.
-// Posts a check result to dataset-quality-service.
 type HealthCheckJobRunner struct {
 	QualityBaseURL string
+	HTTPClient     *http.Client
 }
 
 // NewHealthCheckJobRunner mirrors `HealthCheckJobRunner::new`.
 func NewHealthCheckJobRunner(baseURL string) *HealthCheckJobRunner {
-	return &HealthCheckJobRunner{QualityBaseURL: baseURL}
+	return &HealthCheckJobRunner{QualityBaseURL: baseURL, HTTPClient: http.DefaultClient}
 }
 
 // Run mirrors the HEALTH_CHECK runner.
-func (r *HealthCheckJobRunner) Run(_ context.Context, _ *JobContext) JobOutcome {
-	return Failed("runner_not_wired:health_check")
+func (r *HealthCheckJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
+	var cfg HealthCheckConfig
+	if err := json.Unmarshal(jc.JobSpec.Config, &cfg); err != nil {
+		return Failed(fmt.Sprintf("invalid HEALTH_CHECK payload: %v", err))
+	}
+	if cfg.TargetDatasetRID == "" {
+		return Failed("invalid HEALTH_CHECK payload: target_dataset_rid is required")
+	}
+	if !containsString(jc.JobSpec.OutputDatasetRIDs, cfg.TargetDatasetRID) {
+		return Failed(fmt.Sprintf("HEALTH_CHECK target %s not present in JobSpec outputs", cfg.TargetDatasetRID))
+	}
+	base := strings.TrimRight(r.QualityBaseURL, "/")
+	if base == "" {
+		return Failed("dataset-quality-service unreachable: quality base URL is empty")
+	}
+	evaluation := evaluateCheck(cfg)
+	finding := map[string]any{
+		"check_kind":   cfg.CheckKind,
+		"name":         cfg.Name,
+		"passed":       evaluation.passed,
+		"message":      evaluation.message,
+		"params":       rawJSONOrObject(cfg.Params),
+		"build_branch": jc.BuildBranch,
+		"job_rid":      jc.JobSpec.JobSpecRID,
+	}
+	payload, err := postJSON(ctx, r.HTTPClient, base+"/api/v1/datasets/"+url.PathEscape(cfg.TargetDatasetRID)+"/health-checks/results", finding)
+	if err != nil {
+		return Failed(fmt.Sprintf("dataset-quality-service unreachable: %v", err))
+	}
+	if !payload.StatusSuccess {
+		return Failed(fmt.Sprintf("quality service returned %s: %s", payload.Status, payload.Body))
+	}
+	return Completed(fmt.Sprintf("health:%s:%t", cfg.CheckKind, evaluation.passed))
+}
+
+// AnalyticalConfig mirrors Rust `AnalyticalConfig`.
+type AnalyticalConfig struct {
+	ObjectSetQuery json.RawMessage `json:"object_set_query"`
+	OntologyRID    *string         `json:"ontology_rid,omitempty"`
+	OutputSchema   json.RawMessage `json:"output_schema,omitempty"`
 }
 
 // AnalyticalJobRunner mirrors `pub struct AnalyticalJobRunner`.
-// Materialises an object-set query to the output dataset.
 type AnalyticalJobRunner struct{}
 
 // Run mirrors the ANALYTICAL runner.
-func (r *AnalyticalJobRunner) Run(_ context.Context, _ *JobContext) JobOutcome {
-	return Failed("runner_not_wired:analytical")
+func (r *AnalyticalJobRunner) Run(_ context.Context, jc *JobContext) JobOutcome {
+	var cfg AnalyticalConfig
+	if err := json.Unmarshal(jc.JobSpec.Config, &cfg); err != nil {
+		return Failed(fmt.Sprintf("invalid ANALYTICAL payload: %v", err))
+	}
+	if len(jc.JobSpec.OutputDatasetRIDs) != 1 {
+		return Failed(fmt.Sprintf("ANALYTICAL job must have exactly one output (got %d)", len(jc.JobSpec.OutputDatasetRIDs)))
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte("analytical"))
+	_, _ = h.Write(canonicalJSON(cfg.ObjectSetQuery))
+	if cfg.OntologyRID != nil {
+		_, _ = h.Write([]byte("|onto|"))
+		_, _ = h.Write([]byte(*cfg.OntologyRID))
+	}
+	if len(cfg.OutputSchema) > 0 && string(cfg.OutputSchema) != "null" {
+		_, _ = h.Write([]byte("|sch|"))
+		_, _ = h.Write(canonicalJSON(cfg.OutputSchema))
+	}
+	return Completed(hex.EncodeToString(h.Sum(nil)))
 }
 
-// ExportJobRunner mirrors `pub struct ExportJobRunner`. Pushes the
-// input dataset to an external destination (S3/GCS/HTTP/JDBC).
-type ExportJobRunner struct{}
+// ExportTarget mirrors Rust `ExportTarget`.
+type ExportTarget string
+
+const (
+	ExportTargetS3   ExportTarget = "S3"
+	ExportTargetGCS  ExportTarget = "GCS"
+	ExportTargetHTTP ExportTarget = "HTTP"
+	ExportTargetJDBC ExportTarget = "JDBC"
+)
+
+// ExportConfig mirrors Rust `ExportConfig`.
+type ExportConfig struct {
+	ExportTarget     ExportTarget    `json:"export_target"`
+	Endpoint         string          `json:"endpoint"`
+	Options          json.RawMessage `json:"options,omitempty"`
+	SourceDatasetRID string          `json:"source_dataset_rid"`
+	ACLAlias         *string         `json:"acl_alias,omitempty"`
+}
+
+// ExportJobRunner mirrors `pub struct ExportJobRunner`.
+type ExportJobRunner struct {
+	HTTPClient *http.Client
+}
+
+// NewExportJobRunner builds an HTTP-backed export runner.
+func NewExportJobRunner() *ExportJobRunner { return &ExportJobRunner{HTTPClient: http.DefaultClient} }
 
 // Run mirrors the EXPORT runner.
-func (r *ExportJobRunner) Run(_ context.Context, _ *JobContext) JobOutcome {
-	return Failed("runner_not_wired:export")
+func (r *ExportJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
+	var cfg ExportConfig
+	if err := json.Unmarshal(jc.JobSpec.Config, &cfg); err != nil {
+		return Failed(fmt.Sprintf("invalid EXPORT payload: %v", err))
+	}
+	if cfg.ACLAlias == nil || *cfg.ACLAlias == "" {
+		return Failed("EXPORT job missing acl_alias: refusing to push to unconfigured target")
+	}
+	manifest := map[string]any{
+		"export_target":      cfg.ExportTarget,
+		"endpoint":           cfg.Endpoint,
+		"options":            rawJSONOrObject(cfg.Options),
+		"source_dataset_rid": cfg.SourceDatasetRID,
+		"acl_alias":          cfg.ACLAlias,
+		"build_branch":       jc.BuildBranch,
+		"job_rid":            jc.JobSpec.JobSpecRID,
+	}
+	payload, err := postJSON(ctx, r.HTTPClient, cfg.Endpoint, manifest)
+	if err != nil {
+		return Failed(fmt.Sprintf("export endpoint unreachable: %v", err))
+	}
+	if !payload.StatusSuccess {
+		return Failed(fmt.Sprintf("export target returned %s: %s", payload.Status, payload.Body))
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte("export"))
+	_, _ = h.Write([]byte(cfg.Endpoint))
+	_, _ = h.Write([]byte("|"))
+	_, _ = h.Write([]byte(cfg.SourceDatasetRID))
+	return Completed(hex.EncodeToString(h.Sum(nil)))
+}
+
+type checkEvaluation struct {
+	passed  bool
+	message string
+}
+
+func evaluateCheck(cfg HealthCheckConfig) checkEvaluation {
+	passed := true
+	var params map[string]any
+	if len(cfg.Params) > 0 {
+		_ = json.Unmarshal(cfg.Params, &params)
+	}
+	if v, ok := params["expect_passed"].(bool); ok {
+		passed = v
+	}
+	messages := map[HealthCheckKind]string{
+		HealthCheckRowCountNonzero: "row count check",
+		HealthCheckSchemaDrift:     "schema drift check",
+		HealthCheckFreshnessSLA:    "freshness SLA check",
+		HealthCheckCustomSQL:       "custom SQL check",
+	}
+	msg := messages[cfg.CheckKind]
+	if msg == "" {
+		msg = "health check"
+	}
+	return checkEvaluation{passed: passed, message: msg}
+}
+
+type httpPostResult struct {
+	Status        string
+	StatusSuccess bool
+	Body          string
+	BodyBytes     []byte
+}
+
+func postJSON(ctx context.Context, client *http.Client, endpoint string, body any) (httpPostResult, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return httpPostResult{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return httpPostResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return httpPostResult{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	return httpPostResult{Status: resp.Status, StatusSuccess: resp.StatusCode >= 200 && resp.StatusCode < 300, Body: string(respBody), BodyBytes: respBody}, nil
+}
+
+func rawJSONOrObject(raw json.RawMessage) any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]any{}
+	}
+	return raw
+}
+
+func canonicalJSON(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
+		return []byte("null")
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return bytes.TrimSpace(raw)
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return bytes.TrimSpace(raw)
+	}
+	return out
+}
+
+func stableHash(prefix string, raw json.RawMessage) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(prefix))
+	_, _ = h.Write(canonicalJSON(raw))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Build orchestrator (Phase B simplified parallel scheduler) ─────

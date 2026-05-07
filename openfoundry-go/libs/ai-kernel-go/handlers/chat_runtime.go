@@ -158,6 +158,14 @@ func routingMetadata(
 }
 
 // usageSummary mirrors fn usage_summary.
+
+func (h *ChatHandlers) completionRuntime() llm.Runtime {
+	if h.Runtime != nil {
+		return h.Runtime
+	}
+	return llm.HTTPRuntime{}
+}
+
 func usageSummary(provider models.LlmProvider, promptTokens, completionTokens, latencyMs int32, cacheHit bool) models.LlmUsageSummary {
 	pt := promptTokens
 	if pt < 0 {
@@ -199,21 +207,21 @@ func findCachedResponse(ctx context.Context, pool *pgxpool.Pool, kind, prompt st
 	queryFingerprint := llm.Fingerprint(prompt)
 
 	type match struct {
-		id          uuid.UUID
-		cacheKey    string
-		response    json.RawMessage
-		providerID  *uuid.UUID
-		score       float32
+		id         uuid.UUID
+		cacheKey   string
+		response   json.RawMessage
+		providerID *uuid.UUID
+		score      float32
 	}
 	var best *match
 
 	for rows.Next() {
 		var (
-			id            uuid.UUID
-			cacheKey      string
-			fingerprintB  []byte
-			responseB     []byte
-			providerID    *uuid.UUID
+			id           uuid.UUID
+			cacheKey     string
+			fingerprintB []byte
+			responseB    []byte
+			providerID   *uuid.UUID
 		)
 		if err := rows.Scan(&id, &cacheKey, &fingerprintB, &responseB, &providerID); err != nil {
 			return nil, nil, nil, err
@@ -332,11 +340,11 @@ func loadDocumentsForBases(ctx context.Context, pool *pgxpool.Pool, knowledgeBas
 // cachedCopilotPayload is the cacheable subset of the copilot reply
 // (mirrors Rust struct CachedCopilotPayload).
 type cachedCopilotPayload struct {
-	Answer              string                          `json:"answer"`
-	SuggestedSQL        *string                         `json:"suggested_sql"`
-	PipelineSuggestions []string                        `json:"pipeline_suggestions"`
-	OntologyHints       []string                        `json:"ontology_hints"`
-	CitedKnowledge      []models.KnowledgeSearchResult  `json:"cited_knowledge"`
+	Answer              string                         `json:"answer"`
+	SuggestedSQL        *string                        `json:"suggested_sql"`
+	PipelineSuggestions []string                       `json:"pipeline_suggestions"`
+	OntologyHints       []string                       `json:"ontology_hints"`
+	CitedKnowledge      []models.KnowledgeSearchResult `json:"cited_knowledge"`
 }
 
 // AskCopilot handles `POST /api/v1/copilot/ask`. Mirrors fn
@@ -468,9 +476,11 @@ func (h *ChatHandlers) AskCopilot(w http.ResponseWriter, r *http.Request) {
 		if maxOut > 512 {
 			maxOut = 512
 		}
-		completion, completionErr := llm.CompleteText(ctx, nil, provider,
-			"You are OpenFoundry Copilot. Ground answers in retrieval context and suggested platform actions.",
-			userPrompt, nil, 0.2, maxOut)
+		completion, completionErr := h.completionRuntime().CompleteText(ctx, llm.CompletionRequest{
+			Provider:     provider,
+			SystemPrompt: "You are OpenFoundry Copilot. Ground answers in retrieval context and suggested platform actions.",
+			UserPrompt:   userPrompt, Temperature: 0.2, MaxTokens: maxOut,
+		})
 		latencyMs = int32(time.Since(startedAt).Milliseconds())
 		if latencyMs < 0 {
 			latencyMs = 0
@@ -627,9 +637,9 @@ func persistConversation(
 // cachedChatPayload is the cacheable subset of the chat-completion
 // reply (mirrors Rust struct CachedChatPayload).
 type cachedChatPayload struct {
-	Reply            string                          `json:"reply"`
-	Citations        []models.KnowledgeSearchResult  `json:"citations"`
-	CompletionTokens int32                           `json:"completion_tokens"`
+	Reply            string                         `json:"reply"`
+	Citations        []models.KnowledgeSearchResult `json:"citations"`
+	CompletionTokens int32                          `json:"completion_tokens"`
 }
 
 // CreateChatCompletion handles `POST /api/v1/chat/completions`.
@@ -803,9 +813,10 @@ func (h *ChatHandlers) CreateChatCompletion(w http.ResponseWriter, r *http.Reque
 
 	if !guardrail.Blocked {
 		startedAt := time.Now()
-		completion, completionErr := llm.CompleteText(ctx, nil, provider,
-			basePrompt, promptUsed, body.Attachments,
-			body.Temperature, body.MaxTokens)
+		completion, completionErr := h.completionRuntime().CompleteText(ctx, llm.CompletionRequest{
+			Provider: provider, SystemPrompt: basePrompt, UserPrompt: promptUsed,
+			Attachments: body.Attachments, Temperature: body.Temperature, MaxTokens: body.MaxTokens,
+		})
 		latencyMs = int32(time.Since(startedAt).Milliseconds())
 		if latencyMs < 0 {
 			latencyMs = 0
@@ -1016,9 +1027,10 @@ func (h *ChatHandlers) BenchmarkProviders(w http.ResponseWriter, r *http.Request
 	results := make([]models.ProviderBenchmarkResult, 0, len(routed))
 	for _, provider := range routed {
 		startedAt := time.Now()
-		completion, completionErr := llm.CompleteText(ctx, nil, &provider,
-			systemPrompt, body.Prompt, body.Attachments,
-			0.2, body.MaxTokens)
+		completion, completionErr := h.completionRuntime().CompleteText(ctx, llm.CompletionRequest{
+			Provider: &provider, SystemPrompt: systemPrompt, UserPrompt: body.Prompt,
+			Attachments: body.Attachments, Temperature: 0.2, MaxTokens: body.MaxTokens,
+		})
 		latencyMs := int32(time.Since(startedAt).Milliseconds())
 		if latencyMs < 0 {
 			latencyMs = 0

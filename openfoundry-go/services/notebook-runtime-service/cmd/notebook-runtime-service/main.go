@@ -2,10 +2,12 @@
 // HTTP surface (notebooks, cells, sessions, kernel execute, workspace
 // files, notepad documents + presence + export).
 //
-// Substrate-only port today: notebook + cell + session + notepad CRUD
-// reach handler stubs that return the empty-envelope shape until the
-// repository slice (sqlc against the existing migrations) is wired
-// in. The two pieces ported 1:1 with full coverage:
+// Current port: notebook + cell + session CRUD use pgx when
+// DATABASE_URL is configured. Explicit NOTEBOOK_RUNTIME_SMOKE_MODE=true
+// enables in-memory smoke CRUD; otherwise missing DB config returns a clear
+// 503. Notepad document/presence/export are repository-backed. Python
+// execution is gated on PYTHON_SIDECAR_BINARY. Domain pieces ported 1:1 with
+// coverage:
 //
 //   - Workspace file CRUD (filesystem-backed, [`internal/domain/environment`]).
 //   - Notepad export HTML rendering ([`internal/domain/notepad`]).
@@ -24,7 +26,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/kernel"
 	"github.com/openfoundry/openfoundry-go/services/notebook-runtime-service/internal/server"
 )
 
@@ -57,22 +61,21 @@ func main() {
 			slog.String("error", err.Error()))
 	}
 
-	// Best-effort DB pool: when DATABASE_URL is unset or unreachable,
-	// CRUD endpoints fall back to the empty-envelope shape so smoke
-	// clusters / unit tests keep working. Matches the sql-bi-gateway
-	// pattern.
+	// Best-effort DB pool: production CRUD requires DATABASE_URL. An explicit
+	// NOTEBOOK_RUNTIME_SMOKE_MODE=true opt-in enables in-memory smoke CRUD when
+	// the DB is absent/unreachable.
 	var pool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
 		pcfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 		if err != nil {
-			log.Warn("DATABASE_URL parse failed; CRUD endpoints will return empty envelopes",
+			log.Warn("DATABASE_URL parse failed; CRUD endpoints require NOTEBOOK_RUNTIME_SMOKE_MODE=true for in-memory smoke mode",
 				slog.String("error", err.Error()))
 		} else {
 			poolCtx, cancelPool := context.WithTimeout(ctx, 10*time.Second)
 			pool, err = pgxpool.NewWithConfig(poolCtx, pcfg)
 			cancelPool()
 			if err != nil {
-				log.Warn("DB pool init failed; CRUD endpoints will return empty envelopes",
+				log.Warn("DB pool init failed; CRUD endpoints require NOTEBOOK_RUNTIME_SMOKE_MODE=true for in-memory smoke mode",
 					slog.String("error", err.Error()))
 				pool = nil
 			} else {
@@ -81,11 +84,38 @@ func main() {
 			}
 		}
 	} else {
-		log.Warn("DATABASE_URL unset; CRUD endpoints will return empty envelopes")
+		log.Warn("DATABASE_URL unset; CRUD endpoints require NOTEBOOK_RUNTIME_SMOKE_MODE=true for in-memory smoke mode")
+	}
+
+	var pyKernel *kernel.SidecarKernel
+	var pyMgr *pythonsidecar.Manager
+	if cfg.PythonSidecarBinary != "" {
+		pyMgr, err = pythonsidecar.New(pythonsidecar.Config{
+			BinaryPath: cfg.PythonSidecarBinary,
+			Env: []string{
+				"OPENFOUNDRY_NOTEBOOK_DATA_DIR=" + cfg.DataDir,
+			},
+			HardCallTimeout: time.Duration(cfg.PythonSidecarTimeoutSeconds+5) * time.Second,
+		}, log)
+		if err != nil {
+			log.Error("python sidecar config failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		startCtx, cancelStart := context.WithTimeout(ctx, 15*time.Second)
+		if err := pyMgr.Start(startCtx); err != nil {
+			cancelStart()
+			log.Error("python sidecar start failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		cancelStart()
+		defer func() { _ = pyMgr.Stop(context.Background()) }()
+		pyKernel = &kernel.SidecarKernel{Mgr: pyMgr}
+	} else {
+		log.Warn("PYTHON_SIDECAR_BINARY unset; Python ExecuteCell will return an explicit sidecar-not-configured error")
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, pool, metrics)
+	srv := server.NewWithKernel(cfg, pool, metrics, pyKernel)
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

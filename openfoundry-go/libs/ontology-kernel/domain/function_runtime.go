@@ -7,11 +7,11 @@
 //   - TypeScript / JavaScript inline functions execute via Node
 //     (`state.NodeRuntimeCommand`) using the same harness script the
 //     Rust crate ships, embedded byte-for-byte via go:embed.
-//   - Python inline functions surface ErrPythonRuntimeNotWired (the
-//     Rust path uses PyO3's embedded interpreter; Go has no
-//     equivalent without re-architecting the binary, so we keep the
-//     parser + capability validator working and gate execution
-//     behind the sentinel).
+//   - Python inline functions execute through the injected
+//     PythonInlineRuntime. The ontology-actions-service binary wires
+//     that runtime from libs/python-sidecar when PYTHON_SIDECAR_BINARY
+//     is configured; otherwise execution fails explicitly with
+//     ErrPythonRuntimeNotWired while parse/validate remain available.
 //   - LoadAccessibleObjectSet routes through ObjectStore.ListByType
 //     because the SearchBackend interface is not yet ported. The
 //     filter cascade (ensure_object_access + object_to_json) is
@@ -22,8 +22,8 @@ package domain
 
 import (
 	"context"
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -547,8 +547,9 @@ func ExecuteInlineFunction(
 // Rust PyO3 path used and forwards execution to the sidecar; the
 // sidecar returns the enriched result (payload + stdout/stderr already
 // merged) which is re-emitted to the caller verbatim. When the runtime
-// is nil, ErrPythonRuntimeNotWired is returned so callers map it to a
-// 501 — the parse + validate paths keep working regardless.
+// is nil, ErrPythonRuntimeNotWired is returned so callers surface the
+// explicit python_runtime_not_wired service-unavailable envelope while
+// the parse + validate paths keep working.
 func ExecuteInlinePythonFunction(
 	ctx context.Context,
 	state *ontologykernel.AppState,
@@ -626,6 +627,9 @@ func ExecuteInlinePythonFunction(
 	}
 	if len(out.ResultJSON) == 0 {
 		return json.RawMessage(`null`), nil
+	}
+	if !json.Valid(out.ResultJSON) {
+		return nil, fmt.Errorf("failed to decode Python function response: malformed result JSON")
 	}
 	return json.RawMessage(out.ResultJSON), nil
 }

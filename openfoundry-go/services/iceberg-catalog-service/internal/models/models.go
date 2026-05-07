@@ -42,3 +42,172 @@ type CreateNamespaceRequest struct {
 type UpdateNamespaceRequest struct {
 	Properties json.RawMessage `json:"properties,omitempty"`
 }
+
+type ErrorEnvelope struct {
+	Error ErrorBody `json:"error"`
+}
+
+type ErrorBody struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Code    int    `json:"code"`
+}
+
+type TableIdentifier struct {
+	Namespace []string `json:"namespace"`
+	Name      string   `json:"name"`
+}
+
+type ListTablesResponse struct {
+	Identifiers []TableIdentifier `json:"identifiers"`
+}
+
+type IcebergTable struct {
+	ID                      uuid.UUID       `json:"id"`
+	RID                     string          `json:"rid"`
+	NamespaceID             uuid.UUID       `json:"namespace_id"`
+	Namespace               []string        `json:"namespace"`
+	Name                    string          `json:"name"`
+	TableUUID               string          `json:"table_uuid"`
+	FormatVersion           int32           `json:"format_version"`
+	Location                string          `json:"location"`
+	CurrentSnapshotID       *int64          `json:"current_snapshot_id"`
+	CurrentMetadataLocation *string         `json:"current_metadata_location"`
+	LastSequenceNumber      int64           `json:"last_sequence_number"`
+	PartitionSpec           json.RawMessage `json:"partition_spec"`
+	SchemaJSON              json.RawMessage `json:"schema_json"`
+	SortOrder               json.RawMessage `json:"sort_order"`
+	Properties              json.RawMessage `json:"properties"`
+	Markings                []string        `json:"markings"`
+	CreatedAt               time.Time       `json:"created_at"`
+	UpdatedAt               time.Time       `json:"updated_at"`
+}
+
+type CreateTableRequest struct {
+	Name          string            `json:"name"`
+	Schema        json.RawMessage   `json:"schema"`
+	PartitionSpec json.RawMessage   `json:"partition-spec,omitempty"`
+	SortOrder     json.RawMessage   `json:"sort-order,omitempty"`
+	Properties    map[string]string `json:"properties,omitempty"`
+	Location      *string           `json:"location,omitempty"`
+	FormatVersion *int32            `json:"format-version,omitempty"`
+	StageCreate   *bool             `json:"stage-create,omitempty"`
+	Markings      []string          `json:"markings,omitempty"`
+}
+
+type LoadTableResponse struct {
+	Metadata         json.RawMessage   `json:"metadata"`
+	MetadataLocation string            `json:"metadata-location"`
+	Config           map[string]string `json:"config"`
+}
+
+type Snapshot struct {
+	ID                   int64           `json:"id"`
+	TableID              uuid.UUID       `json:"table_id"`
+	SnapshotID           int64           `json:"snapshot_id"`
+	ParentSnapshotID     *int64          `json:"parent_snapshot_id"`
+	SequenceNumber       int64           `json:"sequence_number"`
+	Operation            string          `json:"operation"`
+	ManifestListLocation string          `json:"manifest_list_location"`
+	Summary              json.RawMessage `json:"summary"`
+	SchemaID             int32           `json:"schema_id"`
+	TimestampMS          int64           `json:"timestamp_ms"`
+}
+
+type CommitTableRequest struct {
+	Identifier   *TableIdentifier  `json:"identifier,omitempty"`
+	Requirements []json.RawMessage `json:"requirements,omitempty"`
+	Updates      []json.RawMessage `json:"updates,omitempty"`
+}
+
+type CommitTableResponse struct {
+	Metadata         json.RawMessage `json:"metadata"`
+	MetadataLocation string          `json:"metadata-location"`
+}
+
+type TableRef struct {
+	ID                 uuid.UUID `json:"id,omitempty"`
+	TableID            uuid.UUID `json:"table_id,omitempty"`
+	Name               string    `json:"name"`
+	Kind               string    `json:"type"`
+	SnapshotID         int64     `json:"snapshot-id"`
+	MaxRefAgeMS        *int64    `json:"max-ref-age-ms,omitempty"`
+	MaxSnapshotAgeMS   *int64    `json:"max-snapshot-age-ms,omitempty"`
+	MinSnapshotsToKeep *int32    `json:"min-snapshots-to-keep,omitempty"`
+	CreatedAt          time.Time `json:"created_at,omitempty"`
+}
+
+type ListRefsResponse struct {
+	Refs map[string]TableRef `json:"refs"`
+}
+
+type UpdateRefRequest struct {
+	Type               string `json:"type"`
+	SnapshotID         int64  `json:"snapshot-id"`
+	MaxRefAgeMS        *int64 `json:"max-ref-age-ms,omitempty"`
+	MaxSnapshotAgeMS   *int64 `json:"max-snapshot-age-ms,omitempty"`
+	MinSnapshotsToKeep *int32 `json:"min-snapshots-to-keep,omitempty"`
+}
+
+type MetadataFile struct {
+	ID        uuid.UUID `json:"id,omitempty"`
+	TableID   uuid.UUID `json:"table_id,omitempty"`
+	Version   int32     `json:"version"`
+	Path      string    `json:"path"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+type ListMetadataFilesResponse struct {
+	MetadataFiles []MetadataFile `json:"metadata-files"`
+}
+
+type MetadataFileResponse struct {
+	Metadata         json.RawMessage `json:"metadata"`
+	MetadataLocation string          `json:"metadata-location"`
+	Version          int32           `json:"version"`
+}
+
+type ListSnapshotsResponse struct {
+	Snapshots []Snapshot `json:"snapshots"`
+}
+
+type RenameTableRequest struct {
+	Source      TableIdentifier `json:"source"`
+	Destination TableIdentifier `json:"destination"`
+}
+
+// FieldSpec is the compact schema shape used by OpenFoundry sink writers when
+// appending rows through the in-process table-writer adapter endpoint.
+type FieldSpec struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Required bool   `json:"required"`
+}
+
+// TableSpec identifies and validates an append target for
+// POST /openfoundry/iceberg/v1/append.
+type TableSpec struct {
+	Catalog            string      `json:"catalog"`
+	Warehouse          string      `json:"warehouse,omitempty"`
+	Namespace          string      `json:"namespace"`
+	Table              string      `json:"table"`
+	PartitionTransform string      `json:"partition_transform"`
+	SortOrder          string      `json:"sort_order"`
+	Schema             []FieldSpec `json:"schema"`
+}
+
+// AppendBatch is the request body consumed by the OpenFoundry Iceberg HTTP
+// table-writer adapter used by audit-sink and ai-sink.
+type AppendBatch struct {
+	Spec TableSpec        `json:"spec"`
+	Rows []map[string]any `json:"rows"`
+}
+
+// AppendBatchResponse summarizes a committed append.
+type AppendBatchResponse struct {
+	Namespace        string `json:"namespace"`
+	Table            string `json:"table"`
+	Rows             int    `json:"rows"`
+	MetadataLocation string `json:"metadata_location"`
+}

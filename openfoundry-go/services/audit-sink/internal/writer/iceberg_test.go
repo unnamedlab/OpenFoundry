@@ -1,0 +1,215 @@
+package writer
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/openfoundry/openfoundry-go/services/audit-sink/internal/envelope"
+)
+
+type fakeAuditCatalog struct {
+	table IcebergTableAppender
+	err   error
+	seen  []TableSpec
+}
+
+func (f *fakeAuditCatalog) LoadTable(_ context.Context, spec TableSpec) (IcebergTableAppender, error) {
+	f.seen = append(f.seen, spec)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.table, nil
+}
+
+type fakeAuditTable struct {
+	err     error
+	batches []AppendBatch
+}
+
+func (f *fakeAuditTable) Append(_ context.Context, batch AppendBatch) error {
+	f.batches = append(f.batches, batch)
+	return f.err
+}
+
+func TestIcebergWriterAppendBuildsRustCompatibleAuditBatch(t *testing.T) {
+	corr := "corr-1"
+	table := &fakeAuditTable{}
+	catalog := &fakeAuditCatalog{table: table}
+	w := NewIcebergWriterWithCatalog("http://catalog", "wh", "of_audit", "events", catalog)
+
+	err := w.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1700000000000000, CorrelationID: &corr, Kind: "auth.login.ok", Payload: []byte(`{"ok":true}`)}})
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	if len(catalog.seen) != 1 || catalog.seen[0].Namespace != "of_audit" || catalog.seen[0].Table != "events" {
+		t.Fatalf("LoadTable specs = %#v", catalog.seen)
+	}
+	if got := catalog.seen[0].PartitionTransform; got != "day(at)" {
+		t.Fatalf("partition = %q", got)
+	}
+	if len(table.batches) != 1 || len(table.batches[0].Rows) != 1 {
+		t.Fatalf("batches = %#v", table.batches)
+	}
+	if got := table.batches[0].Rows[0]["payload"]; got != `{"ok":true}` {
+		t.Fatalf("payload = %#v", got)
+	}
+	if got := table.batches[0].Spec.Schema[0]; got != (FieldSpec{ID: 1, Name: "event_id", Type: "uuid", Required: true}) {
+		t.Fatalf("schema[0] = %#v", got)
+	}
+}
+
+func TestIcebergWriterRejectsEmptyAuditBatch(t *testing.T) {
+	w := NewIcebergWriterWithCatalog("", "", "of_audit", "events", &fakeAuditCatalog{table: &fakeAuditTable{}})
+	if err := w.Append(context.Background(), nil); !errors.Is(err, ErrEmptyBatch) {
+		t.Fatalf("Append(empty) error = %v", err)
+	}
+}
+
+func TestIcebergWriterPropagatesTableNotFound(t *testing.T) {
+	w := NewIcebergWriterWithCatalog("", "", "of_audit", "events", &fakeAuditCatalog{err: ErrTableNotFound})
+	if err := w.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, Payload: []byte(`{}`)}}); !errors.Is(err, ErrTableNotFound) {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestIcebergWriterPropagatesSchemaMismatch(t *testing.T) {
+	w := NewIcebergWriterWithCatalog("", "", "of_audit", "events", &fakeAuditCatalog{table: &fakeAuditTable{err: ErrSchemaMismatch}})
+	if err := w.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, Payload: []byte(`{}`)}}); !errors.Is(err, ErrSchemaMismatch) {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestIcebergWriterPropagatesCommitFailure(t *testing.T) {
+	w := NewIcebergWriterWithCatalog("", "", "of_audit", "events", &fakeAuditCatalog{table: &fakeAuditTable{err: ErrCommitFailed}})
+	if err := w.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, Payload: []byte(`{}`)}}); !errors.Is(err, ErrCommitFailed) {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterAuditContract(t *testing.T) {
+	corr := "corr-1"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.URL.Path != "/openfoundry/iceberg/v1/append" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+
+		var batch AppendBatch
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		wantSpec := TableSpec{
+			Catalog:            auditCatalog,
+			Warehouse:          "warehouse-1",
+			Namespace:          "of_audit",
+			Table:              "events",
+			PartitionTransform: "day(at)",
+			SortOrder:          "at ASC",
+			Schema:             auditSchema(),
+		}
+		if !reflect.DeepEqual(batch.Spec, wantSpec) {
+			t.Fatalf("spec = %#v, want %#v", batch.Spec, wantSpec)
+		}
+		if len(batch.Rows) != 1 {
+			t.Fatalf("rows = %#v", batch.Rows)
+		}
+		row := batch.Rows[0]
+		if row["event_id"] != "00000000-0000-7000-8000-000000000001" {
+			t.Fatalf("event_id = %#v", row["event_id"])
+		}
+		if row["at"] != float64(1700000000000000) {
+			t.Fatalf("at = %#v", row["at"])
+		}
+		if row["correlation_id"] != corr {
+			t.Fatalf("correlation_id = %#v", row["correlation_id"])
+		}
+		if row["kind"] != "auth.login.ok" {
+			t.Fatalf("kind = %#v", row["kind"])
+		}
+		if row["payload"] != `{"ok":true}` {
+			t.Fatalf("payload = %#v", row["payload"])
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_audit", "events")
+	err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.MustParse("00000000-0000-7000-8000-000000000001"), At: 1700000000000000, CorrelationID: &corr, Kind: "auth.login.ok", Payload: []byte(`{"ok":true}`)}})
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterIsProductionPathNotStub(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	writer := NewIcebergWriter(server.URL, "warehouse-1", "of_audit", "events")
+	err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, At: 1, Kind: "kind", Payload: []byte(`{}`)}})
+	if errors.Is(err, ErrNotImplemented) {
+		t.Fatalf("Append() returned legacy stub error %v", err)
+	}
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+}
+
+func TestHTTPTableWriterAdapterAuditErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{name: "404 table not found", status: http.StatusNotFound, want: ErrTableNotFound},
+		{name: "409 schema mismatch", status: http.StatusConflict, want: ErrSchemaMismatch},
+		{name: "422 schema mismatch", status: http.StatusUnprocessableEntity, want: ErrSchemaMismatch},
+		{name: "500 commit failed", status: http.StatusInternalServerError, want: ErrCommitFailed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/openfoundry/iceberg/v1/append" {
+					t.Fatalf("path = %s", r.URL.Path)
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte("catalog said no"))
+			}))
+			defer server.Close()
+
+			writer := NewIcebergWriter(server.URL, "warehouse-1", "of_audit", "events")
+			err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, At: 1, Kind: "kind", Payload: []byte(`{}`)}})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Append() error = %v, want %v", err, tc.want)
+			}
+			if !strings.Contains(err.Error(), "catalog said no") {
+				t.Fatalf("Append() error = %v, want table-writer detail", err)
+			}
+		})
+	}
+}
+
+func TestHTTPTableWriterAdapterAuditNetworkFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := server.URL
+	server.Close()
+
+	writer := NewIcebergWriter(url, "warehouse-1", "of_audit", "events")
+	err := writer.Append(context.Background(), []envelope.AuditEnvelope{{EventID: uuid.Nil, At: 1, Kind: "kind", Payload: []byte(`{}`)}})
+	if !errors.Is(err, ErrCommitFailed) {
+		t.Fatalf("Append() error = %v, want %v", err, ErrCommitFailed)
+	}
+}

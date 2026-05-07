@@ -1,4 +1,8 @@
 # Build artifacts
+# Generated protobuf stubs under libs/proto-gen are intentionally
+# versioned so CI can detect buf generation drift. Do not add a
+# libs/proto-gen/**/*.pb.go ignore here.
+
 /bin/
 /dist/
 /coverage.out
@@ -6,9 +10,6 @@
 *.test
 *.prof
 
-# Generated code (regenerated via `make gen`)
-/libs/proto-gen/**/*.pb.go
-/libs/proto-gen/**/*_grpc.pb.go
 
 # Local env / IDE
 .env

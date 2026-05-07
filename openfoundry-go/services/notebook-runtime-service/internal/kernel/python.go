@@ -1,7 +1,7 @@
 // Package kernel wires the notebook service to the openfoundry-pyruntime
-// sidecar via libs/python-sidecar. The HTTP handler layer is still
-// substrate-only; this file provides the Manager-backed runtime so the
-// ExecuteCell port can drop in without revisiting wiring.
+// sidecar via libs/python-sidecar. The HTTP handler layer depends on
+// this small interface adapter so production uses a managed subprocess
+// while tests can inject a fake sidecar client.
 package kernel
 
 import (

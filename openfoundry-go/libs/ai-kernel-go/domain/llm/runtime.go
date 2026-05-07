@@ -21,6 +21,72 @@ type CompletionResult struct {
 	PromptTokens     int32
 	CompletionTokens int32
 	TotalTokens      int32
+	ToolCalls        []ToolCall
+}
+
+// ToolCall captures OpenAI-compatible tool-call metadata when a chat
+// model elects to call a tool instead of returning plain text. Rust's
+// chat response contract does not expose tool calls yet, but retaining
+// the data at runtime level lets agent-runtime-service and tests assert
+// provider capability without changing the handler JSON contract.
+type ToolCall struct {
+	ID        string
+	Type      string
+	Name      string
+	Arguments string
+}
+
+// CompletionRequest is the provider-runtime invocation shape shared by
+// HTTPRuntime and FakeRuntime.
+type CompletionRequest struct {
+	Provider     *models.LlmProvider
+	SystemPrompt string
+	UserPrompt   string
+	Attachments  []models.ChatAttachment
+	Temperature  float32
+	MaxTokens    int32
+}
+
+// Runtime is the provider dispatch interface used by chat handlers.
+type Runtime interface {
+	CompleteText(ctx context.Context, req CompletionRequest) (CompletionResult, error)
+}
+
+// HTTPRuntime dispatches requests to the configured provider over its
+// Rust-compatible API mode.
+type HTTPRuntime struct {
+	Client *http.Client
+}
+
+func (r HTTPRuntime) CompleteText(ctx context.Context, req CompletionRequest) (CompletionResult, error) {
+	return CompleteText(ctx, r.Client, req.Provider, req.SystemPrompt, req.UserPrompt, req.Attachments, req.Temperature, req.MaxTokens)
+}
+
+// FakeRuntime is a deterministic in-process provider for tests and
+// local service wiring. It records requests and returns Result unless
+// Err is set. When Result is zero-valued it echoes a stable response.
+type FakeRuntime struct {
+	Result CompletionResult
+	Err    error
+	Calls  []CompletionRequest
+}
+
+func (f *FakeRuntime) CompleteText(_ context.Context, req CompletionRequest) (CompletionResult, error) {
+	f.Calls = append(f.Calls, req)
+	if f.Err != nil {
+		return CompletionResult{}, f.Err
+	}
+	if f.Result.Text != "" || f.Result.PromptTokens != 0 || f.Result.CompletionTokens != 0 || f.Result.TotalTokens != 0 || len(f.Result.ToolCalls) > 0 {
+		return f.Result, nil
+	}
+	completionTokens := EstimateTokens("fake provider response")
+	promptTokens := EstimateTokens(req.SystemPrompt + " " + req.UserPrompt)
+	return CompletionResult{
+		Text:             "fake provider response",
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      promptTokens + completionTokens,
+	}, nil
 }
 
 // CompleteText routes per-provider api_mode to the matching protocol
@@ -54,6 +120,9 @@ func CompleteText(
 		return completeAnthropic(ctx, client, provider, systemPrompt, userPrompt, attachments, maxTokens)
 	case "chat":
 		return completeOllama(ctx, client, provider, systemPrompt, userPrompt, attachments)
+	case "fake":
+		rt := &FakeRuntime{}
+		return rt.CompleteText(ctx, CompletionRequest{Provider: provider, SystemPrompt: systemPrompt, UserPrompt: userPrompt, Attachments: attachments, Temperature: temperature, MaxTokens: maxTokens})
 	default:
 		return CompletionResult{}, fmt.Errorf("unsupported provider api_mode '%s'", provider.APIMode)
 	}
@@ -182,6 +251,7 @@ func completeOpenAICompatible(
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      total,
+		ToolCalls:        parseOpenAIToolCalls(parsed),
 	}, nil
 }
 
@@ -486,6 +556,31 @@ func buildOllamaUserPayload(userPrompt string, attachments []models.ChatAttachme
 		}
 	}
 	return prompt, images
+}
+
+func parseOpenAIToolCalls(payload map[string]any) []ToolCall {
+	value := jsonPointer(payload, "/choices/0/message/tool_calls")
+	arr, ok := value.([]any)
+	if !ok || len(arr) == 0 {
+		return nil
+	}
+	out := make([]ToolCall, 0, len(arr))
+	for _, item := range arr {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		call := ToolCall{
+			ID:   valueAsText(obj["id"]),
+			Type: valueAsText(obj["type"]),
+		}
+		if fn, ok := obj["function"].(map[string]any); ok {
+			call.Name = valueAsText(fn["name"])
+			call.Arguments = valueAsText(fn["arguments"])
+		}
+		out = append(out, call)
+	}
+	return out
 }
 
 func parseEmbedding(payload map[string]any) ([]float32, error) {

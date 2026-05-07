@@ -23,11 +23,16 @@ type InlineFunctionResult struct {
 // PipelineTransformResult mirrors PythonExecutionResult on the Rust
 // side. RowsAffected is only meaningful when RowsAffectedSet is true.
 type PipelineTransformResult struct {
-	RowsAffected     int64
-	RowsAffectedSet  bool
-	OutputJSON       []byte
-	ResultRowsJSON   []byte
-	Stdout           string
+	RowsAffected    int64
+	RowsAffectedSet bool
+	OutputJSON      []byte
+	ResultRowsJSON  []byte
+	Stdout          string
+	// Stderr is currently empty because ExecutePipelineTransformResponse
+	// has no stderr field; it is kept in the Go model so callers can map
+	// the full stdout/stderr/error surface without another API change if
+	// the sidecar contract grows one.
+	Stderr string
 }
 
 // NotebookCellResult mirrors KernelExecutionResult on the Rust side.
@@ -35,6 +40,11 @@ type NotebookCellResult struct {
 	OutputType  string
 	ContentJSON []byte
 	Stdout      string
+	// Stderr is reserved for sidecars/protos that expose captured stderr.
+	// The current notebook proto mirrors Rust's stdout-only Python path,
+	// so Manager populates this as empty while tests/fakes can exercise
+	// handler propagation decisions without changing the JSON contract.
+	Stderr string
 }
 
 // ExecuteInline runs an inline ontology function. The caller is

@@ -101,5 +101,5 @@ func buildWriter(cfg *config.Config) (writer.Writer, error) {
 	if cfg.JSONLWriterDir != "" {
 		return writer.NewJSONLWriter(cfg.JSONLWriterDir)
 	}
-	return writer.NewIcebergWriter(cfg.CatalogURL, cfg.Warehouse, config.IcebergNamespace), nil
+	return writer.NewIcebergWriterWithAdapter(cfg.CatalogURL, cfg.TableWriterURL, cfg.Warehouse, config.IcebergNamespace), nil
 }

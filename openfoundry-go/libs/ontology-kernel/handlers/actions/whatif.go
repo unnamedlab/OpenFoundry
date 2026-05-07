@@ -1,7 +1,6 @@
-// What-if branch endpoints — list / delete are full 1:1; create
-// constructs the branch envelope without the simulation cascade
-// (Phase 5B will plug in `plan_action` + `simulate_target_after_preview`
-// when the execute substrate lands).
+// What-if branch endpoints — list / create / delete are full 1:1.
+// Create plans the action, stores the Rust-compatible preview, and
+// persists before/after target snapshots when the plan has a target.
 package actions
 
 import (
@@ -20,13 +19,6 @@ import (
 )
 
 // CreateActionWhatIfBranch mirrors `pub async fn create_action_what_if_branch`.
-//
-// Phase 5A scope: persists the branch with the request's `parameters`
-// echoed in the preview slot. The Rust impl runs `plan_action`
-// (Phase 5B substrate) so the preview carries the evaluated effect
-// preview + before/after object snapshots. Until 5B lands the branch
-// stays useful as a parameter checkpoint — clients can still list,
-// delete and re-trigger from it.
 func CreateActionWhatIfBranch(state *ontologykernel.AppState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := authmw.FromContext(r.Context())
@@ -59,6 +51,34 @@ func CreateActionWhatIfBranch(state *ontologykernel.AppState) http.HandlerFunc {
 			return
 		}
 
+		validationReq := models.ValidateActionRequest{
+			TargetObjectID: body.TargetObjectID,
+			Parameters:     body.Parameters,
+		}
+		plan, errs := planAction(r.Context(), state, claims, action, &validationReq)
+		if len(errs) > 0 {
+			payload := map[string]any{"error": "action validation failed", "details": errs}
+			if allForbidden(errs) {
+				writeJSON(w, http.StatusForbidden, payload)
+			} else {
+				writeJSON(w, http.StatusBadRequest, payload)
+			}
+			return
+		}
+
+		preview := planPreview(plan)
+		targetSnapshot := targetSnapshotFromPlan(plan)
+		var beforeObject json.RawMessage
+		if targetSnapshot != nil {
+			beforeObject, _ = json.Marshal(targetSnapshot)
+		}
+		afterObject, err := simulateTargetAfterPreview(r.Context(), state, targetSnapshot, preview)
+		if err != nil {
+			invalid(w, err.Error())
+			return
+		}
+		deleted := afterObject == nil && targetSnapshot != nil
+
 		now := nowUTC()
 		name := action.DisplayName + " what-if " + now.Format("2006-01-02 15:04:05")
 		if body.Name != nil {
@@ -68,16 +88,6 @@ func CreateActionWhatIfBranch(state *ontologykernel.AppState) http.HandlerFunc {
 		if body.Description != nil {
 			description = *body.Description
 		}
-		// Phase 5A preview: echoes `{ "kind": "what_if_branch",
-		// "parameters": <body.parameters> }` so clients can read the
-		// stored parameter snapshot. Phase 5B replaces this with the
-		// full plan_preview + before/after object pair.
-		preview, _ := json.Marshal(map[string]any{
-			"kind":              "what_if_branch",
-			"parameters":        json.RawMessage(orJSONNull(body.Parameters)),
-			"target_object_id":  body.TargetObjectID,
-			"phase_5a_preview":  true,
-		})
 
 		branchID, _ := uuid.NewV7()
 		branch := models.ActionWhatIfBranch{
@@ -88,9 +98,9 @@ func CreateActionWhatIfBranch(state *ontologykernel.AppState) http.HandlerFunc {
 			Description:    description,
 			Parameters:     orJSONNull(body.Parameters),
 			Preview:        preview,
-			BeforeObject:   nil,
-			AfterObject:    nil,
-			Deleted:        false,
+			BeforeObject:   beforeObject,
+			AfterObject:    afterObject,
+			Deleted:        deleted,
 			OwnerID:        claims.Sub,
 			CreatedAt:      now,
 			UpdatedAt:      now,

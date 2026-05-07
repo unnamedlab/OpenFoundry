@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/serving"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
@@ -88,4 +90,108 @@ func TestNormaliseTrafficSplit_ABTestRejectsZeroTotal(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, "traffic allocation must be greater than zero", err.Error())
+}
+
+func seededDeploymentHandler(t *testing.T) (*DeploymentsHandlers, uuid.UUID, uuid.UUID, *serving.FakeDeploymentRuntime) {
+	t.Helper()
+	modelID := uuid.New()
+	versionID := uuid.New()
+	store := NewFakeDeploymentStore()
+	store.SeedModel(models.RegisteredModel{ID: modelID, Name: "fraud", ProblemType: models.DefaultProblemType, Status: "active"},
+		models.ModelVersion{ID: versionID, ModelID: modelID, VersionNumber: 1, VersionLabel: "v1", Stage: "production"})
+	runtime := serving.NewFakeDeploymentRuntime()
+	return &DeploymentsHandlers{Store: store, Runtime: runtime}, modelID, versionID, runtime
+}
+
+func TestCreateDeployment_WithInjectedStoreAndRuntime(t *testing.T) {
+	t.Parallel()
+	h, modelID, versionID, runtime := seededDeploymentHandler(t)
+	body := fmt.Sprintf(`{"model_id":"%s","name":"fraud-prod","endpoint_path":"/predict/fraud","traffic_split":[{"model_version_id":"%s","allocation":25}]}`, modelID, versionID)
+	w := httptest.NewRecorder()
+	h.CreateDeployment(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	require.Equal(t, http.StatusOK, w.Code)
+	var deployment models.ModelDeployment
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&deployment))
+	assert.Equal(t, modelID, deployment.ModelID)
+	assert.Equal(t, "active", deployment.Status)
+	require.Len(t, deployment.TrafficSplit, 1)
+	assert.Equal(t, uint8(100), deployment.TrafficSplit[0].Allocation)
+	require.Len(t, runtime.Deployments, 1)
+}
+
+func TestGetDeployment_WithInjectedStore(t *testing.T) {
+	t.Parallel()
+	h, modelID, versionID, _ := seededDeploymentHandler(t)
+	body := fmt.Sprintf(`{"model_id":"%s","name":"fraud-prod","endpoint_path":"/predict/fraud","traffic_split":[{"model_version_id":"%s","allocation":100}]}`, modelID, versionID)
+	createW := httptest.NewRecorder()
+	h.CreateDeployment(createW, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	require.Equal(t, http.StatusOK, createW.Code)
+	var created models.ModelDeployment
+	require.NoError(t, json.NewDecoder(createW.Body).Decode(&created))
+
+	getW := httptest.NewRecorder()
+	h.GetDeployment(getW, httptest.NewRequest(http.MethodGet, "/", nil), created.ID)
+	require.Equal(t, http.StatusOK, getW.Code)
+	var got models.ModelDeployment
+	require.NoError(t, json.NewDecoder(getW.Body).Decode(&got))
+	assert.Equal(t, created.ID, got.ID)
+	assert.Equal(t, "fraud-prod", got.Name)
+}
+
+func TestCreateDeployment_InvalidModelVersion(t *testing.T) {
+	t.Parallel()
+	h, modelID, _, _ := seededDeploymentHandler(t)
+	body := fmt.Sprintf(`{"model_id":"%s","name":"fraud-prod","endpoint_path":"/predict/fraud","traffic_split":[{"model_version_id":"%s","allocation":100}]}`, modelID, uuid.New())
+	w := httptest.NewRecorder()
+	h.CreateDeployment(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var errBody ErrorResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&errBody))
+	assert.Equal(t, "model version not found for model", errBody.Error)
+}
+
+func TestCreateDeployment_RuntimeUnavailable(t *testing.T) {
+	t.Parallel()
+	h, modelID, versionID, runtime := seededDeploymentHandler(t)
+	runtime.Available = false
+	body := fmt.Sprintf(`{"model_id":"%s","name":"fraud-prod","endpoint_path":"/predict/fraud","traffic_split":[{"model_version_id":"%s","allocation":100}]}`, modelID, versionID)
+	w := httptest.NewRecorder()
+	h.CreateDeployment(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	var errBody ErrorResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&errBody))
+	assert.Equal(t, serving.ErrRuntimeUnavailable.Error(), errBody.Error)
+}
+
+func TestUpdateDeployment_StatusTransition(t *testing.T) {
+	t.Parallel()
+	h, modelID, versionID, runtime := seededDeploymentHandler(t)
+	body := fmt.Sprintf(`{"model_id":"%s","name":"fraud-prod","endpoint_path":"/predict/fraud","traffic_split":[{"model_version_id":"%s","allocation":100}]}`, modelID, versionID)
+	createW := httptest.NewRecorder()
+	h.CreateDeployment(createW, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	require.Equal(t, http.StatusOK, createW.Code)
+	var created models.ModelDeployment
+	require.NoError(t, json.NewDecoder(createW.Body).Decode(&created))
+
+	patchW := httptest.NewRecorder()
+	h.UpdateDeployment(patchW, httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(`{"status":"paused"}`)), created.ID)
+	require.Equal(t, http.StatusOK, patchW.Code)
+	var updated models.ModelDeployment
+	require.NoError(t, json.NewDecoder(patchW.Body).Decode(&updated))
+	assert.Equal(t, "paused", updated.Status)
+	require.Len(t, runtime.Transitions, 1)
+	assert.Equal(t, created.ID, runtime.Transitions[0].DeploymentID)
+	assert.Equal(t, "paused", runtime.Transitions[0].Status)
+}
+
+func TestCreateDeployment_InvalidModel(t *testing.T) {
+	t.Parallel()
+	h, _, versionID, _ := seededDeploymentHandler(t)
+	body := fmt.Sprintf(`{"model_id":"%s","name":"fraud-prod","endpoint_path":"/predict/fraud","traffic_split":[{"model_version_id":"%s","allocation":100}]}`, uuid.New(), versionID)
+	w := httptest.NewRecorder()
+	h.CreateDeployment(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var errBody ErrorResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&errBody))
+	assert.Equal(t, "model not found", errBody.Error)
 }

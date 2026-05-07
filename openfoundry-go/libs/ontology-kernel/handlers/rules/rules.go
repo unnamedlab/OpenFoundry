@@ -5,9 +5,9 @@
 //
 // All response shapes (envelope + status codes) are byte-identical to
 // the Rust source so existing dashboards, frontends and integration
-// tests round-trip unchanged. apply_rule routes through the same
-// evaluator + record_rule_run path; the actual object mutation
-// returns 501 until the writeback bounded context lands.
+// tests round-trip unchanged. apply_rule routes through the evaluator,
+// DB-backed object writeback/outbox helper, rule-run recorder and
+// machinery queue path.
 package rules
 
 import (
@@ -385,11 +385,9 @@ func SimulateRule(state *ontologykernel.AppState) http.HandlerFunc {
 	}
 }
 
-// ApplyRule mirrors `pub async fn apply_rule`. While the writeback
-// pathway is not yet ported, the evaluator runs and the rule run is
-// recorded as in Rust; only the actual object mutation surfaces as
-// 501 (the rest of the response envelope still returns the trigger
-// payload, effect preview and original object).
+// ApplyRule mirrors `pub async fn apply_rule`. It evaluates the rule,
+// applies matched object patches through the DB-backed writeback/outbox
+// helper, records the rule run and preserves Rust's response envelope.
 func ApplyRule(state *ontologykernel.AppState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := authmw.FromContext(r.Context())

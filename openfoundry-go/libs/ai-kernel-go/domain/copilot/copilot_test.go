@@ -64,3 +64,19 @@ func TestTruncateAddsEllipsisOnOverflow(t *testing.T) {
 	assert.Equal(t, "abc", truncate("abc", 10))
 	assert.Equal(t, "abcde...", truncate("abcdefghi", 5))
 }
+
+func TestBuildPromptCarriesKnowledgeAndRequestContext(t *testing.T) {
+	t.Parallel()
+	datasetID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ontologyID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	kbID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	draft := Assist("what happened?", []uuid.UUID{datasetID}, []uuid.UUID{ontologyID}, nil, true, true)
+	prompt := BuildPrompt("what happened?", draft, []uuid.UUID{datasetID}, []uuid.UUID{ontologyID}, []uuid.UUID{kbID}, []models.KnowledgeSearchResult{{DocumentTitle: "Runbook", Excerpt: "Check provider latency."}})
+
+	assert.Contains(t, prompt, "Question: what happened?")
+	assert.Contains(t, prompt, "Dataset IDs: [11111111-1111-1111-1111-111111111111]")
+	assert.Contains(t, prompt, "Ontology type IDs: [22222222-2222-2222-2222-222222222222]")
+	assert.Contains(t, prompt, "Knowledge base IDs: [33333333-3333-3333-3333-333333333333]")
+	assert.Contains(t, prompt, "Suggested SQL:")
+	assert.Contains(t, prompt, "- Runbook: Check provider latency.")
+}

@@ -1,9 +1,8 @@
 // Command connector-management-service hosts the foundation slice of
-// the Foundry Data Connection app (connections CRUD).
+// the Foundry Data Connection app (connections CRUD plus sync/media-set verticals).
 //
 // Foundation slice scope: connections CRUD on Postgres. sync_jobs,
-// virtual_tables, data_connection_mvp, enterprise_connectivity,
-// media_set_syncs (30k LOC of Rust handlers) all land in follow-up
+// enterprise_connectivity and remaining connector runtime adapters land in follow-up
 // slices.
 package main
 
@@ -60,10 +59,30 @@ func main() {
 	}
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
+	h := &handlers.Handlers{
+		Repo:            &repo.Repo{Pool: pool},
+		MediaSetRuntime: &handlers.HTTPMediaSetRuntime{MediaSetsBaseURL: cfg.MediaSetsServiceURL},
+		Config: handlers.RuntimeConfig{
+			DatasetServiceURL:            cfg.DatasetServiceURL,
+			PipelineServiceURL:           cfg.PipelineServiceURL,
+			OntologyServiceURL:           cfg.OntologyServiceURL,
+			IngestionReplicationGRPCURL:  cfg.IngestionReplicationGRPCURL,
+			NetworkBoundaryServiceURL:    cfg.NetworkBoundaryServiceURL,
+			SyncPollIntervalSecs:         cfg.SyncPollIntervalSecs,
+			AllowPrivateNetworkEgress:    cfg.AllowPrivateNetworkEgress,
+			AllowedEgressHosts:           cfg.AllowedEgressHosts,
+			AgentStaleAfterSecs:          cfg.AgentStaleAfterSecs,
+			CredentialEncryptionKey:      cfg.CredentialEncryptionKey,
+			CredentialKey:                cfg.CredentialKey,
+			SecretManagerURL:             cfg.SecretManagerURL,
+			OutboxEnabled:                cfg.OutboxEnabled,
+			AutoRegistrationIntervalSecs: cfg.AutoRegistrationIntervalSecs,
+			VendedCredentialsTTLSeconds:  cfg.VendedCredentialsTTLSeconds,
+		},
+	}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics)
+	srv := server.New(cfg, jwt, h, metrics, pool.Ping)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

@@ -18,16 +18,13 @@ import (
 )
 
 // ChatHandlers exposes the chat / providers / conversations / guardrails
-// surface mirroring libs/ai-kernel/src/handlers/chat.rs. This slice
-// ports the read-only + provider-CRUD + guardrails-evaluation paths;
-// the chat-completion / copilot / benchmark paths chain
-// llm/runtime.complete_text + the cache/usage write paths and land in
-// a follow-up slice once the full runtime port is in.
-//
-// The 501 stubs preserve input-validation contracts so consumers wiring
-// this surface today can rely on shape-stable error semantics.
+// surface mirroring libs/ai-kernel/src/handlers/chat.rs. Chat-completion,
+// copilot, and benchmark paths all dispatch through the injectable LLM
+// Runtime so tests can use a fake provider while production wiring uses
+// the HTTP provider runtime.
 type ChatHandlers struct {
-	Pool *pgxpool.Pool
+	Pool    *pgxpool.Pool
+	Runtime llm.Runtime
 }
 
 // GetOverview handles `GET /api/v1/overview` — aggregate counts +
@@ -448,4 +445,3 @@ func summarizeTitle(content string) string {
 	}
 	return string(runes)
 }
-

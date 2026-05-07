@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // BackendKind mirrors the Rust enum.
@@ -36,11 +37,19 @@ type Config struct {
 		Host string
 		Port uint16
 	}
-	BackendKind     BackendKind
-	SearchEndpoint  string
-	KafkaBootstrap  string
-	ConsumerGroup   string
-	MetricsAddr     string
+	BackendKind         BackendKind
+	SearchEndpoint      string
+	SearchUsername      string
+	SearchPassword      string
+	SearchBearerToken   string
+	SearchAPIKey        string
+	KafkaBootstrap      string
+	ConsumerGroup       string
+	RetryMaxAttempts    int
+	RetryInitialBackoff time.Duration
+	RetryMaxBackoff     time.Duration
+	DLQTopic            string
+	MetricsAddr         string
 }
 
 func FromEnv() (*Config, error) {
@@ -51,8 +60,16 @@ func FromEnv() (*Config, error) {
 	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50124)
 	cfg.BackendKind = BackendKindFromEnv(os.Getenv("SEARCH_BACKEND"))
 	cfg.SearchEndpoint = os.Getenv("SEARCH_ENDPOINT")
+	cfg.SearchUsername = os.Getenv("SEARCH_USERNAME")
+	cfg.SearchPassword = os.Getenv("SEARCH_PASSWORD")
+	cfg.SearchBearerToken = os.Getenv("SEARCH_BEARER_TOKEN")
+	cfg.SearchAPIKey = os.Getenv("SEARCH_API_KEY")
 	cfg.KafkaBootstrap = os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
 	cfg.ConsumerGroup = defaultStr(os.Getenv("KAFKA_CONSUMER_GROUP"), "ontology-indexer")
+	cfg.RetryMaxAttempts = parseInt(os.Getenv("INDEXER_RETRY_MAX_ATTEMPTS"), 3)
+	cfg.RetryInitialBackoff = parseDuration(os.Getenv("INDEXER_RETRY_INITIAL_BACKOFF"), 100*time.Millisecond)
+	cfg.RetryMaxBackoff = parseDuration(os.Getenv("INDEXER_RETRY_MAX_BACKOFF"), 2*time.Second)
+	cfg.DLQTopic = parseDLQTopic(os.Getenv("INDEXER_DLQ_TOPIC"), "ontology-indexer.dlq.v1")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
 	return cfg, nil
 }
@@ -81,4 +98,37 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func parseInt(v string, fallback int) int {
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return fallback
+	}
+	return n
+}
+
+func parseDuration(v string, fallback time.Duration) time.Duration {
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	return d
+}
+
+func parseDLQTopic(v string, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "none", "disabled":
+		return ""
+	case "":
+		return fallback
+	default:
+		return strings.TrimSpace(v)
+	}
 }

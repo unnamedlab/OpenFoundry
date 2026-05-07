@@ -11,26 +11,28 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain"
+	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/domain/serving"
 	"github.com/openfoundry/openfoundry-go/libs/ml-kernel-go/models"
 )
 
 // DeploymentsHandlers ports libs/ml-kernel/src/handlers/deployments.rs:
 //   - GET   list_deployments
 //   - POST  create_deployment        (normalises traffic_split for
-//                                     ab_test vs single strategies;
-//                                     marks model.active_deployment_id)
+//     ab_test vs single strategies;
+//     marks model.active_deployment_id)
 //   - PATCH update_deployment        (re-normalises split; flips the
-//                                     model's active_deployment_id
-//                                     based on the new status)
+//     model's active_deployment_id
+//     based on the new status)
 //   - POST  generate_drift_report    (calls domain.GenerateDriftReport
-//                                     and optionally enqueues a
-//                                     drift-recovery training job)
+//     and optionally enqueues a
+//     drift-recovery training job)
 type DeploymentsHandlers struct {
-	Pool *pgxpool.Pool
+	Pool    *pgxpool.Pool
+	Store   DeploymentStore
+	Runtime serving.DeploymentRuntime
 }
 
 const deploymentColumns = `id, model_id, name, status, strategy_type,
@@ -66,16 +68,14 @@ func scanDeployment(s predictionsScanner) (models.ModelDeployment, error) {
 }
 
 func (h *DeploymentsHandlers) loadDeployment(ctx context.Context, id uuid.UUID) (*models.ModelDeployment, error) {
-	row := h.Pool.QueryRow(ctx,
-		`SELECT `+deploymentColumns+` FROM ml_deployments WHERE id = $1`, id)
-	d, err := scanDeployment(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+	return h.deploymentStore().GetDeployment(ctx, id)
+}
+
+func (h *DeploymentsHandlers) deploymentRuntime() serving.DeploymentRuntime {
+	if h.Runtime != nil {
+		return h.Runtime
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &d, nil
+	return serving.UnavailableDeploymentRuntime{Reason: "deployment runtime not configured"}
 }
 
 // normaliseTrafficSplit mirrors the Rust normalize_traffic_split:
@@ -133,24 +133,26 @@ func normaliseTrafficSplit(strategyType string, splits []models.TrafficSplitEntr
 
 // ListDeployments handles `GET /api/v1/deployments`.
 func (h *DeploymentsHandlers) ListDeployments(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.Pool.Query(r.Context(),
-		`SELECT `+deploymentColumns+` FROM ml_deployments
-          ORDER BY updated_at DESC, created_at DESC`)
+	deployments, err := h.deploymentStore().ListDeployments(r.Context())
 	if err != nil {
 		dbError(w, err)
 		return
 	}
-	defer rows.Close()
-	out := make([]models.ModelDeployment, 0)
-	for rows.Next() {
-		d, err := scanDeployment(rows)
-		if err != nil {
-			dbError(w, err)
-			return
-		}
-		out = append(out, d)
+	writeJSON(w, http.StatusOK, models.ListDeploymentsResponse{Data: deployments})
+}
+
+// GetDeployment handles `GET /api/v1/deployments/{id}`.
+func (h *DeploymentsHandlers) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentID uuid.UUID) {
+	deployment, err := h.deploymentStore().GetDeployment(r.Context(), deploymentID)
+	if err != nil {
+		dbError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, models.ListDeploymentsResponse{Data: out})
+	if deployment == nil {
+		writeError(w, http.StatusNotFound, "deployment not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, deployment)
 }
 
 // CreateDeployment handles `POST /api/v1/deployments`.
@@ -162,6 +164,11 @@ func (h *DeploymentsHandlers) CreateDeployment(w http.ResponseWriter, r *http.Re
 	}
 	if strings.TrimSpace(body.Name) == "" || strings.TrimSpace(body.EndpointPath) == "" {
 		writeError(w, http.StatusBadRequest, "deployment name and endpoint path are required")
+		return
+	}
+	store := h.deploymentStore()
+	if err := validateDeploymentRefs(r.Context(), store, body.ModelID, body.TrafficSplit); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	strategyType := body.StrategyType
@@ -178,36 +185,37 @@ func (h *DeploymentsHandlers) CreateDeployment(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	splitsJSON, _ := json.Marshal(splits)
-	deploymentID := uuid.New()
-
-	row := h.Pool.QueryRow(r.Context(),
-		`INSERT INTO ml_deployments
-              (id, model_id, name, status, strategy_type, endpoint_path,
-               traffic_split, monitoring_window, baseline_dataset_id,
-               drift_report)
-            VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, NULL)
-            RETURNING `+deploymentColumns,
-		deploymentID, body.ModelID, strings.TrimSpace(body.Name),
-		strategyType, strings.TrimSpace(body.EndpointPath), splitsJSON,
-		monitoringWindow, body.BaselineDatasetID)
-	d, err := scanDeployment(row)
+	deployment := models.ModelDeployment{
+		ID:                uuid.New(),
+		ModelID:           body.ModelID,
+		Name:              strings.TrimSpace(body.Name),
+		Status:            "active",
+		StrategyType:      strategyType,
+		EndpointPath:      strings.TrimSpace(body.EndpointPath),
+		TrafficSplit:      splits,
+		MonitoringWindow:  monitoringWindow,
+		BaselineDatasetID: body.BaselineDatasetID,
+	}
+	if err := h.deploymentRuntime().Deploy(r.Context(), deployment); err != nil {
+		writeError(w, runtimeStatus(err), err.Error())
+		return
+	}
+	created, err := store.CreateDeployment(r.Context(), deployment)
 	if err != nil {
 		dbError(w, err)
 		return
 	}
-	if _, err := h.Pool.Exec(r.Context(),
-		`UPDATE ml_models SET active_deployment_id = $2, updated_at = NOW() WHERE id = $1`,
-		d.ModelID, d.ID); err != nil {
+	if err := store.SetActiveDeployment(r.Context(), created.ModelID, &created.ID); err != nil {
 		dbError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, d)
+	writeJSON(w, http.StatusOK, created)
 }
 
 // UpdateDeployment handles `PATCH /api/v1/deployments/{id}`.
 func (h *DeploymentsHandlers) UpdateDeployment(w http.ResponseWriter, r *http.Request, deploymentID uuid.UUID) {
-	current, err := h.loadDeployment(r.Context(), deploymentID)
+	store := h.deploymentStore()
+	current, err := store.GetDeployment(r.Context(), deploymentID)
 	if err != nil {
 		dbError(w, err)
 		return
@@ -229,6 +237,10 @@ func (h *DeploymentsHandlers) UpdateDeployment(w http.ResponseWriter, r *http.Re
 	}
 	splits := current.TrafficSplit
 	if body.TrafficSplit != nil {
+		if err := validateDeploymentRefs(r.Context(), store, current.ModelID, *body.TrafficSplit); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		splits = *body.TrafficSplit
 	}
 	normalised, err := normaliseTrafficSplit(strategyType, splits)
@@ -236,50 +248,74 @@ func (h *DeploymentsHandlers) UpdateDeployment(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	status := derefString(body.Status, current.Status)
-	name := derefString(body.Name, current.Name)
-	endpointPath := derefString(body.EndpointPath, current.EndpointPath)
-	monitoringWindow := derefString(body.MonitoringWindow, current.MonitoringWindow)
-	baseline := current.BaselineDatasetID
-	if body.BaselineDatasetID != nil {
-		baseline = body.BaselineDatasetID
-	}
-	splitsJSON, _ := json.Marshal(normalised)
 
-	row := h.Pool.QueryRow(r.Context(),
-		`UPDATE ml_deployments SET
-            name = $2, status = $3, strategy_type = $4,
-            endpoint_path = $5, traffic_split = $6,
-            monitoring_window = $7, baseline_dataset_id = $8,
-            updated_at = NOW()
-          WHERE id = $1
-          RETURNING `+deploymentColumns,
-		deploymentID, name, status, strategyType, endpointPath,
-		splitsJSON, monitoringWindow, baseline)
-	d, err := scanDeployment(row)
+	updated := *current
+	updated.Status = derefString(body.Status, current.Status)
+	updated.Name = derefString(body.Name, current.Name)
+	updated.StrategyType = strategyType
+	updated.EndpointPath = derefString(body.EndpointPath, current.EndpointPath)
+	updated.TrafficSplit = normalised
+	updated.MonitoringWindow = derefString(body.MonitoringWindow, current.MonitoringWindow)
+	if body.BaselineDatasetID != nil {
+		updated.BaselineDatasetID = body.BaselineDatasetID
+	}
+	if updated.Status != current.Status {
+		if err := h.deploymentRuntime().Transition(r.Context(), updated, updated.Status); err != nil {
+			writeError(w, runtimeStatus(err), err.Error())
+			return
+		}
+	}
+
+	deployment, err := store.UpdateDeployment(r.Context(), updated)
 	if err != nil {
 		dbError(w, err)
 		return
 	}
-
-	if status == "active" {
-		if _, err := h.Pool.Exec(r.Context(),
-			`UPDATE ml_models SET active_deployment_id = $2, updated_at = NOW() WHERE id = $1`,
-			d.ModelID, deploymentID); err != nil {
+	if deployment.Status == "active" {
+		if err := store.SetActiveDeployment(r.Context(), deployment.ModelID, &deployment.ID); err != nil {
 			dbError(w, err)
 			return
 		}
 	} else {
-		if _, err := h.Pool.Exec(r.Context(),
-			`UPDATE ml_models SET active_deployment_id = NULL, updated_at = NOW()
-              WHERE id = $1 AND active_deployment_id = $2`,
-			d.ModelID, deploymentID); err != nil {
+		if err := store.SetActiveDeployment(r.Context(), deployment.ModelID, nil); err != nil {
 			dbError(w, err)
 			return
 		}
 	}
+	writeJSON(w, http.StatusOK, deployment)
+}
 
-	writeJSON(w, http.StatusOK, d)
+func validateDeploymentRefs(ctx context.Context, store DeploymentStore, modelID uuid.UUID, splits []models.TrafficSplitEntry) error {
+	if modelID == uuid.Nil {
+		return errors.New("model_id is required")
+	}
+	ok, err := store.ModelExists(ctx, modelID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("model not found")
+	}
+	for _, split := range splits {
+		if split.ModelVersionID == uuid.Nil {
+			return errors.New("traffic split model_version_id is required")
+		}
+		ok, err := store.ModelVersionBelongs(ctx, modelID, split.ModelVersionID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errors.New("model version not found for model")
+		}
+	}
+	return nil
+}
+
+func runtimeStatus(err error) int {
+	if errors.Is(err, serving.ErrRuntimeUnavailable) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusBadGateway
 }
 
 // GenerateDriftReport handles `POST /api/v1/deployments/{id}/drift`.

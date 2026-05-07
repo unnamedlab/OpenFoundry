@@ -23,8 +23,9 @@ import (
 //   - GET   list_agents
 //   - POST  create_agent
 //   - PATCH update_agent
-//   - POST  execute_agent  (501 until executor + purpose-checkpoint
-//                           ports land — see ExecuteAgent)
+//   - POST  execute_agent  (planner/executor backed, with sensitive
+//     approval enforced by per-tool policy checks;
+//     see ExecuteAgent for purpose-checkpoint notes)
 type AgentsHandlers struct {
 	Pool *pgxpool.Pool
 }

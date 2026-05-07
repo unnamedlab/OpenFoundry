@@ -2,14 +2,14 @@
 //
 // Two implementations:
 //
+//   - IcebergWriter — production path. It targets an explicit
+//     OpenFoundry Iceberg table-writer adapter that performs the
+//     Parquet data-file write plus Iceberg snapshot commit. The adapter
+//     is used because iceberg-go still lacks a stable write-side API
+//     matching Rust's `append_record_batches`.
 //   - JSONLWriter — append batches as newline-delimited JSON to a
-//     local file (or stdout when path is "-"). Production-suitable
-//     for staging / observability while the Iceberg writer matures.
-//   - IcebergWriter — stub. The Rust crate uses iceberg-rust's
-//     `append_record_batches`. Apache iceberg-go's write API is still
-//     unstable as of this commit, so the stub returns ErrNotImplemented
-//     and a TODO points at the iceberg-go upstream issue. JSONLWriter
-//     is the default until the upstream API stabilises.
+//     local file (or stdout when path is "-"). This remains a
+//     dev/staging fallback selected explicitly by env.
 //
 // The Writer interface is intentionally narrow: append + close. Batch
 // policy + Kafka offset commits live in `internal/runtime`.
@@ -32,7 +32,6 @@ type Writer interface {
 	Close() error
 }
 
-// ErrNotImplemented signals that the Iceberg writer is not wired up
-// in this build. Callers (runtime) translate this into a fatal-on-boot
-// instead of a per-batch failure so the operator notices early.
+// ErrNotImplemented is kept for older callers that still branch on the
+// former stub behavior. IcebergWriter no longer returns this error.
 var ErrNotImplemented = errors.New("writer not implemented in this build")

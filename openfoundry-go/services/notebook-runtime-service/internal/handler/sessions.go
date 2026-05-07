@@ -1,16 +1,9 @@
 // Package handler — kernel session CRUD. 1:1 port of
 // `services/notebook-runtime-service/src/handlers/sessions.rs`.
 //
-// **Scope deferral**: the Rust `create_session` calls
-// `state.kernel_manager.ensure_session(id, &kernel)` to spin up the
-// Python kernel before persisting the row, and `stop_session` calls
-// `kernel_manager.drop_session(id)` after the UPDATE. Both operations
-// require the inline kernel runtime which is not yet wired in Go (the
-// Python sidecar is for inline functions, not for long-running
-// notebook kernels). This port persists the row at status `idle` and
-// transitions it to `dead` on stop without touching a kernel manager
-// — execute paths return HTTP 501 in the meantime so the lifecycle
-// stays consistent.
+// Python session lifecycle is wired to python-sidecar when configured.
+// LLM sessions persist conversation ids in the LLM kernel adapter. SQL and R
+// are stateless, matching Rust ensure_session behaviour.
 package handler
 
 import (
@@ -47,13 +40,25 @@ func (s *State) CreateSession(w http.ResponseWriter, r *http.Request) {
 		kernel = *body.Kernel
 	}
 	id, _ := uuid.NewV7()
+	if kernel == "python" && s.PythonKernel != nil {
+		if err := s.PythonKernel.EnsureSession(r.Context(), id); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+			return
+		}
+	}
 	if s.Pool == nil {
+		if !s.smokeMode() {
+			s.databaseRequired(w)
+			return
+		}
 		now := time.Now().UTC()
-		writeJSON(w, http.StatusCreated, models.Session{
+		sess := models.Session{
 			ID: id, NotebookID: notebookID, Kernel: kernel,
 			Status: "idle", StartedBy: claims.Sub,
 			CreatedAt: now, LastActivity: now,
-		})
+		}
+		s.memoryRepo().putSession(sess)
+		writeJSON(w, http.StatusCreated, sess)
 		return
 	}
 	row := s.Pool.QueryRow(r.Context(), `
@@ -76,27 +81,15 @@ func (s *State) ListSessions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("invalid notebook id"))
 		return
 	}
-	if s.Pool == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"data": []any{}})
+	repo := s.notebookListRepo()
+	if repo == nil {
+		s.databaseRequired(w)
 		return
 	}
-	rows, err := s.Pool.Query(r.Context(), `
-        SELECT id, notebook_id, kernel, status, started_by, created_at, last_activity
-        FROM sessions WHERE notebook_id = $1
-        ORDER BY created_at DESC`, notebookID)
+	sessions, err := repo.ListSessions(r.Context(), notebookID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
-	}
-	defer rows.Close()
-	sessions := []models.Session{}
-	for rows.Next() {
-		sess, err := scanSession(rows)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-			return
-		}
-		sessions = append(sessions, sess)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": sessions})
 }
@@ -109,7 +102,22 @@ func (s *State) StopSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Pool == nil {
-		writeJSON(w, http.StatusNotFound, nil)
+		if !s.smokeMode() {
+			s.databaseRequired(w)
+			return
+		}
+		sess, ok := s.memoryRepo().stopSession(sessionID)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, nil)
+			return
+		}
+		if sess.Kernel == "python" && s.PythonKernel != nil {
+			_ = s.PythonKernel.DropSession(r.Context(), sessionID)
+		}
+		if sess.Kernel == "llm" && s.LLMKernel != nil {
+			_ = s.LLMKernel.DropSession(r.Context(), sessionID)
+		}
+		writeJSON(w, http.StatusOK, sess)
 		return
 	}
 	row := s.Pool.QueryRow(r.Context(), `
@@ -125,6 +133,16 @@ func (s *State) StopSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
+	}
+	switch sess.Kernel {
+	case "python":
+		if s.PythonKernel != nil {
+			_ = s.PythonKernel.DropSession(r.Context(), sessionID)
+		}
+	case "llm":
+		if s.LLMKernel != nil {
+			_ = s.LLMKernel.DropSession(r.Context(), sessionID)
+		}
 	}
 	writeJSON(w, http.StatusOK, sess)
 }

@@ -23,16 +23,24 @@ import (
 )
 
 func New(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics) *http.Server {
+	return NewWithKernel(cfg, pool, m, nil)
+}
+
+func NewWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouter(cfg, pool, m),
+		Handler:           BuildRouterWithKernel(cfg, pool, m, py),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
 func BuildRouter(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics) http.Handler {
-	state := &handler.State{Cfg: cfg, Pool: pool}
+	return BuildRouterWithKernel(cfg, pool, m, nil)
+}
+
+func BuildRouterWithKernel(cfg *config.Config, pool *pgxpool.Pool, m *observability.Metrics, py handler.NotebookPythonKernel) http.Handler {
+	state := &handler.State{Cfg: cfg, Pool: pool, PythonKernel: py}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer)

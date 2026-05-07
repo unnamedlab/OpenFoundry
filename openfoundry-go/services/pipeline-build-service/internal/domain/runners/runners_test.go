@@ -4,6 +4,9 @@ package runners
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -265,3 +268,113 @@ func (r *funcRunner) Run(_ context.Context, jc *JobContext) JobOutcome { return 
 
 // keeps uuid import live for future cancellation tests
 var _ = uuid.New
+
+func TestSyncJobRunnerPostsConnectorRun(t *testing.T) {
+	t.Parallel()
+	var gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"ingest_job_id":"ing-1"}`))
+	}))
+	defer server.Close()
+
+	runner := NewSyncJobRunner(server.URL)
+	out := runner.Run(context.Background(), &JobContext{JobSpec: JobSpec{
+		JobSpecRID: "job-sync",
+		LogicKind:  LogicKindSync,
+		Config:     []byte(`{"source_rid":"ri.source","sync_def_id":"sync-1","overrides":{"limit":10}}`),
+	}})
+	if out.Kind != JobOutcomeCompleted || out.OutputContentHash != "sync:ing-1" {
+		t.Fatalf("expected sync completion, got %+v", out)
+	}
+	if gotPath != "/api/v1/data-integration/syncs/sync-1/run" {
+		t.Fatalf("unexpected path %s", gotPath)
+	}
+	if gotBody["build_job_rid"] != "job-sync" {
+		t.Fatalf("expected build_job_rid, got %#v", gotBody)
+	}
+}
+
+func TestHealthCheckJobRunnerPostsQualityResult(t *testing.T) {
+	t.Parallel()
+	var gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	runner := NewHealthCheckJobRunner(server.URL)
+	out := runner.Run(context.Background(), &JobContext{BuildBranch: "master", JobSpec: JobSpec{
+		JobSpecRID:        "job-health",
+		LogicKind:         LogicKindHealthCheck,
+		OutputDatasetRIDs: []string{"ri.dataset"},
+		Config:            []byte(`{"check_kind":"ROW_COUNT_NONZERO","target_dataset_rid":"ri.dataset","params":{"expect_passed":false}}`),
+	}})
+	if out.Kind != JobOutcomeCompleted || out.OutputContentHash != "health:ROW_COUNT_NONZERO:false" {
+		t.Fatalf("expected health completion, got %+v", out)
+	}
+	if gotPath != "/api/v1/datasets/ri.dataset/health-checks/results" {
+		t.Fatalf("unexpected path %s", gotPath)
+	}
+	if gotBody["passed"] != false || gotBody["job_rid"] != "job-health" {
+		t.Fatalf("unexpected finding body %#v", gotBody)
+	}
+}
+
+func TestAnalyticalAndTransformRunnersAreNotSkeletonFailures(t *testing.T) {
+	t.Parallel()
+	analytical := (&AnalyticalJobRunner{}).Run(context.Background(), &JobContext{JobSpec: JobSpec{
+		LogicKind:         LogicKindAnalytical,
+		OutputDatasetRIDs: []string{"out"},
+		Config:            []byte(`{"object_set_query":{"select":["id"]},"ontology_rid":"onto"}`),
+	}})
+	if analytical.Kind != JobOutcomeCompleted || strings.Contains(analytical.Reason, "runner_not_wired") {
+		t.Fatalf("analytical runner must complete or return typed errors, got %+v", analytical)
+	}
+
+	transform := (&TransformJobRunner{}).Run(context.Background(), &JobContext{JobSpec: JobSpec{
+		LogicKind:   LogicKindTransform,
+		ContentHash: "spec-hash",
+		Config:      []byte(`{"sql":"select 1"}`),
+	}})
+	if transform.Kind != JobOutcomeCompleted || transform.OutputContentHash != "spec-hash" {
+		t.Fatalf("transform shim must use content hash, got %+v", transform)
+	}
+}
+
+func TestExportJobRunnerPostsManifest(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	cfg := `{"export_target":"HTTP","endpoint":"` + server.URL + `","source_dataset_rid":"source","acl_alias":"acl-prod"}`
+	out := (&ExportJobRunner{}).Run(context.Background(), &JobContext{BuildBranch: "master", JobSpec: JobSpec{
+		JobSpecRID: "job-export",
+		LogicKind:  LogicKindExport,
+		Config:     []byte(cfg),
+	}})
+	if out.Kind != JobOutcomeCompleted || out.OutputContentHash == "" {
+		t.Fatalf("expected export completion, got %+v", out)
+	}
+	if gotBody["endpoint"] != server.URL || gotBody["acl_alias"] != "acl-prod" {
+		t.Fatalf("unexpected manifest %#v", gotBody)
+	}
+}

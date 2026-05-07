@@ -340,3 +340,46 @@ func TestEmbedTextOfflineFallbackWhenNoProvider(t *testing.T) {
 	assert.Len(t, emb, 12)
 }
 
+func TestFakeRuntimeRecordsRequestAndReturnsResult(t *testing.T) {
+	t.Parallel()
+	provider := &models.LlmProvider{APIMode: "fake", ModelName: "fake-model"}
+	runtime := &FakeRuntime{Result: CompletionResult{Text: "fake ok", PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}}
+	got, err := runtime.CompleteText(context.Background(), CompletionRequest{
+		Provider: provider, SystemPrompt: "system", UserPrompt: "hello", Temperature: 0.2, MaxTokens: 16,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "fake ok", got.Text)
+	require.Len(t, runtime.Calls, 1)
+	assert.Equal(t, provider, runtime.Calls[0].Provider)
+	assert.Equal(t, "hello", runtime.Calls[0].UserPrompt)
+}
+
+func TestCompleteTextFakeAPIMode(t *testing.T) {
+	t.Parallel()
+	provider := &models.LlmProvider{APIMode: "fake", ModelName: "fake-model"}
+	got, err := CompleteText(context.Background(), nil, provider, "system", "hello", nil, 0.2, 16)
+	require.NoError(t, err)
+	assert.Equal(t, "fake provider response", got.Text)
+	assert.Positive(t, got.TotalTokens)
+}
+
+func TestCompleteOpenAICompatibleToolCall(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+            "choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup_dataset","arguments":"{\"id\":\"ds1\"}"}}]}}],
+            "usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12}
+        }`))
+	}))
+	defer server.Close()
+
+	provider := &models.LlmProvider{APIMode: "chat_completions", EndpointURL: server.URL, ModelName: "gpt-tools"}
+	got, err := CompleteText(context.Background(), server.Client(), provider, "", "call a tool", nil, 0.2, 100)
+	require.NoError(t, err)
+	require.Len(t, got.ToolCalls, 1)
+	assert.Equal(t, "call_1", got.ToolCalls[0].ID)
+	assert.Equal(t, "function", got.ToolCalls[0].Type)
+	assert.Equal(t, "lookup_dataset", got.ToolCalls[0].Name)
+	assert.JSONEq(t, `{"id":"ds1"}`, got.ToolCalls[0].Arguments)
+}

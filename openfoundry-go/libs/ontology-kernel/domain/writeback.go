@@ -134,8 +134,8 @@ func DeriveEventID(tenant, aggregate, aggregateID string, version uint64) uuid.U
 //     - Inserted        → committed=1, created=true.
 //     - Updated         → committed=NewVersion, created=false.
 //     - VersionConflict whose ActualVersion == target_version
-//       (idempotent retry) → committed=ActualVersion,
-//       created=(expected_version is nil), idempotentRetry=true.
+//     (idempotent retry) → committed=ActualVersion,
+//     created=(expected_version is nil), idempotentRetry=true.
 //     - Any other VersionConflict → return WritebackVersionConflict.
 //  4. Open a PG transaction; enqueue the outbox event; commit.
 //  5. Failures after step 2 surface a CommitAfterPrimary /
@@ -171,10 +171,12 @@ func ApplyObjectWithOutbox(
 	case storageabstraction.PutUpdated:
 		committedVersion = outcome.NewVersion
 	case storageabstraction.PutVersionConflict:
-		if outcome.ActualVersion == targetVersion {
+		if pg != nil && outcome.ActualVersion == targetVersion {
 			// Cassandra already accepted an identical prior attempt.
 			// Treat as success and let the outbox enqueue collapse via
-			// its own ON CONFLICT DO NOTHING.
+			// its own ON CONFLICT DO NOTHING. Without PG there is no
+			// outbox idempotency row to prove, so dev/test nil-PG callers
+			// retain the plain optimistic-lock conflict semantics.
 			committedVersion = outcome.ActualVersion
 			created = expectedVersion == nil
 			idempotentRetry = true
@@ -188,6 +190,20 @@ func ApplyObjectWithOutbox(
 	}
 
 	// 2. Outbox enqueue inside a pg-policy transaction.
+	// Explicit local/test AppStates can run without PG. Keep the primary
+	// ObjectStore write semantics identical but skip the outbox transaction
+	// only when the caller deliberately supplied a nil pool; production
+	// ontology-actions-service startup requires DATABASE_URL before these
+	// handlers are served.
+	if pg == nil {
+		return WritebackOutcome{
+			EventID:          eventID,
+			CommittedVersion: committedVersion,
+			Created:          created,
+			IdempotentRetry:  idempotentRetry,
+		}, nil
+	}
+
 	event := outbox.New(eventID, aggregate, string(object.ID), topic, payload)
 
 	tx, err := pg.Begin(ctx)

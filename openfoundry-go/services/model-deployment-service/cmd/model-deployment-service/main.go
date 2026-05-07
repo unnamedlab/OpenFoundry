@@ -1,8 +1,6 @@
-// Command model-deployment-service hosts the model deployment +
-// drift surface. Substrate-only port — handlers/models/domain are
-// all `#[path]` re-exports from libs/ml-kernel in the Rust source.
-// The /api/v1/* routes wire alongside libs/ml-kernel-go/handlers
-// in a follow-up slice.
+// Command model-deployment-service hosts the model deployment surface.
+// The HTTP routes are wired to libs/ml-kernel-go deployment handlers,
+// backed by configured Postgres storage and a serving-runtime adapter.
 package main
 
 import (
@@ -41,12 +39,12 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
-	if cfg.DatabaseURL == "" {
-		log.Warn("DATABASE_URL unset — deployment repo wires with libs/ml-kernel-go/handlers slice")
-	}
-
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	srv, err := server.NewE(cfg, metrics)
+	if err != nil {
+		log.Error("server setup failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
