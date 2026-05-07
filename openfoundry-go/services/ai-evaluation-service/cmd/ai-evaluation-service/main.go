@@ -1,13 +1,13 @@
 // Command ai-evaluation-service hosts the LLM evaluation +
 // guardrail benchmarking surface.
 //
-// Substrate-only port: the Rust binary is `fn main(){}` and the
-// evaluations handlers (benchmark_providers + evaluate_guardrails)
+// The Rust binary is `fn main(){}`; the canonical handlers live in
+// services/ai-evaluation-service/src/handlers/evaluations.rs and
 // cross-reference libs/ai-kernel domain types (provider, evaluation,
-// llm/{gateway, guardrails, runtime}). The Go port lights up
-// /healthz + /metrics and applies the 2 migrations now; the
-// /api/v1/evaluations + /api/v1/guardrails routes wire alongside
-// the libs/ai-kernel-go/domain/llm slice in a follow-up.
+// llm/{gateway, guardrails, runtime}). The Go binary mounts the
+// /healthz + /metrics substrate alongside POST
+// /api/v1/evaluations/benchmark + POST /api/v1/guardrails/evaluate,
+// backed by libs/ai-kernel-go/domain/llm.
 package main
 
 import (
@@ -49,8 +49,10 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
+	var pool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
-		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		var err error
+		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Error("pgx pool failed", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -61,11 +63,11 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		log.Warn("DATABASE_URL unset — migrations skipped (evaluations handlers wire with libs/ai-kernel-go/domain/llm slice)")
+		log.Warn("DATABASE_URL unset — benchmark route returns 503 until pgx pool is configured")
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics)
+	srv := server.New(cfg, metrics, server.Options{Pool: pool})
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
