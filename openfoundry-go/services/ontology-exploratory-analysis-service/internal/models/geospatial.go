@@ -447,3 +447,140 @@ type GeospatialOverview struct {
 	TileReadyLayers     int      `json:"tile_ready_layers"`
 	SupportedOperations []string `json:"supported_operations"`
 }
+
+// SpatialOperation mirrors the Rust enum (snake_case wire form).
+type SpatialOperation string
+
+const (
+	SpatialOperationWithin     SpatialOperation = "within"
+	SpatialOperationIntersects SpatialOperation = "intersects"
+	SpatialOperationNearest    SpatialOperation = "nearest"
+	SpatialOperationBuffer     SpatialOperation = "buffer"
+)
+
+func (o SpatialOperation) String() string { return string(o) }
+
+func (o SpatialOperation) Valid() bool {
+	switch o {
+	case SpatialOperationWithin, SpatialOperationIntersects,
+		SpatialOperationNearest, SpatialOperationBuffer:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseSpatialOperation(s string) (SpatialOperation, error) {
+	op := SpatialOperation(s)
+	if !op.Valid() {
+		return "", fmt.Errorf("unsupported spatial operation: %s", s)
+	}
+	return op, nil
+}
+
+func (o *SpatialOperation) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseSpatialOperation(s)
+	if err != nil {
+		return err
+	}
+	*o = parsed
+	return nil
+}
+
+// SpatialQueryRequest mirrors the Rust DTO. `Bounds`, `Point`, `RadiusKm`
+// and `Limit` are optional (pointer types) so the handler can detect
+// "field omitted" vs the zero value, matching `#[serde(default)]`.
+type SpatialQueryRequest struct {
+	LayerID   uuid.UUID        `json:"layer_id"`
+	Operation SpatialOperation `json:"operation"`
+	Bounds    *Bounds          `json:"bounds,omitempty"`
+	Point     *Coordinate      `json:"point,omitempty"`
+	RadiusKm  *float64         `json:"radius_km,omitempty"`
+	Limit     *int             `json:"limit,omitempty"`
+}
+
+// SpatialQuerySummary mirrors the Rust struct. `NearestDistanceKm` is
+// only populated for the `nearest` operation; emit `null` otherwise.
+type SpatialQuerySummary struct {
+	MatchedCount      int      `json:"matched_count"`
+	QueryTimeMs       int32    `json:"query_time_ms"`
+	NearestDistanceKm *float64 `json:"nearest_distance_km"`
+	Indexed           bool     `json:"indexed"`
+}
+
+// SpatialQueryResponse mirrors the Rust struct.
+type SpatialQueryResponse struct {
+	Operation       SpatialOperation    `json:"operation"`
+	MatchedFeatures []MapFeature        `json:"matched_features"`
+	Summary         SpatialQuerySummary `json:"summary"`
+	BufferRing      []Coordinate        `json:"buffer_ring"`
+}
+
+// ClusterAlgorithm mirrors the Rust enum (snake_case wire form).
+type ClusterAlgorithm string
+
+const (
+	ClusterAlgorithmDBSCAN ClusterAlgorithm = "dbscan"
+	ClusterAlgorithmKMeans ClusterAlgorithm = "kmeans"
+)
+
+func (a ClusterAlgorithm) String() string { return string(a) }
+
+func (a ClusterAlgorithm) Valid() bool {
+	switch a {
+	case ClusterAlgorithmDBSCAN, ClusterAlgorithmKMeans:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseClusterAlgorithm(s string) (ClusterAlgorithm, error) {
+	a := ClusterAlgorithm(s)
+	if !a.Valid() {
+		return "", fmt.Errorf("unsupported cluster algorithm: %s", s)
+	}
+	return a, nil
+}
+
+func (a *ClusterAlgorithm) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseClusterAlgorithm(s)
+	if err != nil {
+		return err
+	}
+	*a = parsed
+	return nil
+}
+
+// ClusterRequest mirrors the Rust DTO. Both `ClusterCount` and
+// `RadiusKm` are pointer types — the engine substitutes algorithm
+// defaults (kmeans → 3, dbscan → 8.0 km) when omitted.
+type ClusterRequest struct {
+	LayerID      uuid.UUID        `json:"layer_id"`
+	Algorithm    ClusterAlgorithm `json:"algorithm"`
+	ClusterCount *int             `json:"cluster_count,omitempty"`
+	RadiusKm     *float64         `json:"radius_km,omitempty"`
+}
+
+// ClusterSummary mirrors the Rust struct.
+type ClusterSummary struct {
+	ClusterID   string     `json:"cluster_id"`
+	Centroid    Coordinate `json:"centroid"`
+	MemberCount int        `json:"member_count"`
+	Density     float64    `json:"density"`
+}
+
+// ClusterResponse mirrors the Rust struct.
+type ClusterResponse struct {
+	Algorithm ClusterAlgorithm `json:"algorithm"`
+	Clusters  []ClusterSummary `json:"clusters"`
+	Outliers  int              `json:"outliers"`
+}

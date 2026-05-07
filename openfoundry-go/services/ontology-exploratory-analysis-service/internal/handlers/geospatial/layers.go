@@ -398,6 +398,8 @@ func (s *AppState) Routes() chi.Router {
 	r.Get("/layers", s.ListLayers)
 	r.Post("/layers", s.CreateLayer)
 	r.Put("/layers/{id}", s.UpdateLayer)
+	r.Post("/query", s.QueryFeatures)
+	r.Post("/cluster", s.ClusterFeatures)
 	return r
 }
 
