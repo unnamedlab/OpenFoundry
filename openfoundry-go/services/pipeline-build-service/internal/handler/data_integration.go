@@ -111,7 +111,7 @@ func RetryPipelineRun(w http.ResponseWriter, r *http.Request) {
 	}
 	policy := pipeline.ParsedRetryPolicy()
 	if body.FromNodeID != nil && !policy.AllowPartialReexecution {
-		writeJSON(w, http.StatusBadRequest, "partial re-execution is disabled for this pipeline")
+		writeJSON(w, http.StatusBadRequest, "partial re-execution is not enabled for this pipeline")
 		return
 	}
 	fromNodeID := body.FromNodeID

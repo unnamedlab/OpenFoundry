@@ -144,6 +144,29 @@ func TestPipelineBuildRunPersistsAndStatusRefreshes(t *testing.T) {
 	require.Equal(t, sparkpkg.SparkRunRunning, repo.submissions[runID].Status)
 }
 
+func TestListSparkRunsReturnsPersistedSubmissions(t *testing.T) {
+	runID := uuid.MustParse("018f7a5c-0000-7000-8000-000000000002")
+	repo := &fakeSparkSubmissionRepo{submissions: map[string]SparkSubmission{
+		runID.String(): {PipelineRunID: runID, Namespace: "ns", SparkAppName: "spark-app", Status: sparkpkg.SparkRunRunning},
+	}}
+	restore := SetSparkSubmissionRepository(repo)
+	defer restore()
+
+	rr := httptest.NewRecorder()
+	ListSparkRuns(rr, httptest.NewRequest(http.MethodGet, "/api/v1/data-integration/spark-runs?limit=10", nil))
+
+	require.Equal(t, http.StatusOK, rr.Result().StatusCode)
+	var payload struct {
+		Data  []SparkSubmission `json:"data"`
+		Total int               `json:"total"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Result().Body).Decode(&payload))
+	require.Equal(t, 1, payload.Total)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, runID, payload.Data[0].PipelineRunID)
+	require.Equal(t, sparkpkg.SparkRunRunning, payload.Data[0].Status)
+}
+
 func TestListSparkRunsRequiresRepositoryInsteadOfEmptyEnvelope(t *testing.T) {
 	restore := SetSparkSubmissionRepository(nil)
 	defer restore()

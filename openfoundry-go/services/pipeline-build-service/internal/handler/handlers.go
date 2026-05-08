@@ -455,9 +455,8 @@ func DeletePipeline(w http.ResponseWriter, _ *http.Request) {
 // SparkApplication-backed runs (FASE 3 / Tarea 3.4). When kube_client
 // is unavailable the Rust crate returns 503; we mirror that shape.
 func ListSparkRuns(w http.ResponseWriter, r *http.Request) {
-	repo, ok := currentSparkSubmissionRepository()
+	repo, ok := requireSparkSubmissionRepository(w, "ListSparkRuns requires DATABASE_URL-backed pipeline_run_submissions wiring")
 	if !ok {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": "ListSparkRuns requires DATABASE_URL-backed pipeline_run_submissions wiring"})
 		return
 	}
 	limit := int64(50)
@@ -472,6 +471,19 @@ func ListSparkRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": items, "total": len(items)})
+}
+
+func requireSparkSubmissionRepository(w http.ResponseWriter, detail string) (SparkSubmissionRepository, bool) {
+	repo, ok := currentSparkSubmissionRepository()
+	if !ok {
+		writeSparkSubmissionRepositoryUnavailable(w, detail)
+		return nil, false
+	}
+	return repo, true
+}
+
+func writeSparkSubmissionRepositoryUnavailable(w http.ResponseWriter, detail string) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": detail})
 }
 
 type submitSparkRunRequest struct {
@@ -533,8 +545,7 @@ func SubmitSparkRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func SubmitPipelineBuildRun(w http.ResponseWriter, r *http.Request) {
-	if _, ok := currentSparkSubmissionRepository(); !ok {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": "Rust-compatible /api/v1/pipeline/builds/run requires DATABASE_URL-backed pipeline_run_submissions persistence"})
+	if _, ok := requireSparkSubmissionRepository(w, "Rust-compatible /api/v1/pipeline/builds/run requires DATABASE_URL-backed pipeline_run_submissions persistence"); !ok {
 		return
 	}
 	SubmitSparkRun(w, r)
@@ -546,9 +557,8 @@ func GetPipelineBuildRunStatus(w http.ResponseWriter, r *http.Request) {
 		writeKubeUnavailable(w)
 		return
 	}
-	repo, ok := currentSparkSubmissionRepository()
+	repo, ok := requireSparkSubmissionRepository(w, "status lookup requires DATABASE_URL-backed pipeline_run_submissions persistence")
 	if !ok {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spark_submission_repository_not_configured", "detail": "status lookup requires DATABASE_URL-backed pipeline_run_submissions persistence"})
 		return
 	}
 	runID, err := uuid.Parse(chi.URLParam(r, "run_id"))

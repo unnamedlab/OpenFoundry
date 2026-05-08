@@ -82,6 +82,19 @@ func currentExecutionPorts() (ExecutionPorts, bool) {
 	return slot.ports, true
 }
 
+func requireExecutionPorts(w http.ResponseWriter, detail string) (ExecutionPorts, bool) {
+	ports, ok := currentExecutionPorts()
+	if !ok {
+		writeExecutionPortsUnavailable(w, detail)
+		return ExecutionPorts{}, false
+	}
+	return ports, true
+}
+
+func writeExecutionPortsUnavailable(w http.ResponseWriter, detail string) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution_ports_not_configured", "detail": detail})
+}
+
 func registerExecutionCancel(id uuid.UUID, cancel context.CancelFunc) func() {
 	if id == uuid.Nil || cancel == nil {
 		return func() {}
@@ -143,9 +156,8 @@ type executePipelineResponse struct {
 // state, runs the DAG executor and returns the observable Rust-compatible build
 // terminal envelope.
 func ExecutePipeline(w http.ResponseWriter, r *http.Request) {
-	ports, ok := currentExecutionPorts()
+	ports, ok := requireExecutionPorts(w, "ExecutePipeline requires executor ports")
 	if !ok {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution_ports_not_configured", "detail": "ExecutePipeline requires executor ports"})
 		return
 	}
 	var body executePipelineRequest
@@ -177,9 +189,12 @@ func ExecutePipeline(w http.ResponseWriter, r *http.Request) {
 // pipeline_run, convert the pipeline DAG into an executor.Plan, run it, persist
 // terminal status through hooks, and return the created run envelope.
 func TriggerPipelineRun(w http.ResponseWriter, r *http.Request) {
-	ports, ok := currentExecutionPorts()
-	if !ok || ports.Runs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution_ports_not_configured", "detail": "TriggerPipelineRun requires pipeline run repository and executor ports"})
+	ports, ok := requireExecutionPorts(w, "TriggerPipelineRun requires pipeline run repository and executor ports")
+	if !ok {
+		return
+	}
+	if ports.Runs == nil {
+		writeExecutionPortsUnavailable(w, "TriggerPipelineRun requires pipeline run repository and executor ports")
 		return
 	}
 	pipelineID, err := pipelineIDFromRequest(r)

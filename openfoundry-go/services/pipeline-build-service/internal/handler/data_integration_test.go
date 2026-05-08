@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
@@ -98,6 +100,32 @@ func TestEventTriggerObservedPersistsUntilRun(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&payload))
 	require.Equal(t, float64(1), payload["triggered_runs"])
 	require.True(t, repo.nextRunUpdated)
+}
+
+func TestRetryPipelineRunUsesDataIntegrationRepository(t *testing.T) {
+	repo := newDataIntegrationRepo(t)
+	previous, err := repo.OpenPipelineRun(context.Background(), &repo.pipeline, models.TriggerPipelineRequest{}, nil, json.RawMessage(`{"trigger":{"type":"manual"}}`))
+	require.NoError(t, err)
+	previous.Status = "failed"
+	previous.NodeResults = json.RawMessage(`{"n1":"FAILED"}`)
+	repo.runs[previous.ID] = *previous
+	restore := SetExecutionPorts(ExecutionPorts{Runs: repo, NodeRunner: successNodeRunner{}, Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}, Parallelism: 1})
+	defer restore()
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/data-integration/pipelines/"+repo.pipeline.ID.String()+"/runs/"+previous.ID.String()+"/retry", strings.NewReader(`{"skip_unchanged":true}`))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", repo.pipeline.ID.String())
+	rctx.URLParams.Add("run_id", previous.ID.String())
+	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	RetryPipelineRun(rr, r)
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var run models.PipelineRun
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&run))
+	require.Equal(t, "retry", run.TriggerType)
+	require.Equal(t, previous.ID, *run.RetryOfRunID)
+	require.Equal(t, int32(2), run.AttemptNumber)
 }
 
 func TestRunDueScheduledPipelinesRecomputesNextRunAtFromCron(t *testing.T) {
