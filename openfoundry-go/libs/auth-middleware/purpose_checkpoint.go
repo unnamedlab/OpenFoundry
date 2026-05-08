@@ -13,20 +13,56 @@ import (
 	"github.com/google/uuid"
 )
 
-const defaultPurposeCheckpointTimeout = 2 * time.Second
+const (
+	defaultPurposeCheckpointTimeout = 2 * time.Second
+	// PurposeCheckpointEnforcePath is the consolidated Go endpoint for
+	// purpose-of-use enforcement. Keep this exported so service wiring and
+	// edge routing tests can depend on the same path as the client.
+	PurposeCheckpointEnforcePath = "/api/v1/checkpoints/purpose/enforce"
+)
 
 // PurposeCheckpointClient calls the authorization-policy purpose gate used by
 // sensitive AI agent/chat routes. Its wire contract mirrors Rust
 // enforce_purpose_checkpoint but targets the public Go consolidation endpoint:
 // POST /api/v1/checkpoints/purpose/enforce.
 type PurposeCheckpointClient struct {
-	baseURL    string
-	httpClient *http.Client
-	timeout    time.Duration
+	baseURL       string
+	httpClient    *http.Client
+	timeout       time.Duration
+	staticHeaders http.Header
 }
 
 // PurposeCheckpointOption customizes NewPurposeCheckpointClient.
 type PurposeCheckpointOption func(*PurposeCheckpointClient)
+
+// WithPurposeCheckpointHeader adds a static header to every enforcement
+// request. This is intentionally generic so deployments can pass a service
+// bearer token or mTLS-routing header without coupling auth-middleware to a
+// particular secret source. Empty names or values are ignored.
+func WithPurposeCheckpointHeader(name, value string) PurposeCheckpointOption {
+	return func(c *PurposeCheckpointClient) {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name == "" || value == "" {
+			return
+		}
+		if c.staticHeaders == nil {
+			c.staticHeaders = make(http.Header)
+		}
+		c.staticHeaders.Set(name, value)
+	}
+}
+
+// WithPurposeCheckpointBearerToken sets the Authorization header used for
+// service-to-service calls to the protected /api/v1 enforcement endpoint.
+// Pass the raw token; the Bearer prefix is added when absent.
+func WithPurposeCheckpointBearerToken(token string) PurposeCheckpointOption {
+	token = strings.TrimSpace(token)
+	if token != "" && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
+		token = "Bearer " + token
+	}
+	return WithPurposeCheckpointHeader("Authorization", token)
+}
 
 // WithPurposeCheckpointHTTPClient injects the HTTP client used for requests.
 func WithPurposeCheckpointHTTPClient(client *http.Client) PurposeCheckpointOption {
@@ -98,6 +134,7 @@ func (e *PurposeCheckpointDeniedError) Error() string {
 type PurposeCheckpointServiceError struct {
 	StatusCode int
 	Message    string
+	Body       string
 	Cause      error
 }
 
@@ -107,6 +144,9 @@ func (e *PurposeCheckpointServiceError) Error() string {
 	}
 	if e.Cause != nil {
 		return fmt.Sprintf("%s: %v", e.Message, e.Cause)
+	}
+	if strings.TrimSpace(e.Body) != "" {
+		return fmt.Sprintf("%s: %s", e.Message, strings.TrimSpace(e.Body))
 	}
 	return e.Message
 }
@@ -166,12 +206,17 @@ func (c *PurposeCheckpointClient) Enforce(ctx context.Context, req PurposeCheckp
 	}
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(callCtx, http.MethodPost, c.baseURL+"/api/v1/checkpoints/purpose/enforce", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(callCtx, http.MethodPost, c.baseURL+PurposeCheckpointEnforcePath, bytes.NewReader(body))
 	if err != nil {
 		return &PurposeCheckpointServiceError{Message: "purpose checkpoint request build failed", Cause: err}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
+	for name, values := range c.staticHeaders {
+		for _, value := range values {
+			httpReq.Header.Add(name, value)
+		}
+	}
 
 	client := c.httpClient
 	if client == nil {
@@ -188,7 +233,7 @@ func (c *PurposeCheckpointClient) Enforce(ctx context.Context, req PurposeCheckp
 		return &PurposeCheckpointServiceError{StatusCode: resp.StatusCode, Message: "purpose checkpoint body failed", Cause: err}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &PurposeCheckpointServiceError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("purpose checkpoint service returned %d", resp.StatusCode)}
+		return &PurposeCheckpointServiceError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("purpose checkpoint service returned %d", resp.StatusCode), Body: string(respBody)}
 	}
 
 	var evaluation PurposeCheckpointEvaluation
