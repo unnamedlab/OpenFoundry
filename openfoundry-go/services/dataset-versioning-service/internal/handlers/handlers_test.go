@@ -26,6 +26,14 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/dataset-versioning-service/internal/repo"
 )
 
+func assertJSONErrorCode(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, want, body["code"])
+	require.NotEmpty(t, body["error"])
+}
+
 func TestDatasetJSONShape(t *testing.T) {
 	t.Parallel()
 	d := models.Dataset{
@@ -1125,6 +1133,21 @@ func TestDownloadDeletedFileReturnsGone(t *testing.T) {
 	assert.Equal(t, http.StatusGone, rec.Code)
 }
 
+func TestDownloadFileReportsMachineReadableUnavailableWithoutBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	fileID := uuid.New()
+	store.files[datasetID] = []models.DatasetFile{{ID: fileID, DatasetID: datasetID, TransactionID: uuid.New(), LogicalPath: "daily.csv", PhysicalURI: "local:///daily.csv", Status: "active"}}
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(datasetReq("GET", store, owner, ""), "file_id", fileID.String())
+	rec := httptest.NewRecorder()
+	h.DownloadFile(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "backing_filesystem_unavailable")
+}
+
 func TestCreateFileUploadURL(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -1173,6 +1196,20 @@ func TestCreateFileUploadURLRejectsUnsafeLogicalPath(t *testing.T) {
 	h.CreateFileUploadURL(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "invalid logical_path")
+}
+
+func TestCreateFileUploadURLReportsMachineReadableUnavailableWithoutBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	txnID := uuid.New()
+	store.transactions[txnID] = "OPEN"
+	h := &handlers.Handlers{Repo: store}
+
+	req := withRouteParam(datasetReq("POST", store, owner, `{"logical_path":"incoming/file.csv"}`), "txn", txnID.String())
+	rec := httptest.NewRecorder()
+	h.CreateFileUploadURL(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "backing_filesystem_unavailable")
 }
 
 func catalogReq(method string, store *fakeStore, claims *authmw.Claims, body string) *http.Request {
@@ -1576,6 +1613,16 @@ func TestLocalPresignProxyRoundTripAndSafety(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestLocalPresignProxyReportsMachineReadableUnavailableWithoutLocalBackingFS(t *testing.T) {
+	h := &handlers.Handlers{Repo: newFakeStore(uuid.New())}
+	req := httptest.NewRequest(http.MethodGet, "/v1/_internal/local-fs/datasets/file.csv?expires=1&sig=bad", nil)
+	req = withRouteParam(req, "*", "datasets/file.csv")
+	rec := httptest.NewRecorder()
+	h.LocalPresignProxy(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "local_backing_filesystem_unavailable")
+}
+
 func TestStorageDetailsAndMultipartUpload(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -1619,6 +1666,30 @@ func TestStorageDetailsAndMultipartUpload(t *testing.T) {
 	got, err := fs.ReadLocalObject("base/datasets/" + datasetID.String() + "/incoming/data.csv")
 	require.NoError(t, err)
 	require.Equal(t, "a,b\n1,2\n", string(got))
+}
+
+func TestStorageDetailsReportsMachineReadableUnavailableWithoutBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	claims := &authmw.Claims{Sub: owner, Permissions: []string{"dataset.write"}}
+	req := catalogReq(http.MethodGet, store, claims, "")
+	rec := httptest.NewRecorder()
+	h.StorageDetails(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "backing_filesystem_unavailable")
+}
+
+func TestUploadDataReportsMachineReadableUnavailableWithoutLocalBackingFS(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	claims := &authmw.Claims{Sub: owner, Permissions: []string{"dataset.write"}}
+	req := catalogReq(http.MethodPost, store, claims, "")
+	rec := httptest.NewRecorder()
+	h.UploadData(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assertJSONErrorCode(t, rec, "local_backing_filesystem_unavailable")
 }
 
 func TestQualityRuleLifecycleHandlers(t *testing.T) {

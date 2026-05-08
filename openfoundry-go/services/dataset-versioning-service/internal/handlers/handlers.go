@@ -118,6 +118,12 @@ func writeJSONErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+const dependencyUnavailableStatus = 503
+
+func writeDependencyUnavailable(w http.ResponseWriter, code string, msg string) {
+	writeJSON(w, dependencyUnavailableStatus, map[string]string{"code": code, "error": msg})
+}
+
 func datasetIDParam(r *http.Request) string {
 	if id := chi.URLParam(r, "id"); id != "" {
 		return id
@@ -714,7 +720,7 @@ func (h *Handlers) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.BackingFS == nil {
-		writeJSONErr(w, http.StatusServiceUnavailable, "backing filesystem not configured")
+		writeDependencyUnavailable(w, "backing_filesystem_unavailable", "backing filesystem not configured")
 		return
 	}
 	ttl := h.PresignTTL
@@ -779,7 +785,7 @@ func (h *Handlers) CreateFileUploadURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.BackingFS == nil {
-		writeJSONErr(w, http.StatusServiceUnavailable, "backing filesystem not configured")
+		writeDependencyUnavailable(w, "backing_filesystem_unavailable", "backing filesystem not configured")
 		return
 	}
 	ttl := h.PresignTTL

@@ -28,7 +28,7 @@ type localObjectStore interface {
 func (h *Handlers) LocalPresignProxy(w http.ResponseWriter, r *http.Request) {
 	local, ok := h.BackingFS.(localObjectStore)
 	if !ok || h.BackingFS == nil || h.BackingFS.FSID() != "local" {
-		writeJSONErr(w, http.StatusServiceUnavailable, "local backing filesystem not configured")
+		writeDependencyUnavailable(w, "local_backing_filesystem_unavailable", "local backing filesystem not configured")
 		return
 	}
 	key := localFSKey(r)
@@ -68,7 +68,7 @@ func (h *Handlers) StorageDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.BackingFS == nil {
-		writeJSONErr(w, http.StatusServiceUnavailable, "backing filesystem not configured")
+		writeDependencyUnavailable(w, "backing_filesystem_unavailable", "backing filesystem not configured")
 		return
 	}
 	ttl := h.PresignTTL
@@ -95,7 +95,7 @@ func (h *Handlers) UploadData(w http.ResponseWriter, r *http.Request) {
 	}
 	local, ok := h.BackingFS.(localObjectStore)
 	if !ok || h.BackingFS == nil || h.BackingFS.FSID() != "local" {
-		writeJSONErr(w, http.StatusServiceUnavailable, "local backing filesystem not configured")
+		writeDependencyUnavailable(w, "local_backing_filesystem_unavailable", "local backing filesystem not configured")
 		return
 	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
