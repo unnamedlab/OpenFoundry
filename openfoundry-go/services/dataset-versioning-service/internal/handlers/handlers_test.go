@@ -1774,3 +1774,76 @@ func TestListTransactionsBeforeValidation(t *testing.T) {
 	h.ListTransactions(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestConcurrentTransactionsRejectedOnSameBranch(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	store.branches[datasetID] = []models.DatasetBranch{{ID: uuid.New(), DatasetID: datasetID, Name: "master", Labels: []byte(`{}`), FallbackChain: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), LastActivityAt: time.Now().UTC()}}
+	h := &handlers.Handlers{Repo: store}
+
+	rec := httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"APPEND"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"UPDATE"}`))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "BRANCH_HAS_OPEN_TRANSACTION")
+}
+
+func TestAbortTransactionIsIdempotentButCommitIsOpenOnly(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	store.branches[datasetID] = []models.DatasetBranch{{ID: uuid.New(), DatasetID: datasetID, Name: "master", Labels: []byte(`{}`), FallbackChain: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), LastActivityAt: time.Now().UTC()}}
+	h := &handlers.Handlers{Repo: store}
+
+	rec := httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"DELETE"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var opened models.RuntimeTransaction
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&opened))
+
+	rec = httptest.NewRecorder()
+	h.AbortTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", &opened.ID, ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.AbortTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", &opened.ID, ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.CommitTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", &opened.ID, ""))
+	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestBranchOpenTransactionBlocksNewTransactionButAllowsChildBranch(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	masterID := uuid.New()
+	store.branches[datasetID] = []models.DatasetBranch{{ID: masterID, DatasetID: datasetID, Name: "master", Labels: []byte(`{}`), FallbackChain: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), LastActivityAt: time.Now().UTC()}}
+	h := &handlers.Handlers{Repo: store}
+
+	rec := httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"SNAPSHOT"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.StartTransaction(rec, transactionReq(http.MethodPost, store, owner, "master", nil, `{"type":"APPEND"}`))
+	require.Equal(t, http.StatusConflict, rec.Code)
+
+	parent := "master"
+	body := `{"name":"child","parent_branch":"` + parent + `"}`
+	rec = httptest.NewRecorder()
+	req := authedReq(http.MethodPost, "/v1/datasets/ri.foundry.main.dataset."+datasetID.String()+"/branches", body, owner)
+	req = withRouteParam(req, "rid", "ri.foundry.main.dataset."+datasetID.String())
+	h.CreateBranch(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var child models.RuntimeBranch
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&child))
+	require.Equal(t, "child", child.Name)
+	require.NotNil(t, child.ParentBranchID)
+	require.Equal(t, masterID, *child.ParentBranchID)
+}

@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -842,30 +843,334 @@ func (r *Repo) ListRuntimeTransactions(ctx context.Context, datasetID uuid.UUID,
 	return out, rows.Err()
 }
 
+type txnRowForCommit struct {
+	ID         uuid.UUID
+	DatasetID  uuid.UUID
+	BranchID   uuid.UUID
+	BranchName string
+	TxType     models.TransactionType
+	Status     models.TransactionStatus
+	Summary    string
+}
+
+type stagedFileRow struct {
+	LogicalPath  string
+	PhysicalPath string
+	SizeBytes    int64
+	Op           models.FileOperation
+}
+
+type viewFileRow struct {
+	PhysicalPath string
+	SizeBytes    int64
+}
+
 func (r *Repo) CommitTransaction(ctx context.Context, datasetID uuid.UUID, txnID uuid.UUID) error {
-	cmd, err := r.Pool.Exec(ctx, `UPDATE dataset_transactions SET status = 'COMMITTED', committed_at = NOW()
-		WHERE dataset_id = $1 AND id = $2 AND status = 'OPEN'`, datasetID, txnID)
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	row, err := loadTxnForUpdate(ctx, tx, txnID)
+	if err != nil {
+		return err
+	}
+	if row == nil || row.DatasetID != datasetID {
+		return ErrNotFound
+	}
+	if row.Status != models.TransactionStatusOpen {
+		return ErrInvalidTransition
+	}
+
+	staged, err := loadStagedFiles(ctx, tx, row.ID)
+	if err != nil {
+		return err
+	}
+	before, err := computeCommittedView(ctx, tx, row.BranchID, nil)
+	if err != nil {
+		return err
+	}
+	if err := validateCommit(row.TxType, staged, before); err != nil {
+		return err
+	}
+	after, err := applyTransaction(before, row.TxType, staged)
+	if err != nil {
+		return err
+	}
+	var sizeBytes int64
+	for _, f := range after {
+		sizeBytes += f.SizeBytes
+	}
+	fileCount := len(after)
+
+	metadataPatch, err := json.Marshal(map[string]any{"file_count": fileCount, "size_bytes": sizeBytes})
+	if err != nil {
+		return err
+	}
+	cmd, err := tx.Exec(ctx, `UPDATE dataset_transactions
+		SET status = 'COMMITTED', committed_at = NOW(), metadata = metadata || $2::jsonb
+		WHERE id = $1 AND dataset_id = $3 AND status = 'OPEN'`, row.ID, metadataPatch, datasetID)
 	if err != nil {
 		return err
 	}
 	if cmd.RowsAffected() == 0 {
 		return ErrInvalidTransition
 	}
-	_, err = r.Pool.Exec(ctx, `UPDATE dataset_branches SET head_transaction_id = $2, last_activity_at = NOW(), updated_at = NOW()
-		WHERE dataset_id = $1 AND id = (SELECT branch_id FROM dataset_transactions WHERE id = $2)`, datasetID, txnID)
-	return err
+
+	if row.TxType == models.TransactionTypeSnapshot {
+		if _, err := tx.Exec(ctx, `UPDATE dataset_transactions
+			SET metadata = metadata || '{"historical": true}'::jsonb
+			WHERE branch_id = $1 AND id <> $2 AND status = 'COMMITTED'`, row.BranchID, row.ID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE dataset_branches
+		SET head_transaction_id = $2, last_activity_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND dataset_id = $3`, row.BranchID, row.ID, datasetID); err != nil {
+		return err
+	}
+
+	nextVersion, err := nextVersionForUpdate(ctx, tx, datasetID)
+	if err != nil {
+		return err
+	}
+	var storagePath string
+	if err := tx.QueryRow(ctx, `SELECT storage_path FROM datasets WHERE id = $1`, datasetID).Scan(&storagePath); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO dataset_versions
+		(id, dataset_id, version, message, size_bytes, row_count, storage_path, transaction_id)
+		VALUES ($1, $2, $3, $4, $5, 0, $6, $7)
+		ON CONFLICT (dataset_id, version) DO NOTHING`, uuid.New(), datasetID, nextVersion, row.Summary, sizeBytes, fmt.Sprintf("%s/v%d", storagePath, nextVersion), row.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE dataset_branches
+		SET version = $3, updated_at = NOW()
+		WHERE dataset_id = $1 AND name = $2`, datasetID, row.BranchName, nextVersion); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE datasets
+		SET current_version = CASE WHEN active_branch = $2 THEN $3 ELSE current_version END,
+		    size_bytes = CASE WHEN active_branch = $2 THEN $4 ELSE size_bytes END,
+		    metadata = CASE WHEN $5 = 'UPDATE' THEN metadata || '{"incremental_friendly": false}'::jsonb ELSE metadata END,
+		    updated_at = NOW()
+		WHERE id = $1`, datasetID, row.BranchName, nextVersion, sizeBytes, row.TxType); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (r *Repo) AbortTransaction(ctx context.Context, datasetID uuid.UUID, txnID uuid.UUID) error {
-	cmd, err := r.Pool.Exec(ctx, `UPDATE dataset_transactions SET status = 'ABORTED', aborted_at = NOW()
-		WHERE dataset_id = $1 AND id = $2 AND status = 'OPEN'`, datasetID, txnID)
+	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if cmd.RowsAffected() == 0 {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	row, err := loadTxnForUpdate(ctx, tx, txnID)
+	if err != nil {
+		return err
+	}
+	if row == nil || row.DatasetID != datasetID {
+		return ErrNotFound
+	}
+	switch row.Status {
+	case models.TransactionStatusOpen:
+		if _, err := tx.Exec(ctx, `UPDATE dataset_transactions
+			SET status = 'ABORTED', aborted_at = COALESCE(aborted_at, NOW())
+			WHERE id = $1 AND dataset_id = $2`, txnID, datasetID); err != nil {
+			return err
+		}
+	case models.TransactionStatusAborted:
+		// Rust treats aborting an already aborted transaction as idempotent.
+	case models.TransactionStatusCommitted:
+		return ErrInvalidTransition
+	default:
 		return ErrInvalidTransition
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
 	return nil
+}
+
+func loadTxnForUpdate(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, txnID uuid.UUID) (*txnRowForCommit, error) {
+	row := q.QueryRow(ctx, `SELECT id, dataset_id, branch_id, branch_name, tx_type, status, summary
+		FROM dataset_transactions WHERE id = $1 FOR UPDATE`, txnID)
+	var out txnRowForCommit
+	if err := row.Scan(&out.ID, &out.DatasetID, &out.BranchID, &out.BranchName, &out.TxType, &out.Status, &out.Summary); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &out, nil
+}
+
+func loadStagedFiles(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, txnID uuid.UUID) ([]stagedFileRow, error) {
+	rows, err := q.Query(ctx, `SELECT logical_path, physical_path, size_bytes, op
+		FROM dataset_transaction_files WHERE transaction_id = $1 ORDER BY logical_path ASC`, txnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []stagedFileRow{}
+	for rows.Next() {
+		var f stagedFileRow
+		if err := rows.Scan(&f.LogicalPath, &f.PhysicalPath, &f.SizeBytes, &f.Op); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func computeCommittedView(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, branchID uuid.UUID, at *time.Time) (map[string]viewFileRow, error) {
+	rows, err := q.Query(ctx, `SELECT id, tx_type
+		FROM dataset_transactions
+		WHERE branch_id = $1 AND status = 'COMMITTED'
+		  AND ($2::timestamptz IS NULL OR COALESCE(committed_at, started_at) <= $2)
+		ORDER BY COALESCE(committed_at, started_at) ASC, started_at ASC`, branchID, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	view := map[string]viewFileRow{}
+	for rows.Next() {
+		var id uuid.UUID
+		var txType models.TransactionType
+		if err := rows.Scan(&id, &txType); err != nil {
+			return nil, err
+		}
+		files, err := loadStagedFiles(ctx, q, id)
+		if err != nil {
+			return nil, err
+		}
+		view, err = applyTransaction(view, txType, files)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return view, rows.Err()
+}
+
+func validateCommit(txType models.TransactionType, staged []stagedFileRow, current map[string]viewFileRow) error {
+	paths := []string{}
+	switch txType {
+	case models.TransactionTypeSnapshot:
+		for _, f := range staged {
+			if f.Op == models.FileOperationRemove {
+				paths = append(paths, f.LogicalPath)
+			}
+		}
+		if len(paths) > 0 {
+			return fmt.Errorf("%w: SNAPSHOT cannot stage REMOVE ops; count=%d paths=%s", ErrValidation, len(paths), strings.Join(paths, ","))
+		}
+	case models.TransactionTypeAppend:
+		for _, f := range staged {
+			_, exists := current[f.LogicalPath]
+			if f.Op != models.FileOperationAdd || exists {
+				paths = append(paths, f.LogicalPath)
+			}
+		}
+		if len(paths) > 0 {
+			return fmt.Errorf("%w: APPEND cannot modify files already present in the current view; count=%d paths=%s", ErrConflict, len(paths), strings.Join(paths, ","))
+		}
+	case models.TransactionTypeUpdate:
+		return nil
+	case models.TransactionTypeDelete:
+		for _, f := range staged {
+			if f.Op != models.FileOperationRemove {
+				paths = append(paths, f.LogicalPath)
+			}
+		}
+		if len(paths) > 0 {
+			return fmt.Errorf("%w: DELETE may only carry REMOVE ops; count=%d paths=%s", ErrValidation, len(paths), strings.Join(paths, ","))
+		}
+	default:
+		return fmt.Errorf("%w: unknown transaction kind: %s", ErrValidation, txType)
+	}
+	return nil
+}
+
+func applyTransaction(view map[string]viewFileRow, txType models.TransactionType, files []stagedFileRow) (map[string]viewFileRow, error) {
+	out := make(map[string]viewFileRow, len(view)+len(files))
+	for k, v := range view {
+		out[k] = v
+	}
+	switch txType {
+	case models.TransactionTypeSnapshot:
+		out = map[string]viewFileRow{}
+		for _, f := range files {
+			if f.Op != models.FileOperationRemove {
+				out[f.LogicalPath] = viewFileRow{PhysicalPath: f.PhysicalPath, SizeBytes: f.SizeBytes}
+			}
+		}
+	case models.TransactionTypeAppend:
+		for _, f := range files {
+			if f.Op == models.FileOperationAdd {
+				if _, exists := out[f.LogicalPath]; !exists {
+					out[f.LogicalPath] = viewFileRow{PhysicalPath: f.PhysicalPath, SizeBytes: f.SizeBytes}
+				}
+			}
+		}
+	case models.TransactionTypeUpdate:
+		for _, f := range files {
+			if f.Op == models.FileOperationRemove {
+				delete(out, f.LogicalPath)
+			} else {
+				out[f.LogicalPath] = viewFileRow{PhysicalPath: f.PhysicalPath, SizeBytes: f.SizeBytes}
+			}
+		}
+	case models.TransactionTypeDelete:
+		for _, f := range files {
+			delete(out, f.LogicalPath)
+		}
+	default:
+		return nil, fmt.Errorf("%w: unknown transaction kind: %s", ErrValidation, txType)
+	}
+	return out, nil
+}
+
+func nextVersionForUpdate(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, datasetID uuid.UUID) (int32, error) {
+	var current int32
+	if err := q.QueryRow(ctx, `SELECT current_version FROM datasets WHERE id = $1 FOR UPDATE`, datasetID).Scan(&current); err != nil {
+		return 0, err
+	}
+	var maxVersion *int32
+	if err := q.QueryRow(ctx, `SELECT MAX(version) FROM dataset_versions WHERE dataset_id = $1`, datasetID).Scan(&maxVersion); err != nil {
+		return 0, err
+	}
+	if maxVersion != nil {
+		return *maxVersion + 1, nil
+	}
+	if current > 0 {
+		return current, nil
+	}
+	return 1, nil
 }
 
 // Views / schemas / files.

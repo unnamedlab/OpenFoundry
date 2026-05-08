@@ -122,7 +122,7 @@ func TestRustParityPublicRoutesStayPublic(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-func TestPlaceholderRoutesReturnNotImplementedAfterAuth(t *testing.T) {
+func TestNoTransactionRoutesRemainPlaceholder501AfterAuth(t *testing.T) {
 	jwt := authmw.NewJWTConfig("dataset-versioning-router-test-secret")
 	srv := newTestServerWithJWT(t, jwt)
 	tok := tokenFor(t, jwt)
@@ -131,13 +131,18 @@ func TestPlaceholderRoutesReturnNotImplementedAfterAuth(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/v1/datasets/ri.foundry.main.dataset.example/branches/master/transactions"},
+		{http.MethodGet, "/v1/datasets/ri.foundry.main.dataset.example/branches/master/transactions/00000000-0000-0000-0000-000000000002"},
+		{http.MethodPost, "/v1/datasets/ri.foundry.main.dataset.example/branches/master/transactions/00000000-0000-0000-0000-000000000002:commit"},
+		{http.MethodPost, "/v1/datasets/ri.foundry.main.dataset.example/branches/master/transactions/00000000-0000-0000-0000-000000000002:abort"},
+		{http.MethodGet, "/v1/datasets/ri.foundry.main.dataset.example/transactions"},
 		{http.MethodPost, "/v1/datasets/ri.foundry.main.dataset.example/transactions:batchGet"},
 	} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		req.Header.Set("Authorization", "Bearer "+tok)
 		srv.Handler.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusNotImplemented, rec.Code, tc.path)
+		require.NotEqual(t, http.StatusNotImplemented, rec.Code, tc.path)
 	}
 }
 

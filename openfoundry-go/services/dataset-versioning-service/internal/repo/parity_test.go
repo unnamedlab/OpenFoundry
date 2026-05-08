@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/stretchr/testify/require"
 
@@ -141,14 +140,17 @@ func TestStartTransactionRejectsConcurrentOpen(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestCommitTransactionMapsZeroRowsToInvalidTransition(t *testing.T) {
+func TestCommitTransactionRejectsNonOpenTransaction(t *testing.T) {
 	ctx := context.Background()
 	mock, err := pgxmock.NewPool()
 	require.NoError(t, err)
 	defer mock.Close()
 	datasetID := uuid.New()
+	branchID := uuid.New()
 	txnID := uuid.New()
-	mock.ExpectExec("UPDATE dataset_transactions SET status = 'COMMITTED'").WithArgs(datasetID, txnID).WillReturnResult(pgconn.NewCommandTag("UPDATE 0"))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT id, dataset_id, branch_id").WithArgs(txnID).WillReturnRows(pgxmock.NewRows([]string{"id", "dataset_id", "branch_id", "branch_name", "tx_type", "status", "summary"}).AddRow(txnID, datasetID, branchID, "master", models.TransactionTypeAppend, models.TransactionStatusCommitted, "done"))
+	mock.ExpectRollback()
 
 	r := &repo.Repo{Pool: mock}
 	err = r.CommitTransaction(ctx, datasetID, txnID)
