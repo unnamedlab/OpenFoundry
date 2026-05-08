@@ -69,9 +69,9 @@ CREATE TABLE IF NOT EXISTS link_types (
     UNIQUE (name, source_type_id, target_type_id)
 );
 
-CREATE INDEX idx_properties_object_type ON properties(object_type_id);
-CREATE INDEX idx_link_types_source ON link_types(source_type_id);
-CREATE INDEX idx_link_types_target ON link_types(target_type_id);
+CREATE INDEX IF NOT EXISTS idx_properties_object_type ON properties(object_type_id);
+CREATE INDEX IF NOT EXISTS idx_link_types_source ON link_types(source_type_id);
+CREATE INDEX IF NOT EXISTS idx_link_types_target ON link_types(target_type_id);
 
 -- `object_instances` and `link_instances` are runtime state owned by the
 -- object database / query / actions path. They are intentionally excluded
@@ -478,9 +478,16 @@ CREATE TABLE IF NOT EXISTS ontology_project_proposals (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE ontology_project_branches
-    ADD CONSTRAINT ontology_project_branches_proposal_fk
-    FOREIGN KEY (proposal_id) REFERENCES ontology_project_proposals(id) ON DELETE SET NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'ontology_project_branches_proposal_fk'
+  ) THEN
+    ALTER TABLE ontology_project_branches
+      ADD CONSTRAINT ontology_project_branches_proposal_fk
+      FOREIGN KEY (proposal_id) REFERENCES ontology_project_proposals(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS ontology_project_migrations (
     id UUID PRIMARY KEY,

@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS datasets (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_datasets_owner ON datasets(owner_id);
-CREATE INDEX idx_datasets_name ON datasets(name);
-CREATE INDEX idx_datasets_tags ON datasets USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_datasets_owner ON datasets(owner_id);
+CREATE INDEX IF NOT EXISTS idx_datasets_name ON datasets(name);
+CREATE INDEX IF NOT EXISTS idx_datasets_tags ON datasets USING GIN(tags);
 
 CREATE TABLE IF NOT EXISTS dataset_schemas (
     id          UUID PRIMARY KEY,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS dataset_schemas (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX idx_dataset_schemas_dataset ON dataset_schemas(dataset_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dataset_schemas_dataset ON dataset_schemas(dataset_id);
 
 -- Ownership note (dataset versioning / Iceberg consolidation):
 -- `dataset_versions` is no longer runtime-owned by
@@ -46,4 +46,4 @@ CREATE TABLE IF NOT EXISTS dataset_versions (
     UNIQUE(dataset_id, version)
 );
 
-CREATE INDEX idx_versions_dataset ON dataset_versions(dataset_id);
+CREATE INDEX IF NOT EXISTS idx_versions_dataset ON dataset_versions(dataset_id);

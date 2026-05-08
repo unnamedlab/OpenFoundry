@@ -32,11 +32,18 @@ CREATE TABLE IF NOT EXISTS app_versions (
 
 CREATE INDEX IF NOT EXISTS idx_app_versions_app_id ON app_versions(app_id, version_number DESC);
 
-ALTER TABLE apps
-    ADD CONSTRAINT apps_published_version_id_fkey
-    FOREIGN KEY (published_version_id)
-    REFERENCES app_versions(id)
-    ON DELETE SET NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'apps_published_version_id_fkey'
+  ) THEN
+    ALTER TABLE apps
+      ADD CONSTRAINT apps_published_version_id_fkey
+      FOREIGN KEY (published_version_id)
+      REFERENCES app_versions(id)
+      ON DELETE SET NULL;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS app_templates (
     id UUID PRIMARY KEY,

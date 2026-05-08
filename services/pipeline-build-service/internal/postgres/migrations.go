@@ -3,26 +3,24 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/migrations"
 )
+
+var migrationsFS = migrations.FS
 
 // RunMigrations executes the Rust-origin pipeline-build-service SQL migrations
 // once per database. Filenames are recorded verbatim so duplicate timestamp
 // prefixes remain distinct and ordering stays byte-for-byte compatible with the
-// Rust migrations directory.
+// Rust migrations directory. Files are embedded into the binary so the
+// migration loader works inside distroless containers.
 func RunMigrations(ctx context.Context, db DB) error {
 	if _, err := db.Exec(ctx, `CREATE TABLE IF NOT EXISTS pipeline_build_schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
 		return err
 	}
-	dir, err := migrationsDir()
-	if err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(dir)
+	entries, err := migrationsFS.ReadDir(".")
 	if err != nil {
 		return err
 	}
@@ -41,7 +39,7 @@ func RunMigrations(ctx context.Context, db DB) error {
 		if applied {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, name))
+		raw, err := migrationsFS.ReadFile(name)
 		if err != nil {
 			return err
 		}
@@ -53,12 +51,4 @@ func RunMigrations(ctx context.Context, db DB) error {
 		}
 	}
 	return nil
-}
-
-func migrationsDir() (string, error) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("cannot resolve migrations directory")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "migrations")), nil
 }

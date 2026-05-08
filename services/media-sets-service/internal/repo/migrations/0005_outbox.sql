@@ -22,4 +22,4 @@ CREATE TABLE IF NOT EXISTS outbox.events (
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE outbox.events REPLICA IDENTITY FULL;
+DO $$ BEGIN ALTER TABLE outbox.events REPLICA IDENTITY FULL; EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;

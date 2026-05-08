@@ -33,7 +33,7 @@ The Job is:
 {{- $cmName := printf "%s-reindex-coordinator-migrations" $release | trunc 63 | trimSuffix "-" -}}
 {{- $secretName := ($cfg.dsnSecret | default dict).name | default "pg-runtime-config-app" -}}
 {{- $secretKey := ($cfg.dsnSecret | default dict).key | default "DATABASE_URL" -}}
-{{- $image := $cfg.image | default "docker.io/bitnami/postgresql:16" -}}
+{{- $image := $cfg.image | default "docker.io/library/postgres:16-alpine" -}}
 ---
 apiVersion: v1
 kind: ConfigMap

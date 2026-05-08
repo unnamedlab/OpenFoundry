@@ -50,14 +50,14 @@ global:
   probes:
     readiness:
       enabled: true
-      path: /health
+      path: /healthz
       initialDelaySeconds: 8
       periodSeconds: 10
       timeoutSeconds: 3
       failureThreshold: 6
     liveness:
       enabled: true
-      path: /health
+      path: /healthz
       initialDelaySeconds: 20
       periodSeconds: 20
       timeoutSeconds: 3
@@ -119,7 +119,7 @@ reindexCoordinator:
       name: pg-runtime-config-app
       key: DATABASE_URL
     # Lightweight psql image used to apply the migration.
-    image: docker.io/bitnami/postgresql:16
+    image: docker.io/library/postgres:16-alpine
 
 search:
   backend: opensearch
@@ -196,10 +196,10 @@ services:
       prometheus.io/path: /metrics
     probes:
       readiness:
-        path: /health
+        path: /healthz
         port: metrics
       liveness:
-        path: /health
+        path: /healthz
         port: metrics
     env:
       METRICS_ADDR: 0.0.0.0:9090
@@ -249,10 +249,10 @@ services:
       prometheus.io/path: /metrics
     probes:
       readiness:
-        path: /health
+        path: /healthz
         port: metrics
       liveness:
-        path: /health
+        path: /healthz
         port: metrics
     env:
       METRICS_ADDR: 0.0.0.0:9090

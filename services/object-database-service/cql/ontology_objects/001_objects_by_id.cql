@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS ontology_objects.objects_by_id (
     properties        text,                 -- canonical JSON document
     marking           frozen<set<text>>,    -- multi-marking labels
     organization_id   uuid,
-    revision_number   bigint    STATIC,     -- monotonic counter, partition-static
+    revision_number   bigint,                -- monotonic counter (single-row partition; STATIC requires clustering, see ADR-0049)
     created_at        timestamp,
     updated_at        timestamp,
     deleted           boolean,              -- soft-delete tombstone

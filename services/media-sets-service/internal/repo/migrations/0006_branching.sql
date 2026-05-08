@@ -36,8 +36,15 @@ ALTER TABLE media_set_branches
 
 -- A separate UNIQUE constraint on the generated column lets `media_items`
 -- (and `media_set_branches.parent_branch_rid`) reference it via FK.
-ALTER TABLE media_set_branches
-    ADD CONSTRAINT media_set_branches_branch_rid_key UNIQUE (branch_rid);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'media_set_branches_branch_rid_key'
+  ) THEN
+    ALTER TABLE media_set_branches
+      ADD CONSTRAINT media_set_branches_branch_rid_key UNIQUE (branch_rid);
+  END IF;
+END $$;
 
 -- Parent branch RID. Self-referential so deleting an intermediate
 -- branch can re-parent its children under the deleted branch's parent
@@ -62,13 +69,28 @@ ALTER TABLE media_set_branches
 -- Backfill `parent_branch_rid` from the legacy `parent_branch` text
 -- column where it was populated. The pre-H4 column held only the
 -- branch *name*; we re-derive the RID from `(media_set_rid, name)`.
-UPDATE media_set_branches AS child
-   SET parent_branch_rid = parent.branch_rid
-  FROM media_set_branches AS parent
- WHERE child.media_set_rid = parent.media_set_rid
-   AND child.parent_branch = parent.branch_name
-   AND child.parent_branch IS NOT NULL
-   AND child.parent_branch_rid IS NULL;
+-- Only run the UPDATE if the legacy column still exists — when the
+-- migration is re-applied after a partial failure the column is
+-- already gone and the JOIN clause must not reference it.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name   = 'media_set_branches'
+      AND column_name  = 'parent_branch'
+  ) THEN
+    EXECUTE $sql$
+      UPDATE media_set_branches AS child
+         SET parent_branch_rid = parent.branch_rid
+        FROM media_set_branches AS parent
+       WHERE child.media_set_rid = parent.media_set_rid
+         AND child.parent_branch = parent.branch_name
+         AND child.parent_branch IS NOT NULL
+         AND child.parent_branch_rid IS NULL
+    $sql$;
+  END IF;
+END $$;
 
 -- Drop the legacy column now that the data has migrated. Keeps the
 -- table schema lean — every consumer reads `parent_branch_rid` going

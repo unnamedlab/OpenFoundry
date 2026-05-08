@@ -3,7 +3,7 @@ image:
   tag: "0.1.0"
 
 global:
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   deploymentFabric:
     environment: dev
   autoscaling:
@@ -52,4 +52,13 @@ services:
         key: writer_url
       DATABASE_READ_URL:
         secretName: tenancy-organizations-db-dsn
+        key: reader_url
+  authorization-policy-service:
+    replicas: 1
+    envSecrets:
+      DATABASE_URL:
+        secretName: authorization-policy-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: authorization-policy-db-dsn
         key: reader_url

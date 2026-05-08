@@ -28,7 +28,10 @@ func InitTracing(ctx context.Context, service, version string) (shutdown func(co
 
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "localhost:4317"
+		// No collector configured → silently disable tracing instead of
+		// blocking at exporter creation. Production deployments wire
+		// OTEL_EXPORTER_OTLP_ENDPOINT explicitly via Helm.
+		return func(context.Context) error { return nil }, nil
 	}
 
 	exporter, err := otlptrace.New(ctx, otlptracegrpc.NewClient(
@@ -45,7 +48,12 @@ func InitTracing(ctx context.Context, service, version string) (shutdown func(co
 			semconv.ServiceVersion(version),
 		),
 		resource.WithFromEnv(),
-		resource.WithProcess(),
+		resource.WithProcessPID(),
+		resource.WithProcessExecutableName(),
+		resource.WithProcessExecutablePath(),
+		resource.WithProcessRuntimeName(),
+		resource.WithProcessRuntimeVersion(),
+		resource.WithProcessRuntimeDescription(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("otel resource: %w", err)

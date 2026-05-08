@@ -30,7 +30,7 @@
 #       -t openfoundry/ontology-actions-service:$VERSION .
 
 ARG GO_VERSION=1.26.3
-ARG ALPINE_VERSION=3.21
+ARG ALPINE_VERSION=3.22
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot
 
 ############################################################

@@ -50,14 +50,14 @@ global:
   probes:
     readiness:
       enabled: true
-      path: /health
+      path: /healthz
       initialDelaySeconds: 8
       periodSeconds: 10
       timeoutSeconds: 3
       failureThreshold: 6
     liveness:
       enabled: true
-      path: /health
+      path: /healthz
       initialDelaySeconds: 20
       periodSeconds: 20
       timeoutSeconds: 3
@@ -195,10 +195,10 @@ services:
       prometheus.io/path: /metrics
     probes:
       readiness:
-        path: /health
+        path: /healthz
         port: metrics
       liveness:
-        path: /health
+        path: /healthz
         port: metrics
     env:
       ICEBERG_CATALOG_URL: http://lakekeeper.lakekeeper.svc:8181

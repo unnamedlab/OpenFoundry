@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS outbox.events (
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE outbox.events REPLICA IDENTITY FULL;
+DO $$ BEGIN ALTER TABLE outbox.events REPLICA IDENTITY FULL; EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS outbox_events_created_at_idx
     ON outbox.events (created_at);

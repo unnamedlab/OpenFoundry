@@ -19,7 +19,7 @@
 #     apps/web/nginx.conf (assets/* gets `Cache-Control: immutable`).
 
 ARG NODE_VERSION=24.15.0
-ARG ALPINE_VERSION=3.21
+ARG ALPINE_VERSION=3.22
 ARG NGINX_VERSION=1.27
 ARG PNPM_VERSION=9.15.4
 

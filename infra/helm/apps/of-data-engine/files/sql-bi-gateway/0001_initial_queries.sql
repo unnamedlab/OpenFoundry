@@ -10,5 +10,5 @@ CREATE TABLE IF NOT EXISTS saved_queries (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_saved_queries_owner ON saved_queries(owner_id);
-CREATE INDEX idx_saved_queries_name ON saved_queries(name);
+CREATE INDEX IF NOT EXISTS idx_saved_queries_owner ON saved_queries(owner_id);
+CREATE INDEX IF NOT EXISTS idx_saved_queries_name ON saved_queries(name);

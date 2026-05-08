@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS connections (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_connections_owner ON connections(owner_id);
-CREATE INDEX idx_connections_type ON connections(connector_type);
+CREATE INDEX IF NOT EXISTS idx_connections_owner ON connections(owner_id);
+CREATE INDEX IF NOT EXISTS idx_connections_type ON connections(connector_type);
 
 CREATE TABLE IF NOT EXISTS sync_jobs (
     id              UUID PRIMARY KEY,
@@ -28,4 +28,4 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_sync_jobs_connection ON sync_jobs(connection_id);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_connection ON sync_jobs(connection_id);

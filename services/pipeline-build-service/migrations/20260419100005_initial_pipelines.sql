@@ -32,6 +32,6 @@ CREATE TABLE IF NOT EXISTS lineage_edges (
     UNIQUE (source_dataset_id, target_dataset_id, pipeline_id)
 );
 
-CREATE INDEX idx_pipeline_runs_pipeline ON pipeline_runs(pipeline_id);
-CREATE INDEX idx_lineage_source ON lineage_edges(source_dataset_id);
-CREATE INDEX idx_lineage_target ON lineage_edges(target_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_pipeline ON pipeline_runs(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_source ON lineage_edges(source_dataset_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_target ON lineage_edges(target_dataset_id);

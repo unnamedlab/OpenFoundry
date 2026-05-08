@@ -2,8 +2,15 @@ image:
   registry: registry.registry.svc.cluster.local:5000
   tag: "0.1.0"
 
+sqlBiGateway:
+  migrations:
+    enabled: true
+    dsnSecret:
+      name: sql-bi-gateway-db-dsn
+      key: writer_url
+
 global:
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   deploymentFabric:
     environment: dev
   autoscaling:
@@ -21,11 +28,25 @@ global:
 services:
   sql-bi-gateway-service:
     # NOTE — S8 / ADR-0030: dev override for the consolidated gateway.
+    # Probe uses port `http` (8080); the binary's HTTP healthz server
+    # binds to PORT=8080 (auto-injected by of-shared from containerPort)
+    # while the Flight SQL surface lives on the internal default 50133.
     replicas: 1
     env:
       DISTRIBUTED_QUERY_WORKERS: "2"
       RUST_LOG: info
       TRINO_FLIGHT_SQL_URL: http://trino-flight-sql-proxy.trino.svc:50133
+      HEALTHZ_PORT: "8080"
+    ports:
+      # ORDER MATTERS — `of-shared.deployment` auto-injects PORT from the
+      # FIRST port. We want PORT=50133 (Flight SQL gRPC) so the binary's
+      # cfg.Port wires correctly, leaving the HTTP healthz server on
+      # cfg.HealthzPort=8080 which the probe (port: http, path: /healthz)
+      # actually targets.
+      - name: flight
+        containerPort: 50133
+      - name: http
+        containerPort: 8080
     autoscaling:
       enabled: true
       minReplicas: 1
@@ -52,6 +73,7 @@ services:
         secretName: analytical-logic-db-dsn
         key: reader_url
   cdc-metadata-service:
+    enabled: false
     envSecrets:
       DATABASE_URL:
         secretName: cdc-metadata-db-dsn
@@ -70,6 +92,7 @@ services:
         secretName: connector-management-db-dsn
         key: reader_url
   data-asset-catalog-service:
+    enabled: false
     envSecrets:
       DATABASE_URL:
         secretName: data-asset-catalog-db-dsn
@@ -99,6 +122,9 @@ services:
       DATABASE_READ_URL:
         secretName: ingestion-replication-db-dsn
         key: reader_url
+      CDC_METADATA_DATABASE_URL:
+        secretName: cdc-metadata-db-dsn
+        key: writer_url
   # S8 / ADR-0030 (B15): lineage-deletion-service and
   # retention-policy-service merged → audit-compliance-service
   # (of-platform).
@@ -114,3 +140,38 @@ services:
         key: reader_url
   # S8 / ADR-0030 (B20): time-series-data-service merged →
   # ontology-exploratory-analysis-service.
+  iceberg-catalog-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: iceberg-catalog-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: iceberg-catalog-db-dsn
+        key: reader_url
+  pipeline-build-service:
+    spark:
+      rbac:
+        create: false
+    envSecrets:
+      DATABASE_URL:
+        secretName: pipeline-build-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: pipeline-build-db-dsn
+        key: reader_url
+  media-sets-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: media-sets-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: media-sets-db-dsn
+        key: reader_url
+  lineage-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: lineage-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: lineage-db-dsn
+        key: reader_url

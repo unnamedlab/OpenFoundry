@@ -18,10 +18,11 @@ func FromEnv() (*Config, error) {
 	cfg := &Config{}
 	cfg.Service.Name = "media-transform-runtime-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
-	// Rust used MEDIA_TRANSFORM_HOST / MEDIA_TRANSFORM_PORT; we honour
-	// both those + the openfoundry-go-standard HOST/PORT so deployments
-	// can switch between the two without touching env files.
-	cfg.Server.Host = firstStr(os.Getenv("MEDIA_TRANSFORM_HOST"), os.Getenv("HOST"), "0.0.0.0")
+	// MEDIA_TRANSFORM_HOST is the *consumer-side* hostname callers use
+	// to reach this service; using it as the bind host fails in-cluster
+	// because it resolves to the Service ClusterIP, which the pod
+	// cannot bind. Bind to HOST (default 0.0.0.0).
+	cfg.Server.Host = firstStr(os.Getenv("HOST"), "0.0.0.0")
 	cfg.Server.Port = parseUint16(firstStr(os.Getenv("MEDIA_TRANSFORM_PORT"), os.Getenv("PORT")), 50173)
 	return cfg, nil
 }

@@ -5,8 +5,15 @@ image:
   registry: registry.registry.svc.cluster.local:5000
   tag: "0.1.0"
 
+reindexCoordinator:
+  migrations:
+    enabled: true
+    dsnSecret:
+      name: reindex-coordinator-db-dsn
+      key: writer_url
+
 global:
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   autoscaling:
     enabled: false
   resourcesOverride:
@@ -24,6 +31,31 @@ vespa:
 
 services:
   ontology-indexer:
+    enabled: false
     replicas: 1
     env:
       SEARCH_BACKEND: opensearch
+  ontology-definition-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: ontology-definition-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: ontology-definition-db-dsn
+        key: reader_url
+  ontology-actions-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: ontology-actions-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: ontology-actions-db-dsn
+        key: reader_url
+  reindex-coordinator-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: reindex-coordinator-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: reindex-coordinator-db-dsn
+        key: reader_url

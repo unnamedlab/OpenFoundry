@@ -3,7 +3,7 @@ image:
   tag: "0.1.0"
 
 global:
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   autoscaling:
     enabled: false
   resourcesOverride:
@@ -30,6 +30,7 @@ services:
   # S8 / ADR-0030 (B18): ai-application-generation-service and
   # mcp-orchestration-service merged → ai-evaluation-service.
   model-adapter-service:
+    enabled: false
     envSecrets:
       DATABASE_URL:
         secretName: model-adapter-db-dsn
@@ -46,10 +47,43 @@ services:
         secretName: model-catalog-db-dsn
         key: reader_url
   model-lifecycle-service:
+    enabled: false
     envSecrets:
       DATABASE_URL:
         secretName: model-lifecycle-db-dsn
         key: writer_url
       DATABASE_READ_URL:
         secretName: model-lifecycle-db-dsn
+        key: reader_url
+  ai-evaluation-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: ai-evaluation-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: ai-evaluation-db-dsn
+        key: reader_url
+  llm-catalog-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: llm-catalog-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: llm-catalog-db-dsn
+        key: reader_url
+  model-deployment-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: model-deployment-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: model-deployment-db-dsn
+        key: reader_url
+  retrieval-context-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: retrieval-context-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: retrieval-context-db-dsn
         key: reader_url

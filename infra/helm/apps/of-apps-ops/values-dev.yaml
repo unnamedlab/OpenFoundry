@@ -3,7 +3,7 @@ image:
   tag: "0.1.0"
 
 global:
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   deploymentFabric:
     environment: dev
   autoscaling:
@@ -145,4 +145,20 @@ services:
         key: writer_url
       DATABASE_READ_URL:
         secretName: workflow-automation-db-dsn
+        key: reader_url
+  entity-resolution-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: entity-resolution-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: entity-resolution-db-dsn
+        key: reader_url
+  ontology-exploratory-analysis-service:
+    envSecrets:
+      DATABASE_URL:
+        secretName: ontology-exploratory-analysis-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: ontology-exploratory-analysis-db-dsn
         key: reader_url

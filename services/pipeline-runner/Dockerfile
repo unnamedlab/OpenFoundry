@@ -18,7 +18,7 @@
 # Build context MUST be the openfoundry-go monorepo root.
 
 ARG GO_VERSION=1.26.3
-ARG ALPINE_VERSION=3.21
+ARG ALPINE_VERSION=3.22
 ARG SPARK_IMAGE=apache/spark:3.5.4-scala2.12-java17-python3-ubuntu
 ARG ICEBERG_VERSION=1.5.2
 

@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS dataset_branches (
     UNIQUE(dataset_id, name)
 );
 
+-- The `dataset_branches` table may pre-exist from migration
+-- 20260421174000_dataset_branches.sql (which created the legacy shape
+-- WITHOUT parent_branch_id / head_transaction_id). CREATE TABLE IF NOT
+-- EXISTS above is a no-op in that case, so backfill the new columns
+-- here to keep this migration idempotent.
+ALTER TABLE dataset_branches ADD COLUMN IF NOT EXISTS parent_branch_id    UUID REFERENCES dataset_branches(id) ON DELETE SET NULL;
+ALTER TABLE dataset_branches ADD COLUMN IF NOT EXISTS head_transaction_id UUID;
+
 CREATE INDEX IF NOT EXISTS idx_dataset_branches_dataset
     ON dataset_branches(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_branches_parent
@@ -92,6 +100,23 @@ CREATE TABLE IF NOT EXISTS dataset_transactions (
     -- Mantener el nombre legacy `created_at` por compatibilidad con queries existentes:
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Backfill columns added in this migration when `dataset_transactions`
+-- already exists from migration 20260425173000_dataset_views_transactions.sql
+-- (which only ships `created_at`). Idempotent — safe on fresh installs.
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS branch_id    UUID REFERENCES dataset_branches(id) ON DELETE CASCADE;
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS branch_name  TEXT NOT NULL DEFAULT '';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS tx_type      TEXT NOT NULL DEFAULT 'SNAPSHOT';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS status       TEXT NOT NULL DEFAULT 'OPEN';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS operation    TEXT NOT NULL DEFAULT '';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS view_id      UUID;
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS summary      TEXT NOT NULL DEFAULT '';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS metadata     JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS providence   JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS started_by   UUID;
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS committed_at TIMESTAMPTZ;
+ALTER TABLE dataset_transactions ADD COLUMN IF NOT EXISTS aborted_at   TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_dataset_transactions_dataset_started
     ON dataset_transactions(dataset_id, started_at DESC);

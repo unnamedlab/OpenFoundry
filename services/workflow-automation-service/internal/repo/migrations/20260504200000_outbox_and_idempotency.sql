@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS outbox.events (
 -- enough for tombstones but not for the EventRouter SMT's payload
 -- routing on the original INSERT. Setting it once at table creation
 -- avoids per-row alterations later.
-ALTER TABLE outbox.events REPLICA IDENTITY FULL;
+DO $$ BEGIN ALTER TABLE outbox.events REPLICA IDENTITY FULL; EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 
 -- Operator query: "show me events queued in the last minute" — the
 -- outbox table is steady-state empty (INSERT+DELETE in same TX) so
