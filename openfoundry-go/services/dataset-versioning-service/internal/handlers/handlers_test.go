@@ -1082,7 +1082,10 @@ func TestListAndDownloadFiles(t *testing.T) {
 		CreatedAt: time.Now().UTC(), ModifiedAt: time.Now().UTC(), Status: "active",
 	}}
 	fs := storageabstraction.NewLocalBackingFS("http://files.local", "", []byte("test-secret"))
-	h := &handlers.Handlers{Repo: store, BackingFS: fs, PresignTTL: time.Minute}
+	audits := []handlers.AuditEvent{}
+	h := &handlers.Handlers{Repo: store, BackingFS: fs, PresignTTL: time.Minute, AuditSink: func(_ context.Context, event handlers.AuditEvent) {
+		audits = append(audits, event)
+	}}
 
 	req := datasetReq("GET", store, owner, "")
 	req.URL.RawQuery = "prefix=daily/"
@@ -1100,6 +1103,11 @@ func TestListAndDownloadFiles(t *testing.T) {
 	require.Equal(t, http.StatusFound, rec.Code)
 	assert.Contains(t, rec.Header().Get("Location"), "http://files.local/v1/_internal/local-fs/datasets/sales/daily/part-000.parquet")
 	assert.Equal(t, "private, max-age=0, must-revalidate", rec.Header().Get("Cache-Control"))
+	require.Len(t, audits, 1)
+	assert.Equal(t, "files.download", audits[0].Action)
+	assert.Equal(t, datasetID.String(), audits[0].DatasetRID)
+	assert.Equal(t, "daily/part-000.parquet", audits[0].Details["logical_path"])
+	assert.Equal(t, uint64(60), audits[0].Details["presign_ttl_seconds"])
 }
 
 func TestDownloadDeletedFileReturnsGone(t *testing.T) {
@@ -1122,7 +1130,10 @@ func TestCreateFileUploadURL(t *testing.T) {
 	store := newFakeStore(owner)
 	txnID := uuid.New()
 	store.transactions[txnID] = "OPEN"
-	h := &handlers.Handlers{Repo: store, BackingFS: storageabstraction.NewLocalBackingFS("http://files.local", "dataset-root", []byte("secret")), PresignTTL: time.Minute}
+	audits := []handlers.AuditEvent{}
+	h := &handlers.Handlers{Repo: store, BackingFS: storageabstraction.NewLocalBackingFS("http://files.local", "dataset-root", []byte("secret")), PresignTTL: time.Minute, AuditSink: func(_ context.Context, event handlers.AuditEvent) {
+		audits = append(audits, event)
+	}}
 
 	req := withRouteParam(datasetReq("POST", store, owner, `{"logical_path":"incoming/file.csv"}`), "txn", txnID.String())
 	rec := httptest.NewRecorder()
@@ -1132,6 +1143,9 @@ func TestCreateFileUploadURL(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "PUT", out.Method)
 	assert.Equal(t, "local:///dataset-root/transactions/"+txnID.String()+"/incoming/file.csv", out.PhysicalURI)
+	require.Len(t, audits, 1)
+	assert.Equal(t, "files.upload_url", audits[0].Action)
+	assert.Equal(t, "transactions/"+txnID.String()+"/incoming/file.csv", audits[0].Details["logical_path"])
 }
 
 func TestCreateFileUploadURLRejectsClosedTransaction(t *testing.T) {
@@ -1145,6 +1159,20 @@ func TestCreateFileUploadURLRejectsClosedTransaction(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.CreateFileUploadURL(rec, req)
 	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestCreateFileUploadURLRejectsUnsafeLogicalPath(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	txnID := uuid.New()
+	store.transactions[txnID] = "OPEN"
+	h := &handlers.Handlers{Repo: store, BackingFS: storageabstraction.NewLocalBackingFS("http://files.local", "", []byte("secret"))}
+
+	req := withRouteParam(datasetReq("POST", store, owner, `{"logical_path":"../secret.csv"}`), "txn", txnID.String())
+	rec := httptest.NewRecorder()
+	h.CreateFileUploadURL(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid logical_path")
 }
 
 func catalogReq(method string, store *fakeStore, claims *authmw.Claims, body string) *http.Request {
