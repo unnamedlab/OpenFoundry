@@ -7,20 +7,20 @@ OpenFoundry uses CI as an executable compatibility contract across Go services, 
 | Workflow | Purpose | Typical Local Entry Point |
 | --- | --- | --- |
 | `openfoundry-go.yml` | Go module gate for backend/tooling generation, build, lint, tests, and integration paths. | `make ci`, `make build`, `make test`, `make test-integration` |
-| `ci.yml` | Broader historical/parity gate that still encodes several service compatibility checks and migration-era assertions. | Use the closest `make`/`just` target for the area being changed; verify workflow contents before relying on old Cargo examples. |
-| `ci-frontend.yml` | Frontend lint, React/Vite type checks, unit tests, E2E, and production build. | `just ci-frontend`, `pnpm lint`, `pnpm check`, `pnpm test:unit`, `pnpm build` |
-| `proto-check.yml` | Buf lint/breaking checks plus OpenAPI and SDK drift validation. | `just proto-lint`, `just openapi-check`, `just sdk-typescript-check`, `just sdk-python-check`, `just sdk-java-check` |
-| `helm-check.yml` / `helm-lint.yml` | Helm lint and render validation across deployment overlays. | `just helm-check` |
+| `ci.yml` | Broader historical/parity gate that still encodes several service compatibility checks and migration-era assertions. | Use the closest current `make`, `pnpm`, `go run ./tools/of-cli`, or script command for the area being changed; verify workflow contents before relying on old Cargo examples. |
+| `ci-frontend.yml` | Frontend lint, React/Vite type checks, unit tests, E2E, and production build. | `pnpm lint`, `pnpm check`, `pnpm test:unit`, `pnpm build`, `pnpm test:e2e` |
+| `proto-check.yml` | Buf lint/breaking checks plus OpenAPI and SDK drift validation. | `buf lint proto`, `go run ./tools/of-cli docs validate-openapi --proto-dir proto --expected apps/web/public/generated/openapi/openfoundry.json`, and the `validate-sdk-*` commands in the API/SDK reference. |
+| `helm-check.yml` / `helm-lint.yml` | Helm lint and render validation across deployment overlays. | `helm lint` / `helm template` against the touched chart or release. |
 | `terraform-check.yml` | Terraform format plus module and schema validation. | `terraform fmt -check -recursive infra/terraform` |
-| `sdk-smoke.yml` | Compiles and imports generated SDKs outside the main generation workflow. | `just sdk-typescript-typecheck`, `just sdk-python-compile`, `just sdk-java-compile` |
+| `sdk-smoke.yml` | Compiles and imports generated SDKs outside the main generation workflow. | `pnpm --dir apps/web exec tsc -p ../../sdks/typescript/openfoundry-sdk/tsconfig.json --noEmit`, `python3 -m compileall sdks/python/openfoundry-sdk`, and `javac --release 17` over the generated Java sources. |
 | `iceberg-integration.yml` | Iceberg/PyIceberg compatibility checks. | `pytest tests/integration/pyiceberg` with required local services configured |
-| `integration-foundry-pattern.yml` | Foundry-pattern integration coverage. | Area-specific smoke/integration targets under `just` and `benchmarks/` |
+| `integration-foundry-pattern.yml` | Foundry-pattern integration coverage. | Area-specific scripts under `smoke/`, `benchmarks/`, and `infra/test-tools/`. |
 | `chaos-smoke.yml` | Chaos and resilience smoke coverage. | Scripts and scenarios under `smoke/chaos` and `infra/test-tools/chaos` |
-| `kafka-lint.yml` / `ceph-lint.yml` / `prometheus-rules.yml` | Static validation for Kafka, Ceph/topology, and Prometheus rule assets. | `just kafka-kraft-lint`, `just ceph-topology-lint`, and promtool-compatible local checks |
+| `kafka-lint.yml` / `ceph-lint.yml` / `prometheus-rules.yml` | Static validation for Kafka, Ceph/topology, and Prometheus rule assets. | `python3 tools/kafka-lint/check_kraft.py`, `python3 tools/ceph-lint/check_topology.py`, and promtool-compatible local checks. |
 | `security-audit.yml` | Scheduled and lockfile-triggered dependency/security audit. | Go dependency review and repository security tooling as configured by the workflow |
-| `docker-publish.yml` | Builds and pushes selected service images to GHCR. | `just docker-build` |
+| `docker-publish.yml` | Builds and pushes selected service images to GHCR. | `docker build` with the touched service Dockerfile, or `infra/scripts/build-and-push-all.sh` for the bulk path. |
 | `release.yml` | Generates tagged GitHub releases and changelog entries. | Git tag push flow |
-| `deploy-docs.yml` | Builds VitePress docs and deploys them to GitHub Pages. | `just docs-build` |
+| `deploy-docs.yml` | Builds VitePress docs and deploys them to GitHub Pages. | `cd docs && npm ci && npm run docs:build` |
 
 ## Makefile Backend Gate
 

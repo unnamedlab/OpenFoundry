@@ -64,7 +64,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 | Path | Purpose |
 | --- | --- |
 | `Makefile` | Primary Go build/test/generate/lint/CI command surface. |
-| `justfile` | Cross-cutting developer recipes for frontend, docs, infra, proto, smoke, benchmarks, and legacy parity gates. |
+| `justfile` | Legacy helper recipes; many backend entries still reference the retired Rust/Cargo workspace. Prefer `Makefile`, root `pnpm` scripts, direct `docker compose -f infra/compose/...`, and explicit scripts under `infra/scripts` for current work. |
 | `tools/of-cli` | Generation, smoke, benchmarks, mock providers, and related platform tooling. |
 | `smoke/scenarios` | Scenario-driven smoke definitions. |
 | `benchmarks/scenarios` | Benchmark definitions. |
@@ -74,7 +74,7 @@ Use this page when you need to quickly answer â€œwhere should this change live?â
 
 | Path | Purpose |
 | --- | --- |
-| `compose.yaml` | Root local Compose entrypoint. |
+| `compose.yaml` | Legacy root Compose entrypoint that still points at the old `infra/docker-compose.yml` path; prefer explicit `infra/compose` files until corrected. |
 | `infra/compose` | Compose overlays, local assets, init scripts, and Nginx support. |
 | `infra/helm` | Split Helm charts for apps, docs, infra, operators, shared templates, and profiles. |
 | `infra/terraform` | Terraform modules and generated/provider schema outputs. |

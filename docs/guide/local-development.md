@@ -9,7 +9,7 @@ This page describes the fastest reliable paths for working in the current OpenFo
 - pnpm `9+`.
 - Docker and Docker Compose for integration tests and local infrastructure.
 - `make` for the primary backend command surface.
-- `just` for broad repo workflows such as frontend, docs, infra, smoke, and benchmark recipes.
+- Docker Compose v2 for local infrastructure.
 
 Optional but useful for specialized flows:
 
@@ -78,28 +78,37 @@ make gen-sqlc
 
 ## Full Local Stack
 
-Use this when you need infra, backend services, and the web app together:
+Use Docker Compose profiles when you need backing services plus a bounded set of containerized application services. The current Compose source of truth is `infra/compose/docker-compose.yml`, with optional local overrides in `infra/compose/docker-compose.dev.yml`:
 
 ```bash
-just dev-stack
+docker compose \
+  -f infra/compose/docker-compose.yml \
+  -f infra/compose/docker-compose.dev.yml \
+  --profile foundation \
+  up -d
 ```
 
-There is also a faster path when dependencies are already running and binaries/assets are already prepared:
+Use `--profile edge` when you need the cumulative stack including gateway, web, and the nginx app facade. See the dev-stack page for the full profile map.
 
-```bash
-just dev-stack-fast
-```
+For host-run manual verification, `infra/scripts/dev-stack.sh` still exists and handles port selection, `.openfoundry/dev-stack.env`, Compose infrastructure, selected service binaries, and the web app. Treat that script as a convenience wrapper rather than the authoritative command surface.
 
 ## Infrastructure Only
 
-Use this when you only need backing services such as Postgres, Redis, NATS, MinIO, or search infrastructure:
+Use this when you only need backing services such as Postgres, Valkey, NATS, MinIO, Cassandra, Kafka, OpenSearch, Vespa, Debezium, or Apicurio:
 
 ```bash
-just infra-up
-just infra-down
+docker compose \
+  -f infra/compose/docker-compose.yml \
+  -f infra/compose/docker-compose.dev.yml \
+  up -d
+
+docker compose \
+  -f infra/compose/docker-compose.yml \
+  -f infra/compose/docker-compose.dev.yml \
+  down
 ```
 
-The root `compose.yaml` is the local entrypoint, while supporting Compose assets live under `infra/compose`.
+The root `compose.yaml` still points at the legacy `infra/docker-compose.yml` location, so prefer explicit `-f infra/compose/...` flags until that entrypoint is corrected.
 
 ## Frontend Iteration
 
@@ -128,14 +137,6 @@ The frontend is React + Vite. Its source is under `apps/web/src`, with generated
 The docs site is isolated under `docs/` and powered by VitePress:
 
 ```bash
-just docs-install
-just docs-dev
-just docs-build
-```
-
-If you prefer to work directly inside the docs package:
-
-```bash
 cd docs
 npm ci
 npm run docs:dev
@@ -149,7 +150,7 @@ The repo is designed around service isolation rather than a single shared applic
 Common supporting infrastructure includes:
 
 - Postgres-compatible databases for service persistence.
-- Redis/Valkey for caching and stateful coordination.
+- Valkey for caching and stateful coordination.
 - NATS and Kafka-compatible paths for control-plane and data-plane messaging.
 - MinIO or another object-store-compatible backend.
 - Search/vector infrastructure through the shared search and vector abstractions.
@@ -168,11 +169,7 @@ Common supporting infrastructure includes:
 | Run Go lint | `make lint` |
 | Format Go code | `make fmt` |
 | Run Go local CI gate | `make ci` |
-| Validate proto contracts | `just proto-lint` |
-| Validate OpenAPI drift | `just openapi-check` |
-| Validate TypeScript SDK drift | `just sdk-typescript-check` |
-| Export Terraform schema | `just terraform-schema` |
-| Run smoke suite | `just smoke` |
-| Run benchmark suite | `just bench-critical-paths` |
-| Run frontend CI locally | `just ci-frontend` |
-| Build docs | `just docs-build` |
+| Validate proto contracts | `buf lint proto` |
+| Run smoke wrapper | `./infra/scripts/smoke.sh` |
+| Run frontend CI locally | `pnpm lint && pnpm check && pnpm test:unit && pnpm build` |
+| Build docs | `cd docs && npm ci && npm run docs:build` |

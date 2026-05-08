@@ -45,9 +45,9 @@ OpenFoundry/
 ├── tools/                      # repository maintenance and audit utilities
 ├── go.mod                      # single Go module for backend/tooling
 ├── Makefile                    # primary Go build/test/generate/lint surface
-├── justfile                    # broader contributor recipes
+├── justfile                    # legacy helper recipes; prefer make/pnpm/current scripts
 ├── package.json                # root Node workspace scripts
-└── compose.yaml                # local Compose entrypoint
+└── compose.yaml                # legacy root Compose shim; use infra/compose files directly
 ```
 
 For a fuller map, see [`docs/guide/repository-map.md`](docs/guide/repository-map.md)
@@ -63,7 +63,7 @@ and [`docs/reference/repository-layout.md`](docs/reference/repository-layout.md)
 | API contracts | `proto/*`, generated Go under `libs/proto-gen`, generated OpenAPI under `apps/web/public/generated/openapi` |
 | SDKs | `sdks/typescript`, `sdks/python`, `sdks/java` |
 | Python runtime | `python/openfoundry_pyruntime` |
-| Infrastructure | `compose.yaml`, `infra/compose`, `infra/helm`, `infra/terraform`, `infra/observability` |
+| Infrastructure | `infra/compose`, `infra/helm`, `infra/terraform`, `infra/observability`; `compose.yaml` is a legacy shim pending path correction |
 | Technical docs | `docs/` VitePress site |
 | Smoke and benchmark coverage | `smoke/` and `benchmarks/` |
 
@@ -138,7 +138,7 @@ pnpm --dir docs docs:build
   `libs/authz-cedar-go`.
 - Public contract shape: `proto/`, `libs/proto-gen`, generated OpenAPI, and SDK
   generation flows together.
-- Deployment or operations: `infra/`, `compose.yaml`, service Dockerfiles, and
+- Deployment or operations: `infra/`, explicit Compose files under `infra/compose`, service Dockerfiles, and
   `.github/workflows/*`.
 
 ## Documentation roadmap for this cleanup

@@ -10,7 +10,7 @@ OpenFoundry is organized as a Go-first platform monorepo with clear directory-le
 | `services/*` | Go microservices. Each service has one or more `cmd/<binary>/main.go` entrypoints plus service-local `internal/` packages. |
 | `libs/*` | Shared Go packages for kernels, middleware, eventing, storage, observability, schedulers, SDK support, and test helpers. |
 | `proto/*` | Canonical protobuf contracts grouped by domain, with Buf configuration under `proto/` and root generation wiring in `buf.gen.yaml`. |
-| `tools/of-cli` | Go CLI for smoke execution, benchmarks, OpenAPI validation, SDK generation, and Terraform schema export. |
+| `tools/of-cli` | Go CLI for smoke execution, benchmarks, OpenAPI validation, SDK generation, and mock-provider support. |
 | `infra/*` | Docker Compose assets, Helm charts, Terraform modules/provider schema, observability assets, test tools, scripts, and operational runbooks. |
 | `sdks/*` | Generated SDK packages for TypeScript, Python, Java, and Python transform authoring. |
 | `smoke/*` | Critical-path end-to-end scenarios used to validate real platform flows. |
@@ -27,12 +27,12 @@ OpenFoundry is organized as a Go-first platform monorepo with clear directory-le
 | --- | --- |
 | `go.mod` / `go.sum` | Single Go module for the whole backend/tooling monorepo: `github.com/openfoundry/openfoundry-go`. |
 | `Makefile` | Primary Go command surface for tools, generation, build, test, lint, format, tidy, vet, and the composite CI gate. |
-| `justfile` | Broad contributor command surface for historical Rust parity gates, frontend, docs, proto, infra, smoke, and benchmarks. Prefer `make` for Go backend work. |
+| `justfile` | Legacy helper recipes. Many backend recipes still reference Cargo/Rust, so prefer `make`, root `pnpm` scripts, direct `docker compose -f infra/compose/...`, and scripts under `infra/scripts`. |
 | `package.json` / `pnpm-lock.yaml` / `pnpm-workspace.yaml` | Root Node workspace and scripts that delegate frontend commands to `apps/web`. |
 | `buf.gen.yaml` | Root Buf generation pipeline that emits Go protobuf code into `libs/proto-gen`. |
 | `proto/buf.yaml` / `proto/buf.lock` / `proto/buf.gen.yaml` | Protobuf lint, dependency, and domain-local generation inputs. |
 | `sqlc.yaml` | SQLC generation configuration for type-safe database access. |
-| `compose.yaml` | Root local Compose entrypoint; additional Compose assets live under `infra/compose`. |
+| `compose.yaml` | Legacy root Compose entrypoint that still points at `infra/docker-compose.yml`; use explicit `infra/compose/docker-compose.yml` and `infra/compose/docker-compose.dev.yml` flags until corrected. |
 | `.env.example` | Example environment values for local development. |
 
 ## Current Code Shape
@@ -61,4 +61,4 @@ The repository produces more than one artifact:
 - If it affects ontology, objects, actions, search, or function runtime behavior, inspect `libs/ontology-kernel` and the ontology service handlers together.
 - If it affects identity or policy behavior, inspect `services/identity-federation-service`, `services/authorization-policy-service`, `libs/auth-middleware`, and `libs/authz-cedar-go`.
 - If it changes public contract shape, inspect `proto/`, `libs/proto-gen`, generated OpenAPI, and SDK flows together.
-- If it changes deployability, inspect `infra/`, `compose.yaml`, service Dockerfiles, and the relevant workflow under `.github/workflows/`.
+- If it changes deployability, inspect `infra/`, explicit Compose files under `infra/compose`, service Dockerfiles, and the relevant workflow under `.github/workflows/`.
