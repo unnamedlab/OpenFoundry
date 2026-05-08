@@ -71,7 +71,20 @@ func FromEnv() (*Config, error) {
 	cfg.RetryMaxBackoff = parseDuration(os.Getenv("INDEXER_RETRY_MAX_BACKOFF"), 2*time.Second)
 	cfg.DLQTopic = parseDLQTopic(os.Getenv("INDEXER_DLQ_TOPIC"), "ontology-indexer.dlq.v1")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	if err := cfg.validateRequiredEnv(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+func (cfg *Config) validateRequiredEnv() error {
+	if strings.TrimSpace(cfg.KafkaBootstrap) == "" {
+		return &MissingEnvError{Key: "KAFKA_BOOTSTRAP_SERVERS"}
+	}
+	if strings.TrimSpace(cfg.SearchEndpoint) == "" {
+		return &MissingEnvError{Key: "SEARCH_ENDPOINT"}
+	}
+	return nil
 }
 
 type MissingEnvError struct{ Key string }

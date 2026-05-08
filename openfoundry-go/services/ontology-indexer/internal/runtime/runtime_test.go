@@ -129,6 +129,27 @@ func TestRedactedEndpoint(t *testing.T) {
 	assert.Equal(t, "***@vespa.local:8080", redactedEndpoint("https://user:pass@vespa.local:8080"))
 }
 
+func TestRunWithReaderHappyPathFakeReaderAndBackend(t *testing.T) {
+	cfg := testConfig()
+	reader := &fakeReader{messages: []KafkaMessage{{Topic: TopicObjectChangedV1, Offset: 9, Value: mustJSON(t, map[string]any{
+		"tenant": "acme", "id": "obj-happy", "type_id": "Aircraft", "version": 1, "payload": map[string]any{"tail_number": "HF-001"},
+	})}}}
+	backend := &fakeBackend{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- RunWithReader(ctx, cfg, discardLog(), reader, backend) }()
+	require.Eventually(t, func() bool { return len(reader.committed) == 1 }, time.Second, 10*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	assert.Equal(t, SubscribeTopics, reader.topics)
+	assert.True(t, reader.closed)
+	require.Len(t, backend.indexed, 1)
+	assert.Equal(t, repos.ObjectId("obj-happy"), backend.indexed[0].ID)
+	assert.Len(t, reader.committed, 1)
+}
+
 func TestRunWithReaderObjectUpsertCommitsAfterIndex(t *testing.T) {
 	cfg := testConfig()
 	reader := &fakeReader{messages: []KafkaMessage{{Topic: TopicObjectChangedV1, Offset: 10, Value: mustJSON(t, map[string]any{

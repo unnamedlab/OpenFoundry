@@ -3,11 +3,10 @@
 // projects ontology objects + links into the configured search
 // backend (Vespa / OpenSearch).
 //
-// Foundation slice scope: skeleton + ops HTTP surface (/healthz,
-// /metrics) + stub runtime that boots cleanly without a Kafka
-// bootstrap or search endpoint configured. The kafka-go consumer
-// and libs/search-abstraction-go SearchBackend port land in
-// follow-up slices.
+// Runtime slice: ops HTTP surface (/healthz, /metrics) plus the
+// Kafka consumer and configured SearchBackend projection loop. Startup
+// requires Kafka bootstrap servers and a search endpoint so missing
+// infrastructure is surfaced before the worker begins consuming.
 package main
 
 import (

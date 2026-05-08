@@ -18,15 +18,16 @@ func TestBackendKindFromEnv(t *testing.T) {
 }
 
 func TestFromEnvDefaults(t *testing.T) {
+	setRequiredEnv(t)
 	t.Setenv("HOST", "")
 	t.Setenv("PORT", "")
 	t.Setenv("SEARCH_BACKEND", "")
-	t.Setenv("SEARCH_ENDPOINT", "")
+	t.Setenv("SEARCH_ENDPOINT", "http://search.local")
 	t.Setenv("SEARCH_USERNAME", "")
 	t.Setenv("SEARCH_PASSWORD", "")
 	t.Setenv("SEARCH_BEARER_TOKEN", "")
 	t.Setenv("SEARCH_API_KEY", "")
-	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "")
+	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 	t.Setenv("KAFKA_CONSUMER_GROUP", "")
 	t.Setenv("METRICS_ADDR", "")
 	t.Setenv("INDEXER_RETRY_MAX_ATTEMPTS", "")
@@ -40,6 +41,8 @@ func TestFromEnvDefaults(t *testing.T) {
 	assert.Equal(t, "0.0.0.0", cfg.Server.Host)
 	assert.Equal(t, uint16(50124), cfg.Server.Port)
 	assert.Equal(t, BackendVespa, cfg.BackendKind)
+	assert.Equal(t, "http://search.local", cfg.SearchEndpoint)
+	assert.Equal(t, "kafka:9092", cfg.KafkaBootstrap)
 	assert.Empty(t, cfg.SearchUsername)
 	assert.Empty(t, cfg.SearchPassword)
 	assert.Empty(t, cfg.SearchBearerToken)
@@ -53,6 +56,7 @@ func TestFromEnvDefaults(t *testing.T) {
 }
 
 func TestFromEnvSearchAuthConfig(t *testing.T) {
+	setRequiredEnv(t)
 	t.Setenv("SEARCH_USERNAME", "user")
 	t.Setenv("SEARCH_PASSWORD", "pass")
 	t.Setenv("SEARCH_BEARER_TOKEN", "bearer")
@@ -67,6 +71,7 @@ func TestFromEnvSearchAuthConfig(t *testing.T) {
 }
 
 func TestFromEnvRetryConfig(t *testing.T) {
+	setRequiredEnv(t)
 	t.Setenv("INDEXER_RETRY_MAX_ATTEMPTS", "5")
 	t.Setenv("INDEXER_RETRY_INITIAL_BACKOFF", "25ms")
 	t.Setenv("INDEXER_RETRY_MAX_BACKOFF", "1s")
@@ -81,9 +86,42 @@ func TestFromEnvRetryConfig(t *testing.T) {
 }
 
 func TestFromEnvDisablesDLQ(t *testing.T) {
+	setRequiredEnv(t)
 	t.Setenv("INDEXER_DLQ_TOPIC", "off")
 
 	cfg, err := FromEnv()
 	assert.NoError(t, err)
 	assert.Empty(t, cfg.DLQTopic)
+}
+
+func TestFromEnvRequiresRuntimeEndpoints(t *testing.T) {
+	t.Run("missing kafka bootstrap", func(t *testing.T) {
+		t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "")
+		t.Setenv("SEARCH_ENDPOINT", "http://search.local")
+
+		cfg, err := FromEnv()
+
+		assert.Nil(t, cfg)
+		assert.Error(t, err)
+		assert.True(t, IsMissingEnv(err))
+		assert.Contains(t, err.Error(), "KAFKA_BOOTSTRAP_SERVERS")
+	})
+
+	t.Run("missing search endpoint", func(t *testing.T) {
+		t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+		t.Setenv("SEARCH_ENDPOINT", "")
+
+		cfg, err := FromEnv()
+
+		assert.Nil(t, cfg)
+		assert.Error(t, err)
+		assert.True(t, IsMissingEnv(err))
+		assert.Contains(t, err.Error(), "SEARCH_ENDPOINT")
+	})
+}
+
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+	t.Setenv("SEARCH_ENDPOINT", "http://search.local")
 }
