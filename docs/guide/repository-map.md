@@ -1,49 +1,64 @@
 # Repository Map
 
-OpenFoundry is organized as a platform monorepo with clear directory-level ownership boundaries.
+OpenFoundry is organized as a Go-first platform monorepo with clear directory-level ownership boundaries. The repository still carries migration and parity documentation from the Rust-era codebase, but the runnable source tree is now the single Go module rooted at `go.mod`.
 
 ## Top-Level Layout
 
 | Path | Role |
 | --- | --- |
-| `apps/web` | SvelteKit frontend and product UI routes. |
-| `services/*` | Rust microservices, one crate per service, each with its own `Cargo.toml` and Dockerfile. |
-| `libs/*` | Shared Rust crates such as auth middleware, event bus, vector store, and testing helpers. |
-| `proto/*` | Protobuf contracts grouped by domain, plus Buf configuration. |
-| `tools/of-cli` | CLI for smoke execution, benchmarks, OpenAPI validation, SDK generation, and Terraform schema export. |
-| `infra/*` | Docker Compose, Helm, Terraform, backup scripts, and operational runbooks. |
-| `sdks/*` | Generated SDKs for TypeScript, Python, and Java. |
+| `apps/web` | React 19 + Vite frontend and product UI routes. Root `pnpm` scripts delegate here through the `@open-foundry/web` package. |
+| `services/*` | Go microservices. Each service has one or more `cmd/<binary>/main.go` entrypoints plus service-local `internal/` packages. |
+| `libs/*` | Shared Go packages for kernels, middleware, eventing, storage, observability, schedulers, SDK support, and test helpers. |
+| `proto/*` | Canonical protobuf contracts grouped by domain, with Buf configuration under `proto/` and root generation wiring in `buf.gen.yaml`. |
+| `tools/of-cli` | Go CLI for smoke execution, benchmarks, OpenAPI validation, SDK generation, and Terraform schema export. |
+| `infra/*` | Docker Compose assets, Helm charts, Terraform modules/provider schema, observability assets, test tools, scripts, and operational runbooks. |
+| `sdks/*` | Generated SDK packages for TypeScript, Python, Java, and Python transform authoring. |
 | `smoke/*` | Critical-path end-to-end scenarios used to validate real platform flows. |
-| `benchmarks/*` | Reproducible benchmark scenarios and results. |
-| `images/*` | Shared repo imagery used by README and related materials. |
-| `.github/workflows/*` | CI, release, packaging, security, and docs automation. |
+| `benchmarks/*` | Reproducible benchmark scenarios, runbooks, and result outputs. |
+| `python/*` | Python runtime package used by Python sidecar and authoring/runtime flows. |
+| `docs/*` | VitePress technical documentation site. |
+| `PoC/*` | Spanish proof-of-concept walkthrough and demo preparation material. |
+| `Good-practices-architecture/*` | Architecture review checklists and supporting governance notes. |
+| `.github/workflows/*` | CI, release, packaging, security, infra, integration, and docs automation. |
 
 ## Workspace Control Files
 
 | File | Purpose |
 | --- | --- |
-| `Cargo.toml` | Root Rust workspace definition for libs, services, and tooling crates. |
-| `Cargo.lock` | Locked Rust dependency graph used by CI and release flows. |
-| `package.json` | Root Node scripts that delegate to the web app. |
-| `pnpm-workspace.yaml` | Current pnpm workspace definition for `apps/*`. |
-| `justfile` | Contributor command surface for build, test, proto, infra, smoke, and frontend tasks. |
-| `.gitignore` | Keeps generated local artifacts out of version control while preserving checked-in generated specs. |
+| `go.mod` / `go.sum` | Single Go module for the whole backend/tooling monorepo: `github.com/openfoundry/openfoundry-go`. |
+| `Makefile` | Primary Go command surface for tools, generation, build, test, lint, format, tidy, vet, and the composite CI gate. |
+| `justfile` | Broad contributor command surface for historical Rust parity gates, frontend, docs, proto, infra, smoke, and benchmarks. Prefer `make` for Go backend work. |
+| `package.json` / `pnpm-lock.yaml` / `pnpm-workspace.yaml` | Root Node workspace and scripts that delegate frontend commands to `apps/web`. |
+| `buf.gen.yaml` | Root Buf generation pipeline that emits Go protobuf code into `libs/proto-gen`. |
+| `proto/buf.yaml` / `proto/buf.lock` / `proto/buf.gen.yaml` | Protobuf lint, dependency, and domain-local generation inputs. |
+| `sqlc.yaml` | SQLC generation configuration for type-safe database access. |
+| `compose.yaml` | Root local Compose entrypoint; additional Compose assets live under `infra/compose`. |
+| `.env.example` | Example environment values for local development. |
+
+## Current Code Shape
+
+- The repo currently has 41 service directories under `services/` and 42 service command entrypoints because `workflow-automation-service` also ships the `approvals-timeout-sweep` command.
+- The repo currently has 32 shared library directories under `libs/`.
+- `go list ./...` discovers hundreds of packages across services, shared libraries, tooling, and a vendored-looking Go package inside `apps/web/node_modules`; when running Go-wide checks, use the Makefile targets so the command shape stays consistent with CI intent.
+- There are no `Cargo.toml` files in the active source tree; docs that mention Cargo/Rust service crates are migration-era or parity references unless they explicitly describe legacy decisions.
 
 ## Delivery Surfaces
 
 The repository produces more than one artifact:
 
-- frontend bundles from `apps/web`
-- Rust binaries from `services/*` and `tools/of-cli`
-- Docker images from service-specific Dockerfiles
-- generated OpenAPI, SDK, and Terraform schema artifacts
-- Helm templates and Terraform modules
-- GitHub Pages output from `docs/`
+- Go binaries from `services/*/cmd/*` and `tools/of-cli`.
+- Frontend bundles from `apps/web`.
+- Docker images from service-specific Dockerfiles and shared infra workflows.
+- Generated protobuf Go packages under `libs/proto-gen`.
+- Generated OpenAPI, SDK, and Terraform schema artifacts for UI, SDK, and provider consumers.
+- Helm templates, Terraform modules, Compose profiles, and operational runbooks under `infra/`.
+- GitHub Pages output from the VitePress docs site under `docs/`.
 
 ## Where To Look First
 
-- If the change is product UI or navigation related, start in `apps/web/src/routes`.
-- If it is API or service behavior, start in the matching folder under `services/`.
-- If it affects a shared concern, inspect `libs/` before duplicating logic.
-- If it changes public contract shape, inspect `proto/`, generated OpenAPI, and SDK flows together.
-- If it changes deployability, inspect `infra/` and the relevant workflow under `.github/workflows/`.
+- If the change is product UI, routing, or frontend state, start in `apps/web/src`.
+- If it is API or service behavior, start in the matching folder under `services/` and then inspect shared packages under `libs/` before duplicating logic.
+- If it affects ontology, objects, actions, search, or function runtime behavior, inspect `libs/ontology-kernel` and the ontology service handlers together.
+- If it affects identity or policy behavior, inspect `services/identity-federation-service`, `services/authorization-policy-service`, `libs/auth-middleware`, and `libs/authz-cedar-go`.
+- If it changes public contract shape, inspect `proto/`, `libs/proto-gen`, generated OpenAPI, and SDK flows together.
+- If it changes deployability, inspect `infra/`, `compose.yaml`, service Dockerfiles, and the relevant workflow under `.github/workflows/`.
