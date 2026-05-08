@@ -60,7 +60,7 @@ func TestCatalogContainsAllRustKeys(t *testing.T) {
 
 func TestImageHandlersAreNative(t *testing.T) {
 	t.Parallel()
-	for _, k := range []string{"thumbnail", "resize", "resize_within_bounding_box", "rotate", "crop", "grayscale"} {
+	for _, k := range []string{"thumbnail", "resize", "resize_within_bounding_box", "rotate", "crop", "grayscale", "geo_tile", "render_sheet"} {
 		s, ok := Lookup(k)
 		require.True(t, ok)
 		assert.Equal(t, StatusNative, s.Kind, "%s should be native in Go (matches Rust)", k)
@@ -86,15 +86,13 @@ func TestExternalBinariesPreserved(t *testing.T) {
 	}
 }
 
-func TestRustNotImplementedEntriesPreserved(t *testing.T) {
+func TestRemainingRustNotImplementedEntriesPreserved(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"geo_tile":        "Geo tile pyramids land in the geospatial-intelligence-service follow-up.",
 		"embedding":       "Image embeddings depend on libs/ai-kernel which is not yet wired.",
 		"transcription":   "Transcription depends on libs/ai-kernel (Whisper / VLM) which is not yet wired.",
 		"layout_aware_v2": "Layout-aware extraction depends on libs/ai-kernel which is not yet wired.",
 		"vlm_extract":     "VLM extraction depends on libs/ai-kernel which is not yet wired.",
-		"render_sheet":    "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.",
 	}
 	for key, wantReason := range cases {
 		key, wantReason := key, wantReason
@@ -102,7 +100,7 @@ func TestRustNotImplementedEntriesPreserved(t *testing.T) {
 			t.Parallel()
 			status, ok := Lookup(key)
 			require.True(t, ok, "missing key %q", key)
-			assert.Equal(t, StatusNotImplemented, status.Kind, "%s must stay NotImplemented to match Rust", key)
+			assert.Equal(t, StatusNotImplemented, status.Kind, "%s must stay NotImplemented until its adapter is wired", key)
 			assert.Equal(t, wantReason, status.Reason, "%s reason must match Rust catalog.rs verbatim", key)
 			assert.Empty(t, status.Binary, "%s must not be marked external/native unless Rust wires a real handler", key)
 		})

@@ -362,6 +362,10 @@ func Dispatch(kind, mime string, params json.RawMessage, src []byte) (HandlerOut
 		return Crop(mime, params, src)
 	case "grayscale":
 		return Grayscale(mime, src)
+	case "geo_tile":
+		return GeoTile(mime, params, src)
+	case "render_sheet":
+		return RenderSheet(mime, params, src)
 	default:
 		return HandlerOutput{}, invalidParams(kind, "no native handler — caller should not have reached Dispatch()")
 	}

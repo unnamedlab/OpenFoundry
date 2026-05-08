@@ -123,12 +123,10 @@ func TestTransformRustNotImplementedEntriesReturnParityEnvelope(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cases := map[string]string{
-		"geo_tile":        "Geo tile pyramids land in the geospatial-intelligence-service follow-up.",
 		"embedding":       "Image embeddings depend on libs/ai-kernel which is not yet wired.",
 		"transcription":   "Transcription depends on libs/ai-kernel (Whisper / VLM) which is not yet wired.",
 		"layout_aware_v2": "Layout-aware extraction depends on libs/ai-kernel which is not yet wired.",
 		"vlm_extract":     "VLM extraction depends on libs/ai-kernel which is not yet wired.",
-		"render_sheet":    "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.",
 	}
 	for kind, wantReason := range cases {
 		kind, wantReason := kind, wantReason
@@ -234,4 +232,63 @@ func TestTransformBadJSONIs400(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Equal(t, runtime.CodeBadInput, body["code"])
+}
+
+func TestTransformGeoTileReturnsPNGTile(t *testing.T) {
+	srv := newTestServer(t)
+	t.Cleanup(srv.Close)
+
+	src := makeSolidPNG(t, 64, 64, color.RGBA{R: 30, G: 60, B: 90, A: 255})
+	reqBody := `{
+		"kind": "geo_tile",
+		"mime_type": "image/png",
+		"schema": "IMAGE",
+		"params": {"media_set_rid":"ri.foundry.main.media_set.demo","z":0,"x":0,"y":0,"tile_size":16},
+		"bytes_base64": "` + base64.StdEncoding.EncodeToString(src) + `"
+	}`
+	resp, err := http.Post(srv.URL+"/transform", "application/json", strings.NewReader(reqBody))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Equal(t, "OK", out["status"])
+	assert.Equal(t, "geo_tile", out["kind"])
+	assert.Equal(t, "image/png", out["output_mime_type"])
+	require.NotEmpty(t, out["output_bytes_base64"])
+	decoded, err := base64.StdEncoding.DecodeString(out["output_bytes_base64"].(string))
+	require.NoError(t, err)
+	img, err := png.Decode(bytes.NewReader(decoded))
+	require.NoError(t, err)
+	assert.Equal(t, 16, img.Bounds().Dx())
+	assert.Equal(t, 16, img.Bounds().Dy())
+}
+
+func TestTransformRenderSheetReturnsJSONRows(t *testing.T) {
+	srv := newTestServer(t)
+	t.Cleanup(srv.Close)
+
+	src := []byte("name,total\nalpha,10\nbeta,20\n")
+	reqBody := `{
+		"kind": "render_sheet",
+		"mime_type": "text/csv",
+		"schema": "SPREADSHEET",
+		"params": {"sheet_name":"Revenue"},
+		"bytes_base64": "` + base64.StdEncoding.EncodeToString(src) + `"
+	}`
+	resp, err := http.Post(srv.URL+"/transform", "application/json", strings.NewReader(reqBody))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Equal(t, "OK", out["status"])
+	assert.Equal(t, "render_sheet", out["kind"])
+	assert.Equal(t, "application/json", out["output_mime_type"])
+	jsonOut := out["output_json"].(map[string]any)
+	assert.Equal(t, "Revenue", jsonOut["sheet_name"])
+	assert.Equal(t, float64(2), jsonOut["row_count"])
+	assert.Contains(t, jsonOut["html"], `<table data-sheet="Revenue">`)
 }

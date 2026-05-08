@@ -247,3 +247,47 @@ func TestWebPRoundTrip(t *testing.T) {
 	assert.Equal(t, 4, roundTrip.Bounds().Dx())
 	assert.Equal(t, 4, roundTrip.Bounds().Dy())
 }
+
+func TestGeoTileRendersPNGTile(t *testing.T) {
+	t.Parallel()
+	src := makePNG(t, 64, 64, color.RGBA{R: 20, G: 80, B: 160, A: 255})
+	out, err := GeoTile("image/png", json.RawMessage(`{"media_set_rid":"ri.foundry.main.media_set.demo","z":1,"x":1,"y":1,"tile_size":32}`), src)
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", out.OutputMimeType)
+	img := decodePNG(t, out.OutputBytes)
+	assert.Equal(t, 32, img.Bounds().Dx())
+	assert.Equal(t, 32, img.Bounds().Dy())
+	meta := out.OutputJSON.(GeoTileMetadata)
+	assert.Equal(t, uint8(1), meta.Coord.Z)
+	assert.Equal(t, "/tiles/ri.foundry.main.media_set.demo/1/1/1.png", meta.TilePath)
+}
+
+func TestGeoTileMetadataWithoutBytes(t *testing.T) {
+	t.Parallel()
+	out, err := GeoTile("image/png", json.RawMessage(`{"media_set_rid":"ri.foundry.main.media_set.demo"}`), nil)
+	require.NoError(t, err)
+	assert.Equal(t, "application/json", out.OutputMimeType)
+	assert.Nil(t, out.OutputBytes)
+	meta := out.OutputJSON.(GeoTileMetadata)
+	assert.Equal(t, "/tiles/ri.foundry.main.media_set.demo/{z}/{x}/{y}.png", meta.Descriptor.TileURLTemplate)
+}
+
+func TestRenderSheetCSVProducesRowsAndHTML(t *testing.T) {
+	t.Parallel()
+	out, err := RenderSheet("text/csv", json.RawMessage(`{"sheet_name":"Revenue"}`), []byte("city,total\nParis,10\nMadrid,12\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "application/json", out.OutputMimeType)
+	result := out.OutputJSON.(RenderSheetOutput)
+	assert.Equal(t, "Revenue", result.SheetName)
+	assert.Equal(t, 2, result.RowCount)
+	assert.Equal(t, 2, result.ColumnCount)
+	assert.Equal(t, "Paris", result.Rows[0]["city"])
+	assert.Contains(t, result.HTML, `<table data-sheet="Revenue">`)
+}
+
+func TestRenderSheetRejectsUnsupportedMime(t *testing.T) {
+	t.Parallel()
+	_, err := RenderSheet("application/octet-stream", nil, []byte("x"))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrUnsupportedMime))
+}

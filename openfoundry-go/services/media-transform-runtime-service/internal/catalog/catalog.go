@@ -109,7 +109,7 @@ var Catalog = []CatalogEntry{
 	{Key: "rotate", Status: native()},
 	{Key: "crop", Status: native()},
 	{Key: "grayscale", Status: native()},
-	{Key: "geo_tile", Status: notImplemented("Geo tile pyramids land in the geospatial-intelligence-service follow-up.")},
+	{Key: "geo_tile", Status: native()},
 	{Key: "render_dicom_image_layer", Status: external("dcmtk")},
 	{Key: "ocr", Status: external("tesseract")},
 	{Key: "embedding", Status: notImplemented("Image embeddings depend on libs/ai-kernel which is not yet wired.")},
@@ -143,7 +143,7 @@ var Catalog = []CatalogEntry{
 	{Key: "vlm_extract", Status: notImplemented("VLM extraction depends on libs/ai-kernel which is not yet wired.")},
 
 	// ── Spreadsheet ───────────────────────────────────────────────
-	{Key: "render_sheet", Status: notImplemented("Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.")},
+	{Key: "render_sheet", Status: native()},
 }
 
 // Lookup returns the status for a key, or (zero, false) if the key
