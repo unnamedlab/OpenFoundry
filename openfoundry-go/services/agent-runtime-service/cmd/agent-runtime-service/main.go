@@ -68,8 +68,15 @@ func main() {
 		log.Warn("KAFKA_BOOTSTRAP_SERVERS unset — ai.events.v1 producer wires in follow-up slice")
 	}
 
+	var purposeCheckpoint *authmw.PurposeCheckpointClient
+	if cfg.PurposeCheckpointURL != "" {
+		purposeCheckpoint = authmw.NewPurposeCheckpointClient(cfg.PurposeCheckpointURL)
+	} else {
+		log.Warn("AUTHORIZATION_POLICY_SERVICE_URL/PURPOSE_CHECKPOINT_URL unset — sensitive AI chat purpose checks are disabled")
+	}
+
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
-	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
+	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, PurposeCheckpoint: purposeCheckpoint}
 	metrics := observability.NewMetrics()
 
 	srv := server.New(cfg, jwt, h, metrics)

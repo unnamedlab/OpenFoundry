@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
 
 func TestCreateChatCompletionUsesRuntimeSuccess(t *testing.T) {
@@ -198,3 +199,77 @@ func TestCreateChatCompletionJSONContract(t *testing.T) {
 	assert.Equal(t, float32(0.1), runtime.Calls[0].Temperature)
 	assert.Equal(t, int32(64), runtime.Calls[0].MaxTokens)
 }
+
+func TestCreateChatCompletionPurposeCheckpointAllow(t *testing.T) {
+	t.Parallel()
+	var got struct {
+		InteractionType         string          `json:"interaction_type"`
+		PurposeJustification    *string         `json:"purpose_justification"`
+		RequestedPrivateNetwork bool            `json:"requested_private_network"`
+		Tags                    []string        `json:"tags"`
+		Evidence                json.RawMessage `json:"evidence"`
+	}
+	checkpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, authmw.PurposeCheckpointEnforcePath, r.URL.Path)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		_ = json.NewEncoder(w).Encode(authmw.PurposeCheckpointEvaluation{Approved: true, Status: "approved"})
+	}))
+	defer checkpoint.Close()
+
+	runtime := &llm.FakeRuntime{Result: llm.CompletionResult{Text: "allowed", TotalTokens: 1}}
+	h := &Handlers{Runtime: runtime, PurposeCheckpoint: authmw.NewPurposeCheckpointClient(checkpoint.URL)}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}],"require_private_network":true,"purpose_justification":"incident response"}`))
+	w := httptest.NewRecorder()
+
+	h.CreateChatCompletion(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, runtime.Calls, 1)
+	require.Equal(t, "ai_chat_completion", got.InteractionType)
+	require.NotNil(t, got.PurposeJustification)
+	assert.Equal(t, "incident response", *got.PurposeJustification)
+	assert.True(t, got.RequestedPrivateNetwork)
+	assert.Contains(t, got.Tags, "private-network")
+	assert.JSONEq(t, `{"network_scope":"public","provider_name":"agent-runtime-fake","service":"agent-runtime-service"}`, string(got.Evidence))
+}
+
+func TestCreateChatCompletionPurposeCheckpointDeny(t *testing.T) {
+	t.Parallel()
+	checkpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(authmw.PurposeCheckpointEvaluation{Approved: false, Status: "pending_justification", Reason: strPtr("purpose justification is required")})
+	}))
+	defer checkpoint.Close()
+
+	runtime := &llm.FakeRuntime{Result: llm.CompletionResult{Text: "should not run"}}
+	h := &Handlers{Runtime: runtime, PurposeCheckpoint: authmw.NewPurposeCheckpointClient(checkpoint.URL)}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}],"require_private_network":true}`))
+	w := httptest.NewRecorder()
+
+	h.CreateChatCompletion(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "purpose justification is required")
+	assert.Empty(t, runtime.Calls)
+}
+
+func TestCreateChatCompletionPurposeCheckpointServiceError(t *testing.T) {
+	t.Parallel()
+	checkpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "checkpoint unavailable", http.StatusBadGateway)
+	}))
+	defer checkpoint.Close()
+
+	runtime := &llm.FakeRuntime{Result: llm.CompletionResult{Text: "should not run"}}
+	h := &Handlers{Runtime: runtime, PurposeCheckpoint: authmw.NewPurposeCheckpointClient(checkpoint.URL)}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}],"require_private_network":true,"purpose_justification":"incident response"}`))
+	w := httptest.NewRecorder()
+
+	h.CreateChatCompletion(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "checkpoint unavailable")
+	assert.Empty(t, runtime.Calls)
+}
+
+func strPtr(value string) *string { return &value }

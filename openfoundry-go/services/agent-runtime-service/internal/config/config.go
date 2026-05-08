@@ -21,9 +21,10 @@ type Config struct {
 		Host string
 		Port uint16
 	}
-	DatabaseURL    string
-	JWTSecret      string
-	KafkaBootstrap string
+	DatabaseURL          string
+	JWTSecret            string
+	KafkaBootstrap       string
+	PurposeCheckpointURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -35,6 +36,10 @@ func FromEnv() (*Config, error) {
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
 	cfg.KafkaBootstrap = os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
+	cfg.PurposeCheckpointURL = firstNonEmpty(
+		os.Getenv("AUTHORIZATION_POLICY_SERVICE_URL"),
+		os.Getenv("PURPOSE_CHECKPOINT_URL"),
+	)
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}
 	}
@@ -68,4 +73,13 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
