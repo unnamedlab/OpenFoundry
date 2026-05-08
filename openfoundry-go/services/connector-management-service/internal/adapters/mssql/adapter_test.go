@@ -1,4 +1,4 @@
-package jdbc
+package mssql
 
 import (
 	"context"
@@ -16,73 +16,74 @@ import (
 
 func TestValidateConfigAcceptsInlineTableCatalog(t *testing.T) {
 	raw := json.RawMessage(`{
-		"jdbc_url": "jdbc:postgresql://warehouse.internal:5432/analytics",
-		"tables": [{"table": "analytics.orders", "sample_rows": [{"order_id": "ord-1"}]}]
+		"host": "sqlserver.internal",
+		"port": 1433,
+		"database": "analytics",
+		"tables": [{"table": "dbo.orders", "sample_rows": [{"order_id": "ord-1"}]}]
 	}`)
 	require.NoError(t, ValidateConfig(raw))
 }
 
 func TestValidateConfigRejectsBareConfig(t *testing.T) {
-	require.Error(t, ValidateConfig(json.RawMessage(`{"jdbc_url":"jdbc:postgresql://localhost/db"}`)))
+	require.Error(t, ValidateConfig(json.RawMessage(`{"host":"sqlserver.internal"}`)))
 }
 
-func TestValidateConfigRequiresJDBCURLForResourceTemplate(t *testing.T) {
+func TestValidateConfigRequiresHostForResourceTemplate(t *testing.T) {
 	raw := json.RawMessage(`{
-		"base_url": "https://jdbc-bridge.example.com/",
-		"resource_path_template": "/v1/jdbc/{jdbc_url}/tables/{selector}"
+		"base_url": "https://mssql-bridge.example.com/",
+		"resource_path_template": "/v1/mssql/{host}/tables/{selector}"
 	}`)
 	err := ValidateConfig(raw)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "jdbc_url")
+	require.Contains(t, err.Error(), "host")
 }
 
 func TestDiscoverSourcesReturnsInlineTables(t *testing.T) {
 	c := &models.Connection{Config: json.RawMessage(`{
-		"jdbc_url": "jdbc:postgresql://warehouse.internal:5432/analytics",
-		"tables": [{"table": "analytics.orders"}, {"table": "analytics.customers"}]
+		"host": "sqlserver.internal",
+		"tables": [{"table": "dbo.orders"}, {"table": "dbo.customers"}]
 	}`)}
 	sources, err := New().DiscoverSources(context.Background(), c, "")
 	require.NoError(t, err)
 	require.Len(t, sources, 2)
-	require.Equal(t, "analytics.orders", sources[0].Selector)
-	require.Equal(t, "jdbc_table", sources[0].SourceKind)
+	require.Equal(t, "dbo.orders", sources[0].Selector)
+	require.Equal(t, "mssql_table", sources[0].SourceKind)
 }
 
 func TestQueryVirtualTableServesInlineSampleRows(t *testing.T) {
 	c := &models.Connection{Config: json.RawMessage(`{
-		"jdbc_url": "jdbc:postgresql://warehouse.internal:5432/analytics",
+		"host": "sqlserver.internal",
 		"tables": [{
-			"table": "analytics.orders",
-			"sample_rows": [{"order_id": "ord-1"}]
+			"table": "dbo.orders",
+			"sample_rows": [{"order_id": "ord-1"}, {"order_id": "ord-2"}]
 		}]
 	}`)}
-	res, err := New().QueryVirtualTable(context.Background(), c, &adapters.Query{Selector: "analytics.orders"}, "")
+	limit := 1
+	res, err := New().QueryVirtualTable(context.Background(), c, &adapters.Query{Selector: "dbo.orders", Limit: &limit}, "")
 	require.NoError(t, err)
 	require.Equal(t, 1, res.RowCount)
 	require.JSONEq(t, `{"order_id":"ord-1"}`, string(res.Rows[0]))
 }
 
-func TestQueryVirtualTableFetchesRemoteResource(t *testing.T) {
+func TestDiscoverSourcesFetchesRemoteCatalog(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/tables/analytics.orders/preview", r.URL.Path)
-		_, _ = w.Write([]byte(`[{"order_id":"ord-1"},{"order_id":"ord-2"}]`))
+		require.Equal(t, "/catalog", r.URL.Path)
+		_, _ = w.Write([]byte(`{"items":[{"name":"dbo.orders","display_name":"Orders"}]}`))
 	}))
 	defer srv.Close()
 
 	a := New()
 	a.SetHTTPClient(srv.Client())
-	baseURL, err := json.Marshal(srv.URL + "/")
-	require.NoError(t, err)
 	c := &models.Connection{Config: json.RawMessage(`{
-		"jdbc_url": "jdbc:postgresql://warehouse.internal:5432/analytics",
-		"base_url": ` + string(baseURL) + `,
-		"resource_path_template": "/tables/{selector}/preview"
+		"host": "sqlserver.internal",
+		"base_url": ` + strconvQuote(srv.URL+"/") + `,
+		"catalog_path": "/catalog"
 	}`)}
-	limit := 1
-	res, err := a.QueryVirtualTable(context.Background(), c, &adapters.Query{Selector: "analytics.orders", Limit: &limit}, "")
+	sources, err := a.DiscoverSources(context.Background(), c, "")
 	require.NoError(t, err)
-	require.Equal(t, 1, res.RowCount)
-	require.JSONEq(t, `{"order_id":"ord-1"}`, string(res.Rows[0]))
+	require.Len(t, sources, 1)
+	require.Equal(t, "dbo.orders", sources[0].Selector)
+	require.Equal(t, "Orders", sources[0].DisplayName)
 }
 
 func TestStreamArrowReturnsNotImplemented(t *testing.T) {
@@ -100,4 +101,9 @@ func TestFactoryProducesFreshAdapter(t *testing.T) {
 	require.NotNil(t, a)
 	_, ok := a.(*Adapter)
 	require.True(t, ok)
+}
+
+func strconvQuote(s string) string {
+	encoded, _ := json.Marshal(s)
+	return string(encoded)
 }

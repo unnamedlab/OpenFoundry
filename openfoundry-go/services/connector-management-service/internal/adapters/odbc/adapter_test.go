@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,6 +58,29 @@ func TestQueryVirtualTableServesInlineSampleRows(t *testing.T) {
 	}`)}
 	limit := 1
 	res, err := New().QueryVirtualTable(context.Background(), c, &adapters.Query{Selector: "analytics.orders", Limit: &limit}, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, res.RowCount)
+	require.JSONEq(t, `{"order_id":"ord-1"}`, string(res.Rows[0]))
+}
+
+func TestQueryVirtualTableFetchesRemoteResource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/dsn/WarehouseDSN/tables/analytics.orders", r.URL.Path)
+		_, _ = w.Write([]byte(`[{"order_id":"ord-1"},{"order_id":"ord-2"}]`))
+	}))
+	defer srv.Close()
+
+	a := New()
+	a.SetHTTPClient(srv.Client())
+	baseURL, err := json.Marshal(srv.URL + "/")
+	require.NoError(t, err)
+	c := &models.Connection{Config: json.RawMessage(`{
+		"dsn": "WarehouseDSN",
+		"base_url": ` + string(baseURL) + `,
+		"resource_path_template": "/dsn/{dsn}/tables/{selector}"
+	}`)}
+	limit := 1
+	res, err := a.QueryVirtualTable(context.Background(), c, &adapters.Query{Selector: "analytics.orders", Limit: &limit}, "")
 	require.NoError(t, err)
 	require.Equal(t, 1, res.RowCount)
 	require.JSONEq(t, `{"order_id":"ord-1"}`, string(res.Rows[0]))

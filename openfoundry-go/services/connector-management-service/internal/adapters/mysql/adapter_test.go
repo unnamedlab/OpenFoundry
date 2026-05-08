@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -75,6 +77,29 @@ func TestQueryVirtualTableServesInlineSampleRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, res.RowCount)
 	require.JSONEq(t, `{"order_id":"ord-1"}`, string(res.Rows[0]))
+}
+
+func TestDiscoverSourcesFetchesRemoteCatalog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/catalog", r.URL.Path)
+		_, _ = w.Write([]byte(`{"items":[{"name":"analytics.orders","display_name":"Orders"}]}`))
+	}))
+	defer srv.Close()
+
+	a := New()
+	a.SetHTTPClient(srv.Client())
+	baseURL, err := json.Marshal(srv.URL + "/")
+	require.NoError(t, err)
+	c := &models.Connection{Config: json.RawMessage(`{
+		"host": "mysql.internal",
+		"base_url": ` + string(baseURL) + `,
+		"catalog_path": "/catalog"
+	}`)}
+	sources, err := a.DiscoverSources(context.Background(), c, "")
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+	require.Equal(t, "analytics.orders", sources[0].Selector)
+	require.Equal(t, "Orders", sources[0].DisplayName)
 }
 
 func TestStreamArrowReturnsNotImplemented(t *testing.T) {
