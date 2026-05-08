@@ -362,6 +362,14 @@ func Dispatch(kind, mime string, params json.RawMessage, src []byte) (HandlerOut
 		return Crop(mime, params, src)
 	case "grayscale":
 		return Grayscale(mime, src)
+	case "embedding":
+		return Embedding(mime, params, src)
+	case "transcription":
+		return Transcription(mime, params, src)
+	case "layout_aware_v2":
+		return LayoutAwareV2(mime, params, src)
+	case "vlm_extract":
+		return VLMExtract(mime, params, src)
 	default:
 		return HandlerOutput{}, invalidParams(kind, "no native handler — caller should not have reached Dispatch()")
 	}

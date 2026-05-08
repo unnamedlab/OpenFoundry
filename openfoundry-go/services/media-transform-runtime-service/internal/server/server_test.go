@@ -123,12 +123,8 @@ func TestTransformRustNotImplementedEntriesReturnParityEnvelope(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cases := map[string]string{
-		"geo_tile":        "Geo tile pyramids land in the geospatial-intelligence-service follow-up.",
-		"embedding":       "Image embeddings depend on libs/ai-kernel which is not yet wired.",
-		"transcription":   "Transcription depends on libs/ai-kernel (Whisper / VLM) which is not yet wired.",
-		"layout_aware_v2": "Layout-aware extraction depends on libs/ai-kernel which is not yet wired.",
-		"vlm_extract":     "VLM extraction depends on libs/ai-kernel which is not yet wired.",
-		"render_sheet":    "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.",
+		"geo_tile":     "Geo tile pyramids land in the geospatial-intelligence-service follow-up.",
+		"render_sheet": "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.",
 	}
 	for kind, wantReason := range cases {
 		kind, wantReason := kind, wantReason
@@ -148,6 +144,48 @@ func TestTransformRustNotImplementedEntriesReturnParityEnvelope(t *testing.T) {
 			assert.Equal(t, wantReason, out["reason"])
 			assert.NotContains(t, out, "output_bytes_base64")
 			assert.NotContains(t, out, "output_json")
+		})
+	}
+}
+
+func TestTransformAIBackedEntriesReturnJSON(t *testing.T) {
+	srv := newTestServer(t)
+	t.Cleanup(srv.Close)
+
+	cases := []struct {
+		kind string
+		mime string
+		want string
+	}{
+		{kind: "embedding", mime: "image/png", want: "embedding"},
+		{kind: "transcription", mime: "audio/wav", want: "text"},
+		{kind: "layout_aware_v2", mime: "application/pdf", want: "pages"},
+		{kind: "vlm_extract", mime: "application/pdf", want: "text"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			body := `{
+				"kind": "` + tc.kind + `",
+				"mime_type": "` + tc.mime + `",
+				"schema": "DOCUMENT",
+				"params": {"prompt":"extract"},
+				"bytes_base64": "` + base64.StdEncoding.EncodeToString([]byte("hello world")) + `"
+			}`
+			resp, err := http.Post(srv.URL+"/transform", "application/json", strings.NewReader(body))
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			assert.Equal(t, "OK", out["status"])
+			assert.Equal(t, tc.kind, out["kind"])
+			assert.Equal(t, "application/json", out["output_mime_type"])
+			assert.GreaterOrEqual(t, out["compute_seconds"].(float64), float64(1))
+			payload := out["output_json"].(map[string]any)
+			assert.Contains(t, payload, tc.want)
+			assert.NotContains(t, out, "reason")
+			assert.NotContains(t, out, "output_bytes_base64")
 		})
 	}
 }

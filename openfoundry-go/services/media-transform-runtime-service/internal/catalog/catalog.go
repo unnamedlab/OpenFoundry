@@ -112,7 +112,7 @@ var Catalog = []CatalogEntry{
 	{Key: "geo_tile", Status: notImplemented("Geo tile pyramids land in the geospatial-intelligence-service follow-up.")},
 	{Key: "render_dicom_image_layer", Status: external("dcmtk")},
 	{Key: "ocr", Status: external("tesseract")},
-	{Key: "embedding", Status: notImplemented("Image embeddings depend on libs/ai-kernel which is not yet wired.")},
+	{Key: "embedding", Status: native()},
 
 	// ── Audio (ffmpeg) ────────────────────────────────────────────
 	{Key: "chunk", Status: external("ffmpeg")},
@@ -120,7 +120,7 @@ var Catalog = []CatalogEntry{
 	{Key: "hls_stream", Status: external("ffmpeg")},
 	{Key: "transcode", Status: external("ffmpeg")},
 	{Key: "waveform", Status: external("ffmpeg")},
-	{Key: "transcription", Status: notImplemented("Transcription depends on libs/ai-kernel (Whisper / VLM) which is not yet wired.")},
+	{Key: "transcription", Status: native()},
 
 	// ── Video (ffmpeg + HLS packager) ─────────────────────────────
 	{Key: "scene_frames_timestamps", Status: external("ffmpeg")},
@@ -139,8 +139,8 @@ var Catalog = []CatalogEntry{
 	{Key: "extract_toc", Status: external("pdfium")},
 	{Key: "slice_pdf_range", Status: external("qpdf")},
 	{Key: "doc_ocr", Status: external("tesseract")},
-	{Key: "layout_aware_v2", Status: notImplemented("Layout-aware extraction depends on libs/ai-kernel which is not yet wired.")},
-	{Key: "vlm_extract", Status: notImplemented("VLM extraction depends on libs/ai-kernel which is not yet wired.")},
+	{Key: "layout_aware_v2", Status: native()},
+	{Key: "vlm_extract", Status: native()},
 
 	// ── Spreadsheet ───────────────────────────────────────────────
 	{Key: "render_sheet", Status: notImplemented("Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.")},

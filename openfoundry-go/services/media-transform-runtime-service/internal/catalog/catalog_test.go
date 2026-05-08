@@ -58,12 +58,12 @@ func TestCatalogContainsAllRustKeys(t *testing.T) {
 	assert.Equal(t, len(expectedKeys), len(Catalog), "catalog length must match Rust source")
 }
 
-func TestImageHandlersAreNative(t *testing.T) {
+func TestNativeHandlersAreMarkedOnlyAfterRealHandlersExist(t *testing.T) {
 	t.Parallel()
-	for _, k := range []string{"thumbnail", "resize", "resize_within_bounding_box", "rotate", "crop", "grayscale"} {
+	for _, k := range []string{"thumbnail", "resize", "resize_within_bounding_box", "rotate", "crop", "grayscale", "embedding", "transcription", "layout_aware_v2", "vlm_extract"} {
 		s, ok := Lookup(k)
 		require.True(t, ok)
-		assert.Equal(t, StatusNative, s.Kind, "%s should be native in Go (matches Rust)", k)
+		assert.Equal(t, StatusNative, s.Kind, "%s should be native in Go because a real handler is wired", k)
 	}
 }
 
@@ -89,12 +89,8 @@ func TestExternalBinariesPreserved(t *testing.T) {
 func TestRustNotImplementedEntriesPreserved(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"geo_tile":        "Geo tile pyramids land in the geospatial-intelligence-service follow-up.",
-		"embedding":       "Image embeddings depend on libs/ai-kernel which is not yet wired.",
-		"transcription":   "Transcription depends on libs/ai-kernel (Whisper / VLM) which is not yet wired.",
-		"layout_aware_v2": "Layout-aware extraction depends on libs/ai-kernel which is not yet wired.",
-		"vlm_extract":     "VLM extraction depends on libs/ai-kernel which is not yet wired.",
-		"render_sheet":    "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.",
+		"geo_tile":     "Geo tile pyramids land in the geospatial-intelligence-service follow-up.",
+		"render_sheet": "Spreadsheet rendering depends on the spreadsheet-computation domain absorbed into notebook-runtime-service (S8 / ADR-0030); runtime not yet wired.",
 	}
 	for key, wantReason := range cases {
 		key, wantReason := key, wantReason

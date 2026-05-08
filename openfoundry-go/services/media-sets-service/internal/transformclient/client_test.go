@@ -69,6 +69,31 @@ func TestTransformNotImplementedNoErrorButStatusFlagged(t *testing.T) {
 	assert.Contains(t, *resp.Reason, "tesseract")
 }
 
+func TestTransformOKPropagatesOutputJSON(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"status":"OK",
+			"kind":"embedding",
+			"output_mime_type":"application/json",
+			"compute_seconds":3,
+			"output_json":{"embedding":[0.1,0.2],"dimensions":2}
+		}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL)
+	resp, err := c.Transform(context.Background(), TransformRequest{Kind: "embedding"})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, StatusOK, resp.Status)
+	payload, ok := resp.OutputJSON.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(2), payload["dimensions"])
+	assert.Equal(t, []any{float64(0.1), float64(0.2)}, payload["embedding"])
+}
+
 func TestTransform400SurfacedAsErrorEnvelope(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
