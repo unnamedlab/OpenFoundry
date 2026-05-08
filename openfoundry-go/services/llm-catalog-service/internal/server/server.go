@@ -42,6 +42,7 @@ func buildRouter(cfg *config.Config, m *observability.Metrics) chi.Router {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
+	r.Get("/api/v1/kernel-defaults", writeKernelDefaults)
 	if m != nil {
 		r.Method(http.MethodGet, "/metrics", m.Handler())
 	}

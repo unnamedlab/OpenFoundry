@@ -13,8 +13,8 @@ type KnowledgeChunk struct {
 	Position   int32           `json:"position"`
 	Text       string          `json:"text"`
 	TokenCount int32           `json:"token_count"`
-	Embedding  []float32       `json:"embedding,omitempty"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
+	Embedding  []float32       `json:"embedding"`
+	Metadata   json.RawMessage `json:"metadata"`
 }
 
 // KnowledgeDocument carries the full document body + its chunks.
@@ -71,27 +71,27 @@ type ListKnowledgeDocumentsResponse struct {
 // embedding_provider="deterministic-hash", chunking_strategy="balanced".
 type CreateKnowledgeBaseRequest struct {
 	Name              string   `json:"name"`
-	Description       *string  `json:"description,omitempty"`
-	Status            *string  `json:"status,omitempty"`
-	EmbeddingProvider *string  `json:"embedding_provider,omitempty"`
-	ChunkingStrategy  *string  `json:"chunking_strategy,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
+	Description       *string  `json:"description"`
+	Status            *string  `json:"status"`
+	EmbeddingProvider *string  `json:"embedding_provider"`
+	ChunkingStrategy  *string  `json:"chunking_strategy"`
+	Tags              []string `json:"tags"`
 }
 
 type UpdateKnowledgeBaseRequest struct {
-	Name              *string   `json:"name,omitempty"`
-	Description       *string   `json:"description,omitempty"`
-	Status            *string   `json:"status,omitempty"`
-	EmbeddingProvider *string   `json:"embedding_provider,omitempty"`
-	ChunkingStrategy  *string   `json:"chunking_strategy,omitempty"`
-	Tags              *[]string `json:"tags,omitempty"`
+	Name              *string   `json:"name"`
+	Description       *string   `json:"description"`
+	Status            *string   `json:"status"`
+	EmbeddingProvider *string   `json:"embedding_provider"`
+	ChunkingStrategy  *string   `json:"chunking_strategy"`
+	Tags              *[]string `json:"tags"`
 }
 
 type CreateKnowledgeDocumentRequest struct {
 	Title     string          `json:"title"`
 	Content   string          `json:"content"`
-	SourceURI *string         `json:"source_uri,omitempty"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	SourceURI *string         `json:"source_uri"`
+	Metadata  json.RawMessage `json:"metadata"`
 }
 
 // SearchKnowledgeBaseRequest defaults: top_k=5, min_score=0.55.
@@ -140,3 +140,35 @@ const (
 	DefaultSearchTopK        uint32  = 5
 	DefaultSearchMinScore    float32 = 0.55
 )
+
+func (r *CreateKnowledgeBaseRequest) UnmarshalJSON(data []byte) error {
+	type alias CreateKnowledgeBaseRequest
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	if r.Description == nil {
+		r.Description = ptrOf("")
+	}
+	if r.Status == nil {
+		r.Status = ptrOf(DefaultKnowledgeStatus)
+	}
+	if r.EmbeddingProvider == nil {
+		r.EmbeddingProvider = ptrOf(DefaultEmbeddingProvider)
+	}
+	if r.ChunkingStrategy == nil {
+		r.ChunkingStrategy = ptrOf(DefaultChunkingStrategy)
+	}
+	if r.Tags == nil {
+		r.Tags = []string{}
+	}
+	return nil
+}
+
+func (r *CreateKnowledgeDocumentRequest) UnmarshalJSON(data []byte) error {
+	type alias CreateKnowledgeDocumentRequest
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	r.Metadata = defaultRawMessage(r.Metadata, emptyJSONObject())
+	return nil
+}

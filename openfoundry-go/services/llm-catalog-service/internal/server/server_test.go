@@ -31,8 +31,7 @@ func TestSubstrateHealthzMounted(t *testing.T) {
 	assert.Equal(t, "llm-catalog-service", body["service"])
 }
 
-func TestNoProviderRoutesYet(t *testing.T) {
-	// Wire-compat: Rust binary is `fn main(){}`. No /api/v1/* yet.
+func TestKernelDefaultsRouteUsesAiKernelModels(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{}
 	cfg.Service.Name = "llm-catalog-service"
@@ -40,10 +39,17 @@ func TestNoProviderRoutesYet(t *testing.T) {
 	srv := httptest.NewServer(BuildRouter(cfg, observability.NewMetrics()))
 	t.Cleanup(srv.Close)
 
-	for _, path := range []string{"/api/v1/providers", "/v1/providers"} {
-		resp, err := http.Get(srv.URL + path)
-		require.NoError(t, err)
-		_ = resp.Body.Close()
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "path %s should not be mounted yet", path)
-	}
+	resp, err := http.Get(srv.URL + "/api/v1/kernel-defaults")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "openai", body["provider_type"])
+	assert.Equal(t, "gpt-4.1-mini", body["model_name"])
+	assert.Equal(t, "simulated", body["tool_execution_mode"])
+	assert.Equal(t, true, body["fallback_enabled"])
+	routeRules := body["route_rules"].(map[string]any)
+	assert.Equal(t, "public", routeRules["network_scope"])
 }

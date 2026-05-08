@@ -136,22 +136,60 @@ func TestSearchKnowledgeBaseRequestRoundTrip(t *testing.T) {
 	assert.Equal(t, req, back)
 }
 
-func TestPromptVersionInputVariablesOmitempty(t *testing.T) {
+func TestPromptVersionSerializesRustDefaultFields(t *testing.T) {
 	t.Parallel()
-	v := PromptVersion{VersionNumber: 1, Content: "hi", Notes: "first"}
+	v := PromptVersion{VersionNumber: 1, Content: "hi", Notes: "first", InputVariables: []string{}}
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
-	assert.NotContains(t, string(b), "input_variables",
-		"input_variables omitempty when empty (matches Rust serde default skip_serializing_if-equivalent)")
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(b, &got))
+	assert.Contains(t, got, "input_variables")
+	assert.Equal(t, []any{}, got["input_variables"])
 }
 
-func TestKnowledgeChunkEmbeddingOmitempty(t *testing.T) {
+func TestKnowledgeChunkSerializesRustDefaultFields(t *testing.T) {
 	t.Parallel()
-	c := KnowledgeChunk{ID: "c1", Position: 0, Text: "hello", TokenCount: 1}
+	c := KnowledgeChunk{ID: "c1", Position: 0, Text: "hello", TokenCount: 1, Embedding: []float32{}, Metadata: json.RawMessage(`{}`)}
 	b, err := json.Marshal(c)
 	require.NoError(t, err)
-	assert.NotContains(t, string(b), "embedding")
-	assert.NotContains(t, string(b), "metadata")
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(b, &got))
+	assert.Contains(t, got, "embedding")
+	assert.Contains(t, got, "metadata")
+}
+
+func TestCreateRequestDefaultsOnUnmarshal(t *testing.T) {
+	t.Parallel()
+
+	var provider CreateProviderRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"primary"}`), &provider))
+	require.NotNil(t, provider.ProviderType)
+	assert.Equal(t, DefaultProviderType, *provider.ProviderType)
+	assert.Equal(t, []string{}, provider.Tags)
+
+	var agent CreateAgentRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"agent"}`), &agent))
+	require.NotNil(t, agent.Status)
+	assert.Equal(t, DefaultAgentStatus, *agent.Status)
+	require.NotNil(t, agent.MaxIterations)
+	assert.Equal(t, DefaultAgentMaxIterations, *agent.MaxIterations)
+
+	var tool CreateToolRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"search"}`), &tool))
+	require.NotNil(t, tool.ExecutionMode)
+	assert.Equal(t, DefaultToolExecutionMode, *tool.ExecutionMode)
+	require.NotNil(t, tool.ExecutionConfig)
+	assert.JSONEq(t, `{}`, string(*tool.ExecutionConfig))
+
+	var prompt CreatePromptTemplateRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"p","content":"hello"}`), &prompt))
+	require.NotNil(t, prompt.Category)
+	assert.Equal(t, DefaultPromptCategory, *prompt.Category)
+
+	var kb CreateKnowledgeBaseRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"kb"}`), &kb))
+	require.NotNil(t, kb.EmbeddingProvider)
+	assert.Equal(t, DefaultEmbeddingProvider, *kb.EmbeddingProvider)
 }
 
 func TestChatCompletionRequestDefaultsOnUnmarshal(t *testing.T) {

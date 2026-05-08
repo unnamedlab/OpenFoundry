@@ -35,11 +35,11 @@ func DefaultGuardrailVerdict() GuardrailVerdict {
 // Default kind="text".
 type ChatAttachment struct {
 	Kind       string  `json:"kind"`
-	Name       *string `json:"name,omitempty"`
-	MimeType   *string `json:"mime_type,omitempty"`
-	URL        *string `json:"url,omitempty"`
-	Base64Data *string `json:"base64_data,omitempty"`
-	Text       *string `json:"text,omitempty"`
+	Name       *string `json:"name"`
+	MimeType   *string `json:"mime_type"`
+	URL        *string `json:"url"`
+	Base64Data *string `json:"base64_data"`
+	Text       *string `json:"text"`
 }
 
 // ChatMessage is one turn in a conversation.
@@ -48,8 +48,8 @@ type ChatMessage struct {
 	Content          string                  `json:"content"`
 	ProviderID       *uuid.UUID              `json:"provider_id"`
 	ToolName         *string                 `json:"tool_name"`
-	Citations        []KnowledgeSearchResult `json:"citations,omitempty"`
-	Attachments      []ChatAttachment        `json:"attachments,omitempty"`
+	Citations        []KnowledgeSearchResult `json:"citations"`
+	Attachments      []ChatAttachment        `json:"attachments"`
 	GuardrailVerdict *GuardrailVerdict       `json:"guardrail_verdict"`
 	CreatedAt        time.Time               `json:"created_at"`
 }
@@ -111,15 +111,15 @@ type ListConversationsResponse struct {
 // ChatCompletionRequest defaults: fallback_enabled=true,
 // temperature=0.2, max_tokens=1024.
 type ChatCompletionRequest struct {
-	ConversationID        *uuid.UUID       `json:"conversation_id,omitempty"`
-	SystemPrompt          *string          `json:"system_prompt,omitempty"`
+	ConversationID        *uuid.UUID       `json:"conversation_id"`
+	SystemPrompt          *string          `json:"system_prompt"`
 	UserMessage           string           `json:"user_message"`
-	PurposeJustification  *string          `json:"purpose_justification,omitempty"`
-	PromptTemplateID      *uuid.UUID       `json:"prompt_template_id,omitempty"`
-	PromptVariables       json.RawMessage  `json:"prompt_variables,omitempty"`
-	KnowledgeBaseID       *uuid.UUID       `json:"knowledge_base_id,omitempty"`
-	PreferredProviderID   *uuid.UUID       `json:"preferred_provider_id,omitempty"`
-	Attachments           []ChatAttachment `json:"attachments,omitempty"`
+	PurposeJustification  *string          `json:"purpose_justification"`
+	PromptTemplateID      *uuid.UUID       `json:"prompt_template_id"`
+	PromptVariables       json.RawMessage  `json:"prompt_variables"`
+	KnowledgeBaseID       *uuid.UUID       `json:"knowledge_base_id"`
+	PreferredProviderID   *uuid.UUID       `json:"preferred_provider_id"`
+	Attachments           []ChatAttachment `json:"attachments"`
 	FallbackEnabled       bool             `json:"fallback_enabled"`
 	RequirePrivateNetwork bool             `json:"require_private_network"`
 	Temperature           float32          `json:"temperature"`
@@ -175,13 +175,13 @@ type ChatCompletionResponse struct {
 // CopilotRequest defaults: include_sql=true, include_pipeline_plan=true.
 type CopilotRequest struct {
 	Question             string      `json:"question"`
-	PurposeJustification *string     `json:"purpose_justification,omitempty"`
-	DatasetIDs           []uuid.UUID `json:"dataset_ids,omitempty"`
-	OntologyTypeIDs      []uuid.UUID `json:"ontology_type_ids,omitempty"`
-	KnowledgeBaseIDs     []uuid.UUID `json:"knowledge_base_ids,omitempty"`
+	PurposeJustification *string     `json:"purpose_justification"`
+	DatasetIDs           []uuid.UUID `json:"dataset_ids"`
+	OntologyTypeIDs      []uuid.UUID `json:"ontology_type_ids"`
+	KnowledgeBaseIDs     []uuid.UUID `json:"knowledge_base_ids"`
 	IncludeSQL           bool        `json:"include_sql"`
 	IncludePipelinePlan  bool        `json:"include_pipeline_plan"`
-	PreferredProviderID  *uuid.UUID  `json:"preferred_provider_id,omitempty"`
+	PreferredProviderID  *uuid.UUID  `json:"preferred_provider_id"`
 }
 
 func (r *CopilotRequest) UnmarshalJSON(data []byte) error {
@@ -234,13 +234,13 @@ type EvaluateGuardrailsResponse struct {
 // ProviderBenchmarkRequest defaults: use_case="chat", max_tokens=1024.
 type ProviderBenchmarkRequest struct {
 	Prompt                string           `json:"prompt"`
-	SystemPrompt          *string          `json:"system_prompt,omitempty"`
-	ProviderIDs           []uuid.UUID      `json:"provider_ids,omitempty"`
-	Attachments           []ChatAttachment `json:"attachments,omitempty"`
-	RubricKeywords        []string         `json:"rubric_keywords,omitempty"`
+	SystemPrompt          *string          `json:"system_prompt"`
+	ProviderIDs           []uuid.UUID      `json:"provider_ids"`
+	Attachments           []ChatAttachment `json:"attachments"`
+	RubricKeywords        []string         `json:"rubric_keywords"`
 	UseCase               string           `json:"use_case"`
 	MaxTokens             int32            `json:"max_tokens"`
-	RequirePrivateNetwork bool             `json:"require_private_network,omitempty"`
+	RequirePrivateNetwork bool             `json:"require_private_network"`
 }
 
 type ProviderBenchmarkScore struct {
@@ -288,3 +288,14 @@ const (
 	DefaultTemperature      = float32(0.2)
 	DefaultMaxTokens        = int32(1024)
 )
+
+func (r *ChatAttachment) UnmarshalJSON(data []byte) error {
+	type alias ChatAttachment
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	if r.Kind == "" {
+		r.Kind = DefaultAttachmentKind
+	}
+	return nil
+}

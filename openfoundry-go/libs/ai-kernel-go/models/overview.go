@@ -17,20 +17,20 @@ package models
 // AiPlatformOverview is the canonical summary payload the AI
 // platform UI renders on the landing card.
 type AiPlatformOverview struct {
-	ProviderCount            int64   `json:"provider_count"`
-	PrivateProviderCount     int64   `json:"private_provider_count"`
-	MultimodalProviderCount  int64   `json:"multimodal_provider_count"`
-	PromptCount              int64   `json:"prompt_count"`
-	KnowledgeBaseCount       int64   `json:"knowledge_base_count"`
-	IndexedDocumentCount     int64   `json:"indexed_document_count"`
-	IndexedChunkCount        int64   `json:"indexed_chunk_count"`
-	AgentCount               int64   `json:"agent_count"`
-	ConversationCount        int64   `json:"conversation_count"`
-	CacheEntryCount          int64   `json:"cache_entry_count"`
-	CacheHitRate             float32 `json:"cache_hit_rate"`
-	BlockedGuardrailEvents   int64   `json:"blocked_guardrail_events"`
-	LlmPromptTokens          int64   `json:"llm_prompt_tokens"`
-	LlmCompletionTokens      int64   `json:"llm_completion_tokens"`
-	EstimatedLlmCostUSD      float64 `json:"estimated_llm_cost_usd"`
-	BenchmarkRunCount        int64   `json:"benchmark_run_count"`
+	ProviderCount           int64   `json:"provider_count"`
+	PrivateProviderCount    int64   `json:"private_provider_count"`
+	MultimodalProviderCount int64   `json:"multimodal_provider_count"`
+	PromptCount             int64   `json:"prompt_count"`
+	KnowledgeBaseCount      int64   `json:"knowledge_base_count"`
+	IndexedDocumentCount    int64   `json:"indexed_document_count"`
+	IndexedChunkCount       int64   `json:"indexed_chunk_count"`
+	AgentCount              int64   `json:"agent_count"`
+	ConversationCount       int64   `json:"conversation_count"`
+	CacheEntryCount         int64   `json:"cache_entry_count"`
+	CacheHitRate            float32 `json:"cache_hit_rate"`
+	BlockedGuardrailEvents  int64   `json:"blocked_guardrail_events"`
+	LlmPromptTokens         int64   `json:"llm_prompt_tokens"`
+	LlmCompletionTokens     int64   `json:"llm_completion_tokens"`
+	EstimatedLlmCostUSD     float64 `json:"estimated_llm_cost_usd"`
+	BenchmarkRunCount       int64   `json:"benchmark_run_count"`
 }

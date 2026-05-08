@@ -234,10 +234,10 @@ func TestChatMessageJSONShape(t *testing.T) {
 	m := models.ChatMessage{Role: "user", Content: "hello"}
 	b, err := json.Marshal(m)
 	require.NoError(t, err)
-	// Optional collections omit when empty.
+	// Rust serde serializes default collections; nil Go slices appear as JSON null unless callers initialize them to empty slices.
 	s := string(b)
-	assert.NotContains(t, s, "citations")
-	assert.NotContains(t, s, "attachments")
+	assert.Contains(t, s, `"citations":null`)
+	assert.Contains(t, s, `"attachments":null`)
 	// guardrail_verdict is `null` when nil (matches Rust Option<T>).
 	assert.True(t, strings.Contains(s, `"guardrail_verdict":null`))
 }

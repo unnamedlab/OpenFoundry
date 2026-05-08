@@ -35,26 +35,26 @@ type ListToolsResponse struct {
 // output_schema={}.
 type CreateToolRequest struct {
 	Name            string           `json:"name"`
-	Description     *string          `json:"description,omitempty"`
-	Category        *string          `json:"category,omitempty"`
-	ExecutionMode   *string          `json:"execution_mode,omitempty"`
-	ExecutionConfig *json.RawMessage `json:"execution_config,omitempty"`
-	Status          *string          `json:"status,omitempty"`
-	InputSchema     *json.RawMessage `json:"input_schema,omitempty"`
-	OutputSchema    *json.RawMessage `json:"output_schema,omitempty"`
-	Tags            []string         `json:"tags,omitempty"`
+	Description     *string          `json:"description"`
+	Category        *string          `json:"category"`
+	ExecutionMode   *string          `json:"execution_mode"`
+	ExecutionConfig *json.RawMessage `json:"execution_config"`
+	Status          *string          `json:"status"`
+	InputSchema     *json.RawMessage `json:"input_schema"`
+	OutputSchema    *json.RawMessage `json:"output_schema"`
+	Tags            []string         `json:"tags"`
 }
 
 type UpdateToolRequest struct {
-	Name            *string          `json:"name,omitempty"`
-	Description     *string          `json:"description,omitempty"`
-	Category        *string          `json:"category,omitempty"`
-	ExecutionMode   *string          `json:"execution_mode,omitempty"`
-	ExecutionConfig *json.RawMessage `json:"execution_config,omitempty"`
-	Status          *string          `json:"status,omitempty"`
-	InputSchema     *json.RawMessage `json:"input_schema,omitempty"`
-	OutputSchema    *json.RawMessage `json:"output_schema,omitempty"`
-	Tags            *[]string        `json:"tags,omitempty"`
+	Name            *string          `json:"name"`
+	Description     *string          `json:"description"`
+	Category        *string          `json:"category"`
+	ExecutionMode   *string          `json:"execution_mode"`
+	ExecutionConfig *json.RawMessage `json:"execution_config"`
+	Status          *string          `json:"status"`
+	InputSchema     *json.RawMessage `json:"input_schema"`
+	OutputSchema    *json.RawMessage `json:"output_schema"`
+	Tags            *[]string        `json:"tags"`
 }
 
 const (
@@ -91,4 +91,39 @@ func ValidateExecutionMode(mode string) bool {
 		}
 	}
 	return false
+}
+
+func (r *CreateToolRequest) UnmarshalJSON(data []byte) error {
+	type alias CreateToolRequest
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	if r.Description == nil {
+		r.Description = ptrOf("")
+	}
+	if r.Category == nil {
+		r.Category = ptrOf(DefaultToolCategory)
+	}
+	if r.ExecutionMode == nil {
+		r.ExecutionMode = ptrOf(DefaultToolExecutionMode)
+	}
+	if r.ExecutionConfig == nil {
+		v := emptyJSONObject()
+		r.ExecutionConfig = &v
+	}
+	if r.Status == nil {
+		r.Status = ptrOf(DefaultToolStatus)
+	}
+	if r.InputSchema == nil {
+		v := emptyJSONObject()
+		r.InputSchema = &v
+	}
+	if r.OutputSchema == nil {
+		v := emptyJSONObject()
+		r.OutputSchema = &v
+	}
+	if r.Tags == nil {
+		r.Tags = []string{}
+	}
+	return nil
 }

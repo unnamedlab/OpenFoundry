@@ -21,21 +21,21 @@ func TestLlmProviderRoundTripsViaAiKernelGo(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
 	p := models.LlmProvider{
-		ID:                  uuid.New(),
-		Name:                "openai-prod",
-		ProviderType:        models.DefaultProviderType,
-		ModelName:           models.DefaultModelName,
-		EndpointURL:         models.DefaultEndpointURL,
-		APIMode:             models.DefaultAPIMode,
-		Enabled:             true,
-		LoadBalanceWeight:   models.DefaultLoadBalanceWeight,
-		MaxOutputTokens:     models.DefaultMaxOutputTokens,
-		CostTier:            models.DefaultCostTier,
-		Tags:                []string{"prod"},
-		RouteRules:          models.DefaultProviderRoutingRules(),
-		HealthState:         models.ProviderHealthState{Status: "healthy", AvgLatencyMs: 620, ErrorRate: 0.01, LastCheckedAt: now},
-		CreatedAt:           now,
-		UpdatedAt:           now,
+		ID:                uuid.New(),
+		Name:              "openai-prod",
+		ProviderType:      models.DefaultProviderType,
+		ModelName:         models.DefaultModelName,
+		EndpointURL:       models.DefaultEndpointURL,
+		APIMode:           models.DefaultAPIMode,
+		Enabled:           true,
+		LoadBalanceWeight: models.DefaultLoadBalanceWeight,
+		MaxOutputTokens:   models.DefaultMaxOutputTokens,
+		CostTier:          models.DefaultCostTier,
+		Tags:              []string{"prod"},
+		RouteRules:        models.DefaultProviderRoutingRules(),
+		HealthState:       models.ProviderHealthState{Status: "healthy", AvgLatencyMs: 620, ErrorRate: 0.01, LastCheckedAt: now},
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	b, err := json.Marshal(p)
