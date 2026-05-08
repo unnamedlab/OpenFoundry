@@ -43,6 +43,30 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
+	// Legacy CDC metadata and schema-registry routes mirror the retired Rust
+	// service root paths for direct callers that do not go through /api/v1.
+	r.Get("/streams", h.LegacyListCdcStreams)
+	r.Post("/streams", h.LegacyRegisterCdcStream)
+	r.Get("/streams/{id}", h.LegacyGetCdcStream)
+	r.Get("/streams/:id", h.LegacyGetCdcStream)
+	r.Get("/streams/{id}/checkpoint", h.LegacyGetCheckpoint)
+	r.Get("/streams/:id/checkpoint", h.LegacyGetCheckpoint)
+	r.Post("/streams/{id}/checkpoint", h.LegacyRecordCheckpoint)
+	r.Post("/streams/:id/checkpoint", h.LegacyRecordCheckpoint)
+	r.Get("/streams/{id}/resolution", h.LegacyGetResolution)
+	r.Get("/streams/:id/resolution", h.LegacyGetResolution)
+	r.Put("/streams/{id}/resolution", h.LegacyUpdateResolution)
+	r.Put("/streams/:id/resolution", h.LegacyUpdateResolution)
+	r.Get("/subjects", h.ListSchemaSubjects)
+	r.Get("/subjects/{name}/versions", h.ListSchemaVersions)
+	r.Get("/subjects/:name/versions", h.ListSchemaVersions)
+	r.Post("/subjects/{name}/versions", h.RegisterSchemaVersion)
+	r.Post("/subjects/:name/versions", h.RegisterSchemaVersion)
+	r.Get("/subjects/{name}/versions/{version}", h.GetSchemaVersion)
+	r.Get("/subjects/:name/versions/:version", h.GetSchemaVersion)
+	r.Post("/compatibility/subjects/{name}/versions/{version}", h.CheckSchemaCompatibility)
+	r.Post("/compatibility/subjects/:name/versions/:version", h.CheckSchemaCompatibility)
+
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 

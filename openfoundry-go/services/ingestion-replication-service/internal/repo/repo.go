@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,7 +55,7 @@ const ingestJobSelect = `SELECT id, name, namespace, spec, status,
 
 func (r *Repo) ListIngestJobs(ctx context.Context, namespace, status string) ([]models.IngestJob, error) {
 	clauses := []string{}
-	args := []any{}
+	args := make([]any, 0)
 	if namespace != "" {
 		clauses = append(clauses, fmt.Sprintf("namespace = $%d", len(args)+1))
 		args = append(args, namespace)
@@ -855,4 +856,166 @@ func (r *Repo) ApplyResolution(ctx context.Context, streamID uuid.UUID, ownerID 
 		return nil, nil
 	}
 	return v, err
+}
+
+func scanSchemaSubject(r rowLikeT) (*models.SchemaSubject, error) {
+	v := &models.SchemaSubject{}
+	if err := r.Scan(&v.ID, &v.Name, &v.CompatibilityMode, &v.CreatedAt); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func scanSchemaVersion(r rowLikeT) (*models.SchemaVersion, error) {
+	v := &models.SchemaVersion{}
+	if err := r.Scan(&v.ID, &v.SubjectID, &v.Version, &v.SchemaType, &v.SchemaText, &v.Fingerprint, &v.CreatedAt, &v.DeprecatedAt); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// ListSchemaSubjects returns all schema-registry subject names.
+func (r *Repo) ListSchemaSubjects(ctx context.Context) ([]string, error) {
+	rows, err := r.Pool.Query(ctx, `SELECT name FROM schema_subjects ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names := make([]string, 0)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+func (r *Repo) getSchemaSubject(ctx context.Context, name string) (*models.SchemaSubject, error) {
+	row := r.Pool.QueryRow(ctx, `SELECT id, name, compatibility_mode, created_at FROM schema_subjects WHERE name = $1`, name)
+	v, err := scanSchemaSubject(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) fetchOrCreateSchemaSubject(ctx context.Context, name string) (*models.SchemaSubject, error) {
+	if subject, err := r.getSchemaSubject(ctx, name); err != nil || subject != nil {
+		return subject, err
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO schema_subjects (id, name) VALUES ($1, $2)
+		 RETURNING id, name, compatibility_mode, created_at`,
+		uuid.New(), name)
+	return scanSchemaSubject(row)
+}
+
+// ListSchemaVersions returns all registered version numbers for a subject.
+func (r *Repo) ListSchemaVersions(ctx context.Context, name string) ([]int32, error) {
+	subject, err := r.getSchemaSubject(ctx, name)
+	if err != nil || subject == nil {
+		return nil, err
+	}
+	rows, err := r.Pool.Query(ctx, `SELECT version FROM schema_versions WHERE subject_id = $1 ORDER BY version`, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	versions := make([]int32, 0)
+	for rows.Next() {
+		var version int32
+		if err := rows.Scan(&version); err != nil {
+			return nil, err
+		}
+		versions = append(versions, version)
+	}
+	return versions, rows.Err()
+}
+
+func (r *Repo) latestSchemaVersion(ctx context.Context, subjectID uuid.UUID) (*models.SchemaVersion, error) {
+	row := r.Pool.QueryRow(ctx,
+		`SELECT id, subject_id, version, schema_type, schema_text, fingerprint, created_at, deprecated_at
+		   FROM schema_versions WHERE subject_id = $1 ORDER BY version DESC LIMIT 1`, subjectID)
+	v, err := scanSchemaVersion(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) schemaVersionByNumber(ctx context.Context, subjectID uuid.UUID, version int32) (*models.SchemaVersion, error) {
+	row := r.Pool.QueryRow(ctx,
+		`SELECT id, subject_id, version, schema_type, schema_text, fingerprint, created_at, deprecated_at
+		   FROM schema_versions WHERE subject_id = $1 AND version = $2`, subjectID, version)
+	v, err := scanSchemaVersion(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (r *Repo) schemaVersionByFingerprint(ctx context.Context, subjectID uuid.UUID, fingerprint string) (*models.SchemaVersion, error) {
+	row := r.Pool.QueryRow(ctx,
+		`SELECT id, subject_id, version, schema_type, schema_text, fingerprint, created_at, deprecated_at
+		   FROM schema_versions WHERE subject_id = $1 AND fingerprint = $2`, subjectID, fingerprint)
+	v, err := scanSchemaVersion(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
+// GetSchemaVersion returns the named version, supporting Confluent's latest alias.
+func (r *Repo) GetSchemaVersion(ctx context.Context, name, version string) (*models.SchemaSubject, *models.SchemaVersion, error) {
+	subject, err := r.getSchemaSubject(ctx, name)
+	if err != nil || subject == nil {
+		return subject, nil, err
+	}
+	if strings.EqualFold(version, "latest") {
+		v, err := r.latestSchemaVersion(ctx, subject.ID)
+		return subject, v, err
+	}
+	parsed, err := strconv.Atoi(version)
+	if err != nil || parsed < 1 {
+		return subject, nil, fmt.Errorf("invalid version")
+	}
+	v, err := r.schemaVersionByNumber(ctx, subject.ID, int32(parsed))
+	return subject, v, err
+}
+
+// RegisterSchemaVersion inserts a schema-registry version or returns the existing idempotent version.
+func (r *Repo) RegisterSchemaVersion(ctx context.Context, name string, body *models.RegisterSchemaVersionRequest, fingerprint string) (*models.SchemaSubject, *models.SchemaVersion, bool, error) {
+	subject, err := r.fetchOrCreateSchemaSubject(ctx, name)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if existing, err := r.schemaVersionByFingerprint(ctx, subject.ID, fingerprint); err != nil || existing != nil {
+		return subject, existing, true, err
+	}
+	latest, err := r.latestSchemaVersion(ctx, subject.ID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	next := int32(1)
+	if latest != nil {
+		next = latest.Version + 1
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO schema_versions (id, subject_id, version, schema_type, schema_text, fingerprint)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, subject_id, version, schema_type, schema_text, fingerprint, created_at, deprecated_at`,
+		uuid.New(), subject.ID, next, strings.ToUpper(body.EffectiveSchemaType()), body.Schema, fingerprint)
+	inserted, err := scanSchemaVersion(row)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	for _, ref := range body.References {
+		_, _ = r.Pool.Exec(ctx,
+			`INSERT INTO schema_references (version_id, ref_name, ref_subject, ref_version)
+			 VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+			inserted.ID, ref.Name, ref.Subject, ref.Version)
+	}
+	return subject, inserted, false, nil
 }

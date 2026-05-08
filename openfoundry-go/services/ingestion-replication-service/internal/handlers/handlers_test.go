@@ -3,8 +3,10 @@ package handlers_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +101,7 @@ type fakeStore struct {
 	// when set on a stream id. Tests use it to assert the conflict path.
 	downstreamActive map[uuid.UUID]bool
 	resetErr         error
+	subjects         map[string]*schemaFixture
 }
 
 func newFakeStore() *fakeStore {
@@ -109,6 +112,7 @@ func newFakeStore() *fakeStore {
 		resolutions:      map[uuid.UUID]models.ResolutionState{},
 		views:            map[uuid.UUID][]models.StreamView{},
 		downstreamActive: map[uuid.UUID]bool{},
+		subjects:         map[string]*schemaFixture{},
 	}
 }
 
@@ -276,6 +280,66 @@ func (f *fakeStore) ApplyResolution(_ context.Context, streamID uuid.UUID, owner
 		f.resolutions[streamID] = res
 	}
 	return &res, nil
+}
+
+type schemaFixture struct {
+	subject  models.SchemaSubject
+	versions []models.SchemaVersion
+}
+
+func (f *fakeStore) ListSchemaSubjects(context.Context) ([]string, error) {
+	out := make([]string, 0, len(f.subjects))
+	for name := range f.subjects {
+		out = append(out, name)
+	}
+	return out, nil
+}
+func (f *fakeStore) ListSchemaVersions(_ context.Context, name string) ([]int32, error) {
+	fixture := f.subjects[name]
+	if fixture == nil {
+		return nil, nil
+	}
+	out := make([]int32, 0, len(fixture.versions))
+	for _, v := range fixture.versions {
+		out = append(out, v.Version)
+	}
+	return out, nil
+}
+func (f *fakeStore) GetSchemaVersion(_ context.Context, name, version string) (*models.SchemaSubject, *models.SchemaVersion, error) {
+	fixture := f.subjects[name]
+	if fixture == nil {
+		return nil, nil, nil
+	}
+	if version == "latest" {
+		if len(fixture.versions) == 0 {
+			return &fixture.subject, nil, nil
+		}
+		v := fixture.versions[len(fixture.versions)-1]
+		return &fixture.subject, &v, nil
+	}
+	for _, v := range fixture.versions {
+		if version == fmt.Sprint(v.Version) {
+			copy := v
+			return &fixture.subject, &copy, nil
+		}
+	}
+	return &fixture.subject, nil, nil
+}
+func (f *fakeStore) RegisterSchemaVersion(_ context.Context, name string, body *models.RegisterSchemaVersionRequest, fingerprint string) (*models.SchemaSubject, *models.SchemaVersion, bool, error) {
+	fixture := f.subjects[name]
+	if fixture == nil {
+		fixture = &schemaFixture{subject: models.SchemaSubject{ID: uuid.New(), Name: name, CompatibilityMode: "BACKWARD", CreatedAt: time.Now().UTC()}}
+		f.subjects[name] = fixture
+	}
+	for _, v := range fixture.versions {
+		if v.Fingerprint == fingerprint {
+			copy := v
+			return &fixture.subject, &copy, true, nil
+		}
+	}
+	v := models.SchemaVersion{ID: uuid.New(), SubjectID: fixture.subject.ID, Version: int32(len(fixture.versions) + 1), SchemaType: body.EffectiveSchemaType(), SchemaText: body.Schema, Fingerprint: fingerprint, CreatedAt: time.Now().UTC()}
+	fixture.versions = append(fixture.versions, v)
+	return &fixture.subject, &v, false, nil
 }
 
 func (f *fakeStore) DownstreamPipelinesActive(_ context.Context, streamID uuid.UUID) (bool, error) {
@@ -545,4 +609,54 @@ func TestProductionStreamingRuntimeRegisterCDC(t *testing.T) {
 	require.NotNil(t, result.Resolution)
 	assert.Equal(t, lsn, *result.Checkpoint.LastLSN)
 	assert.Equal(t, status, *result.Resolution.Status)
+}
+
+func TestLegacyCdcRoutesRecordCheckpointAndResolutionWithoutAuth(t *testing.T) {
+	store := newFakeStore()
+	h := &handlers.Handlers{Repo: store}
+	req := httptest.NewRequest("POST", "/streams", strings.NewReader(`{"slug":"legacy","source_kind":"postgres","source_ref":"pg://legacy","primary_keys":["id"]}`))
+	rec := httptest.NewRecorder()
+	h.LegacyRegisterCdcStream(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.CdcStream
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	offset := "100"
+	req = withRouteParam(httptest.NewRequest("POST", "/streams/"+created.ID.String()+"/checkpoint", strings.NewReader(`{"last_offset":"`+offset+`","records_observed":12}`)), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.LegacyRecordCheckpoint(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), offset)
+
+	resolved := "resolved"
+	req = withRouteParam(httptest.NewRequest("PUT", "/streams/"+created.ID.String()+"/resolution", strings.NewReader(`{"status":"`+resolved+`","conflict_count":1}`)), "id", created.ID.String())
+	rec = httptest.NewRecorder()
+	h.LegacyUpdateResolution(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), resolved)
+}
+
+func TestSchemaRegistryHandlersRegisterFetchAndCheckCompatibility(t *testing.T) {
+	store := newFakeStore()
+	h := &handlers.Handlers{Repo: store}
+	schema := `{"type":"record","name":"Order","fields":[{"name":"id","type":"string"}]}`
+	req := withRouteParam(httptest.NewRequest("POST", "/subjects/orders/versions", strings.NewReader(`{"schema":`+strconv.Quote(schema)+`}`)), "name", "orders")
+	rec := httptest.NewRecorder()
+	h.RegisterSchemaVersion(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"id":1}`, rec.Body.String())
+
+	req = withRouteParam(httptest.NewRequest("GET", "/subjects/orders/versions/latest", nil), "name", "orders")
+	req = withRouteParam(req, "version", "latest")
+	rec = httptest.NewRecorder()
+	h.GetSchemaVersion(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Order")
+
+	req = withRouteParam(httptest.NewRequest("POST", "/compatibility/subjects/orders/versions/latest", strings.NewReader(`{"schema":`+strconv.Quote(schema)+`}`)), "name", "orders")
+	req = withRouteParam(req, "version", "latest")
+	rec = httptest.NewRecorder()
+	h.CheckSchemaCompatibility(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"is_compatible":true`)
 }

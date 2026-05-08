@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/repo"
 )
@@ -34,6 +36,10 @@ type Store interface {
 	ApplyResolution(ctx context.Context, streamID uuid.UUID, ownerID uuid.UUID, update *models.ResolutionUpdate) (*models.ResolutionState, error)
 	DownstreamPipelinesActive(ctx context.Context, streamID uuid.UUID) (bool, error)
 	ResetStream(ctx context.Context, streamID uuid.UUID, ownerID uuid.UUID, createdBy string, body *models.ResetStreamRequest) (*repo.ResetStreamResult, error)
+	ListSchemaSubjects(ctx context.Context) ([]string, error)
+	ListSchemaVersions(ctx context.Context, name string) ([]int32, error)
+	GetSchemaVersion(ctx context.Context, name, version string) (*models.SchemaSubject, *models.SchemaVersion, error)
+	RegisterSchemaVersion(ctx context.Context, name string, body *models.RegisterSchemaVersionRequest, fingerprint string) (*models.SchemaSubject, *models.SchemaVersion, bool, error)
 }
 
 // StreamingRuntime hides Kafka/Flink provisioning and CDC registration.
@@ -408,4 +414,215 @@ func (h *Handlers) GetCdcResolution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) legacyOwner() uuid.UUID { return uuid.Nil }
+
+func (h *Handlers) LegacyListCdcStreams(w http.ResponseWriter, r *http.Request) {
+	items, err := h.Repo.ListCdcStreams(r.Context(), h.legacyOwner())
+	if err != nil {
+		slog.Error("legacy list cdc streams", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "failed to list streams")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (h *Handlers) LegacyRegisterCdcStream(w http.ResponseWriter, r *http.Request) {
+	var body models.RegisterCdcStreamRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	stream, _, _, err := h.Repo.RegisterCdcStream(r.Context(), &body, h.legacyOwner())
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, stream)
+}
+
+func (h *Handlers) LegacyGetCdcStream(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	v, err := h.Repo.GetCdcStream(r.Context(), id, h.legacyOwner())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "stream not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) LegacyGetCheckpoint(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	v, err := h.Repo.GetCheckpoint(r.Context(), id, h.legacyOwner())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "checkpoint not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) LegacyRecordCheckpoint(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body models.CheckpointUpdate
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	v, err := h.Repo.ApplyCheckpoint(r.Context(), id, h.legacyOwner(), &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "checkpoint not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) LegacyGetResolution(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	v, err := h.Repo.GetResolution(r.Context(), id, h.legacyOwner())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "resolution not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) LegacyUpdateResolution(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body models.ResolutionUpdate
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	v, err := h.Repo.ApplyResolution(r.Context(), id, h.legacyOwner(), &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v == nil {
+		writeJSONErr(w, http.StatusNotFound, "resolution not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) ListSchemaSubjects(w http.ResponseWriter, r *http.Request) {
+	names, err := h.Repo.ListSchemaSubjects(r.Context())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "list_subjects failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+func (h *Handlers) ListSchemaVersions(w http.ResponseWriter, r *http.Request) {
+	versions, err := h.Repo.ListSchemaVersions(r.Context(), chi.URLParam(r, "name"))
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "list_versions failed")
+		return
+	}
+	if versions == nil {
+		writeJSONErr(w, http.StatusNotFound, "subject not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, versions)
+}
+
+func (h *Handlers) GetSchemaVersion(w http.ResponseWriter, r *http.Request) {
+	subject, version, err := h.Repo.GetSchemaVersion(r.Context(), chi.URLParam(r, "name"), chi.URLParam(r, "version"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if subject == nil || version == nil {
+		writeJSONErr(w, http.StatusNotFound, "schema version not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, schemaVersionResponse(subject, version))
+}
+
+func (h *Handlers) RegisterSchemaVersion(w http.ResponseWriter, r *http.Request) {
+	var body models.RegisterSchemaVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := domain.ValidateRegistrySchema(body.EffectiveSchemaType(), body.Schema); err != nil {
+		writeJSONErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	fingerprint, err := domain.FingerprintRegistrySchema(body.Schema)
+	if err != nil {
+		writeJSONErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	_, version, _, err := h.Repo.RegisterSchemaVersion(r.Context(), chi.URLParam(r, "name"), &body, fingerprint)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "register_version failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, models.RegisterSchemaVersionResponse{ID: version.Version})
+}
+
+func (h *Handlers) CheckSchemaCompatibility(w http.ResponseWriter, r *http.Request) {
+	var body models.CompatibilityCheckRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !strings.EqualFold(body.EffectiveSchemaType(), "AVRO") {
+		writeJSONErr(w, http.StatusUnprocessableEntity, "unsupported schema type")
+		return
+	}
+	subject, version, err := h.Repo.GetSchemaVersion(r.Context(), chi.URLParam(r, "name"), chi.URLParam(r, "version"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if subject == nil || version == nil {
+		writeJSONErr(w, http.StatusNotFound, "schema version not found")
+		return
+	}
+	compatible, messages := domain.CheckRegistryCompatibility(subject.CompatibilityMode, version.SchemaText, body.Schema)
+	writeJSON(w, http.StatusOK, models.CompatibilityCheckResponse{IsCompatible: compatible, Messages: messages})
+}
+
+func schemaVersionResponse(subject *models.SchemaSubject, version *models.SchemaVersion) models.SchemaVersionResponse {
+	return models.SchemaVersionResponse{Subject: subject.Name, ID: version.Version, Version: version.Version, Schema: version.SchemaText, SchemaType: strings.ToUpper(version.SchemaType)}
 }
