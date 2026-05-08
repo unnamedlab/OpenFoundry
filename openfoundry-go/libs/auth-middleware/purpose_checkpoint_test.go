@@ -18,7 +18,9 @@ func TestPurposeCheckpointClientAllow(t *testing.T) {
 	var got PurposeCheckpointRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/api/v1/checkpoints/purpose/enforce", r.URL.Path)
+		require.Equal(t, PurposeCheckpointEnforcePath, r.URL.Path)
+		require.Equal(t, "Bearer service-token", r.Header.Get("Authorization"))
+		require.Equal(t, "trace-123", r.Header.Get("X-Trace-ID"))
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
 		_ = json.NewEncoder(w).Encode(PurposeCheckpointEvaluation{
 			RecordID:        uuid.New(),
@@ -29,7 +31,10 @@ func TestPurposeCheckpointClientAllow(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewPurposeCheckpointClient(srv.URL)
+	client := NewPurposeCheckpointClient(srv.URL,
+		WithPurposeCheckpointBearerToken("service-token"),
+		WithPurposeCheckpointHeader("X-Trace-ID", "trace-123"),
+	)
 	err := client.Enforce(context.Background(), PurposeCheckpointRequest{
 		InteractionType:         "ai_chat_completion",
 		ActorID:                 &actorID,
@@ -78,6 +83,8 @@ func TestPurposeCheckpointClientServiceAndInvalidResponseErrors(t *testing.T) {
 	var serviceErr *PurposeCheckpointServiceError
 	require.True(t, errors.As(err, &serviceErr))
 	require.Equal(t, http.StatusBadGateway, serviceErr.StatusCode)
+	require.Contains(t, serviceErr.Body, "unavailable")
+	require.Contains(t, serviceErr.Error(), "unavailable")
 
 	invalid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`not-json`))
