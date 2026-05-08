@@ -2,6 +2,84 @@ package cassandrakernel
 
 import "fmt"
 
+// OntologyObjectStoreMigrations returns the DDL required by ObjectStore. The
+// caller must ensure the keyspace already exists.
+func OntologyObjectStoreMigrations(keyspace string) []Migration {
+	return []Migration{
+		{Name: "ontology_objects.objects_by_id", DDL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.objects_by_id (
+			tenant text,
+			object_id timeuuid,
+			type_id text,
+			owner_id uuid,
+			properties text,
+			marking frozen<set<text>>,
+			organization_id uuid,
+			revision_number bigint STATIC,
+			created_at timestamp,
+			updated_at timestamp,
+			deleted boolean,
+			PRIMARY KEY ((tenant, object_id))
+		)`, keyspace)},
+		{Name: "ontology_objects.objects_by_type", DDL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.objects_by_type (
+			tenant text,
+			type_id text,
+			updated_at timestamp,
+			object_id timeuuid,
+			owner_id uuid,
+			marking frozen<set<text>>,
+			properties_summary text,
+			deleted boolean,
+			PRIMARY KEY ((tenant, type_id), updated_at, object_id)
+		) WITH CLUSTERING ORDER BY (updated_at DESC, object_id ASC)`, keyspace)},
+		{Name: "ontology_objects.objects_by_owner", DDL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.objects_by_owner (
+			tenant text,
+			owner_id uuid,
+			type_id text,
+			object_id timeuuid,
+			updated_at timestamp,
+			deleted boolean,
+			PRIMARY KEY ((tenant, owner_id), type_id, object_id)
+		)`, keyspace)},
+		{Name: "ontology_objects.objects_by_marking", DDL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.objects_by_marking (
+			tenant text,
+			marking_id text,
+			object_id timeuuid,
+			type_id text,
+			owner_id uuid,
+			updated_at timestamp,
+			deleted boolean,
+			PRIMARY KEY ((tenant, marking_id), object_id)
+		)`, keyspace)},
+	}
+}
+
+// OntologyLinkStoreMigrations returns the DDL required by LinkStore. The caller
+// must ensure the keyspace already exists.
+func OntologyLinkStoreMigrations(keyspace string) []Migration {
+	return []Migration{
+		{Name: "ontology_indexes.links_outgoing", DDL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.links_outgoing (
+			tenant text,
+			source_id timeuuid,
+			link_type text,
+			target_id timeuuid,
+			target_type text,
+			properties text,
+			created_at timestamp,
+			PRIMARY KEY ((tenant, source_id), link_type, target_id)
+		)`, keyspace)},
+		{Name: "ontology_indexes.links_incoming", DDL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.links_incoming (
+			tenant text,
+			target_id timeuuid,
+			link_type text,
+			source_id timeuuid,
+			source_type text,
+			properties text,
+			created_at timestamp,
+			PRIMARY KEY ((tenant, target_id), link_type, source_id)
+		)`, keyspace)},
+	}
+}
+
 // OntologyRuntimeMigrations returns the Cassandra/Scylla DDL required by
 // ontology-actions-service runtime stores. The caller is responsible for
 // creating the keyspace with the desired replication policy before applying

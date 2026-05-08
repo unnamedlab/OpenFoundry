@@ -1,10 +1,6 @@
-// Package storage holds the ObjectStore / LinkStore contract +
-// in-memory test fakes that mirror libs/storage-abstraction in Rust.
-//
-// The Cassandra-backed implementation lives in a follow-up slice
-// (libs/cassandra-kernel-go); the foundation port keeps the contract
-// + InMemory fakes only, which already serves real reads/writes
-// when CASSANDRA_CONTACT_POINTS is unset (matches Rust fallback).
+// Package storage holds the ObjectStore / LinkStore contract plus the
+// service-local adapters for in-memory test state and production Cassandra
+// stores backed by libs/cassandra-kernel.
 package storage
 
 import (
