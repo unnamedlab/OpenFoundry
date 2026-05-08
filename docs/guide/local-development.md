@@ -1,24 +1,82 @@
 # Local Development
 
-This page describes the fastest reliable paths for working in the OpenFoundry monorepo.
+This page describes the fastest reliable paths for working in the current OpenFoundry monorepo. The active backend/tooling stack is Go; older Rust/Cargo references in migration material describe historical parity work rather than the runnable source tree.
 
 ## Required Tooling
 
-- Rust `1.85` or newer
-- Node.js `20+`
-- pnpm `9+`
-- Docker and Docker Compose
-- `just` for the common contributor command surface
+- Go `1.25` or newer, matching the root `go.mod` directive.
+- Node.js `20+`.
+- pnpm `9+`.
+- Docker and Docker Compose for integration tests and local infrastructure.
+- `make` for the primary backend command surface.
+- `just` for broad repo workflows such as frontend, docs, infra, smoke, and benchmark recipes.
 
 Optional but useful for specialized flows:
 
-- Buf for protobuf linting and breaking-change checks
-- Helm for chart validation
-- Terraform for module validation
+- Buf for protobuf linting and generation.
+- SQLC for type-safe database code generation.
+- golangci-lint and gofumpt for local lint/format parity with Makefile targets.
+- Helm for chart validation.
+- Terraform for module validation.
 
-## Common Workflows
+You can install the pinned Go dev tools into `./bin` with:
 
-### Full Local Stack
+```bash
+make tools
+```
+
+## Backend Iteration
+
+Build every Go package:
+
+```bash
+make build
+```
+
+Build every service command into `./bin`:
+
+```bash
+make build-services
+```
+
+Run unit tests with race detection and coverage:
+
+```bash
+make test
+```
+
+Run integration-tagged Go tests. This path expects Docker because many tests use testcontainers:
+
+```bash
+make test-integration
+```
+
+Run lint, format, tidy, vet, or the composite local CI gate:
+
+```bash
+make lint
+make fmt
+make tidy
+make vet
+make ci
+```
+
+## Code Generation
+
+Regenerate protobuf and SQLC outputs together:
+
+```bash
+make gen
+```
+
+Or run the generators independently:
+
+```bash
+make gen-proto
+make gen-sqlc
+```
+
+## Full Local Stack
 
 Use this when you need infra, backend services, and the web app together:
 
@@ -26,53 +84,33 @@ Use this when you need infra, backend services, and the web app together:
 just dev-stack
 ```
 
-There is also a faster path when dependencies are already running and binaries are already built:
+There is also a faster path when dependencies are already running and binaries/assets are already prepared:
 
 ```bash
 just dev-stack-fast
 ```
 
-### Infrastructure Only
+## Infrastructure Only
 
-Use this when you only need backing services such as Postgres, Redis, NATS, MinIO, or Vespa Lite (production-equivalent search engine; Meilisearch is now opt-in via `--profile demo`, see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)):
+Use this when you only need backing services such as Postgres, Redis, NATS, MinIO, or search infrastructure:
 
 ```bash
 just infra-up
 just infra-down
 ```
 
-### Backend Iteration
+The root `compose.yaml` is the local entrypoint, while supporting Compose assets live under `infra/compose`.
 
-Build the whole Rust workspace:
+## Frontend Iteration
 
-```bash
-just build
-```
-
-Build or run a specific service:
-
-```bash
-just build-svc gateway
-just run-gateway
-just run auth-service
-```
-
-Run tests:
-
-```bash
-just test
-just test-svc gateway
-```
-
-### Frontend Iteration
-
-The root Node scripts already proxy into `apps/web`:
+The root Node scripts proxy into `apps/web`:
 
 ```bash
 pnpm dev
 pnpm lint
 pnpm test:unit
 pnpm build
+pnpm check
 ```
 
 If you prefer to work directly in the app package:
@@ -80,15 +118,19 @@ If you prefer to work directly in the app package:
 ```bash
 pnpm --dir apps/web dev
 pnpm --dir apps/web check
+pnpm --dir apps/web test:unit
 ```
 
-### Docs Iteration
+The frontend is React + Vite. Its source is under `apps/web/src`, with generated public contract artifacts under `apps/web/public/generated`.
 
-The docs site is intentionally isolated under `docs/`:
+## Docs Iteration
+
+The docs site is isolated under `docs/` and powered by VitePress:
 
 ```bash
 just docs-install
 just docs-dev
+just docs-build
 ```
 
 If you prefer to work directly inside the docs package:
@@ -97,29 +139,40 @@ If you prefer to work directly inside the docs package:
 cd docs
 npm ci
 npm run docs:dev
+npm run docs:build
 ```
 
 ## Operational Assumptions
 
-The repo is designed around service isolation rather than a single shared database. The smoke workflow creates separate Postgres databases for multiple services such as auth, datasets, pipelines, reports, geospatial, ontology, AI, and ML. That is a good mental model for local development too.
+The repo is designed around service isolation rather than a single shared application package. Local and integration flows combine service-owned code with shared libraries, generated contracts, and infrastructure dependencies.
 
-Several services also assume supporting infrastructure:
+Common supporting infrastructure includes:
 
-- Redis for gateway caching and stateful coordination
-- NATS for async messaging
-- MinIO or another object-store-compatible backend
-- Vespa (single-node container in dev, multi-node Helm chart in production)
-  for hybrid BM25 + vector + filter + ranking search
-  (see [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md))
+- Postgres-compatible databases for service persistence.
+- Redis/Valkey for caching and stateful coordination.
+- NATS and Kafka-compatible paths for control-plane and data-plane messaging.
+- MinIO or another object-store-compatible backend.
+- Search/vector infrastructure through the shared search and vector abstractions.
+- Cassandra where Cassandra-backed kernel tests or service flows are under test.
 
-## Helpful Commands From `justfile`
+## Helpful Commands
 
 | Goal | Command |
 | --- | --- |
-| Lint and format Rust | `just lint` |
+| Install pinned Go dev tools | `make tools` |
+| Generate protobuf + SQLC code | `make gen` |
+| Build all Go packages | `make build` |
+| Build service binaries | `make build-services` |
+| Run Go tests | `make test` |
+| Run integration-tagged Go tests | `make test-integration` |
+| Run Go lint | `make lint` |
+| Format Go code | `make fmt` |
+| Run Go local CI gate | `make ci` |
 | Validate proto contracts | `just proto-lint` |
 | Validate OpenAPI drift | `just openapi-check` |
 | Validate TypeScript SDK drift | `just sdk-typescript-check` |
 | Export Terraform schema | `just terraform-schema` |
 | Run smoke suite | `just smoke` |
 | Run benchmark suite | `just bench-critical-paths` |
+| Run frontend CI locally | `just ci-frontend` |
+| Build docs | `just docs-build` |

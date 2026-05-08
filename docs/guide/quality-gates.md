@@ -1,21 +1,42 @@
 # Quality Gates
 
-OpenFoundry uses CI as an executable compatibility contract across Rust services, frontend code, generated artifacts, infra packaging, and SDK outputs.
+OpenFoundry uses CI as an executable compatibility contract across Go services, frontend code, generated artifacts, infra packaging, SDK outputs, and migration/parity evidence.
 
 ## Workflow Inventory
 
 | Workflow | Purpose | Typical Local Entry Point |
 | --- | --- | --- |
-| `ci.yml` | Rust check, clippy, format, test, smoke, and dependency policy. | `cargo check --workspace`, `just lint`, `just test` |
-| `ci-frontend.yml` | Frontend lint, Svelte type checks, unit tests, E2E, and production build. | `just ci-frontend` |
+| `openfoundry-go.yml` | Go module gate for backend/tooling generation, build, lint, tests, and integration paths. | `make ci`, `make build`, `make test`, `make test-integration` |
+| `ci.yml` | Broader historical/parity gate that still encodes several service compatibility checks and migration-era assertions. | Use the closest `make`/`just` target for the area being changed; verify workflow contents before relying on old Cargo examples. |
+| `ci-frontend.yml` | Frontend lint, React/Vite type checks, unit tests, E2E, and production build. | `just ci-frontend`, `pnpm lint`, `pnpm check`, `pnpm test:unit`, `pnpm build` |
 | `proto-check.yml` | Buf lint/breaking checks plus OpenAPI and SDK drift validation. | `just proto-lint`, `just openapi-check`, `just sdk-typescript-check`, `just sdk-python-check`, `just sdk-java-check` |
-| `helm-check.yml` | Helm lint and render validation across deployment overlays. | `just helm-check` |
+| `helm-check.yml` / `helm-lint.yml` | Helm lint and render validation across deployment overlays. | `just helm-check` |
 | `terraform-check.yml` | Terraform format plus module and schema validation. | `terraform fmt -check -recursive infra/terraform` |
 | `sdk-smoke.yml` | Compiles and imports generated SDKs outside the main generation workflow. | `just sdk-typescript-typecheck`, `just sdk-python-compile`, `just sdk-java-compile` |
-| `security-audit.yml` | Weekly and lockfile-triggered Rust security audit. | `cargo audit` |
+| `iceberg-integration.yml` | Iceberg/PyIceberg compatibility checks. | `pytest tests/integration/pyiceberg` with required local services configured |
+| `integration-foundry-pattern.yml` | Foundry-pattern integration coverage. | Area-specific smoke/integration targets under `just` and `benchmarks/` |
+| `chaos-smoke.yml` | Chaos and resilience smoke coverage. | Scripts and scenarios under `smoke/chaos` and `infra/test-tools/chaos` |
+| `kafka-lint.yml` / `ceph-lint.yml` / `prometheus-rules.yml` | Static validation for Kafka, Ceph/topology, and Prometheus rule assets. | `just kafka-kraft-lint`, `just ceph-topology-lint`, and promtool-compatible local checks |
+| `security-audit.yml` | Scheduled and lockfile-triggered dependency/security audit. | Go dependency review and repository security tooling as configured by the workflow |
 | `docker-publish.yml` | Builds and pushes selected service images to GHCR. | `just docker-build` |
 | `release.yml` | Generates tagged GitHub releases and changelog entries. | Git tag push flow |
 | `deploy-docs.yml` | Builds VitePress docs and deploys them to GitHub Pages. | `just docs-build` |
+
+## Makefile Backend Gate
+
+For current Go backend changes, the root `Makefile` is the most direct local signal:
+
+```bash
+make tools          # install pinned generator/linter/formatter tools into ./bin
+make gen            # regenerate protobuf and SQLC outputs
+make build          # compile all Go packages
+make build-services # compile service binaries into ./bin
+make test           # run Go tests with race detector and coverage
+make lint           # run golangci-lint
+make ci             # tidy + vet + lint + test
+```
+
+Use `make test-integration` when the change touches testcontainers-backed code or integration-tagged packages and Docker is available.
 
 ## Executable Architecture Through Smoke Tests
 
@@ -31,7 +52,9 @@ When you modify cross-cutting behavior, the smoke layer is often the first place
 
 ## What To Watch During Review
 
-- Contract changes can require OpenAPI, SDK, or frontend updates.
-- Infra changes can break Helm, Terraform, or smoke setup even when unit tests pass.
-- Service changes may need database, environment, or Compose updates outside the service folder itself.
+- Backend changes should normally pass the relevant `make` target before opening review.
+- Contract changes can require protobuf generation, OpenAPI updates, SDK updates, and frontend updates in the same patch.
+- Infra changes can break Helm, Terraform, Compose, or smoke setup even when unit tests pass.
+- Service changes may need database, environment, Dockerfile, Compose, or chart updates outside the service folder itself.
+- Frontend changes should account for React/Vite type checks, linting, unit tests, and Playwright coverage where behavior is visible.
 - Docs changes should keep navigation, edit links, and Pages deployment in sync.
