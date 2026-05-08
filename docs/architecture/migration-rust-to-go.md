@@ -18,17 +18,17 @@ until each service flips over.
 |-------|-------|--------|
 | 0 | Foundations: scaffolding, libs/core-models, observability, auth-middleware, service template, CI | ✅ done |
 | 1 | Core libs (db-pool, event-bus-control, event-bus-data, audit-trail, idempotency, outbox, testing) | ✅ done |
-| 1.5 | Tier-2 libs (cassandra-kernel, authz-cedar, saga, state-machine, scheduling, search/storage/vector abstractions, geospatial, media-scanner, ontology-kernel, pipeline-expression, plugin-sdk, analytical-logic, ai-kernel, ml-kernel) | 🟡 in progress — `libs/authz-cedar-go` ✅ feature-complete; **`libs/ai-kernel-go`** ✅ models (7/7) + every pure-logic domain (llm cache+gateway+guardrails+provider+runtime, agents memory+planner+executor, rag, evaluation, copilot) + handlers (5/5: tools/prompts/knowledge/agents/chat — agents/execute and chat completion/copilot/benchmark all wired end-to-end). **`libs/ml-kernel-go`** ✅ models (10/10) + every pure-logic domain (drift, predictions, training/{hyperparameter,runner,execute_training}, interop) + handlers (7/7: overview/predictions/training/features/deployments/models/experiments + runs CRUD + asset-lineage). **Zero 501 stubs anywhere in either kernel handler surface**; remaining backlog is auth-middleware purpose-checkpoint integration + isolated per-service runtime slices. Other tier-2 libs migrate alongside first consuming service. |
-| 2 | Stateless edge services: edge-gateway, notification-alerting, sdk-generation, telemetry-governance, audit-sink, ai-sink | ✅ done — all 6 services migrated. telemetry-governance streaming-monitor surface (Bloque P4) ✅ ported (typed enums, monitoring views/rules/evaluations CRUD, RBAC). Open follow-up: Iceberg writer for sinks (pending iceberg-go writes). |
-| 3 | Identity & authz: identity-federation, authorization-policy, tenancy-organizations, audit-compliance | 🟡 in progress — `identity-federation-service` slices 1–4 ✅, 5a ✅, 6 ✅, 7a ✅ (restricted views CBAC CRUD); 5b + 7b (control panel + ABAC) + 8 pending. `tenancy-organizations-service` ✅ active surface complete (slice 1 organizations+enrollments, slice 2 favorites+recents, slice 3 sharing). spaces / projects / trash / resource_resolve are RETIRED upstream and deferred. **Cedar strategy decided 2026-05-06: Option A (cedar-go)**; `libs/authz-cedar-go` ✅ feature-complete (core + pg + nats + kafka + chi + iceberg/schedule generators), conformance mirror pending. `authorization-policy-service` slice 1 ✅ (cedar policy CRUD with strict schema validation; service is canonical Go impl since Rust binary is `fn main(){}`). audit-compliance pending. |
-| 4 | Data & ontology: dataset-versioning, media-sets, iceberg-catalog, ontology-{definition,query,actions,indexer}, connector-management, ingestion-replication, object-database | 🟡 in progress — `dataset-versioning-service` ✅ foundation, `iceberg-catalog-service` ✅ foundation, `connector-management-service` ✅ foundation, `ingestion-replication-service` ✅ foundation, `media-sets-service` ✅ foundation, `ontology-definition-service` ✅ foundation (object_types CRUD), `ontology-query-service` ✅ foundation (501 stubs until Cassandra port lands), `ontology-indexer` ✅ foundation (Kafka→Vespa/OpenSearch worker — stub runtime; consumer + SearchBackend ports follow), `object-database-service` ✅ foundation (full HTTP surface + InMemory ObjectStore/LinkStore mirroring Rust noop fakes; Cassandra wiring follows in libs/cassandra-kernel-go slice). ontology-actions deferred (pyo3). Phase 4 closes pending Cassandra-kernel ports. |
-| 5 | pyo3-bound services as Python sidecars: notebook-runtime, pipeline-build, lineage, agent-runtime | pending |
-| 6 | ML/AI/apps & retire Rust | 🟡 in progress — all 8 architecture+slice / foundation / substrate service ports done: `code-repository-review-service` ✅, `media-transform-runtime-service` ✅, `entity-resolution-service` ✅, `ontology-exploratory-analysis-service` ✅, `reindex-coordinator-service` ✅, `lineage-service` ✅, `workflow-automation-service` ✅, `federation-product-exchange-service` ✅. **`libs/ai-kernel-go`** + **`libs/ml-kernel-go`** ✅ full handler surfaces with **zero 501 stubs** — every endpoint defined by the Rust source has an end-to-end Go counterpart with the same DB shape and same wire envelope. 16 substrate-only or full-foundation shells all bind the kernel handlers today. Remaining work is integration items rather than pure-logic ports: auth-middleware-go purpose-checkpoint integration (sensitive-tool agent gating + chat-completion private-network gating), per-service runtime slices (Kafka subscribers, Iceberg writers, Cassandra scanners), and the pyo3 sidecars (STOP-and-ask, gRPC pattern). |
+| 1.5 | Tier-2 libs and kernels | ✅ package-root ports reconciled — `openfoundry-go/INVENTORY-PHASE6.md` now lists every Rust `libs/*/Cargo.toml` against `openfoundry-go/libs/*`. Config-gated backend work remains for live Cassandra/Kafka/NATS/search/vector consumers; `query-engine` is an explicit DataFusion exception. |
+| 2 | Stateless edge services: edge-gateway, notification-alerting, sdk-generation, telemetry-governance, audit-sink, ai-sink | ✅ done — all six service roots exist in Go. Audit/AI sink Iceberg writers remain config-gated production adapters, not missing ports. |
+| 3 | Identity & authz: identity-federation, authorization-policy, tenancy-organizations, audit-compliance | ✅ package-root ports reconciled — identity-federation, authorization-policy, tenancy-organizations, and audit-compliance all have Go service roots. Remaining work is adapter/runtime hardening rather than an absent service port. |
+| 4 | Data & ontology: dataset-versioning, media-sets, iceberg-catalog, ontology-{definition,query,actions,indexer}, connector-management, ingestion-replication, object-database | ✅ package-root ports reconciled — every listed service has a Go service root. Dataset/backing filesystem, ontology query/indexer, and sidecar-backed actions paths are classified as config-gated where they need live dependencies. |
+| 5 | pyo3-bound services as Python sidecars: notebook-runtime, pipeline-build, ontology-actions | ✅ sidecar pattern accepted and Go service roots exist. These services are **ported but config-gated** because production execution depends on the configured Python sidecar and related runtime adapters. |
+| 6 | ML/AI/apps & retire Rust | ✅ package-root ports reconciled — the former architecture+slice list (`code-repository-review`, `media-transform-runtime`, `entity-resolution`, `ontology-exploratory-analysis`, `reindex-coordinator`, `lineage`, `workflow-automation`, `federation-product-exchange`) now has Go service roots. Remaining work is integration/configuration plus explicit exclusions, not absent-service backlog. |
 
 `sql-bi-gateway-service` and `query-engine` are excepted: they keep
-Datafusion/Arrow in Rust because Go has no equivalent push-down query
-engine. Treated as permanent exceptions, communicated to Go services
-via gRPC.
+DataFusion/Arrow push-down execution in Rust because Go has no equivalent
+query engine. Any Go directories around those names are shims/support code,
+not a claim that the DataFusion engine was literally ported.
 
 ---
 
@@ -37,10 +37,10 @@ via gRPC.
 Five places where the Go re-implementation deliberately diverges from
 the Rust shape:
 
-1. **`pyo3` (5 services)** → Python sidecars over gRPC on loopback.
-   The Go service owns lifecycle (subprocess) and the protocol; the
-   Python child reuses existing Rust-side python modules without
-   change.
+1. **`pyo3` services** → Python sidecars over gRPC on loopback.
+   The Go service owns lifecycle (subprocess) and the protocol; these
+   package roots are classified as ported but config-gated until the
+   sidecar binary/configuration is present in the target deployment.
 2. **`datafusion` push-down** → kept in Rust (`sql-bi-gateway-service`,
    `query-engine`).
 3. **`authz-cedar` Cargo features** → split into separate Go packages

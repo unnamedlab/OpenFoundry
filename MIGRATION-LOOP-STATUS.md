@@ -11,6 +11,13 @@ reads it first, advances ONE coherent slice, runs `go build` + `go vet`
 + `go test` workspace-wide, commits, updates this file, schedules the
 next wakeup.
 
+> **Reconciliation note (2026-05-08):** package-root migration status is now
+> authoritative in `openfoundry-go/INVENTORY-PHASE6.md`. Older iteration-log
+> entries below are preserved as history and may mention pending slices that
+> have since landed. Treat the remaining backlog as config-gated adapters,
+> route/behavior deepening, or explicit language exclusions rather than absent
+> Go service directories.
+
 ---
 
 ## Discovery (iteration 1, 2026-05-06)
@@ -68,7 +75,7 @@ Stubs that were claimed pending but are now real production code:
 | 3.7b.2.3 | slice 8: VaultTransitSigner (live HTTP) | ✅ done | commit `27c10af6` (1192 LOC + 24 tests). Full HTTP client + Token & Kubernetes-role auth flow + retry policy + httptest fakeVault round-trip suite. |
 | 3.7b.2.4 | slice 8: HTTP handlers + helpers | ✅ done | commit `ab50d49c` (613 LOC + 15 tests). PublishJwks / RotateJwks / RollbackJwks + HashContent / SignContent / VerifySignature. Belt-and-braces requireJwksRotation + requireSecurityWrite claim checks alongside the Cedar AdminGuard. |
 | 3.7b.2 | **slice 8: JWKS rotation half COMPLETE** | ✅ done | 4 sub-slices, ~3520 LOC of Go (types + interfaces + Postgres + Vault HTTP + HTTP handlers + ~75 tests). |
-| 3.7b.3 | slice 8: SCIM endpoints | ⏳ pending | handlers/scim.rs (1951 LOC) + hardening/scim.rs (515 LOC). Multi-iteration. RFC 7644 conformance + bulk provision/deprovision User + Group. Wires `AdminGuard(ActionScimProvision*, Scim*Resource)`. |
+| 3.7b.3 | slice 8: SCIM endpoints | ✅ done | Superseded by the 2026-05-08 reconciliation: SCIM endpoints and stores are present in the Go identity-federation service; see `openfoundry-go/INVENTORY-PHASE6.md`. |
 
 ### P4 — Phase 5 decision (RESOLVED 2026-05-06, fully closed 2026-05-07)
 

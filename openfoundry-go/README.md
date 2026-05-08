@@ -5,17 +5,16 @@ Go re-implementation of the OpenFoundry platform, mirroring the Rust workspace
 topics) so a service in either language can interoperate with the other during
 the migration window.
 
-> **Status (2026-05-06):** Phases 0–6 complete. The Rust workspace at the
-> repo root remains the production source of truth, but the Go re-implementation
-> covers the foundational libs, edge gateway, audit/AI Kafka sinks, the
-> identity stack (federation incl. SAML 5b + SCIM 2.0 + Cedar authz + JWKS
-> rotation with Vault Transit), Phase 4 data libs (cassandra-kernel,
-> ontology-kernel, scheduling-cron, saga, search-abstraction, state-machine),
-> and Phase 5 ai/ml libs (ai-kernel-go llm runtime + agents/executor,
-> ml-kernel-go interop + training/runner). See `INVENTORY-PHASE6.md` for the
-> per-service port matrix. Phase 5 pyo3 sidecars
-> (notebook-runtime, pipeline-build, ontology-actions) are deferred pending
-> a go/no-go decision on the sidecar architecture.
+> **Status (2026-05-08):** Rust `services/*/Cargo.toml` and `libs/*/Cargo.toml`
+> have been reconciled against `openfoundry-go/services/*` and
+> `openfoundry-go/libs/*` in `INVENTORY-PHASE6.md`. Treat every
+> existing Go service directory as reconciled: the remaining work is now
+> classified as **ported**, **ported but config-gated**, **compatible-placeholder
+> because Rust also is placeholder**, or **excluded by decision**. The explicit
+> language exceptions remain DataFusion/Arrow query execution
+> (`sql-bi-gateway-service`, `query-engine`) and the non-Rust Spark runner; pyo3
+> services use the approved Python sidecar pattern and are config-gated rather
+> than absent.
 
 ## Repository layout
 
@@ -32,7 +31,7 @@ openfoundry-go/
 │   ├── idempotency/            # Store interface + Pg + Mem backends ✅
 │   ├── outbox/                 # transactional outbox INSERT+DELETE helper ✅
 │   ├── testing/                # testcontainers-go + JWT/SQL fixtures ✅
-│   ├── …                       # 18 tier-2 libs deferred until consumed
+│   ├── …                       # parity classified in INVENTORY-PHASE6.md
 │   └── proto-gen/              # generated from ../proto via `make gen`
 │
 ├── services/                   # one Go binary entrypoint per microservice
@@ -45,8 +44,8 @@ openfoundry-go/
 │   ├── notification-alerting-service/ # ✅ Phase 2 cluster
 │   ├── sdk-generation-service/        # ✅ Phase 2 cluster
 │   ├── telemetry-governance-service/  # ✅ Phase 2 cluster
-│   ├── …                              # Phase 4 / 5 services landing per inventory
-│   └── template/               # reference layout (copy + rename)
+│   ├── …                              # all Rust service roots reconciled in inventory
+│   └── template/               # reference layout (Go-only scaffold)
 │
 ├── proto/                      # reserved (canonical .proto live at ../proto)
 ├── tools/of-cli                # admin CLI (port of tools/of-cli)
@@ -136,7 +135,7 @@ make ci             # full local CI gate (tidy + vet + lint + test)
 - ✅ `libs/testing/` — `BootPostgres` (testcontainers-go, integration
   build tag), `JWTConfig`, `DevToken`, `SeedDataset`.
 
-## Phase 1 — tier 2 (status as of 2026-05-06)
+## Phase 1 — tier 2 (status as of 2026-05-08)
 
 These were originally listed as "migrate on first consumer." Most have
 landed:
@@ -148,12 +147,16 @@ landed:
 - ✅ `state-machine`, `scheduling-cron`, `saga`, `search-abstraction` —
   full ports with parser/evaluator/runner-style sub-modules where the
   Rust crate had them.
-- ✅ `ontology-kernel` — domain layer foundation + handlers (in progress).
-- 🟡 `storage-abstraction` — search trait surface ported; HTTP backends
-  (vespa, opensearch) deferred to first consumer.
-- ⏸ `query-engine`, `vector-store`, `geospatial-core`, `geospatial-tiles`,
-  `media-scanner`, `pipeline-expression`, `plugin-sdk`, `analytical-logic`
-  — placeholder dirs only; consumed-on-demand.
+- ✅ `ontology-kernel` — domain layer foundation + handlers.
+- 🟡 `storage-abstraction`, `search-abstraction`, `vector-store`,
+  `cassandra-kernel`, `event-bus-control`, `event-bus-data` — package roots
+  are ported, with live external backends intentionally config-gated.
+- ✅ `geospatial-tiles`, `media-scanner`, `pipeline-expression`,
+  `analytical-logic`, `saga`, `scheduling-cron`, `scheduling-linter`,
+  `state-machine` — Go package roots exist.
+- ✅ `geospatial-core` and `plugin-sdk` are compatible placeholders because
+  their Rust crates are placeholders too; `query-engine` is excluded by the
+  DataFusion decision. See `INVENTORY-PHASE6.md` for the full matrix.
 
 ## Phase 2 deliverables (this commit)
 

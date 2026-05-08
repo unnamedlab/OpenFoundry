@@ -1,127 +1,120 @@
-# Phase 6 cherry-pick inventory
+# Phase 6 migration inventory
 
-State: **2026-05-06**, after Phase 4 closed (object-database foundation
-landed) and the identity-federation autonomous run wrapped. All
-Phase 0–4 services have foundation ports (modulo pyo3 sidecars that
-are STOP-and-ask). This document scopes what is left.
+State: **2026-05-08**. This inventory is the reconciliation point between
+Rust package roots (`services/*/Cargo.toml`, `libs/*/Cargo.toml`) and the Go
+workspace (`openfoundry-go/services/*`, `openfoundry-go/libs/*`). It replaces
+older notes that listed already-existing Go services as "not yet ported".
 
-**Recent additions (post-original-inventory):**
+## Status vocabulary
 
-- `services/identity-federation-service/` is now **feature-complete**
-  on the Go side: slice 5a OIDC + slice 5b SAML 2.0 + slice 6 RBAC +
-  slice 7a restricted views + slice 8 (Cedar wiring + JWKS rotation
-  with Vault Transit + SCIM 2.0 endpoints + Postgres stores).
-  ~10k LOC of Go across `internal/{oidc,saml,scim,cedarauthz,
-  jwksrotation,handlers,repo,server}` plus tests.
-- Phase-1 tier-2 libs that were "deferred until consumed" mostly
-  landed during this run: `cassandra-kernel` (5 stores, ~3500 LOC),
-  `state-machine`, `scheduling-cron` (parser+evaluator+DST handling),
-  `saga`, `search-abstraction` (in-memory + trait surface).
-- Phase-5 ai/ml kernel partial port: `libs/ai-kernel-go/domain/llm/runtime`,
-  `libs/ai-kernel-go/domain/agents/executor`,
-  `libs/ml-kernel-go/domain/interop`, training/runner — unblocks the
-  8 ai/ml shell services at the handler layer.
+| Status | Meaning |
+|---|---|
+| **ported** | A Go package root exists and owns the Rust contract surface at the functional/API level. Follow-up work may still improve production adapters, tests, or runtime hardening. |
+| **ported but config-gated** | A Go package root exists and routes/handlers are present, but one or more production paths require explicit runtime configuration (for example Python sidecar, Iceberg catalog, backing filesystem, Kafka/Cassandra/Vespa/OpenSearch wiring). |
+| **compatible-placeholder because Rust also is placeholder** | The Rust package is intentionally a shell or marker crate, and the Go counterpart mirrors that low/no-behavior contract without claiming nonexistent behavior. |
+| **pending real** | Rust has meaningful behavior for which no Go package root or agreed exclusion exists. |
+| **excluded by decision** | The package is intentionally not a literal Rust-to-Go port, usually because the runtime remains Rust/Scala or because the Go directory is a support/shim package rather than a Rust counterpart. |
 
-## Services NOT yet ported
+## Service parity matrix
 
-| Service | Rust LOC | Pattern | Strategy |
-|---|---|---|---|
-| `agent-runtime-service` | 495 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `ai-evaluation-service` | 724 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `application-composition-service` | 194 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `code-repository-review-service` | 672 | own `main.rs`, full Postgres impl, outbox | **PORT-READY** (foundation slice) |
-| `entity-resolution-service` | 2937 | own main, large | architecture+slice (>1500 LOC) |
-| `federation-product-exchange-service` | 8248 | own main, very large | architecture+slice (>1500 LOC) |
-| `lineage-service` | 5100 | own main, pyo3 dep declared but unused | architecture+slice |
-| `llm-catalog-service` | 67 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `media-transform-runtime-service` | 800 | own main | medium foundation |
-| `model-catalog-service` | 465 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `model-deployment-service` | 122 | `fn main(){}` shell + **ml-kernel** re-exports | blocked on **ml-kernel-go** (not ai-kernel) — inventory correction 2026-05-06 |
-| `notebook-runtime-service` | 2065 | **pyo3 used** | Phase 5 sidecar — STOP and ask |
-| `ontology-actions-service` | — | **pyo3 used** | STOP and ask (existing guardrail) |
-| `ontology-exploratory-analysis-service` | 2125 | own main | architecture+slice |
-| `pipeline-build-service` | 29286 | **pyo3 used** | Phase 5 sidecar — STOP and ask |
-| `reindex-coordinator-service` | 2561 | own main | architecture+slice |
-| `retrieval-context-service` | 269 | shell + ai-kernel + own document_intelligence | partial — ai-kernel-bound |
-| `solution-design-service` | 148 | `fn main(){}` shell + ai-kernel re-exports | blocked on ai-kernel-go |
-| `workflow-automation-service` | 7188 | own main | architecture+slice (>1500 LOC) |
+| Service | Rust `services/*/Cargo.toml` | Go `openfoundry-go/services/*` | Status | Notes |
+|---|---:|---:|---|---|
+| `agent-runtime-service` | yes | yes | **ported** | Go service exists; ai-kernel handler substrate is now present. |
+| `ai-evaluation-service` | yes | yes | **ported** | Go service exists; evaluation handler path is covered by the Go port. |
+| `ai-sink` | yes | yes | **ported but config-gated** | Runtime is ported; Iceberg writer remains an explicit production-adapter gate. |
+| `application-composition-service` | yes | yes | **ported** | Go service exists for the Rust shell/service contract. |
+| `audit-compliance-service` | yes | yes | **ported** | Go service exists with consolidated compliance domains. |
+| `audit-sink` | yes | yes | **ported but config-gated** | Runtime is ported; Iceberg writer remains an explicit production-adapter gate. |
+| `authorization-policy-service` | yes | yes | **ported** | Go service is the canonical active implementation for the Rust shell plus absorbed domains. |
+| `code-repository-review-service` | yes | yes | **ported** | Formerly listed as port-ready; Go foundation now exists. |
+| `connector-management-service` | yes | yes | **ported** | Data-connection/connector surface exists in Go. |
+| `dataset-versioning-service` | yes | yes | **ported but config-gated** | Route/handler surface is present; backing filesystem/catalog flows require configured adapters. |
+| `edge-gateway-service` | yes | yes | **ported** | Edge proxy and route table are Go-native. |
+| `entity-resolution-service` | yes | yes | **ported** | Former architecture+slice candidate now has a Go service root. |
+| `federation-product-exchange-service` | yes | yes | **ported** | Route audit reports implemented routes for this service. |
+| `iceberg-catalog-service` | yes | yes | **ported** | Go foundation exists. |
+| `identity-federation-service` | yes | yes | **ported** | OIDC, SAML, SCIM, Cedar, JWKS rotation, MFA/WebAuthn are Go-native. |
+| `ingestion-replication-service` | yes | yes | **ported** | Go foundation exists. |
+| `lineage-service` | yes | yes | **ported** | Former architecture+slice candidate now has a Go service root. |
+| `llm-catalog-service` | yes | yes | **ported** | Go service exists; ai-kernel substrate is present. |
+| `media-sets-service` | yes | yes | **ported** | Go foundation exists. |
+| `media-transform-runtime-service` | yes | yes | **ported** | Former port-ready item now has a Go service root. |
+| `model-catalog-service` | yes | yes | **ported** | Go service exists; ai-kernel substrate is present. |
+| `model-deployment-service` | yes | yes | **ported** | Go service exists; ml-kernel substrate is present. |
+| `notebook-runtime-service` | yes | yes | **ported but config-gated** | pyo3 work migrated through the approved Python sidecar pattern; runtime requires sidecar configuration. |
+| `notification-alerting-service` | yes | yes | **ported** | Phase 2 cluster service exists in Go. |
+| `object-database-service` | yes | yes | **ported** | Full HTTP foundation plus object/link store abstractions exist in Go. |
+| `ontology-actions-service` | yes | yes | **ported but config-gated** | pyo3 work migrated through the approved Python sidecar pattern; runtime requires sidecar configuration. |
+| `ontology-definition-service` | yes | yes | **ported** | Go foundation exists. |
+| `ontology-exploratory-analysis-service` | yes | yes | **ported** | Former architecture+slice candidate now has a Go service root. |
+| `ontology-indexer` | yes | yes | **ported but config-gated** | Worker surface exists; production search/Kafka adapters are runtime wiring concerns. |
+| `ontology-query-service` | yes | yes | **ported but config-gated** | Query surface exists; Cassandra/NATS invalidation wiring is config-dependent. |
+| `pipeline-build-service` | yes | yes | **ported but config-gated** | Route audit reports implemented routes; Python sidecar and Iceberg/log/Spark adapters are config-gated. |
+| `pipeline-runner` | no Rust Cargo.toml (Scala runner) | yes | **excluded by decision** | Go directory is a compatibility/support wrapper for a non-Rust Spark runner, not a Rust-service port. |
+| `reindex-coordinator-service` | yes | yes | **ported but config-gated** | Go coordinator exists; Kafka/Cassandra runtime adapters require deployment config. |
+| `retrieval-context-service` | yes | yes | **ported** | Go service exists; ai-kernel substrate is present. |
+| `sdk-generation-service` | yes | yes | **ported** | Phase 2 cluster service exists in Go. |
+| `solution-design-service` | yes | yes | **ported** | Go service exists; ai-kernel substrate is present. |
+| `sql-bi-gateway-service` | yes | yes | **excluded by decision** | DataFusion/Arrow push-down remains Rust by architecture decision; Go directory is not a literal replacement of that engine. |
+| `telemetry-governance-service` | yes | yes | **ported** | Phase 2 cluster service exists in Go. |
+| `tenancy-organizations-service` | yes | yes | **ported** | Workspace/tenancy surface is Go-native. |
+| `workflow-automation-service` | yes | yes | **ported** | Former architecture+slice candidate now has a Go service root. |
+| `template` | no | yes | **excluded by decision** | Go-only scaffold, not a Rust package. |
 
-Excluded (permanent Rust): `sql-bi-gateway-service` (datafusion).
-Excluded (Scala, not Rust): `pipeline-runner` (Spark job runner).
+**Pending real services:** none at the package-root level. Remaining work is
+adapter hardening/configuration, route deepening, or explicit language
+exceptions; treat the Go directories above as already reconciled ports or explicit exclusions.
 
-## Categorization
+## Library parity matrix
 
-### A. Port-ready standalone services (own `main.rs`, no kernel shell)
+| Library | Rust `libs/*/Cargo.toml` | Go `openfoundry-go/libs/*` | Status | Notes |
+|---|---:|---:|---|---|
+| `ai-kernel-go` | no Rust Cargo.toml in `libs/*` | yes | **excluded by decision** | Go support library for AI service ports; Rust counterpart is not part of the current `libs/*/Cargo.toml` comparison set. |
+| `analytical-logic` | yes | yes | **ported** | Go package root exists. |
+| `audit-trail` | yes | yes | **ported** | Event envelope/outbox bridge exists in Go. |
+| `auth-middleware` | yes | yes | **ported** | JWT, tenant context, chi middleware exist in Go. |
+| `authz-cedar` / `authz-cedar-go` | yes | yes | **ported** | Go package uses the `-go` suffix while mirroring the Rust authz Cedar role. |
+| `cassandra-kernel` | yes | yes | **ported but config-gated** | Store interfaces and Go implementations exist; live Cassandra behavior depends on deployment config. |
+| `core-models` | yes | yes | **ported** | IDs, errors, health, pagination, schema, markings, media references are Go-native. |
+| `db-pool` | yes | yes | **ported** | pgx pool wrapper exists in Go. |
+| `event-bus-control` | yes | yes | **ported but config-gated** | NATS/JetStream surface exists; live broker use is runtime-configured. |
+| `event-bus-data` | yes | yes | **ported but config-gated** | Kafka surface exists; live broker use is runtime-configured. |
+| `event-scheduler` | yes | yes | **ported** | Go package root exists. |
+| `geospatial-core` | yes | yes | **compatible-placeholder because Rust also is placeholder** | Rust source is effectively a marker crate; Go mirrors the minimal contract. |
+| `geospatial-tiles` | yes | yes | **ported** | Tile helpers exist in Go. |
+| `idempotency` | yes | yes | **ported** | Store interfaces and memory/Postgres style backends exist. |
+| `media-scanner` | yes | yes | **ported** | Go package root exists. |
+| `ml-kernel-go` | no Rust Cargo.toml in `libs/*` | yes | **excluded by decision** | Go support library for ML service ports; Rust counterpart is not part of the current `libs/*/Cargo.toml` comparison set. |
+| `observability` | yes | yes | **ported** | slog/OTel/Prometheus support exists in Go. |
+| `ontology-kernel` | yes | yes | **ported** | Domain and handler substrate exists in Go. |
+| `outbox` | yes | yes | **ported** | Transactional outbox helpers exist in Go. |
+| `pipeline-expression` | yes | yes | **ported** | Parser/evaluator package exists in Go. |
+| `plugin-sdk` | yes | yes | **compatible-placeholder because Rust also is placeholder** | Rust source is a one-line placeholder; Go mirrors that minimal marker role. |
+| `proto-gen` | no | yes | **excluded by decision** | Generated Go protobuf stubs from canonical `../proto`. |
+| `python-sidecar` | no | yes | **excluded by decision** | Go support library for the approved pyo3 sidecar architecture. |
+| `query-engine` | yes | yes | **excluded by decision** | DataFusion/Arrow query execution remains Rust; Go package is not a literal engine replacement. |
+| `saga` | yes | yes | **ported** | Saga choreography helper exists in Go. |
+| `scheduling-cron` | yes | yes | **ported** | Cron parser/evaluator/DST behavior exists in Go. |
+| `scheduling-linter` | yes | yes | **ported** | Go package root exists. |
+| `search-abstraction` | yes | yes | **ported but config-gated** | Trait/factory/in-memory backend exists; live Vespa/OpenSearch backends are configured with consumers. |
+| `state-machine` | yes | yes | **ported** | State transition helper exists in Go. |
+| `storage-abstraction` | yes | yes | **ported but config-gated** | Core storage/search surfaces exist; concrete external backends are config/consumer-gated. |
+| `testing` | yes | yes | **ported** | Go test fixtures/helpers exist. |
+| `vector-store` | yes | yes | **ported but config-gated** | Vector interfaces/helpers exist; live backend use is configured by consumers. |
 
-1. **`code-repository-review-service`** (672 LOC src) — owns global-branching
-   HTTP surface + code-security scan/finding stores (S8/ADR-0030 absorbed
-   from `global-branch-service` and `code-security-scanning-service`).
-   Postgres CRUD + outbox-emit on `foundry.global.branch.promote.requested.v1`.
-   Kafka subscriber for `foundry.branch.events.v1` is exposed as a port,
-   not directly linked. **Recommended next port.**
-2. `media-transform-runtime-service` (800 LOC) — own main. Medium foundation.
-3. `entity-resolution-service` (2937 LOC) — architecture+slice.
-4. `ontology-exploratory-analysis-service` (2125 LOC) — architecture+slice.
-5. `reindex-coordinator-service` (2561 LOC) — architecture+slice.
-6. `lineage-service` (5100 LOC) — architecture+slice; pyo3 dep declared
-   but `grep -rln "use pyo3\|Python::"` returns no hits, so the binary
-   is portable; the dep is residual.
-7. `workflow-automation-service` (7188 LOC) — architecture+slice.
-8. `federation-product-exchange-service` (8248 LOC) — architecture+slice.
-   This is the consolidated S8 marketplace + product-distribution
-   service per recent commits.
+**Pending real libraries:** none for Rust `libs/*/Cargo.toml` package roots.
+Go-only support libraries are listed explicitly so they are not mistaken for
+unmatched Rust migration backlog.
 
-### B. ai-kernel-bound shell services (`fn main(){}` + `#[path]` re-export)
+## Operational follow-ups
 
-`agent-runtime-service`, `ai-evaluation-service`,
-`application-composition-service`, `llm-catalog-service`,
-`model-catalog-service`, `model-deployment-service`,
-`solution-design-service`, `retrieval-context-service` (partial).
+The remaining migration work should be tracked as **integration/configuration**
+items, not as missing package-root ports:
 
-These are blocked on **`libs/ai-kernel-go`** (Rust `libs/ai-kernel` is
-~7515 LOC; well over the 1500 LOC iteration budget). Suggested follow-up
-plan:
-
-1. Inventory + carve up `ai-kernel` into ports (handlers / models / domain
-   / domain/llm / domain/agents / domain/rag) — each is its own slice.
-2. Port `libs/ai-kernel-go` skeleton + the simplest sub-domain first
-   (likely `models` since they're plain DTOs).
-3. Once a sub-domain is in place, port one of the shell services that
-   only uses that sub-domain end-to-end as a proof point.
-4. Iterate per sub-domain until the kernel surface is complete.
-
-This is multiple iterations of work; tracked as separate todos.
-
-### C. pyo3 STOP-and-ask sidecars (Phase 5)
-
-- `ontology-actions-service` (existing guardrail)
-- `notebook-runtime-service` (uses pyo3 in src)
-- `pipeline-build-service` (uses pyo3 in src)
-
-Per `docs/architecture/migration-rust-to-go.md` §"What does NOT migrate
-literally", these become Python sidecars over gRPC with the Go service
-owning lifecycle. Out of scope for this autonomous loop.
-
-### D. Architecture+slice candidates (>1500 LOC)
-
-`entity-resolution-service`, `lineage-service`,
-`ontology-exploratory-analysis-service`, `reindex-coordinator-service`,
-`workflow-automation-service`, `federation-product-exchange-service`.
-
-Each gets a foundation iteration that ports the architecture +
-1 vertical slice; subsequent slices follow.
-
-## Priority for the autonomous loop
-
-1. **`code-repository-review-service` foundation** (this run, next iter)
-2. `media-transform-runtime-service` foundation
-3. Architecture+slice ports of `entity-resolution-service`,
-   `ontology-exploratory-analysis-service`, `reindex-coordinator-service`
-4. `libs/ai-kernel-go` skeleton + first sub-domain (deferred — large
-   multi-iteration block)
-5. Architecture+slice of the very large services
-   (`workflow-automation-service`, `federation-product-exchange-service`,
-   `lineage-service`)
-
-`pipeline-runner` (Scala) and `sql-bi-gateway-service` (Datafusion) are
-permanent exclusions and stay in their current language.
+1. Keep `openfoundry-go/docs/migration/route-parity-audit.md` refreshed with
+   `cd openfoundry-go && go run ./tools/route-audit --write docs/migration/route-parity-audit.md`.
+2. Deepen config-gated adapters where production deployments need live
+   Cassandra, Kafka, NATS, Iceberg, Vespa/OpenSearch, Spark, or Python sidecar
+   dependencies.
+3. Preserve the explicit exclusions for DataFusion/Arrow query execution and
+   the Scala Spark runner unless an ADR changes those decisions.
