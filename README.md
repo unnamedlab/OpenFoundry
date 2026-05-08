@@ -1,501 +1,265 @@
-<div align="center">
-
-<img src="images/logo.png" alt="OpenFoundry" width="324" />
-
-### Turn disconnected data into decisions, workflows, and real-world outcomes
-
-**A unified platform to connect operations, teams, systems, and AI — so your organization can act faster, with less chaos and more confidence.**
-
-[![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-active%20development-brightgreen.svg)](#-product-status)
-[![Open Source](https://img.shields.io/badge/open%20source-yes-success.svg)](LICENSE)
-[![Contributions](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Documentation](https://img.shields.io/badge/docs-official%20documentation-0ea5e9.svg)](https://diocrafts.github.io/OpenFoundry/)
-
-[Official documentation](https://diocrafts.github.io/OpenFoundry/) · [See what you can build](#-what-you-can-do-with-openfoundry) · [Why teams choose OpenFoundry](#-why-openfoundry) · [Quick start](#-get-started) · [Roadmap](#-roadmap) · [Community](#-community)
-
----
-
-## From fragmented data to coordinated action
-
-OpenFoundry helps organizations bring together data that usually lives in separate systems — operations, logistics, maintenance, finance, planning, analytics, documents, alerts, and more — into one secure, understandable, and usable platform.
-
-**Instead of asking teams to chase spreadsheets, dashboards, emails, tickets, and disconnected software, OpenFoundry gives them one place to:**
-
-- **see what is happening**
-- **understand why it is happening**
-- **decide what to do next**
-- **coordinate action across teams**
-- **track outcomes in real time**
-
-</div>
-
----
-
-## Why OpenFoundry?
-
-Most organizations don’t have a data problem.  
-They have a **coordination problem**.
-
-Their information is spread across too many tools, too many teams, and too many processes:
-
-- operations data in one system
-- planning in another
-- quality issues in another
-- documents in shared drives
-- analytics in dashboards
-- actions in email, chat, and spreadsheets
-
-The result:
-
-- slow decisions
-- duplicated work
-- poor visibility
-- reactive firefighting
-- hard-to-measure outcomes
-
-**OpenFoundry changes that.**
-
-It creates a shared operational layer for your organization so people can work from the same reality — with the right context, the right workflows, and the right permissions.
-
----
-
-## 🚀 What you can do with OpenFoundry
-
-OpenFoundry is designed for teams that deal with **complex operations**, **high coordination costs**, and **critical decisions**.
-
-### Aviation & Industrial Operations
-Connect engineering, maintenance, fleet, supply chain, and operational data in one platform.
-
-With OpenFoundry, teams can:
-
-- detect recurring defects faster
-- understand downstream impact on delays and availability
-- connect maintenance history with live operational context
-- prioritize repairs based on risk and operational urgency
-- coordinate across plants, suppliers, and field teams
-- reduce asset downtime with predictive alerting
-- improve throughput without sacrificing quality
-
-**Example:**  
-A manufacturer or airline can unify maintenance records, parts deliveries, work orders, quality findings, flight operations data, and engineering updates into one shared operating picture.
-
----
-
-### Healthcare & Hospital Operations
-Help clinicians, planners, and operational leaders work from timely, trusted information while protecting sensitive data.
-
-With OpenFoundry, organizations can:
-
-- connect waiting lists, referrals, bed capacity, theatre availability, staffing, and discharge workflows
-- identify blockers in care pathways
-- improve scheduling and resource utilization
-- reduce administrative burden
-- support patient flow and discharge coordination
-- create secure role-based access to sensitive operational and clinical information
-
-**Example:**  
-A healthcare system can combine scheduling, capacity, care pathway, and task-tracking data to help teams move patients through care more efficiently and safely.
-
----
-
-### Insurance, Risk & Resilience
-Turn fragmented internal and external data into a living view of risk.
-
-With OpenFoundry, teams can:
-
-- unify underwriting, claims, exposure, climate, cyber, and portfolio data
-- create a single view of risk across business units
-- operationalize risk models into real workflows
-- shorten analysis cycles from days to minutes
-- help experts investigate, compare, and act on complex scenarios
-- support governance, traceability, and compliance
-
-**Example:**  
-A risk organization can combine portfolio, geospatial, climate, and claims information to build tools that identify exposure patterns, support pricing decisions, and improve resilience planning.
-
----
-
-### Public Sector & Critical Infrastructure
-Support better decisions across agencies, operators, and programs.
-
-With OpenFoundry, organizations can:
-
-- connect siloed systems securely
-- coordinate resources across teams and regions
-- monitor bottlenecks and mission-critical workflows
-- build operational applications without starting from scratch
-- improve transparency and accountability
-- respond faster to disruptions and changing conditions
-
----
-
-## ✨ Why people choose OpenFoundry
-
-### 1. One place to understand what’s going on
-OpenFoundry brings together data from across your organization into a shared operating view.
-
-Not just dashboards.  
-Not just storage.  
-Not just reports.
-
-A place where data becomes **context for action**.
-
----
-
-### 2. Built for real operations, not just analytics
-Many tools help you look at data.  
-Far fewer help people **work with it**, **coordinate around it**, and **make decisions from it**.
-
-OpenFoundry supports operational use cases like:
-
-- triaging issues
-- assigning tasks
-- resolving bottlenecks
-- managing workflows
-- tracking exceptions
-- monitoring live operations
-- following outcomes over time
-
----
-
-### 3. Secure by design
-For organizations in regulated or sensitive environments, governance is not optional.
-
-OpenFoundry is designed to support:
-
-- role-based and attribute-based access controls
-- auditability and traceability
-- environment separation
-- secure collaboration
-- data ownership boundaries
-- policy-aware workflows
-
----
-
-### 4. Flexible enough for complex organizations
-Every organization has a different reality:
-different systems, different processes, different terminology, different constraints.
-
-OpenFoundry is built to adapt to that complexity, instead of forcing you into a one-size-fits-all workflow.
-
----
-
-### 5. Open source, extensible, and self-hostable
-Unlike closed, high-cost enterprise platforms, OpenFoundry is built in the open.
-
-That means you can:
-
-- self-host it
-- extend it
-- integrate it with your systems
-- inspect how it works
-- shape it with your team and community
-
----
-
-## 🧭 What OpenFoundry helps your teams do
-
-### See the full picture
-Bring together data from systems like ERPs, CRMs, data warehouses, operational tools, files, APIs, event streams, and internal applications.
-
-### Build a shared language
-Define your organization’s core concepts — assets, customers, patients, policies, suppliers, work orders, incidents, cases, facilities, flights, shipments, or anything else that matters.
-
-### Understand relationships
-See how people, processes, assets, events, and outcomes connect.
-
-### Spot what matters
-Track anomalies, delays, risks, performance gaps, quality issues, and operational dependencies.
-
-### Coordinate action
-Turn insights into tasks, workflows, reviews, interventions, and decisions.
-
-### Measure impact
-Track whether changes are actually improving reliability, efficiency, throughput, safety, cost, or service quality.
-
----
-
-## 🖼️ What the experience feels like
-
-OpenFoundry is designed to feel less like “using a data stack” and more like **operating your organization with clarity**.
-
-Inside the platform, teams can work with:
-
-- unified operational views
-- live dashboards
-- searchable records and entities
-- data exploration and analysis tools
-- workflow and task management
-- alerts and exception monitoring
-- internal apps built for specific teams
-- AI-assisted investigation and decision support
-
----
-
-## 💡 Example outcomes OpenFoundry can support
-
-These are the kinds of outcomes organizations aim for when they connect data, decisions, and workflows in one place:
-
-### In operations
-- fewer delays
-- fewer avoidable escalations
-- faster root-cause analysis
-- better coordination across teams
-- more predictable throughput
-
-### In maintenance
-- improved asset availability
-- faster issue resolution
-- better prioritization of repair work
-- less unplanned downtime
-
-### In healthcare delivery
-- better visibility into waiting lists and bottlenecks
-- improved scheduling efficiency
-- reduced admin burden
-- smoother discharge and patient flow coordination
-
-### In risk and insurance
-- faster access to complex analytics
-- better risk visibility
-- more consistent decision-making
-- stronger governance and traceability
-
-### In enterprise transformation
-- fewer siloed tools
-- less spreadsheet-driven work
-- stronger cross-functional alignment
-- greater trust in data-driven decisions
-
----
-
-## ❤️ Designed for decision-makers and frontline teams
-
-OpenFoundry is not only for engineers or data specialists.
-
-It is for:
-
-- operations leaders
-- planners
-- analysts
-- clinicians
-- maintenance teams
-- supply chain teams
-- transformation teams
-- executives
-- program managers
-- compliance and governance teams
-
-The goal is simple:
-
-**make complex organizations easier to understand and easier to run**
-
----
-
-## 🔍 What makes OpenFoundry different
-
-| | Traditional BI | Data Warehouse Alone | Closed Enterprise Platforms | OpenFoundry |
-|---|---|---|---|---|
-| Shows metrics | ✅ | ✅ | ✅ | ✅ |
-| Connects many systems | ⚠️ | ✅ | ✅ | ✅ |
-| Supports operational workflows | ❌ | ❌ | ✅ | ✅ |
-| Shared business model / ontology | ❌ | ❌ | ✅ | ✅ |
-| Secure collaboration across teams | ⚠️ | ❌ | ✅ | ✅ |
-| Actionable apps on top of data | ❌ | ❌ | ✅ | ✅ |
-| AI-ready operational context | ⚠️ | ⚠️ | ✅ | ✅ |
-| Self-hostable | ✅ | ✅ | ❌ | ✅ |
-| Open source | ✅ | ✅ | ❌ | ✅ |
-
----
-
-## 🛠️ What’s inside OpenFoundry
-
-OpenFoundry combines multiple capabilities into one platform experience:
-
-### Unified Data Layer
-Bring together structured and unstructured data from across your organization.
-
-### Operational Knowledge Model
-Define the objects, entities, processes, and relationships that matter to your business.
-
-### Analytics & Exploration
-Search, query, investigate, compare, and understand what is happening.
-
-### Workflow & Tasking
-Move from insight to execution with operational workflows.
-
-### Internal Apps
-Build focused applications for specific teams and use cases.
-
-### AI & Copilot
-Use AI to explore data, summarize context, assist workflows, and support decisions.
-
-### Governance & Security
-Control access, trace actions, and manage sensitive environments responsibly.
-
----
-
-## 📌 Product status
-
-OpenFoundry is in **active development**.
-
-Today, the project is focused on building the foundation for a powerful open data operations platform, including:
-
-- core platform architecture
-- data services
-- workflow orchestration
-- ontology and semantic modeling
-- analytics infrastructure
-- application framework
-- security and governance foundations
-
-### Current focus
-- strong platform core
-- excellent developer and operator experience
-- modular services
-- production-minded architecture
-- progressive delivery of end-user capabilities
-
-### Direction
-Our goal is to make OpenFoundry the leading **open-source platform for operational intelligence** — giving organizations the ability to build powerful, secure, data-driven workflows without vendor lock-in.
-
----
-
-## 🎯 Who OpenFoundry is for
-
-OpenFoundry is especially relevant if your organization says things like:
-
-- “We have the data, but not the visibility.”
-- “Every team sees a different version of reality.”
-- “We spend too much time reconciling spreadsheets and systems.”
-- “We can analyze problems, but acting on them is too slow.”
-- “Important workflows depend on people manually stitching tools together.”
-- “We need security and governance, but we also need agility.”
-- “We want enterprise-grade capabilities without being locked into a black box.”
-
-If that sounds familiar, OpenFoundry is for you.
-
----
-
-## ⚡ Get started
-
-### For curious users
-If you want to explore what OpenFoundry can become:
-
-- read the roadmap
-- follow the project
-- join the community
-- star the repository
-
-### For contributors
-If you want to help build OpenFoundry:
-
-1. Clone the repository
-2. Follow the development setup
-3. Explore open issues
-4. Contribute code, docs, design, or feedback
-
-```bash
-git clone https://github.com/open-foundry/open-foundry.git
-cd open-foundry
-cp .env.example .env
+# openfoundry-go
+
+Go re-implementation of the OpenFoundry platform, mirroring the Rust workspace
+1:1 at the **functional / contract** level (proto, OpenAPI, SQL schemas, Kafka
+topics) so a service in either language can interoperate with the other during
+the migration window.
+
+> **Status (2026-05-08):** Rust `services/*/Cargo.toml` and `libs/*/Cargo.toml`
+> have been reconciled against `openfoundry-go/services/*` and
+> `openfoundry-go/libs/*` in `INVENTORY-PHASE6.md`. Treat every
+> existing Go service directory as reconciled: the remaining work is now
+> classified as **ported**, **ported but config-gated**, **compatible-placeholder
+> because Rust also is placeholder**, or **excluded by decision**. The explicit
+> language exceptions remain DataFusion/Arrow query execution
+> (`sql-bi-gateway-service`, `query-engine`) and the non-Rust Spark runner; pyo3
+> services use the approved Python sidecar pattern and are config-gated rather
+> than absent.
+
+## Repository layout
+
+```
+openfoundry-go/
+├── libs/                       # shared packages (mirrors Rust libs/)
+│   ├── core-models/            # typed IDs, errors, schemas, markings ✅
+│   ├── observability/          # slog + OTel + Prometheus ✅
+│   ├── auth-middleware/        # JWT + chi middleware ✅
+│   ├── db-pool/                # pgxpool DualPool (writer + reader) ✅
+│   ├── event-bus-control/      # NATS JetStream publisher + streams ✅
+│   ├── event-bus-data/         # Kafka publisher + subscriber + OL headers ✅
+│   ├── audit-trail/            # 13 events + envelope + outbox bridge ✅
+│   ├── idempotency/            # Store interface + Pg + Mem backends ✅
+│   ├── outbox/                 # transactional outbox INSERT+DELETE helper ✅
+│   ├── testing/                # testcontainers-go + JWT/SQL fixtures ✅
+│   ├── …                       # parity classified in INVENTORY-PHASE6.md
+│   └── proto-gen/              # generated from ../proto via `make gen`
+│
+├── services/                   # one Go binary entrypoint per microservice
+│   ├── edge-gateway-service/   # ✅ Phase 2 — HTTP edge (first cutover)
+│   ├── audit-sink/             # ✅ Phase 2 — Kafka → Iceberg (audit.events.v1)
+│   ├── ai-sink/                # ✅ Phase 2 — Kafka → Iceberg (ai.events.v1, 4 tables)
+│   ├── identity-federation-service/ # ✅ Phase 6 — full auth (OIDC + SAML + SCIM + MFA + WebAuthn + Cedar + JWKS)
+│   ├── tenancy-organizations-service/ # ✅ Phase 6
+│   ├── authorization-policy-service/  # ✅ Phase 6 (Cedar)
+│   ├── notification-alerting-service/ # ✅ Phase 2 cluster
+│   ├── sdk-generation-service/        # ✅ Phase 2 cluster
+│   ├── telemetry-governance-service/  # ✅ Phase 2 cluster
+│   ├── …                              # all Rust service roots reconciled in inventory
+│   └── template/               # reference layout (Go-only scaffold)
+│
+├── proto/                      # reserved (canonical .proto live at ../proto)
+├── tools/of-cli                # admin CLI (port of tools/of-cli)
+│
+├── go.mod                      # single module for the whole monorepo
+├── Makefile                    # build / test / lint / gen / ci
+├── buf.gen.yaml                # Go codegen pipeline
+├── sqlc.yaml                   # type-safe DB code generation
+└── .golangci.yml               # lint config (mirror of clippy strictness)
 ```
 
-Then follow the developer setup in:
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
+CI is wired at the repo root: `.github/workflows/openfoundry-go.yml`.
 
----
+## Single-module decision
 
-## 🗺️ Roadmap
+This repository is intentionally a **single Go module** (`go.mod` at the root)
+rather than a `go.work` multi-module setup. Rationale:
 
-OpenFoundry is being built in phases.
+- Mirrors the way Kubernetes, Grafana, CockroachDB monorepos are organised.
+- Avoids version drift between `libs/` and `services/`.
+- Faster builds (one module cache, one resolution graph).
 
-### Phase 1 — Foundation
-Core platform services, identity, ontology, data layer, workflows, and platform foundations.
+Splitting individual `services/` into their own modules is reversible — none of
+the current code depends on the single-module shape.
 
-### Phase 2 — Operational Visibility
-Dashboards, search, quality, catalog, monitoring, and richer coordination experiences.
+## Day-to-day commands
 
-### Phase 3 — Operational Applications
-Apps, team workflows, low-code building blocks, and domain-specific use cases.
+```sh
+make tools          # one-time: install buf / golangci-lint / sqlc / gofumpt into ./bin
+make gen            # regenerate proto (Go) + sqlc (per-service)
+make build          # compile everything
+make build-services # produce one binary per service in ./bin
+make test           # unit tests with -race + coverage
+make test-integration  # tests tagged "integration" — needs Docker
+make lint           # golangci-lint (CI gate)
+make ci             # full local CI gate (tidy + vet + lint + test)
+```
 
-### Phase 4 — Intelligence
-AI assistance, advanced analytics, predictive workflows, and more automation.
+## Phase 0 deliverables (this commit)
 
-### Phase 5 — Ecosystem
-Plugins, extensions, partner integrations, templates, and broader community contributions.
+- ✅ Repository scaffolding (`libs/`, `services/`, `proto`, `tools/`, `build/`).
+- ✅ Single Go module rooted at `github.com/openfoundry/openfoundry-go`.
+- ✅ `buf` pipeline generating Go from `../proto` into `libs/proto-gen/`.
+- ✅ `sqlc.yaml` skeleton ready for per-service registration.
+- ✅ Service template (`services/template/`) with:
+  - `cmd/template/main.go` — config → observability → server boot.
+  - koanf-backed `internal/config` mirroring the Rust `config-rs` precedence.
+  - chi-based `internal/server` with `/healthz`, `/metrics`, JWT-protected `/api`.
+  - Multi-stage distroless `Dockerfile`.
+- ✅ Foundational libs migrated:
+  - `libs/core-models/` — IDs, errors, health, pagination, timestamps, dataset
+    schema, security markings, media references. **Wire format byte-compatible
+    with Rust.**
+  - `libs/observability/` — slog logging, OTel tracing, Prometheus registry.
+  - `libs/auth-middleware/` — Claims, JWT (HS256+RS256), chi middleware.
+- ✅ CI workflow (`lint`, `proto-drift`, `test`, `integration`).
+- ✅ Strict `golangci-lint` config matching the Rust workspace's clippy posture.
 
-For more detail, see [ROADMAP.md](ROADMAP.md).
+## Tools parity status (2026-05-07)
 
----
+- ✅ `tools/of-cli/` is now ported to Go as `go run ./tools/of-cli -- ...`.
+  It closes the Rust `tools/of-cli` gap for command/flag parsing and the
+  principal tool surfaces: OpenAPI generation/validation from proto files,
+  TypeScript/Python/Java SDK scaffold generation/validation, scenario-driven
+  smoke runs, sequential benchmark runs, and the local AI mock provider.
+- ✅ `tools/route-audit/` generates `docs/migration/route-parity-audit.md`
+  with route-by-route Rust vs Go parity for prioritized services, including
+  `missing`, `501`, `empty-envelope`, and `config-gated` classifications.
 
-## 🤝 Contributing
+## Phase 1 deliverables (this commit)
 
-We’re building OpenFoundry as an open platform for people who believe critical operational software should be:
+- ✅ `libs/db-pool/` — pgxpool-backed DualPool (writer + optional reader)
+  with `from-env` precedence + ping-on-create matching Rust sqlx semantics.
+- ✅ `libs/event-bus-control/` — NATS JetStream `Publisher`,
+  `EnsureStream`/`CreateConsumer`, well-known subjects/streams constants,
+  `Event` envelope wire-compat.
+- ✅ `libs/event-bus-data/` — Kafka `Publisher`/`Subscriber` over
+  `segmentio/kafka-go` (no CGO), at-least-once + explicit commits,
+  `OpenLineageHeaders` round-trip, SCRAM-SHA-512 / PLAINTEXT principals.
+- ✅ `libs/audit-trail/` — 13 audit event variants, 7 categories,
+  `AuditEnvelope`, **deterministic v5 UUID byte-identical to Rust**
+  (cross-language golden test), outbox bridge `EmitToOutbox`.
+- ✅ `libs/idempotency/` — `Store` interface + `PgStore` (INSERT … ON
+  CONFLICT DO NOTHING RETURNING) + `MemStore` + `Idempotent` wrapper.
+- ✅ `libs/outbox/` — transactional INSERT+DELETE helper compatible with
+  Debezium EventRouter SMT.
+- ✅ `libs/testing/` — `BootPostgres` (testcontainers-go, integration
+  build tag), `JWTConfig`, `DevToken`, `SeedDataset`.
 
-- understandable
-- extensible
-- secure
-- collaborative
-- open
+## Phase 1 — tier 2 (status as of 2026-05-08)
 
-We welcome contributions across:
+These were originally listed as "migrate on first consumer." Most have
+landed:
 
-- product thinking
-- UX and design
-- documentation
-- frontend
-- backend
-- infrastructure
-- testing
-- examples
-- integrations
+- ✅ `cassandra-kernel` — 5 stores ported (Object/Link/Schema/Session/ActionLog)
+  via gocql; `~3500` LOC + 60+ unit tests.
+- ✅ `authz-cedar` — wired through cedar-go (`cedarauthz.Service` +
+  `AdminGuard` middleware) inside identity-federation-service.
+- ✅ `state-machine`, `scheduling-cron`, `saga`, `search-abstraction` —
+  full ports with parser/evaluator/runner-style sub-modules where the
+  Rust crate had them.
+- ✅ `ontology-kernel` — domain layer foundation + handlers.
+- 🟡 `storage-abstraction`, `search-abstraction`, `vector-store`,
+  `cassandra-kernel`, `event-bus-control`, `event-bus-data` — package roots
+  are ported, with live external backends intentionally config-gated.
+- ✅ `geospatial-tiles`, `media-scanner`, `pipeline-expression`,
+  `analytical-logic`, `saga`, `scheduling-cron`, `scheduling-linter`,
+  `state-machine` — Go package roots exist.
+- ✅ `geospatial-core` and `plugin-sdk` are compatible placeholders because
+  their Rust crates are placeholders too; `query-engine` is excluded by the
+  DataFusion decision. See `INVENTORY-PHASE6.md` for the full matrix.
 
-Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
+## Phase 2 deliverables (this commit)
 
----
+- ✅ `services/edge-gateway-service/` — full reverse-proxy port:
+  - 80+ path-prefix routing rules (`internal/proxy/router_table.go`)
+    matching the Rust crate's service map.
+  - Path rewriting (`/api/v1/datasets/...` → `/v1/datasets/...`,
+    filesystem alias, catalog facets).
+  - Tenant + auth header injection (`x-openfoundry-*`) — header set
+    byte-identical to the Rust gateway.
+  - Token-bucket rate-limit middleware (in-memory backend +
+    Lua-backed Redis backend behind the same `Store` interface).
+  - Zero-trust scope enforcement (403 with stable error codes).
+  - Audit fire-and-forget to NATS `OF_AUDIT.gateway`.
+  - Canonical error envelope `{"error":{"code":"...","message":"..."}}`.
+  - `/healthz` + `/metrics` outside the proxy chain so they stay
+    reachable when upstreams or rate-limit backends fail.
+- ✅ `libs/auth-middleware/tenant.go` — `TenantContext`,
+  `QuotaStandard/Team/Enterprise`, per-claim quota overrides.
+- ✅ Test coverage:
+  - Router-table golden test covers ~60 distinct routes.
+  - Path-rewrite tests for the Foundry compatibility surface.
+  - Proxy integration tests via `httptest`: routing, path rewriting,
+    zero-trust scope, header injection, body limits, error envelope.
+  - Rate-limit token-bucket math (burst exhaustion, key separation,
+    limit=0 deny-all).
 
-## 🔐 Security
+## Phase 2 — Kafka sinks (this commit)
 
-We take security seriously, especially for organizations operating in sensitive, regulated, or mission-critical environments.
+- ✅ `services/audit-sink/` — `audit.events.v1` → `lakekeeper/of_audit/events`.
+  Batch policy 100k OR 60s, at-least-once with single-call
+  `CommitMessages` per batch, poison-pill handling moves the offset
+  forward so the partition can't wedge.
+- ✅ `services/ai-sink/` — `ai.events.v1` → 4 Iceberg tables
+  (`prompts`/`responses`/`evaluations`/`traces`) routed by `kind`.
+  Per-table batching + per-table metrics labels.
+- ✅ Both ship a `Writer` interface with two implementations:
+  `JSONLWriter` (production-suitable for staging / observability) and
+  `IcebergWriter` (stub — fails loud until `apache/iceberg-go`'s
+  write API stabilises).
+- ✅ `libs/event-bus-data.Subscriber` gained `CommitMessages([]*DataMessage)`
+  for batch-commit semantics; matches segmentio/kafka-go's reader API
+  and makes the runtimes trivially testable with stubs.
 
-Please review [SECURITY.md](SECURITY.md) for vulnerability reporting and security practices.
+### Phase 2 — remaining services (all landed)
 
----
+- ✅ `notification-alerting-service`
+- ✅ `sdk-generation-service`
+- ✅ `telemetry-governance-service`
 
-## 🌍 Open source, with enterprise ambition
+## Phase 6 — Identity (this commit)
 
-OpenFoundry is open source because we believe the future of operational intelligence should not belong only to closed, high-cost platforms.
+The identity stack is now Go-native end to end:
 
-The most important organizations in the world — in healthcare, industry, logistics, public infrastructure, energy, and finance — need trustworthy software to connect data to action.
+- ✅ `services/identity-federation-service/` — full re-implementation:
+  - **Slice 5a** OIDC SSO via `coreos/go-oidc` (Google, Microsoft,
+    GitHub, GitLab) + state row in oauth_state.
+  - **Slice 5b** SAML 2.0 via hand-rolled domain layer +
+    `russellhaering/goxmldsig` + `beevik/etree`. Covers: AuthnRequest
+    construction, IdP metadata parsing, response signature
+    verification (RSA-SHA1 supported for legacy IdP fixtures),
+    full RFC 7522 validation chain (status, destination,
+    in-response-to, conditions, audience, subject confirmation,
+    expected issuer), AttributeStatement extraction, byte-exact
+    OneLogin sample fixtures. POST /api/v1/auth/sso/{provider}/acs
+    endpoint for the HTTP-POST binding.
+  - **Slice 6** RBAC CRUD (users, roles, groups, permissions, api-keys).
+  - **Slice 7a** Restricted views.
+  - **Slice 8 (Cedar)** `internal/cedarauthz` — Cedar policy
+    evaluation + `AdminGuard` middleware emitting Group/Role parent
+    entities for hierarchy lookups.
+  - **Slice 8 (JWKS rotation)** `internal/jwksrotation` —
+    Service orchestrator + Postgres key store + Vault Transit signer
+    (Token + Kubernetes-role auth) + HTTP handlers
+    (PublishJwks/RotateJwks/RollbackJwks) + Hash/Sign/Verify
+    helpers. ~3520 LOC + ~75 tests.
+  - **Slice 8 (SCIM 2.0)** `internal/scim` — RFC 7643/7644 endpoints:
+    discovery (ServiceProviderConfig / Schemas / ResourceTypes),
+    User CRUD + Patch + Delete, Group CRUD + member operations +
+    Patch. PostgresUserStore + PostgresGroupStore for production +
+    in-memory stores for tests. ~5170 LOC + ~97 tests.
+  - **MFA TOTP + WebAuthn** ports.
+  - **Sessions in Cassandra** for the slice-2b cutover.
+- ✅ `services/tenancy-organizations-service/` and
+  `services/authorization-policy-service/`.
 
-We want OpenFoundry to help make that possible.
+## Wire-compat invariants (do not break)
 
----
+These are the contracts every Go service inherits from the Rust source of truth
+and must not drift from while both implementations coexist:
 
-## 💬 Community
+- `/healthz` payload shape (`status`, `service`, `version`, `timestamp`).
+- JWT claims field names + JSON tags (see `libs/auth-middleware/claims.go`).
+- Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
+- Transaction state / type tokens (`open|committed|aborted`, `snapshot|append|update|delete`).
+- Marking source discriminator (`{"kind": "direct"}` / `{"kind": "inherited_from_upstream", ...}`).
+- Media reference camelCase keys (`mediaSetRid`, `mediaItemRid`, `branch`, `schema`).
+- Schema field type discriminator (`{"type": "DECIMAL", "precision": ..., "scale": ...}`).
 
-- Join the discussion
-- Share use cases
-- Suggest improvements
-- Help shape the roadmap
+The test suites in `libs/core-models/**/*_test.go` already lock these.
 
-If OpenFoundry resonates with you, give the project a ⭐
+## Where to read more
 
-It helps more people discover it — and helps us keep building.
-
----
-
-## 📄 License
-
-OpenFoundry is licensed under the [GNU Affero General Public License v3.0](LICENSE).
-
-</div>
-
-
-
-
-
-
+- `Cargo.toml` (repo root) — authoritative inventory of Rust services + libs.
+- `proto/` — canonical RPC contracts shared between Rust and Go.
+- ADRs under `docs/architecture/` — the decisions Phase 1+ must respect.

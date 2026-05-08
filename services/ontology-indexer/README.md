@@ -1,60 +1,41 @@
-# `ontology-indexer`
+# ontology-indexer
 
-> Stream: S4 · Tarea S4.3
-> Backends: Vespa (prod) / OpenSearch (dev) via [`libs/search-abstraction`](../../libs/search-abstraction)
-> Kafka: [`libs/event-bus-data`](../../libs/event-bus-data) consumer
+`ontology-indexer` is a Kafka worker that projects ontology object and link change
+events into the configured search backend. The HTTP server is operational only:
+`/healthz` and `/metrics` do not expose application routes.
 
-Stateless Kafka consumer that materialises ontology mutations into
-the search backend. Keeps the search index eventually consistent with
-Cassandra ontology storage.
+## Minimal runtime configuration
 
-## Topics
+Set these environment variables before starting the service:
 
-| Topic | Purpose |
-|-------|---------|
-| `ontology.object.changed.v1` | Live object upserts / deletes. |
-| `ontology.action.applied.v1` | Action effects that mutate objects. |
-| `ontology.reindex.v1` | Backfill / re-index runs driven by the `workers-go/reindex` workflow. Separate topic so backfill does not starve the live consumer group. |
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `KAFKA_BOOTSTRAP_SERVERS` | yes | — | Comma-separated Kafka brokers used by the consumer and DLQ publisher, for example `kafka-1:9092,kafka-2:9092`. |
+| `SEARCH_ENDPOINT` | yes | — | Base URL for the configured search backend. |
+| `SEARCH_BACKEND` | recommended | `vespa` | Search backend implementation. Supported values are `vespa` and `opensearch`; unset values keep the Vespa-compatible default. |
+| `INDEXER_DLQ_TOPIC` | recommended | `ontology-indexer.dlq.v1` | Dead-letter topic for records that still fail after retries. Set to `off`, `none`, or `disabled` to fail the worker instead of publishing to the DLQ. |
 
-## Idempotency
+Optional authentication variables for the search backend are applied in priority
+order: `SEARCH_BEARER_TOKEN`, then `SEARCH_API_KEY`, then
+`SEARCH_USERNAME`/`SEARCH_PASSWORD` for basic auth.
 
-Per [ADR-0028](../../docs/architecture/adr/ADR-0028-search-backend-abstraction.md)
-the backend is the authority on staleness:
+## Runtime behavior
 
-* **Vespa** uses `condition=<type>.version<N` — stale `PUT` returns
-  HTTP 412 and is silently dropped.
-* **OpenSearch** uses `version_type=external` with `if_seq_no` /
-  `if_primary_term` — stale `index` returns HTTP 409.
+On startup the worker subscribes to:
 
-The consumer is therefore allowed to be at-least-once. The
-`(tenant, id, version)` tuple is the de-duplication key.
+- `ontology.objects.changed.v1`
+- `ontology.links.changed.v1`
 
-## Backend selection
+Records are committed only after successful projection into the SearchBackend or
+after publishing a failed record to the DLQ. Malformed payloads are treated as
+decode errors, logged, and committed so a poison record does not block the
+partition.
 
-`SEARCH_BACKEND` environment variable:
+## Real Kafka integration test
 
-* `vespa` (default) — production.
-* `opensearch` — dev / CI.
+The unit tests use fake readers and backends. The real Kafka integration test is
+kept but is skipped unless `KAFKA_BOOTSTRAP_SERVERS` is present:
 
-Anything else fails loudly (`panic!`) at startup.
-
-## Replicas & SLO
-
-| Setting | Value |
-|---------|-------|
-| Replicas | 3 (stateless, one per zone) |
-| Kafka consumer group | `ontology-indexer` |
-| Lag SLO | P99 < 5 s (`ontology_indexer_lag_seconds`) |
-| Alert | [`prometheus-rules-indexer.yaml`](../../infra/k8s/platform/manifests/observability/prometheus-rules-indexer.yaml) |
-
-## Runtime
-
-This crate ships both:
-
-1. **Pure logic** (always compiled) — payload decoder
-   ([`decode_object_changed`](src/lib.rs)), `BackendKind` selector,
-   topic + metric name constants.
-2. **Runtime wiring** behind feature `runtime` — Kafka consumer
-   loop that calls `SearchBackend::index` / `SearchBackend::delete`
-   and commits Kafka offsets only after the backend write succeeds.
-   The binary requires `runtime`.
+```sh
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 go test ./services/ontology-indexer/internal/runtime -run TestConsumerWithRealKafkaValidMalformedAndRetry
+```
