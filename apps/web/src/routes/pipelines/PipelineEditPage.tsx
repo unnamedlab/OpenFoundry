@@ -15,8 +15,19 @@ import {
 } from '@/lib/api/pipelines';
 import { JsonEditor } from '@/lib/components/JsonEditor';
 import { Tabs } from '@/lib/components/Tabs';
+import { Glyph } from '@/lib/components/ui/Glyph';
 import { PipelineCanvas } from '@/lib/components/pipeline/PipelineCanvas';
 import { PipelineNodeList } from '@/lib/components/pipeline/PipelineNodeList';
+import { AddFoundryDataDialog } from '@/lib/components/pipeline/AddFoundryDataDialog';
+import { TransformStackEditor } from '@/lib/components/pipeline/TransformStackEditor';
+import { composeTransformStackSql, type TransformStack } from '@/lib/components/pipeline/transformStack';
+import { JoinEditor } from '@/lib/components/pipeline/JoinEditor';
+import { composeJoinSql, newJoinDraft, type JoinDraft } from '@/lib/components/pipeline/joinDraft';
+import { UnionEditor } from '@/lib/components/pipeline/UnionEditor';
+import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/components/pipeline/unionDraft';
+import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
+import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
+import { previewDataset, type Dataset } from '@/lib/api/datasets';
 
 function parseJson<T>(value: string, fallback: T): T {
   try {
@@ -44,6 +55,240 @@ export function PipelineEditPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [addDataOpen, setAddDataOpen] = useState(false);
+  const [transformStack, setTransformStack] = useState<TransformStack | null>(null);
+  const [transformOriginNodeId, setTransformOriginNodeId] = useState<string | null>(null);
+  const [transformEditingNodeId, setTransformEditingNodeId] = useState<string | null>(null);
+  const [joinDraft, setJoinDraft] = useState<JoinDraft | null>(null);
+  const [joinOriginIds, setJoinOriginIds] = useState<{ left: string; right: string } | null>(null);
+  const [joinLeftSchema, setJoinLeftSchema] = useState<string[]>([]);
+  const [joinRightSchema, setJoinRightSchema] = useState<string[]>([]);
+
+  function resolveSourceDatasetId(nodeId: string, allNodes: PipelineNode[]): string | null {
+    const seen = new Set<string>();
+    let queue: string[] = [nodeId];
+    while (queue.length > 0) {
+      const next: string[] = [];
+      for (const id of queue) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const node = allNodes.find((entry) => entry.id === id);
+        if (!node) continue;
+        const config = node.config as { dataset_id?: unknown } | undefined;
+        if (typeof config?.dataset_id === 'string') return config.dataset_id;
+        if (node.input_dataset_ids[0]) return node.input_dataset_ids[0];
+        next.push(...node.depends_on);
+      }
+      queue = next;
+    }
+    return null;
+  }
+
+  async function fetchSchemaForNode(node: PipelineNode, allNodes: PipelineNode[]): Promise<string[]> {
+    const datasetId = resolveSourceDatasetId(node.id, allNodes);
+    if (!datasetId) return [];
+    try {
+      const preview = await previewDataset(datasetId, { limit: 1 });
+      return preview.columns?.map((column) => column.name) ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  function handleStartJoin(left: PipelineNode, right: PipelineNode) {
+    setJoinDraft(newJoinDraft({ id: left.id, label: left.label }, { id: right.id, label: right.label }));
+    setJoinOriginIds({ left: left.id, right: right.id });
+    const allNodes = parseJson<PipelineNode[]>(nodesJson, []);
+    setJoinLeftSchema([]);
+    setJoinRightSchema([]);
+    void fetchSchemaForNode(left, allNodes).then(setJoinLeftSchema);
+    void fetchSchemaForNode(right, allNodes).then(setJoinRightSchema);
+  }
+
+  function handleApplyJoin(next: JoinDraft) {
+    if (!joinOriginIds) return;
+    const existing = parseJson<PipelineNode[]>(nodesJson, []);
+    const sql = composeJoinSql(next);
+    const newId = makeNodeId('join');
+    const newNode: PipelineNode = {
+      id: newId,
+      label: next.display_name || `Join ${next.left_node_label}`,
+      transform_type: 'sql',
+      config: { sql, _join: next },
+      depends_on: [joinOriginIds.left, joinOriginIds.right],
+      input_dataset_ids: [],
+      output_dataset_id: null,
+    };
+    setNodesJson(JSON.stringify([...existing, newNode], null, 2));
+  }
+
+  const [unionDraft, setUnionDraft] = useState<UnionDraft | null>(null);
+  const [unionInputIds, setUnionInputIds] = useState<string[]>([]);
+  const [outputDraft, setOutputDraft] = useState<OutputDraft | null>(null);
+  const [outputNodeId, setOutputNodeId] = useState<string | null>(null);
+  const [deployOpen, setDeployOpen] = useState(false);
+
+  function handleAddOutput(source: PipelineNode, kind: 'dataset' | 'object_type' | 'time_series' | 'virtual_table') {
+    if (kind !== 'dataset') return;
+    const existing = parseJson<PipelineNode[]>(nodesJson, []);
+    const stamp = new Date().toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const displayName = `New dataset ${stamp}`;
+    const sourceConfig = source.config as { _stack?: { blocks?: unknown[] }; _join?: unknown; _union?: unknown } | undefined;
+    const totalColumns = (() => {
+      // Best-effort estimate without running the engine.
+      if (sourceConfig?._join) return 11;
+      if (sourceConfig?._union) return 11;
+      return 11;
+    })();
+    const newId = makeNodeId('output');
+    const newNode: PipelineNode = {
+      id: newId,
+      label: displayName,
+      transform_type: 'output_dataset',
+      config: { _output: { kind: 'dataset', columns_total: totalColumns, columns_mapped: totalColumns } },
+      depends_on: [source.id],
+      input_dataset_ids: [],
+      output_dataset_id: null,
+    };
+    setNodesJson(JSON.stringify([...existing, newNode], null, 2));
+    setOutputDraft({
+      display_name: displayName,
+      source_node_id: source.id,
+      source_node_label: source.label,
+      columns_total: totalColumns,
+      columns_mapped: totalColumns,
+    });
+    setOutputNodeId(newId);
+  }
+
+  function handleRenameOutput(name: string) {
+    setOutputDraft((current) => (current ? { ...current, display_name: name } : current));
+    if (!outputNodeId) return;
+    const existing = parseJson<PipelineNode[]>(nodesJson, []);
+    const updated = existing.map((node) => (node.id === outputNodeId ? { ...node, label: name } : node));
+    setNodesJson(JSON.stringify(updated, null, 2));
+  }
+
+  function handleStartUnion(inputs: PipelineNode[]) {
+    setUnionDraft(newUnionDraft(inputs.map((entry) => ({ id: entry.id, label: entry.label }))));
+    setUnionInputIds(inputs.map((entry) => entry.id));
+  }
+
+  function handleApplyUnion(next: UnionDraft) {
+    if (unionInputIds.length < 2) return;
+    const existing = parseJson<PipelineNode[]>(nodesJson, []);
+    const sql = composeUnionSql(next);
+    const newId = makeNodeId('union');
+    const newNode: PipelineNode = {
+      id: newId,
+      label: next.display_name || 'Union',
+      transform_type: 'sql',
+      config: { sql, _union: next },
+      depends_on: [...unionInputIds],
+      input_dataset_ids: [],
+      output_dataset_id: null,
+    };
+    setNodesJson(JSON.stringify([...existing, newNode], null, 2));
+  }
+
+  function handleOpenTransform(node: PipelineNode) {
+    const config = node.config as Record<string, unknown> | undefined;
+    const storedStack = config?._stack as TransformStack | undefined;
+    if (storedStack) {
+      setTransformStack(storedStack);
+      setTransformOriginNodeId(node.depends_on[0] ?? node.id);
+      setTransformEditingNodeId(node.id);
+      return;
+    }
+    const datasetName =
+      typeof config?.dataset_name === 'string'
+        ? (config.dataset_name as string)
+        : node.label.replace(/^Read\s+/, '');
+    const datasetId = node.input_dataset_ids[0] ?? (typeof config?.dataset_id === 'string' ? (config.dataset_id as string) : '');
+    setTransformStack({
+      source_dataset_id: datasetId,
+      source_dataset_name: datasetName,
+      display_name: `Clean ${datasetName}`,
+      blocks: [],
+    });
+    setTransformOriginNodeId(node.id);
+    setTransformEditingNodeId(null);
+  }
+
+  function handleApplyTransformStack(next: TransformStack) {
+    if (!transformOriginNodeId) return;
+    const sourceNodeId = transformEditingNodeId
+      ? (parseJson<PipelineNode[]>(nodesJson, []).find((entry) => entry.id === transformEditingNodeId)?.depends_on[0] ?? transformOriginNodeId)
+      : transformOriginNodeId;
+    const existing = parseJson<PipelineNode[]>(nodesJson, []);
+    const sql = composeTransformStackSql(next);
+    if (transformEditingNodeId) {
+      const updated = existing.map((entry) => {
+        if (entry.id !== transformEditingNodeId) return entry;
+        return {
+          ...entry,
+          label: next.display_name || entry.label,
+          transform_type: 'sql',
+          config: { sql, _stack: next },
+        };
+      });
+      setNodesJson(JSON.stringify(updated, null, 2));
+      return;
+    }
+    const newId = makeNodeId('transform');
+    const newNode: PipelineNode = {
+      id: newId,
+      label: next.display_name || `Transform ${next.source_dataset_name}`,
+      transform_type: 'sql',
+      config: { sql, _stack: next },
+      depends_on: [sourceNodeId],
+      input_dataset_ids: next.source_dataset_id ? [next.source_dataset_id] : [],
+      output_dataset_id: null,
+    };
+    setNodesJson(JSON.stringify([...existing, newNode], null, 2));
+    setTransformEditingNodeId(newId);
+  }
+
+  function isPipelineEmpty(nodes: PipelineNode[]) {
+    if (nodes.length === 0) return true;
+    if (nodes.length > 1) return false;
+    const only = nodes[0];
+    if (only.transform_type !== 'sql') return false;
+    const config = only.config as { sql?: string } | undefined;
+    return Boolean(config?.sql && /^SELECT\s+1\s+AS/i.test(config.sql.trim()));
+  }
+
+  function makeNodeId(prefix = 'source') {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+    return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  }
+
+  function handleAddDatasets(datasets: Dataset[]) {
+    if (datasets.length === 0) return;
+    const existing = parseJson<PipelineNode[]>(nodesJson, []);
+    const startsEmpty = isPipelineEmpty(existing);
+    const baseNodes: PipelineNode[] = startsEmpty ? [] : [...existing];
+    for (const dataset of datasets) {
+      baseNodes.push({
+        id: makeNodeId('source'),
+        label: `Read ${dataset.name}`,
+        transform_type: 'external',
+        config: { source_kind: 'dataset', dataset_id: dataset.id, dataset_name: dataset.name },
+        depends_on: [],
+        input_dataset_ids: [dataset.id],
+        output_dataset_id: null,
+      });
+    }
+    setNodesJson(JSON.stringify(baseNodes, null, 2));
+  }
 
   async function load() {
     if (!id) return;
@@ -231,6 +476,14 @@ export function PipelineEditPage() {
             <button type="button" onClick={() => void save()} disabled={saving} className="of-button of-button--primary">
               {saving ? 'Saving...' : 'Save'}
             </button>
+            <button
+              type="button"
+              onClick={() => setDeployOpen(true)}
+              className="of-button"
+              style={{ borderColor: '#15803d', color: '#15803d', fontWeight: 600 }}
+            >
+              Deploy
+            </button>
           </div>
         </div>
       </header>
@@ -255,12 +508,21 @@ export function PipelineEditPage() {
 
         <div style={{ padding: tab === 'canvas' ? 0 : 10 }}>
           {tab === 'canvas' && (
-            <PipelineCanvas
-              nodes={parsedNodes}
-              status={statusValue}
-              scheduleConfig={parseJson(scheduleJson, { enabled: false, cron: null })}
-              onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))}
-            />
+            <div style={{ position: 'relative' }}>
+              <PipelineCanvas
+                nodes={parsedNodes}
+                status={statusValue}
+                scheduleConfig={parseJson(scheduleJson, { enabled: false, cron: null })}
+                onChange={(next) => setNodesJson(JSON.stringify(next, null, 2))}
+                onTransform={(node) => handleOpenTransform(node)}
+                onJoinStart={(left, right) => handleStartJoin(left, right)}
+                onUnionStart={(inputs) => handleStartUnion(inputs)}
+                onAddOutput={(source, kind) => handleAddOutput(source, kind)}
+              />
+              {isPipelineEmpty(parsedNodes) ? (
+                <PipelineWelcomePanel onAddFoundryData={() => setAddDataOpen(true)} />
+              ) : null}
+            </div>
           )}
 
           {tab === 'nodes' && (
@@ -346,6 +608,186 @@ export function PipelineEditPage() {
           )}
         </div>
       </section>
+
+      <AddFoundryDataDialog
+        open={addDataOpen}
+        onClose={() => setAddDataOpen(false)}
+        onAdd={handleAddDatasets}
+      />
+
+      <TransformStackEditor
+        open={Boolean(transformStack)}
+        stack={transformStack}
+        onClose={() => {
+          setTransformStack(null);
+          setTransformOriginNodeId(null);
+          setTransformEditingNodeId(null);
+        }}
+        onApplyAll={handleApplyTransformStack}
+      />
+
+      <JoinEditor
+        open={Boolean(joinDraft)}
+        draft={joinDraft}
+        leftSchema={joinLeftSchema}
+        rightSchema={joinRightSchema}
+        onClose={() => {
+          setJoinDraft(null);
+          setJoinOriginIds(null);
+          setJoinLeftSchema([]);
+          setJoinRightSchema([]);
+        }}
+        onApply={handleApplyJoin}
+      />
+
+      <UnionEditor
+        open={Boolean(unionDraft)}
+        draft={unionDraft}
+        onClose={() => {
+          setUnionDraft(null);
+          setUnionInputIds([]);
+        }}
+        onApply={handleApplyUnion}
+      />
+
+      <OutputDrawer
+        open={Boolean(outputDraft)}
+        draft={outputDraft}
+        onClose={() => {
+          setOutputDraft(null);
+          setOutputNodeId(null);
+        }}
+        onChangeName={handleRenameOutput}
+      />
+
+      <DeployDrawer
+        open={deployOpen}
+        pipelineId={pipeline?.id ?? null}
+        outputs={parsedNodes
+          .filter((node) => node.transform_type === 'output_dataset')
+          .map((node) => ({ id: node.id, label: node.label }))}
+        lastDeploymentLabel={runs.length > 0 ? new Date(runs[0].started_at).toLocaleString() : 'None'}
+        onClose={() => setDeployOpen(false)}
+        onDeployed={() => {
+          void loadRuns();
+          setTab('runs');
+        }}
+      />
     </section>
+  );
+}
+
+function PipelineWelcomePanel({ onAddFoundryData }: { onAddFoundryData: () => void }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 24,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 'min(440px, calc(100% - 48px))',
+        background: '#fff',
+        border: '1px solid var(--border-default)',
+        borderRadius: 6,
+        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.08)',
+        zIndex: 5,
+      }}
+    >
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-strong)' }}>
+          Welcome to Pipeline Builder
+        </p>
+        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--text-muted)' }}>
+          Get started by adding datasets, then define transform logic to derive target outputs.
+        </p>
+        <button
+          type="button"
+          className="of-button"
+          style={{ marginTop: 10, fontSize: 12 }}
+        >
+          <Glyph name="info" size={12} /> Take a tour
+        </button>
+      </div>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <PipelineWelcomeItem
+          icon="database"
+          iconTone="#2d72d2"
+          label="Add Foundry data"
+          description="Recommended if you have already ingested data into OpenFoundry."
+          enabled
+          onClick={onAddFoundryData}
+        />
+        <PipelineWelcomeItem
+          icon="database"
+          iconTone="#5c7080"
+          label="Add data to OpenFoundry"
+          description="Import data from outside OpenFoundry and start using it now."
+          enabled={false}
+        />
+        <PipelineWelcomeItem
+          icon="database"
+          iconTone="#5c7080"
+          label="Upload from your computer"
+          description="Recommended if you have sample data available locally."
+          enabled={false}
+        />
+        <PipelineWelcomeItem
+          icon="document"
+          iconTone="#5c7080"
+          label="Manually enter data"
+          description="Recommended if you do not have data available to import."
+          enabled={false}
+        />
+      </ul>
+    </div>
+  );
+}
+
+function PipelineWelcomeItem({
+  icon,
+  iconTone,
+  label,
+  description,
+  enabled,
+  onClick,
+}: {
+  icon: 'database' | 'document';
+  iconTone: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={enabled ? onClick : undefined}
+        disabled={!enabled}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 12,
+          padding: '12px 16px',
+          border: 0,
+          background: 'transparent',
+          borderTop: '1px solid var(--border-subtle)',
+          cursor: enabled ? 'pointer' : 'not-allowed',
+          opacity: enabled ? 1 : 0.55,
+          textAlign: 'left',
+        }}
+        onMouseEnter={(event) => {
+          if (enabled) event.currentTarget.style.background = 'rgba(45, 114, 210, 0.04)';
+        }}
+        onMouseLeave={(event) => (event.currentTarget.style.background = 'transparent')}
+      >
+        <Glyph name={icon} size={16} tone={iconTone} />
+        <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{label}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{description}</span>
+        </span>
+      </button>
+    </li>
   );
 }

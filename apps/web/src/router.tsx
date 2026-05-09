@@ -43,6 +43,18 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },
       {
+        path: 'applications',
+        lazy: async () => ({ Component: (await import('./routes/applications/ApplicationsPage')).ApplicationsPage }),
+      },
+      {
+        path: 'notifications',
+        lazy: async () => ({ Component: (await import('./routes/notifications/NotificationsPage')).NotificationsPage }),
+      },
+      {
+        path: 'recent',
+        lazy: async () => ({ Component: (await import('./routes/recent/RecentPage')).RecentPage }),
+      },
+      {
         path: 'settings',
         lazy: async () => ({ Component: (await import('./routes/settings/SettingsPage')).SettingsPage }),
       },
@@ -53,6 +65,10 @@ export const router = createBrowserRouter([
       {
         path: 'dashboards/:id',
         lazy: async () => ({ Component: (await import('./routes/dashboards/DashboardDetailPage')).DashboardDetailPage }),
+      },
+      {
+        path: 'workflow-lineage',
+        lazy: async () => ({ Component: (await import('./routes/workflow-lineage/WorkflowLineagePage')).WorkflowLineagePage }),
       },
       {
         path: 'lineage',
@@ -283,6 +299,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/action-types/ActionTypesPage')).ActionTypesPage }),
       },
       {
+        path: 'action-types/:id',
+        lazy: async () => ({ Component: (await import('./routes/action-types/ActionTypeDetailPage')).ActionTypeDetailPage }),
+      },
+      {
         path: 'datasets',
         lazy: async () => ({ Component: (await import('./routes/datasets/DatasetsListPage')).DatasetsListPage }),
       },
@@ -305,6 +325,10 @@ export const router = createBrowserRouter([
       {
         path: 'apps',
         lazy: async () => ({ Component: (await import('./routes/apps/AppsPage')).AppsPage }),
+      },
+      {
+        path: 'apps/:id/workshop',
+        lazy: async () => ({ Component: (await import('./routes/apps/WorkshopEditorPage')).WorkshopEditorPage }),
       },
       {
         path: 'data-connection',

@@ -6,10 +6,8 @@ import { CreateProjectModal } from '@/lib/components/projects/CreateProjectModal
 import { RequestDataDialog } from '@/lib/components/projects/RequestDataDialog';
 import {
   deleteProject,
-  listProjectResources,
   listProjects,
   type OntologyProject,
-  type OntologyProjectResourceBinding,
 } from '@/lib/api/ontology';
 import {
   listSharedWithMe,
@@ -21,27 +19,21 @@ import {
 } from '@/lib/api/workspace';
 import { useCurrentUser } from '@/lib/stores/auth';
 
-type Section = 'catalog' | 'portfolios' | 'projects' | 'your-files' | 'shared';
-type CatalogTab = 'collections' | 'files';
+type Section = 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
 
 interface SectionEntry {
   id: Section;
   label: string;
-  glyph: 'catalog' | 'portfolios' | 'projects' | 'your-files' | 'shared';
+  glyph: 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
 }
 
 const SECTIONS: SectionEntry[] = [
-  { id: 'catalog', label: 'Data Catalog', glyph: 'catalog' },
   { id: 'portfolios', label: 'Portfolios', glyph: 'portfolios' },
   { id: 'projects', label: 'Projects', glyph: 'projects' },
   { id: 'your-files', label: 'Your files', glyph: 'your-files' },
   { id: 'shared', label: 'Shared with you', glyph: 'shared' },
+  { id: 'trash', label: 'Trash', glyph: 'trash' },
 ];
-
-interface FlatResource {
-  project: OntologyProject;
-  binding: OntologyProjectResourceBinding;
-}
 
 function projectName(project: OntologyProject) {
   return project.display_name || project.slug;
@@ -65,18 +57,19 @@ function formatKind(kind: string) {
   return kind.replace(/_/g, ' ');
 }
 
-function projectPath(project: OntologyProject) {
-  const ws = project.workspace_slug || 'default';
-  return `/${ws}/${project.slug}`;
-}
-
 function sharedResourceHref(share: ResourceShare): string | null {
   if (share.resource_kind === 'ontology_project') return `/projects/${share.resource_id}`;
   return null;
 }
 
 function isSection(value: string | null): value is Section {
-  return value === 'catalog' || value === 'portfolios' || value === 'projects' || value === 'your-files' || value === 'shared';
+  return (
+    value === 'portfolios' ||
+    value === 'projects' ||
+    value === 'your-files' ||
+    value === 'shared' ||
+    value === 'trash'
+  );
 }
 
 // ─── Inline icon set, kept tight to mirror Compass screenshots ────────────────
@@ -96,15 +89,6 @@ function FolderClosedIcon({ size = 18, color = '#5f6b7a' }: IconProps) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function CheckBadgeIcon({ size = 20, color = '#2d72d2' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" fill={color} />
-      <path d="M8 12.4l2.6 2.6 5-5.4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -172,32 +156,6 @@ function PlusIcon({ size = 13, color = 'currentColor' }: IconProps) {
   );
 }
 
-function ChevronDownIcon({ size = 11, color = 'currentColor' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 9l6 6 6-6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function SortAscIcon({ size = 11, color = 'currentColor' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 15l6-6 6 6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ColumnsIcon({ size = 14, color = '#5f6b7a' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="3.5" y="4.5" width="5" height="15" rx="1" stroke={color} strokeWidth="1.6" />
-      <rect x="10" y="4.5" width="5" height="15" rx="1" stroke={color} strokeWidth="1.6" />
-      <rect x="16.5" y="4.5" width="5" height="15" rx="1" stroke={color} strokeWidth="1.6" />
-    </svg>
-  );
-}
-
 function ProjectGlyphIcon({ size = 18, accent = '#7c5dd6' }: { size?: number; accent?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -205,49 +163,6 @@ function ProjectGlyphIcon({ size = 18, accent = '#7c5dd6' }: { size?: number; ac
       <path d="M3 9.2h14" stroke="#5f6b7a" strokeWidth="1.6" />
       <circle cx="18.4" cy="17.6" r="3.4" fill={accent} />
       <path d="M17 17.6l1 1 1.8-2" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ResourceGlyphIcon({ kind, size = 18 }: { kind: string; size?: number }) {
-  const palette: Record<string, string> = {
-    dataset: '#2d72d2',
-    pipeline: '#15803d',
-    notebook: '#9a5b00',
-    app: '#7c5dd6',
-    dashboard: '#0891b2',
-    report: '#b42318',
-    model: '#ef4444',
-    workflow: '#0f766e',
-    ontology_project: '#7c5dd6',
-    ontology_folder: '#9a5b00',
-    ontology_resource_binding: '#5f6b7a',
-    other: '#5f6b7a',
-  };
-  const accent = palette[kind] ?? '#5f6b7a';
-  return <ProjectGlyphIcon size={size} accent={accent} />;
-}
-
-function FilesCountGlyph({ size = 14, color = '#5f6b7a' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="3" y="6" width="8" height="6" rx="1" stroke={color} strokeWidth="1.6" />
-      <rect x="13" y="6" width="8" height="6" rx="1" stroke={color} strokeWidth="1.6" />
-      <rect x="3" y="14" width="8" height="6" rx="1" stroke={color} strokeWidth="1.6" />
-      <rect x="13" y="14" width="8" height="6" rx="1" stroke={color} strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function ShieldIcon({ size = 14, color = '#5f6b7a' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 3.5l7 2v6.2c0 4.4-3 7.7-7 8.8-4-1.1-7-4.4-7-8.8V5.5z"
-        stroke={color}
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -263,9 +178,6 @@ function MoreIcon({ size = 16, color = 'currentColor' }: IconProps) {
 }
 
 function SectionGlyph({ name, active }: { name: SectionEntry['glyph']; active: boolean }) {
-  if (name === 'catalog') {
-    return <CheckBadgeIcon size={active ? 20 : 18} color={active ? '#2d72d2' : '#7c8da3'} />;
-  }
   const color = active ? 'var(--text-strong)' : '#5f6b7a';
   switch (name) {
     case 'portfolios':
@@ -276,12 +188,21 @@ function SectionGlyph({ name, active }: { name: SectionEntry['glyph']; active: b
       return <UserIcon color={color} />;
     case 'shared':
       return <GroupIcon color={color} />;
+    case 'trash':
+      return <TrashIcon color={color} />;
   }
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+function TrashIcon({ size = 18, color = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 7h14M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 11v6M14 11v6" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-const MAX_FILES_PROJECTS = 30;
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export function ProjectsListPage() {
   const navigate = useNavigate();
@@ -289,17 +210,14 @@ export function ProjectsListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const sectionParam = searchParams.get('section');
-  const initialSection: Section = isSection(sectionParam) ? sectionParam : 'catalog';
+  const initialSection: Section = isSection(sectionParam) ? sectionParam : 'projects';
   const [section, setSection] = useState<Section>(initialSection);
-  const [catalogTab, setCatalogTab] = useState<CatalogTab>('collections');
 
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [shared, setShared] = useState<ResourceShare[]>([]);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
-  const [files, setFiles] = useState<FlatResource[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [filesLoading, setFilesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
@@ -313,10 +231,10 @@ export function ProjectsListPage() {
   const manageRef = useRef<HTMLDivElement>(null);
 
   const sectionTitle = useMemo(() => {
-    if (section === 'catalog') return 'Data Catalog';
     if (section === 'portfolios') return 'Portfolios';
     if (section === 'projects') return 'Projects';
     if (section === 'your-files') return 'Your files';
+    if (section === 'trash') return 'Trash';
     return 'Shared with you';
   }, [section]);
 
@@ -353,24 +271,6 @@ export function ProjectsListPage() {
     }
   }
 
-  async function refreshFiles(visibleProjects: OntologyProject[]) {
-    setFilesLoading(true);
-    try {
-      const slice = visibleProjects.slice(0, MAX_FILES_PROJECTS);
-      const results = await Promise.allSettled(slice.map((project) => listProjectResources(project.id)));
-      const flat: FlatResource[] = [];
-      results.forEach((result, i) => {
-        if (result.status !== 'fulfilled') return;
-        for (const binding of result.value) {
-          flat.push({ project: slice[i], binding });
-        }
-      });
-      setFiles(flat);
-    } finally {
-      setFilesLoading(false);
-    }
-  }
-
   async function loadTrash() {
     setBusy(true);
     setError('');
@@ -387,20 +287,18 @@ export function ProjectsListPage() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (section === 'catalog') next.delete('section');
+        if (section === 'projects') next.delete('section');
         else next.set('section', section);
         return next;
       },
       { replace: true },
     );
-    void refreshSection(section);
+    if (section === 'trash') {
+      void loadTrash();
+    } else {
+      void refreshSection(section);
+    }
   }, [section]);
-
-  useEffect(() => {
-    if (section !== 'catalog' || catalogTab !== 'files') return;
-    if (loading) return;
-    void refreshFiles(filteredProjects);
-  }, [section, catalogTab, loading, filteredProjects]);
 
   useEffect(() => {
     if (!manageOpen) return;
@@ -470,7 +368,6 @@ export function ProjectsListPage() {
   function handleSection(next: Section) {
     setSection(next);
     setSearch('');
-    if (next === 'catalog') setCatalogTab('collections');
   }
 
   function handleRequestSubmitted(payload: { title: string; description: string; useCase: string }) {
@@ -503,8 +400,8 @@ export function ProjectsListPage() {
         >
           <button
             type="button"
-            aria-label="All spaces"
-            onClick={() => handleSection('catalog')}
+            aria-label="All files"
+            onClick={() => handleSection('projects')}
             style={{
               border: 0,
               background: 'transparent',
@@ -541,7 +438,7 @@ export function ProjectsListPage() {
                 }}
               >
                 <SectionGlyph name={entry.glyph} active={active} />
-                {entry.id === 'catalog' && active ? null : <span>{entry.label}</span>}
+                <span>{entry.label}</span>
               </button>
             );
           })}
@@ -587,10 +484,8 @@ export function ProjectsListPage() {
               <MenuItem
                 onClick={() => {
                   setManageOpen(false);
-                  void refreshSection(section);
-                  if (section === 'catalog' && catalogTab === 'files') {
-                    void refreshFiles(filteredProjects);
-                  }
+                  if (section === 'trash') void loadTrash();
+                  else void refreshSection(section);
                 }}
               >
                 Refresh
@@ -623,35 +518,6 @@ export function ProjectsListPage() {
             >
               {sectionTitle}
             </h1>
-            {section === 'catalog' ? (
-              <div role="tablist" aria-label="Catalog views" style={{ display: 'flex', gap: 18 }}>
-                {(['collections', 'files'] as const).map((tab) => {
-                  const active = catalogTab === tab;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setCatalogTab(tab)}
-                      style={{
-                        border: 0,
-                        background: 'transparent',
-                        padding: '4px 0 6px',
-                        cursor: 'pointer',
-                        fontSize: 14,
-                        fontWeight: 500,
-                        color: active ? 'var(--status-info)' : 'var(--text-default)',
-                        borderBottom: active ? '2px solid var(--status-info)' : '2px solid transparent',
-                        textTransform: 'capitalize',
-                      }}
-                    >
-                      {tab}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="of-button" onClick={() => setRequestOpen(true)}>
@@ -669,7 +535,7 @@ export function ProjectsListPage() {
         </div>
         <div
           style={{
-            marginTop: section === 'catalog' ? 0 : 14,
+            marginTop: 14,
             borderBottom: '1px solid var(--border-subtle)',
           }}
         />
@@ -707,30 +573,12 @@ export function ProjectsListPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: section === 'catalog' && catalogTab === 'files' ? '200px minmax(0, 1fr)' : 'minmax(0, 1fr)',
+          gridTemplateColumns: 'minmax(0, 1fr)',
           background: '#fff',
           minHeight: 480,
         }}
       >
-        {section === 'catalog' && catalogTab === 'files' ? <FiltersRail /> : null}
-
         <div style={{ display: 'grid', gap: 0 }}>
-          {section === 'catalog' && catalogTab === 'collections' ? (
-            <CollectionsView
-              projects={filteredProjects}
-              loading={loading}
-              search={search}
-              onSearchChange={setSearch}
-              onSearchSubmit={() => void refreshSection(section)}
-              onDelete={(project) => setDeleteTarget(project)}
-              busy={busy}
-            />
-          ) : null}
-
-          {section === 'catalog' && catalogTab === 'files' ? (
-            <FilesView files={files} loading={filesLoading || loading} />
-          ) : null}
-
           {section === 'projects' ? (
             <ProjectsTable
               projects={filteredProjects}
@@ -759,6 +607,15 @@ export function ProjectsListPage() {
           {section === 'shared' ? <SharedTable shared={shared} loading={loading} /> : null}
 
           {section === 'portfolios' ? <PortfoliosPlaceholder /> : null}
+
+          {section === 'trash' ? (
+            <TrashTable
+              entries={trash}
+              loading={busy}
+              onRestore={(entry) => void restore(entry)}
+              onPurge={(entry) => setPurgeTarget(entry)}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -839,335 +696,6 @@ function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: (
   );
 }
 
-function CollectionsView({
-  projects,
-  loading,
-  search,
-  onSearchChange,
-  onSearchSubmit,
-  onDelete,
-  busy,
-}: {
-  projects: OntologyProject[];
-  loading: boolean;
-  search: string;
-  onSearchChange: (next: string) => void;
-  onSearchSubmit: () => void;
-  onDelete: (project: OntologyProject) => void;
-  busy: boolean;
-}) {
-  return (
-    <div style={{ display: 'grid', gap: 0 }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          gap: 8,
-          padding: '10px 22px',
-        }}
-      >
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSearchSubmit();
-          }}
-          style={{ display: 'flex', gap: 6 }}
-        >
-          <input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search collections"
-            className="of-input"
-            style={{ minWidth: 240 }}
-          />
-        </form>
-      </div>
-
-      {loading ? (
-        <div style={{ padding: 32, textAlign: 'center' }}>
-          <span className="of-text-muted">Loading collections...</span>
-        </div>
-      ) : (
-        <table className="of-table" style={{ tableLayout: 'fixed' }}>
-          <colgroup>
-            <col />
-            <col style={{ width: 120 }} />
-            <col style={{ width: 60 }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={{ paddingLeft: 22 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  Name <SortAscIcon />
-                </span>
-              </th>
-              <th style={{ textAlign: 'right' }}>Files</th>
-              <th aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {projects.length === 0 ? (
-              <tr>
-                <td colSpan={3} style={{ padding: 40, textAlign: 'center' }}>
-                  <span className="of-text-muted">No collections yet. Create your first project to start.</span>
-                </td>
-              </tr>
-            ) : (
-              projects.map((project) => (
-                <tr key={project.id}>
-                  <td style={{ padding: '12px 8px 12px 22px' }}>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      <ProjectGlyphIcon />
-                      <div style={{ display: 'grid', gap: 2 }}>
-                        <Link
-                          to={`/projects/${project.id}`}
-                          className="of-link"
-                          style={{ fontSize: 13, fontWeight: 500 }}
-                        >
-                          {projectName(project)}
-                        </Link>
-                        <span
-                          className="of-text-muted"
-                          style={{ fontSize: 12, color: 'var(--text-muted)' }}
-                        >
-                          {project.description ||
-                            `${project.workspace_slug || 'default'} / ${project.slug}`}
-                        </span>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ verticalAlign: 'middle', textAlign: 'right' }}>
-                    <CollectionFileCount projectId={project.id} />
-                  </td>
-                  <td style={{ verticalAlign: 'middle', paddingRight: 18 }}>
-                    <button
-                      type="button"
-                      className="of-button of-button--ghost"
-                      aria-label={`More actions for ${projectName(project)}`}
-                      onClick={() => onDelete(project)}
-                      disabled={busy}
-                      style={{ padding: '4px 6px' }}
-                    >
-                      <MoreIcon />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-function CollectionFileCount({ projectId }: { projectId: string }) {
-  const [count, setCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    listProjectResources(projectId)
-      .then((resources) => {
-        if (!cancelled) setCount(resources.length);
-      })
-      .catch(() => {
-        if (!cancelled) setCount(0);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 10,
-        fontSize: 13,
-        color: 'var(--text-default)',
-        justifyContent: 'flex-end',
-      }}
-    >
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <FilesCountGlyph /> 1
-      </span>
-      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{count ?? '—'}</span>
-    </span>
-  );
-}
-
-function FilesView({ files, loading }: { files: FlatResource[]; loading: boolean }) {
-  return (
-    <div style={{ display: 'grid', gap: 0 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '10px 22px',
-        }}
-      >
-        <button type="button" className="of-button" style={{ display: 'inline-flex', gap: 6 }}>
-          File type <ChevronDownIcon />
-        </button>
-        <div style={{ flex: 1 }} />
-        <button type="button" className="of-button">
-          Group by <ChevronDownIcon />
-        </button>
-        <button type="button" className="of-button">
-          List
-        </button>
-        <button type="button" className="of-button" aria-label="Toggle columns" style={{ padding: '0 8px' }}>
-          <ColumnsIcon />
-        </button>
-      </div>
-
-      {loading ? (
-        <div style={{ padding: 32, textAlign: 'center' }}>
-          <span className="of-text-muted">Loading files...</span>
-        </div>
-      ) : (
-        <table className="of-table" style={{ tableLayout: 'fixed' }}>
-          <colgroup>
-            <col />
-            <col style={{ width: 220 }} />
-            <col style={{ width: 220 }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={{ paddingLeft: 22 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  Name <SortAscIcon />
-                </span>
-              </th>
-              <th>Last updated</th>
-              <th>Tags</th>
-            </tr>
-          </thead>
-          <tbody>
-            {files.length === 0 ? (
-              <tr>
-                <td colSpan={3} style={{ padding: 40, textAlign: 'center' }}>
-                  <span className="of-text-muted">No files yet. Bind resources from project detail.</span>
-                </td>
-              </tr>
-            ) : (
-              files.map((entry) => (
-                <tr key={`${entry.project.id}-${entry.binding.resource_kind}-${entry.binding.resource_id}`}>
-                  <td style={{ padding: '10px 8px 10px 22px' }}>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      <ResourceGlyphIcon kind={entry.binding.resource_kind} />
-                      <div style={{ display: 'grid', gap: 2 }}>
-                        <span style={{ fontSize: 13, color: 'var(--text-strong)', fontWeight: 500 }}>
-                          {entry.binding.resource_id}
-                        </span>
-                        <span className="of-text-muted" style={{ fontSize: 12 }}>
-                          {projectPath(entry.project)} ·{' '}
-                          <span className="of-text-soft">{formatKind(entry.binding.resource_kind)}</span>
-                        </span>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ verticalAlign: 'middle' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <FilesCountGlyph /> 1
-                      </span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <ShieldIcon /> 1
-                      </span>
-                      <span className="of-text-muted">{formatDateTime(entry.binding.created_at)}</span>
-                    </span>
-                  </td>
-                  <td style={{ verticalAlign: 'middle' }}>
-                    <span className="of-text-soft">—</span>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-function FiltersRail() {
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [typeOpen, setTypeOpen] = useState(false);
-  return (
-    <aside
-      style={{
-        borderRight: '1px solid var(--border-subtle)',
-        padding: '14px 14px',
-        background: '#fff',
-      }}
-    >
-      <p
-        className="of-eyebrow"
-        style={{ margin: '0 0 6px', color: 'var(--text-muted)', letterSpacing: '0.05em' }}
-      >
-        Filters
-      </p>
-      <FilterToggle label="Tags" open={tagsOpen} onToggle={() => setTagsOpen((open) => !open)}>
-        <input className="of-input" placeholder="Search tags" />
-      </FilterToggle>
-      <FilterToggle label="Type" open={typeOpen} onToggle={() => setTypeOpen((open) => !open)}>
-        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 6, fontSize: 12 }}>
-          {['Dataset', 'Pipeline', 'Notebook', 'Dashboard', 'App', 'Workflow'].map((kind) => (
-            <li key={kind}>
-              <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                <input type="checkbox" /> {kind}
-              </label>
-            </li>
-          ))}
-        </ul>
-      </FilterToggle>
-    </aside>
-  );
-}
-
-function FilterToggle({
-  label,
-  open,
-  onToggle,
-  children,
-}: {
-  label: string;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          width: '100%',
-          padding: '10px 0',
-          border: 0,
-          background: 'transparent',
-          cursor: 'pointer',
-          color: 'var(--text-strong)',
-          fontWeight: 700,
-          fontSize: 11,
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-        }}
-      >
-        <span>{label}</span>
-        <span style={{ color: 'var(--text-muted)', fontSize: 16, lineHeight: 1 }}>{open ? '−' : '+'}</span>
-      </button>
-      {open ? <div style={{ paddingBottom: 10 }}>{children}</div> : null}
-    </div>
-  );
-}
 
 function ProjectsTable({
   projects,
@@ -1355,6 +883,75 @@ function PortfoliosPlaceholder() {
         access, audit and reporting across teams.
       </p>
     </div>
+  );
+}
+
+function TrashTable({
+  entries,
+  loading,
+  onRestore,
+  onPurge,
+}: {
+  entries: TrashEntry[];
+  loading: boolean;
+  onRestore: (entry: TrashEntry) => void;
+  onPurge: (entry: TrashEntry) => void;
+}) {
+  if (loading && entries.length === 0) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <span className="of-text-muted">Loading trash...</span>
+      </div>
+    );
+  }
+  return (
+    <table className="of-table">
+      <thead>
+        <tr>
+          <th style={{ paddingLeft: 22 }}>Resource</th>
+          <th>Deleted by</th>
+          <th>Deleted</th>
+          <th style={{ width: 200 }}>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entries.length === 0 ? (
+          <tr>
+            <td colSpan={4} style={{ padding: 40, textAlign: 'center' }}>
+              <span className="of-text-muted">Trash is empty.</span>
+            </td>
+          </tr>
+        ) : (
+          entries.map((entry) => (
+            <tr key={`${entry.resource_kind}-${entry.resource_id}`}>
+              <td style={{ paddingLeft: 22 }}>
+                <strong style={{ color: 'var(--text-strong)' }}>{entry.display_name || entry.resource_id}</strong>
+                <div className="of-text-soft" style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                  {formatKind(entry.resource_kind)} / {entry.resource_id}
+                </div>
+              </td>
+              <td className="of-text-muted">{entry.deleted_by}</td>
+              <td className="of-text-muted">{formatDateTime(entry.deleted_at)}</td>
+              <td>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <button type="button" className="of-button" onClick={() => onRestore(entry)} style={{ fontSize: 11 }}>
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="of-button of-btn-danger"
+                    onClick={() => onPurge(entry)}
+                    style={{ fontSize: 11 }}
+                  >
+                    Purge
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
   );
 }
 

@@ -242,6 +242,25 @@ func ensureProjectOwnerOrAdmin(project *models.OntologyProject, claims *authmw.C
 
 // ─── list / create / get / update / delete ─────────────────────────────
 
+// ListTemplates returns the project templates available for the
+// "Create new project" wizard. Stubbed with a single Default Template
+// until template provisioning lands; the frontend just needs an entry
+// to render on the picker step.
+func (h *ProjectsHandlers) ListTemplates(w http.ResponseWriter, r *http.Request) {
+	if _, ok := authClaims(w, r); !ok {
+		return
+	}
+	templates := []map[string]any{
+		{
+			"id":          "default",
+			"key":         "default",
+			"name":        "Default Template",
+			"description": "Empty project with the standard folder layout.",
+		},
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": templates})
+}
+
 // ListProjects mirrors Rust `list_projects`: filter by search, paginate
 // by (page, per_page), then trim to the visible set unless the caller
 // is an admin.

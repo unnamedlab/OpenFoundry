@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
-import { createProject, type OntologyProject } from '@/lib/api/ontology';
+import {
+  createProject,
+  listProjectTemplates,
+  type OntologyProject,
+  type ProjectTemplate,
+} from '@/lib/api/ontology';
+import { listSpaces, type NexusSpace } from '@/lib/api/nexus';
+import { useCurrentUser } from '@/lib/stores/auth';
 
 interface CreateProjectModalProps {
   open: boolean;
@@ -8,15 +15,12 @@ interface CreateProjectModalProps {
   onCreated: (project: OntologyProject) => void;
 }
 
-const NAMESPACES = ['default', 'platform', 'analytics'] as const;
-type Namespace = (typeof NAMESPACES)[number];
+type Step = 'template' | 'form';
+type DefaultRole = 'editor' | 'viewer';
 
-const DEFAULT_ROLES = ['viewer', 'editor', 'owner'] as const;
-type DefaultRole = (typeof DEFAULT_ROLES)[number];
 const ROLE_LABEL: Record<DefaultRole, string> = {
-  viewer: 'Viewer',
   editor: 'Editor',
-  owner: 'Owner',
+  viewer: 'Viewer',
 };
 
 function deriveSlug(value: string) {
@@ -30,94 +34,149 @@ function deriveSlug(value: string) {
   return slug || `project-${Date.now().toString(36)}`;
 }
 
-function CloseGlyph({ size = 14 }: { size?: number }) {
+function CloseGlyph() {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M6 6l12 12M6 18L18 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
 
-function InfoGlyph({ size = 13 }: { size?: number }) {
+function FolderTemplateGlyph() {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 11v5M12 7.5v0.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3.5 7.5h6l2 2h9v9a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18.5z"
+        stroke="#5f6b7a"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M9 14h6M9 17h4" stroke="#5f6b7a" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }
 
-function OrgChipGlyph({ size = 12 }: { size?: number }) {
+function ArrowRightGlyph() {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="5" width="6.5" height="14" rx="1" stroke="currentColor" strokeWidth="1.6" />
-      <rect x="13.5" y="5" width="6.5" height="14" rx="1" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M6 9h2.5M6 12h2.5M6 15h2.5M15.5 9H18M15.5 12H18M15.5 15H18" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-function CaretDownGlyph({ size = 11 }: { size?: number }) {
+function CaretDownGlyph({ open }: { open: boolean }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width={12}
+      height={12}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 120ms' }}
+    >
       <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
+function CheckGlyph() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 12.5l4 4 10-10" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SpaceGlyph() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3.5 7.5h6l2 2h9v9a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18.5z" stroke="#5f6b7a" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M11 14a3 3 0 1 0 0-3" stroke="#7c5dd6" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectModalProps) {
+  const user = useCurrentUser();
+
+  const [step, setStep] = useState<Step>('template');
+  const [spaces, setSpaces] = useState<NexusSpace[]>([]);
+  const [spaceId, setSpaceId] = useState<string>('');
+  const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
+  const [template, setTemplate] = useState<ProjectTemplate | null>(null);
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
+  const [directoryError, setDirectoryError] = useState('');
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [namespace, setNamespace] = useState<Namespace>('default');
-  const [defaultRole, setDefaultRole] = useState<DefaultRole>('viewer');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [defaultRole, setDefaultRole] = useState<DefaultRole>('editor');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+
+  const selectedSpace = useMemo(() => spaces.find((s) => s.id === spaceId) ?? null, [spaces, spaceId]);
 
   useEffect(() => {
     if (!open) return;
-    setName('');
-    setDescription('');
-    setNamespace('default');
-    setDefaultRole('viewer');
+    setStep('template');
+    setName(user ? `Learning ${user.name || user.email.split('@')[0]}` : '');
+    setDescription('Personal Learning Project for OpenFoundry courses.');
+    setAdvancedOpen(false);
+    setDefaultRole('editor');
+    setTemplate(null);
+    setSubmitError('');
     setSubmitting(false);
-    setError('');
-  }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onKeydown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !submitting) {
-        event.preventDefault();
-        onClose();
-      }
-    }
-    window.addEventListener('keydown', onKeydown);
-    return () => window.removeEventListener('keydown', onKeydown);
-  }, [open, onClose, submitting]);
+    let cancelled = false;
+    setLoadingDirectory(true);
+    setDirectoryError('');
+    Promise.all([listSpaces().catch(() => ({ items: [] as NexusSpace[] })), listProjectTemplates()])
+      .then(([spaceResp, templateResp]) => {
+        if (cancelled) return;
+        const spaceList = spaceResp.items;
+        setSpaces(spaceList);
+        if (spaceList.length > 0) setSpaceId(spaceList[0].id);
+        setTemplates(templateResp);
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        setDirectoryError(cause instanceof Error ? cause.message : 'Failed to load spaces or templates.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDirectory(false);
+      });
 
-  const slug = useMemo(() => deriveSlug(name), [name]);
-  const orgLabel = namespace.charAt(0).toUpperCase() + namespace.slice(1);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, user]);
 
   if (!open) return null;
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function pickTemplate(next: ProjectTemplate) {
+    setTemplate(next);
+    setStep('form');
+  }
+
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!template) return;
     if (!name.trim()) {
-      setError('Enter a project name to continue.');
+      setSubmitError('Project name is required.');
       return;
     }
     setSubmitting(true);
-    setError('');
+    setSubmitError('');
     try {
       const project = await createProject({
-        slug,
+        slug: deriveSlug(name),
         display_name: name.trim(),
         description: description.trim() || undefined,
-        workspace_slug: namespace,
+        workspace_slug: selectedSpace?.slug,
       });
       onCreated(project);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Create failed');
+      setSubmitError(cause instanceof Error ? cause.message : 'Failed to create project.');
     } finally {
       setSubmitting(false);
     }
@@ -129,29 +188,29 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
       aria-modal="true"
       aria-labelledby="create-project-title"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !submitting) onClose();
+        if (event.target === event.currentTarget) onClose();
       }}
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 100,
+        zIndex: 90,
+        background: 'rgba(17, 24, 39, 0.42)',
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
-        background: 'rgba(17, 24, 39, 0.42)',
-        padding: '64px 16px 16px',
+        padding: '64px 24px 24px',
       }}
     >
-      <form
-        className="of-panel"
-        onSubmit={(event) => void submit(event)}
+      <section
         style={{
           width: '100%',
-          maxWidth: 420,
-          overflow: 'hidden',
+          maxWidth: 560,
           background: '#fff',
-          borderRadius: 4,
-          boxShadow: '0 16px 40px rgba(17, 24, 39, 0.24)',
+          borderRadius: 6,
+          boxShadow: '0 12px 32px rgba(15, 23, 42, 0.16)',
+          display: 'grid',
+          gridTemplateRows: 'auto 1fr auto',
+          maxHeight: 'calc(100vh - 96px)',
         }}
       >
         <header
@@ -159,22 +218,20 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 12,
-            padding: '14px 16px',
+            padding: '14px 18px',
             borderBottom: '1px solid var(--border-subtle)',
           }}
         >
-          <h2
-            id="create-project-title"
-            style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-strong)' }}
-          >
-            Create new project
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <SpaceGlyph />
+            <h2 id="create-project-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-strong)' }}>
+              Create new project
+            </h2>
+          </div>
           <button
             type="button"
-            aria-label="Close"
             onClick={onClose}
-            disabled={submitting}
+            aria-label="Close"
             style={{
               border: 0,
               background: 'transparent',
@@ -188,223 +245,345 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
           </button>
         </header>
 
-        <div style={{ display: 'grid', gap: 14, padding: 16 }}>
-          <Field label="Name">
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Flight Alerts at SFO"
-              className="of-input"
-              autoFocus
-              autoComplete="off"
-              style={{ background: '#eef3f8' }}
-            />
-          </Field>
+        {step === 'template' ? (
+          <TemplateStep
+            spaces={spaces}
+            spaceId={spaceId}
+            onSpaceChange={setSpaceId}
+            templates={templates}
+            loading={loadingDirectory}
+            error={directoryError}
+            onPickTemplate={pickTemplate}
+          />
+        ) : (
+          <FormStep
+            name={name}
+            description={description}
+            onNameChange={setName}
+            onDescriptionChange={setDescription}
+            advancedOpen={advancedOpen}
+            onToggleAdvanced={() => setAdvancedOpen((open) => !open)}
+            defaultRole={defaultRole}
+            onDefaultRoleChange={setDefaultRole}
+            spaceLabel={selectedSpace?.display_name || selectedSpace?.slug || 'Default'}
+            submitting={submitting}
+            error={submitError}
+            onSubmit={handleSubmit}
+            onBack={() => setStep('template')}
+          />
+        )}
+      </section>
+    </div>
+  );
+}
 
-          <Field label="Description" optional>
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={4}
-              className="of-input"
-              style={{ minHeight: 88, resize: 'vertical' }}
-            />
-          </Field>
-
-          <Field
-            label="Namespace"
-            tooltip="The namespace controls which workspace the project belongs to and the default location for resources."
+function TemplateStep({
+  spaces,
+  spaceId,
+  onSpaceChange,
+  templates,
+  loading,
+  error,
+  onPickTemplate,
+}: {
+  spaces: NexusSpace[];
+  spaceId: string;
+  onSpaceChange: (id: string) => void;
+  templates: ProjectTemplate[];
+  loading: boolean;
+  error: string;
+  onPickTemplate: (template: ProjectTemplate) => void;
+}) {
+  return (
+    <>
+      <div style={{ overflowY: 'auto' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '60px 1fr',
+            alignItems: 'center',
+            gap: 12,
+            padding: '14px 18px',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
+        >
+          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Space</span>
+          <select
+            value={spaceId}
+            onChange={(event) => onSpaceChange(event.target.value)}
+            disabled={loading || spaces.length === 0}
+            style={{
+              padding: '8px 10px',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              fontSize: 13,
+              background: '#f4f6f9',
+              color: 'var(--text-strong)',
+            }}
           >
-            <SelectShell>
-              <select
-                value={namespace}
-                onChange={(event) => setNamespace(event.target.value as Namespace)}
-                aria-label="Namespace"
-                style={selectStyle}
-              >
-                {NAMESPACES.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {entry.charAt(0).toUpperCase() + entry.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </SelectShell>
-          </Field>
-
-          <div style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-strong)' }}>
-              Organizations <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· Any of</span>
-            </span>
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                width: 'fit-content',
-                padding: '4px 10px',
-                background: '#eef3f8',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 3,
-                color: 'var(--text-strong)',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              <OrgChipGlyph />
-              {orgLabel}
-            </div>
-          </div>
-
-          <Field label="Default role">
-            <SelectShell>
-              <select
-                value={defaultRole}
-                onChange={(event) => setDefaultRole(event.target.value as DefaultRole)}
-                aria-label="Default role"
-                style={selectStyle}
-              >
-                {DEFAULT_ROLES.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {ROLE_LABEL[entry]}
-                  </option>
-                ))}
-              </select>
-            </SelectShell>
-            <p
-              style={{
-                margin: '6px 0 0',
-                color: 'var(--text-muted)',
-                fontSize: 11,
-                lineHeight: 1.45,
-              }}
-            >
-              Everyone from <strong style={{ color: 'var(--text-strong)' }}>{orgLabel}</strong> can see the existence of this project and is granted the
-              {' '}
-              <a href="#" className="of-link">{ROLE_LABEL[defaultRole]}</a> role.
-            </p>
-          </Field>
-
-          {error ? (
-            <div
-              className="of-status-danger"
-              style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', fontSize: 12 }}
-            >
-              {error}
-            </div>
-          ) : null}
+            {spaces.length === 0 ? <option value="">No spaces available</option> : null}
+            {spaces.map((space) => (
+              <option key={space.id} value={space.id}>
+                {space.display_name || space.slug}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <footer
+        {error ? (
+          <div
+            role="alert"
+            className="of-status-danger"
+            style={{ margin: 16, padding: '8px 12px', fontSize: 12 }}
+          >
+            {error}
+          </div>
+        ) : null}
+
+        <div style={{ padding: 8 }}>
+          {loading && templates.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center' }}>
+              <span className="of-text-muted">Loading templates...</span>
+            </div>
+          ) : templates.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center' }}>
+              <span className="of-text-muted">No templates available.</span>
+            </div>
+          ) : (
+            templates.map((tpl) => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => onPickTemplate(tpl)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: '14px 12px',
+                  border: 0,
+                  background: 'transparent',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(45, 114, 210, 0.06)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <FolderTemplateGlyph />
+                <div style={{ flex: 1, display: 'grid', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>{tpl.name}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tpl.description}</span>
+                </div>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  <ArrowRightGlyph />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      <footer
+        style={{
+          padding: '12px 18px',
+          borderTop: '1px solid var(--border-subtle)',
+        }}
+      >
+        <button
+          type="button"
+          className="of-link"
+          style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 13, color: 'var(--status-info)' }}
+          disabled
+        >
+          Manage project templates ↗
+        </button>
+      </footer>
+    </>
+  );
+}
+
+function FormStep({
+  name,
+  description,
+  onNameChange,
+  onDescriptionChange,
+  advancedOpen,
+  onToggleAdvanced,
+  defaultRole,
+  onDefaultRoleChange,
+  spaceLabel,
+  submitting,
+  error,
+  onSubmit,
+  onBack,
+}: {
+  name: string;
+  description: string;
+  onNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  advancedOpen: boolean;
+  onToggleAdvanced: () => void;
+  defaultRole: DefaultRole;
+  onDefaultRoleChange: (role: DefaultRole) => void;
+  spaceLabel: string;
+  submitting: boolean;
+  error: string;
+  onSubmit: (event: FormEvent) => void;
+  onBack: () => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} style={{ display: 'contents' }}>
+      <div style={{ overflowY: 'auto', padding: '16px 18px', display: 'grid', gap: 14 }}>
+        {error ? (
+          <div role="alert" className="of-status-danger" style={{ padding: '8px 12px', fontSize: 12 }}>
+            {error}
+          </div>
+        ) : null}
+
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+            disabled={submitting}
+            required
+            autoFocus
+            style={{
+              padding: '8px 10px',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              fontSize: 13,
+              color: 'var(--text-strong)',
+            }}
+          />
+        </label>
+
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Project description (optional)</span>
+          <textarea
+            value={description}
+            onChange={(event) => onDescriptionChange(event.target.value)}
+            disabled={submitting}
+            rows={3}
+            style={{
+              padding: '8px 10px',
+              border: '1px solid var(--border-default)',
+              borderRadius: 4,
+              fontSize: 13,
+              color: 'var(--text-strong)',
+              resize: 'vertical',
+            }}
+          />
+        </label>
+
+        <div
           style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-            padding: '12px 16px',
-            borderTop: '1px solid var(--border-subtle)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 4,
+            background: '#f4f6f9',
           }}
         >
           <button
             type="button"
-            className="of-button"
-            onClick={onClose}
-            disabled={submitting}
+            onClick={onToggleAdvanced}
+            aria-expanded={advancedOpen}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              width: '100%',
+              padding: '12px 14px',
+              border: 0,
+              background: 'transparent',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
           >
-            Cancel
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>Advanced</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                The project will be created in <strong>{spaceLabel}</strong>. Everyone from <strong>{spaceLabel}</strong> will
+                be able to see its existence. They will need a role on the project to see files within it.
+              </span>
+            </div>
+            <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
+              <CaretDownGlyph open={advancedOpen} />
+            </span>
           </button>
-          <button
-            type="submit"
-            className="of-button of-button--success"
-            disabled={submitting || !name.trim()}
-          >
-            {submitting ? 'Creating...' : 'Create'}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-}
+          {advancedOpen ? (
+            <div style={{ padding: '0 14px 12px', display: 'grid', gap: 8 }}>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Default role for space members</span>
+                <select
+                  value={defaultRole}
+                  onChange={(event) => onDefaultRoleChange(event.target.value as DefaultRole)}
+                  disabled={submitting}
+                  style={{
+                    padding: '6px 10px',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: 4,
+                    fontSize: 13,
+                    background: '#fff',
+                  }}
+                >
+                  <option value="editor">{ROLE_LABEL.editor}</option>
+                  <option value="viewer">{ROLE_LABEL.viewer}</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
-const selectStyle: React.CSSProperties = {
-  appearance: 'none',
-  WebkitAppearance: 'none',
-  MozAppearance: 'none',
-  width: '100%',
-  border: 0,
-  background: 'transparent',
-  paddingRight: 22,
-  fontSize: 12,
-  fontWeight: 600,
-  color: 'var(--text-strong)',
-  outline: 'none',
-};
-
-function SelectShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        position: 'relative',
-        minHeight: 28,
-        padding: '0 10px',
-        background: 'linear-gradient(180deg, #ffffff 0%, #f3f5f7 100%)',
-        border: '1px solid var(--border-strong)',
-        borderRadius: 3,
-        width: 'fit-content',
-        minWidth: 110,
-      }}
-    >
-      {children}
-      <span
-        aria-hidden="true"
-        style={{ position: 'absolute', right: 8, color: 'var(--text-muted)', display: 'inline-flex' }}
-      >
-        <CaretDownGlyph />
-      </span>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  optional,
-  tooltip,
-  children,
-}: {
-  label: string;
-  optional?: boolean;
-  tooltip?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label style={{ display: 'grid', gap: 6 }}>
-      <span
+      <footer
         style={{
-          display: 'inline-flex',
+          display: 'flex',
+          justifyContent: 'flex-end',
           alignItems: 'center',
-          gap: 4,
-          fontSize: 12,
-          fontWeight: 600,
-          color: 'var(--text-strong)',
+          gap: 10,
+          padding: '12px 18px',
+          borderTop: '1px solid var(--border-subtle)',
         }}
       >
-        {label}
-        {optional ? (
-          <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 4 }}>
-            (optional)
-          </span>
-        ) : null}
-        {tooltip ? (
-          <span
-            title={tooltip}
-            aria-label={tooltip}
-            style={{ marginLeft: 2, color: 'var(--text-muted)', display: 'inline-flex' }}
-          >
-            <InfoGlyph />
-          </span>
-        ) : null}
-      </span>
-      {children}
-    </label>
+        <button
+          type="button"
+          onClick={onBack}
+          className="of-link"
+          style={{
+            background: 'none',
+            border: 0,
+            padding: '6px 8px',
+            cursor: 'pointer',
+            fontSize: 13,
+            color: 'var(--status-info)',
+          }}
+          disabled={submitting}
+        >
+          Back
+        </button>
+        <button
+          type="submit"
+          disabled={submitting || !name.trim()}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            border: 0,
+            borderRadius: 4,
+            background: '#15803d',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: submitting ? 'not-allowed' : 'pointer',
+            opacity: submitting ? 0.7 : 1,
+          }}
+        >
+          <CheckGlyph /> {submitting ? 'Creating...' : 'Create project'}
+        </button>
+      </footer>
+    </form>
   );
 }

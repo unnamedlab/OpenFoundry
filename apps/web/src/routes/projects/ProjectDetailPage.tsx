@@ -41,6 +41,8 @@ import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/wor
 import { ResourcePermissionsDrawer } from '@/lib/components/workspace/ResourcePermissionsDrawer';
 import { ShareDialog } from '@/lib/components/workspace/ShareDialog';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { ResourcePickerDialog, type ResourcePickerAction } from '@/lib/components/projects/ResourcePickerDialog';
+import { UploadFilesDialog } from '@/lib/components/projects/UploadFilesDialog';
 
 type Tab =
   | 'cover-page'
@@ -206,7 +208,18 @@ export function ProjectDetailPage() {
   const [createdByFilter, setCreatedByFilter] = useState('');
 
   const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [createMode, setCreateMode] = useState<null | 'folder' | 'binding' | 'reference'>(null);
+
+  function handleResourcePick(action: ResourcePickerAction) {
+    setShowCreateMenu(false);
+    if (action === 'folder') setCreateMode('folder');
+    else if (action === 'upload-files') setUploadOpen(true);
+    else if (action === 'bind-existing' || action === 'dataset') setCreateMode('binding');
+    else if (action === 'pipeline-builder' && project) {
+      navigate(`/pipelines/new?project_id=${project.id}`);
+    }
+  }
   const [folderName, setFolderName] = useState('');
   const [folderDescription, setFolderDescription] = useState('');
   const [folderParent, setFolderParent] = useState('');
@@ -839,40 +852,20 @@ export function ProjectDetailPage() {
             <Glyph name="trash" size={14} />
           </button>
 
-          {showCreateMenu && (
-            <div
-              role="menu"
-              style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                right: 110,
-                background: '#fff',
-                border: '1px solid var(--border-default)',
-                borderRadius: 4,
-                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
-                padding: 4,
-                minWidth: 200,
-                zIndex: 50,
-              }}
-            >
-              <button
-                type="button"
-                className="of-button of-button--ghost"
-                style={{ width: '100%', justifyContent: 'flex-start' }}
-                onClick={() => { setShowCreateMenu(false); setCreateMode('folder'); }}
-              >
-                <Glyph name="folder" size={14} tone="#cf923f" /> New folder
-              </button>
-              <button
-                type="button"
-                className="of-button of-button--ghost"
-                style={{ width: '100%', justifyContent: 'flex-start' }}
-                onClick={() => { setShowCreateMenu(false); setCreateMode('binding'); }}
-              >
-                <Glyph name="link" size={14} tone="#5c7080" /> Bind existing resource
-              </button>
-            </div>
-          )}
+          <ResourcePickerDialog
+            open={showCreateMenu}
+            onClose={() => setShowCreateMenu(false)}
+            onPick={handleResourcePick}
+          />
+
+          <UploadFilesDialog
+            open={uploadOpen}
+            projectId={project?.id ?? null}
+            onClose={() => setUploadOpen(false)}
+            onUploaded={() => {
+              if (project) void refreshResources(project.id);
+            }}
+          />
         </div>
       </header>
 

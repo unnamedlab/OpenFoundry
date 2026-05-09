@@ -556,28 +556,29 @@ button {
 }
 
 .of-sidebar {
+  position: relative;
   display: flex;
-  width: 258px;
+  width: 240px;
   min-height: 100vh;
   flex-shrink: 0;
   flex-direction: column;
   border-right: 1px solid rgba(0, 0, 0, 0.38);
   background: var(--bg-sidebar);
   color: rgba(255, 255, 255, 0.9);
+  transition: width 0.18s ease;
 }
 
 .of-sidebar__brand {
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 52px;
-  padding: 8px 10px 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.1);
+  min-height: 50px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
 }
 
 .of-sidebar__mark,
-.of-sidebar__logo,
 .of-sidebar__brand-meta {
   display: inline-flex;
   align-items: center;
@@ -591,8 +592,21 @@ button {
   color: rgba(255, 255, 255, 0.86);
 }
 
+.of-sidebar__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+}
+
 .of-sidebar__logo:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
   text-decoration: none;
 }
@@ -683,7 +697,9 @@ button {
 }
 
 .of-sidebar__section--footer {
-  padding-bottom: 8px;
+  padding: 8px 0 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .of-sidebar__heading {
@@ -715,13 +731,13 @@ button {
 .of-sidebar__link {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 28px;
+  gap: 11px;
+  min-height: 32px;
   margin: 1px 7px;
-  padding: 0 8px;
-  border-radius: 2px;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 12px;
+  padding: 0 10px;
+  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
   font-weight: 500;
   transition:
     background-color 0.15s ease,
@@ -758,12 +774,26 @@ button {
 }
 
 .of-sidebar__icon {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.56);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.of-sidebar__dot {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px var(--bg-sidebar);
+  pointer-events: none;
 }
 
 .of-sidebar__link[data-active='true'] .of-sidebar__icon,
@@ -782,9 +812,11 @@ button {
 .of-sidebar__hint,
 .of-sidebar__caret {
   margin-left: auto;
-  color: rgba(255, 255, 255, 0.42);
-  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
   font-weight: 500;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
 }
 
 .of-sidebar__footer {
@@ -1527,6 +1559,155 @@ button {
 
 .of-app-launcher__empty {
   padding: 18px 14px;
+}
+
+/* Sidebar — collapsed mode */
+.of-sidebar[data-collapsed='true'] {
+  width: 56px;
+}
+
+.of-sidebar[data-collapsed='true'] .of-sidebar__label,
+.of-sidebar[data-collapsed='true'] .of-sidebar__hint,
+.of-sidebar[data-collapsed='true'] .of-sidebar__heading,
+.of-sidebar[data-collapsed='true'] .of-sidebar__caret {
+  display: none;
+}
+
+.of-sidebar[data-collapsed='true'] .of-sidebar__link {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  margin: 1px 8px;
+}
+
+.of-sidebar[data-collapsed='true'] .of-sidebar__brand {
+  justify-content: center;
+  padding: 8px;
+}
+
+.of-sidebar[data-collapsed='true'] .of-sidebar__collapse {
+  position: absolute;
+  top: 11px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: var(--bg-sidebar);
+  z-index: 1;
+}
+
+.of-sidebar[data-collapsed='true'] .of-sidebar__section {
+  padding: 4px 0;
+}
+
+/* Sidebar — section heading (APPLICATIONS) */
+.of-sidebar__heading {
+  padding: 14px 14px 6px;
+  color: rgba(255, 255, 255, 0.36);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Launcher — Filters button */
+.of-app-launcher__filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.of-app-launcher__filters:hover,
+.of-app-launcher__filters.is-open {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+/* Launcher — categories panel headings + promoted */
+.of-app-launcher__category-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px 6px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.of-app-launcher__category-heading--inline {
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.of-app-launcher__category-empty {
+  padding: 4px 12px 8px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.of-app-launcher__promote-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: #60a5fa;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.of-app-launcher__promote-add:hover {
+  color: #93c5fd;
+}
+
+/* Launcher — grouped catalog */
+.of-app-launcher__group + .of-app-launcher__group {
+  margin-top: 14px;
+}
+
+.of-app-launcher__group-title {
+  padding: 6px 12px 8px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Launcher — detail empty state */
+.of-app-launcher__detail-empty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 40px 16px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+  min-height: 200px;
+}
+
+.of-app-launcher__detail-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Launcher — surface follows the collapsed sidebar */
+.of-app-launcher[data-sidebar-collapsed='true'] .of-app-launcher__surface {
+  left: 70px;
+  width: min(980px, calc(100vw - 96px));
 }
 
 .of-topbar {

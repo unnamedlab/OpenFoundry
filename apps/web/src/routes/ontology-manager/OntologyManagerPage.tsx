@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import {
   listInterfaces,
@@ -13,10 +13,13 @@ import {
   type OntologyProject,
   type SharedPropertyType,
 } from '@/lib/api/ontology';
+import { Glyph } from '@/lib/components/ui/Glyph';
+import { CreateObjectTypeWizard } from '@/lib/components/ontology/CreateObjectTypeWizard';
 
 type Section = 'overview' | 'types' | 'interfaces' | 'shared' | 'links' | 'projects';
 
 export function OntologyManagerPage() {
+  const navigate = useNavigate();
   const [section, setSection] = useState<Section>('overview');
   const [objectTypes, setObjectTypes] = useState<ObjectType[]>([]);
   const [interfaces, setInterfaces] = useState<OntologyInterface[]>([]);
@@ -25,6 +28,23 @@ export function OntologyManagerPage() {
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false);
+  const [branchName, setBranchName] = useState('Main');
+  const [branchDialogOpen, setBranchDialogOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+  const branchMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!newMenuOpen && !branchMenuOpen) return;
+    function onClickOutside(event: MouseEvent) {
+      if (newMenuOpen && newMenuRef.current && !newMenuRef.current.contains(event.target as Node)) setNewMenuOpen(false);
+      if (branchMenuOpen && branchMenuRef.current && !branchMenuRef.current.contains(event.target as Node)) setBranchMenuOpen(false);
+    }
+    window.addEventListener('mousedown', onClickOutside);
+    return () => window.removeEventListener('mousedown', onClickOutside);
+  }, [newMenuOpen, branchMenuOpen]);
 
   async function refresh() {
     setError('');
@@ -53,14 +73,124 @@ export function OntologyManagerPage() {
   return (
     <section className="of-page" style={{ padding: 24, display: 'grid', gap: 16 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div>
-          <h1 className="of-heading-xl">Ontology Manager</h1>
-          <p className="of-text-muted" style={{ marginTop: 4 }}>
-            Hub: object types, interfaces, shared properties, links, projects, dataset bindings.
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 4, background: 'rgba(45, 114, 210, 0.12)', color: 'var(--status-info)' }}>
+            <Glyph name="cube" size={18} tone="var(--status-info)" />
+          </span>
+          <div>
+            <h1 className="of-heading-xl" style={{ margin: 0 }}>Ontology Manager</h1>
+            <p className="of-text-muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+              <Glyph name="folder" size={11} tone="#5c7080" /> Sandbox · OpenFoundry Public Ontology
+            </p>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <Link to="/ontology-manager/bindings" className="of-button">+ Bind dataset to object type</Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link to="/ontology-manager/bindings" className="of-button" style={{ fontSize: 12 }}>
+            <Glyph name="link" size={12} /> Bind dataset
+          </Link>
+          <div ref={branchMenuRef} style={{ position: 'relative' }}>
+            <button type="button" className="of-button" onClick={() => setBranchMenuOpen((open) => !open)}>
+              <Glyph name="cube" size={12} tone="#5c7080" /> {branchName} <Glyph name="chevron-down" size={11} />
+            </button>
+            {branchMenuOpen ? (
+              <div role="menu" style={popoverStyle()}>
+                <input
+                  className="of-input"
+                  placeholder="Search branches..."
+                  style={{ marginBottom: 6 }}
+                />
+                <p className="of-text-muted" style={{ margin: '4px 0 4px 6px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Create a new branch
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBranchMenuOpen(false);
+                    setBranchDialogOpen(true);
+                  }}
+                  style={menuItemStyle()}
+                >
+                  <Glyph name="cube" size={12} tone="#5c7080" /> {branchName}/new-branch
+                </button>
+                <p className="of-text-muted" style={{ margin: '6px 0 4px 6px', fontSize: 11 }}>No results</p>
+                <button type="button" disabled style={{ ...menuItemStyle(), justifyContent: 'space-between' }}>
+                  Show more Ontology branches <Glyph name="chevron-down" size={11} />
+                </button>
+                <div style={{ padding: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBranchMenuOpen(false);
+                      setBranchDialogOpen(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      padding: '8px 14px',
+                      border: 0,
+                      borderRadius: 4,
+                      background: '#15803d',
+                      color: '#fff',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Glyph name="plus" size={12} /> Create branch
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div ref={newMenuRef} style={{ position: 'relative' }}>
+            <button type="button" className="of-button of-button--primary" onClick={() => setNewMenuOpen((open) => !open)}>
+              New <Glyph name="chevron-down" size={11} />
+            </button>
+            {newMenuOpen ? (
+              <div role="menu" style={popoverStyle({ minWidth: 320 })}>
+                <NewMenuItem
+                  glyph={<Glyph name="cube" size={14} tone="var(--status-info)" />}
+                  label="Object type"
+                  description="Map datasets and models to object types"
+                  enabled
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    setWizardOpen(true);
+                  }}
+                  highlighted
+                />
+                <NewMenuItem
+                  glyph={<Glyph name="link" size={14} tone="#5c7080" />}
+                  label="Link type"
+                  description="Create relationships between object types"
+                />
+                <NewMenuItem
+                  glyph={<Glyph name="run" size={14} tone="#7c5dd6" />}
+                  label="Action type"
+                  description="Allow users to writeback to their ontology"
+                />
+                <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '4px 0' }} />
+                <NewMenuItem
+                  glyph={<Glyph name="ontology" size={14} tone="#5c7080" />}
+                  label="Shared property"
+                  description="Create properties that can be shared across object types"
+                />
+                <NewMenuItem
+                  glyph={<Glyph name="artifact" size={14} tone="#5c7080" />}
+                  label="Interface"
+                  description="Use interfaces to build against abstract types"
+                />
+                <NewMenuItem
+                  glyph={<span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 14, color: '#5c7080' }}>fx</span>}
+                  label="Function"
+                  description="Define object modifications in code"
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -187,6 +317,199 @@ export function OntologyManagerPage() {
           </ul>
         </section>
       )}
+
+      <CreateObjectTypeWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onCreated={(objectType) => {
+          setWizardOpen(false);
+          void refresh();
+          navigate(`/ontology/${objectType.id}`);
+        }}
+      />
+
+      {branchDialogOpen ? (
+        <CreateBranchDialog
+          onClose={() => setBranchDialogOpen(false)}
+          onCreate={(name) => {
+            setBranchName(name);
+            setBranchDialogOpen(false);
+          }}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function NewMenuItem({
+  glyph,
+  label,
+  description,
+  enabled,
+  highlighted,
+  onClick,
+}: {
+  glyph: React.ReactNode;
+  label: string;
+  description: string;
+  enabled?: boolean;
+  highlighted?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={enabled ? onClick : undefined}
+      disabled={!enabled}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 10,
+        width: '100%',
+        padding: '10px 12px',
+        border: 0,
+        background: highlighted ? 'rgba(45, 114, 210, 0.06)' : 'transparent',
+        cursor: enabled ? 'pointer' : 'not-allowed',
+        opacity: enabled ? 1 : 0.6,
+        textAlign: 'left',
+        borderRadius: 4,
+      }}
+      onMouseEnter={(event) => {
+        if (enabled) event.currentTarget.style.background = 'rgba(45, 114, 210, 0.08)';
+      }}
+      onMouseLeave={(event) => (event.currentTarget.style.background = highlighted ? 'rgba(45, 114, 210, 0.06)' : 'transparent')}
+    >
+      <span style={{ display: 'inline-flex', marginTop: 2 }}>{glyph}</span>
+      <span style={{ display: 'grid', gap: 2 }}>
+        <strong style={{ fontSize: 13, color: highlighted ? 'var(--status-info)' : 'var(--text-strong)' }}>{label}</strong>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{description}</span>
+      </span>
+    </button>
+  );
+}
+
+function popoverStyle(extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    position: 'absolute',
+    top: 'calc(100% + 4px)',
+    right: 0,
+    background: '#fff',
+    border: '1px solid var(--border-default)',
+    borderRadius: 6,
+    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+    padding: 6,
+    minWidth: 240,
+    zIndex: 30,
+    ...extra,
+  };
+}
+
+function menuItemStyle(): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '6px 10px',
+    border: 0,
+    background: 'transparent',
+    cursor: 'pointer',
+    fontSize: 13,
+    textAlign: 'left',
+    borderRadius: 4,
+  };
+}
+
+function CreateBranchDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void }) {
+  const [name, setName] = useState('username/e2espeedrun');
+  const [indexing, setIndexing] = useState(true);
+  const [datasetBranch, setDatasetBranch] = useState('');
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-branch-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 90,
+        background: 'rgba(17, 24, 39, 0.42)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <section style={{ width: '100%', maxWidth: 720, background: '#fff', borderRadius: 6, boxShadow: '0 20px 60px rgba(15, 23, 42, 0.18)', display: 'grid', gridTemplateRows: 'auto 1fr auto', overflow: 'hidden' }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <h2 id="create-branch-title" style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Create branch</h2>
+          <button type="button" aria-label="Close" onClick={onClose} className="of-button of-button--ghost" style={{ padding: 4 }}>
+            <Glyph name="x" size={14} />
+          </button>
+        </header>
+        <div style={{ padding: 18, display: 'grid', gap: 14 }}>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+            This will create a Branch with your Ontology changes and a draft Proposal to review those changes. Open the Branch to view and add edits. Once all edits are approved, release the Proposal.
+          </p>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Branch name</span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoFocus
+              style={{ padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 13 }}
+            />
+          </label>
+          <div style={{ background: '#f4f6f9', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: 12, display: 'grid', gap: 10 }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={indexing} onChange={(event) => setIndexing(event.target.checked)} style={{ accentColor: 'var(--status-info)', marginTop: 2 }} />
+              <span style={{ display: 'grid', gap: 2 }}>
+                <strong style={{ fontSize: 13 }}><Glyph name="eye" size={12} tone="var(--status-info)" /> Enable indexing on this branch</strong>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Enable indexing if you need to preview schema changes for modified entities. This will use additional storage and compute. Only supported by Object Storage V2.
+                </span>
+              </span>
+            </label>
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Dataset branch name (Optional)</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Set this if you want to preview data or schema changes for modified entities from a branch other than master.</span>
+              <input
+                value={datasetBranch}
+                onChange={(event) => setDatasetBranch(event.target.value)}
+                style={{ padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 4, fontSize: 13 }}
+              />
+            </label>
+          </div>
+        </div>
+        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: 12, borderTop: '1px solid var(--border-subtle)' }}>
+          <button type="button" onClick={onClose} className="of-button">Cancel</button>
+          <button
+            type="button"
+            onClick={() => onCreate(name.trim() || 'new-branch')}
+            disabled={!name.trim()}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 14px',
+              border: 0,
+              borderRadius: 4,
+              background: '#15803d',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: name.trim() ? 'pointer' : 'not-allowed',
+              opacity: name.trim() ? 1 : 0.6,
+            }}
+          >
+            <Glyph name="plus" size={12} /> Create branch
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }

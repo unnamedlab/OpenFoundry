@@ -10,26 +10,71 @@ import {
   resolveAuthReturnTo,
   withAuthReturnTo,
 } from '@/lib/auth/redirects';
-import { Glyph } from '@/lib/components/ui/Glyph';
 import { auth } from '@stores/auth';
 import { useTranslator } from '@/lib/i18n/store';
 
-type LoginUiStatus = 'idle' | 'validating' | 'loading' | 'success' | 'mfa_required' | 'error';
+type LoginUiStatus = 'idle' | 'loading' | 'success' | 'mfa_required' | 'error';
+type Step = 'email' | 'password';
 
-interface LoginFieldErrors {
-  email?: string;
-  password?: string;
-}
+const REMEMBER_KEY = 'of_login_remember_email';
 
-function validateLoginForm(
-  draft: { email: string; password: string },
-  t: ReturnType<typeof useTranslator>,
-): LoginFieldErrors {
-  const errors: LoginFieldErrors = {};
-  if (!draft.email) errors.email = t('auth.login.validationEmail');
-  else if (!draft.email.includes('@')) errors.email = t('auth.login.validationEmailFormat');
-  if (!draft.password) errors.password = t('auth.login.validationPassword');
-  return errors;
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px 10px 36px',
+  fontSize: 14,
+  borderRadius: 4,
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+  background: '#2c3540',
+  color: '#f3f4f6',
+  outline: 'none',
+};
+
+const plainInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  paddingLeft: 12,
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 14px',
+  fontSize: 14,
+  fontWeight: 600,
+  color: '#fff',
+  background: '#2563eb',
+  border: 'none',
+  borderRadius: 4,
+  cursor: 'pointer',
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 14px',
+  fontSize: 13,
+  color: 'rgba(243, 244, 246, 0.85)',
+  background: 'transparent',
+  border: '1px solid rgba(255, 255, 255, 0.18)',
+  borderRadius: 4,
+  cursor: 'pointer',
+};
+
+function PersonIcon() {
+  return (
+    <svg
+      aria-hidden
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'rgba(243, 244, 246, 0.55)' }}
+    >
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 4-7 8-7s8 3 8 7" />
+    </svg>
+  );
 }
 
 export function LoginPage() {
@@ -43,10 +88,18 @@ export function LoginPage() {
   const intendedReturnTo = explicitReturnTo ?? getStoredAuthReturnTo();
   const postAuthRedirect = resolveAuthReturnTo(location.search);
 
-  const [email, setEmail] = useState(registeredEmail);
+  const [step, setStep] = useState<Step>('email');
+  const [email, setEmail] = useState(() => {
+    if (registeredEmail) return registeredEmail;
+    if (typeof localStorage === 'undefined') return '';
+    return localStorage.getItem(REMEMBER_KEY) ?? '';
+  });
+  const [remember, setRemember] = useState(() => {
+    if (typeof localStorage === 'undefined') return false;
+    return Boolean(localStorage.getItem(REMEMBER_KEY));
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [error, setError] = useState('');
   const [status, setStatus] = useState<LoginUiStatus>('idle');
   const [ssoLoadingSlug, setSsoLoadingSlug] = useState<string | null>(null);
@@ -55,14 +108,16 @@ export function LoginPage() {
 
   const isBusy = status === 'loading' || status === 'success' || status === 'mfa_required';
   const ssoBusy = Boolean(ssoLoadingSlug);
-  const submitDisabled = isBusy || ssoBusy || !email.trim() || !password;
 
   useEffect(() => {
     document.title = t('auth.login.title');
   }, [t]);
 
   useEffect(() => {
-    if (registeredEmail) setEmail(registeredEmail);
+    if (registeredEmail) {
+      setEmail(registeredEmail);
+      setStep('password');
+    }
   }, [registeredEmail]);
 
   useEffect(() => {
@@ -90,34 +145,37 @@ export function LoginPage() {
     };
   }, []);
 
-  function handleEmailChange(value: string) {
-    setEmail(value);
-    if (fieldErrors.email) setFieldErrors((current) => ({ ...current, email: undefined }));
-    if (status === 'error' || status === 'validating') setStatus('idle');
-  }
-
-  function handlePasswordChange(value: string) {
-    setPassword(value);
-    if (fieldErrors.password) setFieldErrors((current) => ({ ...current, password: undefined }));
-    if (status === 'error' || status === 'validating') setStatus('idle');
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleEmailSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError('');
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError(t('auth.login.validationEmail'));
+      return;
+    }
+    if (!trimmed.includes('@')) {
+      setError(t('auth.login.validationEmailFormat'));
+      return;
+    }
+    if (typeof localStorage !== 'undefined') {
+      if (remember) localStorage.setItem(REMEMBER_KEY, trimmed);
+      else localStorage.removeItem(REMEMBER_KEY);
+    }
+    setEmail(trimmed);
+    setStep('password');
+  }
 
-    const draft = { email: email.trim(), password };
-    const validationErrors = validateLoginForm(draft, t);
-    if (Object.keys(validationErrors).length > 0) {
-      setFieldErrors(validationErrors);
-      setStatus('validating');
+  async function handlePasswordSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setError('');
+    if (!password) {
+      setError(t('auth.login.validationPassword'));
       return;
     }
 
-    setFieldErrors({});
     setStatus('loading');
     try {
-      const result = await auth.login(draft.email, draft.password);
+      const result = await auth.login(email.trim(), password);
       if (result.status === 'mfa_required') {
         setStatus('mfa_required');
         rememberAuthReturnTo(postAuthRedirect);
@@ -164,56 +222,45 @@ export function LoginPage() {
 
   return (
     <div
-      className="of-panel"
       style={{
-        width: '100%',
-        maxWidth: 420,
-        padding: '32px 32px 28px',
-        boxShadow: '0 1px 0 rgba(17, 24, 39, 0.04), 0 6px 18px rgba(17, 24, 39, 0.06)',
+        position: 'fixed',
+        inset: 0,
+        background: '#1f2933',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 24px',
+        zIndex: 50,
       }}
     >
-      <header style={{ display: 'grid', justifyItems: 'center', gap: 10, marginBottom: 22 }}>
-        <span
-          aria-label={t('auth.login.iconLabel')}
-          role="img"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 56,
-            height: 56,
-            borderRadius: 'var(--radius-md)',
-            background: 'var(--bg-panel-subtle)',
-            border: '1px solid var(--border-subtle)',
-            color: 'var(--text-soft)',
-          }}
-        >
-          <Glyph name="login" size={28} strokeWidth={1.6} />
-        </span>
-        <h1
-          className="of-heading-lg"
-          style={{ margin: 0, fontSize: 20, textAlign: 'center' }}
-        >
-          {t('auth.login.heading')}
-        </h1>
-        <p
-          className="of-text-muted"
-          style={{ margin: 0, fontSize: 13, textAlign: 'center', maxWidth: 320, lineHeight: 1.5 }}
-        >
-          {t('auth.login.subtitle')}
-        </p>
-      </header>
-
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: 'grid', gap: 12 }}
-        aria-busy={isBusy || ssoBusy}
-        noValidate
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 360,
+          display: 'grid',
+          justifyItems: 'center',
+          gap: 28,
+        }}
       >
+        <img
+          src="/empty-logo.png"
+          alt="OpenFoundry"
+          style={{ width: 96, height: 96, objectFit: 'contain', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+        />
+
         {requiresInitialAdmin && (
           <div
-            className="of-status-info"
-            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
+            role="status"
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              background: 'rgba(59, 130, 246, 0.16)',
+              border: '1px solid rgba(59, 130, 246, 0.4)',
+              color: '#bfdbfe',
+              fontSize: 12.5,
+              textAlign: 'center',
+            }}
           >
             {t('auth.login.bootstrapNotice')}
           </div>
@@ -221,9 +268,17 @@ export function LoginPage() {
 
         {justRegistered && status !== 'success' && status !== 'mfa_required' && (
           <div
-            className="of-status-success"
-            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
             role="status"
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              background: 'rgba(34, 197, 94, 0.16)',
+              border: '1px solid rgba(34, 197, 94, 0.4)',
+              color: '#bbf7d0',
+              fontSize: 12.5,
+              textAlign: 'center',
+            }}
           >
             {registeredEmail
               ? t('auth.login.registeredFor', { email: registeredEmail })
@@ -231,207 +286,247 @@ export function LoginPage() {
           </div>
         )}
 
-        {status === 'success' && (
-          <div
-            className="of-status-success"
-            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
-            role="status"
-          >
-            {t('auth.login.successMessage')}
-          </div>
-        )}
+        {step === 'email' ? (
+          <form onSubmit={handleEmailSubmit} style={{ width: '100%', display: 'grid', gap: 14 }} noValidate>
+            {error && (
+              <div
+                role="alert"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(239, 68, 68, 0.16)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  color: '#fecaca',
+                  fontSize: 12.5,
+                }}
+              >
+                {error}
+              </div>
+            )}
 
-        {status === 'mfa_required' && (
-          <div
-            className="of-status-info"
-            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
-            role="status"
-          >
-            {t('auth.login.mfaRequired')}
-          </div>
-        )}
-
-        {status === 'validating' && (
-          <div
-            className="of-status-warning"
-            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
-            role="alert"
-          >
-            {t('auth.login.validationSummary')}
-          </div>
-        )}
-
-        {status === 'error' && error && (
-          <div
-            className="of-status-danger"
-            style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13 }}
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
-
-        <div
-          className="of-eyebrow"
-          style={{ marginTop: 4, marginBottom: -4, fontSize: 10 }}
-        >
-          {t('auth.login.workspaceCredentials')}
-        </div>
-
-        <div>
-          <label
-            htmlFor="email"
-            style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4, color: 'var(--text-strong)' }}
-          >
-            {t('auth.login.email')}
-          </label>
-          <input
-            id="email"
-            type="email"
-            className="of-input"
-            value={email}
-            onChange={(e) => handleEmailChange(e.target.value)}
-            autoComplete="email"
-            aria-invalid={Boolean(fieldErrors.email)}
-            aria-describedby={fieldErrors.email ? 'login-email-error' : undefined}
-            disabled={isBusy || ssoBusy}
-            required
-            placeholder={t('auth.login.emailPlaceholder')}
-            style={fieldErrors.email ? { borderColor: 'var(--status-danger)' } : undefined}
-          />
-          {fieldErrors.email && (
-            <div
-              id="login-email-error"
-              style={{ marginTop: 4, fontSize: 12, color: 'var(--status-danger)' }}
-              role="alert"
-            >
-              {fieldErrors.email}
+            <div style={{ position: 'relative' }}>
+              <PersonIcon />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError('');
+                }}
+                placeholder={t('auth.login.emailPlaceholder')}
+                autoComplete="email"
+                autoFocus
+                required
+                style={inputStyle}
+              />
             </div>
-          )}
-        </div>
 
-        <div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              justifyContent: 'space-between',
-              marginBottom: 4,
-            }}
-          >
-            <label
-              htmlFor="password"
-              style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-strong)' }}
-            >
-              {t('auth.login.password')}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'rgba(243, 244, 246, 0.78)' }}>
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                style={{ accentColor: '#3b82f6' }}
+              />
+              {t('auth.login.rememberMe')}
             </label>
-            <button
-              type="button"
-              className="of-link"
-              onClick={() => setShowPassword((v) => !v)}
-              aria-pressed={showPassword}
+
+            <button type="submit" style={primaryButtonStyle}>
+              {t('auth.login.next')}
+            </button>
+
+            {providers.length > 0 && (
+              <div style={{ display: 'grid', gap: 8, paddingTop: 6 }}>
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    color: 'rgba(243, 244, 246, 0.5)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                  }}
+                >
+                  <span style={{ flex: 1, height: 1, background: 'rgba(255, 255, 255, 0.12)' }} />
+                  {t('auth.login.sso')}
+                  <span style={{ flex: 1, height: 1, background: 'rgba(255, 255, 255, 0.12)' }} />
+                </div>
+                {providers.map((provider) => (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    style={secondaryButtonStyle}
+                    disabled={ssoBusy}
+                    onClick={() => handleSsoLogin(provider.slug)}
+                  >
+                    {ssoLoadingSlug === provider.slug
+                      ? t('auth.login.ssoRedirecting')
+                      : t('auth.login.continueWith', { provider: provider.name })}
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
+        ) : (
+          <form onSubmit={handlePasswordSubmit} style={{ width: '100%', display: 'grid', gap: 14 }} noValidate>
+            <div
               style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                fontSize: 11,
-                cursor: 'pointer',
+                textAlign: 'center',
+                fontSize: 12,
+                color: 'rgba(243, 244, 246, 0.6)',
+                fontFamily: 'var(--font-mono)',
+                wordBreak: 'break-all',
               }}
             >
-              {showPassword ? t('auth.login.hidePassword') : t('auth.login.showPassword')}
-            </button>
-          </div>
-          <input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            className="of-input"
-            value={password}
-            onChange={(e) => handlePasswordChange(e.target.value)}
-            autoComplete="current-password"
-            aria-invalid={Boolean(fieldErrors.password)}
-            aria-describedby={fieldErrors.password ? 'login-password-error' : undefined}
-            disabled={isBusy || ssoBusy}
-            required
-            placeholder={t('auth.login.passwordPlaceholder')}
-            style={fieldErrors.password ? { borderColor: 'var(--status-danger)' } : undefined}
-          />
-          {fieldErrors.password && (
-            <div
-              id="login-password-error"
-              style={{ marginTop: 4, fontSize: 12, color: 'var(--status-danger)' }}
-              role="alert"
-            >
-              {fieldErrors.password}
+              {email}
             </div>
-          )}
-        </div>
 
-        <button
-          type="submit"
-          className="of-btn of-btn-primary"
-          disabled={submitDisabled}
+            {status === 'success' && (
+              <div
+                role="status"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(34, 197, 94, 0.16)',
+                  border: '1px solid rgba(34, 197, 94, 0.4)',
+                  color: '#bbf7d0',
+                  fontSize: 12.5,
+                }}
+              >
+                {t('auth.login.successMessage')}
+              </div>
+            )}
+
+            {status === 'mfa_required' && (
+              <div
+                role="status"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(59, 130, 246, 0.16)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  color: '#bfdbfe',
+                  fontSize: 12.5,
+                }}
+              >
+                {t('auth.login.mfaRequired')}
+              </div>
+            )}
+
+            {status === 'error' && error && (
+              <div
+                role="alert"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(239, 68, 68, 0.16)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  color: '#fecaca',
+                  fontSize: 12.5,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'flex-end',
+                  marginBottom: 4,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-pressed={showPassword}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    color: '#93c5fd',
+                  }}
+                >
+                  {showPassword ? t('auth.login.hidePassword') : t('auth.login.showPassword')}
+                </button>
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (status === 'error') setStatus('idle');
+                  if (error) setError('');
+                }}
+                placeholder={t('auth.login.passwordPlaceholder')}
+                autoComplete="current-password"
+                autoFocus
+                required
+                disabled={isBusy}
+                style={plainInputStyle}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setStatus('idle');
+                  setPassword('');
+                  setStep('email');
+                }}
+                disabled={isBusy}
+                style={{
+                  ...secondaryButtonStyle,
+                  width: 'auto',
+                  flex: '0 0 auto',
+                  cursor: isBusy ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {t('auth.login.back')}
+              </button>
+              <button
+                type="submit"
+                disabled={isBusy || !password}
+                style={{
+                  ...primaryButtonStyle,
+                  flex: 1,
+                  cursor: isBusy ? 'not-allowed' : 'pointer',
+                  opacity: isBusy ? 0.7 : 1,
+                }}
+              >
+                {submitLabel}
+              </button>
+            </div>
+          </form>
+        )}
+
+        <p
           style={{
-            width: '100%',
-            minHeight: 34,
-            gap: 8,
-            fontSize: 13,
-            marginTop: 4,
+            textAlign: 'center',
+            fontSize: 12.5,
+            color: 'rgba(243, 244, 246, 0.6)',
+            margin: 0,
           }}
         >
-          <Glyph name="login" size={16} strokeWidth={2} />
-          <span>{submitLabel}</span>
-        </button>
-
-        {providers.length > 0 && (
-          <div style={{ display: 'grid', gap: 8, paddingTop: 14 }}>
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                color: 'var(--text-soft)',
-                fontSize: 10,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-              }}
-            >
-              <span style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
-              {t('auth.login.sso')}
-              <span style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
-            </div>
-            {providers.map((provider) => (
-              <button
-                key={provider.id}
-                type="button"
-                className="of-btn"
-                style={{ width: '100%', minHeight: 34, gap: 8, fontSize: 13 }}
-                disabled={isBusy || ssoBusy}
-                onClick={() => handleSsoLogin(provider.slug)}
-              >
-                <Glyph name="shield" size={15} strokeWidth={1.8} tone="var(--text-muted)" />
-                <span>
-                  {ssoLoadingSlug === provider.slug
-                    ? t('auth.login.ssoRedirecting')
-                    : t('auth.login.continueWith', { provider: provider.name })}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </form>
-
-      <p
-        className="of-text-muted"
-        style={{ textAlign: 'center', fontSize: 12.5, marginTop: 22, marginBottom: 0 }}
-      >
-        {requiresInitialAdmin ? t('auth.login.bootstrapCta') : t('auth.login.noAccount')}{' '}
-        <Link to={withAuthReturnTo('/auth/register', intendedReturnTo)} className="of-link">
-          {t('auth.login.register')}
-        </Link>
-      </p>
+          {requiresInitialAdmin ? t('auth.login.bootstrapCta') : t('auth.login.noAccount')}{' '}
+          <Link
+            to={withAuthReturnTo('/auth/register', intendedReturnTo)}
+            style={{ color: '#93c5fd', textDecoration: 'none' }}
+          >
+            {t('auth.login.register')}
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }

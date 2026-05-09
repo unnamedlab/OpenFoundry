@@ -47,6 +47,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, ph *ha
 		api.Delete("/enrollments/{id}", h.DeleteEnrollment)
 
 		api.Get("/projects", ph.ListProjects)
+		api.Get("/projects/templates", ph.ListTemplates)
 		api.Post("/projects", ph.CreateProject)
 		api.Get("/projects/{id}", ph.GetProject)
 		api.Patch("/projects/{id}", ph.UpdateProject)

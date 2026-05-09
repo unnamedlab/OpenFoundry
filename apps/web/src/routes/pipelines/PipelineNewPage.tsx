@@ -29,6 +29,7 @@ interface AdvancedOption {
   family: PrimaryFamily;
   label: string;
   helper: string;
+  badge?: string;
 }
 
 const PRIMARY_CARDS: PrimaryCard[] = [
@@ -36,21 +37,21 @@ const PRIMARY_CARDS: PrimaryCard[] = [
     id: 'BATCH',
     title: 'Batch pipeline',
     summary:
-      'Builds and transforms entire datasets on each deploy. Use for data that is ingested periodically.',
+      'Builds and transforms entire datasets on each deploy. For data that is ingested periodically.',
   },
   {
     id: 'STREAMING',
     title: 'Streaming pipeline',
     summary:
-      'Transforms data continuously as new data is made available. Use for data that is ingested at a high frequency.',
+      'Transforms data continuously as new data is made available. For high frequency ingestion.',
   },
 ];
 
 const ADVANCED_OPTIONS: AdvancedOption[] = [
-  { id: 'BATCH', family: 'BATCH', label: 'Batch (full recompute)', helper: 'Default Spark/Polars batch.' },
-  { id: 'FASTER', family: 'BATCH', label: 'Faster (DataFusion)', helper: 'Lightweight engine for small/medium data.' },
+  { id: 'BATCH', family: 'BATCH', label: 'Standard', helper: 'Build your pipelines using advanced expressions. Backed by Spark.', badge: 'Default' },
+  { id: 'FASTER', family: 'BATCH', label: 'Faster', helper: 'Speed up your pipelines and save compute. Backed by DataFusion.', badge: 'New' },
+  { id: 'EXTERNAL', family: 'BATCH', label: 'External', helper: 'Build your pipelines using external compute platforms.', badge: 'Beta' },
   { id: 'INCREMENTAL', family: 'BATCH', label: 'Incremental', helper: 'Only process changed rows.' },
-  { id: 'EXTERNAL', family: 'BATCH', label: 'External (pushdown)', helper: 'Compute pushed to source warehouse.' },
   { id: 'STREAMING', family: 'STREAMING', label: 'Streaming', helper: 'Continuous topology over a stream.' },
 ];
 
@@ -183,9 +184,8 @@ export function PipelineNewPage() {
   const [name, setName] = useState(defaultName);
   const [primary, setPrimary] = useState<PrimaryFamily>(initialFamily);
   const [pipelineType, setPipelineType] = useState<PipelineType>(initialPipelineType);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(searchParams.get('project_id') ?? '');
   const [projectLabel, setProjectLabel] = useState('');
   const [projectError, setProjectError] = useState('');
   const [_projects, setProjects] = useState<OntologyProject[]>([]);
@@ -198,7 +198,13 @@ export function PipelineNewPage() {
     let cancelled = false;
     listProjects({ per_page: 100 })
       .then((res) => {
-        if (!cancelled) setProjects(res.data);
+        if (!cancelled) {
+          setProjects(res.data);
+          if (projectId && !projectLabel) {
+            const match = res.data.find((entry) => entry.id === projectId);
+            if (match) setProjectLabel(match.display_name || match.slug);
+          }
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) setProjectError(cause instanceof Error ? cause.message : String(cause));
@@ -263,7 +269,7 @@ export function PipelineNewPage() {
 
       <div className="of-pipe-create-card">
         <header className="of-pipe-create-card__header">
-          <h1>Create new pipeline</h1>
+          <h1>Configuration</h1>
         </header>
 
         <div className="of-pipe-create-card__body">
@@ -335,50 +341,71 @@ export function PipelineNewPage() {
               })}
             </div>
 
-            <div className="of-pipe-create-advanced">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((value) => !value)}
-                className="of-pipe-create-advanced-toggle"
-              >
-                <Glyph name={showAdvanced ? 'chevron-down' : 'chevron-right'} size={12} />
-                Advanced type ({pipelineType.toLowerCase()})
-              </button>
-              {showAdvanced && (
-                <div className="of-pipe-create-advanced-grid">
-                  {advancedForFamily.map((option) => {
-                    const active = pipelineType === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setPipelineType(option.id)}
-                        className={`of-pipe-create-sub-card${active ? ' of-pipe-create-sub-card--active' : ''}`}
-                      >
-                        <span
-                          className={`of-pipe-create-radio of-pipe-create-radio--sm${active ? ' of-pipe-create-radio--active' : ''}`}
-                          aria-hidden="true"
+            {primary === 'BATCH' && (
+              <div style={{ marginTop: 18 }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Select batch compute
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                  {advancedForFamily
+                    .filter((option) => option.id !== 'INCREMENTAL')
+                    .map((option) => {
+                      const active = pipelineType === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setPipelineType(option.id)}
+                          style={{
+                            display: 'grid',
+                            gap: 6,
+                            padding: '12px 14px',
+                            borderRadius: 6,
+                            border: active ? '2px solid var(--status-info)' : '1px solid var(--border-default)',
+                            background: active ? 'rgba(45, 114, 210, 0.04)' : '#fff',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
                         >
-                          {active && <span className="of-pipe-create-radio__dot" />}
-                        </span>
-                        <div>
-                          <strong>{option.label}</strong>
-                          <p>{option.helper}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+                          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <strong style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>{option.label}</strong>
+                            {option.badge ? (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  background: option.badge === 'Default' ? 'rgba(45, 114, 210, 0.12)' : option.badge === 'New' ? 'rgba(34, 197, 94, 0.16)' : 'rgba(108, 117, 125, 0.16)',
+                                  color: option.badge === 'Default' ? 'var(--status-info)' : option.badge === 'New' ? '#15803d' : '#475569',
+                                }}
+                              >
+                                {option.badge}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>{option.helper}</span>
+                        </button>
+                      );
+                    })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </section>
 
           {error && <div className="of-pipe-create-error">{error}</div>}
         </div>
 
         <footer className="of-pipe-create-card__footer">
-          <Link to="/pipelines" className="of-button">Cancel</Link>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="of-link"
+            style={{ background: 'none', border: 0, padding: '6px 8px', cursor: 'pointer', fontSize: 13, color: 'var(--status-info)' }}
+          >
+            ← Back
+          </button>
           <button
             type="button"
             onClick={() => void handleCreate()}

@@ -840,6 +840,19 @@ export function listProjects(params?: { page?: number; per_page?: number; search
   );
 }
 
+export interface ProjectTemplate {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+}
+
+export function listProjectTemplates() {
+  return api
+    .get<{ data: ProjectTemplate[] }>('/ontology/projects/templates')
+    .then((response) => response.data);
+}
+
 export function listProjectMemberships(id: string) {
   return api
     .get<{ data: OntologyProjectMembership[] }>(`/ontology/projects/${id}/memberships`)
