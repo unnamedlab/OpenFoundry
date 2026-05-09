@@ -222,7 +222,7 @@
 - `guia-migracion-services-a-microservicios.md` — compatibilidad temporal, no Temporal.io.
 - `libs/ontology-kernel/src/domain/time_series.rs` — campo tipo temporal de series temporales.
 - `microservicios-derivados-desde-foundry-docs.md` — ventanas/datos temporales, no Temporal.io.
-- `prompts-migracion-hasta-85-microservicios.md` — compatibilidad temporal / analytics temporal, no Temporal.io.
+- `docs/archive/prompts-migracion-hasta-85-microservicios.md` — compatibilidad temporal / analytics temporal, no Temporal.io.
 - `services/dataset-versioning-service/src/handlers/foundry.rs` — orden temporal, no Temporal.io.
 - `services/event-streaming-service/src/runtime/flink/sql.rs` — temporal interval join de Flink, no Temporal.io.
 - `services/monitoring-rules-service/src/evaluator.rs` — GeotemporalObservations enum, no Temporal.io.

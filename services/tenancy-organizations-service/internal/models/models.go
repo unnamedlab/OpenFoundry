@@ -4,7 +4,7 @@
 // `models/organization.rs` + `models/enrollment.rs`.
 //
 // Spaces / projects / sharing / trash / favorites land in follow-up
-// slices (see INVENTORY-tenancy-organizations-service.md).
+// slices (see docs/archive/INVENTORY-tenancy-organizations-service.md).
 package models
 
 import (

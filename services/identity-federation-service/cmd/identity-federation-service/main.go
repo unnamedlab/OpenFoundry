@@ -1,7 +1,7 @@
 // Command identity-federation-service slice 1 — register / login / token.
 //
 // 1:1 with services/identity-federation-service/ (Rust) per the slice
-// plan in openfoundry-go/INVENTORY-identity-federation-service.md.
+// plan archived at docs/archive/INVENTORY-identity-federation-service.md.
 // Subsequent slices layer in sessions, MFA, WebAuthn, SSO, RBAC,
 // control panel, hardening + SCIM.
 package main

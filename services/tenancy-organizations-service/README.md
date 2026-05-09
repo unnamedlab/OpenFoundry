@@ -42,8 +42,8 @@ is copied verbatim from the Rust crate to keep schema parity.
 - Trash + favorites + recents
 - `resource_resolve` / `resource_ops` helpers (cross-service RID lookup)
 
-These are tracked under todos and the inventory in
-`openfoundry-go/INVENTORY-tenancy-organizations-service.md` (forthcoming).
+These are tracked under todos and the archived inventory at
+`docs/archive/INVENTORY-tenancy-organizations-service.md`.
 
 ## Build / test
 

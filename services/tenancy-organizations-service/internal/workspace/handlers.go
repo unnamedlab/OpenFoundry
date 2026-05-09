@@ -16,7 +16,7 @@ import (
 //
 // Sharing lands in a follow-up slice; spaces / projects / trash /
 // resource_resolve / resource_ops are unmounted in the Rust upstream
-// (see INVENTORY-tenancy-organizations-service.md "Active vs retired").
+// (see docs/archive/INVENTORY-tenancy-organizations-service.md "Active vs retired").
 type Handlers struct{ Repo *Repo }
 
 // ─── Favorites ──────────────────────────────────────────────────────

@@ -132,7 +132,7 @@ on conformance depth (Cedar/ABAC/RBAC fixtures and cross-service policy
 reload behavior), not on replacing placeholder route handlers.
 ## Remaining follow-up slices
 
-Per the [INVENTORY](../../INVENTORY-authorization-policy-service.md), the
+Per the [INVENTORY](../../docs/archive/INVENTORY-authorization-policy-service.md) (archived), the
 remaining gap is broader Cedar conformance coverage. Top-level RBAC, restricted
 view evaluation, ABAC evaluation, governance, checkpoint/purpose, cipher, and
 network-boundary routes are mounted or intentionally consolidated as documented

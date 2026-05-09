@@ -7,7 +7,7 @@
 // CedarPolicy, ABAC, governance, cipher, network-boundary, and top-level RBAC
 // wire formats live here. Restricted-view CRUD is consolidated in
 // identity-federation while evaluation remains here; see
-// INVENTORY-authorization-policy-service.md.
+// docs/archive/INVENTORY-authorization-policy-service.md.
 package models
 
 import (

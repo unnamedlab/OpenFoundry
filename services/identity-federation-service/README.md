@@ -5,7 +5,7 @@ MFA, WebAuthn, OIDC, SAML helpers, RBAC, restricted views, Cedar admin-policy
 helpers, SCIM handler package, JWKS rotation logic, and Vault Transit signer
 logic. This README records the **current Go implementation status**; the
 historical slice plan remains in
-[`openfoundry-go/INVENTORY-identity-federation-service.md`](../../INVENTORY-identity-federation-service.md).
+[`docs/archive/INVENTORY-identity-federation-service.md`](../../docs/archive/INVENTORY-identity-federation-service.md).
 
 ## Current implementation audit (2026-05-08)
 

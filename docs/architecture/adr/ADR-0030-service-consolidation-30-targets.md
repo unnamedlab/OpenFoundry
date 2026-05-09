@@ -5,7 +5,7 @@
 | Status | Accepted, amended 2026-05-03 after live repo audit |
 | Date | 2026-05-02 |
 | Stream | S8.1 (cleanup & hardening) |
-| Supersedes / amends | The 85-service taxonomy in [`microservicios-derivados-desde-foundry-docs.md`](../../microservicios-derivados-desde-foundry-docs.md) and the prompt program in [`prompts-migracion-hasta-85-microservicios.md`](../../prompts-migracion-hasta-85-microservicios.md). |
+| Supersedes / amends | The 85-service taxonomy in [`microservicios-derivados-desde-foundry-docs.md`](../../microservicios-derivados-desde-foundry-docs.md) and the prompt program in [`prompts-migracion-hasta-85-microservicios.md`](../../archive/prompts-migracion-hasta-85-microservicios.md). |
 | Related ADRs | [ADR-0011](ADR-0011-control-vs-data-bus-contract.md), [ADR-0020](ADR-0020-cassandra-as-operational-store.md), [ADR-0024](ADR-0024-postgres-consolidation.md). |
 
 ## Context
@@ -226,7 +226,7 @@ and duplicated the Prometheus scrape target.
 ## Execution
 
 Per-service deletion is sequenced by the existing
-[`prompts-migracion-hasta-85-microservicios.md`](../../prompts-migracion-hasta-85-microservicios.md)
+[`prompts-migracion-hasta-85-microservicios.md`](../../archive/prompts-migracion-hasta-85-microservicios.md)
 program (Phase 9 R-prompts), with this ADR replacing the 85-service
 target with the 33-boundary target. Each merger is a separate PR with:
 

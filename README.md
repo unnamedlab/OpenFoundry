@@ -7,7 +7,7 @@ the migration window.
 
 > **Status (2026-05-08):** Rust `services/*/Cargo.toml` and `libs/*/Cargo.toml`
 > have been reconciled against `openfoundry-go/services/*` and
-> `openfoundry-go/libs/*` in `INVENTORY-PHASE6.md`. Treat every
+> `openfoundry-go/libs/*` in `docs/archive/INVENTORY-PHASE6.md`. Treat every
 > existing Go service directory as reconciled: the remaining work is now
 > classified as **ported**, **ported but config-gated**, **compatible-placeholder
 > because Rust also is placeholder**, or **excluded by decision**. The explicit
@@ -31,7 +31,7 @@ openfoundry-go/
 │   ├── idempotency/            # Store interface + Pg + Mem backends ✅
 │   ├── outbox/                 # transactional outbox INSERT+DELETE helper ✅
 │   ├── testing/                # testcontainers-go + JWT/SQL fixtures ✅
-│   ├── …                       # parity classified in INVENTORY-PHASE6.md
+│   ├── …                       # parity classified in docs/archive/INVENTORY-PHASE6.md
 │   └── proto-gen/              # generated from ../proto via `make gen`
 │
 ├── services/                   # one Go binary entrypoint per microservice
@@ -156,7 +156,7 @@ landed:
   `state-machine` — Go package roots exist.
 - ✅ `geospatial-core` and `plugin-sdk` are compatible placeholders because
   their Rust crates are placeholders too; `query-engine` is excluded by the
-  DataFusion decision. See `INVENTORY-PHASE6.md` for the full matrix.
+  DataFusion decision. See `docs/archive/INVENTORY-PHASE6.md` for the full matrix.
 
 ## Phase 2 deliverables (this commit)
 

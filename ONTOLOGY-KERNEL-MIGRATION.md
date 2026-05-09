@@ -21,7 +21,7 @@ Total Rust source: **32 450 LOC across 76 files** in
 ### A1. `pyo3` (Python in-process) — STOP-and-ask carve-out
 `libs/ontology-kernel/src/domain/function_runtime.rs` (1 493 LOC) is the
 only file that imports `pyo3`. Per the existing migration guardrail
-(see `NIGHTLY-SUMMARY.md` §4 / Run 5 §4) pyo3 sidecars are STOP-and-ask
+(see `docs/archive/NIGHTLY-SUMMARY.md` §4 / Run 5 §4) pyo3 sidecars are STOP-and-ask
 and the loop must NOT decide unilaterally. **Strategy:** port the Go
 counterpart as a `function_runtime.go` shell with the same public
 surface (types, function signatures) but every entry point returns

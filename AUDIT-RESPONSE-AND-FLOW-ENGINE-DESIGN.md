@@ -3,7 +3,7 @@
 > Fecha: 2026‑05‑08
 > Autor: Comité técnico (auditoría) + decisiones de adopción
 > Branch: `main`
-> Documentos relacionados: `ARCHITECTURE.md`, `STUB-AUDIT.md`, `MIGRATION-LOOP-STATUS.md`, `docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md`
+> Documentos relacionados: `ARCHITECTURE.md`, `STUB-AUDIT.md`, `docs/archive/MIGRATION-LOOP-STATUS.md`, `docs/architecture/adr/ADR-0037-foundry-pattern-orchestration.md`
 
 Este documento responde a dos preguntas concretas que se plantearon tras la auditoría profunda del repositorio:
 

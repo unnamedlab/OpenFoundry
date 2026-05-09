@@ -4,7 +4,7 @@
 //
 // Spaces, projects, sharing, trash, favorites, recents, resource_resolve and
 // resource_ops land in follow-up slices — see
-// INVENTORY-tenancy-organizations-service.md.
+// docs/archive/INVENTORY-tenancy-organizations-service.md.
 package main
 
 import (

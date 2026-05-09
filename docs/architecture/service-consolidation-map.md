@@ -210,4 +210,4 @@ churn:
    (e.g. consolidating audit-compliance with sds + retention +
    lineage-deletion all in `pg-policy`).
 4. **Legacy macroservices** stay last (R-prompts in
-   [`prompts-migracion-hasta-85-microservicios.md`](../../prompts-migracion-hasta-85-microservicios.md)).
+   [`prompts-migracion-hasta-85-microservicios.md`](../../archive/prompts-migracion-hasta-85-microservicios.md)).
