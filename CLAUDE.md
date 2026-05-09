@@ -1,9 +1,10 @@
 # CLAUDE.md — OpenFoundry (Go monorepo)
 
-Onboarding for AI agents. Humans should also read `README.md` and
-`CONTRIBUTING.md`, but those contain Rust-era statements that no longer
-match this repo (see Gotchas below). When the two disagree, **this file
-wins.**
+Onboarding for AI agents. Humans should also read `README.md` for the
+project narrative and `CONTRIBUTING.md` for the PR / RFC process — both
+are kept current with this repo. This file is the agent-facing summary:
+tighter, with the gotchas and security boundaries surfaced. If a
+disagreement ever appears, **this file wins** for agent purposes.
 
 ## What this repo is
 
@@ -65,25 +66,24 @@ pnpm --filter @open-foundry/web test   # vitest
   justfile was full of `cargo` recipes pointing at a Rust workspace
   that no longer exists in this tree. If you see `just <recipe>` in
   legacy docs, mentally translate to `make <recipe>`.)
-- **`CONTRIBUTING.md` is stale**: says "~85 Rust microservices", "Cargo +
-  pnpm + buf monorepo", and "Run `just lint test`". Treat it as
-  out-of-date for stack/commands; the PR-process and RFC sections are
-  still relevant.
-- **`ARCHITECTURE.md` claims `apps/web (SvelteKit)` and "95 service
-  directories"**. Actual: React 19 + Vite, 41 service directories. The
-  service count overload is because the doc counts logical "ownership
-  boundaries" — read with skepticism.
 - **`make lint` baselines pre-existing issues.** `.golangci.yml` is
   configured with `new-from-rev: HEAD`, so `make lint` only flags
   issues introduced *after* the latest commit. To audit the full
-  backlog: `golangci-lint run --new-from-rev= ./...` (currently ~950
-  issues across the tree, mostly British/US misspellings + staticcheck
-  style nits — tracked as tech debt, not a feature gate).
-- **`.github/workflows/ci.yml` is the Rust CI (cargo) and effectively
-  inactive** — its path filters reference `Cargo.*` and `openfoundry-go/**`
-  which no longer match this layout. The Go CI workflow
-  `openfoundry-go.yml` also has stale paths. If you need to debug CI,
-  expect to fix the workflow first.
+  backlog: `golangci-lint run --new-from-rev= ./...` (mostly spelling
+  + staticcheck style nits, tracked as tech debt rather than a feature
+  gate).
+- **No Go CI actually runs on PRs today.** Two workflows are broken:
+  - `.github/workflows/ci.yml` is the legacy Rust workflow (uses
+    `cargo`). Its path filters include `libs/**`, `services/**`,
+    `proto/**` and `justfile`, so it **triggers on Go-side PRs and
+    fails** — there is no `Cargo.toml` in the tree.
+  - `.github/workflows/openfoundry-go.yml` is the intended Go CI but
+    its `paths:` filter is `openfoundry-go/**`, which does not match
+    this layout (Go code is at the repo root), so it **never
+    triggers**.
+  - If a PR shows a green or skipped Go check, treat it as "not run",
+    not "passed". Run `make ci` locally as the real gate, and expect
+    to fix the workflows themselves before any CI claim is meaningful.
 - **Single Go module, root `go.mod`.** Don't create per-service modules.
 - **`libs/proto-gen/` is generated.** Don't edit by hand — re-run `make gen`.
 
