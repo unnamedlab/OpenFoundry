@@ -1,0 +1,164 @@
+# Single-node CephCluster + CephObjectStore for Lima/k3s.
+# Same Rook-Ceph operator (v1.19.5) and Ceph image (v18.2.4) as production.
+# Differences vs infra/helm/infra/ceph-cluster/:
+#   * mon.count=1, mgr.count=1, dashboard SSL off, encryption off, monitoring off
+#   * directory-based OSD (no raw block device required)
+#   * RGW instances=1
+#   * dataPool: replicated×1 (production: erasure-coded 8+3)
+---
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: openfoundry
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.1
+    allowUnsupported: true
+  dataDirHostPath: /var/lib/rook
+  skipUpgradeChecks: false
+  continueUpgradeAfterChecksEvenIfNotHealthy: false
+  waitTimeoutForHealthyOSDInMinutes: 5
+  mon:
+    count: 1
+    allowMultiplePerNode: true
+  mgr:
+    count: 1
+    allowMultiplePerNode: true
+    modules:
+      - name: pg_autoscaler
+        enabled: true
+      - name: rook
+        enabled: true
+  dashboard:
+    enabled: true
+    ssl: false
+  monitoring:
+    enabled: false
+  network:
+    connections:
+      encryption:
+        enabled: false
+      compression:
+        enabled: false
+      requireMsgr2: false
+  crashCollector:
+    disable: true
+  logCollector:
+    enabled: false
+  cleanupPolicy:
+    confirmation: ""
+    sanitizeDisks:
+      method: quick
+      dataSource: zero
+      iteration: 1
+    allowUninstallWithVolumes: false
+  resources:
+    mon:
+      requests: { cpu: "100m", memory: "512Mi" }
+      limits:   { cpu: "1",    memory: "2Gi"   }
+    mgr:
+      requests: { cpu: "100m", memory: "512Mi" }
+      limits:   { cpu: "1",    memory: "1Gi"   }
+    osd:
+      requests: { cpu: "200m", memory: "1Gi"   }
+      limits:   { cpu: "2",    memory: "4Gi"   }
+  storage:
+    storageClassDeviceSets:
+      - name: openfoundry-osd-set
+        count: 1
+        portable: false
+        tuneDeviceClass: true
+        tuneFastDeviceClass: false
+        encrypted: false
+        placement: {}
+        preparePlacement: {}
+        volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]
+              resources:
+                requests:
+                  storage: 20Gi
+              storageClassName: local-path
+              volumeMode: Block
+  healthCheck:
+    daemonHealth:
+      mon:
+        interval: 45s
+      osd:
+        interval: 60s
+      status:
+        interval: 60s
+---
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: builtin-mgr
+  namespace: rook-ceph
+spec:
+  name: .mgr
+  replicated:
+    size: 1
+    requireSafeReplicaSize: false
+---
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStore
+metadata:
+  name: openfoundry-store
+  namespace: rook-ceph
+spec:
+  metadataPool:
+    failureDomain: osd
+    replicated:
+      size: 1
+      requireSafeReplicaSize: false
+  dataPool:
+    failureDomain: osd
+    replicated:
+      size: 1
+      requireSafeReplicaSize: false
+  preservePoolsOnDelete: false
+  gateway:
+    port: 80
+    securePort: 0
+    instances: 1
+    resources:
+      requests: { cpu: "200m", memory: "512Mi" }
+      limits:   { cpu: "1",    memory: "2Gi"   }
+  healthCheck:
+    startupProbe:
+      disabled: false
+    readinessProbe:
+      disabled: false
+---
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: openfoundry-iceberg
+  namespace: rook-ceph
+spec:
+  store: openfoundry-store
+  displayName: openfoundry-iceberg
+---
+# StorageClass for Object Bucket provisioning. Works identically in prod.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-ceph-bucket
+provisioner: rook-ceph.ceph.rook.io/bucket
+reclaimPolicy: Delete
+parameters:
+  objectStoreName: openfoundry-store
+  objectStoreNamespace: rook-ceph
+  region: us-east-1
+---
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: openfoundry-iceberg
+  namespace: rook-ceph
+spec:
+  bucketName: openfoundry-iceberg
+  storageClassName: rook-ceph-bucket

@@ -21,6 +21,7 @@ ARG GO_VERSION=1.26.3
 ARG ALPINE_VERSION=3.22
 ARG SPARK_IMAGE=apache/spark:3.5.4-scala2.12-java17-python3-ubuntu
 ARG ICEBERG_VERSION=1.5.2
+ARG SBT_IMAGE=sbtscala/scala-sbt:eclipse-temurin-17.0.10_7_1.10.0_2.12.19
 
 ############################################################
 # Stage 1 — modules: pre-warmed Go module graph.
@@ -74,6 +75,31 @@ RUN --mount=type=cache,id=apk-jars,target=/var/cache/apk,sharing=locked \
     chmod 0644 /jars/*.jar
 
 ############################################################
+# Stage 3.5 — scala-jar: builds the OpenFoundry Spark transform
+#             entrypoint JAR (services/pipeline-runner-spark) so the
+#             runtime stage can drop it into /opt/spark/jars/.
+############################################################
+FROM ${SBT_IMAGE} AS scala-jar
+ARG VERSION
+WORKDIR /workspace
+
+COPY services/pipeline-runner-spark/build.sbt          ./build.sbt
+COPY services/pipeline-runner-spark/project/           ./project/
+RUN --mount=type=cache,id=sbt-ivy,target=/root/.ivy2,sharing=locked \
+    --mount=type=cache,id=sbt-cache,target=/root/.sbt,sharing=locked \
+    --mount=type=cache,id=sbt-coursier,target=/root/.cache/coursier,sharing=locked \
+    sbt -no-colors update
+
+COPY services/pipeline-runner-spark/src/ ./src/
+
+ENV VERSION=${VERSION}
+RUN --mount=type=cache,id=sbt-ivy,target=/root/.ivy2,sharing=locked \
+    --mount=type=cache,id=sbt-cache,target=/root/.sbt,sharing=locked \
+    --mount=type=cache,id=sbt-coursier,target=/root/.cache/coursier,sharing=locked \
+    sbt -no-colors "set assembly / assemblyJarName := \"pipeline-runner-spark.jar\"" assembly && \
+    cp target/scala-2.12/pipeline-runner-spark.jar /workspace/pipeline-runner-spark.jar
+
+############################################################
 # Stage 4 — runtime: Apache Spark + Iceberg + Go orchestrator.
 ############################################################
 FROM ${SPARK_IMAGE} AS runtime
@@ -93,8 +119,9 @@ LABEL org.opencontainers.image.title="openfoundry-pipeline-runner" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.base.name="apache/spark:3.5.4-scala2.12-java17-python3-ubuntu"
 
-COPY --from=jars    /jars/                /opt/spark/jars/
-COPY --from=builder /out/pipeline-runner  /usr/local/bin/pipeline-runner
+COPY --from=jars      /jars/                                /opt/spark/jars/
+COPY --from=scala-jar /workspace/pipeline-runner-spark.jar  /opt/spark/jars/pipeline-runner-spark.jar
+COPY --from=builder   /out/pipeline-runner                  /usr/local/bin/pipeline-runner
 
 USER 185:185
 STOPSIGNAL SIGTERM
