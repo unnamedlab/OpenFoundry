@@ -1,10 +1,14 @@
-# Single-node CephCluster + CephObjectStore for Lima/k3s.
-# Same Rook-Ceph operator (v1.19.5) and Ceph image (v18.2.4) as production.
+# Multi-node CephCluster + CephObjectStore for Lima/k3s development.
+# Same Rook-Ceph operator (v1.19.5) and Ceph image (v19.2.1) as production.
 # Differences vs infra/helm/infra/ceph-cluster/:
 #   * mon.count=1, mgr.count=1, dashboard SSL off, encryption off, monitoring off
-#   * directory-based OSD (no raw block device required)
+#   * OSDs use a 25G loopback file (/dev/loop0) on every Lima node — pre-created
+#     by `infra/dev/bootstrap-osd-loopback.sh` (see infra/dev/README.md).
 #   * RGW instances=1
 #   * dataPool: replicated×1 (production: erasure-coded 8+3)
+#
+# This file is `kubectl apply`-able (kustomize-style overlay), NOT a helm chart.
+# Production deploys via `helm install` of infra/helm/infra/ceph-cluster/.
 ---
 apiVersion: ceph.rook.io/v1
 kind: CephCluster
@@ -64,25 +68,18 @@ spec:
       requests: { cpu: "200m", memory: "1Gi"   }
       limits:   { cpu: "2",    memory: "4Gi"   }
   storage:
-    storageClassDeviceSets:
-      - name: openfoundry-osd-set
-        count: 1
-        portable: false
-        tuneDeviceClass: true
-        tuneFastDeviceClass: false
-        encrypted: false
-        placement: {}
-        preparePlacement: {}
-        volumeClaimTemplates:
-          - metadata:
-              name: data
-            spec:
-              accessModes: [ "ReadWriteOnce" ]
-              resources:
-                requests:
-                  storage: 20Gi
-              storageClassName: local-path
-              volumeMode: Block
+    useAllNodes: false
+    useAllDevices: false
+    nodes:
+      - name: "lima-k3s-master"
+        devices:
+          - name: "/dev/loop0"
+      - name: "lima-k3s-node1"
+        devices:
+          - name: "/dev/loop0"
+      - name: "lima-k3s-node2"
+        devices:
+          - name: "/dev/loop0"
   healthCheck:
     daemonHealth:
       mon:
@@ -142,7 +139,6 @@ spec:
   store: openfoundry-store
   displayName: openfoundry-iceberg
 ---
-# StorageClass for Object Bucket provisioning. Works identically in prod.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
