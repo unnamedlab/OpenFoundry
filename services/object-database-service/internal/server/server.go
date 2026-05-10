@@ -27,8 +27,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/handlers"
 )
 
-func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) *http.Server {
-	r := buildRouter(cfg, h, m)
+func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, h, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -38,11 +38,11 @@ func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) *ht
 }
 
 // BuildRouter is exposed for tests via Server() so httptest can mount it.
-func BuildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) http.Handler {
-	return buildRouter(cfg, h, m)
+func BuildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, h, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics) chi.Router {
+func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -69,7 +69,11 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 
 	// Capability registry — M1.1. Surface internal-only routes too
 	// (this service has no per-route auth; the gateway gates access).
+	// M1.2: caller-supplied probes (typically Cassandra) feed `/_meta/health`.
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	r.Route("/api/v1/object-database", func(api chi.Router) {

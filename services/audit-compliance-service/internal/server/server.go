@@ -33,7 +33,7 @@ type Subsystems struct {
 	LineageDeletion  *lineagedeletion.Handlers
 }
 
-func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -45,7 +45,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observab
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	// M1.2: caller-supplied probes (PG/Cassandra/Kafka/...) feed `/_meta/health`.
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	// ── Audit-events append (anonymous; gateway / in-cluster posts) ──

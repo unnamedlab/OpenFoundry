@@ -25,6 +25,8 @@ import (
 	kafka "github.com/segmentio/kafka-go"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	cassandrakernel "github.com/openfoundry/openfoundry-go/libs/cassandra-kernel"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	ontologykernel "github.com/openfoundry/openfoundry-go/libs/ontology-kernel"
@@ -78,7 +80,7 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
-	state, cleanupStores, err := buildState(ctx, cfg, log)
+	state, cleanupStores, deps, err := buildState(ctx, cfg, log)
 	if err != nil {
 		log.Error("AppState build failed", slog.String("error", err.Error()))
 		os.Exit(1)
@@ -116,7 +118,7 @@ func main() {
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, state, metrics)
+	srv := server.New(cfg, state, metrics, deps...)
 	if err := run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
@@ -146,24 +148,31 @@ func pythonSidecarConfig(cfg *config.Config) pythonsidecar.Config {
 	}
 }
 
-func buildState(ctx context.Context, cfg *config.Config, log *slog.Logger) (*ontologykernel.AppState, func(), error) {
+func buildState(ctx context.Context, cfg *config.Config, log *slog.Logger) (*ontologykernel.AppState, func(), []capabilities.DependencyProbe, error) {
 	if cfg.DatabaseURL == "" {
 		if !cfg.DevMode {
-			return nil, nil, errors.New("DATABASE_URL is required for ontology-actions-service; set OF_DEV_STUB_MODE=true only for explicit local/test in-memory state")
+			return nil, nil, nil, errors.New("DATABASE_URL is required for ontology-actions-service; set OF_DEV_STUB_MODE=true only for explicit local/test in-memory state")
 		}
 		log.Warn("OF_DEV_STUB_MODE enabled with DATABASE_URL unset — using explicit in-memory AppState for local/test execution")
-		return newAppState(cfg, nil, stores.NewInMemory()), nil, nil
+		return newAppState(cfg, nil, stores.NewInMemory()), nil, nil, nil
 	}
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	storeBag, cleanup, err := buildStores(ctx, cfg, pool)
+	storeBag, session, cleanup, err := buildStores(ctx, cfg, pool)
 	if err != nil {
 		pool.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return newAppState(cfg, pool, storeBag), cleanup, nil
+	deps := []capabilities.DependencyProbe{probes.Postgres("definitions", pool)}
+	if session != nil {
+		deps = append(deps, probes.Cassandra("ontology-runtime", session))
+	}
+	if brokers := strings.TrimSpace(os.Getenv("KAFKA_BOOTSTRAP_SERVERS")); brokers != "" {
+		deps = append(deps, probes.Kafka("action-audit", splitCSV(brokers)))
+	}
+	return newAppState(cfg, pool, storeBag), cleanup, deps, nil
 }
 
 func newAppState(cfg *config.Config, pool *pgxpool.Pool, storeBag stores.Stores) *ontologykernel.AppState {
@@ -219,16 +228,16 @@ func (p *kafkaActionAuditPublisher) PublishActionAudit(ctx context.Context, key,
 
 var keyspaceNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,47}$`)
 
-func buildStores(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool) (stores.Stores, func(), error) {
+func buildStores(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool) (stores.Stores, *gocql.Session, func(), error) {
 	if strings.TrimSpace(cfg.CassandraContactPoints) == "" {
-		return stores.Stores{}, nil, errors.New("CASSANDRA_CONTACT_POINTS is required for ontology-actions-service production stores")
+		return stores.Stores{}, nil, nil, errors.New("CASSANDRA_CONTACT_POINTS is required for ontology-actions-service production stores")
 	}
 	keyspace := strings.TrimSpace(cfg.CassandraKeyspace)
 	if keyspace == "" {
-		return stores.Stores{}, nil, errors.New("CASSANDRA_KEYSPACE is required for ontology-actions-service production stores")
+		return stores.Stores{}, nil, nil, errors.New("CASSANDRA_KEYSPACE is required for ontology-actions-service production stores")
 	}
 	if !keyspaceNameRe.MatchString(keyspace) {
-		return stores.Stores{}, nil, fmt.Errorf("CASSANDRA_KEYSPACE %q is not a valid CQL identifier", keyspace)
+		return stores.Stores{}, nil, nil, fmt.Errorf("CASSANDRA_KEYSPACE %q is not a valid CQL identifier", keyspace)
 	}
 	cluster := &cassandrakernel.Cluster{
 		Hosts:       splitCSV(cfg.CassandraContactPoints),
@@ -241,26 +250,26 @@ func buildStores(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool) (s
 		Consistency: gocql.LocalQuorum,
 	}
 	if len(cluster.Hosts) == 0 {
-		return stores.Stores{}, nil, fmt.Errorf("CASSANDRA_CONTACT_POINTS resolved to no hosts: %q", cfg.CassandraContactPoints)
+		return stores.Stores{}, nil, nil, fmt.Errorf("CASSANDRA_CONTACT_POINTS resolved to no hosts: %q", cfg.CassandraContactPoints)
 	}
 	session, err := cluster.Connect()
 	if err != nil {
-		return stores.Stores{}, nil, fmt.Errorf("connect Cassandra/Scylla: %w", err)
+		return stores.Stores{}, nil, nil, fmt.Errorf("connect Cassandra/Scylla: %w", err)
 	}
 	cleanup := func() { session.Close() }
 	if err := cassandrakernel.Apply(session, keyspace, cassandrakernel.OntologyRuntimeMigrations(keyspace)); err != nil {
 		cleanup()
-		return stores.Stores{}, nil, err
+		return stores.Stores{}, nil, nil, err
 	}
 	searchBackend, err := buildSearchBackend(cfg)
 	if err != nil {
 		cleanup()
-		return stores.Stores{}, nil, err
+		return stores.Stores{}, nil, nil, err
 	}
 	select {
 	case <-ctx.Done():
 		cleanup()
-		return stores.Stores{}, nil, ctx.Err()
+		return stores.Stores{}, nil, nil, ctx.Err()
 	default:
 	}
 	return stores.Stores{
@@ -270,7 +279,7 @@ func buildStores(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool) (s
 		Definitions: domain.NewPostgresDefinitionStore(pool),
 		ReadModels:  cassandrakernel.NewReadModelStoreWithKeyspace(session, keyspace),
 		Search:      searchBackend,
-	}, cleanup, nil
+	}, session, cleanup, nil
 }
 
 func buildSearchBackend(cfg *config.Config) (storageabstraction.SearchBackend, error) {

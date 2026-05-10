@@ -22,7 +22,7 @@ import (
 )
 
 // New builds the http.Server for the consolidated authorization policy surface.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -34,7 +34,11 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	r.Method(http.MethodGet, "/metrics", m.Handler())
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
+	// M1.2: optional probes feed `/_meta/health` (Postgres/Cedar reload/...).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	r.Route("/api/v1", func(api chi.Router) {

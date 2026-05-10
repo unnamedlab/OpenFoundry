@@ -21,6 +21,8 @@ import (
 
 	"github.com/gocql/gocql"
 
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	cassandrakernel "github.com/openfoundry/openfoundry-go/libs/cassandra-kernel"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/object-database-service/internal/config"
@@ -52,7 +54,7 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
-	objects, links, backend, cleanup, err := buildStores(ctx, cfg, log)
+	objects, links, backend, session, cleanup, err := buildStores(ctx, cfg, log)
 	if err != nil {
 		log.Error("storage wiring failed", slog.String("error", err.Error()))
 		os.Exit(1)
@@ -64,7 +66,12 @@ func main() {
 	h := &handlers.Handlers{Objects: objects, Links: links, Backend: backend}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, h, metrics)
+	var deps []capabilities.DependencyProbe
+	if session != nil {
+		deps = append(deps, probes.Cassandra("object-store", session))
+	}
+
+	srv := server.New(cfg, h, metrics, deps...)
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
@@ -73,15 +80,15 @@ func main() {
 
 var keyspaceNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,47}$`)
 
-func buildStores(ctx context.Context, cfg *config.Config, log *slog.Logger) (storage.ObjectStore, storage.LinkStore, config.BackendMode, func(), error) {
+func buildStores(ctx context.Context, cfg *config.Config, log *slog.Logger) (storage.ObjectStore, storage.LinkStore, config.BackendMode, *gocql.Session, func(), error) {
 	if cfg.Backend == config.BackendInMemory {
 		if !cfg.DevMode {
-			return nil, nil, "", nil, errors.New("OBJECT_DATABASE_BACKEND=in_memory requires OF_DEV_STUB_MODE=true; in-memory storage is limited to local/test execution")
+			return nil, nil, "", nil, nil, errors.New("OBJECT_DATABASE_BACKEND=in_memory requires OF_DEV_STUB_MODE=true; in-memory storage is limited to local/test execution")
 		}
 		if log != nil {
 			log.Warn("OF_DEV_STUB_MODE enabled with OBJECT_DATABASE_BACKEND=in_memory — using in-memory object/link stores for local/test execution")
 		}
-		return storage.NewInMemoryObjectStore(), storage.NewInMemoryLinkStore(), config.BackendInMemory, nil, nil
+		return storage.NewInMemoryObjectStore(), storage.NewInMemoryLinkStore(), config.BackendInMemory, nil, nil, nil
 	}
 
 	if strings.TrimSpace(cfg.CassandraContactPoints) == "" {
@@ -89,21 +96,21 @@ func buildStores(ctx context.Context, cfg *config.Config, log *slog.Logger) (sto
 			if log != nil {
 				log.Warn("OF_DEV_STUB_MODE enabled with CASSANDRA_CONTACT_POINTS unset — using in-memory object/link stores for local/test execution")
 			}
-			return storage.NewInMemoryObjectStore(), storage.NewInMemoryLinkStore(), config.BackendInMemory, nil, nil
+			return storage.NewInMemoryObjectStore(), storage.NewInMemoryLinkStore(), config.BackendInMemory, nil, nil, nil
 		}
-		return nil, nil, "", nil, errors.New("CASSANDRA_CONTACT_POINTS is required for object-database-service production stores; set OF_DEV_STUB_MODE=true only for explicit local/test in-memory state")
+		return nil, nil, "", nil, nil, errors.New("CASSANDRA_CONTACT_POINTS is required for object-database-service production stores; set OF_DEV_STUB_MODE=true only for explicit local/test in-memory state")
 	}
 
 	if err := validateKeyspace("CASSANDRA_OBJECT_KEYSPACE", cfg.CassandraObjectKeyspace); err != nil {
-		return nil, nil, "", nil, err
+		return nil, nil, "", nil, nil, err
 	}
 	if err := validateKeyspace("CASSANDRA_LINK_KEYSPACE", cfg.CassandraLinkKeyspace); err != nil {
-		return nil, nil, "", nil, err
+		return nil, nil, "", nil, nil, err
 	}
 
 	hosts := cfg.CassandraPoints()
 	if len(hosts) == 0 {
-		return nil, nil, "", nil, fmt.Errorf("CASSANDRA_CONTACT_POINTS resolved to no hosts: %q", cfg.CassandraContactPoints)
+		return nil, nil, "", nil, nil, fmt.Errorf("CASSANDRA_CONTACT_POINTS resolved to no hosts: %q", cfg.CassandraContactPoints)
 	}
 
 	cluster := &cassandrakernel.Cluster{
@@ -117,23 +124,23 @@ func buildStores(ctx context.Context, cfg *config.Config, log *slog.Logger) (sto
 	}
 	session, err := cluster.Connect()
 	if err != nil {
-		return nil, nil, "", nil, fmt.Errorf("connect Cassandra/Scylla: %w", err)
+		return nil, nil, "", nil, nil, fmt.Errorf("connect Cassandra/Scylla: %w", err)
 	}
 	cleanup := func() { session.Close() }
 
 	if err := cassandrakernel.Apply(session, cfg.CassandraObjectKeyspace, cassandrakernel.OntologyObjectStoreMigrations(cfg.CassandraObjectKeyspace)); err != nil {
 		cleanup()
-		return nil, nil, "", nil, err
+		return nil, nil, "", nil, nil, err
 	}
 	if err := cassandrakernel.Apply(session, cfg.CassandraLinkKeyspace, cassandrakernel.OntologyLinkStoreMigrations(cfg.CassandraLinkKeyspace)); err != nil {
 		cleanup()
-		return nil, nil, "", nil, err
+		return nil, nil, "", nil, nil, err
 	}
 
 	select {
 	case <-ctx.Done():
 		cleanup()
-		return nil, nil, "", nil, ctx.Err()
+		return nil, nil, "", nil, nil, ctx.Err()
 	default:
 	}
 
@@ -141,7 +148,7 @@ func buildStores(ctx context.Context, cfg *config.Config, log *slog.Logger) (sto
 	if log != nil {
 		log.Info("object-database storage wired to Cassandra", slog.String("object_keyspace", cfg.CassandraObjectKeyspace), slog.String("link_keyspace", cfg.CassandraLinkKeyspace))
 	}
-	return objects, links, config.BackendCassandra, cleanup, nil
+	return objects, links, config.BackendCassandra, session, cleanup, nil
 }
 
 func validateKeyspace(envName, value string) error {

@@ -25,18 +25,18 @@ import (
 )
 
 // New builds the HTTP server bound to cfg.Server.{Host,Port}.
-func New(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics) *http.Server {
+func New(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
-		Handler:           BuildRouter(cfg, state, m),
+		Handler:           BuildRouter(cfg, state, m, probes...),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
 
 // BuildRouter exposes the chi.Router for in-process tests
 // (parity with `tower::ServiceExt::oneshot` callers in Rust).
-func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics) http.Handler {
+func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
 	if state == nil {
 		panic("ontology-actions-service requires non-nil AppState; set DATABASE_URL or enable OF_DEV_STUB_MODE for explicit local/test in-memory state")
 	}
@@ -50,7 +50,11 @@ func BuildRouter(cfg *config.Config, state *ontologykernel.AppState, m *observab
 	// their routes through chi directly (Mount(r, state)); after the
 	// API surface is fully built we walk it with `IngestChiRoutes`
 	// to synthesise capability entries automatically.
+	// M1.2: caller-supplied probes (PG/Cassandra/Kafka) feed `/_meta/health`.
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
 	caps.Mount(r)
 
 	// Public probes.

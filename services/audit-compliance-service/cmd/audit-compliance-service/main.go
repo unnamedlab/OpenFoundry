@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/handlers"
@@ -76,7 +77,7 @@ func main() {
 	}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, subsystems, metrics)
+	srv := server.New(cfg, jwt, subsystems, metrics, probes.Postgres("audit", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
