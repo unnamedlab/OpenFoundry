@@ -53,3 +53,9 @@ lakekeeper:
   internalOpenFGA: false
 
   helmWait: true
+
+# Single-region dev cluster — no region B Lakekeeper / Spark. Skip the
+# cross-region replication smoke Job entirely.
+regionB:
+  smoke:
+    enabled: false

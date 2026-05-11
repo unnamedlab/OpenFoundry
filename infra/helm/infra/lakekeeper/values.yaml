@@ -209,3 +209,13 @@ lakekeeper:
 
   # helm install --wait friendliness: let migration jobs block install.
   helmWait: true
+
+
+# ── Region B / multisite smoke ─────────────────────────────────────────────
+# Cross-region Iceberg replication smoke Job (S7.1.c). Defaults to enabled
+# for production / staging where region B exists. Dev (single Lima cluster)
+# overrides this to false in `values-dev.yaml` because there is no region B
+# Lakekeeper or Spark to talk to.
+regionB:
+  smoke:
+    enabled: true

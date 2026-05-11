@@ -28,6 +28,7 @@
 # captured by the prometheus pushgateway sidecar in real deployments
 # (omitted here for brevity — the smoke target is correctness, not
 # steady-state observability).
+{{- if .Values.regionB.smoke.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -152,3 +153,4 @@ data:
     if seen["ts"] != int(ts) or seen["source"] != "region-a-smoke":
         raise SystemExit(f"unexpected row: {seen}")
     print(f"verified {table}: {seen}")
+{{- end }}
