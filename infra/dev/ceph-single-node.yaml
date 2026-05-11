@@ -57,16 +57,19 @@ spec:
       dataSource: zero
       iteration: 1
     allowUninstallWithVolumes: false
+  # Sized for a Lima dev cluster (14c / 30 GiB). OSD/mon/mgr real RSS
+  # ranges 100–600 MiB and CPU is bursty single-digit %; previous limits
+  # (4 OSD × 2c/4Gi = 8c/16Gi) committed half the cluster to Ceph alone.
   resources:
     mon:
-      requests: { cpu: "100m", memory: "512Mi" }
-      limits:   { cpu: "1",    memory: "2Gi"   }
+      requests: { cpu: "50m",  memory: "384Mi" }
+      limits:   { cpu: "500m", memory: "768Mi" }
     mgr:
-      requests: { cpu: "100m", memory: "512Mi" }
-      limits:   { cpu: "1",    memory: "1Gi"   }
+      requests: { cpu: "50m",  memory: "384Mi" }
+      limits:   { cpu: "500m", memory: "768Mi" }
     osd:
-      requests: { cpu: "200m", memory: "1Gi"   }
-      limits:   { cpu: "2",    memory: "4Gi"   }
+      requests: { cpu: "100m", memory: "512Mi" }
+      limits:   { cpu: "500m", memory: "1Gi"   }
   storage:
     useAllNodes: false
     useAllDevices: false
@@ -124,9 +127,10 @@ spec:
     port: 80
     securePort: 0
     instances: 1
+    # RGW dev real RSS ~190 MiB; trim limits for Lima 14c/30GiB.
     resources:
-      requests: { cpu: "200m", memory: "512Mi" }
-      limits:   { cpu: "1",    memory: "2Gi"   }
+      requests: { cpu: "100m", memory: "384Mi" }
+      limits:   { cpu: "500m", memory: "768Mi" }
   healthCheck:
     startupProbe:
       disabled: false

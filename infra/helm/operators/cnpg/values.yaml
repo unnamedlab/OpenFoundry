@@ -21,7 +21,9 @@
 #   * Resources sized for a small/medium cluster; tune via overrides in
 #     environment-specific values files.
 
-replicaCount: 3
+# Single replica is fine in dev (Lima 14c/30GiB) — leader election still
+# works, we just lose hot-standby. Override to 3 in staging/prod values.
+replicaCount: 1
 
 # Watch all namespaces by default; service-specific Cluster CRs (e.g.
 # apicurio, lakekeeper, iceberg-catalog) live in their own namespaces.
@@ -35,11 +37,11 @@ image:
 
 resources:
   requests:
-    cpu: 100m
-    memory: 200Mi
+    cpu: 50m
+    memory: 128Mi
   limits:
-    cpu: "1"
-    memory: 512Mi
+    cpu: 300m
+    memory: 384Mi
 
 # Pod-level hardening — runs as non-root, read-only rootfs, no caps.
 podSecurityContext:

@@ -104,48 +104,51 @@ server:
 
 # ─── repoServer ──────────────────────────────────────────────────────
 repoServer:
-  replicas: 2
+  # Single replica in dev (Lima 14c/30GiB). repoServer needs more headroom
+  # because it clones git + runs helm template per Application.
+  replicas: 1
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
+      memory: 192Mi
     limits:
-      cpu: "1"
-      memory: 1Gi
+      cpu: 500m
+      memory: 512Mi
 
 # ─── applicationSet ──────────────────────────────────────────────────
 applicationSet:
   enabled: true
-  replicas: 2
+  # Single replica in dev (Lima 14c/30GiB).
+  replicas: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 30m
+      memory: 64Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 200m
+      memory: 256Mi
 
 # ─── controller ──────────────────────────────────────────────────────
 controller:
   replicas: 1
   resources:
     requests:
-      cpu: 250m
-      memory: 512Mi
+      cpu: 100m
+      memory: 384Mi
     limits:
-      cpu: "2"
-      memory: 2Gi
+      cpu: 500m
+      memory: 768Mi
 
 # ─── redis ───────────────────────────────────────────────────────────
 redis:
   enabled: true
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 20m
+      memory: 32Mi
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 100m
+      memory: 128Mi
 
 # ─── dex ─────────────────────────────────────────────────────────────
 # Off by default. Enable + configure when wiring SSO (OIDC/SAML).

@@ -1,13 +1,18 @@
 global:
   existingSecret: open-foundry-dev-env
   replicaOverride: 1
+  # Dev cluster (Lima 14 cores / 30 GiB) runs ~46 openfoundry pods. Real
+  # steady-state usage per service is 1–5 m CPU / 40–60 MiB RAM (see
+  # `kubectl top pods -n openfoundry`), so requests/limits are sized for
+  # 5–10× burst headroom rather than the prod-shaped 500m/512Mi that
+  # blew the cluster past 800 % CPU and 400 % memory commitment.
   resourcesOverride:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 30m
+      memory: 96Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 250m
+      memory: 320Mi
   autoscaling:
     enabled: false
   migrations:

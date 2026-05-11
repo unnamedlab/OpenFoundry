@@ -15,9 +15,12 @@ _dev: &dev
   walStorageSize: 2Gi
   enableSuperuserAccess: true
   backupEnabled: false
+  # Real usage per CNPG pod in dev is ~7m CPU / 100 MiB RSS. Tightened
+  # limits so the four clusters together commit ~2c / 2GiB instead of
+  # 4c / 4GiB on a 14c/30GiB Lima cluster.
   resources:
-    requests: { cpu: 200m, memory: 512Mi }
-    limits:   { cpu: "1",  memory: 1Gi }
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
   postgresql: &devPostgresql
     sharedBuffers: 256MB
     maxWalSize: 1GB
