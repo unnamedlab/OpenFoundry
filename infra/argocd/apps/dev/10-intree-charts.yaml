@@ -68,7 +68,9 @@ spec:
             namespace: kafka
             wave: "10"
             chartPath: infra/helm/infra/debezium
-            valueFiles: [values.yaml]
+            valueFiles:
+              - values.yaml
+              - values-dev.yaml
             extraValueRefs: []
 
           - name: local-registry

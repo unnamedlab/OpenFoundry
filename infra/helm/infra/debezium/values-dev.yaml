@@ -1,0 +1,8 @@
+# Dev override — the dev Kafka cluster (`kafka/openfoundry`) runs a single
+# PLAINTEXT internal listener on :9092 and has no authorizer configured.
+# Disabling kafkaAuth skips the KafkaUser ACL resource (which Strimzi
+# rejects with "Simple authorization ACL rules are configured but not
+# supported in the Kafka cluster configuration") and renders the Connect
+# cluster against 9092 without TLS/auth.
+kafkaAuth:
+  enabled: false
