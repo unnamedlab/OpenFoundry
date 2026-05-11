@@ -92,6 +92,16 @@ server:
     enabled: false  # opt in per-environment; off by default to avoid
                     # accidentally exposing a fresh install.
 
+  # Local single-node / lima development: expose the API server on a
+  # fixed NodePort so a host-side socat proxy can publish it on
+  # castuera.duckdns.org:8083. ArgoCD itself runs in `--insecure` mode
+  # (plain HTTP on container port 8080); TLS is the operator's
+  # responsibility on the edge.
+  service:
+    type: NodePort
+    nodePortHttp: 30880
+    nodePortHttps: 30803
+
 # ─── repoServer ──────────────────────────────────────────────────────
 repoServer:
   replicas: 2
