@@ -1,0 +1,48 @@
+{{- /*
+Catch-all ServiceMonitor for every OpenFoundry Go microservice.
+
+The shared Service template (`of-shared.service` in
+`infra/helm/_shared/templates/_helpers.tpl`) labels every Service with
+`openfoundry.io/scrape=true` and exposes the Prometheus port under
+the symbolic name `http`. Selecting on that label means we get one
+target per service automatically — no per-service ServiceMonitor
+needed.
+
+Note on namespace selection: OpenFoundry application charts deploy to
+the `openfoundry` namespace (see `infra/helm/helmfile.yaml.gotmpl`
+`HELM_NAMESPACE`). If you run more than one release namespace, extend
+`namespaceSelector.matchNames` accordingly.
+*/ -}}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: openfoundry-services
+  namespace: {{ .Release.Namespace }}
+  labels:
+    openfoundry.io/component: observability
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      openfoundry.io/scrape: "true"
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        # Surface the service name as the canonical `service` label so
+        # rules in `infra/observability/prometheus-rules/` and the
+        # SLO dashboards can group by it without guessing.
+        - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+{{- end }}

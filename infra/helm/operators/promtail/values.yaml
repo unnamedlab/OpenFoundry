@@ -1,0 +1,98 @@
+# Values for the upstream grafana/promtail Helm chart.
+#
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm install -n observability promtail \
+#     grafana/promtail -f infra/helm/operators/promtail/values.yaml
+#
+# Promtail runs as a DaemonSet, one pod per node, tailing every
+# container log under `/var/log/pods` and shipping it to the Loki
+# gateway in the same namespace.
+#
+# Why Promtail and not Grafana Agent / Alloy:
+#   * Alloy is the future, but the OpenFoundry observability story
+#     does not yet need its OTLP receiver path (we have a separate
+#     OTel Collector planned for traces — see roadmap).
+#   * Promtail has the smallest footprint (~70 MiB / pod), which
+#     matters on the Lima dev cluster.
+
+# ── DaemonSet topology ──────────────────────────────────────────────
+daemonset:
+  enabled: true
+
+resources:
+  requests: { cpu: 50m,  memory: 64Mi }
+  limits:   { cpu: 200m, memory: 256Mi }
+
+# Promtail needs to read host paths to tail container logs.
+defaultVolumes:
+  - name: run
+    hostPath: { path: /run/promtail }
+  - name: containers
+    hostPath: { path: /var/lib/docker/containers }
+  - name: pods
+    hostPath: { path: /var/log/pods }
+
+defaultVolumeMounts:
+  - name: run
+    mountPath: /run/promtail
+  - name: containers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+  - name: pods
+    mountPath: /var/log/pods
+    readOnly: true
+
+# ── Configuration ───────────────────────────────────────────────────
+config:
+  # Loki gateway in the `observability` namespace. The `loki` release
+  # exposes its read path through the chart's gateway Service.
+  clients:
+    - url: http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push
+      tenant_id: openfoundry
+
+  # Pipeline stages: parse JSON-formatted slog (libs/observability)
+  # so structured fields land as Loki labels / line fields rather
+  # than opaque text. Falls back to plain text for non-JSON lines.
+  snippets:
+    extraScrapeConfigs: |
+      # OpenFoundry services emit slog JSON to stdout. The default
+      # kubernetes_sd_configs job already picks them up; we only need
+      # to enrich the labels.
+    pipelineStages:
+      - cri: {}
+      - match:
+          selector: '{app_kubernetes_io_part_of="openfoundry"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  msg: msg
+                  service: service
+                  trace_id: trace_id
+                  span_id: span_id
+                  request_id: request_id
+            - labels:
+                level:
+                service:
+            - timestamp:
+                source: time
+                format: RFC3339Nano
+
+# Common labels: keep cardinality bounded — never label by request_id.
+extraArgs:
+  - -client.external-labels=cluster=$(CLUSTER),env=$(ENV)
+
+extraEnv:
+  - name: CLUSTER
+    value: openfoundry
+  - name: ENV
+    valueFrom:
+      configMapKeyRef:
+        name: observability-env
+        key: env
+        optional: true
+
+serviceMonitor:
+  enabled: true
+  labels:
+    release: kube-prometheus-stack

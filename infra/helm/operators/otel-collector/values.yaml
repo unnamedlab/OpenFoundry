@@ -1,0 +1,169 @@
+# Values for the upstream open-telemetry/opentelemetry-collector
+# Helm chart.
+#
+#   helm repo add open-telemetry \
+#     https://open-telemetry.github.io/opentelemetry-helm-charts
+#   helm install -n observability otel-collector \
+#     open-telemetry/opentelemetry-collector \
+#     -f infra/helm/operators/otel-collector/values.yaml
+#
+# License: OTel Collector is Apache-2.0. Acts as the single ingress
+# point for OTLP traffic from every OpenFoundry service:
+#
+#     service --OTLP/gRPC--> otel-collector --+--> tempo  (traces)
+#                                             +--> loki   (logs, future)
+#                                             +--> prometheus (RED metrics
+#                                                              via spanmetrics)
+#
+# Topology rationale:
+#   * Deployment mode (not DaemonSet): we want a small number of
+#     replicas, not one collector per node. Tail-sampling and
+#     spanmetrics need a global view of trace IDs so the DaemonSet
+#     mode would force-sticky-route the traffic.
+#   * Image distribution = `contrib`: the upstream contrib build
+#     bundles the receivers/processors/exporters we need
+#     (`tail_sampling`, `spanmetrics`, `loki` exporter, `kafka`
+#     receiver) without us maintaining a custom image.
+
+mode: deployment
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+replicaCount: 2
+
+resources:
+  requests: { cpu: 200m, memory: 256Mi }
+  limits:   { cpu: "1",  memory: 1Gi }
+
+# Expose OTLP/gRPC + HTTP cluster-wide. No Ingress \u2014 internal only.
+service:
+  enabled: true
+  type: ClusterIP
+
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+  metrics:
+    enabled: true
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+  # Disable everything else the chart enables by default to keep the
+  # attack surface tight.
+  jaeger-compact: { enabled: false }
+  jaeger-thrift:  { enabled: false }
+  jaeger-grpc:    { enabled: false }
+  zipkin:         { enabled: false }
+
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
+      interval: 30s
+  extraLabels:
+    release: kube-prometheus-stack
+
+# ── Pipeline ───────────────────────────────────────────────────────
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc: { endpoint: 0.0.0.0:4317 }
+        http: { endpoint: 0.0.0.0:4318 }
+
+  processors:
+    # Cap memory usage to ~75 % of the limit; backpressure to the
+    # SDKs is preferable to OOMKill.
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 75
+      spike_limit_percentage: 25
+
+    batch:
+      send_batch_size: 1024
+      timeout: 5s
+
+    # Cluster-wide attributes injected on every span / metric.
+    resource:
+      attributes:
+        - key: deployment.environment
+          value: "${OTEL_DEPLOYMENT_ENVIRONMENT}"
+          action: upsert
+
+    # Tail-sampling: keep 100 % of traces with errors or > 500 ms,
+    # plus a 10 % sample of the rest. Drops the long tail of fast
+    # successful traces that nobody ever inspects.
+    tail_sampling:
+      decision_wait: 10s
+      num_traces: 50000
+      expected_new_traces_per_sec: 100
+      policies:
+        - name: errors
+          type: status_code
+          status_code: { status_codes: [ERROR] }
+        - name: slow
+          type: latency
+          latency: { threshold_ms: 500 }
+        - name: probabilistic
+          type: probabilistic
+          probabilistic: { sampling_percentage: 10 }
+
+  connectors:
+    # Derives RED metrics (`traces_spanmetrics_calls_total`,
+    # `traces_spanmetrics_duration_*`) from incoming spans and feeds
+    # them to the metrics pipeline below \u2014 no manual histogram code
+    # in `libs/observability/`.
+    spanmetrics:
+      histogram:
+        explicit:
+          buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
+      dimensions:
+        - name: http.method
+        - name: http.status_code
+        - name: service.namespace
+
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.observability.svc.cluster.local:4317
+      tls: { insecure: true }
+
+    prometheus:
+      endpoint: 0.0.0.0:8889
+      const_labels:
+        source: otel-collector
+
+    debug:
+      verbosity: basic
+
+  extensions:
+    health_check: {}
+    zpages: { endpoint: 0.0.0.0:55679 }
+
+  service:
+    extensions: [health_check, zpages]
+    pipelines:
+      traces:
+        receivers:  [otlp]
+        processors: [memory_limiter, resource, tail_sampling, batch]
+        exporters:  [otlp/tempo, spanmetrics]
+      metrics:
+        receivers:  [otlp, spanmetrics]
+        processors: [memory_limiter, resource, batch]
+        exporters:  [prometheus]
+    telemetry:
+      logs:    { level: info }
+      metrics: { address: 0.0.0.0:8888 }
+
+# Inject the deployment env into the resource processor.
+extraEnvs:
+  - name: OTEL_DEPLOYMENT_ENVIRONMENT
+    value: shared

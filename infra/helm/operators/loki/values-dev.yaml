@@ -1,0 +1,73 @@
+# Dev overlay for grafana/loki.
+#
+# Lima k3s ships ~30 GiB RAM total and one node. The SimpleScalable
+# topology configured in `values.yaml` would burn ~9 pods just for
+# Loki; that crowds out Postgres + Cassandra + Kafka + the platform
+# itself. In dev we collapse to SingleBinary on filesystem storage —
+# logs are ephemeral and that is fine for local debugging.
+
+deploymentMode: SingleBinary
+
+loki:
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 72h          # 3d local retention
+    ingestion_rate_mb: 8
+    ingestion_burst_size_mb: 16
+    max_streams_per_user: 0
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+  commonConfig:
+    replication_factor: 1
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { cpu: "1",  memory: 2Gi }
+
+# Disable the scalable-mode components — chart still renders empty
+# values for them otherwise.
+write:   { replicas: 0 }
+read:    { replicas: 0 }
+backend: { replicas: 0 }
+
+gateway:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+
+# Dev does not run MinIO/Ceph; filesystem backend instead.
+minio:
+  enabled: false
+
+monitoring:
+  selfMonitoring: { enabled: false, grafanaAgent: { installOperator: false } }
+  lokiCanary:     { enabled: false }
+  serviceMonitor:
+    enabled: true
+    labels: { release: kube-prometheus-stack }
+
+test:
+  enabled: false
+
+# ── Resource floor low enough for Lima ──────────────────────────────
+chunksCache:
+  allocatedMemory: 256
+resultsCache:
+  allocatedMemory: 256

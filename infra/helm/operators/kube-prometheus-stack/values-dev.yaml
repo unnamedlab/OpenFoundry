@@ -1,0 +1,60 @@
+# Dev overlay for kube-prometheus-stack — applied on top of values.yaml
+# in the `dev` ApplicationSet. Targets the Lima k3s cluster (~30 GiB
+# RAM total, shared with every other release) so the monitoring stack
+# does not eat the budget reserved for Cassandra / Kafka / Postgres.
+#
+# Differences vs. the base values.yaml:
+#   * Single-replica Alertmanager (HA gossip is overkill in dev).
+#   * Tighter resource requests / limits across the board.
+#   * 3-day Prometheus retention (10 GiB local).
+#   * Mimir is gated off in dev (see `infra/helm/helmfile.yaml.gotmpl`
+#     `$mimirInstalled := eq $profile "prod"`), so disable remoteWrite
+#     to avoid Prometheus shard back-pressure churning on a dead URL.
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    retentionSize: "8GiB"
+    remoteWrite: []
+    resources:
+      requests: { cpu: 200m, memory: 1Gi }
+      limits:   { cpu: 1,    memory: 3Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+    resources:
+      requests: { cpu: 25m, memory: 64Mi }
+      limits:   { cpu: 100m, memory: 192Mi }
+
+grafana:
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 250m, memory: 384Mi }
+  persistence:
+    size: 2Gi
+  # In dev, ship without Mimir as an additional datasource — it is not
+  # installed and would render every panel that targets it as "down".
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.observability.svc.cluster.local
+      isDefault: false
+
+# In dev the Mimir release is not installed; remove the chart-level
+# expectation by leaving Prometheus to run in self-contained mode.

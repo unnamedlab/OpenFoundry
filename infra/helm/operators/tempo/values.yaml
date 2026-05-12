@@ -1,0 +1,81 @@
+# Values for the upstream grafana/tempo Helm chart (monolithic mode).
+#
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm install -n observability tempo grafana/tempo \
+#     -f infra/helm/operators/tempo/values.yaml
+#
+# License: Tempo is AGPL-3.0. Trace store for the platform; the
+# OpenFoundry services already emit OTLP/gRPC via
+# `libs/observability/tracing.go` but had nowhere to send spans until
+# now.
+#
+# Topology rationale:
+#   * Monolithic chart in `grafana/tempo` (the `tempo-distributed`
+#     chart is the production microservices flavour, kept for a later
+#     ADR if cardinality forces it). Single binary covers ingest,
+#     query and compactor in one StatefulSet \u2014 plenty for the
+#     OpenFoundry trace volume in dev/staging.
+#   * Object storage backend is S3-compatible, pointed at the in-tree
+#     MinIO/Ceph endpoint. Filesystem backend is dev-only
+#     (see `values-dev.yaml`).
+#   * Receivers: only OTLP/gRPC + OTLP/HTTP. Jaeger, Zipkin and
+#     OpenCensus are explicitly disabled \u2014 every OpenFoundry service
+#     emits OTLP and we don\u2019t want unauthenticated extra ports.
+
+tempo:
+  # Single-tenant (`single_tenant_id: openfoundry`) keeps the wire
+  # contract identical to Loki and avoids per-service tenant
+  # propagation; the edge-gateway is the multi-tenant boundary.
+  multitenancyEnabled: false
+
+  # Receivers \u2014 keep OTLP only.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  storage:
+    trace:
+      backend: s3
+      s3:
+        bucket: tempo-traces
+        endpoint: minio.observability.svc.cluster.local:9000
+        access_key: ${TEMPO_S3_ACCESS_KEY:-tempo}
+        secret_key: ${TEMPO_S3_SECRET_KEY:-tempo12345}
+        insecure: true
+        forcepathstyle: true
+
+  retention: 336h          # 14d hot retention. Cold tier is delegated
+                           # to the object-store lifecycle policy.
+  compactor:
+    compaction:
+      block_retention: 336h
+
+  metricsGenerator:
+    enabled: true          # Emits RED (Rate/Errors/Duration) metrics
+                           # from spans. Lets us derive p50/p95/p99
+                           # per service without writing histograms by
+                           # hand.
+    remoteWriteUrl: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write
+
+# Persistence is only used when the metricsGenerator wal lives on disk.
+persistence:
+  enabled: true
+  size: 20Gi
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits:   { cpu: "2",  memory: 4Gi }
+
+serviceMonitor:
+  enabled: true
+  labels:
+    release: kube-prometheus-stack
+
+# Disable bundled MinIO; we already run an object store in
+# `observability` (Ceph RGW in prod, MinIO in dev/staging).
+minio:
+  enabled: false

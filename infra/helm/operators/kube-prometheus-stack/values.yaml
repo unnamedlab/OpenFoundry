@@ -1,0 +1,322 @@
+# Values for the upstream kube-prometheus-stack Helm chart.
+#
+#   helm repo add prometheus-community \
+#     https://prometheus-community.github.io/helm-charts
+#   helm install -n observability --create-namespace kube-prometheus-stack \
+#     prometheus-community/kube-prometheus-stack \
+#     -f infra/helm/operators/kube-prometheus-stack/values.yaml
+#
+# License: kube-prometheus-stack is Apache-2.0. Bundles
+# prometheus-operator, Prometheus, Alertmanager, Grafana, node-exporter
+# and kube-state-metrics. Single release covers the runtime gap left by
+# the OpenFoundry observability story (`docs/observability/index.md`):
+# the repo already ships PrometheusRule + ServiceMonitor manifests but
+# nothing was scraping or rendering them.
+#
+# Topology rationale:
+#   * Prometheus runs as a single replica with 7d local retention. Long
+#     term storage is delegated to Mimir (`infra/helm/infra/mimir/`)
+#     via remoteWrite; replicating Prometheus locally would just double
+#     the ingest cost without buying anything Mimir doesn't already
+#     provide.
+#   * Alertmanager keeps the upstream HA default (3 replicas) — it is
+#     cheap and the routing surface is small enough to fit a 5 m gossip
+#     window on a Lima dev cluster.
+#   * Grafana sidecars are enabled so dashboard ConfigMaps labelled
+#     `grafana_dashboard=1` are auto-loaded from anywhere in the
+#     cluster — including the JSON files shipped under
+#     `infra/observability/grafana-dashboards/` once they are wrapped
+#     into ConfigMaps by the `observability` chart.
+#
+# Discovery rationale:
+#   * The four `*SelectorNilUsesHelmValues: false` flags below tell
+#     Prometheus to discover **every** ServiceMonitor / PodMonitor /
+#     Probe / PrometheusRule in the cluster, not just the ones labelled
+#     with the chart's release. This is what makes the existing rules
+#     under `infra/observability/prometheus-rules/` and
+#     `infra/helm/infra/observability/files/` light up the moment the
+#     stack is installed — without re-labelling every CR.
+
+# ── prometheus-operator + CRDs ────────────────────────────────────────
+crds:
+  enabled: true
+
+# ── prometheus-operator controller ────────────────────────────────────
+prometheusOperator:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  admissionWebhooks:
+    # The webhook patches all PrometheusRule CRs on admission. Keep it
+    # but pin to the chart-default cert-manager rotation rather than
+    # the in-cluster Job-based bootstrap (cert-manager is already a
+    # required operator).
+    certManager:
+      enabled: true
+      issuerRef:
+        name: selfsigned
+        kind: ClusterIssuer
+
+# ── Prometheus instance ───────────────────────────────────────────────
+prometheus:
+  enabled: true
+  prometheusSpec:
+    # Discover every Service/Pod/Probe/Rule in every namespace,
+    # regardless of release labels. See "Discovery rationale" above.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    # Same for namespace selectors — the OpenFoundry monitoring targets
+    # live in `openfoundry`, `kafka`, `lakekeeper`, `cnpg-system`,
+    # `observability` and a handful more, not in a single namespace.
+    serviceMonitorNamespaceSelector: {}
+    podMonitorNamespaceSelector: {}
+    probeNamespaceSelector: {}
+    ruleNamespaceSelector: {}
+
+    # Local retention — Mimir owns long-term. Keep just enough for
+    # ad-hoc debugging and to ride out a Mimir outage without losing
+    # the immediate window.
+    retention: 7d
+    retentionSize: "40GiB"
+
+    # remote_write to Mimir (per `infra/helm/infra/mimir/README.md`).
+    # The mimir release runs in the same `observability` namespace and
+    # exposes the distributor service on :8080.
+    remoteWrite:
+      - url: http://mimir-distributor.observability.svc.cluster.local:8080/api/v1/push
+        queueConfig:
+          capacity: 30000
+          maxShards: 30
+          maxSamplesPerSend: 5000
+        metadataConfig:
+          send: true
+
+    resources:
+      requests: { cpu: 500m, memory: 2Gi }
+      limits:   { cpu: 2,    memory: 8Gi }
+
+    # Storage — explicit PVC so a node restart does not lose the local
+    # 7d window. Override the storage class per profile.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+    # Pod hardening matches the cnpg / strimzi operator pattern.
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      fsGroup: 2000
+      seccompProfile:
+        type: RuntimeDefault
+
+# ── Alertmanager ──────────────────────────────────────────────────────
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    replicas: 3
+    retention: 120h
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }
+      limits:   { cpu: 200m, memory: 384Mi }
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      fsGroup: 2000
+      seccompProfile:
+        type: RuntimeDefault
+
+  # Routing skeleton. Wire real receivers via per-profile overrides
+  # (`infra/argocd/notifications/slack-secret.yaml` already exists for
+  # the Slack token, see `infra/argocd/README.md`).
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: ["alertname", "component", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      routes:
+        # Critical alerts get short-circuited to the page channel.
+        - matchers:
+            - severity = "critical"
+          receiver: "null"
+          continue: true
+    receivers:
+      - name: "null"
+    inhibit_rules:
+      # If a critical fires for a component, mute warning-level noise
+      # from the same component until the critical clears.
+      - source_matchers: [severity = "critical"]
+        target_matchers: [severity = "warning"]
+        equal: ["component"]
+
+# ── Grafana ───────────────────────────────────────────────────────────
+grafana:
+  enabled: true
+  defaultDashboardsEnabled: true   # ships the kube-prometheus default panels
+  defaultDashboardsTimezone: utc
+
+  # Override admin password per environment via an external Secret.
+  # The chart consumes admin-user / admin-password keys from this
+  # Secret when `admin.existingSecret` is set.
+  admin:
+    existingSecret: ""
+    userKey: admin-user
+    passwordKey: admin-password
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 768Mi }
+
+  persistence:
+    enabled: true
+    size: 5Gi
+
+  # Sidecars: auto-discover ConfigMaps containing dashboards and
+  # datasources cluster-wide. The label/value below matches the
+  # convention the `observability` chart uses when it wraps the JSON
+  # files under `infra/observability/grafana-dashboards/` into
+  # ConfigMaps.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      provider:
+        allowUiUpdates: false
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+      searchNamespace: ALL
+
+  # Datasources beyond the bundled in-cluster Prometheus. Mimir is
+  # added so historical queries (>7d) hit the long-term store. Loki is
+  # the central log store provisioned by the `loki` release in the
+  # same namespace.
+  additionalDataSources:
+    - name: Mimir
+      type: prometheus
+      access: proxy
+      url: http://mimir-query-frontend.observability.svc.cluster.local:8080/prometheus
+      isDefault: false
+      jsonData:
+        httpMethod: POST
+        timeInterval: 30s
+    - name: Loki
+      type: loki
+      access: proxy
+      # Gateway Service from the grafana/loki chart.
+      url: http://loki-gateway.observability.svc.cluster.local
+      isDefault: false
+      jsonData:
+        # Promtail tags lines with `trace_id` from the slog payload
+        # (see `operators/promtail/values.yaml`); this lets Grafana
+        # jump from a Loki log line straight to the matching Tempo
+        # trace once the tracing backend lands.
+        derivedFields:
+          - name: TraceID
+            matcherRegex: "\"trace_id\":\"(\\w+)\""
+            url: "$${__value.raw}"
+            datasourceUid: tempo
+
+  # Curated upstream dashboards from grafana.com — one less manual
+  # import step. IDs come from
+  # `infra/observability/grafana-dashboards/README.md`.
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/default
+  dashboards:
+    default:
+      strimzi-kafka:
+        gnetId: 721
+        revision: 4
+        datasource: Prometheus
+      strimzi-operator:
+        gnetId: 14842
+        revision: 1
+        datasource: Prometheus
+      vespa:
+        gnetId: 18308
+        revision: 1
+        datasource: Prometheus
+      cnpg:
+        gnetId: 20417
+        revision: 3
+        datasource: Prometheus
+      flink:
+        gnetId: 14911
+        revision: 1
+        datasource: Prometheus
+      nats-server:
+        gnetId: 2279
+        revision: 8
+        datasource: Prometheus
+      jetstream:
+        gnetId: 14862
+        revision: 1
+        datasource: Prometheus
+      node-exporter-full:
+        gnetId: 1860
+        revision: 37
+        datasource: Prometheus
+      kubernetes-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+
+  grafana.ini:
+    server:
+      # Keep the route_prefix off — the edge-gateway is fronted by
+      # nginx; expose Grafana on its own host instead of a path.
+      root_url: "%(protocol)s://%(domain)s/"
+    auth.anonymous:
+      enabled: false
+    log:
+      mode: console
+
+# ── Bundled exporters ─────────────────────────────────────────────────
+nodeExporter:
+  enabled: true
+kube-state-metrics:
+  enabled: true
+
+# ── Disable kube-controller-manager / kube-scheduler / kube-proxy ─────
+# scraping by default — most managed clusters (k3s in dev, EKS / GKE
+# in prod) do not expose those endpoints over the cluster network. Keep
+# them off here and re-enable per-profile when running on a vanilla
+# kubeadm cluster.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false

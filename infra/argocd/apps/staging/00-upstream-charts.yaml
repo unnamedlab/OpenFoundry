@@ -45,6 +45,37 @@ spec:
             chartVersion: "1.0.0"
             valuesPath: infra/helm/operators/strimzi/values.yaml
 
+          # kube-prometheus-stack — see
+          # `infra/argocd/apps/prod/00-upstream-charts.yaml` for the
+          # rationale and `infra/helm/operators/kube-prometheus-stack/`
+          # for the values shared across environments.
+          - name: kube-prometheus-stack
+            namespace: observability
+            wave: "0"
+            chart: kube-prometheus-stack
+            chartRepo: https://prometheus-community.github.io/helm-charts
+            chartVersion: "65.5.0"
+            valuesPath: infra/helm/operators/kube-prometheus-stack/values.yaml
+
+          # Loki + Promtail — central log aggregation. See
+          # `infra/helm/operators/loki/values.yaml` for the
+          # SimpleScalable topology and S3 backend rationale.
+          - name: loki
+            namespace: observability
+            wave: "1"
+            chart: loki
+            chartRepo: https://grafana.github.io/helm-charts
+            chartVersion: "6.16.0"
+            valuesPath: infra/helm/operators/loki/values.yaml
+
+          - name: promtail
+            namespace: observability
+            wave: "2"
+            chart: promtail
+            chartRepo: https://grafana.github.io/helm-charts
+            chartVersion: "6.16.6"
+            valuesPath: infra/helm/operators/promtail/values.yaml
+
           - name: kite
             namespace: kite
             wave: "5"

@@ -1,0 +1,22 @@
+# Dev overlay for grafana/promtail.
+#
+# On Lima k3s the container runtime is containerd (not docker), so the
+# `/var/lib/docker/containers` mount is empty. Drop it and rely solely
+# on `/var/log/pods` which works with both runtimes.
+
+defaultVolumes:
+  - name: run
+    hostPath: { path: /run/promtail }
+  - name: pods
+    hostPath: { path: /var/log/pods }
+
+defaultVolumeMounts:
+  - name: run
+    mountPath: /run/promtail
+  - name: pods
+    mountPath: /var/log/pods
+    readOnly: true
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits:   { cpu: 100m, memory: 128Mi }

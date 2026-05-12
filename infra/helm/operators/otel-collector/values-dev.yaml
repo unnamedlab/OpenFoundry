@@ -1,0 +1,36 @@
+# Dev overlay for opentelemetry-collector.
+#
+# One replica is enough on a Lima single-node cluster, and tail
+# sampling / spanmetrics are noisier than they are useful when the
+# only traffic is local smoke tests.
+
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m,  memory: 96Mi }
+  limits:   { cpu: 500m, memory: 384Mi }
+
+config:
+  processors:
+    # Override the tail-sampling policies with a cheap "keep everything"
+    # rule so dev devs can see their own traces without waiting for the
+    # decision_wait window. The rest of the pipeline still runs the
+    # same processor chain.
+    tail_sampling:
+      decision_wait: 2s
+      num_traces: 5000
+      expected_new_traces_per_sec: 10
+      policies:
+        - name: keep-all
+          type: always_sample
+
+  service:
+    pipelines:
+      traces:
+        receivers:  [otlp]
+        processors: [memory_limiter, resource, tail_sampling, batch]
+        exporters:  [otlp/tempo, spanmetrics, debug]
+
+extraEnvs:
+  - name: OTEL_DEPLOYMENT_ENVIRONMENT
+    value: dev

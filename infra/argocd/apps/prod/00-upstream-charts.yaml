@@ -61,6 +61,39 @@ spec:
             chartVersion: "1.13.0"
             valuesPath: infra/helm/operators/flink/values.yaml
 
+          # kube-prometheus-stack — Prometheus + Alertmanager + Grafana
+          # + node-exporter + kube-state-metrics + the
+          # `monitoring.coreos.com/v1` CRDs every ServiceMonitor /
+          # PrometheusRule in the repo depends on. See
+          # `infra/helm/operators/kube-prometheus-stack/values.yaml`
+          # for the discovery / retention / remoteWrite-to-Mimir wiring.
+          - name: kube-prometheus-stack
+            namespace: observability
+            wave: "0"
+            chart: kube-prometheus-stack
+            chartRepo: https://prometheus-community.github.io/helm-charts
+            chartVersion: "65.5.0"
+            valuesPath: infra/helm/operators/kube-prometheus-stack/values.yaml
+
+          # Loki + Promtail — central log aggregation. See
+          # `infra/helm/operators/loki/values.yaml` for the
+          # SimpleScalable topology and S3 backend rationale.
+          - name: loki
+            namespace: observability
+            wave: "1"
+            chart: loki
+            chartRepo: https://grafana.github.io/helm-charts
+            chartVersion: "6.16.0"
+            valuesPath: infra/helm/operators/loki/values.yaml
+
+          - name: promtail
+            namespace: observability
+            wave: "2"
+            chart: promtail
+            chartRepo: https://grafana.github.io/helm-charts
+            chartVersion: "6.16.6"
+            valuesPath: infra/helm/operators/promtail/values.yaml
+
           - name: kite
             namespace: kite
             wave: "5"

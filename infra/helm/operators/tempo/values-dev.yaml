@@ -1,0 +1,31 @@
+# Dev overlay for grafana/tempo.
+#
+# Lima k3s has no MinIO. Switch backend to filesystem and shrink
+# retention so traces are useful for local debugging without
+# blowing the node\u2019s disk budget.
+
+tempo:
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+  retention: 72h
+  compactor:
+    compaction:
+      block_retention: 72h
+  metricsGenerator:
+    enabled: false      # The Prometheus instance in dev runs with
+                        # `--enable-feature=remote-write-receiver`
+                        # disabled; skip RED metrics generation
+                        # locally to keep the stack quiet.
+
+persistence:
+  enabled: true
+  size: 5Gi
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { cpu: 500m, memory: 1Gi }

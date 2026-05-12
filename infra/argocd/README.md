@@ -108,9 +108,11 @@ Argo CD reconciles in three waves to honour cross-release dependencies:
 |------|----------------------------------------------------------------------------------------|
 | -100 | `argocd` (self-managed)                                                                |
 | -50  | `openfoundry-root` (app-of-apps)                                                        |
-|  0   | Operators: cert-manager, cnpg, k8ssandra-operator, strimzi, rook-ceph (prod), flink (prod) |
+|  0   | Operators: cert-manager, cnpg, k8ssandra-operator, strimzi, rook-ceph (prod), flink (prod), kube-prometheus-stack |
+|  1   | loki                                                                                    |
+|  2   | promtail                                                                                |
 |  5   | kite                                                                                    |
-| 10   | Infra: postgres-clusters, cassandra-cluster, kafka-cluster, ceph-cluster (prod), lakekeeper, debezium, vespa (≥staging), trino (prod), spark-operator (prod), mimir (prod), observability (≥staging), local-registry (dev) |
+| 10   | Infra: postgres-clusters, cassandra-cluster, kafka-cluster, ceph-cluster (prod), lakekeeper, debezium, vespa (≥staging), trino (prod), spark-operator (prod), mimir (prod), observability, local-registry (dev) |
 | 15   | flink-jobs (prod), spark-jobs (prod)                                                    |
 | 20   | of-platform (gateway, identity, authz, tenancy)                                         |
 | 30   | of-data-engine, of-ontology, of-ml-aip, of-apps-ops (parallel)                         |
@@ -128,6 +130,9 @@ Mirrors the existing helmfile gates:
 | strimzi-operator   | ✅  | ✅      | ✅   |
 | rook-ceph-operator | ❌  | ❌      | ✅   |
 | flink-operator     | ❌  | ❌      | ✅   |
+| kube-prometheus-stack | ✅ | ✅    | ✅   |
+| loki               | ✅  | ✅      | ✅   |
+| promtail           | ✅  | ✅      | ✅   |
 | kite               | ✅  | ✅      | ✅   |
 | postgres-clusters  | ✅  | ✅      | ✅   |
 | cassandra-cluster  | ✅  | ✅      | ✅   |
@@ -141,7 +146,7 @@ Mirrors the existing helmfile gates:
 | spark-operator     | ❌  | ❌      | ✅   |
 | spark-jobs         | ❌  | ❌      | ✅   |
 | mimir              | ❌  | ❌      | ✅   |
-| observability      | ❌  | ✅      | ✅   |
+| observability      | ✅  | ✅      | ✅   |
 | local-registry     | ✅  | ❌      | ❌   |
 | of-platform        | ✅  | ✅      | ✅   |
 | of-data-engine     | ✅  | ✅      | ✅   |

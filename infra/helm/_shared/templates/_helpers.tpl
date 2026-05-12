@@ -313,12 +313,19 @@ spec:
 {{- end }}
 
 {{/* 
-Render a Service for one service.
+Render a Service for one service. Adds the `openfoundry.io/scrape`
+label so the catch-all ServiceMonitor in `infra/helm/infra/observability/`
+picks the Service up automatically. Disable per-service via
+`.service.service.scrape: false` in values.
 */}}
 {{- define "of-shared.service" -}}
 {{- $service := .service -}}
 {{- $ports := $service.ports | default (list) -}}
 {{- $serviceSpec := $service.service | default dict -}}
+{{- $scrape := true -}}
+{{- if hasKey $serviceSpec "scrape" -}}
+  {{- $scrape = $serviceSpec.scrape -}}
+{{- end -}}
 {{- if and (gt (len $ports) 0) (not (eq ($serviceSpec.enabled | default true) false)) }}
 apiVersion: v1
 kind: Service
@@ -326,6 +333,9 @@ metadata:
   name: {{ .name }}
   labels:
     {{- include "of-shared.labels" . | nindent 4 }}
+    {{- if $scrape }}
+    openfoundry.io/scrape: "true"
+    {{- end }}
   {{- with ($service.serviceAnnotations | default dict) }}
   annotations:
     {{- toYaml . | nindent 4 }}

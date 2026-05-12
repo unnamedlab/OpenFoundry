@@ -50,6 +50,12 @@ repositories:
     url: https://lakekeeper.github.io/lakekeeper-charts
   - name: kite
     url: https://kite-org.github.io/kite/
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+  - name: open-telemetry
+    url: https://open-telemetry.github.io/opentelemetry-helm-charts
 
 environments:
   default:   { values: [{ profile: dev     }] }
@@ -83,10 +89,20 @@ environments:
 {{- $cassandraClusterInstalled := true -}}
 {{- $kafkaClusterInstalled     := true -}}
 {{- $lakekeeperInstalled       := true -}}
-{{- /* observability ships PrometheusRule CRs — needs the Prometheus
-       Operator CRDs to exist. Gate off in dev until kube-prometheus-stack
-       is added as a dependency. */ -}}
-{{- $observabilityInstalled    := not $isDev -}}
+{{- /* kube-prometheus-stack ships the prometheus-operator CRDs that
+       every ServiceMonitor / PrometheusRule in this repo depends on.
+       Install in every profile so the in-tree `observability` chart
+       can render too. */ -}}
+{{- $kubePromStackInstalled    := true -}}
+{{- /* Loki + Promtail — central log aggregation. Loki goes
+       SimpleScalable in staging/prod and SingleBinary in dev (see
+       `operators/loki/values-dev.yaml` for the rationale). Promtail
+       is a DaemonSet in every profile. */ -}}
+{{- $lokiInstalled             := true -}}
+{{- $promtailInstalled         := $lokiInstalled -}}
+{{- /* observability ships PrometheusRule + ServiceMonitor CRs — needs
+       kube-prometheus-stack to be installed first. */ -}}
+{{- $observabilityInstalled    := $kubePromStackInstalled -}}
 
 releases:
   # ───────────────────────────────────────────────────────────────────
@@ -146,6 +162,60 @@ releases:
       - cert-manager/cert-manager
     values:
       - ./operators/flink/values.yaml
+
+  # kube-prometheus-stack — bundles prometheus-operator + Prometheus +
+  # Alertmanager + Grafana + node-exporter + kube-state-metrics. Owns
+  # the `monitoring.coreos.com/v1` CRDs that every ServiceMonitor /
+  # PrometheusRule in this repo depends on, so it has to land before
+  # any infra release that ships those CRs (debezium PodMonitor,
+  # cassandra ServiceMonitor, the in-tree `observability` chart, …).
+  - name: kube-prometheus-stack
+    namespace: observability
+    installed: {{ $kubePromStackInstalled }}
+    chart: prometheus-community/kube-prometheus-stack
+    version: "65.5.0"
+    needs:
+      - cert-manager/cert-manager
+    values:
+      - ./operators/kube-prometheus-stack/values.yaml
+      {{- if $isDev }}
+      - ./operators/kube-prometheus-stack/values-dev.yaml
+      {{- end }}
+
+  # Loki — central log store. SimpleScalable in staging/prod, single
+  # binary in dev (see `operators/loki/values-dev.yaml`). Lands in the
+  # same `observability` namespace as Prometheus / Grafana so the
+  # ServiceMonitors are picked up by the cluster-wide selector.
+  - name: loki
+    namespace: observability
+    installed: {{ $lokiInstalled }}
+    chart: grafana/loki
+    version: "6.16.0"
+    needs:
+      - observability/kube-prometheus-stack
+    values:
+      - ./operators/loki/values.yaml
+      {{- if $isDev }}
+      - ./operators/loki/values-dev.yaml
+      {{- end }}
+
+  # Promtail — DaemonSet that tails `/var/log/pods` on every node and
+  # ships to the Loki gateway above. Promtail is on long-term
+  # maintenance only (replaced upstream by Alloy) but is the smallest
+  # collector that does what we need; the OTel Collector planned for
+  # traces will eventually take over the slog pipeline too.
+  - name: promtail
+    namespace: observability
+    installed: {{ $promtailInstalled }}
+    chart: grafana/promtail
+    version: "6.16.6"
+    needs:
+      - observability/loki
+    values:
+      - ./operators/promtail/values.yaml
+      {{- if $isDev }}
+      - ./operators/promtail/values-dev.yaml
+      {{- end }}
 
   # ───────────────────────────────────────────────────────────────────
   # Layer 2 — Infrastructure CRs / clusters
@@ -277,6 +347,8 @@ releases:
     namespace: {{ $ns }}
     installed: {{ $observabilityInstalled }}
     chart: ./infra/observability
+    needs:
+      - observability/kube-prometheus-stack
     values:
       - ./infra/observability/values.yaml
 
