@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import {
   buildOntologyResourceRegistry,
+  createObjectTypeGroup,
+  deleteObjectTypeGroup,
   deriveOntologyArtifact,
   linkTypeCardinalityLabel,
   linkTypeEndpointLabels,
@@ -11,14 +13,17 @@ import {
   listInterfaces,
   listLinkTypes,
   listObjectTypes,
+  listObjectTypeGroups,
   listObjectViews,
   listProjectResources,
   listProjects,
   listSharedPropertyTypes,
+  updateObjectTypeGroup,
   type ActionType,
   type LinkType,
   type OntologyArtifact,
   type OntologyInterface,
+  type OntologyObjectTypeGroup,
   type ObjectType,
   type ObjectViewDefinition,
   type OntologyProject,
@@ -161,6 +166,19 @@ export function OntologyManagerPage() {
   const [shared, setShared] = useState<SharedPropertyType[]>([]);
   const [linkTypes, setLinkTypes] = useState<LinkType[]>([]);
   const [objectViews, setObjectViews] = useState<ObjectViewDefinition[]>([]);
+  const [objectTypeGroups, setObjectTypeGroups] = useState<OntologyObjectTypeGroup[]>([]);
+  const [groupSearch, setGroupSearch] = useState("");
+  const [groupDraft, setGroupDraft] = useState({
+    name: "",
+    display_name: "",
+    description: "",
+    visibility: "normal",
+    status: "active",
+    project_id: "",
+    object_type_ids: [] as string[],
+  });
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupSaving, setGroupSaving] = useState(false);
   const [projects, setProjects] = useState<OntologyProject[]>([]);
   const [projectResources, setProjectResources] = useState<
     OntologyProjectResourceBinding[]
@@ -203,12 +221,13 @@ export function OntologyManagerPage() {
   async function refresh() {
     setError("");
     try {
-      const [types, actions, ifs, sh, links, views, prs] = await Promise.all([
+      const [types, actions, ifs, sh, links, groups, views, prs] = await Promise.all([
         listObjectTypes({ per_page: 200, search: search || undefined }),
         listActionTypes({ per_page: 200, search: search || undefined }),
         listInterfaces({ per_page: 200, search: search || undefined }),
         listSharedPropertyTypes({ per_page: 200, search: search || undefined }),
         listLinkTypes({ per_page: 200 }),
+        listObjectTypeGroups({ per_page: 200, search: groupSearch || undefined }),
         listObjectViews({ per_page: 200 }),
         listProjects({ per_page: 200 }),
       ]);
@@ -217,6 +236,7 @@ export function OntologyManagerPage() {
       setInterfaces(ifs.data);
       setShared(sh.data);
       setLinkTypes(links.data);
+      setObjectTypeGroups(groups.data);
       setObjectViews(views.data);
       setProjects(prs.data);
       const primaryProject = prs.data[0];
@@ -268,6 +288,100 @@ export function OntologyManagerPage() {
     setLinkTypes((current) => current.filter((item) => item.id !== id));
   }
 
+  function resetGroupDraft() {
+    setEditingGroupId(null);
+    setGroupDraft({
+      name: "",
+      display_name: "",
+      description: "",
+      visibility: "normal",
+      status: "active",
+      project_id: projects[0]?.id || "",
+      object_type_ids: [],
+    });
+  }
+
+  function editGroup(group: OntologyObjectTypeGroup) {
+    setEditingGroupId(group.id);
+    setGroupDraft({
+      name: group.name,
+      display_name: group.display_name,
+      description: group.description || "",
+      visibility: group.visibility || "normal",
+      status: group.status || "active",
+      project_id: group.project_id || "",
+      object_type_ids: group.object_type_ids || [],
+    });
+  }
+
+  async function saveGroup() {
+    const name = groupDraft.name.trim() || slugifyGroupName(groupDraft.display_name);
+    if (!name) {
+      setError("Object type group API name is required.");
+      return;
+    }
+    setGroupSaving(true);
+    setError("");
+    try {
+      const body = {
+        name,
+        display_name: groupDraft.display_name.trim() || name,
+        description: groupDraft.description,
+        visibility: groupDraft.visibility,
+        status: groupDraft.status,
+        project_id: groupDraft.project_id || null,
+        object_type_ids: groupDraft.object_type_ids,
+      };
+      const previousGroup = editingGroupId
+        ? objectTypeGroups.find((group) => group.id === editingGroupId)
+        : null;
+      const saved = editingGroupId
+        ? await updateObjectTypeGroup(editingGroupId, body)
+        : await createObjectTypeGroup(body);
+      setObjectTypeGroups((current) => {
+        const index = current.findIndex((group) => group.id === saved.id);
+        if (index === -1) return [saved, ...current];
+        const next = [...current];
+        next[index] = saved;
+        return next;
+      });
+      setObjectTypes((current) =>
+        current.map((type) => {
+          const groupNames = new Set(type.group_names || []);
+          if (previousGroup?.name) groupNames.delete(previousGroup.name);
+          groupNames.delete(saved.name);
+          if (saved.object_type_ids.includes(type.id)) groupNames.add(saved.name);
+          return { ...type, group_names: Array.from(groupNames) };
+        }),
+      );
+      resetGroupDraft();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to save object type group");
+    } finally {
+      setGroupSaving(false);
+    }
+  }
+
+  async function removeGroup(group: OntologyObjectTypeGroup) {
+    if (typeof window !== "undefined" && !window.confirm(`Delete group "${group.display_name}"?`)) return;
+    setGroupSaving(true);
+    try {
+      await deleteObjectTypeGroup(group.id);
+      setObjectTypeGroups((current) => current.filter((item) => item.id !== group.id));
+      setObjectTypes((current) =>
+        current.map((type) => ({
+          ...type,
+          group_names: (type.group_names || []).filter((name) => name !== group.name),
+        })),
+      );
+      if (editingGroupId === group.id) resetGroupDraft();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to delete object type group");
+    } finally {
+      setGroupSaving(false);
+    }
+  }
+
   const ontologyRegistry = useMemo(
     () =>
       buildOntologyResourceRegistry({
@@ -279,6 +393,7 @@ export function OntologyManagerPage() {
         actionTypes,
         interfaces,
         sharedPropertyTypes: shared,
+        objectTypeGroups,
         objectViews,
       }),
     [
@@ -290,6 +405,7 @@ export function OntologyManagerPage() {
       actionTypes,
       interfaces,
       shared,
+      objectTypeGroups,
       objectViews,
     ],
   );
@@ -304,6 +420,7 @@ export function OntologyManagerPage() {
           interfaces,
           shared,
           linkTypes,
+          objectTypeGroups,
           objectViews,
           projects,
           projectResources,
@@ -316,6 +433,7 @@ export function OntologyManagerPage() {
       interfaces,
       shared,
       linkTypes,
+      objectTypeGroups,
       objectViews,
       projects,
       projectResources,
@@ -331,6 +449,16 @@ export function OntologyManagerPage() {
     [objectTypes, resourceFilter, projectResources],
   );
 
+  const visibleObjectTypeGroups = useMemo(() => {
+    const needle = groupSearch.trim().toLowerCase();
+    if (!needle) return objectTypeGroups;
+    return objectTypeGroups.filter((group) =>
+      [group.name, group.display_name, group.description, group.visibility, group.status]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
+    );
+  }, [objectTypeGroups, groupSearch]);
+
   const recentResources = useMemo(
     () =>
       buildRecentResources({
@@ -339,9 +467,10 @@ export function OntologyManagerPage() {
         interfaces,
         shared,
         linkTypes,
+        objectTypeGroups,
         objectViews,
       }),
-    [objectTypes, actionTypes, interfaces, shared, linkTypes, objectViews],
+    [objectTypes, actionTypes, interfaces, shared, linkTypes, objectTypeGroups, objectViews],
   );
 
   const searchResults = useMemo(
@@ -352,6 +481,7 @@ export function OntologyManagerPage() {
         interfaces,
         shared,
         linkTypes,
+        objectTypeGroups,
         objectViews,
         projects,
       }),
@@ -362,6 +492,7 @@ export function OntologyManagerPage() {
       interfaces,
       shared,
       linkTypes,
+      objectTypeGroups,
       objectViews,
       projects,
     ],
@@ -1139,15 +1270,144 @@ export function OntologyManagerPage() {
           )}
 
           {section === "groups" && (
-            <ShellPlaceholder
-              title="Object type groups"
-              description="Groups will collect object types for search, filtering, and Object Explorer discovery. The shell reserves the navigation surface while OMOV.10 adds CRUD and permissions."
-              bullets={[
-                "Favorites and curated groups appear on the Discover page.",
-                "Group filters will apply to object type lists and object-view generation.",
-                "Project-scoped permissions will gate group membership edits.",
-              ]}
-            />
+            <section
+              className="of-panel"
+              style={{
+                padding: 16,
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) 380px",
+                gap: 16,
+              }}
+            >
+              <div>
+                <p className="of-eyebrow">Object type groups ({visibleObjectTypeGroups.length})</p>
+                <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                  Create searchable, permissionable groups and assign object types for Ontology Manager and Object Explorer discovery.
+                </p>
+                <input
+                  className="of-input"
+                  value={groupSearch}
+                  onChange={(event) => setGroupSearch(event.target.value)}
+                  onBlur={() => void refresh()}
+                  placeholder="Search groups…"
+                  style={{ marginTop: 10 }}
+                />
+                <ul style={{ marginTop: 12, paddingLeft: 0, listStyle: "none" }}>
+                  {visibleObjectTypeGroups.map((group) => (
+                    <li
+                      key={group.id}
+                      style={{
+                        padding: 10,
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: 8,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                        <div>
+                          <strong>{group.display_name}</strong> · <code>{group.name}</code>
+                          {group.description ? (
+                            <p className="of-text-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                              {group.description}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="of-badge">{group.object_type_count} types</span>
+                      </div>
+                      <p className="of-text-muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                        {group.visibility || "normal"} · {group.status || "active"} · project {group.project_id || "unbound"}
+                      </p>
+                      <p className="of-text-muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                        Members: {objectTypes.filter((type) => group.object_type_ids.includes(type.id)).map((type) => type.display_name).join(", ") || "none"}
+                      </p>
+                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                        <button type="button" className="of-button" onClick={() => editGroup(group)} style={{ fontSize: 11 }}>
+                          Edit
+                        </button>
+                        <button type="button" className="of-button" onClick={() => void removeGroup(group)} disabled={groupSaving} style={{ fontSize: 11, color: "#fca5a5", borderColor: "#7f1d1d" }}>
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <article style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>{editingGroupId ? "Edit group" : "New group"}</h3>
+                <label style={{ fontSize: 12 }}>
+                  Display name
+                  <input className="of-input" value={groupDraft.display_name} onChange={(event) => setGroupDraft({ ...groupDraft, display_name: event.target.value })} style={{ marginTop: 4 }} />
+                </label>
+                <label style={{ fontSize: 12 }}>
+                  API name
+                  <input className="of-input" value={groupDraft.name} onChange={(event) => setGroupDraft({ ...groupDraft, name: event.target.value })} style={{ marginTop: 4, fontFamily: "var(--font-mono)" }} placeholder={slugifyGroupName(groupDraft.display_name) || "asset_group"} />
+                </label>
+                <label style={{ fontSize: 12 }}>
+                  Description
+                  <textarea className="of-input" rows={2} value={groupDraft.description} onChange={(event) => setGroupDraft({ ...groupDraft, description: event.target.value })} style={{ marginTop: 4 }} />
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <label style={{ fontSize: 12 }}>
+                    Visibility
+                    <select className="of-input" value={groupDraft.visibility} onChange={(event) => setGroupDraft({ ...groupDraft, visibility: event.target.value })} style={{ marginTop: 4 }}>
+                      <option value="normal">normal</option>
+                      <option value="hidden">hidden</option>
+                      <option value="experimental">experimental</option>
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 12 }}>
+                    Status
+                    <select className="of-input" value={groupDraft.status} onChange={(event) => setGroupDraft({ ...groupDraft, status: event.target.value })} style={{ marginTop: 4 }}>
+                      <option value="active">active</option>
+                      <option value="experimental">experimental</option>
+                      <option value="deprecated">deprecated</option>
+                    </select>
+                  </label>
+                </div>
+                <label style={{ fontSize: 12 }}>
+                  Permission project
+                  <select className="of-input" value={groupDraft.project_id} onChange={(event) => setGroupDraft({ ...groupDraft, project_id: event.target.value })} style={{ marginTop: 4 }}>
+                    <option value="">Unbound</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.display_name}</option>
+                    ))}
+                  </select>
+                </label>
+                <fieldset style={{ border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 10 }}>
+                  <legend style={{ padding: "0 4px", fontSize: 12 }}>Object types</legend>
+                  <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto" }}>
+                    {objectTypes.map((type) => {
+                      const checked = groupDraft.object_type_ids.includes(type.id);
+                      return (
+                        <label key={type.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) =>
+                              setGroupDraft((draft) => ({
+                                ...draft,
+                                object_type_ids: event.target.checked
+                                  ? [...draft.object_type_ids, type.id]
+                                  : draft.object_type_ids.filter((id) => id !== type.id),
+                              }))
+                            }
+                          />
+                          {type.display_name} <span className="of-text-muted">({type.name})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="of-button of-button--primary" onClick={() => void saveGroup()} disabled={groupSaving}>
+                    {groupSaving ? "Saving…" : editingGroupId ? "Update group" : "Create group"}
+                  </button>
+                  {editingGroupId ? (
+                    <button type="button" className="of-button" onClick={resetGroupDraft} disabled={groupSaving}>Cancel</button>
+                  ) : null}
+                </div>
+              </article>
+            </section>
           )}
 
           {section === "views" && (
@@ -1284,12 +1544,21 @@ export function OntologyManagerPage() {
   );
 }
 
+function slugifyGroupName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 interface ShellCountsInput {
   objectTypes: ObjectType[];
   actionTypes: ActionType[];
   interfaces: OntologyInterface[];
   shared: SharedPropertyType[];
   linkTypes: LinkType[];
+  objectTypeGroups: OntologyObjectTypeGroup[];
   objectViews: ObjectViewDefinition[];
   projects: OntologyProject[];
   projectResources: OntologyProjectResourceBinding[];
@@ -1311,7 +1580,7 @@ function shellNavCount(section: Section, input: ShellCountsInput) {
     case "shared":
       return input.shared.length;
     case "groups":
-      return 0;
+      return input.objectTypeGroups.length;
     case "views":
       return input.objectViews.length;
     case "projects":
@@ -1363,6 +1632,7 @@ function buildSearchResults(
       interfaces: input.interfaces,
       shared: input.shared,
       linkTypes: input.linkTypes,
+      objectTypeGroups: input.objectTypeGroups,
       objectViews: input.objectViews,
     }),
     ...input.projects.map((entry) =>
@@ -1434,6 +1704,16 @@ function buildResourceSearchResults(
         entry.name,
         "shared",
         entry.updated_at,
+      ),
+    ),
+    ...input.objectTypeGroups.map((entry) =>
+      resourceSearchResult(
+        entry.id,
+        "Object type group",
+        entry.display_name,
+        entry.name,
+        "groups",
+        entry.updated_at || "",
       ),
     ),
     ...input.objectViews.map((entry) =>

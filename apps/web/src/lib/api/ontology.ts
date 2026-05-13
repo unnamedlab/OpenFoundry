@@ -1407,6 +1407,20 @@ export interface OntologyObjectTypeGroupSummary {
   owner_id?: string;
   created_at?: string;
   updated_at?: string;
+  object_type_ids?: string[];
+  object_type_count?: number;
+  project_id?: string | null;
+}
+
+export interface OntologyObjectTypeGroup extends OntologyObjectTypeGroupSummary {
+  description: string;
+  visibility: string;
+  status: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+  object_type_ids: string[];
+  object_type_count: number;
 }
 
 export interface OntologyResourceRegistryEntry {
@@ -1635,8 +1649,8 @@ export function buildOntologyResourceRegistry(
         status: group.status,
         lastEditedAt: group.updated_at || group.created_at || null,
         lastEditedBy: group.owner_id || null,
-        usageCount: 0,
-        linkedResourceCount: 0,
+        usageCount: group.object_type_count ?? group.object_type_ids?.length ?? 0,
+        linkedResourceCount: group.object_type_count ?? group.object_type_ids?.length ?? 0,
       }),
     );
   }
@@ -3356,6 +3370,70 @@ export function listSharedPropertyTypes(params?: {
     page: number;
     per_page: number;
   }>(`/ontology/shared-property-types?${qs}`);
+}
+
+export function listObjectTypeGroups(params?: {
+  page?: number;
+  per_page?: number;
+  search?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.per_page) qs.set("per_page", String(params.per_page));
+  if (params?.search) qs.set("search", params.search);
+  return api.get<{
+    data: OntologyObjectTypeGroup[];
+    total: number;
+    page: number;
+    per_page: number;
+  }>(`/ontology/object-type-groups?${qs}`);
+}
+
+export function createObjectTypeGroup(body: {
+  name: string;
+  display_name?: string;
+  description?: string;
+  visibility?: string;
+  status?: string;
+  project_id?: string | null;
+  object_type_ids?: string[];
+}) {
+  return api.post<OntologyObjectTypeGroup>("/ontology/object-type-groups", body);
+}
+
+export function updateObjectTypeGroup(
+  id: string,
+  body: {
+    name?: string;
+    display_name?: string;
+    description?: string;
+    visibility?: string;
+    status?: string;
+    project_id?: string | null;
+    object_type_ids?: string[];
+  },
+) {
+  return api.patch<OntologyObjectTypeGroup>(
+    `/ontology/object-type-groups/${id}`,
+    body,
+  );
+}
+
+export function deleteObjectTypeGroup(id: string) {
+  return api.delete(`/ontology/object-type-groups/${id}`);
+}
+
+export function addObjectTypeToGroup(groupId: string, objectTypeId: string) {
+  return api.post<OntologyObjectTypeGroup>(
+    `/ontology/object-type-groups/${groupId}/object-types/${objectTypeId}`,
+    {},
+  );
+}
+
+export function removeObjectTypeFromGroup(groupId: string, objectTypeId: string) {
+  return api.delete(
+    `/ontology/object-type-groups/${groupId}/object-types/${objectTypeId}`,
+  );
 }
 
 export function listProjectResources(id: string) {

@@ -219,7 +219,7 @@ OpenFoundry canonical IDs.
   - For many-to-many links, support link-datasource mapping and key mapping.
   - Docs: [Link types overview](https://www.palantir.com/docs/foundry/object-link-types/link-types-overview), [Create a link type](https://www.palantir.com/docs/foundry/object-link-types/create-link-type/).
 
-- [ ] `OMOV.10` Object type groups (`P0`, `todo`)
+- [x] `OMOV.10` Object type groups (`P0`, `done`)
   - Create, edit, delete, search, and permission object type groups.
   - Add/remove groups from object type metadata.
   - Show groups in Ontology Manager search/filtering and Object Explorer home pages.

@@ -105,6 +105,21 @@ CREATE INDEX IF NOT EXISTS idx_properties_object_type ON properties(object_type_
 CREATE INDEX IF NOT EXISTS idx_link_types_source ON link_types(source_type_id);
 CREATE INDEX IF NOT EXISTS idx_link_types_target ON link_types(target_type_id);
 
+CREATE TABLE IF NOT EXISTS object_type_groups (
+    id              UUID PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    visibility      TEXT NOT NULL DEFAULT 'normal',
+    status          TEXT NOT NULL DEFAULT 'active',
+    owner_id        UUID NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_object_type_groups_search
+    ON object_type_groups(display_name, name);
+
 -- `object_instances` and `link_instances` are runtime state owned by the
 -- object database / query / actions path. They are intentionally excluded
 -- from `pg-schemas`; see the archived legacy DDL plus the Cassandra tables

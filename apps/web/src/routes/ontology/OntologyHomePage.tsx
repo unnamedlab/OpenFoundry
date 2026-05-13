@@ -46,6 +46,8 @@ function typeLabel(type: ObjectType) {
 }
 
 function deriveGroup(type: ObjectType): string {
+  const explicitGroup = type.group_names?.find((group) => group.trim());
+  if (explicitGroup) return explicitGroup;
   const display = typeLabel(type).trim();
   const bracket = /^\[([^\]]+)\]/.exec(display);
   if (bracket) return bracket[1].trim();
@@ -231,7 +233,13 @@ export function OntologyHomePage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return types;
     return types.filter((type) =>
-      [type.display_name, type.name, type.description, type.primary_key_property]
+      [
+        type.display_name,
+        type.name,
+        type.description,
+        type.primary_key_property,
+        ...(type.group_names || []),
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle)),
     );

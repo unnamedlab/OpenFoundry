@@ -441,6 +441,21 @@ describe("ontology resource registry helpers", () => {
       ],
       interfaces: [],
       sharedPropertyTypes: [],
+      objectTypeGroups: [
+        {
+          id: "group-1",
+          name: "trail_assets",
+          display_name: "Trail assets",
+          description: "Trail operating model",
+          visibility: "normal",
+          status: "active",
+          owner_id: "owner-1",
+          object_type_ids: ["Trail"],
+          object_type_count: 1,
+          created_at: now,
+          updated_at: now,
+        },
+      ],
       objectViews: [
         {
           id: "view-1",
@@ -476,6 +491,12 @@ describe("ontology resource registry helpers", () => {
           resource_id: "Trail:dataset-1",
           display_name: "Trail datasource",
           backing_datasource_id: "dataset-1",
+        }),
+        expect.objectContaining({
+          resource_kind: "object_type_group",
+          resource_id: "group-1",
+          usage_count: 1,
+          linked_resource_count: 1,
         }),
         expect.objectContaining({
           resource_kind: "core_object_view",
