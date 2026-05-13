@@ -490,34 +490,84 @@ type CreatePropertyRequest struct {
 	InlineEditConfig any    `json:"inline_edit_config,omitempty"`
 }
 
+// ObjectTypeGroup mirrors `ontology_schema.object_type_groups` rows and
+// derives membership from object_types.group_names.
+type ObjectTypeGroup struct {
+	ID              uuid.UUID   `json:"id"`
+	Name            string      `json:"name"`
+	DisplayName     string      `json:"display_name"`
+	Description     string      `json:"description"`
+	Visibility      string      `json:"visibility"`
+	Status          string      `json:"status"`
+	OwnerID         uuid.UUID   `json:"owner_id"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+	ObjectTypeIDs   []uuid.UUID `json:"object_type_ids"`
+	ObjectTypeCount int         `json:"object_type_count"`
+	ProjectID       *uuid.UUID  `json:"project_id,omitempty"`
+}
+
+type CreateObjectTypeGroupRequest struct {
+	ID            *uuid.UUID  `json:"id,omitempty"`
+	Name          string      `json:"name"`
+	DisplayName   string      `json:"display_name"`
+	Description   string      `json:"description,omitempty"`
+	Visibility    string      `json:"visibility,omitempty"`
+	Status        string      `json:"status,omitempty"`
+	ProjectID     *uuid.UUID  `json:"project_id,omitempty"`
+	ObjectTypeIDs []uuid.UUID `json:"object_type_ids,omitempty"`
+}
+
+type UpdateObjectTypeGroupRequest struct {
+	Name          *string      `json:"name,omitempty"`
+	DisplayName   *string      `json:"display_name,omitempty"`
+	Description   *string      `json:"description,omitempty"`
+	Visibility    *string      `json:"visibility,omitempty"`
+	Status        *string      `json:"status,omitempty"`
+	ProjectID     *uuid.UUID   `json:"project_id,omitempty"`
+	ObjectTypeIDs *[]uuid.UUID `json:"object_type_ids,omitempty"`
+}
+
 // LinkType mirrors `ontology_schema.link_types` rows.
 type LinkType struct {
-	ID           uuid.UUID `json:"id"`
-	Name         string    `json:"name"`
-	DisplayName  string    `json:"display_name"`
-	Description  string    `json:"description"`
-	SourceTypeID uuid.UUID `json:"source_type_id"`
-	TargetTypeID uuid.UUID `json:"target_type_id"`
-	Cardinality  string    `json:"cardinality"`
-	OwnerID      uuid.UUID `json:"owner_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                    uuid.UUID      `json:"id"`
+	Name                  string         `json:"name"`
+	DisplayName           string         `json:"display_name"`
+	Description           string         `json:"description"`
+	SourceTypeID          uuid.UUID      `json:"source_type_id"`
+	TargetTypeID          uuid.UUID      `json:"target_type_id"`
+	Cardinality           string         `json:"cardinality"`
+	Label                 string         `json:"label"`
+	ReverseLabel          string         `json:"reverse_label"`
+	Visibility            string         `json:"visibility"`
+	LinkDatasourceMapping map[string]any `json:"link_datasource_mapping"`
+	OwnerID               uuid.UUID      `json:"owner_id"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
 }
 
 type CreateLinkTypeRequest struct {
-	ID           *uuid.UUID `json:"id,omitempty"`
-	Name         string     `json:"name"`
-	DisplayName  string     `json:"display_name"`
-	Description  string     `json:"description,omitempty"`
-	SourceTypeID uuid.UUID  `json:"source_type_id"`
-	TargetTypeID uuid.UUID  `json:"target_type_id"`
-	Cardinality  string     `json:"cardinality,omitempty"`
+	ID                    *uuid.UUID     `json:"id,omitempty"`
+	Name                  string         `json:"name"`
+	DisplayName           string         `json:"display_name"`
+	Description           string         `json:"description,omitempty"`
+	SourceTypeID          uuid.UUID      `json:"source_type_id"`
+	TargetTypeID          uuid.UUID      `json:"target_type_id"`
+	Cardinality           string         `json:"cardinality,omitempty"`
+	Label                 string         `json:"label,omitempty"`
+	ReverseLabel          string         `json:"reverse_label,omitempty"`
+	Visibility            string         `json:"visibility,omitempty"`
+	LinkDatasourceMapping map[string]any `json:"link_datasource_mapping,omitempty"`
 }
 
 type UpdateLinkTypeRequest struct {
-	DisplayName *string `json:"display_name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Cardinality *string `json:"cardinality,omitempty"`
+	DisplayName           *string        `json:"display_name,omitempty"`
+	Description           *string        `json:"description,omitempty"`
+	Cardinality           *string        `json:"cardinality,omitempty"`
+	Label                 *string        `json:"label,omitempty"`
+	ReverseLabel          *string        `json:"reverse_label,omitempty"`
+	Visibility            *string        `json:"visibility,omitempty"`
+	LinkDatasourceMapping map[string]any `json:"link_datasource_mapping,omitempty"`
 }
 
 // OntologyInterface mirrors `ontology_schema.ontology_interfaces` rows.

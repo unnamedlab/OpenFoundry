@@ -77,6 +77,8 @@ func pathUUID(r *http.Request, key string) (uuid.UUID, error) {
 
 // ── Endpoints ────────────────────────────────────────────────────────────
 
+const objectTypeColumns = `id, name, display_name, plural_display_name, description, primary_key_property, title_property, icon, color, status, visibility, group_names, object_display_preferences, owner_id, created_at, updated_at`
+
 // CreateObjectType mirrors `pub async fn create_object_type`. Body
 // fields default verbatim with the Rust source: empty
 // `display_name` falls back to `name`; missing `description`
@@ -108,11 +110,11 @@ func CreateObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 		}
 
 		row := state.DB.QueryRow(r.Context(),
-			`INSERT INTO object_types (id, name, display_name, description, primary_key_property, icon, color, owner_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id, name, display_name, description, primary_key_property, icon, color, owner_id, created_at, updated_at`,
-			id, body.Name, displayName, description,
-			body.PrimaryKeyProperty, body.Icon, body.Color,
+			`INSERT INTO object_types (id, name, display_name, plural_display_name, description, primary_key_property, title_property, icon, color, status, visibility, group_names, object_display_preferences, owner_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 'active'), COALESCE($11, 'normal'), COALESCE($12, '{}'), COALESCE($13, '{}'::jsonb), $14)
+               RETURNING `+objectTypeColumns+``,
+			id, body.Name, displayName, body.PluralDisplayName, description,
+			body.PrimaryKeyProperty, body.TitleProperty, body.Icon, body.Color, body.Status, body.Visibility, body.GroupNames, body.ObjectDisplayPreferences,
 			claims.Sub,
 		)
 		ot, err := scanObjectType(row)
@@ -162,7 +164,7 @@ func ListObjectTypes(state *ontologykernel.AppState) http.HandlerFunc {
 		searchPattern := "%" + searchValue + "%"
 
 		rows, err := state.DB.Query(r.Context(),
-			`SELECT id, name, display_name, description, primary_key_property, icon, color, owner_id, created_at, updated_at
+			`SELECT `+objectTypeColumns+`
                FROM object_types
                WHERE name ILIKE $1 OR display_name ILIKE $1
                ORDER BY created_at DESC`,
@@ -251,7 +253,7 @@ func GetObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 			return
 		}
 		row := state.DB.QueryRow(r.Context(),
-			`SELECT id, name, display_name, description, primary_key_property, icon, color, owner_id, created_at, updated_at
+			`SELECT `+objectTypeColumns+`
                FROM object_types WHERE id = $1`,
 			id,
 		)
@@ -306,7 +308,7 @@ func UpdateObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 		}
 
 		row := state.DB.QueryRow(r.Context(),
-			`SELECT id, name, display_name, description, primary_key_property, icon, color, owner_id, created_at, updated_at
+			`SELECT `+objectTypeColumns+`
                FROM object_types WHERE id = $1`,
 			id,
 		)
@@ -331,15 +333,22 @@ func UpdateObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 
 		updateRow := state.DB.QueryRow(r.Context(),
 			`UPDATE object_types SET
-                   display_name = COALESCE($2, display_name),
-                   description = COALESCE($3, description),
-                   primary_key_property = COALESCE($4, primary_key_property),
-                   icon = COALESCE($5, icon),
-                   color = COALESCE($6, color),
+                   name = COALESCE($2, name),
+                   display_name = COALESCE($3, display_name),
+                   plural_display_name = COALESCE($4, plural_display_name),
+                   description = COALESCE($5, description),
+                   primary_key_property = COALESCE($6, primary_key_property),
+                   title_property = COALESCE($7, title_property),
+                   icon = COALESCE($8, icon),
+                   color = COALESCE($9, color),
+                   status = COALESCE($10, status),
+                   visibility = COALESCE($11, visibility),
+                   group_names = COALESCE($12, group_names),
+                   object_display_preferences = COALESCE($13, object_display_preferences),
                    updated_at = NOW()
                WHERE id = $1
-               RETURNING id, name, display_name, description, primary_key_property, icon, color, owner_id, created_at, updated_at`,
-			id, body.DisplayName, body.Description, body.PrimaryKeyProperty, body.Icon, body.Color,
+               RETURNING `+objectTypeColumns+``,
+			id, body.Name, body.DisplayName, body.PluralDisplayName, body.Description, body.PrimaryKeyProperty, body.TitleProperty, body.Icon, body.Color, body.Status, body.Visibility, body.GroupNames, body.ObjectDisplayPreferences,
 		)
 		ot, err := scanObjectType(updateRow)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -370,7 +379,7 @@ func DeleteObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 			return
 		}
 		row := state.DB.QueryRow(r.Context(),
-			`SELECT id, name, display_name, description, primary_key_property, icon, color, owner_id, created_at, updated_at
+			`SELECT `+objectTypeColumns+`
                FROM object_types WHERE id = $1`,
 			id,
 		)
@@ -409,8 +418,8 @@ func DeleteObjectType(state *ontologykernel.AppState) http.HandlerFunc {
 func scanObjectType(row interface{ Scan(...any) error }) (models.ObjectType, error) {
 	var t models.ObjectType
 	err := row.Scan(
-		&t.ID, &t.Name, &t.DisplayName, &t.Description,
-		&t.PrimaryKeyProperty, &t.Icon, &t.Color,
+		&t.ID, &t.Name, &t.DisplayName, &t.PluralDisplayName, &t.Description,
+		&t.PrimaryKeyProperty, &t.TitleProperty, &t.Icon, &t.Color, &t.Status, &t.Visibility, &t.GroupNames, &t.ObjectDisplayPreferences,
 		&t.OwnerID, &t.CreatedAt, &t.UpdatedAt,
 	)
 	models.EnrichObjectTypeMetadata(&t, nil)

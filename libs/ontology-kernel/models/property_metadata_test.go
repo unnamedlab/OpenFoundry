@@ -19,8 +19,11 @@ func TestEnrichPropertyMetadataCoversBaseTypes(t *testing.T) {
 		arrayAllowed bool
 	}{
 		{"string", "string", "primitive", true},
-		{"long", "integer", "numeric", true},
-		{"decimal", "float", "numeric", true},
+		{"long", "long", "numeric", true},
+		{"decimal", "decimal", "numeric", true},
+		{"time", "time", "temporal", true},
+		{"geohash", "geohash", "geospatial", true},
+		{"binary", "binary", "file", false},
 		{"boolean", "boolean", "primitive", true},
 		{"date", "date", "temporal", true},
 		{"timestamp", "timestamp", "temporal", true},
@@ -78,10 +81,36 @@ func TestPropertyJSONShapeIncludesMetadataWhenEnriched(t *testing.T) {
 	for _, key := range []string{
 		"property_type", "base_type", "type_family", "type_display_name",
 		"value_shape", "is_array", "array_allowed", "searchable", "filterable",
-		"sortable", "aggregatable", "semantic_hints",
+		"sortable", "aggregatable", "primary_key_eligible", "title_key_eligible",
+		"formatting_eligible", "object_security_eligible", "prominent_eligible",
+		"display_mode", "value_formatting", "conditional_formatting", "reducer_metadata",
+		"semantic_hints",
 	} {
 		assert.Contains(t, view, key)
 	}
 	assert.Equal(t, "geoshape", view["base_type"])
 	assert.Equal(t, "geospatial", view["type_family"])
+	assert.Equal(t, "normal", view["display_mode"])
+}
+
+func TestPropertyTypeMetadataEligibilityFlags(t *testing.T) {
+	t.Parallel()
+
+	stringMeta := PropertyTypeMetadataFor("string")
+	assert.True(t, stringMeta.PrimaryKeyEligible)
+	assert.True(t, stringMeta.TitleKeyEligible)
+	assert.True(t, stringMeta.ObjectSecurityEligible)
+	assert.True(t, stringMeta.ProminentEligible)
+
+	decimalMeta := PropertyTypeMetadataFor("decimal")
+	assert.False(t, decimalMeta.PrimaryKeyEligible)
+	assert.True(t, decimalMeta.Aggregatable)
+	assert.True(t, decimalMeta.FormattingEligible)
+
+	arrayMeta := PropertyTypeMetadataFor("array<string>")
+	require.NotNil(t, arrayMeta.ArrayItemType)
+	assert.Equal(t, "array", arrayMeta.BaseType)
+	assert.False(t, arrayMeta.PrimaryKeyEligible)
+	assert.False(t, arrayMeta.TitleKeyEligible)
+	assert.False(t, arrayMeta.ObjectSecurityEligible)
 }

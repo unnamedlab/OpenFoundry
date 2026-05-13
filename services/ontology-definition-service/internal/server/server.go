@@ -64,6 +64,15 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/links", h.CreateLinkType)
 		api.Get("/links/{id}", h.GetLinkType)
 		api.Patch("/links/{id}", h.UpdateLinkType)
+		api.Delete("/links/{id}", h.DeleteLinkType)
+
+		api.Get("/object-type-groups", h.ListObjectTypeGroups)
+		api.Post("/object-type-groups", h.CreateObjectTypeGroup)
+		api.Get("/object-type-groups/{id}", h.GetObjectTypeGroup)
+		api.Patch("/object-type-groups/{id}", h.UpdateObjectTypeGroup)
+		api.Delete("/object-type-groups/{id}", h.DeleteObjectTypeGroup)
+		api.Post("/object-type-groups/{id}/object-types/{objectTypeId}", h.AddObjectTypeToGroup)
+		api.Delete("/object-type-groups/{id}/object-types/{objectTypeId}", h.RemoveObjectTypeFromGroup)
 
 		// Catalog reads consumed by Ontology Manager on first paint.
 		// Both endpoints accept `page`, `per_page` and `search`; they

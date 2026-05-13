@@ -6,18 +6,23 @@ import "strings"
 // that Workshop, Pipeline Builder, object queries, and inline edits need
 // to reason about a property without hardcoding raw property_type strings.
 type PropertyTypeMetadata struct {
-	BaseType        string
-	TypeFamily      string
-	TypeDisplayName string
-	ValueShape      string
-	IsArray         bool
-	ArrayItemType   *string
-	ArrayAllowed    bool
-	Searchable      bool
-	Filterable      bool
-	Sortable        bool
-	Aggregatable    bool
-	SemanticHints   []string
+	BaseType               string
+	TypeFamily             string
+	TypeDisplayName        string
+	ValueShape             string
+	IsArray                bool
+	ArrayItemType          *string
+	ArrayAllowed           bool
+	Searchable             bool
+	Filterable             bool
+	Sortable               bool
+	Aggregatable           bool
+	PrimaryKeyEligible     bool
+	TitleKeyEligible       bool
+	FormattingEligible     bool
+	ObjectSecurityEligible bool
+	ProminentEligible      bool
+	SemanticHints          []string
 }
 
 // EnrichPropertyMetadata attaches canonical base type metadata to a
@@ -38,7 +43,31 @@ func EnrichPropertyMetadata(property *Property) {
 	property.Filterable = metadata.Filterable
 	property.Sortable = metadata.Sortable
 	property.Aggregatable = metadata.Aggregatable
+	property.PrimaryKeyEligible = metadata.PrimaryKeyEligible
+	property.TitleKeyEligible = metadata.TitleKeyEligible
+	property.FormattingEligible = metadata.FormattingEligible
+	property.ObjectSecurityEligible = metadata.ObjectSecurityEligible
+	property.ProminentEligible = metadata.ProminentEligible
 	property.SemanticHints = append([]string(nil), metadata.SemanticHints...)
+	EnrichPropertyPresentationMetadata(property)
+}
+
+func EnrichPropertyPresentationMetadata(property *Property) {
+	if property == nil {
+		return
+	}
+	if strings.TrimSpace(property.DisplayMode) == "" {
+		property.DisplayMode = "normal"
+	}
+	if len(property.ValueFormatting) == 0 {
+		property.ValueFormatting = []byte(`{}`)
+	}
+	if len(property.ConditionalFormatting) == 0 {
+		property.ConditionalFormatting = []byte(`[]`)
+	}
+	if len(property.ReducerMetadata) == 0 {
+		property.ReducerMetadata = []byte(`{}`)
+	}
 }
 
 func EnrichSharedPropertyTypeMetadata(property *SharedPropertyType) {
@@ -57,6 +86,11 @@ func EnrichSharedPropertyTypeMetadata(property *SharedPropertyType) {
 	property.Filterable = metadata.Filterable
 	property.Sortable = metadata.Sortable
 	property.Aggregatable = metadata.Aggregatable
+	property.PrimaryKeyEligible = metadata.PrimaryKeyEligible
+	property.TitleKeyEligible = metadata.TitleKeyEligible
+	property.FormattingEligible = metadata.FormattingEligible
+	property.ObjectSecurityEligible = metadata.ObjectSecurityEligible
+	property.ProminentEligible = metadata.ProminentEligible
 	property.SemanticHints = append([]string(nil), metadata.SemanticHints...)
 }
 
@@ -76,6 +110,11 @@ func EnrichInterfacePropertyMetadata(property *InterfaceProperty) {
 	property.Filterable = metadata.Filterable
 	property.Sortable = metadata.Sortable
 	property.Aggregatable = metadata.Aggregatable
+	property.PrimaryKeyEligible = metadata.PrimaryKeyEligible
+	property.TitleKeyEligible = metadata.TitleKeyEligible
+	property.FormattingEligible = metadata.FormattingEligible
+	property.ObjectSecurityEligible = metadata.ObjectSecurityEligible
+	property.ProminentEligible = metadata.ProminentEligible
 	property.SemanticHints = append([]string(nil), metadata.SemanticHints...)
 }
 
@@ -103,6 +142,10 @@ func PropertyTypeMetadataFor(propertyType string) PropertyTypeMetadata {
 		metadata.Filterable = true
 		metadata.Sortable = false
 		metadata.Aggregatable = false
+		metadata.PrimaryKeyEligible = false
+		metadata.TitleKeyEligible = false
+		metadata.ObjectSecurityEligible = false
+		metadata.ProminentEligible = metadata.Filterable
 		metadata.SemanticHints = uniqueNonEmptyStrings(append([]string{"array", itemHint}, metadata.SemanticHints...))
 	}
 	return metadata
@@ -120,14 +163,20 @@ func CanonicalPropertyBaseType(propertyType string) string {
 	switch {
 	case kind == "string" || kind == "str" || kind == "text":
 		return "string"
-	case kind == "integer" || kind == "int" || kind == "long" || kind == "short" || kind == "byte":
+	case kind == "integer" || kind == "int" || kind == "short" || kind == "byte":
 		return "integer"
-	case kind == "float" || kind == "double" || kind == "decimal" || kind == "number" || kind == "numeric":
+	case kind == "long":
+		return "long"
+	case kind == "float" || kind == "double":
 		return "float"
+	case kind == "decimal" || kind == "number" || kind == "numeric":
+		return "decimal"
 	case kind == "boolean" || kind == "bool":
 		return "boolean"
 	case kind == "date":
 		return "date"
+	case kind == "time":
+		return "time"
 	case kind == "timestamp" || kind == "datetime":
 		return "timestamp"
 	case kind == "json":
@@ -136,16 +185,20 @@ func CanonicalPropertyBaseType(propertyType string) string {
 		return "array"
 	case kind == "vector" || kind == "embedding":
 		return "vector"
-	case kind == "reference" || kind == "object_reference":
+	case kind == "reference" || kind == "object_reference" || kind == "object_ref":
 		return "reference"
+	case kind == "geohash":
+		return "geohash"
 	case isGeoPointType(kind):
 		return "geopoint"
 	case isGeoShapeType(kind):
 		return "geoshape"
 	case kind == "media_reference" || kind == "media" || kind == "mediaref":
 		return "media_reference"
-	case kind == "attachment" || kind == "file":
+	case kind == "attachment" || kind == "file" || kind == "file_reference":
 		return "attachment"
+	case kind == "binary" || kind == "bytes":
+		return "binary"
 	case kind == "time_series" || kind == "timeseries" || kind == "time_series_reference":
 		return "time_series"
 	case kind == "struct":
@@ -158,54 +211,69 @@ func CanonicalPropertyBaseType(propertyType string) string {
 func metadataForBaseType(base string) PropertyTypeMetadata {
 	switch base {
 	case "string":
-		return propertyTypeMetadata(base, "primitive", "String", "string", true, true, true, false, true, "string")
+		return propertyTypeMetadata(base, "primitive", "String", "string", true, true, true, false, true, true, true, true, true, true, "string")
 	case "integer":
-		return propertyTypeMetadata(base, "numeric", "Integer", "integer", true, true, true, true, false, "numeric")
+		return propertyTypeMetadata(base, "numeric", "Integer", "integer", true, true, true, true, false, true, false, true, true, true, "numeric")
+	case "long":
+		return propertyTypeMetadata(base, "numeric", "Long", "integer", true, true, true, true, false, true, false, true, true, true, "numeric")
 	case "float":
-		return propertyTypeMetadata(base, "numeric", "Float", "number", true, true, true, true, false, "numeric")
+		return propertyTypeMetadata(base, "numeric", "Float", "number", true, true, true, true, false, false, false, true, false, true, "numeric")
+	case "decimal":
+		return propertyTypeMetadata(base, "numeric", "Decimal", "decimal", true, true, true, true, false, false, false, true, false, true, "numeric", "decimal")
 	case "boolean":
-		return propertyTypeMetadata(base, "primitive", "Boolean", "boolean", true, true, true, false, false, "boolean")
+		return propertyTypeMetadata(base, "primitive", "Boolean", "boolean", true, true, true, false, false, false, false, true, true, true, "boolean")
 	case "date":
-		return propertyTypeMetadata(base, "temporal", "Date", "date-string", true, true, true, false, false, "temporal")
+		return propertyTypeMetadata(base, "temporal", "Date", "date-string", true, true, true, false, false, false, false, true, true, true, "temporal")
+	case "time":
+		return propertyTypeMetadata(base, "temporal", "Time", "time-string", true, true, true, false, false, false, false, true, true, true, "temporal", "time")
 	case "timestamp":
-		return propertyTypeMetadata(base, "temporal", "Timestamp", "timestamp-string", true, true, true, false, false, "temporal")
+		return propertyTypeMetadata(base, "temporal", "Timestamp", "timestamp-string", true, true, true, false, false, false, false, true, true, true, "temporal")
 	case "json":
-		return propertyTypeMetadata(base, "structured", "JSON", "json", true, false, false, false, false, "json")
+		return propertyTypeMetadata(base, "structured", "JSON", "json", true, false, false, false, false, false, false, true, false, false, "json")
 	case "array":
-		return propertyTypeMetadata(base, "collection", "Array", "array", true, true, false, false, false, "array")
+		return propertyTypeMetadata(base, "collection", "Array", "array", true, true, false, false, false, false, false, true, false, false, "array")
 	case "vector":
-		return propertyTypeMetadata(base, "semantic", "Vector", "numeric-array", false, false, false, false, false, "vector", "embedding")
+		return propertyTypeMetadata(base, "semantic", "Vector", "numeric-array", false, false, false, false, false, false, false, false, false, false, "vector", "embedding")
 	case "reference":
-		return propertyTypeMetadata(base, "reference", "Object reference", "string", true, true, true, false, true, "reference")
+		return propertyTypeMetadata(base, "reference", "Object reference", "string", true, true, true, false, true, false, true, true, true, true, "reference", "object_reference")
+	case "geohash":
+		return propertyTypeMetadata(base, "geospatial", "Geohash", "string", true, true, true, false, true, false, true, true, true, true, "geospatial", "geohash")
 	case "geopoint":
-		return propertyTypeMetadata(base, "geospatial", "Geopoint", "lat-lon-object", true, true, false, false, false, "geospatial", "point")
+		return propertyTypeMetadata(base, "geospatial", "Geopoint", "lat-lon-object", true, true, false, false, false, false, false, true, false, true, "geospatial", "point")
 	case "geoshape":
-		return propertyTypeMetadata(base, "geospatial", "Geoshape", "geojson-object-or-string", true, true, false, false, false, "geospatial", "shape")
+		return propertyTypeMetadata(base, "geospatial", "Geoshape", "geojson-object-or-string", true, true, false, false, false, false, false, true, false, true, "geospatial", "shape")
 	case "media_reference":
-		return propertyTypeMetadata(base, "media", "Media reference", "media-reference", true, true, false, false, false, "media")
+		return propertyTypeMetadata(base, "media", "Media reference", "media-reference", true, true, false, false, false, false, false, true, false, true, "media")
 	case "attachment":
-		return propertyTypeMetadata(base, "file", "Attachment", "attachment-reference", true, true, false, false, false, "attachment")
+		return propertyTypeMetadata(base, "file", "Attachment", "attachment-reference", true, true, false, false, false, false, false, true, false, true, "attachment", "file")
+	case "binary":
+		return propertyTypeMetadata(base, "file", "Binary", "base64-string", false, false, false, false, false, false, false, false, false, false, "binary", "file")
 	case "time_series":
-		return propertyTypeMetadata(base, "timeseries", "Time series", "time-series", false, false, false, false, false, "time_series", "temporal")
+		return propertyTypeMetadata(base, "timeseries", "Time series", "time-series", false, false, false, false, false, false, false, false, false, false, "time_series", "temporal")
 	case "struct":
-		return propertyTypeMetadata(base, "structured", "Struct", "object", true, false, false, false, false, "struct")
+		return propertyTypeMetadata(base, "structured", "Struct", "object", true, false, false, false, false, false, false, true, false, false, "struct")
 	default:
-		return propertyTypeMetadata(base, "unknown", strings.TrimSpace(base), "unknown", true, false, false, false, false)
+		return propertyTypeMetadata(base, "unknown", strings.TrimSpace(base), "unknown", true, false, false, false, false, false, false, false, false, false)
 	}
 }
 
-func propertyTypeMetadata(base, family, displayName, valueShape string, arrayAllowed, filterable, sortable, aggregatable, searchable bool, hints ...string) PropertyTypeMetadata {
+func propertyTypeMetadata(base, family, displayName, valueShape string, arrayAllowed, filterable, sortable, aggregatable, searchable, primaryKeyEligible, titleKeyEligible, formattingEligible, objectSecurityEligible, prominentEligible bool, hints ...string) PropertyTypeMetadata {
 	return PropertyTypeMetadata{
-		BaseType:        base,
-		TypeFamily:      family,
-		TypeDisplayName: displayName,
-		ValueShape:      valueShape,
-		ArrayAllowed:    arrayAllowed,
-		Searchable:      searchable,
-		Filterable:      filterable,
-		Sortable:        sortable,
-		Aggregatable:    aggregatable,
-		SemanticHints:   uniqueNonEmptyStrings(hints),
+		BaseType:               base,
+		TypeFamily:             family,
+		TypeDisplayName:        displayName,
+		ValueShape:             valueShape,
+		ArrayAllowed:           arrayAllowed,
+		Searchable:             searchable,
+		Filterable:             filterable,
+		Sortable:               sortable,
+		Aggregatable:           aggregatable,
+		PrimaryKeyEligible:     primaryKeyEligible,
+		TitleKeyEligible:       titleKeyEligible,
+		FormattingEligible:     formattingEligible,
+		ObjectSecurityEligible: objectSecurityEligible,
+		ProminentEligible:      prominentEligible,
+		SemanticHints:          uniqueNonEmptyStrings(hints),
 	}
 }
 

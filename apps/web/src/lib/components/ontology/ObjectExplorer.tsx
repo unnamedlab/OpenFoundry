@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { listObjects, listProperties, queryObjects, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
+import { formatPropertyValue, listObjects, listProperties, objectViewVisibleProperties, propertyConditionalStyle, queryObjects, type ObjectInstance, type ObjectType, type Property } from '@/lib/api/ontology';
 import { InlineEditCell } from './InlineEditCell';
 import { ObjectCard } from './ObjectCard';
 
@@ -90,7 +90,7 @@ export function ObjectExplorer({
     onObjectUpdated?.(next);
   }
 
-  const visibleProperties = properties.slice(0, 5);
+  const visibleProperties = objectViewVisibleProperties(properties).slice(0, 5);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, color: '#e2e8f0' }}>
@@ -166,7 +166,9 @@ export function ObjectExplorer({
                           onUpdated={(value) => updateObjectProperty(o, p, value)}
                         />
                       ) : (
-                        String(o.properties?.[p.name] ?? '')
+                        <span style={propertyConditionalStyle(p, o.properties?.[p.name])}>
+                          {formatPropertyValue(p, o.properties?.[p.name])}
+                        </span>
                       )}
                     </td>
                   ))}

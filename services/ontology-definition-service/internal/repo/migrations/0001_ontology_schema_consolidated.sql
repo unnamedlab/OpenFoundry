@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS object_types (
     display_name TEXT NOT NULL,
     plural_display_name TEXT,
     description TEXT NOT NULL DEFAULT '',
+    title_property TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    visibility TEXT NOT NULL DEFAULT 'normal',
+    group_names TEXT[] NOT NULL DEFAULT '{}',
+    object_display_preferences JSONB NOT NULL DEFAULT '{}',
     primary_key_property TEXT,
     icon        TEXT,
     color       TEXT,
@@ -47,6 +52,11 @@ CREATE TABLE IF NOT EXISTS object_types (
 
 ALTER TABLE object_types
     ADD COLUMN IF NOT EXISTS plural_display_name TEXT,
+    ADD COLUMN IF NOT EXISTS title_property TEXT,
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+    ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'normal',
+    ADD COLUMN IF NOT EXISTS group_names TEXT[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS object_display_preferences JSONB NOT NULL DEFAULT '{}',
     ADD COLUMN IF NOT EXISTS editable BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS backing_dataset_id UUID,
     ADD COLUMN IF NOT EXISTS backing_dataset_rid TEXT,
@@ -64,6 +74,10 @@ CREATE TABLE IF NOT EXISTS properties (
     unique_constraint BOOLEAN NOT NULL DEFAULT FALSE,
     default_value    JSONB,
     validation_rules JSONB,
+    display_mode     TEXT NOT NULL DEFAULT 'normal',
+    value_formatting JSONB NOT NULL DEFAULT '{}'::jsonb,
+    conditional_formatting JSONB NOT NULL DEFAULT '[]'::jsonb,
+    reducer_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (object_type_id, name)
@@ -77,6 +91,10 @@ CREATE TABLE IF NOT EXISTS link_types (
     source_type_id  UUID NOT NULL REFERENCES object_types(id) ON DELETE CASCADE,
     target_type_id  UUID NOT NULL REFERENCES object_types(id) ON DELETE CASCADE,
     cardinality     TEXT NOT NULL DEFAULT 'many_to_many',
+    label           TEXT NOT NULL DEFAULT '',
+    reverse_label   TEXT NOT NULL DEFAULT '',
+    visibility      TEXT NOT NULL DEFAULT 'normal',
+    link_datasource_mapping JSONB NOT NULL DEFAULT '{}'::jsonb,
     owner_id        UUID NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -86,6 +104,21 @@ CREATE TABLE IF NOT EXISTS link_types (
 CREATE INDEX IF NOT EXISTS idx_properties_object_type ON properties(object_type_id);
 CREATE INDEX IF NOT EXISTS idx_link_types_source ON link_types(source_type_id);
 CREATE INDEX IF NOT EXISTS idx_link_types_target ON link_types(target_type_id);
+
+CREATE TABLE IF NOT EXISTS object_type_groups (
+    id              UUID PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    visibility      TEXT NOT NULL DEFAULT 'normal',
+    status          TEXT NOT NULL DEFAULT 'active',
+    owner_id        UUID NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_object_type_groups_search
+    ON object_type_groups(display_name, name);
 
 -- `object_instances` and `link_instances` are runtime state owned by the
 -- object database / query / actions path. They are intentionally excluded
@@ -181,7 +214,11 @@ CREATE TABLE IF NOT EXISTS object_type_interfaces (
 );
 
 ALTER TABLE properties
-    ADD COLUMN IF NOT EXISTS time_dependent BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS time_dependent BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS display_mode TEXT NOT NULL DEFAULT 'normal',
+    ADD COLUMN IF NOT EXISTS value_formatting JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS conditional_formatting JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS reducer_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_interface_properties_interface
     ON interface_properties(interface_id);

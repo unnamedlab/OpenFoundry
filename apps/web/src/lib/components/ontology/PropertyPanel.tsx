@@ -16,6 +16,10 @@ interface Draft {
   required: boolean;
   unique_constraint: boolean;
   time_dependent: boolean;
+  display_mode: string;
+  value_formatting_json: string;
+  conditional_formatting_json: string;
+  reducer_metadata_json: string;
   default_value_json: string;
 }
 
@@ -26,6 +30,10 @@ function makeDraft(source: Property): Draft {
     required: source.required,
     unique_constraint: source.unique_constraint,
     time_dependent: source.time_dependent,
+    display_mode: source.display_mode || 'normal',
+    value_formatting_json: JSON.stringify(source.value_formatting ?? {}, null, 2),
+    conditional_formatting_json: JSON.stringify(source.conditional_formatting ?? [], null, 2),
+    reducer_metadata_json: JSON.stringify(source.reducer_metadata ?? {}, null, 2),
     default_value_json:
       source.default_value === null || source.default_value === undefined
         ? ''
@@ -50,9 +58,26 @@ export function PropertyPanel({ property, typeId, isPrimaryKey = false, onUpdate
     setError('');
     try {
       let defaultValue: unknown = null;
+      let valueFormatting: unknown = {};
+      let conditionalFormatting: unknown = [];
+      let reducerMetadata: unknown = {};
       if (draft.default_value_json.trim()) {
         try { defaultValue = JSON.parse(draft.default_value_json); }
         catch { setError('Default value must be valid JSON'); setSaving(false); return; }
+      }
+      try {
+        valueFormatting = draft.value_formatting_json.trim() ? JSON.parse(draft.value_formatting_json) : {};
+        conditionalFormatting = draft.conditional_formatting_json.trim() ? JSON.parse(draft.conditional_formatting_json) : [];
+        reducerMetadata = draft.reducer_metadata_json.trim() ? JSON.parse(draft.reducer_metadata_json) : {};
+      } catch {
+        setError('Formatting, conditional formatting, and reducer metadata must be valid JSON');
+        setSaving(false);
+        return;
+      }
+      if (!Array.isArray(conditionalFormatting)) {
+        setError('Conditional formatting must be a JSON array of rules');
+        setSaving(false);
+        return;
       }
       const updated = await updateProperty(typeId, property.id, {
         display_name: draft.display_name,
@@ -60,6 +85,10 @@ export function PropertyPanel({ property, typeId, isPrimaryKey = false, onUpdate
         required: draft.required,
         unique_constraint: draft.unique_constraint,
         time_dependent: draft.time_dependent,
+        display_mode: draft.display_mode,
+        value_formatting: valueFormatting as Record<string, unknown>,
+        conditional_formatting: conditionalFormatting as [],
+        reducer_metadata: reducerMetadata as Record<string, unknown>,
         default_value: defaultValue,
       });
       onUpdated?.(updated);
@@ -78,7 +107,7 @@ export function PropertyPanel({ property, typeId, isPrimaryKey = false, onUpdate
           <strong style={{ fontFamily: 'var(--font-mono)' }}>{property.name}</strong>
           {isPrimaryKey && <span style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 999, background: '#1e3a8a', color: '#bfdbfe', fontSize: 10 }}>PK</span>}
           <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>
-            {property.display_name} · {property.property_type}{property.required ? ' · required' : ''}{property.unique_constraint ? ' · unique' : ''}{property.time_dependent ? ' · temporal' : ''}
+            {property.display_name} · {property.property_type} · {property.display_mode || 'normal'}{property.required ? ' · required' : ''}{property.unique_constraint ? ' · unique' : ''}{property.time_dependent ? ' · temporal' : ''}
           </p>
           {property.description && <p style={{ margin: '4px 0 0', fontSize: 12 }}>{property.description}</p>}
         </div>
@@ -96,6 +125,14 @@ export function PropertyPanel({ property, typeId, isPrimaryKey = false, onUpdate
             Description
             <textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={3} className="of-input" style={{ marginTop: 4 }} />
           </label>
+          <label style={{ fontSize: 12 }}>
+            Object View display mode
+            <select value={draft.display_mode} onChange={(e) => setDraft({ ...draft, display_mode: e.target.value })} className="of-input" style={{ marginTop: 4 }}>
+              <option value="hidden">Hidden</option>
+              <option value="normal">Normal</option>
+              <option value="prominent">Prominent</option>
+            </select>
+          </label>
           <div style={{ display: 'flex', gap: 12, fontSize: 12, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <input type="checkbox" checked={draft.required} onChange={(e) => setDraft({ ...draft, required: e.target.checked })} /> required
@@ -107,6 +144,9 @@ export function PropertyPanel({ property, typeId, isPrimaryKey = false, onUpdate
               <input type="checkbox" checked={draft.time_dependent} onChange={(e) => setDraft({ ...draft, time_dependent: e.target.checked })} /> time-dependent
             </label>
           </div>
+          <JsonEditor label="Value formatting JSON" value={draft.value_formatting_json} onChange={(v) => setDraft({ ...draft, value_formatting_json: v })} minHeight={90} />
+          <JsonEditor label="Conditional formatting rules JSON" value={draft.conditional_formatting_json} onChange={(v) => setDraft({ ...draft, conditional_formatting_json: v })} minHeight={90} />
+          <JsonEditor label="Property reducer metadata JSON" value={draft.reducer_metadata_json} onChange={(v) => setDraft({ ...draft, reducer_metadata_json: v })} minHeight={90} />
           <JsonEditor label="Default value (JSON, leave empty for null)" value={draft.default_value_json} onChange={(v) => setDraft({ ...draft, default_value_json: v })} minHeight={80} />
           {error && <p style={{ color: '#fca5a5', fontSize: 11, margin: 0 }}>{error}</p>}
           <div style={{ display: 'flex', gap: 6 }}>
