@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -10,28 +11,30 @@ import (
 // ObjectType mirrors `libs/ontology-kernel/src/models/object_type.rs`
 // `struct ObjectType` 1:1.
 type ObjectType struct {
-	ID                      uuid.UUID  `json:"id"                        db:"id"`
-	RID                     string     `json:"rid"                       db:"-"`
-	Name                    string     `json:"name"                      db:"name"`
-	APIName                 string     `json:"api_name"                  db:"-"`
-	DisplayName             string     `json:"display_name"              db:"display_name"`
-	PluralDisplayName       *string    `json:"plural_display_name"       db:"-"`
-	Description             string     `json:"description"               db:"description"`
-	PrimaryKeyProperty      *string    `json:"primary_key_property"      db:"primary_key_property"`
-	PrimaryKey              string     `json:"primary_key"               db:"-"`
-	TitleProperty           *string    `json:"title_property"            db:"-"`
-	Icon                    *string    `json:"icon"                      db:"icon"`
-	Color                   *string    `json:"color"                     db:"color"`
-	Status                  string     `json:"status"                    db:"-"`
-	Visibility              string     `json:"visibility"                db:"-"`
-	Properties              []Property `json:"properties"                db:"-"`
-	PropertyCount           int        `json:"property_count"            db:"-"`
-	SearchablePropertyNames []string   `json:"searchable_property_names" db:"-"`
-	GeoPointPropertyNames   []string   `json:"geopoint_property_names"   db:"-"`
-	GeoShapePropertyNames   []string   `json:"geoshape_property_names"   db:"-"`
-	OwnerID                 uuid.UUID  `json:"owner_id"                  db:"owner_id"`
-	CreatedAt               time.Time  `json:"created_at"                db:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"                db:"updated_at"`
+	ID                       uuid.UUID       `json:"id"                        db:"id"`
+	RID                      string          `json:"rid"                       db:"-"`
+	Name                     string          `json:"name"                      db:"name"`
+	APIName                  string          `json:"api_name"                  db:"-"`
+	DisplayName              string          `json:"display_name"              db:"display_name"`
+	PluralDisplayName        *string         `json:"plural_display_name"       db:"plural_display_name"`
+	Description              string          `json:"description"               db:"description"`
+	PrimaryKeyProperty       *string         `json:"primary_key_property"      db:"primary_key_property"`
+	PrimaryKey               string          `json:"primary_key"               db:"-"`
+	TitleProperty            *string         `json:"title_property"            db:"title_property"`
+	Icon                     *string         `json:"icon"                      db:"icon"`
+	Color                    *string         `json:"color"                     db:"color"`
+	Status                   string          `json:"status"                    db:"status"`
+	Visibility               string          `json:"visibility"                db:"visibility"`
+	GroupNames               []string        `json:"group_names,omitempty"     db:"group_names"`
+	ObjectDisplayPreferences json.RawMessage `json:"object_display_preferences,omitempty" db:"object_display_preferences"`
+	Properties               []Property      `json:"properties"                db:"-"`
+	PropertyCount            int             `json:"property_count"            db:"-"`
+	SearchablePropertyNames  []string        `json:"searchable_property_names" db:"-"`
+	GeoPointPropertyNames    []string        `json:"geopoint_property_names"   db:"-"`
+	GeoShapePropertyNames    []string        `json:"geoshape_property_names"   db:"-"`
+	OwnerID                  uuid.UUID       `json:"owner_id"                  db:"owner_id"`
+	CreatedAt                time.Time       `json:"created_at"                db:"created_at"`
+	UpdatedAt                time.Time       `json:"updated_at"                db:"updated_at"`
 }
 
 // EnrichObjectTypeMetadata fills the compatibility metadata used by
@@ -53,6 +56,9 @@ func EnrichObjectTypeMetadata(objectType *ObjectType, properties []Property) {
 	}
 	if objectType.Visibility == "" {
 		objectType.Visibility = "normal"
+	}
+	if len(objectType.ObjectDisplayPreferences) == 0 {
+		objectType.ObjectDisplayPreferences = json.RawMessage(`{}`)
 	}
 	if objectType.PluralDisplayName == nil || strings.TrimSpace(*objectType.PluralDisplayName) == "" {
 		plural := defaultPluralDisplayName(objectType.DisplayName, objectType.Name)
@@ -199,21 +205,34 @@ func uniqueNonEmptyStrings(values []string) []string {
 
 // CreateObjectTypeRequest mirrors `struct CreateObjectTypeRequest`.
 type CreateObjectTypeRequest struct {
-	Name               string  `json:"name"`
-	DisplayName        *string `json:"display_name,omitempty"`
-	Description        *string `json:"description,omitempty"`
-	PrimaryKeyProperty *string `json:"primary_key_property,omitempty"`
-	Icon               *string `json:"icon,omitempty"`
-	Color              *string `json:"color,omitempty"`
+	Name                     string          `json:"name"`
+	DisplayName              *string         `json:"display_name,omitempty"`
+	Description              *string         `json:"description,omitempty"`
+	PrimaryKeyProperty       *string         `json:"primary_key_property,omitempty"`
+	TitleProperty            *string         `json:"title_property,omitempty"`
+	PluralDisplayName        *string         `json:"plural_display_name,omitempty"`
+	Status                   *string         `json:"status,omitempty"`
+	Visibility               *string         `json:"visibility,omitempty"`
+	GroupNames               []string        `json:"group_names,omitempty"`
+	ObjectDisplayPreferences json.RawMessage `json:"object_display_preferences,omitempty"`
+	Icon                     *string         `json:"icon,omitempty"`
+	Color                    *string         `json:"color,omitempty"`
 }
 
 // UpdateObjectTypeRequest mirrors `struct UpdateObjectTypeRequest`.
 type UpdateObjectTypeRequest struct {
-	DisplayName        *string `json:"display_name,omitempty"`
-	Description        *string `json:"description,omitempty"`
-	PrimaryKeyProperty *string `json:"primary_key_property,omitempty"`
-	Icon               *string `json:"icon,omitempty"`
-	Color              *string `json:"color,omitempty"`
+	Name                     *string         `json:"name,omitempty"`
+	DisplayName              *string         `json:"display_name,omitempty"`
+	Description              *string         `json:"description,omitempty"`
+	PrimaryKeyProperty       *string         `json:"primary_key_property,omitempty"`
+	TitleProperty            *string         `json:"title_property,omitempty"`
+	PluralDisplayName        *string         `json:"plural_display_name,omitempty"`
+	Status                   *string         `json:"status,omitempty"`
+	Visibility               *string         `json:"visibility,omitempty"`
+	GroupNames               []string        `json:"group_names,omitempty"`
+	ObjectDisplayPreferences json.RawMessage `json:"object_display_preferences,omitempty"`
+	Icon                     *string         `json:"icon,omitempty"`
+	Color                    *string         `json:"color,omitempty"`
 }
 
 // ListObjectTypesQuery mirrors `struct ListObjectTypesQuery`.

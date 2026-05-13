@@ -8,15 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// libs/ontology-kernel/src/domain/type_system.rs `VALID_TYPES` —
-// every spelling accepted by Rust must also be accepted by Go,
-// in the same order so error messages render identically.
+// ValidPropertyTypes stays ordered because the list is embedded in
+// validation error messages.
 func TestValidatePropertyTypeAcceptsCanonicalSet(t *testing.T) {
 	wanted := []string{
 		"string", "text", "integer", "long", "float", "double", "decimal", "number",
-		"boolean", "date", "timestamp", "json", "array", "vector", "reference",
-		"geo_point", "geopoint", "geoshape", "geojson", "media_reference",
-		"time_series", "struct", "attachment",
+		"boolean", "date", "time", "timestamp", "json", "array", "vector", "reference",
+		"object_reference", "geo_point", "geopoint", "geohash", "geoshape", "geojson",
+		"geometry", "media_reference", "time_series", "binary", "struct", "attachment",
 	}
 	for _, ty := range wanted {
 		require.NoError(t, ValidatePropertyType(ty), "want %q to be a valid type", ty)
@@ -24,9 +23,7 @@ func TestValidatePropertyTypeAcceptsCanonicalSet(t *testing.T) {
 	assert.Equal(t, wanted, ValidPropertyTypes)
 }
 
-// libs/ontology-kernel/src/domain/type_system.rs — unknown types
-// surface the Rust-formatted error string with the same valid-types
-// debug spelling.
+// Unknown types surface the stable valid-types debug spelling.
 func TestValidatePropertyTypeRejectsUnknown(t *testing.T) {
 	err := ValidatePropertyType("nope")
 	require.Error(t, err)
@@ -152,6 +149,10 @@ func TestPrimitiveTypeMismatches(t *testing.T) {
 	require.NoError(t, ValidatePropertyValue("date", json.RawMessage(`"2026-05-06"`)))
 	require.Error(t, ValidatePropertyValue("reference", json.RawMessage(`123`)))
 	require.NoError(t, ValidatePropertyValue("reference", json.RawMessage(`"a-uuid"`)))
+	require.NoError(t, ValidatePropertyValue("object_reference", json.RawMessage(`"a-uuid"`)))
+	require.NoError(t, ValidatePropertyValue("geohash", json.RawMessage(`"9q8yy"`)))
+	require.NoError(t, ValidatePropertyValue("time", json.RawMessage(`"12:30:00"`)))
+	require.NoError(t, ValidatePropertyValue("binary", json.RawMessage(`"Zm9v"`)))
 
 	err := ValidatePropertyValue("nope", json.RawMessage(`null`))
 	require.Error(t, err)

@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS object_types (
     display_name TEXT NOT NULL,
     plural_display_name TEXT,
     description TEXT NOT NULL DEFAULT '',
+    title_property TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    visibility TEXT NOT NULL DEFAULT 'normal',
+    group_names TEXT[] NOT NULL DEFAULT '{}',
+    object_display_preferences JSONB NOT NULL DEFAULT '{}',
     primary_key_property TEXT,
     icon        TEXT,
     color       TEXT,
@@ -47,6 +52,11 @@ CREATE TABLE IF NOT EXISTS object_types (
 
 ALTER TABLE object_types
     ADD COLUMN IF NOT EXISTS plural_display_name TEXT,
+    ADD COLUMN IF NOT EXISTS title_property TEXT,
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+    ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'normal',
+    ADD COLUMN IF NOT EXISTS group_names TEXT[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS object_display_preferences JSONB NOT NULL DEFAULT '{}',
     ADD COLUMN IF NOT EXISTS editable BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS backing_dataset_id UUID,
     ADD COLUMN IF NOT EXISTS backing_dataset_rid TEXT,
@@ -64,6 +74,10 @@ CREATE TABLE IF NOT EXISTS properties (
     unique_constraint BOOLEAN NOT NULL DEFAULT FALSE,
     default_value    JSONB,
     validation_rules JSONB,
+    display_mode     TEXT NOT NULL DEFAULT 'normal',
+    value_formatting JSONB NOT NULL DEFAULT '{}'::jsonb,
+    conditional_formatting JSONB NOT NULL DEFAULT '[]'::jsonb,
+    reducer_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (object_type_id, name)
@@ -181,7 +195,11 @@ CREATE TABLE IF NOT EXISTS object_type_interfaces (
 );
 
 ALTER TABLE properties
-    ADD COLUMN IF NOT EXISTS time_dependent BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS time_dependent BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS display_mode TEXT NOT NULL DEFAULT 'normal',
+    ADD COLUMN IF NOT EXISTS value_formatting JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS conditional_formatting JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS reducer_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_interface_properties_interface
     ON interface_properties(interface_id);

@@ -9,10 +9,9 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ontology-kernel/models"
 )
 
-// ValidPropertyTypes mirrors the `VALID_TYPES` slice in
-// `libs/ontology-kernel/src/domain/type_system.rs`. Order is kept
-// verbatim because the slice is rendered into the error string
-// surfaced by [ValidatePropertyType].
+// ValidPropertyTypes is the OpenFoundry canonical property-type set.
+// The order is stable because the slice is rendered into the error
+// string surfaced by [ValidatePropertyType].
 var ValidPropertyTypes = []string{
 	"string",
 	"text",
@@ -24,17 +23,22 @@ var ValidPropertyTypes = []string{
 	"number",
 	"boolean",
 	"date",
+	"time",
 	"timestamp",
 	"json",
 	"array",
 	"vector",
 	"reference",
+	"object_reference",
 	"geo_point",
 	"geopoint",
+	"geohash",
 	"geoshape",
 	"geojson",
+	"geometry",
 	"media_reference",
 	"time_series",
+	"binary",
 	// TASK J — struct property/parameter type. Recursive validation
 	// happens in handlers/actions::materialize_parameters because it
 	// needs the nested `struct_fields` schema, which
@@ -45,9 +49,9 @@ var ValidPropertyTypes = []string{
 	"attachment",
 }
 
-// ValidatePropertyType mirrors `validate_property_type` — accepts the
-// 14 spellings above, otherwise returns the verbatim Rust error
-// string `invalid property type '<x>', valid types: ["string", ...]`.
+// ValidatePropertyType accepts the canonical spellings above plus typed
+// array forms, otherwise returning `invalid property type '<x>', valid
+// types: ["string", ...]`.
 func ValidatePropertyType(propertyType string) error {
 	for _, t := range ValidPropertyTypes {
 		if t == propertyType {
@@ -142,12 +146,12 @@ func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 			return fmt.Errorf("expected string value")
 		}
 		return nil
-	case "integer":
+	case "integer", "long":
 		if !isJSONInteger(trimmed) {
 			return fmt.Errorf("expected integer value")
 		}
 		return nil
-	case "float":
+	case "float", "decimal":
 		if !isJSONNumber(trimmed) {
 			return fmt.Errorf("expected numeric value")
 		}
@@ -178,14 +182,14 @@ func ValidatePropertyValue(propertyType string, value json.RawMessage) error {
 			}
 		}
 		return nil
-	case "date", "timestamp":
+	case "date", "time", "timestamp":
 		if !isJSONString(trimmed) {
 			return fmt.Errorf("expected string date value")
 		}
 		return nil
-	case "reference":
+	case "reference", "geohash", "binary":
 		if !isJSONString(trimmed) {
-			return fmt.Errorf("expected UUID string for reference")
+			return fmt.Errorf("expected string reference value")
 		}
 		return nil
 	case "geopoint":

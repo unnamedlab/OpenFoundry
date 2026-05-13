@@ -97,7 +97,28 @@ func ensureObjectTypeManageAccess(r *http.Request, state *ontologykernel.AppStat
 
 const propertyColumns = `id, object_type_id, name, display_name, description, property_type, required,
                   unique_constraint, time_dependent, default_value, validation_rules,
+                  display_mode, value_formatting, conditional_formatting, reducer_metadata,
                   inline_edit_config, created_at, updated_at`
+
+func validPropertyDisplayMode(mode *string) bool {
+	if mode == nil {
+		return true
+	}
+	switch strings.TrimSpace(strings.ToLower(*mode)) {
+	case "hidden", "normal", "prominent":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizePropertyDisplayMode(mode *string) *string {
+	if mode == nil {
+		return nil
+	}
+	normalized := strings.TrimSpace(strings.ToLower(*mode))
+	return &normalized
+}
 
 // ListProperties mirrors `pub async fn list_properties`.
 func ListProperties(state *ontologykernel.AppState) http.HandlerFunc {
@@ -178,6 +199,10 @@ func CreateProperty(state *ontologykernel.AppState) http.HandlerFunc {
 			badRequest(w, err.Error())
 			return
 		}
+		if !validPropertyDisplayMode(body.DisplayMode) {
+			badRequest(w, "display_mode must be hidden, normal, or prominent")
+			return
+		}
 		if len(body.DefaultValue) > 0 {
 			if err := domain.ValidatePropertyValue(body.PropertyType, body.DefaultValue); err != nil {
 				badRequest(w, err.Error())
@@ -221,17 +246,22 @@ func CreateProperty(state *ontologykernel.AppState) http.HandlerFunc {
 			inlineEditRaw, _ = json.Marshal(body.InlineEditConfig)
 		}
 
+		displayMode := normalizePropertyDisplayMode(body.DisplayMode)
 		row := state.DB.QueryRow(r.Context(),
 			`INSERT INTO properties (
                    id, object_type_id, name, display_name, description, property_type,
                    required, unique_constraint, time_dependent, default_value, validation_rules,
+                   display_mode, value_formatting, conditional_formatting, reducer_metadata,
                    inline_edit_config
                )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                       COALESCE($12, 'normal'), COALESCE($13, '{}'::jsonb),
+                       COALESCE($14, '[]'::jsonb), COALESCE($15, '{}'::jsonb), $16)
                RETURNING `+propertyColumns,
 			id, typeID, body.Name, displayName, description, body.PropertyType,
 			required, uniq, timeDep,
 			body.DefaultValue, body.ValidationRules,
+			displayMode, body.ValueFormatting, body.ConditionalFormatting, body.ReducerMetadata,
 			inlineEditRaw,
 		)
 		p, err := scanProperty(row)
@@ -272,6 +302,10 @@ func UpdateProperty(state *ontologykernel.AppState) http.HandlerFunc {
 			badRequest(w, "invalid request body")
 			return
 		}
+		if !validPropertyDisplayMode(body.DisplayMode) {
+			badRequest(w, "display_mode must be hidden, normal, or prominent")
+			return
+		}
 		row := state.DB.QueryRow(r.Context(),
 			`SELECT `+propertyColumns+` FROM properties WHERE id = $1`,
 			propertyID,
@@ -308,6 +342,19 @@ func UpdateProperty(state *ontologykernel.AppState) http.HandlerFunc {
 		if len(nextValidation) == 0 {
 			nextValidation = existing.ValidationRules
 		}
+		nextValueFormatting := body.ValueFormatting
+		if len(nextValueFormatting) == 0 {
+			nextValueFormatting = existing.ValueFormatting
+		}
+		nextConditionalFormatting := body.ConditionalFormatting
+		if len(nextConditionalFormatting) == 0 {
+			nextConditionalFormatting = existing.ConditionalFormatting
+		}
+		nextReducerMetadata := body.ReducerMetadata
+		if len(nextReducerMetadata) == 0 {
+			nextReducerMetadata = existing.ReducerMetadata
+		}
+		nextDisplayMode := normalizePropertyDisplayMode(body.DisplayMode)
 
 		// Three-way inline_edit_config: nil ⇒ keep existing, Set+Value=nil ⇒ clear, Set+Value≠nil ⇒ replace.
 		nextInlineEdit := existing.InlineEditConfig
@@ -330,6 +377,8 @@ func UpdateProperty(state *ontologykernel.AppState) http.HandlerFunc {
 			inlineEditRaw = nil
 		case nextInlineEdit != nil:
 			inlineEditRaw, _ = json.Marshal(nextInlineEdit)
+		case body.InlineEditConfig == nil && existing.InlineEditConfig != nil:
+			inlineEditRaw, _ = json.Marshal(existing.InlineEditConfig)
 		}
 
 		updateRow := state.DB.QueryRow(r.Context(),
@@ -341,13 +390,17 @@ func UpdateProperty(state *ontologykernel.AppState) http.HandlerFunc {
                    time_dependent = COALESCE($6, time_dependent),
                    default_value = $7,
                    validation_rules = $8,
-                   inline_edit_config = $9,
+                   display_mode = COALESCE($9, display_mode),
+                   value_formatting = $10,
+                   conditional_formatting = $11,
+                   reducer_metadata = $12,
+                   inline_edit_config = $13,
                    updated_at = NOW()
                WHERE id = $1
                RETURNING `+propertyColumns,
 			propertyID, body.DisplayName, body.Description,
 			body.Required, body.UniqueConstraint, body.TimeDependent,
-			nextDefault, nextValidation, inlineEditRaw,
+			nextDefault, nextValidation, nextDisplayMode, nextValueFormatting, nextConditionalFormatting, nextReducerMetadata, inlineEditRaw,
 		)
 		p, err := scanProperty(updateRow)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -580,18 +633,25 @@ func isEmptyArrayOrNull(raw json.RawMessage) bool {
 // buffer (pgx doesn't auto-map JSONB to struct pointers).
 func scanProperty(row interface{ Scan(...any) error }) (models.Property, error) {
 	var (
-		p         models.Property
-		inlineRaw []byte
+		p              models.Property
+		inlineRaw      []byte
+		valueFormatRaw []byte
+		conditionalRaw []byte
+		reducerRaw     []byte
 	)
 	if err := row.Scan(
 		&p.ID, &p.ObjectTypeID, &p.Name, &p.DisplayName, &p.Description, &p.PropertyType,
 		&p.Required, &p.UniqueConstraint, &p.TimeDependent,
 		&p.DefaultValue, &p.ValidationRules,
+		&p.DisplayMode, &valueFormatRaw, &conditionalRaw, &reducerRaw,
 		&inlineRaw,
 		&p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
 		return p, err
 	}
+	p.ValueFormatting = json.RawMessage(valueFormatRaw)
+	p.ConditionalFormatting = json.RawMessage(conditionalRaw)
+	p.ReducerMetadata = json.RawMessage(reducerRaw)
 	if len(inlineRaw) > 0 && string(inlineRaw) != "null" {
 		var cfg models.PropertyInlineEditConfig
 		if err := json.Unmarshal(inlineRaw, &cfg); err == nil {
