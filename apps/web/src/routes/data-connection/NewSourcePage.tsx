@@ -4,13 +4,19 @@ import { Link, useNavigate } from 'react-router-dom';
 import { CredentialsPanel, type CredentialPanelField } from '@/lib/components/data-connection/CredentialsPanel';
 import { TestConnectionPanel } from '@/lib/components/data-connection/TestConnectionPanel';
 import {
-  CONNECTOR_FAMILY_ORDER,
+  CONNECTOR_CATEGORY_ORDER,
   FALLBACK_CONNECTOR_CATALOG,
   capabilityLabel,
+  connectorCategoryDescription,
+  connectorCategoryLabel,
   dataConnection,
   filterCatalog,
+  getConnectorRegistryEntry,
+  unavailableCapabilitiesForWorker,
+  validateConnectorWorker,
+  workerLabel,
   type ConnectorCatalogEntry,
-  type ConnectorFamily,
+  type ConnectorCategory,
   type DiscoveredSource,
   type SourceWorker,
   type TestConnectionResult,
@@ -41,41 +47,7 @@ const STEP_LABELS: { key: Step; label: string }[] = [
   { key: 'validate', label: 'Test' },
 ];
 
-const FAMILY_BY_TYPE: Record<string, ConnectorFamily> = {
-  adls: 'Storage',
-  azure_blob: 'Storage',
-  csv: 'Storage',
-  excel: 'Storage',
-  gcs: 'Storage',
-  generic: 'Storage',
-  google_cloud_storage: 'Storage',
-  json: 'Storage',
-  onelake: 'Storage',
-  open_table_catalog: 'Storage',
-  parquet: 'Storage',
-  s3: 'Storage',
-  sftp: 'Storage',
-  bigquery: 'SaaS',
-  databricks: 'SaaS',
-  graphql: 'API',
-  iot: 'Streaming',
-  kafka: 'Streaming',
-  kinesis: 'Streaming',
-  ldap: 'SaaS',
-  power_bi: 'SaaS',
-  rest_api: 'API',
-  salesforce: 'SaaS',
-  sap: 'SaaS',
-  snowflake: 'SaaS',
-  tableau: 'SaaS',
-  jdbc: 'RDBMS',
-  mssql: 'RDBMS',
-  mysql: 'RDBMS',
-  odbc: 'RDBMS',
-  oracle: 'RDBMS',
-  postgres: 'RDBMS',
-  postgresql: 'RDBMS',
-};
+const WORKER_CHOICES: SourceWorker[] = ['foundry', 'agent'];
 
 const SQL_FIELDS: ConfigPanelField[] = [
   { key: 'host', label: 'Host', required: true, placeholder: 'warehouse.internal' },
@@ -284,11 +256,13 @@ const TEMPLATES: Record<string, ConnectorWizardTemplate> = {
   },
   rest_api: {
     configFields: [
-      { key: 'url', label: 'URL', required: true, placeholder: 'https://api.example.com/orders' },
-      { key: 'method', label: 'Method', defaultValue: 'GET', placeholder: 'GET' },
+      { key: 'base_domain', label: 'Base domain', required: true, placeholder: 'https://api.example.com' },
+      { key: 'network_policy_id', label: 'Network policy ID', placeholder: 'egress-policy-id' },
+      { key: 'permissions', label: 'Source permissions', placeholder: 'group-data-eng,group-ops' },
+      { key: 'default_method', label: 'Default method', defaultValue: 'GET', placeholder: 'GET' },
       {
-        key: 'headers',
-        label: 'Headers JSON',
+        key: 'default_headers',
+        label: 'Default headers JSON',
         kind: 'json',
         placeholder: '{"Accept":"application/json"}',
       },
@@ -297,8 +271,9 @@ const TEMPLATES: Record<string, ConnectorWizardTemplate> = {
     credentialFields: [
       { key: 'auth_header', label: 'Authorization header', kind: 'auth_header', placeholder: 'Bearer ...' },
       { key: 'api_key', label: 'API key', kind: 'api_key' },
+      { key: 'additional_secret', label: 'Additional secret reference', kind: 'api_key' },
     ],
-    notes: ['REST API sources can be tested with URL, method, headers, and an optional auth header.'],
+    notes: ['REST API sources capture a base domain, auth configuration, additional secrets, network policy, worker, and permissions. Configure individual calls on the Webhooks tab after creation.'],
   },
   graphql: {
     configFields: [
@@ -354,9 +329,8 @@ const TEMPLATES: Record<string, ConnectorWizardTemplate> = {
   },
 };
 
-function catalogFamily(entry: ConnectorCatalogEntry): ConnectorFamily | 'Other' {
-  if (entry.family) return entry.family;
-  return FAMILY_BY_TYPE[entry.type] ?? 'Other';
+function catalogCategory(entry: ConnectorCatalogEntry): ConnectorCategory {
+  return getConnectorRegistryEntry(entry).category;
 }
 
 function templateFor(entry: ConnectorCatalogEntry): ConnectorWizardTemplate {
@@ -431,7 +405,7 @@ function requiredConfigMissing(template: ConnectorWizardTemplate, values: Record
 export function NewSourcePage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>(FALLBACK_CONNECTOR_CATALOG);
   const [query, setQuery] = useState('');
-  const [familyFilter, setFamilyFilter] = useState<ConnectorFamily | 'All'>('All');
+  const [categoryFilter, setCategoryFilter] = useState<ConnectorCategory | 'All'>('All');
   const [step, setStep] = useState<Step>('connector');
   const [selected, setSelected] = useState<ConnectorCatalogEntry | null>(null);
   const [name, setName] = useState('');
@@ -450,43 +424,47 @@ export function NewSourcePage() {
   useEffect(() => {
     dataConnection
       .getCatalog()
-      .then((res) => setCatalog(res.connectors.length > 0 ? res.connectors : FALLBACK_CONNECTOR_CATALOG))
-      .catch(() => setCatalog(FALLBACK_CONNECTOR_CATALOG));
+      .then((res) => setCatalog((res.connectors.length > 0 ? res.connectors : FALLBACK_CONNECTOR_CATALOG).map(getConnectorRegistryEntry)))
+      .catch(() => setCatalog(FALLBACK_CONNECTOR_CATALOG.map(getConnectorRegistryEntry)));
   }, []);
 
   const filtered = useMemo(
-    () => filterCatalog(catalog, query).filter((entry) => familyFilter === 'All' || catalogFamily(entry) === familyFilter),
-    [catalog, query, familyFilter],
+    () => filterCatalog(catalog, query).filter((entry) => categoryFilter === 'All' || catalogCategory(entry) === categoryFilter),
+    [catalog, query, categoryFilter],
   );
 
   const grouped = useMemo(() => {
-    const map = new Map<ConnectorFamily | 'Other', ConnectorCatalogEntry[]>();
+    const map = new Map<ConnectorCategory, ConnectorCatalogEntry[]>();
     for (const entry of filtered) {
-      const key = catalogFamily(entry);
+      const key = catalogCategory(entry);
       const list = map.get(key) ?? [];
       list.push(entry);
       map.set(key, list);
     }
-    const ordered: { family: ConnectorFamily | 'Other'; entries: ConnectorCatalogEntry[] }[] = [];
-    for (const family of CONNECTOR_FAMILY_ORDER) {
-      const entries = map.get(family);
-      if (entries) ordered.push({ family, entries });
+    const ordered: { category: ConnectorCategory; entries: ConnectorCatalogEntry[] }[] = [];
+    for (const category of CONNECTOR_CATEGORY_ORDER) {
+      const entries = map.get(category);
+      if (entries) ordered.push({ category, entries });
     }
-    const other = map.get('Other');
-    if (other) ordered.push({ family: 'Other', entries: other });
     return ordered;
   }, [filtered]);
 
   const selectedTemplate = selected ? templateFor(selected) : DEFAULT_TEMPLATE;
+  const workerCompatibility = selected ? validateConnectorWorker(selected, worker) : null;
+  const unavailableForWorker = selected ? unavailableCapabilitiesForWorker(selected, worker) : [];
   const canConfigure = Boolean(selected);
-  const canCreate = Boolean(selected && name.trim()) && !requiredConfigMissing(selectedTemplate, configValues) && !createdSourceId;
+  const canCreate = Boolean(selected && name.trim())
+    && !requiredConfigMissing(selectedTemplate, configValues)
+    && !createdSourceId
+    && (workerCompatibility?.valid ?? true);
 
   function pick(entry: ConnectorCatalogEntry) {
-    if (!entry.available) return;
-    const template = templateFor(entry);
-    setSelected(entry);
-    setName(`${entry.name} source`);
-    setWorker(entry.workers.includes('foundry') ? 'foundry' : entry.workers[0] ?? 'foundry');
+    const registered = getConnectorRegistryEntry(entry);
+    if (!registered.available) return;
+    const template = templateFor(registered);
+    setSelected(registered);
+    setName(`${registered.name} source`);
+    setWorker(registered.workers.includes('foundry') ? 'foundry' : registered.workers[0] ?? 'foundry');
     setConfigValues(initialConfigValues(template));
     setCredentialValues({});
     setAdvancedJson('{}');
@@ -508,6 +486,11 @@ export function NewSourcePage() {
 
   async function createSource() {
     if (!selected) return;
+    const compatibility = validateConnectorWorker(selected, worker);
+    if (!compatibility.valid) {
+      setError(compatibility.reason ?? 'Selected worker is not compatible with this connector.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -650,15 +633,15 @@ export function NewSourcePage() {
                   style={{ flex: 1, minWidth: 180 }}
                 />
                 <select
-                  value={familyFilter}
-                  onChange={(event) => setFamilyFilter(event.target.value as ConnectorFamily | 'All')}
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value as ConnectorCategory | 'All')}
                   className="of-input"
                   style={{ maxWidth: 180 }}
                 >
-                  <option value="All">All families</option>
-                  {CONNECTOR_FAMILY_ORDER.map((family) => (
-                    <option key={family} value={family}>
-                      {family}
+                  <option value="All">All categories</option>
+                  {CONNECTOR_CATEGORY_ORDER.map((category) => (
+                    <option key={category} value={category}>
+                      {connectorCategoryLabel(category)}
                     </option>
                   ))}
                 </select>
@@ -666,9 +649,14 @@ export function NewSourcePage() {
             </div>
           </section>
 
-          {grouped.map(({ family, entries }) => (
-            <section key={family} className="of-panel" style={{ padding: 16, display: 'grid', gap: 10 }}>
-              <p className="of-eyebrow">{family}</p>
+          {grouped.map(({ category, entries }) => (
+            <section key={category} className="of-panel" style={{ padding: 16, display: 'grid', gap: 10 }}>
+              <div>
+                <p className="of-eyebrow">{connectorCategoryLabel(category)}</p>
+                <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                  {connectorCategoryDescription(category)}
+                </p>
+              </div>
               <ul
                 style={{
                   margin: 0,
@@ -707,11 +695,20 @@ export function NewSourcePage() {
                         {entry.description}
                       </span>
                       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {entry.capabilities.slice(0, 4).map((capability) => (
+                        <span className="of-chip" style={{ fontSize: 10, minHeight: 20 }}>
+                          {connectorCategoryLabel(entry.category)}
+                        </span>
+                        {entry.capabilities.map((capability) => (
                           <span key={capability} className="of-chip" style={{ fontSize: 10, minHeight: 20 }}>
                             {capabilityLabel(capability)}
                           </span>
                         ))}
+                      </span>
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>
+                        Workers: {entry.workers.join(', ')} · credentials: {entry.credentialFields.length === 0 ? 'none' : entry.credentialFields.map((field) => field.label).join(', ')}
+                      </span>
+                      <span className="of-text-muted" style={{ fontSize: 11 }}>
+                        Network: {entry.network.modes.join(', ')}{entry.network.defaultPorts.length > 0 ? ` · ports ${entry.network.defaultPorts.join(', ')}` : ''}
                       </span>
                     </button>
                   </li>
@@ -759,14 +756,24 @@ export function NewSourcePage() {
                   onChange={(event) => setWorker(event.target.value as SourceWorker)}
                   className="of-input"
                 >
-                  {selected.workers.map((item) => (
-                    <option key={item} value={item}>
-                      {item === 'foundry' ? 'Foundry compute' : 'Connector agent'}
+                  {WORKER_CHOICES.map((item) => (
+                    <option key={item} value={item} disabled={!validateConnectorWorker(selected, item).valid}>
+                      {workerLabel(item)}{selected.workers.includes(item) ? '' : ' (unavailable)'}
                     </option>
                   ))}
                 </select>
               </label>
             </div>
+
+            {workerCompatibility && (
+              <WorkerCompatibilityPanel
+                valid={workerCompatibility.valid}
+                worker={worker}
+                allowed={workerCompatibility.allowedCapabilities}
+                unavailable={unavailableForWorker}
+                reason={workerCompatibility.reason}
+              />
+            )}
 
             <section style={{ display: 'grid', gap: 10 }}>
               <div>
@@ -871,8 +878,26 @@ export function NewSourcePage() {
                 <p style={{ margin: '2px 0 0', fontFamily: 'var(--font-mono)' }}>{selected.type}</p>
               </div>
               <div>
+                <span className="of-text-muted">Category</span>
+                <p style={{ margin: '2px 0 0' }}>{connectorCategoryLabel(selected.category)}</p>
+              </div>
+              <div>
                 <span className="of-text-muted">Worker</span>
-                <p style={{ margin: '2px 0 0' }}>{worker === 'foundry' ? 'Foundry compute' : 'Connector agent'}</p>
+                <p style={{ margin: '2px 0 0' }}>{workerLabel(worker)}</p>
+              </div>
+              <div>
+                <span className="of-text-muted">Credentials</span>
+                <p style={{ margin: '2px 0 0' }}>{selected.credentialFields.length === 0 ? 'No secret fields' : selected.credentialFields.map((field) => field.label).join(', ')}</p>
+              </div>
+              <div>
+                <span className="of-text-muted">Network</span>
+                <p style={{ margin: '2px 0 0' }}>
+                  {selected.network.modes.join(', ')}{selected.network.defaultPorts.length > 0 ? ` · ports ${selected.network.defaultPorts.join(', ')}` : ''}
+                </p>
+              </div>
+              <div>
+                <span className="of-text-muted">Setup docs</span>
+                <p style={{ margin: '2px 0 0' }}><a href={selected.setupDocsUrl} target="_blank" rel="noreferrer">Open documentation</a></p>
               </div>
               <div>
                 <span className="of-text-muted">Capabilities</span>
@@ -883,6 +908,11 @@ export function NewSourcePage() {
                     </span>
                   ))}
                 </div>
+                {unavailableForWorker.length > 0 ? (
+                  <p className="of-text-muted" style={{ margin: '6px 0 0', fontSize: 11 }}>
+                    Unavailable on {workerLabel(worker)}: {unavailableForWorker.map(capabilityLabel).join(', ')}
+                  </p>
+                ) : null}
               </div>
             </div>
             {selectedTemplate.notes.length > 0 ? (
@@ -946,6 +976,10 @@ export function NewSourcePage() {
                     />
                     <code style={{ fontSize: 12 }}>{source.selector}</code>
                     {source.source_kind ? <span className="of-chip">{source.source_kind}</span> : null}
+                    {source.supports_sync !== false ? <span className="of-chip">sync</span> : null}
+                    {source.supports_zero_copy ? <span className="of-chip">zero-copy</span> : null}
+                    {(source.schema ?? []).length > 0 ? <span className="of-text-muted" style={{ fontSize: 11 }}>schema: {(source.schema ?? []).slice(0, 3).map((field) => field.name).join(', ')}</span> : null}
+                    {source.sample_rows?.length ? <span className="of-text-muted" style={{ fontSize: 11 }}>{source.sample_redacted ? 'redacted sample' : 'sample'}: {source.sample_rows.length} row(s)</span> : null}
                   </li>
                 ))}
               </ul>
@@ -957,6 +991,31 @@ export function NewSourcePage() {
           </section>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function WorkerCompatibilityPanel({
+  valid,
+  worker,
+  allowed,
+  unavailable,
+  reason,
+}: {
+  valid: boolean;
+  worker: SourceWorker;
+  allowed: ConnectorCatalogEntry['capabilities'];
+  unavailable: ConnectorCatalogEntry['capabilities'];
+  reason: string | null;
+}) {
+  return (
+    <section
+      className={valid ? 'of-status-success' : 'of-status-danger'}
+      style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', display: 'grid', gap: 6, fontSize: 12 }}
+    >
+      <strong>{valid ? `${workerLabel(worker)} is compatible with this connector.` : (reason ?? 'Worker is not compatible.')}</strong>
+      <span>Available capabilities: {allowed.length > 0 ? allowed.map(capabilityLabel).join(', ') : 'none'}</span>
+      {unavailable.length > 0 ? <span>Unavailable capabilities: {unavailable.map(capabilityLabel).join(', ')}</span> : null}
     </section>
   );
 }

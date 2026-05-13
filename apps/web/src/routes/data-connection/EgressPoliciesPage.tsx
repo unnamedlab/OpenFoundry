@@ -97,7 +97,7 @@ export function EgressPoliciesPage() {
           <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Name', 'Kind', 'Address', 'Port', 'Global', 'Permissions', ''].map((h) => (
+                {['Name', 'Kind', 'Address', 'Port', 'Protocol', 'Proxy', 'Status', 'Organizations', 'Permissions', ''].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid var(--border-default)' }}>{h}</th>
                 ))}
               </tr>
@@ -109,7 +109,10 @@ export function EgressPoliciesPage() {
                   <td style={{ padding: 6 }}>{p.kind}</td>
                   <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{p.address.kind}:{p.address.value}</td>
                   <td style={{ padding: 6, fontFamily: 'var(--font-mono)' }}>{p.port.kind === 'any' ? 'any' : p.port.value}</td>
-                  <td style={{ padding: 6 }}>{p.is_global ? 'Yes' : 'No'}</td>
+                  <td style={{ padding: 6 }}>{p.protocol ?? 'tcp'}</td>
+                  <td style={{ padding: 6 }}>{p.proxy_mode ?? 'none'}</td>
+                  <td style={{ padding: 6 }}>{p.status ?? 'active'}</td>
+                  <td style={{ padding: 6, fontSize: 11 }}>{(p.allowed_organizations ?? []).join(', ') || (p.is_global ? 'All/global' : 'Source scoped')}</td>
                   <td style={{ padding: 6, fontSize: 11 }}>{p.permissions.join(', ') || 'None'}</td>
                   <td style={{ padding: 6, textAlign: 'right' }}>
                     <button type="button" onClick={() => void remove(p)} disabled={deleteId === p.id} className="of-button" style={{ fontSize: 11, color: '#b91c1c', borderColor: '#fecaca' }}>
@@ -119,7 +122,7 @@ export function EgressPoliciesPage() {
                 </tr>
               ))}
               {policies.length === 0 && (
-                <tr><td colSpan={7} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>No egress policies.</td></tr>
+                <tr><td colSpan={10} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>No egress policies.</td></tr>
               )}
             </tbody>
           </table>
