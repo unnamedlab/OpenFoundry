@@ -213,7 +213,7 @@ OpenFoundry canonical IDs.
 
 ### Link types, groups, and basic navigation
 
-- [ ] `OMOV.9` Link type creation and overview (`P0`, `todo`)
+- [x] `OMOV.9` Link type creation and overview (`P0`, `done`)
   - Create link types between object types, including self-links and links with one-to-one, one-to-many, many-to-one, and many-to-many cardinalities.
   - Configure source/target object types, display names, API names, descriptions, labels, reverse labels, visibility, and cardinality.
   - For many-to-many links, support link-datasource mapping and key mapping.

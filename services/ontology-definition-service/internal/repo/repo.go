@@ -284,7 +284,7 @@ func scanProperty(r rowLikeT) (*models.Property, error) {
 // ── Link types ─────────────────────────────────────────────────────────
 
 const linkTypeColumns = `id, name, display_name, description, source_type_id, target_type_id,
-	cardinality, owner_id, created_at, updated_at`
+	cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at`
 
 func (r *Repo) ListLinkTypes(ctx context.Context, objectTypeID *uuid.UUID) ([]models.LinkType, error) {
 	q := `SELECT ` + linkTypeColumns + ` FROM ontology_schema.link_types`
@@ -332,14 +332,22 @@ func (r *Repo) CreateLinkType(ctx context.Context, body *models.CreateLinkTypeRe
 	if card == "" {
 		card = "many_to_many"
 	}
+	visibility := body.Visibility
+	if visibility == "" {
+		visibility = "normal"
+	}
+	mapping := body.LinkDatasourceMapping
+	if mapping == nil {
+		mapping = map[string]any{}
+	}
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO ontology_schema.link_types
 		 (id, name, display_name, description, source_type_id, target_type_id,
-		  cardinality, owner_id, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+		  cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
 		 RETURNING `+linkTypeColumns,
 		id, body.Name, dn, body.Description, body.SourceTypeID, body.TargetTypeID,
-		card, ownerID, time.Now().UTC())
+		card, body.Label, body.ReverseLabel, visibility, mapping, ownerID, time.Now().UTC())
 	return scanLinkType(row)
 }
 
@@ -360,23 +368,54 @@ func (r *Repo) UpdateLinkType(ctx context.Context, id uuid.UUID, body *models.Up
 	if body.Cardinality != nil && *body.Cardinality != "" {
 		cardinality = *body.Cardinality
 	}
+	label := current.Label
+	if body.Label != nil {
+		label = *body.Label
+	}
+	reverseLabel := current.ReverseLabel
+	if body.ReverseLabel != nil {
+		reverseLabel = *body.ReverseLabel
+	}
+	visibility := current.Visibility
+	if body.Visibility != nil && *body.Visibility != "" {
+		visibility = *body.Visibility
+	}
+	mapping := current.LinkDatasourceMapping
+	if body.LinkDatasourceMapping != nil {
+		mapping = body.LinkDatasourceMapping
+	}
+	if mapping == nil {
+		mapping = map[string]any{}
+	}
 	row := r.Pool.QueryRow(ctx,
 		`UPDATE ontology_schema.link_types SET
 		   display_name = $2,
 		   description = $3,
 		   cardinality = $4,
-		   updated_at = $5
+		   label = $5,
+		   reverse_label = $6,
+		   visibility = $7,
+		   link_datasource_mapping = $8,
+		   updated_at = $9
 		 WHERE id = $1
 		 RETURNING `+linkTypeColumns,
-		id, displayName, description, cardinality, time.Now().UTC())
+		id, displayName, description, cardinality, label, reverseLabel, visibility, mapping, time.Now().UTC())
 	return scanLinkType(row)
+}
+
+func (r *Repo) DeleteLinkType(ctx context.Context, id uuid.UUID) (bool, error) {
+	tag, err := r.Pool.Exec(ctx, `DELETE FROM ontology_schema.link_types WHERE id = $1`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func scanLinkType(r rowLikeT) (*models.LinkType, error) {
 	lt := &models.LinkType{}
 	if err := r.Scan(&lt.ID, &lt.Name, &lt.DisplayName, &lt.Description,
-		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality, &lt.OwnerID,
-		&lt.CreatedAt, &lt.UpdatedAt); err != nil {
+		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality, &lt.Label, &lt.ReverseLabel,
+		&lt.Visibility, &lt.LinkDatasourceMapping, &lt.OwnerID, &lt.CreatedAt, &lt.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return lt, nil

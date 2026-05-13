@@ -4,6 +4,9 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   buildOntologyResourceRegistry,
   deriveOntologyArtifact,
+  linkTypeCardinalityLabel,
+  linkTypeEndpointLabels,
+  linkTypeHasDatasourceMapping,
   listActionTypes,
   listInterfaces,
   listLinkTypes,
@@ -25,6 +28,7 @@ import {
 } from "@/lib/api/ontology";
 import { Glyph } from "@/lib/components/ui/Glyph";
 import { CreateObjectTypeWizard } from "@/lib/components/ontology/CreateObjectTypeWizard";
+import { LinkEditor } from "@/lib/components/ontology/LinkEditor";
 import { useAuth } from "@/lib/stores/auth";
 
 type Section =
@@ -249,6 +253,20 @@ export function OntologyManagerPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  function refreshLinkType(link: LinkType) {
+    setLinkTypes((current) => {
+      const index = current.findIndex((item) => item.id === link.id);
+      if (index === -1) return [link, ...current];
+      const next = [...current];
+      next[index] = link;
+      return next;
+    });
+  }
+
+  function removeLinkType(id: string) {
+    setLinkTypes((current) => current.filter((item) => item.id !== id));
+  }
 
   const ontologyRegistry = useMemo(
     () =>
@@ -1052,22 +1070,71 @@ export function OntologyManagerPage() {
           )}
 
           {section === "links" && (
-            <section className="of-panel" style={{ padding: 16 }}>
-              <p className="of-eyebrow">Link types ({linkTypes.length})</p>
-              <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: "none" }}>
-                {linkTypes.map((l) => (
-                  <li
-                    key={l.id}
-                    style={{
-                      padding: 8,
-                      borderBottom: "1px solid var(--border-subtle)",
-                    }}
-                  >
-                    <strong>{l.display_name}</strong> · {l.name} ·{" "}
-                    {l.source_type_id} → {l.target_type_id}
-                  </li>
-                ))}
-              </ul>
+            <section
+              className="of-panel"
+              style={{
+                padding: 16,
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) 380px",
+                gap: 16,
+              }}
+            >
+              <div>
+                <p className="of-eyebrow">Link types ({linkTypes.length})</p>
+                <p className="of-text-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                  Create and review typed relationships between object types, including self-links, one-to-one, one-to-many, many-to-one, and many-to-many links with datasource key mappings.
+                </p>
+                <ul style={{ marginTop: 12, paddingLeft: 0, listStyle: "none" }}>
+                  {linkTypes.map((l) => {
+                    const labels = linkTypeEndpointLabels(l);
+                    const source = objectTypes.find((type) => type.id === l.source_type_id);
+                    const target = objectTypes.find((type) => type.id === l.target_type_id);
+                    return (
+                      <li
+                        key={l.id}
+                        style={{
+                          padding: 10,
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 8,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                          <div>
+                            <strong>{l.display_name}</strong> · <code>{l.name}</code>
+                            <p className="of-text-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                              {source?.display_name || l.source_type_id} → {target?.display_name || l.target_type_id}
+                              {l.source_type_id === l.target_type_id ? " · self-link" : ""}
+                            </p>
+                          </div>
+                          <span className="of-badge">{linkTypeCardinalityLabel(l.cardinality)}</span>
+                        </div>
+                        <dl style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, margin: "10px 0 0", fontSize: 12 }}>
+                          <div>
+                            <dt className="of-text-muted">Forward label</dt>
+                            <dd style={{ margin: 0 }}>{labels.forward}</dd>
+                          </div>
+                          <div>
+                            <dt className="of-text-muted">Reverse label</dt>
+                            <dd style={{ margin: 0 }}>{labels.reverse}</dd>
+                          </div>
+                          <div>
+                            <dt className="of-text-muted">Visibility</dt>
+                            <dd style={{ margin: 0 }}>{l.visibility || "normal"}</dd>
+                          </div>
+                        </dl>
+                        {l.cardinality === "many_to_many" && (
+                          <p className="of-text-muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                            Datasource: {l.link_datasource_mapping?.datasource_id || "not mapped"} · source key {l.link_datasource_mapping?.source_key || "—"} · target key {l.link_datasource_mapping?.target_key || "—"}
+                            {!linkTypeHasDatasourceMapping(l) ? " · missing required mapping" : ""}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <LinkEditor onCreated={refreshLinkType} onUpdated={refreshLinkType} onDeleted={removeLinkType} />
             </section>
           )}
 

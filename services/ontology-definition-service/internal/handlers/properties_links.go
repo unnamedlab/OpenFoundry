@@ -127,6 +127,14 @@ func (h *Handlers) CreateLinkType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "name + source_type_id + target_type_id are required")
 		return
 	}
+	if body.Cardinality != "" && !validLinkCardinality(body.Cardinality) {
+		writeJSONErr(w, http.StatusBadRequest, "invalid cardinality")
+		return
+	}
+	if body.Visibility != "" && !validLinkVisibility(body.Visibility) {
+		writeJSONErr(w, http.StatusBadRequest, "invalid visibility")
+		return
+	}
 	created, err := h.Repo.CreateLinkType(r.Context(), &body, claims.Sub)
 	if err != nil {
 		slog.Error("create link type", slog.String("error", err.Error()))
@@ -151,6 +159,14 @@ func (h *Handlers) UpdateLinkType(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	if body.Cardinality != nil && *body.Cardinality != "" && !validLinkCardinality(*body.Cardinality) {
+		writeJSONErr(w, http.StatusBadRequest, "invalid cardinality")
+		return
+	}
+	if body.Visibility != nil && *body.Visibility != "" && !validLinkVisibility(*body.Visibility) {
+		writeJSONErr(w, http.StatusBadRequest, "invalid visibility")
+		return
+	}
 	updated, err := h.Repo.UpdateLinkType(r.Context(), id, &body)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -161,4 +177,44 @@ func (h *Handlers) UpdateLinkType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handlers) DeleteLinkType(w http.ResponseWriter, r *http.Request) {
+	if _, ok := authmw.FromContext(r.Context()); !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	deleted, err := h.Repo.DeleteLinkType(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !deleted {
+		writeJSONErr(w, http.StatusNotFound, "link type not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func validLinkCardinality(cardinality string) bool {
+	switch cardinality {
+	case "one_to_one", "one_to_many", "many_to_one", "many_to_many":
+		return true
+	default:
+		return false
+	}
+}
+
+func validLinkVisibility(visibility string) bool {
+	switch visibility {
+	case "normal", "hidden", "experimental":
+		return true
+	default:
+		return false
+	}
 }

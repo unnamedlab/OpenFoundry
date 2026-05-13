@@ -4,6 +4,9 @@ import {
   buildOntologyResourceRegistry,
   deriveOntologyArtifact,
   formatPropertyValue,
+  linkTypeCardinalityLabel,
+  linkTypeEndpointLabels,
+  linkTypeHasDatasourceMapping,
   objectTypeAPIName,
   objectTypeGeoPointPropertyNames,
   objectTypeGeoShapePropertyNames,
@@ -219,6 +222,49 @@ describe("ontology property formatting helpers", () => {
       color: "#065f46",
       fontWeight: "700",
     });
+  });
+});
+
+describe("ontology link type helpers", () => {
+  it("formats cardinality, endpoint labels, and many-to-many datasource mapping state", () => {
+    const link = {
+      id: "link-1",
+      name: "TrailRace",
+      display_name: "Trail race",
+      description: "",
+      source_type_id: "Trail",
+      target_type_id: "Race",
+      cardinality: "many_to_many",
+      label: "has races",
+      reverse_label: "uses trail",
+      link_datasource_mapping: {
+        datasource_id: "dataset.links",
+        source_key: "trail_id",
+        target_key: "race_id",
+      },
+      owner_id: "owner-1",
+      created_at: now,
+      updated_at: now,
+    };
+
+    expect(linkTypeCardinalityLabel(link.cardinality)).toBe("Many-to-many");
+    expect(linkTypeEndpointLabels(link)).toEqual({
+      forward: "has races",
+      reverse: "uses trail",
+    });
+    expect(linkTypeHasDatasourceMapping(link)).toBe(true);
+    expect(
+      linkTypeHasDatasourceMapping({
+        cardinality: "many_to_many",
+        link_datasource_mapping: { datasource_id: "dataset.links" },
+      }),
+    ).toBe(false);
+    expect(
+      linkTypeHasDatasourceMapping({
+        cardinality: "one_to_many",
+        link_datasource_mapping: null,
+      }),
+    ).toBe(true);
   });
 });
 

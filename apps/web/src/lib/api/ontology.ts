@@ -1532,7 +1532,7 @@ export function buildOntologyResourceRegistry(
         displayName: linkType.display_name,
         pluralDisplayName: null,
         description: linkType.description,
-        visibility: "normal",
+        visibility: linkType.visibility || "normal",
         status: "active",
         lastEditedAt: linkType.updated_at,
         lastEditedBy: linkType.owner_id,
@@ -1754,6 +1754,20 @@ function registryEntry({
   };
 }
 
+export type LinkTypeCardinality =
+  | "one_to_one"
+  | "one_to_many"
+  | "many_to_one"
+  | "many_to_many";
+
+export interface LinkTypeDatasourceMapping {
+  datasource_id?: string | null;
+  source_key?: string | null;
+  target_key?: string | null;
+  source_property?: string | null;
+  target_property?: string | null;
+}
+
 export interface LinkType {
   id: string;
   name: string;
@@ -1761,10 +1775,56 @@ export interface LinkType {
   description: string;
   source_type_id: string;
   target_type_id: string;
-  cardinality: string;
+  cardinality: LinkTypeCardinality | string;
+  label?: string | null;
+  reverse_label?: string | null;
+  visibility?: string | null;
+  link_datasource_mapping?: LinkTypeDatasourceMapping | null;
   owner_id: string;
   created_at: string;
   updated_at: string;
+}
+
+export function linkTypeCardinalityLabel(cardinality: string) {
+  switch (cardinality) {
+    case "one_to_one":
+      return "One-to-one";
+    case "one_to_many":
+      return "One-to-many";
+    case "many_to_one":
+      return "Many-to-one";
+    case "many_to_many":
+      return "Many-to-many";
+    default:
+      return cardinality || "Many-to-many";
+  }
+}
+
+export function linkTypeEndpointLabels(linkType: LinkType) {
+  return {
+    forward: linkType.label || linkType.display_name || linkType.name,
+    reverse:
+      linkType.reverse_label ||
+      (linkType.label
+        ? `${linkType.label} (reverse)`
+        : `Reverse ${linkType.display_name || linkType.name}`),
+  };
+}
+
+export function linkTypeRequiresDatasourceMapping(
+  linkType: Pick<LinkType, "cardinality">,
+) {
+  return linkType.cardinality === "many_to_many";
+}
+
+export function linkTypeHasDatasourceMapping(
+  linkType: Pick<LinkType, "cardinality" | "link_datasource_mapping">,
+) {
+  if (!linkTypeRequiresDatasourceMapping(linkType)) return true;
+  const mapping = linkType.link_datasource_mapping;
+  return Boolean(
+    mapping?.datasource_id && mapping?.source_key && mapping?.target_key,
+  );
 }
 
 export interface OntologyInterface {
@@ -3809,14 +3869,26 @@ export function createLinkType(body: {
   description?: string;
   source_type_id: string;
   target_type_id: string;
-  cardinality?: string;
+  cardinality?: LinkTypeCardinality | string;
+  label?: string;
+  reverse_label?: string;
+  visibility?: string;
+  link_datasource_mapping?: LinkTypeDatasourceMapping | null;
 }) {
   return api.post<LinkType>("/ontology/links", body);
 }
 
 export function updateLinkType(
   id: string,
-  body: { display_name?: string; description?: string; cardinality?: string },
+  body: {
+    display_name?: string;
+    description?: string;
+    cardinality?: LinkTypeCardinality | string;
+    label?: string;
+    reverse_label?: string;
+    visibility?: string;
+    link_datasource_mapping?: LinkTypeDatasourceMapping | null;
+  },
 ) {
   return api.patch<LinkType>(`/ontology/links/${id}`, body);
 }

@@ -64,6 +64,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/links", h.CreateLinkType)
 		api.Get("/links/{id}", h.GetLinkType)
 		api.Patch("/links/{id}", h.UpdateLinkType)
+		api.Delete("/links/{id}", h.DeleteLinkType)
 
 		// Catalog reads consumed by Ontology Manager on first paint.
 		// Both endpoints accept `page`, `per_page` and `search`; they

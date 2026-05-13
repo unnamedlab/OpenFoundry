@@ -18,7 +18,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/ontology-kernel/models"
 )
 
-const linkTypeColumns = `id, name, display_name, description, source_type_id, target_type_id, cardinality, owner_id, created_at, updated_at`
+const linkTypeColumns = `id, name, display_name, description, source_type_id, target_type_id, cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id, created_at, updated_at`
 
 // CreateLinkType mirrors `create`. INSERT…RETURNING is preserved
 // byte-for-byte.
@@ -30,10 +30,10 @@ func CreateLinkType(
 	displayName, description, cardinality string,
 ) (models.LinkType, error) {
 	row := db.QueryRow(ctx,
-		`INSERT INTO link_types (id, name, display_name, description, source_type_id, target_type_id, cardinality, owner_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO link_types (id, name, display_name, description, source_type_id, target_type_id, cardinality, label, reverse_label, visibility, link_datasource_mapping, owner_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, ''), COALESCE($9, ''), COALESCE($10, 'normal'), COALESCE($11, '{}'::jsonb), $12)
            RETURNING `+linkTypeColumns,
-		id, body.Name, displayName, description, body.SourceTypeID, body.TargetTypeID, cardinality, ownerID,
+		id, body.Name, displayName, description, body.SourceTypeID, body.TargetTypeID, cardinality, body.Label, body.ReverseLabel, body.Visibility, body.LinkDatasourceMapping, ownerID,
 	)
 	return scanLinkType(row)
 }
@@ -142,10 +142,14 @@ func UpdateLinkType(
            SET display_name = COALESCE($2, display_name),
                description = COALESCE($3, description),
                cardinality = $4,
+               label = COALESCE($5, label),
+               reverse_label = COALESCE($6, reverse_label),
+               visibility = COALESCE($7, visibility),
+               link_datasource_mapping = COALESCE($8, link_datasource_mapping),
                updated_at = NOW()
            WHERE id = $1
            RETURNING `+linkTypeColumns,
-		id, body.DisplayName, body.Description, cardinality,
+		id, body.DisplayName, body.Description, cardinality, body.Label, body.ReverseLabel, body.Visibility, body.LinkDatasourceMapping,
 	)
 	lt, err := scanLinkType(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -161,8 +165,8 @@ func scanLinkType(row scanRow) (models.LinkType, error) {
 	var lt models.LinkType
 	if err := row.Scan(
 		&lt.ID, &lt.Name, &lt.DisplayName, &lt.Description,
-		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality,
-		&lt.OwnerID, &lt.CreatedAt, &lt.UpdatedAt,
+		&lt.SourceTypeID, &lt.TargetTypeID, &lt.Cardinality, &lt.Label, &lt.ReverseLabel,
+		&lt.Visibility, &lt.LinkDatasourceMapping, &lt.OwnerID, &lt.CreatedAt, &lt.UpdatedAt,
 	); err != nil {
 		return models.LinkType{}, err
 	}
