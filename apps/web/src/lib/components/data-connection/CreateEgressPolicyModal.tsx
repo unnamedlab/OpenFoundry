@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type For
 
 import {
   dataConnection,
+  validateEgressPolicy,
   type EgressEndpointKind,
+  type AgentProxyMode,
   type EgressPolicyKind,
+  type EgressProtocol,
   type EgressPort,
   type EgressPortKind,
   type NetworkEgressPolicy,
@@ -30,6 +33,20 @@ const PORT_KIND_LABEL: Record<EgressPortKind, string> = {
 const POLICY_KIND_LABEL: Record<EgressPolicyKind, string> = {
   direct: 'Direct egress',
   agent_proxy: 'Agent proxy',
+};
+
+const PROTOCOL_LABEL: Record<EgressProtocol, string> = {
+  tcp: 'TCP',
+  tls: 'TLS',
+  http: 'HTTP',
+  https: 'HTTPS',
+};
+
+const PROXY_MODE_LABEL: Record<AgentProxyMode, string> = {
+  none: 'None',
+  http_connect: 'HTTP CONNECT',
+  socks5: 'SOCKS5',
+  mtls_tunnel: 'mTLS tunnel',
 };
 
 function parsePermissions(raw: string): string[] {
@@ -70,12 +87,16 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
   const [addressValue, setAddressValue] = useState('');
   const [portKind, setPortKind] = useState<EgressPortKind>('single');
   const [portValue, setPortValue] = useState('443');
+  const [protocol, setProtocol] = useState<EgressProtocol>('https');
+  const [proxyMode, setProxyMode] = useState<AgentProxyMode>('none');
+  const [allowedOrganizationsRaw, setAllowedOrganizationsRaw] = useState('');
   const [isGlobal, setIsGlobal] = useState(false);
   const [permissionsRaw, setPermissionsRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const permissions = useMemo(() => parsePermissions(permissionsRaw), [permissionsRaw]);
+  const allowedOrganizations = useMemo(() => parsePermissions(allowedOrganizationsRaw), [allowedOrganizationsRaw]);
 
   const reset = useCallback(() => {
     setName('');
@@ -85,6 +106,9 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
     setAddressValue('');
     setPortKind('single');
     setPortValue('443');
+    setProtocol('https');
+    setProxyMode('none');
+    setAllowedOrganizationsRaw('');
     setIsGlobal(false);
     setPermissionsRaw('');
     setError('');
@@ -133,7 +157,6 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
       setError('Address is required.');
       return;
     }
-
     let port: EgressPort;
     try {
       port = normalizePort(portKind, portValue);
@@ -142,18 +165,29 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
       return;
     }
 
+    const body = {
+      name: trimmedName,
+      description: description.trim(),
+      kind,
+      protocol,
+      proxy_mode: kind === 'agent_proxy' ? proxyMode : 'none',
+      status: 'pending_review' as const,
+      allowed_organizations: allowedOrganizations,
+      address: { kind: addressKind, value: trimmedAddress },
+      port,
+      is_global: isGlobal,
+      permissions,
+    };
+    const validationErrors = validateEgressPolicy(body).filter((issue) => issue.severity === 'error');
+    if (validationErrors.length > 0) {
+      setError(validationErrors[0].message);
+      return;
+    }
+
     setBusy(true);
     setError('');
     try {
-      const created = await dataConnection.createEgressPolicy({
-        name: trimmedName,
-        description: description.trim(),
-        kind,
-        address: { kind: addressKind, value: trimmedAddress },
-        port,
-        is_global: isGlobal,
-        permissions,
-      });
+      const created = await dataConnection.createEgressPolicy(body);
       onCreated?.(created);
       reset();
       onClose();
@@ -199,6 +233,22 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
                 ))}
               </select>
             </Field>
+            <Field label="Protocol">
+              <select value={protocol} onChange={(event) => setProtocol(event.target.value as EgressProtocol)} className="of-input">
+                {Object.entries(PROTOCOL_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </Field>
+            {kind === 'agent_proxy' && (
+              <Field label="Proxy mode">
+                <select value={proxyMode} onChange={(event) => setProxyMode(event.target.value as AgentProxyMode)} className="of-input">
+                  {Object.entries(PROXY_MODE_LABEL).filter(([value]) => value !== 'none').map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="Description" full>
               <input value={description} onChange={(event) => setDescription(event.target.value)} className="of-input" placeholder="Allowed destination for scheduled syncs" />
             </Field>
@@ -247,6 +297,17 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
             />
           </Field>
 
+          <Field label="Allowed organizations" hint="Optional organization IDs allowed to use this route.">
+            <textarea
+              value={allowedOrganizationsRaw}
+              onChange={(event) => setAllowedOrganizationsRaw(event.target.value)}
+              rows={2}
+              className="of-input"
+              style={textareaStyle}
+              placeholder={'org-main\norg-analytics'}
+            />
+          </Field>
+
           <section className="of-panel-muted" style={reviewStyle}>
             <p className="of-eyebrow" style={{ margin: 0 }}>Review</p>
             <dl style={reviewListStyle}>
@@ -256,8 +317,14 @@ export function CreateEgressPolicyModal({ open, onClose, onCreated }: CreateEgre
               <dd>{portKind === 'any' ? 'Any' : portValue.trim() || 'Not set'}</dd>
               <dt>Mode</dt>
               <dd>{POLICY_KIND_LABEL[kind]}</dd>
+              <dt>Protocol</dt>
+              <dd>{PROTOCOL_LABEL[protocol]}</dd>
+              <dt>Proxy</dt>
+              <dd>{kind === 'agent_proxy' ? PROXY_MODE_LABEL[proxyMode] : 'None'}</dd>
               <dt>Permissions</dt>
               <dd>{permissions.length > 0 ? permissions.join(', ') : 'None'}</dd>
+              <dt>Organizations</dt>
+              <dd>{allowedOrganizations.length > 0 ? allowedOrganizations.join(', ') : 'Any allowed org'}</dd>
             </dl>
           </section>
 

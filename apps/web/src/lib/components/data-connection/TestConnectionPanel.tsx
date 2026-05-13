@@ -28,11 +28,24 @@ export function TestConnectionPanel({ sourceId, result, busy, onTest, children }
       {result ? (
         <div
           className={result.success ? 'of-status-success' : 'of-status-danger'}
-          style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 12 }}
+          style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 12, display: 'grid', gap: 6 }}
         >
-          <strong>{result.success ? 'Connected' : 'Failed'}</strong>
-          <span> - {result.message}</span>
-          {result.latency_ms !== null ? <span> - {result.latency_ms}ms</span> : null}
+          <div>
+            <strong>{result.success ? 'Connected' : 'Failed'}</strong>
+            <span> - {result.message}</span>
+            {result.latency_ms !== null ? <span> - {result.latency_ms}ms</span> : null}
+            {result.tested_at ? <span> - {result.tested_at}</span> : null}
+          </div>
+          {(result.checks ?? []).length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {(result.checks ?? []).map((check) => (
+                <li key={check.name}>
+                  {check.status} - {check.name}: {check.message}
+                  {check.latency_ms !== null ? ` - ${check.latency_ms}ms` : ''}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : (
         <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>

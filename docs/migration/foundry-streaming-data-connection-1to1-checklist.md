@@ -138,128 +138,148 @@ OpenFoundry canonical IDs.
 
 ### Data Connection application and source setup
 
-- [ ] `SDC.1` Data Connection application shell (`P0`, `todo`)
+- [x] `SDC.1` Data Connection application shell (`P0`, `done`)
   - Provide Sources, Syncs, Streams, Exports, Webhooks, Virtual Tables, Agents, and Health views.
   - Include global search, capability filters, worker filters, owner filters, status filters, recent failures, and source-type discovery.
   - Show clear entry points for New source, Explore, Create sync, Create export, Create webhook, and Register virtual table.
+  - Implemented in `apps/web/src/routes/data-connection/DataConnectionPage.tsx` with OpenFoundry-native shell navigation, filters, source-type discovery cards, recent-failure surfacing, and capability-aware entry points.
   - Docs: [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
 
-- [ ] `SDC.2` Connector/source type registry (`P0`, `todo`)
+- [x] `SDC.2` Connector/source type registry (`P0`, `done`)
   - Define a registry for connector categories: databases, filesystems/blob stores, event streams, message queues, REST APIs, productivity tools, SaaS applications, geospatial systems, media sources, and generic connectors.
   - Store per-connector supported capabilities, worker compatibility, credential fields, network requirements, setup docs link, and feature flags.
   - Render capability tags on new-source cards and source overview pages.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/routes/data-connection/NewSourcePage.tsx`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with category metadata, registry normalization, category filtering, card tags, and overview/capabilities registry summaries.
   - Docs: [Source type overview](https://www.palantir.com/docs/foundry/data-integration/source-type-overview/), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [Available connectors: other source types](https://www.palantir.com/docs/foundry/available-connectors/other-source-types/).
 
-- [ ] `SDC.3` Source CRUD and overview page (`P0`, `todo`)
+- [x] `SDC.3` Source CRUD and overview page (`P0`, `done`)
   - Create, get, list, update, archive/delete, and duplicate sources.
   - Track source name, description, connector type, project/folder, owner, worker, network policy, credential references, default output location, supported capabilities, health, usage, and audit metadata.
   - Provide source tabs for Overview, Configuration, Credentials, Networking, Explore, Syncs, Exports, Webhooks, Virtual Tables, Code imports, Permissions, and History.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts` and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with expanded source metadata, update/archive/duplicate API calls, editable source metadata, overview summary cards, and the complete source tab set.
   - Docs: [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
 
-- [ ] `SDC.4` Worker selection and compatibility validation (`P0`, `todo`)
+- [x] `SDC.4` Worker selection and compatibility validation (`P0`, `done`)
   - Support OpenFoundry worker and agent worker choices.
   - Validate that selected worker is allowed for the connector type and capability being configured.
   - Explain which capabilities are unavailable for each worker/source combination.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/routes/data-connection/NewSourcePage.tsx`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with per-worker capability metadata, compatibility validation helpers, disabled incompatible worker choices, and allowed/unavailable capability explanations in source creation and source editing.
   - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Initial setup overview](https://www.palantir.com/docs/foundry/data-connection/initial-setup-overview/).
 
-- [ ] `SDC.5` Credential storage and rotation metadata (`P0`, `todo`)
+- [x] `SDC.5` Credential storage and rotation metadata (`P0`, `done`)
   - Store encrypted credentials or references to external secrets.
   - Support username/password, API key, bearer token, OAuth/client secret, cloud identity reference, certificate/key, and connector-specific secret fields.
   - Track secret version, last rotated, created by, credential test status, source usage, and audit events without exposing secret values.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts` and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with credential storage modes, secret/reference metadata, rotation/test/usage/audit fields, rotate/test API helpers, and write-only credential forms.
   - Docs: [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/), [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source).
 
-- [ ] `SDC.6` Network egress policy integration (`P0`, `todo`)
+- [x] `SDC.6` Network egress policy integration (`P0`, `done`)
   - Create and attach direct egress policies for Foundry-worker connections.
   - Create and attach agent proxy policies for agent-mediated private-network connections where supported.
   - Validate host, port, protocol, proxy mode, policy status, and allowed organizations before connection tests.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/components/data-connection/CreateEgressPolicyModal.tsx`, `apps/web/src/routes/data-connection/EgressPoliciesPage.tsx`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with protocol/proxy/status/org metadata, shared egress validation helpers, direct/agent-proxy create-and-attach flows, and active-policy pre-test validation.
   - Docs: [Initial setup overview](https://www.palantir.com/docs/foundry/data-connection/initial-setup-overview/), [Configure egress](https://www.palantir.com/docs/foundry/administration/configure-egress/), [Agent proxy configuration reference](https://www.palantir.com/docs/foundry/data-connection/agent-proxy/).
 
-- [ ] `SDC.7` Source connection tests and exploration (`P0`, `todo`)
+- [x] `SDC.7` Source connection tests and exploration (`P0`, `done`)
   - Test connectivity, authentication, permissions, and simple metadata discovery from source setup and overview pages.
   - Browse external folders, files, databases, schemas, tables, topics, queues, streams, and sample rows where supported.
   - Store exploration sessions without persisting secret values or unauthorized sample data.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/components/data-connection/TestConnectionPanel.tsx`, `apps/web/src/routes/data-connection/NewSourcePage.tsx`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with structured connection-test checks, exploration session/node models, source setup discovery details, source detail exploration browsing, redacted sample metadata, and no-secret/no-sample persistence indicators.
   - Docs: [Set up a source](https://www.palantir.com/docs/foundry/data-connection/set-up-source), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
 
 ### Batch, file, and table sync basics
 
-- [ ] `SDC.8` Generic sync resource model (`P0`, `todo`)
+- [x] `SDC.8` Generic sync resource model (`P0`, `done`)
   - Create sync resources from a source and capability type.
   - Track output dataset/stream/media set, source path/table/topic, schema, write mode, transaction mode, schedule/build integration, last run, next run, health, and history.
   - Creating a batch sync should create or select an OpenFoundry dataset output.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts` and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with generic sync capability/output/write/transaction models, schema/run/health/history metadata, output dataset suggestion helpers, create-or-select dataset payloads, and a richer sync creation/listing UI.
   - Docs: [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
 
-- [ ] `SDC.9` File-based sync modes (`P0`, `todo`)
+- [x] `SDC.9` File-based sync modes (`P0`, `done`)
   - Support default snapshot mirror, incremental append, historical snapshot plus incremental recent files, exclude-already-synced filters, file count limits, include/exclude glob filters, and path metadata columns where available.
   - Store low-level settings and warn on contradictory options.
   - Emit dataset transactions consistent with the selected mode.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with file sync modes, low-level filter metadata, contradictory-setting warnings, file-count validation, path metadata columns, and dataset transaction mapping for SNAPSHOT/APPEND/UPDATE planning.
   - Docs: [File-based syncs](https://www.palantir.com/docs/foundry/data-connection/file-based-syncs/), [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync).
 
-- [ ] `SDC.10` Table batch syncs (`P0`, `todo`)
+- [x] `SDC.10` Table batch syncs (`P0`, `done`)
   - Browse tables, select one or more tables, infer schema, configure output dataset location, and run syncs.
   - Support full snapshot and incremental modes where the connector can identify new or changed records.
   - Capture source table schema, destination schema, row counts, transaction IDs, and run history.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with table selection models, schema/row-count/transaction metadata, full snapshot and incremental transaction mapping, incremental-column warnings, and source-detail controls for table batch sync creation.
   - Docs: [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync), [Data Connection core concepts](https://www.palantir.com/docs/foundry/data-connection/core-concepts/).
 
-- [ ] `SDC.11` Sync run lifecycle and history (`P0`, `todo`)
+- [x] `SDC.11` Sync run lifecycle and history (`P0`, `done`)
   - Track queued, running, succeeded, failed, cancelled, retrying, ignored, and partially successful states.
   - Persist start/end time, duration, worker/agent, build/job ID, source offsets or file checkpoints, output transaction, rows/files/bytes transferred, retries, and logs.
   - Link sync run history to Data Foundation build/job history where the sync is executed by the build system.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with expanded run states, duration/build-link helpers, source progress, output transactions, retry/log metadata, and richer run-history rendering linked to build/job history.
   - Docs: [Set up a sync](https://www.palantir.com/docs/foundry/data-connection/set-up-sync), [Builds core concepts](https://www.palantir.com/docs/foundry/data-integration/builds/).
 
 ### Streams and streaming sync basics
 
-- [ ] `SDC.12` Stream resource model (`P0`, `todo`)
+- [x] `SDC.12` Stream resource model (`P0`, `done`)
   - Model streams as tabular resources with schema, permissions, branch, hot buffer, cold/archive dataset, consistency guarantee, checkpoints, and replay metadata.
   - Expose stream details, live view, archive/dataset view, schema, offsets, checkpoints, source syncs, consumers, and health.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with stream resource models, storage/offset/checkpoint/replay/consumer/permission metadata, stream API helpers, replay/storage labels, and a source-detail Streams tab.
   - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
 
-- [ ] `SDC.13` Streaming sync setup (`P0`, `todo`)
+- [x] `SDC.13` Streaming sync setup (`P0`, `done`)
   - Create long-running syncs from supported streaming sources to OpenFoundry streams.
   - Configure source topic/queue/stream, consumer group or equivalent, schema, key fields, start offset, consistency guarantee, checkpoint interval, and output stream location.
   - Use start/stop controls rather than one-shot run controls.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with streaming sync setup/status models, validation helpers, create/start/stop API methods, and source-detail controls for topic, consumer group, key fields, offset, consistency, checkpoint interval, and stream location.
   - Docs: [Set up a streaming sync](https://www.palantir.com/docs/foundry/data-connection/set-up-streaming-sync/), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
 
-- [ ] `SDC.14` Stream hot/cold storage and hybrid reads (`P0`, `todo`)
+- [x] `SDC.14` Stream hot/cold storage and hybrid reads (`P0`, `done`)
   - Store recent records in a low-latency hot buffer.
   - Archive stream records to cold storage as a dataset on a fixed cadence or configurable policy.
   - Provide a hybrid read path that combines hot and cold storage for stream-aware applications.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with archive policy metadata, hybrid read metadata/API response types, hybrid read API helper, hot/cold summary labels, and stream-tab archive/hybrid status rendering.
   - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
 
-- [ ] `SDC.15` Stream checkpoints and restart behavior (`P0`, `todo`)
+- [x] `SDC.15` Stream checkpoints and restart behavior (`P0`, `done`)
   - Persist checkpoint state, last processed source location, operator state metadata, size, duration, status, and timestamp.
   - Restart failed streaming jobs from the latest completed checkpoint when possible.
   - Show recent checkpoint status on stream job detail pages.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with checkpoint status/source-location/operator-state metadata, restart plan helpers, latest-completed checkpoint selection, and stream-tab checkpoint/restart status rendering.
   - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
 
-- [ ] `SDC.16` Streaming consistency modes (`P0`, `todo`)
+- [x] `SDC.16` Streaming consistency modes (`P0`, `done`)
   - Support at-least-once mode and document duplicate-tolerant consumer requirements.
   - Support exactly-once mode where the selected runtime and sink can guarantee it.
   - Block or downgrade exactly-once mode when a source/sink combination cannot provide the guarantee.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with runtime/source/sink consistency evaluation, exactly-once downgrade warnings, duplicate-tolerant consumer guidance, and stream-tab effective consistency summaries.
   - Docs: [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
 
-- [ ] `SDC.17` Push-based stream ingestion (`P0`, `todo`)
+- [x] `SDC.17` Push-based stream ingestion (`P0`, `done`)
   - Provide authenticated REST endpoints for pushing records into streams by stream/dataset ID and branch.
   - Validate schema, token, branch, rate limits, record count, and idempotency key where supported.
   - Recommend streaming syncs when a source connector exists and listeners when inbound systems cannot authenticate or conform to stream schemas.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with push endpoint descriptors, authenticated record push request/response types, schema/token/branch/rate/idempotency validation, ingestion recommendations, and stream-tab push controls.
   - Docs: [Push data into a stream](https://www.palantir.com/docs/foundry/data-connection/push-based-ingestion/), [Streams core concepts](https://www.palantir.com/docs/foundry/data-integration/streams/).
 
 ### Webhook and REST source basics
 
-- [ ] `SDC.18` REST API source and webhook setup (`P0`, `todo`)
+- [x] `SDC.18` REST API source and webhook setup (`P0`, `done`)
   - Create REST API sources with base domains, auth configuration, additional secrets, network policy, worker selection, and source permissions.
   - Create webhooks associated with one source.
   - Configure method, relative path, query parameters, headers, body, authorization references, and timeout/retry behavior.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, `apps/web/src/routes/data-connection/NewSourcePage.tsx`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with REST API source setup/auth models, webhook request/retry models, validation helpers, REST source wizard fields, source-scoped webhook APIs, and a Webhooks tab creation/listing flow.
   - Docs: [Webhooks overview](https://www.palantir.com/docs/foundry/data-connection/webhooks-overview), [Set up a Webhook](https://www.palantir.com/docs/foundry/data-connection/webhooks-setup/), [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference).
 
-- [ ] `SDC.19` Webhook input and output parameters (`P0`, `todo`)
+- [x] `SDC.19` Webhook input and output parameters (`P0`, `done`)
   - Support Boolean, integer, long, double, string, date, timestamp, list, record, optional, and attachment parameter metadata where locally supported.
   - Map action/function parameters into webhook inputs and allow conditional skip when mapping returns no request.
   - Extract outputs using whole response, key path, array index, JSON extractor, HTTP status, and full response string where supported.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with webhook input/output parameter metadata, typed mapping validation, conditional invocation skip support, output extractors, and Webhooks tab parameter editors.
   - Docs: [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference).
 
-- [ ] `SDC.20` Webhook invocation history (`P0`, `todo`)
+- [x] `SDC.20` Webhook invocation history (`P0`, `done`)
   - Record invocation time, caller, action/function context, source, webhook, input parameter summary, HTTP status, parsed outputs, error, retry attempts, and redacted request/response metadata.
   - Enforce secret redaction and payload retention limits.
+  - Implemented in `apps/web/src/lib/api/data-connection.ts`, `apps/web/src/lib/api/data-connection.test.ts`, and `apps/web/src/routes/data-connection/SourceDetailPage.tsx` with invocation history records, source/webhook/caller/action/function metadata, parsed output summaries, redacted request/response metadata helpers, retention filtering, and Webhooks tab history loading.
   - Docs: [Webhooks configuration reference](https://www.palantir.com/docs/foundry/data-connection/webhooks-reference), [Webhooks overview](https://www.palantir.com/docs/foundry/data-connection/webhooks-overview).
 
 ## Milestone B: credible Foundry-style Data Connection and streaming parity
