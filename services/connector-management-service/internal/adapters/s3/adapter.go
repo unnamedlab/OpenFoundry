@@ -36,10 +36,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/catalogbridge"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/opentable"
+	s3driver "github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/drivers/s3"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
 )
 
@@ -52,12 +54,15 @@ const storePrefix = "s3"
 const defaultSourceKind = "s3_object"
 
 // Adapter is the s3 [adapters.ConnectorAdapter] implementation. It is
-// stateless and safe for concurrent use.
+// stateless apart from the optional [driverFactory] override used by tests,
+// and safe for concurrent use.
 type Adapter struct {
-	bridge *catalogbridge.Bridge
+	bridge        *catalogbridge.Bridge
+	driverFactory driverFactory
 }
 
-// New returns a ready-to-use [Adapter].
+// New returns a ready-to-use [Adapter] backed by the default AWS SDK
+// driver factory.
 func New() *Adapter {
 	return &Adapter{bridge: catalogbridge.New(ConnectorType, defaultSourceKind, nil)}
 }
@@ -167,6 +172,58 @@ func (a *Adapter) QueryVirtualTable(ctx context.Context, c *models.Connection, q
 // StreamArrow is unsupported for the same reason as QueryVirtualTable.
 func (a *Adapter) StreamArrow(_ context.Context, _ *models.Connection, _ *adapters.Query, _ string) (adapters.ArrowStream, error) {
 	return nil, fmt.Errorf("%w: s3 arrow streaming", adapters.ErrNotImplemented)
+}
+
+// driverFactory builds the runtime [s3driver.Driver]. Tests override it
+// to swap in a fake client; production keeps the AWS SDK default chain.
+type driverFactory func(ctx context.Context, cfg s3driver.Config) (driver, error)
+
+// driver is the surface the adapter uses against the runtime driver. It
+// lets tests inject a fake without pulling the AWS SDK in.
+type driver interface {
+	Connect(ctx context.Context) error
+}
+
+// SetDriverFactory overrides the driver constructor used by TestConnection.
+// Production code should leave the default; tests can swap in a fake to
+// avoid round-tripping localstack from the adapter unit tests.
+func (a *Adapter) SetDriverFactory(f driverFactory) {
+	if f != nil {
+		a.driverFactory = f
+	}
+}
+
+// TestConnection validates connectivity by building an [s3driver.Driver]
+// and calling HeadBucket against the configured bucket. Mirrors the
+// `connectionTestAdapter` interface consumed by handlers.TestConnection
+// and is the same path used by the new `POST /api/v1/connectors/{id}:test`
+// route — both return success only when HeadBucket succeeds.
+func (a *Adapter) TestConnection(ctx context.Context, raw json.RawMessage) (adapters.ConnectionTestResult, error) {
+	start := time.Now()
+	driverCfg, err := s3driver.ConfigFromJSON(raw)
+	if err != nil {
+		return adapters.ConnectionTestResult{Success: false, Message: err.Error()}, nil
+	}
+	factory := a.driverFactory
+	if factory == nil {
+		factory = defaultDriverFactory
+	}
+	d, err := factory(ctx, driverCfg)
+	if err != nil {
+		return adapters.ConnectionTestResult{Success: false, Message: err.Error(), LatencyMS: time.Since(start).Milliseconds()}, nil
+	}
+	if err := d.Connect(ctx); err != nil {
+		return adapters.ConnectionTestResult{Success: false, Message: err.Error(), LatencyMS: time.Since(start).Milliseconds()}, nil
+	}
+	return adapters.ConnectionTestResult{
+		Success:   true,
+		Message:   fmt.Sprintf("s3 bucket %q reachable", driverCfg.Bucket),
+		LatencyMS: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+func defaultDriverFactory(ctx context.Context, cfg s3driver.Config) (driver, error) {
+	return s3driver.New(ctx, cfg)
 }
 
 // BuildIngestSpec emits the object-storage descriptor forwarded to

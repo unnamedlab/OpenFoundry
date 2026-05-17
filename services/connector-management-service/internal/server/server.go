@@ -178,6 +178,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Patch("/connections/{id}", h.UpdateConnection)
 		api.Delete("/connections/{id}", h.DeleteConnection)
 		api.Post("/connections/{id}/test", h.TestConnection)
+		api.Post("/connectors/{id}:test", h.TestConnectorDriver)
 
 		api.Post("/webhooks/{id}/invoke", h.InvokeWebhook)
 		api.Get("/webhooks/{id}/history", h.ListWebhookHistory)
