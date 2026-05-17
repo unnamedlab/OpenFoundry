@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/catalog/rest"
+	icebergio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 )
 
@@ -53,7 +55,17 @@ func OpenIceberg(ctx context.Context, cfg IcebergConfig) (*Iceberg, error) {
 }
 
 func restOptions(cfg IcebergConfig) ([]rest.Option, error) {
-	var opts []rest.Option
+	// Lakekeeper advertises `s3.remote-signing-enabled=true` and a
+	// `s3.signer-uri` in every table load response. apache/iceberg-go
+	// v0.5.0's gocloud S3 IO adapter does not implement remote signing
+	// (returns "remote S3 request signing is not supported"). Override
+	// it client-side so the AWS SDK signs requests locally with the
+	// AWS_* env credentials the pod ships with.
+	opts := []rest.Option{
+		rest.WithAdditionalProps(iceberg.Properties{
+			icebergio.S3RemoteSigningEnabled: "false",
+		}),
+	}
 	if cfg.Warehouse != "" {
 		opts = append(opts, rest.WithWarehouseLocation(cfg.Warehouse))
 	}

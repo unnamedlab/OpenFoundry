@@ -21,6 +21,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	// Side-effect import registers S3/GCS/Azure/in-memory scheme handlers
+	// with apache/iceberg-go's io subsystem. Without it, a Scan against a
+	// table whose metadata lives on s3:// fails with
+	// `ErrIOSchemeNotFound: scheme s3`.
+	_ "github.com/apache/iceberg-go/io/gocloud"
+
 	"github.com/openfoundry/openfoundry-go/services/iceberg-object-indexer/internal/runner"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-object-indexer/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/iceberg-object-indexer/internal/sink"
