@@ -1,4 +1,4 @@
--- 0011: SG.13 — Marking permission model and direct resource markings.
+-- 0011: SG.13 - Marking permission model and direct resource markings.
 --
 -- This slice turns SG.12 marking permission rows into the operational
 -- checks used when applying/removing markings from protected resources.
