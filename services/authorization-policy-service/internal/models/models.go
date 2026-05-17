@@ -21,15 +21,20 @@ import (
 // raw Cedar policy text — every write must round-trip through
 // libs/authz-cedar-go (parse + strict schema validation) before being
 // persisted, so corrupt rows can't leak into the active PolicySet.
+//
+// TenantID is sealed from the caller's JWT (`org_id`) on every write —
+// the wire body never carries it on Create/Update. A nil value denotes
+// a platform-global policy and is reserved for admin/bootstrap rows.
 type CedarPolicy struct {
-	ID          string    `json:"id"`
-	Version     int32     `json:"version"`
-	Source      string    `json:"source"`
-	Description *string   `json:"description"`
-	Active      bool      `json:"active"`
-	CreatedBy   uuid.UUID `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	TenantID    *uuid.UUID `json:"tenant_id"`
+	Version     int32      `json:"version"`
+	Source      string     `json:"source"`
+	Description *string    `json:"description"`
+	Active      bool       `json:"active"`
+	CreatedBy   uuid.UUID  `json:"created_by"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // CreateCedarPolicyRequest is the body of POST /api/v1/cedar-policies.
