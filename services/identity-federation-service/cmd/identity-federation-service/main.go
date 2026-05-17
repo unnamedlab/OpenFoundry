@@ -25,6 +25,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/service"
 	oidcpkg "github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/oidc"
+	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/signingkeys"
 	webauthnpkg "github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/webauthn"
 )
 
@@ -102,7 +103,24 @@ func main() {
 	rbac := &handlers.RBAC{Repo: r}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, auth, mfa, wa, sso, ssoAdmin, rbac, metrics, probes.Postgres("primary", pool))
+	// Signing-key rotation (S3.1.c). Manager is wired only when
+	// JWT_SIGNING_SEALING_KEY is set — without it the RS256 path
+	// stays dormant and the legacy HS256 JWTConfig keeps signing.
+	var jwksHandler *signingkeys.Handler
+	if sealer, sealErr := signingkeys.NewSealerFromEnv(); sealErr == nil {
+		store := signingkeys.NewPostgresStore(pool)
+		mgr := signingkeys.NewManager(store, sealer, signingkeys.DefaultPolicy(), nil)
+		if err := mgr.EnsureBootstrap(ctx); err != nil {
+			log.Error("signing-key bootstrap failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		jwksHandler = signingkeys.NewHandler(mgr)
+	} else {
+		log.Warn("signing-key rotation disabled — set JWT_SIGNING_SEALING_KEY to enable",
+			slog.String("reason", sealErr.Error()))
+	}
+
+	srv := server.New(cfg, jwt, auth, mfa, wa, sso, ssoAdmin, rbac, jwksHandler, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

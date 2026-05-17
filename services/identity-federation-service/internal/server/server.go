@@ -19,6 +19,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/signingkeys"
 )
 
 // New builds the http.Server with slice-1 routes.
@@ -35,7 +36,7 @@ import (
 // Subsequent slices add: /auth/sessions/*, /auth/sso/*, /users/*,
 // /roles/*, /groups/*, /permissions/*, /policies/*, /control-panel/*,
 // /scim/v2/*, /jwks/rotate, /audit/metrics.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, wa *handlers.WebAuthn, sso *handlers.SSO, ssoAdmin *handlers.SsoAdmin, rbac *handlers.RBAC, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *handlers.MFA, wa *handlers.WebAuthn, sso *handlers.SSO, ssoAdmin *handlers.SsoAdmin, rbac *handlers.RBAC, jwks *signingkeys.Handler, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -45,6 +46,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	})
 	r.Method(http.MethodGet, "/metrics", m.Handler())
+
+	// JWKS publication — public, no bearer required (verifiers
+	// elsewhere in the platform fetch this to validate RS256 tokens).
+	if jwks != nil {
+		r.Get("/.well-known/jwks.json", jwks.Jwks)
+	}
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
@@ -167,6 +174,9 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 			adm.Delete("/auth/sso/providers/{id}", ssoAdmin.Delete)
 			adm.Post("/auth/sso/providers/{id}/refresh-metadata", ssoAdmin.RefreshMetadata)
 			adm.Get("/auth/sso/providers/{id}/health", ssoAdmin.Health)
+			if jwks != nil {
+				adm.Post("/admin/jwks/rotate", jwks.Rotate)
+			}
 		})
 	})
 
