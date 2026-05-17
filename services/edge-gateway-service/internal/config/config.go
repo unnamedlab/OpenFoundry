@@ -153,7 +153,10 @@ func DefaultUpstreams() UpstreamURLs {
 		OauthIntegration:          "http://localhost:50094",
 		SessionGovernance:         "http://localhost:50074",
 		AuthorizationPolicy:       "http://localhost:50093",
-		SecurityGovernance:        "http://localhost:50114",
+		// ADR-0030 B14: security-governance-service merged into
+		// authorization-policy-service. The upstream key is kept as an
+		// alias so router_table.go can keep its sec-gov-specific cases.
+		SecurityGovernance:        "http://localhost:50093",
 		TenancyOrganizations:      "http://localhost:50113",
 		Cipher:                    "http://localhost:50073",
 		DataConnector:             "http://localhost:50088",
