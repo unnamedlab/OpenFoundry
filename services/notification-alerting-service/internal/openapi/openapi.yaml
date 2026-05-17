@@ -1,0 +1,175 @@
+openapi: 3.0.3
+info:
+  title: Notification Alerting Service
+  version: 0.1.0
+  description: |
+    Hand-authored 1:1 slice of the notification-alerting-service HTTP surface
+    used as the canonical input for `tools/of-sdk-gen`. Mirrors the chi
+    router wiring in `internal/server/server.go` for the bearer-authenticated
+    `/api/v1/notifications/*` paths.
+servers:
+  - url: http://localhost:7155
+    description: Local default
+tags:
+  - name: notifications
+paths:
+  /api/v1/notifications:
+    get:
+      summary: List notifications for the caller
+      operationId: listNotifications
+      tags: [notifications]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, format: int64, default: 50 }
+      responses:
+        '200':
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/NotificationRecord' }
+  /api/v1/notifications/{id}/read:
+    patch:
+      summary: Mark a notification as read
+      operationId: markNotificationRead
+      tags: [notifications]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Marked
+  /api/v1/notifications/read-all:
+    post:
+      summary: Mark every notification as read
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Marked
+  /api/v1/notifications/send:
+    post:
+      summary: Send a notification
+      operationId: sendNotification
+      tags: [notifications]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendNotificationRequest'
+      responses:
+        '201':
+          description: Notification queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationRecord'
+  /api/v1/notifications/preferences:
+    get:
+      summary: Get caller preferences
+      operationId: getNotificationPreferences
+      tags: [notifications]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+    put:
+      summary: Update caller preferences (partial)
+      operationId: updateNotificationPreferences
+      tags: [notifications]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePreferenceRequest'
+      responses:
+        '200':
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    NotificationRecord:
+      type: object
+      required: [id, title, body, category, severity, status, created_at]
+      properties:
+        id:         { type: string, format: uuid }
+        user_id:    { type: string, format: uuid, nullable: true }
+        title:      { type: string }
+        body:       { type: string }
+        category:   { type: string }
+        severity:   { type: string }
+        status:     { type: string }
+        channels:
+          type: array
+          items: { type: string }
+        metadata:   { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        read_at:    { type: string, format: date-time, nullable: true }
+    SendNotificationRequest:
+      type: object
+      required: [title, body]
+      properties:
+        user_id:  { type: string, format: uuid, nullable: true }
+        title:    { type: string }
+        body:     { type: string }
+        severity: { type: string }
+        category: { type: string }
+        channels:
+          type: array
+          items: { type: string }
+        metadata: { type: object, additionalProperties: true }
+    NotificationPreference:
+      type: object
+      required: [user_id, in_app_enabled, email_enabled, digest_frequency, updated_at]
+      properties:
+        user_id:          { type: string, format: uuid }
+        in_app_enabled:   { type: boolean }
+        email_enabled:    { type: boolean }
+        email_address:    { type: string, nullable: true }
+        slack_webhook_url: { type: string, nullable: true }
+        teams_webhook_url: { type: string, nullable: true }
+        digest_frequency: { type: string }
+        quiet_hours:      { type: object, additionalProperties: true }
+        updated_at:       { type: string, format: date-time }
+    UpdatePreferenceRequest:
+      type: object
+      properties:
+        in_app_enabled:    { type: boolean }
+        email_enabled:     { type: boolean }
+        email_address:     { type: string, nullable: true }
+        slack_webhook_url: { type: string, nullable: true }
+        teams_webhook_url: { type: string, nullable: true }
+        digest_frequency:  { type: string }
+        quiet_hours:       { type: object, additionalProperties: true }

@@ -17,6 +17,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/generator"
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/server"
@@ -58,9 +59,12 @@ func main() {
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}}
+	gen := &handlers.GenerateHandler{Driver: &generator.Driver{
+		RepoRoot: os.Getenv("OF_REPO_ROOT"),
+	}}
 	metrics := observability.NewMetrics()
 
-	srv := server.New(cfg, jwt, h, metrics, probes.Postgres("primary", pool))
+	srv := server.New(cfg, jwt, h, gen, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

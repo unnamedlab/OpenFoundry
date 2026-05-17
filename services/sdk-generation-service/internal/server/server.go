@@ -21,8 +21,10 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/handlers"
 )
 
-// New builds the http.Server.
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+// New builds the http.Server. `gen` is optional; when nil the
+// /api/v1/sdk/generate endpoint is not mounted (e.g. for tests that
+// don't need it).
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, gen *handlers.GenerateHandler, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -47,6 +49,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/sdk-generation-jobs/{id}", h.GetJob)
 		api.Get("/sdk-generation-jobs/{id}/publications", h.ListPublications)
 		api.Post("/sdk-generation-jobs/{id}/publications", h.CreatePublication)
+
+		// Real SDK generation: shells out to tools/of-sdk-gen, returns a
+		// zip of the produced client tree. Optional — only mounted when
+		// the caller supplied a generator driver.
+		if gen != nil {
+			api.Post("/sdk/generate", gen.Generate)
+		}
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

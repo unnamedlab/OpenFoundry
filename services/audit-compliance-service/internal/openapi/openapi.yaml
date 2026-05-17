@@ -1,0 +1,217 @@
+openapi: 3.0.3
+info:
+  title: Audit Compliance Service
+  version: 0.1.0
+  description: |
+    Hand-authored 1:1 slice of the audit-compliance-service HTTP surface used
+    as the canonical input for `tools/of-sdk-gen`. The endpoints listed here
+    mirror the chi router wiring in `internal/server/server.go` (audit ledger
+    subset). This is intentionally a small POC slice — not the full surface.
+servers:
+  - url: http://localhost:7141
+    description: Local default
+tags:
+  - name: audit
+    description: Append-only audit ledger
+paths:
+  /api/v1/audit/events:
+    post:
+      summary: Append an audit event
+      operationId: appendAuditEvent
+      description: Anonymous append; gateway / in-cluster callers only.
+      tags: [audit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppendAuditEventRequest'
+      responses:
+        '201':
+          description: Event appended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEvent'
+        '400':
+          description: Invalid body
+    get:
+      summary: List audit events
+      operationId: listAuditEvents
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: source_service
+          schema: { type: string }
+        - in: query
+          name: subject_id
+          schema: { type: string }
+        - in: query
+          name: classification
+          schema: { type: string }
+        - in: query
+          name: resource_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page of events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+  /api/v1/audit/events/{id}:
+    get:
+      summary: Get an audit event by id
+      operationId: getAuditEvent
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEvent'
+        '404':
+          description: Not found
+  /api/v1/audit/overview:
+    get:
+      summary: Aggregate counters
+      operationId: getAuditOverview
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditOverview'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AppendAuditEventRequest:
+      type: object
+      required: [source_service, channel, actor, action, resource_type, resource_id, status, severity, classification]
+      properties:
+        source_service:   { type: string }
+        channel:          { type: string }
+        actor:            { type: string }
+        action:           { type: string }
+        resource_type:    { type: string }
+        resource_id:      { type: string }
+        status:
+          type: string
+          enum: [success, failure, denied]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        classification:   { type: string }
+        subject_id:       { type: string, nullable: true }
+        ip_address:       { type: string, nullable: true }
+        location:         { type: string, nullable: true }
+        metadata:         { type: object, additionalProperties: true }
+        labels:
+          type: array
+          items: { type: string }
+        retention_days:
+          type: integer
+          format: int32
+          minimum: 0
+    AuditEvent:
+      type: object
+      required:
+        - id
+        - sequence
+        - previous_hash
+        - entry_hash
+        - source_service
+        - channel
+        - actor
+        - action
+        - resource_type
+        - resource_id
+        - status
+        - severity
+        - classification
+        - retention_until
+        - occurred_at
+        - ingested_at
+      properties:
+        id:             { type: string, format: uuid }
+        sequence:       { type: integer, format: int64 }
+        previous_hash:  { type: string }
+        entry_hash:     { type: string }
+        source_service: { type: string }
+        channel:        { type: string }
+        actor:          { type: string }
+        action:         { type: string }
+        resource_type:  { type: string }
+        resource_id:    { type: string }
+        status:         { type: string }
+        severity:       { type: string }
+        classification: { type: string }
+        subject_id:     { type: string, nullable: true }
+        ip_address:     { type: string, nullable: true }
+        location:       { type: string, nullable: true }
+        metadata:       { type: object, additionalProperties: true }
+        labels:
+          type: array
+          items: { type: string }
+        retention_until: { type: string, format: date-time }
+        occurred_at:     { type: string, format: date-time }
+        ingested_at:     { type: string, format: date-time }
+    AnomalyAlert:
+      type: object
+      required: [id, kind, severity, detected_at]
+      properties:
+        id:           { type: string, format: uuid }
+        kind:         { type: string }
+        severity:     { type: string }
+        detected_at:  { type: string, format: date-time }
+        description:  { type: string }
+    EventListResponse:
+      type: object
+      required: [items, anomalies]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEvent' }
+        anomalies:
+          type: array
+          items: { $ref: '#/components/schemas/AnomalyAlert' }
+    AuditOverview:
+      type: object
+      required:
+        - event_count
+        - critical_event_count
+        - collector_count
+        - active_policy_count
+        - anomaly_count
+        - gdpr_subject_count
+      properties:
+        event_count:          { type: integer, format: int64 }
+        critical_event_count: { type: integer, format: int64 }
+        collector_count:      { type: integer, format: int64 }
+        active_policy_count:  { type: integer, format: int64 }
+        anomaly_count:        { type: integer, format: int64 }
+        gdpr_subject_count:   { type: integer, format: int64 }
+        latest_event:
+          allOf:
+            - $ref: '#/components/schemas/AuditEvent'
+          nullable: true
