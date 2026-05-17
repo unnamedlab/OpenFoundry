@@ -407,8 +407,15 @@ func (r *Repo) ListEnabledABACPoliciesMatching(ctx context.Context, tenantID uui
 // RestrictedView mirrors the restricted_views row read by the ABAC
 // evaluator. The table is owned operationally by
 // identity-federation-service (slice 7a CRUD); we read it here only.
+//
+// `TenantID` is the owning tenant copied from the row at write time
+// in identity-federation-service. It is the only field gating cross-
+// tenant isolation at evaluation time — every read goes through
+// [Repo.ListEnabledRestrictedViewsMatching], which filters by tenant
+// before applying the (resource, action) predicate.
 type RestrictedView struct {
 	ID                  uuid.UUID
+	TenantID            uuid.UUID
 	Name                string
 	Resource            string
 	Action              string
@@ -423,18 +430,29 @@ type RestrictedView struct {
 }
 
 // ListEnabledRestrictedViewsMatching returns enabled restricted_views
-// matching (resource, action) — wildcards `*` accepted.
-func (r *Repo) ListEnabledRestrictedViewsMatching(ctx context.Context, resource, action string) ([]RestrictedView, error) {
+// owned by tenantID and matching (resource, action) — wildcards `*`
+// accepted on resource and action.
+//
+// The tenantID filter closes a cross-tenant isolation bug: prior to
+// the 0017 migration the query returned every enabled row across all
+// tenants, so a row_filter authored by tenant A leaked into ABAC
+// evaluations performed for callers in tenant B. The caller is
+// expected to derive tenantID from `claims.OrgID` (see
+// authmw.TenantContextFromClaims) — a nil-tenant caller therefore
+// matches zero rows by construction, which is the intended default
+// deny.
+func (r *Repo) ListEnabledRestrictedViewsMatching(ctx context.Context, tenantID uuid.UUID, resource, action string) ([]RestrictedView, error) {
 	rows, err := r.Pool.Query(ctx,
-		`SELECT id, name, resource, action, conditions, row_filter,
+		`SELECT id, tenant_id, name, resource, action, conditions, row_filter,
 		        hidden_columns, marking_columns, allowed_org_ids, allowed_markings,
 		        consumer_mode_enabled, allow_guest_access
 		   FROM restricted_views
-		  WHERE enabled = TRUE
-		    AND (resource = $1 OR resource = '*')
-		    AND (action = $2 OR action = '*')
+		  WHERE tenant_id = $1
+		    AND enabled = TRUE
+		    AND (resource = $2 OR resource = '*')
+		    AND (action = $3 OR action = '*')
 		  ORDER BY created_at ASC`,
-		resource, action)
+		tenantID, resource, action)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +466,7 @@ func (r *Repo) ListEnabledRestrictedViewsMatching(ctx context.Context, resource,
 			allowedOrgJSON  []byte
 			allowedMarkJSON []byte
 		)
-		if err := rows.Scan(&v.ID, &v.Name, &v.Resource, &v.Action,
+		if err := rows.Scan(&v.ID, &v.TenantID, &v.Name, &v.Resource, &v.Action,
 			&v.Conditions, &v.RowFilter,
 			&hiddenJSON, &markingColsJSON, &allowedOrgJSON, &allowedMarkJSON,
 			&v.ConsumerModeEnabled, &v.AllowGuestAccess); err != nil {

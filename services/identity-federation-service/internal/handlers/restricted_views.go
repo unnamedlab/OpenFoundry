@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/restrictedview"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/models"
 )
@@ -22,7 +23,11 @@ func NewRestrictedViews(rbac *RBAC) *RestrictedViews { return &RestrictedViews{A
 
 // List handles GET /api/v1/restricted-views.
 func (h *RestrictedViews) List(w http.ResponseWriter, r *http.Request) {
-	views, err := h.Auth.Repo.ListRestrictedViews(r.Context())
+	tenantID, ok := tenantFromRequest(w, r)
+	if !ok {
+		return
+	}
+	views, err := h.Auth.Repo.ListRestrictedViews(r.Context(), tenantID)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -32,11 +37,15 @@ func (h *RestrictedViews) List(w http.ResponseWriter, r *http.Request) {
 
 // Get handles GET /api/v1/restricted-views/{id}.
 func (h *RestrictedViews) Get(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantFromRequest(w, r)
+	if !ok {
+		return
+	}
 	id, ok := parseID(w, r)
 	if !ok {
 		return
 	}
-	v, err := h.Auth.Repo.GetRestrictedView(r.Context(), id)
+	v, err := h.Auth.Repo.GetRestrictedView(r.Context(), id, tenantID)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -50,6 +59,10 @@ func (h *RestrictedViews) Get(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/v1/restricted-views.
 func (h *RestrictedViews) Create(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantFromRequest(w, r)
+	if !ok {
+		return
+	}
 	caller := authCallerID(r)
 	var body models.CreateRestrictedViewRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -60,7 +73,7 @@ func (h *RestrictedViews) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	v, err := h.Auth.Repo.CreateRestrictedView(r.Context(), &body, caller)
+	v, err := h.Auth.Repo.CreateRestrictedView(r.Context(), &body, caller, tenantID)
 	if err != nil {
 		slog.Error("create restricted view", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
@@ -71,6 +84,10 @@ func (h *RestrictedViews) Create(w http.ResponseWriter, r *http.Request) {
 
 // Update handles PATCH /api/v1/restricted-views/{id}.
 func (h *RestrictedViews) Update(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantFromRequest(w, r)
+	if !ok {
+		return
+	}
 	id, ok := parseID(w, r)
 	if !ok {
 		return
@@ -84,7 +101,7 @@ func (h *RestrictedViews) Update(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	v, err := h.Auth.Repo.UpdateRestrictedView(r.Context(), id, &body)
+	v, err := h.Auth.Repo.UpdateRestrictedView(r.Context(), id, tenantID, &body)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -98,15 +115,37 @@ func (h *RestrictedViews) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/v1/restricted-views/{id}.
 func (h *RestrictedViews) Delete(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantFromRequest(w, r)
+	if !ok {
+		return
+	}
 	id, ok := parseID(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Auth.Repo.DeleteRestrictedView(r.Context(), id); err != nil {
+	if err := h.Auth.Repo.DeleteRestrictedView(r.Context(), id, tenantID); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// tenantFromRequest resolves the caller's tenant (claims.OrgID). A
+// 401 is emitted when the request is unauthenticated; a 403 when the
+// authenticated caller has no organization, which would otherwise let
+// them author or read restricted-views in the all-zero sentinel
+// bucket that hosts orphaned, backfilled rows.
+func tenantFromRequest(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	claims, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return uuid.Nil, false
+	}
+	if claims.OrgID == nil {
+		writeJSONErr(w, http.StatusForbidden, "tenant required")
+		return uuid.Nil, false
+	}
+	return *claims.OrgID, true
 }
 
 func validateCreateRestrictedViewRequest(body *models.CreateRestrictedViewRequest) error {

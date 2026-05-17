@@ -16,6 +16,7 @@ import (
 // ontology) consume to mask data per session.
 type RestrictedView struct {
 	ID                  uuid.UUID       `json:"id"`
+	TenantID            uuid.UUID       `json:"tenant_id"`
 	Name                string          `json:"name"`
 	Description         *string         `json:"description,omitempty"`
 	Resource            string          `json:"resource"`

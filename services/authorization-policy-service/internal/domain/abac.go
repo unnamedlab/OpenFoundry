@@ -95,7 +95,11 @@ func Evaluate(
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
-	views, err := r.ListEnabledRestrictedViewsMatching(ctx, resource, action)
+	// Tenant isolation: only restricted_views owned by the caller's
+	// tenant participate in the evaluation. A tenantID of uuid.Nil
+	// matches zero rows by construction — the intended default-deny
+	// posture for unauthenticated or system contexts.
+	views, err := r.ListEnabledRestrictedViewsMatching(ctx, tenantID, resource, action)
 	if err != nil {
 		return nil, fmt.Errorf("list restricted views: %w", err)
 	}
@@ -131,13 +135,13 @@ func Evaluate(
 		}
 	}
 
-	tenantID := ""
+	tenantIDStr := ""
 	if claims.OrgID != nil {
-		tenantID = claims.OrgID.String()
+		tenantIDStr = claims.OrgID.String()
 	}
 
 	for _, p := range policies {
-		if !policyMatches(p.Conditions, subjectCtx, resourceAttrs, tenantID, p.ID.String()) {
+		if !policyMatches(p.Conditions, subjectCtx, resourceAttrs, tenantIDStr, p.ID.String()) {
 			continue
 		}
 		if strings.EqualFold(p.Effect, "deny") {
@@ -154,7 +158,7 @@ func Evaluate(
 	}
 
 	for _, v := range views {
-		if !policyMatches(v.Conditions, subjectCtx, resourceAttrs, tenantID, v.ID.String()) {
+		if !policyMatches(v.Conditions, subjectCtx, resourceAttrs, tenantIDStr, v.ID.String()) {
 			continue
 		}
 		if !claims.HasRole("admin") && len(scopedViewIDs) > 0 {
