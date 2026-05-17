@@ -35,7 +35,7 @@ import {
   type ResourceKind,
   type TrashEntry,
 } from '@/lib/api/workspace';
-import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
 import {
   folderStablePath,

@@ -63,7 +63,7 @@ export function ConfirmDialog({
           </div>
         </div>
         <div style={{ padding: '16px' }}>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--text-default)' }}>{message}</p>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--text-default)', whiteSpace: 'pre-line' }}>{message}</p>
         </div>
         <div
           style={{

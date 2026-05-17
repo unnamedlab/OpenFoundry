@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { BulkActionsToolbar, type BulkAction } from '@/lib/components/workspace/BulkActionsToolbar';
-import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
 import {
   folderStablePath,

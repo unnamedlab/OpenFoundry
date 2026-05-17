@@ -8,7 +8,7 @@ import { RetentionPoliciesTab } from '@/lib/components/dataset/RetentionPolicies
 import { VirtualizedPreviewTable } from '@/lib/components/dataset/VirtualizedPreviewTable';
 import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
 import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
-import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { Tabs } from '@/lib/components/Tabs';
 import { ApiError } from '@/lib/api/client';
 import {
