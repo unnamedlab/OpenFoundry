@@ -4,14 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/repo"
 )
+
+// abacConditionUnmarshalErrors counts ABAC policy / restricted-view rows
+// whose `conditions` payload failed to JSON-decode. The evaluator
+// treats those rows as default-deny (policyMatches returns false);
+// the counter exists so the malformed-row rate is observable instead
+// of silently degrading authorization.
+var abacConditionUnmarshalErrors = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "authzpolicy_abac_condition_unmarshal_errors_total",
+		Help: "ABAC policy / restricted-view rows whose condition JSON failed to decode; policyMatches returns false (default-deny).",
+	},
+	[]string{"tenant_id", "policy_id"},
+)
+
+// RegisterMetrics wires the domain-level ABAC metrics on the supplied
+// observability metrics registry. Call once at service boot.
+func RegisterMetrics(o *observability.Metrics) {
+	o.Register(abacConditionUnmarshalErrors)
+}
 
 // EvaluationResult mirrors the Rust EvaluationResult shape byte-for-byte.
 // Carried by POST /api/v1/policy-evaluations as the response body.
@@ -106,8 +128,13 @@ func Evaluate(
 		}
 	}
 
+	tenantID := ""
+	if claims.OrgID != nil {
+		tenantID = claims.OrgID.String()
+	}
+
 	for _, p := range policies {
-		if !policyMatches(p.Conditions, subjectCtx, resourceAttrs) {
+		if !policyMatches(p.Conditions, subjectCtx, resourceAttrs, tenantID, p.ID.String()) {
 			continue
 		}
 		if strings.EqualFold(p.Effect, "deny") {
@@ -124,7 +151,7 @@ func Evaluate(
 	}
 
 	for _, v := range views {
-		if !policyMatches(v.Conditions, subjectCtx, resourceAttrs) {
+		if !policyMatches(v.Conditions, subjectCtx, resourceAttrs, tenantID, v.ID.String()) {
 			continue
 		}
 		if !claims.HasRole("admin") && len(scopedViewIDs) > 0 {
@@ -253,13 +280,27 @@ func decodeAttrs(raw json.RawMessage) ctxMap {
 	return out
 }
 
-func policyMatches(conditions json.RawMessage, subject, resource ctxMap) bool {
+// policyMatches reports whether the supplied condition payload matches
+// the request context. The original Rust port returned `true` when the
+// payload failed to JSON-decode — a default-allow that turned a single
+// corrupt `conditions` cell into a universal match across every
+// caller. We flip that to default-deny: a malformed row is logged at
+// ERROR with the policy / restricted-view ID, bumps the
+// `authzpolicy_abac_condition_unmarshal_errors_total` counter, and
+// silently drops out of the match set.
+func policyMatches(conditions json.RawMessage, subject, resource ctxMap, tenantID, policyID string) bool {
 	if len(conditions) == 0 {
 		return true
 	}
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(conditions, &root); err != nil {
-		return true
+		slog.Error("malformed_abac_condition",
+			slog.String("policy_id", policyID),
+			slog.String("tenant_id", tenantID),
+			slog.Any("err", err),
+		)
+		abacConditionUnmarshalErrors.WithLabelValues(tenantID, policyID).Inc()
+		return false
 	}
 	return matchSelector(root["subject"], subject, resource) &&
 		matchSelector(root["resource"], resource, subject)
