@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS user_roles (
     PRIMARY KEY (user_id, role_id)
 );
 
-INSERT INTO roles (name, description) VALUES
-    ('admin', 'Full platform administrator'),
-    ('editor', 'Can create and modify resources'),
-    ('viewer', 'Read-only access')
-ON CONFLICT (name) DO NOTHING;
+-- INSERT INTO roles (name, description) VALUES
+--     ('admin', 'Full platform administrator'),
+--     ('editor', 'Can create and modify resources'),
+--     ('viewer', 'Read-only access')
+-- ON CONFLICT (name) DO NOTHING;
 
 -- Postgres-backed refresh tokens for slice 1.
 -- Slice 2 migrates these to Cassandra `auth_runtime.refresh_tokens`
