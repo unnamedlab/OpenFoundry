@@ -527,7 +527,7 @@ func transformCatalogGeoJoinBase(id, label, description, mode string, docs []str
 }
 
 func transformCatalogAggregate(docs []string) pipelineTransformCatalogEntry {
-	entry := baseTransformCatalogEntry("aggregate", "Aggregate", "Group rows and calculate aggregate measures.", "relational", "stack_block", "transform_stack", "planned", "catalog_only", "aggregate", docs)
+	entry := baseTransformCatalogEntry("aggregate", "Aggregate", "Group rows and calculate aggregate measures.", "relational", "aggregate", "aggregate_editor", "available", "lightweight_table", "aggregate", docs)
 	entry.Tags = []string{"group_by", "metrics"}
 	entry.DefaultConfig = map[string]any{"kind": "aggregate", "applied": false, "group_by": []string{}, "aggregations": []map[string]string{{"function": "count", "source_column": "", "target_column": "row_count"}}}
 	entry.Form.Fields = []pipelineTransformCatalogField{
