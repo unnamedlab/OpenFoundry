@@ -79,7 +79,7 @@ backwards compatibility. The
 admin UI exposes a "Delegation check" tool that hits the same
 endpoint without performing the grant.
 
-## Marking categories, markings, and permission checks (SG.11-SG.13)
+## Marking categories, markings, and permission checks (SG.11-SG.15)
 
 Marking administration is currently implemented in
 [`authorization-policy-service`](../../services/authorization-policy-service/).
@@ -92,6 +92,12 @@ adds stable markings inside those categories, per-marking permissions,
 and marking audit events. Migration
 [`0011_sg13_marking_permission_model.sql`](../../services/authorization-policy-service/internal/repo/migrations/0011_sg13_marking_permission_model.sql)
 adds direct resource marking rows and audited apply/remove attempts.
+Migration
+[`0012_sg14_marking_enforcement_inheritance.sql`](../../services/authorization-policy-service/internal/repo/migrations/0012_sg14_marking_enforcement_inheritance.sql)
+adds inheritance edges for project/folder hierarchy and lineage-derived
+data dependencies. Migration
+[`0013_sg15_marking_aware_build_outputs.sql`](../../services/authorization-policy-service/internal/repo/migrations/0013_sg15_marking_aware_build_outputs.sql)
+adds build/transaction output diff events.
 
 | Table | Purpose |
 |---|---|
@@ -103,6 +109,8 @@ adds direct resource marking rows and audited apply/remove attempts.
 | `marking_audit_events` | Audit rows for marking creation, updates, permission grants/revocations, blocked deletion, and blocked category moves. |
 | `resource_markings` | Direct markings applied to resources, with resource kind/id, marking id, metadata, actor, and timestamp. |
 | `resource_marking_audit_events` | Audit rows for resource marking application/removal plus denied attempts. |
+| `resource_marking_edges` | Resource-to-resource inheritance edges. `hierarchy` edges propagate access requirements; `lineage` edges propagate data requirements. |
+| `resource_marking_build_events` | Transaction/build diff records for output publication, including added/removed/unchanged markings and blocked declassification attempts. |
 
 The API surface is:
 
@@ -120,6 +128,11 @@ The API surface is:
 | `GET /api/v1/resource-markings` | List direct markings for a `resource_kind` and `resource_id`. |
 | `POST /api/v1/resource-markings` | Apply a direct marking when the caller can apply the marking and has resource update-markings evidence. |
 | `POST /api/v1/resource-markings/remove` | Remove a direct marking when the caller can remove it and has apply or equivalent expand-access evidence. |
+| `GET /api/v1/resource-markings/effective` | Resolve direct and inherited markings for a resource, including source paths and provenance. |
+| `GET/PUT/DELETE /api/v1/resource-marking-edges` | List, upsert, or delete hierarchy/lineage inheritance edges. |
+| `POST /api/v1/resource-access:check` | Check organization, role, resource-marking, and lineage-derived data-marking requirements together. |
+| `POST /api/v1/resource-marking-builds:publish` | Dry-run or apply a build/output marking publication by creating lineage edges and computing output marking diffs. |
+| `GET /api/v1/resource-marking-build-events` | List build/transaction security diffs by build, transaction, or output resource. |
 
 Discoverability mirrors the category visibility rules: visible
 categories are listed to callers with `markings:read`; hidden
@@ -139,9 +152,34 @@ same resource proof, and either `applier` or an equivalent expand-access
 authorization. Both denied apply/remove attempts are written to
 `resource_marking_audit_events`.
 
+SG.14 turns those grants into enforcement facts. `resource_marking_edges`
+point from an ancestor/upstream resource to the resource that inherits
+the marking. `hierarchy` edges cover project/folder containment and
+therefore contribute to `resource_access`; `lineage` edges cover data
+dependencies and therefore contribute to `data_access`. The effective
+marking resolver keeps every source path so a checker can show whether
+a requirement came directly from the resource, from hierarchy, from
+lineage, or from a mixed path. `POST /api/v1/resource-access:check`
+combines this effective marking set with caller-supplied organization
+and role evidence. Resource access requires organization, role, and all
+direct/hierarchy markings; data access additionally requires all
+lineage-derived markings.
+
+SG.15 is the publish-time primitive that build/runtime services should
+call before committing derived resources. The publish request is generic
+over resource kinds, so datasets, media sets, code resources, ontology
+object types, functions, and model artifacts can all be represented as
+`{resource_kind, resource_id}` references. The endpoint writes lineage
+edges from every input to every output, computes before/after effective
+markings, and stores a diff in `resource_marking_build_events`.
+Replacing existing output lineage can remove inherited markings; when
+that happens, the publication is rejected unless the actor satisfies the
+same removal rule used for direct resource markings.
+
 The Control Panel surface lives at
 [`/control-panel/marking-categories`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx)
 and supports category creation, marking creation, permission grants,
 revocation, audit inspection, delete-block probes, category-move block
 probes, permission checks, and direct resource marking apply/remove
-probes.
+probes, inheritance edge management, effective marking provenance,
+resource/data access checks, and build output marking diffs.

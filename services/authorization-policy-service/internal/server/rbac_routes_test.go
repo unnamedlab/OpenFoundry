@@ -68,6 +68,13 @@ func TestTopLevelRBACRoutesAreMountedInAuthorizationPolicyService(t *testing.T) 
 		"GET /api/v1/resource-markings",
 		"POST /api/v1/resource-markings",
 		"POST /api/v1/resource-markings/remove",
+		"GET /api/v1/resource-markings/effective",
+		"GET /api/v1/resource-marking-edges",
+		"PUT /api/v1/resource-marking-edges",
+		"DELETE /api/v1/resource-marking-edges",
+		"POST /api/v1/resource-access:check",
+		"POST /api/v1/resource-marking-builds:publish",
+		"GET /api/v1/resource-marking-build-events",
 	} {
 		require.Truef(t, mounted[route], "missing route %s", route)
 	}

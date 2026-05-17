@@ -6,6 +6,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -417,6 +418,184 @@ func (h *Handlers) RemoveResourceMarking(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (h *Handlers) ListResourceMarkingEdges(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "read")
+	if !ok {
+		return
+	}
+	resourceKind, resourceID := normalizedResourceMarkingQuery(r)
+	direction := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("direction")))
+	if direction == "" {
+		direction = "all"
+	}
+	if direction != "all" && direction != "upstream" && direction != "downstream" {
+		writeJSONErr(w, http.StatusBadRequest, "direction must be all, upstream, or downstream")
+		return
+	}
+	items, err := h.Repo.ListResourceMarkingEdges(r.Context(), tenantFromClaims(claims), resourceKind, resourceID, direction)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListResponse[models.ResourceMarkingEdge]{Items: items})
+}
+
+func (h *Handlers) UpsertResourceMarkingEdge(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "write")
+	if !ok {
+		return
+	}
+	var body models.UpsertResourceMarkingEdgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	normalizeResourceMarkingEdge(&body)
+	if !validResourceMarkingEdge(body.SourceResourceKind, body.SourceResourceID, body.TargetResourceKind, body.TargetResourceID, body.RelationKind) {
+		writeJSONErr(w, http.StatusBadRequest, "source resource, target resource, and relation_kind hierarchy or lineage are required")
+		return
+	}
+	if !validOptionalJSONObject(body.Metadata) {
+		writeJSONErr(w, http.StatusBadRequest, "metadata must be a JSON object")
+		return
+	}
+	item, err := h.Repo.UpsertResourceMarkingEdge(r.Context(), tenantFromClaims(claims), claims.Sub, &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handlers) DeleteResourceMarkingEdge(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "write")
+	if !ok {
+		return
+	}
+	var body models.DeleteResourceMarkingEdgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	normalizeDeleteResourceMarkingEdge(&body)
+	if !validResourceMarkingEdge(body.SourceResourceKind, body.SourceResourceID, body.TargetResourceKind, body.TargetResourceID, body.RelationKind) {
+		writeJSONErr(w, http.StatusBadRequest, "source resource, target resource, and relation_kind hierarchy or lineage are required")
+		return
+	}
+	deleted, err := h.Repo.DeleteResourceMarkingEdge(r.Context(), tenantFromClaims(claims), &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !deleted {
+		writeJSONErr(w, http.StatusNotFound, "resource marking edge not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) GetEffectiveResourceMarkings(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "read")
+	if !ok {
+		return
+	}
+	resourceKind, resourceID := normalizedResourceMarkingQuery(r)
+	if resourceKind == "" || resourceID == "" {
+		writeJSONErr(w, http.StatusBadRequest, "resource_kind and resource_id are required")
+		return
+	}
+	maxDepth := parsePositiveIntQuery(r, "max_depth")
+	resp, err := h.Repo.EffectiveResourceMarkings(r.Context(), tenantFromClaims(claims), resourceKind, resourceID, maxDepth)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handlers) CheckResourceAccess(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "read")
+	if !ok {
+		return
+	}
+	var body models.ResourceAccessCheckRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	body.ResourceKind, body.ResourceID = normalizeResourceMarkingInput(body.ResourceKind, body.ResourceID)
+	if body.ResourceKind == "" || body.ResourceID == "" {
+		writeJSONErr(w, http.StatusBadRequest, "resource_kind and resource_id are required")
+		return
+	}
+	if body.PrincipalID != nil && *body.PrincipalID == uuid.Nil {
+		writeJSONErr(w, http.StatusBadRequest, "principal_id must be a non-empty uuid")
+		return
+	}
+	resp, err := h.Repo.CheckResourceAccess(r.Context(), tenantFromClaims(claims), claims.Sub, &body)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handlers) PublishMarkingBuildOutput(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "read")
+	if !ok {
+		return
+	}
+	var body models.PublishMarkingBuildRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	normalizePublishMarkingBuildRequest(&body)
+	if len(body.InputResources) == 0 || len(body.OutputResources) == 0 {
+		writeJSONErr(w, http.StatusBadRequest, "input_resources and output_resources are required")
+		return
+	}
+	if !validBuildResourceRefs(body.InputResources) || !validBuildResourceRefs(body.OutputResources) {
+		writeJSONErr(w, http.StatusBadRequest, "resource_kind and resource_id are required for every build resource")
+		return
+	}
+	if !validOptionalJSONObject(body.Metadata) {
+		writeJSONErr(w, http.StatusBadRequest, "metadata must be a JSON object")
+		return
+	}
+	resp, err := h.Repo.PublishMarkingBuild(r.Context(), tenantFromClaims(claims), claims.Sub, &body)
+	if errors.Is(err, repo.ErrMarkingBuildBlocked) {
+		writeJSON(w, http.StatusForbidden, resp)
+		return
+	}
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handlers) ListMarkingBuildEvents(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requirePermission(w, r, "markings", "read")
+	if !ok {
+		return
+	}
+	resourceKind, resourceID := normalizedResourceMarkingQuery(r)
+	items, err := h.Repo.ListMarkingBuildEvents(
+		r.Context(),
+		tenantFromClaims(claims),
+		strings.TrimSpace(r.URL.Query().Get("build_id")),
+		strings.TrimSpace(r.URL.Query().Get("transaction_id")),
+		resourceKind,
+		resourceID,
+	)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListResponse[models.MarkingBuildEvent]{Items: items})
+}
+
 func isAllowedMarkingPermission(permission string) bool {
 	switch permission {
 	case models.MarkingPermissionAdministrator,
@@ -454,4 +633,65 @@ func normalizedResourceMarkingQuery(r *http.Request) (string, string) {
 
 func normalizeResourceMarkingInput(resourceKind, resourceID string) (string, string) {
 	return strings.ToLower(strings.TrimSpace(resourceKind)), strings.TrimSpace(resourceID)
+}
+
+func normalizeResourceMarkingEdge(body *models.UpsertResourceMarkingEdgeRequest) {
+	body.SourceResourceKind, body.SourceResourceID = normalizeResourceMarkingInput(body.SourceResourceKind, body.SourceResourceID)
+	body.TargetResourceKind, body.TargetResourceID = normalizeResourceMarkingInput(body.TargetResourceKind, body.TargetResourceID)
+	body.RelationKind = strings.ToLower(strings.TrimSpace(body.RelationKind))
+}
+
+func normalizeDeleteResourceMarkingEdge(body *models.DeleteResourceMarkingEdgeRequest) {
+	body.SourceResourceKind, body.SourceResourceID = normalizeResourceMarkingInput(body.SourceResourceKind, body.SourceResourceID)
+	body.TargetResourceKind, body.TargetResourceID = normalizeResourceMarkingInput(body.TargetResourceKind, body.TargetResourceID)
+	body.RelationKind = strings.ToLower(strings.TrimSpace(body.RelationKind))
+}
+
+func validResourceMarkingEdge(sourceKind, sourceID, targetKind, targetID, relationKind string) bool {
+	if sourceKind == "" || sourceID == "" || targetKind == "" || targetID == "" {
+		return false
+	}
+	if sourceKind == targetKind && sourceID == targetID {
+		return false
+	}
+	return relationKind == models.ResourceMarkingRelationHierarchy || relationKind == models.ResourceMarkingRelationLineage
+}
+
+func parsePositiveIntQuery(r *http.Request, key string) int {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return 0
+	}
+	var value int
+	_, _ = fmt.Sscanf(raw, "%d", &value)
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func normalizePublishMarkingBuildRequest(body *models.PublishMarkingBuildRequest) {
+	body.BuildID = strings.TrimSpace(body.BuildID)
+	body.TransactionID = strings.TrimSpace(body.TransactionID)
+	body.Reason = strings.TrimSpace(body.Reason)
+	for idx := range body.InputResources {
+		body.InputResources[idx] = normalizeBuildResourceRef(body.InputResources[idx])
+	}
+	for idx := range body.OutputResources {
+		body.OutputResources[idx] = normalizeBuildResourceRef(body.OutputResources[idx])
+	}
+}
+
+func normalizeBuildResourceRef(ref models.MarkingBuildResourceRef) models.MarkingBuildResourceRef {
+	ref.ResourceKind, ref.ResourceID = normalizeResourceMarkingInput(ref.ResourceKind, ref.ResourceID)
+	return ref
+}
+
+func validBuildResourceRefs(items []models.MarkingBuildResourceRef) bool {
+	for _, item := range items {
+		if item.ResourceKind == "" || item.ResourceID == "" {
+			return false
+		}
+	}
+	return true
 }

@@ -88,6 +88,9 @@ and must not drift:
 - `/healthz` payload shape (`status`, `service`, `version`, `timestamp`).
 - JWT claims field names + JSON tags
   ([`libs/auth-middleware/claims.go`](libs/auth-middleware/claims.go)).
+- Resource RID format
+  (`ri.<service>.<instance>.<type>.<uuid>` for platform-minted resources;
+  [`libs/core-models/rid`](libs/core-models/rid) is the shared parser).
 - Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state / type tokens (`open|committed|aborted`,
   `snapshot|append|update|delete`).

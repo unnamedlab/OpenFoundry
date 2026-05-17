@@ -92,10 +92,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/role-sets/{id}/delegation:check", h.CheckRoleSetDelegation)
 		api.Get("/operations", h.ListOperations)
 
-		// SG.11-SG.12: marking categories and markings are immutable
+		// SG.11-SG.14: marking categories and markings are immutable
 		// security metadata containers. DELETE / category-move routes
 		// are mounted deliberately so callers receive audited "hide /
-		// recreate instead" rejections instead of silent 404s.
+		// recreate instead" rejections instead of silent 404s. Resource
+		// marking routes cover direct application plus effective
+		// inheritance/access checks.
 		api.Get("/marking-categories", h.ListMarkingCategories)
 		api.Post("/marking-categories", h.CreateMarkingCategory)
 		api.Get("/marking-categories/{id}", h.GetMarkingCategory)
@@ -117,6 +119,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/resource-markings", h.ListResourceMarkings)
 		api.Post("/resource-markings", h.ApplyResourceMarking)
 		api.Post("/resource-markings/remove", h.RemoveResourceMarking)
+		api.Get("/resource-markings/effective", h.GetEffectiveResourceMarkings)
+		api.Get("/resource-marking-edges", h.ListResourceMarkingEdges)
+		api.Put("/resource-marking-edges", h.UpsertResourceMarkingEdge)
+		api.Delete("/resource-marking-edges", h.DeleteResourceMarkingEdge)
+		api.Post("/resource-access:check", h.CheckResourceAccess)
+		api.Post("/resource-marking-builds:publish", h.PublishMarkingBuildOutput)
+		api.Get("/resource-marking-build-events", h.ListMarkingBuildEvents)
 
 		api.Get("/governance-template-applications", h.ListGovernanceTemplateApplications)
 		api.Post("/governance-template-applications", h.ApplyGovernanceTemplate)

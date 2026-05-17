@@ -54,6 +54,15 @@ paths:
         - in: query
           name: resource_id
           schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: trace_id
+          schema: { type: string }
+        - in: query
+          name: event_id
+          schema: { type: string }
       responses:
         '200':
           description: Page of events
@@ -98,6 +107,132 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuditOverview'
+  /api/v1/audit/delivery/destinations:
+    get:
+      summary: List audit delivery destinations
+      operationId: listAuditDeliveryDestinations
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Delivery destinations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditDeliveryDestinationListResponse'
+    post:
+      summary: Create an audit delivery destination
+      operationId: createAuditDeliveryDestination
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAuditDeliveryDestinationRequest'
+      responses:
+        '201':
+          description: Delivery destination
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditDeliveryDestination'
+  /api/v1/audit/delivery/destinations/{id}/validate:
+    post:
+      summary: Validate an audit delivery destination
+      operationId: validateAuditDeliveryDestination
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditDeliveryValidationResponse'
+  /api/v1/audit/delivery/destinations/{id}/backfill:
+    post:
+      summary: Backfill a date range for an audit delivery destination
+      operationId: backfillAuditDeliveryDestination
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditDeliveryBackfillRequest'
+      responses:
+        '201':
+          description: Generated delivery file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditDeliveryFile'
+  /api/v1/audit/delivery/files:
+    get:
+      summary: List audit delivery files
+      operationId: listAuditDeliveryFiles
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: organization_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: start_time
+          schema: { type: string, format: date-time }
+        - in: query
+          name: end_time
+          schema: { type: string, format: date-time }
+        - in: query
+          name: schema_version
+          schema: { type: string, example: audit.3 }
+      responses:
+        '200':
+          description: Delivery files
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditDeliveryFileListResponse'
+  /api/v1/audit/delivery/files/{id}/content:
+    get:
+      summary: Retrieve audit delivery file content
+      operationId: getAuditDeliveryFileContent
+      tags: [audit]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Delivery file content
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditDeliveryFileContent'
 components:
   securitySchemes:
     bearerAuth:
@@ -110,14 +245,42 @@ components:
       required: [source_service, channel, actor, action, resource_type, resource_id, status, severity, classification]
       properties:
         source_service:   { type: string }
+        product:          { type: string }
+        product_version:  { type: string }
+        producer_type:    { type: string }
         channel:          { type: string }
+        event_id:         { type: string, format: uuid }
+        log_entry_id:     { type: string, format: uuid }
+        sequence_id:      { type: string, format: uuid, nullable: true }
         actor:            { type: string }
+        actor_id:         { type: string }
+        actor_type:       { type: string }
+        session_id:       { type: string, nullable: true }
+        service_account_id: { type: string, nullable: true }
+        token_id:         { type: string, nullable: true }
         action:           { type: string }
+        categories:
+          type: array
+          items: { type: string }
         resource_type:    { type: string }
         resource_id:      { type: string }
+        entities:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        origins:
+          type: array
+          items: { type: string }
+        origin:           { type: string, nullable: true }
+        source_origin:    { type: string, nullable: true }
+        trace_id:         { type: string, nullable: true }
         status:
           type: string
           enum: [success, failure, denied]
+        outcome:
+          type: string
+          enum: [success, error, unauthorized]
         severity:
           type: string
           enum: [low, medium, high, critical]
@@ -126,9 +289,15 @@ components:
         ip_address:       { type: string, nullable: true }
         location:         { type: string, nullable: true }
         metadata:         { type: object, additionalProperties: true }
+        error_metadata:   { type: object, additionalProperties: true }
+        request_fields:   { type: object, additionalProperties: true }
+        result_fields:    { type: object, additionalProperties: true }
         labels:
           type: array
           items: { type: string }
+        parent_event_id:  { type: string, format: uuid, nullable: true }
+        initiator_type:   { type: string }
+        audit_access_tier: { type: string }
         retention_days:
           type: integer
           format: int32
@@ -154,25 +323,57 @@ components:
         - ingested_at
       properties:
         id:             { type: string, format: uuid }
+        event_id:       { type: string, format: uuid }
+        log_entry_id:   { type: string, format: uuid }
+        sequence_id:    { type: string, format: uuid, nullable: true }
         sequence:       { type: integer, format: int64 }
         previous_hash:  { type: string }
         entry_hash:     { type: string }
         source_service: { type: string }
+        product:        { type: string }
+        product_version: { type: string }
+        producer_type:  { type: string }
         channel:        { type: string }
         actor:          { type: string }
+        actor_id:       { type: string }
+        actor_type:     { type: string }
+        session_id:     { type: string, nullable: true }
+        service_account_id: { type: string, nullable: true }
+        token_id:       { type: string, nullable: true }
         action:         { type: string }
+        categories:
+          type: array
+          items: { type: string }
         resource_type:  { type: string }
         resource_id:    { type: string }
+        entities:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        origins:
+          type: array
+          items: { type: string }
+        origin:         { type: string, nullable: true }
+        source_origin:  { type: string, nullable: true }
+        trace_id:       { type: string, nullable: true }
         status:         { type: string }
+        outcome:        { type: string }
         severity:       { type: string }
         classification: { type: string }
         subject_id:     { type: string, nullable: true }
         ip_address:     { type: string, nullable: true }
         location:       { type: string, nullable: true }
         metadata:       { type: object, additionalProperties: true }
+        error_metadata: { type: object, additionalProperties: true }
+        request_fields: { type: object, additionalProperties: true }
+        result_fields:  { type: object, additionalProperties: true }
         labels:
           type: array
           items: { type: string }
+        parent_event_id: { type: string, format: uuid, nullable: true }
+        initiator_type: { type: string }
+        audit_access_tier: { type: string }
         retention_until: { type: string, format: date-time }
         occurred_at:     { type: string, format: date-time }
         ingested_at:     { type: string, format: date-time }
@@ -215,3 +416,119 @@ components:
           allOf:
             - $ref: '#/components/schemas/AuditEvent'
           nullable: true
+    CreateAuditDeliveryDestinationRequest:
+      type: object
+      required: [name, destination_type]
+      properties:
+        organization_id: { type: string, format: uuid, nullable: true }
+        name: { type: string }
+        destination_type:
+          type: string
+          enum: [siem_api, openfoundry_dataset]
+        schema_version:
+          type: string
+          default: audit.3
+        endpoint_url: { type: string, nullable: true }
+        dataset_rid: { type: string, nullable: true }
+        enabled: { type: boolean }
+        metadata: { type: object, additionalProperties: true }
+    AuditDeliveryDestination:
+      type: object
+      required:
+        - id
+        - name
+        - destination_type
+        - schema_version
+        - enabled
+        - validation_status
+        - validation_message
+        - last_backfill_status
+        - metadata
+        - created_by
+        - created_at
+        - updated_at
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid, nullable: true }
+        name: { type: string }
+        destination_type: { type: string, enum: [siem_api, openfoundry_dataset] }
+        schema_version: { type: string }
+        endpoint_url: { type: string, nullable: true }
+        dataset_rid: { type: string, nullable: true }
+        enabled: { type: boolean }
+        validation_status: { type: string, enum: [pending, valid, invalid] }
+        validation_message: { type: string }
+        last_validated_at: { type: string, format: date-time, nullable: true }
+        last_backfill_status: { type: string, enum: [idle, running, completed, failed] }
+        last_backfill_started_at: { type: string, format: date-time, nullable: true }
+        last_backfill_completed_at: { type: string, format: date-time, nullable: true }
+        metadata: { type: object, additionalProperties: true }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AuditDeliveryDestinationListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditDeliveryDestination' }
+    AuditDeliveryValidationResponse:
+      type: object
+      required: [destination_id, validation_status, message]
+      properties:
+        destination_id: { type: string, format: uuid }
+        validation_status: { type: string, enum: [pending, valid, invalid] }
+        message: { type: string }
+        validated_at: { type: string, format: date-time, nullable: true }
+    AuditDeliveryBackfillRequest:
+      type: object
+      required: [start_time, end_time]
+      properties:
+        start_time: { type: string, format: date-time }
+        end_time: { type: string, format: date-time }
+    AuditDeliveryFile:
+      type: object
+      required:
+        - id
+        - destination_id
+        - schema_version
+        - content_format
+        - start_time
+        - end_time
+        - event_count
+        - duplicate_count
+        - content_sha256
+        - content_bytes
+        - status
+        - created_at
+      properties:
+        id: { type: string, format: uuid }
+        destination_id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid, nullable: true }
+        schema_version: { type: string }
+        content_format: { type: string }
+        start_time: { type: string, format: date-time }
+        end_time: { type: string, format: date-time }
+        event_count: { type: integer, format: int64 }
+        duplicate_count: { type: integer, format: int64 }
+        content_sha256: { type: string }
+        content_bytes: { type: integer, format: int64 }
+        status: { type: string }
+        error_message: { type: string }
+        created_at: { type: string, format: date-time }
+    AuditDeliveryFileListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditDeliveryFile' }
+    AuditDeliveryFileContent:
+      type: object
+      required: [file, content]
+      properties:
+        file:
+          $ref: '#/components/schemas/AuditDeliveryFile'
+        content:
+          type: string

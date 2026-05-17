@@ -53,10 +53,15 @@ type rowLikeT interface{ Scan(...any) error }
 
 // ─── Audit ledger ──────────────────────────────────────────────────
 
-const auditEventSelect = `SELECT id, sequence, previous_hash, entry_hash,
-	source_service, channel, actor, action, resource_type, resource_id,
-	status, severity, classification, subject_id, ip_address, location,
-	metadata, labels, retention_until, occurred_at, ingested_at
+const auditEventSelect = `SELECT id, event_id, log_entry_id, sequence_id,
+	sequence, previous_hash, entry_hash, source_service, product,
+	product_version, producer_type, channel, actor, actor_id, actor_type,
+	session_id, service_account_id, token_id, action, categories,
+	resource_type, resource_id, entities, origins, origin, source_origin,
+	trace_id, status, outcome, severity, classification, subject_id,
+	ip_address, location, metadata, error_metadata, request_fields,
+	result_fields, labels, parent_event_id, initiator_type, audit_access_tier,
+	retention_until, occurred_at, ingested_at
 	FROM audit_events`
 
 // ListAuditEvents returns the most-recent N events. Append-only — no
@@ -77,17 +82,27 @@ func (r *Repo) ListAuditEvents(ctx context.Context, limit int) ([]models.AuditEv
 	out := make([]models.AuditEvent, 0)
 	for rows.Next() {
 		var e models.AuditEvent
-		if err := rows.Scan(&e.ID, &e.Sequence, &e.PreviousHash, &e.EntryHash,
-			&e.SourceService, &e.Channel, &e.Actor, &e.Action,
-			&e.ResourceType, &e.ResourceID, &e.Status, &e.Severity,
-			&e.Classification, &e.SubjectID, &e.IPAddress, &e.Location,
-			&e.Metadata, &e.Labels, &e.RetentionUntil, &e.OccurredAt,
-			&e.IngestedAt); err != nil {
+		if err := scanAuditEvent(rows, &e); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+func scanAuditEvent(row rowLikeT, e *models.AuditEvent) error {
+	return row.Scan(&e.ID, &e.EventID, &e.LogEntryID, &e.SequenceID,
+		&e.Sequence, &e.PreviousHash, &e.EntryHash, &e.SourceService,
+		&e.Product, &e.ProductVersion, &e.ProducerType, &e.Channel,
+		&e.Actor, &e.ActorID, &e.ActorType, &e.SessionID,
+		&e.ServiceAccountID, &e.TokenID, &e.Action, &e.Categories,
+		&e.ResourceType, &e.ResourceID, &e.Entities, &e.Origins,
+		&e.Origin, &e.SourceOrigin, &e.TraceID, &e.Status, &e.Outcome,
+		&e.Severity, &e.Classification, &e.SubjectID, &e.IPAddress,
+		&e.Location, &e.Metadata, &e.ErrorMetadata, &e.RequestFields,
+		&e.ResultFields, &e.Labels, &e.ParentEventID, &e.InitiatorType,
+		&e.AuditAccessTier, &e.RetentionUntil, &e.OccurredAt,
+		&e.IngestedAt)
 }
 
 // ─── Audit policies (read-only catalog) ────────────────────────────

@@ -99,9 +99,18 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Post("/copilot/ask", h.AskCopilot)
 	})
 
+	// ADR-0030: prompt-workflow-service retired into this binary.
+	// Placeholder mount so the edge-gateway returns 501 instead of 502
+	// until the consolidated prompt CRUD surface lands.
+	r.Route("/api/v1/ai/prompts", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+		api.HandleFunc("/*", h.PromptsNotImplemented)
+		api.HandleFunc("/", h.PromptsNotImplemented)
+	})
+
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "agent-runtime",
-		AuthPaths: []string{"/api/v1/agent-runtime"},
+		AuthPaths: []string{"/api/v1/agent-runtime", "/api/v1/ai/prompts"},
 		Tags:      []string{"agent"},
 	}); err != nil {
 		panic("agent-runtime-service: capability ingest failed: " + err.Error())

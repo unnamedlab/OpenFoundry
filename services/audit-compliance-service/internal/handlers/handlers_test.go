@@ -22,13 +22,18 @@ func TestAuditEventJSONShape(t *testing.T) {
 	t.Parallel()
 	subj := "subject-1"
 	e := models.AuditEvent{
-		ID: uuid.New(), Sequence: 42,
+		ID: uuid.New(), EventID: uuid.New(), LogEntryID: uuid.New(), Sequence: 42,
 		PreviousHash: "AUD-prev", EntryHash: "AUD-curr",
-		SourceService: "gateway", Channel: "http",
-		Actor: "user:x", Action: "read", ResourceType: "dataset", ResourceID: "ds-1",
-		Status: "success", Severity: "low", Classification: "public",
-		SubjectID: &subj,
-		Metadata:  json.RawMessage(`{}`), Labels: json.RawMessage(`[]`),
+		SourceService: "gateway", Product: "gateway", ProducerType: "SERVER",
+		Channel: "http", Actor: "user:x", ActorID: "user:x", ActorType: "user",
+		Action: "read", Categories: []string{"dataLoad"},
+		ResourceType: "dataset", ResourceID: "ds-1",
+		Entities: json.RawMessage(`[{"kind":"dataset","id":"ds-1"}]`),
+		Origins:  []string{"10.0.0.1"}, Status: "success", Outcome: "success",
+		Severity: "low", Classification: "public", SubjectID: &subj,
+		Metadata: json.RawMessage(`{}`), ErrorMetadata: json.RawMessage(`{}`),
+		RequestFields: json.RawMessage(`{}`), ResultFields: json.RawMessage(`{}`),
+		Labels: json.RawMessage(`[]`), InitiatorType: "user", AuditAccessTier: "security_sensitive",
 		RetentionUntil: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
 		OccurredAt:     time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
 		IngestedAt:     time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
@@ -39,9 +44,12 @@ func TestAuditEventJSONShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out, &view))
 	for _, k := range []string{
 		"id", "sequence", "previous_hash", "entry_hash", "source_service",
-		"channel", "actor", "action", "resource_type", "resource_id",
-		"status", "severity", "classification", "subject_id", "ip_address",
-		"location", "metadata", "labels", "retention_until",
+		"event_id", "log_entry_id", "product", "producer_type", "channel",
+		"actor", "actor_id", "actor_type", "action", "categories",
+		"resource_type", "resource_id", "entities", "origins", "status",
+		"outcome", "severity", "classification", "subject_id", "ip_address",
+		"location", "metadata", "error_metadata", "request_fields",
+		"result_fields", "labels", "initiator_type", "audit_access_tier", "retention_until",
 		"occurred_at", "ingested_at",
 	} {
 		assert.Contains(t, view, k)
@@ -58,8 +66,8 @@ func TestRetentionPolicyJSONShape(t *testing.T) {
 		PurgeMode: "hard-delete-after-ttl",
 		Rules:     json.RawMessage(`["x"]`),
 		UpdatedBy: "system", Active: true, IsSystem: true,
-		Selector: json.RawMessage(`{"all_datasets":true}`),
-		Criteria: json.RawMessage(`{"transaction_state":"ABORTED"}`),
+		Selector:           json.RawMessage(`{"all_datasets":true}`),
+		Criteria:           json.RawMessage(`{"transaction_state":"ABORTED"}`),
 		GracePeriodMinutes: 15,
 		CreatedAt:          time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
 		UpdatedAt:          time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
@@ -133,4 +141,53 @@ func TestListAuditEventsRequiresAuth(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ListAuditEvents(rec, req)
 	assert.Equal(t, 401, rec.Code)
+}
+
+func TestListAuditEventsRequiresDedicatedAuditPermission(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"viewer"}}
+	req := httptest.NewRequest("GET", "/audit-events", nil)
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.ListAuditEvents(rec, req)
+	assert.Equal(t, 403, rec.Code)
+	assert.Contains(t, rec.Body.String(), "audit-logs:view")
+}
+
+func TestAppendEventRejectsInvalidSG16JSON(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest("POST", "/audit/events",
+		strings.NewReader(`{"action":"dataset.read","metadata":[]}`))
+	rec := httptest.NewRecorder()
+	h.AppendEvent(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "metadata")
+}
+
+func TestCreateAuditDeliveryDestinationRequiresManagePermission(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New(), Permissions: []string{"audit-logs:view"}}
+	req := httptest.NewRequest("POST", "/audit/delivery/destinations",
+		strings.NewReader(`{"name":"Security SIEM","destination_type":"siem_api","endpoint_url":"https://siem.example.invalid/audit"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateAuditDeliveryDestination(rec, req)
+	assert.Equal(t, 403, rec.Code)
+	assert.Contains(t, rec.Body.String(), "audit-delivery:manage")
+}
+
+func TestCreateAuditDeliveryDestinationRejectsNonObjectMetadata(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New(), Roles: []string{"admin"}}
+	req := httptest.NewRequest("POST", "/audit/delivery/destinations",
+		strings.NewReader(`{"name":"Security SIEM","destination_type":"siem_api","endpoint_url":"https://siem.example.invalid/audit","metadata":[]}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateAuditDeliveryDestination(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "metadata must be a JSON object")
 }

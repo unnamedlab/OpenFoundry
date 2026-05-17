@@ -115,7 +115,10 @@ type UpstreamURLs struct {
 	ModelInferenceHistory     string `koanf:"model_inference_history_service_url"`
 	AI                        string `koanf:"ai_service_url"`
 	LLMCatalog                string `koanf:"llm_catalog_service_url"`
-	PromptWorkflow            string `koanf:"prompt_workflow_service_url"`
+	// AgentRuntime backs /api/v1/agent-runtime/* and (per ADR-0030,
+	// which retired prompt-workflow-service / conversation-state-service
+	// / tool-registry-service into this binary) absorbs `/api/v1/ai/prompts`.
+	AgentRuntime              string `koanf:"agent_runtime_service_url"`
 	KnowledgeIndex            string `koanf:"knowledge_index_service_url"`
 	RetrievalContext          string `koanf:"retrieval_context_service_url"`
 	ConversationState         string `koanf:"conversation_state_service_url"`
@@ -186,7 +189,7 @@ func DefaultUpstreams() UpstreamURLs {
 		ModelInferenceHistory:     "http://localhost:50092",
 		AI:                        "http://localhost:50127",
 		LLMCatalog:                "http://localhost:50095",
-		PromptWorkflow:            "http://localhost:50096",
+		AgentRuntime:              "http://localhost:50127",
 		KnowledgeIndex:            "http://localhost:50097",
 		RetrievalContext:          "http://localhost:50098",
 		ConversationState:         "http://localhost:50099",
@@ -354,7 +357,7 @@ func upstreamMap(u UpstreamURLs) map[string]any {
 		"model_inference_history_service_url":     u.ModelInferenceHistory,
 		"ai_service_url":                          u.AI,
 		"llm_catalog_service_url":                 u.LLMCatalog,
-		"prompt_workflow_service_url":             u.PromptWorkflow,
+		"agent_runtime_service_url":               u.AgentRuntime,
 		"knowledge_index_service_url":             u.KnowledgeIndex,
 		"retrieval_context_service_url":           u.RetrievalContext,
 		"conversation_state_service_url":          u.ConversationState,

@@ -44,7 +44,7 @@ func upstreamFor(t *testing.T) config.UpstreamURLs {
 	u.ML = "ml"
 	u.AIEvaluation = "ai-eval"
 	u.LLMCatalog = "llm-catalog"
-	u.PromptWorkflow = "prompts"
+	u.AgentRuntime = "agent-runtime"
 	u.RetrievalContext = "retrieval"
 	u.KnowledgeIndex = "knowledge"
 	u.ConversationState = "conv"
@@ -138,7 +138,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ml/widgets", "ml"},
 		{"/api/v1/ai/evaluations/run", "ai-eval"},
 		{"/api/v1/ai/providers", "llm-catalog"},
-		{"/api/v1/ai/prompts", "prompts"},
+		{"/api/v1/ai/prompts", "agent-runtime"},
+		{"/api/v1/agent-runtime/agents", "agent-runtime"},
 		{"/api/v1/ai/knowledge-bases/abc/search", "retrieval"},
 		{"/api/v1/ai/knowledge-bases", "knowledge"},
 		{"/api/v1/ai/conversations", "conv"},

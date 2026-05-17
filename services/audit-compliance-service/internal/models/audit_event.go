@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 // AuditEventStatus enumerates the success/failure/denied vocabulary.
@@ -67,21 +69,45 @@ func ParseAuditSeverity(value string) (AuditSeverity, error) {
 // `RetentionDays` defaults to 365 when omitted (matches the Rust
 // `default_retention_days`). Labels are deduplicated server-side.
 type AppendAuditEventRequest struct {
-	SourceService  string              `json:"source_service"`
-	Channel        string              `json:"channel"`
-	Actor          string              `json:"actor"`
-	Action         string              `json:"action"`
-	ResourceType   string              `json:"resource_type"`
-	ResourceID     string              `json:"resource_id"`
-	Status         AuditEventStatus    `json:"status"`
-	Severity       AuditSeverity       `json:"severity"`
-	Classification ClassificationLevel `json:"classification"`
-	SubjectID      *string             `json:"subject_id,omitempty"`
-	IPAddress      *string             `json:"ip_address,omitempty"`
-	Location       *string             `json:"location,omitempty"`
-	Metadata       json.RawMessage     `json:"metadata,omitempty"`
-	Labels         []string            `json:"labels,omitempty"`
-	RetentionDays  int32               `json:"retention_days,omitempty"`
+	SourceService    string              `json:"source_service"`
+	Product          string              `json:"product,omitempty"`
+	ProductVersion   string              `json:"product_version,omitempty"`
+	ProducerType     string              `json:"producer_type,omitempty"`
+	Channel          string              `json:"channel"`
+	EventID          *uuid.UUID          `json:"event_id,omitempty"`
+	LogEntryID       *uuid.UUID          `json:"log_entry_id,omitempty"`
+	SequenceID       *uuid.UUID          `json:"sequence_id,omitempty"`
+	Actor            string              `json:"actor"`
+	ActorID          string              `json:"actor_id,omitempty"`
+	ActorType        string              `json:"actor_type,omitempty"`
+	SessionID        *string             `json:"session_id,omitempty"`
+	ServiceAccountID *string             `json:"service_account_id,omitempty"`
+	TokenID          *string             `json:"token_id,omitempty"`
+	Action           string              `json:"action"`
+	Categories       []string            `json:"categories,omitempty"`
+	ResourceType     string              `json:"resource_type"`
+	ResourceID       string              `json:"resource_id"`
+	Entities         json.RawMessage     `json:"entities,omitempty"`
+	Origins          []string            `json:"origins,omitempty"`
+	Origin           *string             `json:"origin,omitempty"`
+	SourceOrigin     *string             `json:"source_origin,omitempty"`
+	TraceID          *string             `json:"trace_id,omitempty"`
+	Status           AuditEventStatus    `json:"status"`
+	Outcome          string              `json:"outcome,omitempty"`
+	Severity         AuditSeverity       `json:"severity"`
+	Classification   ClassificationLevel `json:"classification"`
+	SubjectID        *string             `json:"subject_id,omitempty"`
+	IPAddress        *string             `json:"ip_address,omitempty"`
+	Location         *string             `json:"location,omitempty"`
+	Metadata         json.RawMessage     `json:"metadata,omitempty"`
+	ErrorMetadata    json.RawMessage     `json:"error_metadata,omitempty"`
+	RequestFields    json.RawMessage     `json:"request_fields,omitempty"`
+	ResultFields     json.RawMessage     `json:"result_fields,omitempty"`
+	Labels           []string            `json:"labels,omitempty"`
+	ParentEventID    *uuid.UUID          `json:"parent_event_id,omitempty"`
+	InitiatorType    string              `json:"initiator_type,omitempty"`
+	AuditAccessTier  string              `json:"audit_access_tier,omitempty"`
+	RetentionDays    int32               `json:"retention_days,omitempty"`
 }
 
 // EffectiveRetentionDays returns the retention TTL for a request,
@@ -100,17 +126,20 @@ type EventQuery struct {
 	SubjectID      *string
 	Classification *string
 	ResourceID     *string
+	Category       *string
+	TraceID        *string
+	EventID        *string
 }
 
 // AuditOverview mirrors the Rust struct of the same name.
 type AuditOverview struct {
-	EventCount          int64       `json:"event_count"`
-	CriticalEventCount  int64       `json:"critical_event_count"`
-	CollectorCount      int64       `json:"collector_count"`
-	ActivePolicyCount   int64       `json:"active_policy_count"`
-	AnomalyCount        int64       `json:"anomaly_count"`
-	GDPRSubjectCount    int64       `json:"gdpr_subject_count"`
-	LatestEvent         *AuditEvent `json:"latest_event"`
+	EventCount         int64       `json:"event_count"`
+	CriticalEventCount int64       `json:"critical_event_count"`
+	CollectorCount     int64       `json:"collector_count"`
+	ActivePolicyCount  int64       `json:"active_policy_count"`
+	AnomalyCount       int64       `json:"anomaly_count"`
+	GDPRSubjectCount   int64       `json:"gdpr_subject_count"`
+	LatestEvent        *AuditEvent `json:"latest_event"`
 }
 
 // EventListResponse mirrors the Rust struct: events + anomaly alerts.

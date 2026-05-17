@@ -177,6 +177,131 @@ func TestResourceMarkingSG13WireShape(t *testing.T) {
 	}
 }
 
+func TestEffectiveResourceMarkingSG14WireShape(t *testing.T) {
+	t.Parallel()
+	markingID := uuid.New()
+	item := models.EffectiveResourceMarking{
+		MarkingID:   markingID,
+		MarkingName: "PII",
+		RequiredFor: []string{models.ResourceMarkingRequiredForResourceAccess, models.ResourceMarkingRequiredForDataAccess},
+		Sources: []models.EffectiveResourceMarkingSource{
+			{
+				SourceKind:              models.EffectiveResourceMarkingSourceLineage,
+				RequiredFor:             models.ResourceMarkingRequiredForDataAccess,
+				SourceResourceKind:      "dataset",
+				SourceResourceID:        "ri.foundry.dataset.raw",
+				DirectResourceMarkingID: uuid.New(),
+				RelationKinds:           []string{models.ResourceMarkingRelationLineage},
+				Path: []models.ResourceMarkingPathHop{
+					{ResourceKind: "dataset", ResourceID: "ri.foundry.dataset.raw"},
+					{ResourceKind: "dataset", ResourceID: "ri.foundry.dataset.derived", RelationKind: models.ResourceMarkingRelationLineage},
+				},
+				Metadata: json.RawMessage(`{"lineage":"openlineage"}`),
+			},
+		},
+	}
+	out, err := json.Marshal(item)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, key := range []string{"marking_id", "marking_name", "required_for", "sources"} {
+		assert.Contains(t, view, key)
+	}
+	source := view["sources"].([]any)[0].(map[string]any)
+	for _, key := range []string{"source_kind", "required_for", "source_resource_kind", "source_resource_id", "direct_resource_marking_id", "relation_kinds", "path", "metadata"} {
+		assert.Contains(t, source, key)
+	}
+}
+
+func TestResourceAccessCheckSG14WireShape(t *testing.T) {
+	t.Parallel()
+	resp := models.ResourceAccessCheckResponse{
+		PrincipalID:           uuid.New(),
+		ResourceKind:          "dataset",
+		ResourceID:            "ri.foundry.dataset.derived",
+		ResourceAccessAllowed: true,
+		DataAccessAllowed:     false,
+		AccessRequirements: []models.ResourceAccessRequirementResult{
+			{
+				Kind:      models.ResourceAccessRequirementResourceMarking,
+				Label:     "Resource markings",
+				Status:    models.ResourceAccessRequirementStatusPassed,
+				Satisfied: true,
+			},
+		},
+		AdditionalDataRequirements: []models.ResourceAccessRequirementResult{
+			{
+				Kind:      models.ResourceAccessRequirementDataMarking,
+				Label:     "Lineage-derived data markings",
+				Status:    models.ResourceAccessRequirementStatusFailed,
+				Satisfied: false,
+				Missing:   []string{"PII"},
+			},
+		},
+		CheckedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+	}
+	out, err := json.Marshal(resp)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, key := range []string{
+		"principal_id", "resource_kind", "resource_id", "resource_access_allowed",
+		"data_access_allowed", "access_requirements", "additional_data_requirements",
+		"effective_markings", "marking_results", "checked_at",
+	} {
+		assert.Contains(t, view, key)
+	}
+}
+
+func TestPublishMarkingBuildSG15WireShape(t *testing.T) {
+	t.Parallel()
+	markingID := uuid.New()
+	resp := models.PublishMarkingBuildResponse{
+		Allowed:       false,
+		Applied:       false,
+		DryRun:        false,
+		BuildID:       "build-1",
+		TransactionID: "txn-1",
+		OutputDiffs: []models.MarkingBuildOutputDiff{
+			{
+				OutputResource: models.MarkingBuildResourceRef{ResourceKind: "dataset", ResourceID: "ri.output"},
+				Removed: []models.MarkingDiffEntry{
+					{MarkingID: markingID, MarkingName: "PII", RequiredFor: []string{models.ResourceMarkingRequiredForDataAccess}},
+				},
+			},
+		},
+		BlockedRemovals: []models.MarkingBuildBlockedRemoval{
+			{
+				OutputResource: models.MarkingBuildResourceRef{ResourceKind: "dataset", ResourceID: "ri.output"},
+				MarkingID:      markingID,
+				MarkingName:    "PII",
+				RequiredFor:    []string{models.ResourceMarkingRequiredForDataAccess},
+				Permission: models.MarkingPermissionCheckResponse{
+					MarkingID:   markingID,
+					PrincipalID: uuid.New(),
+					CanRemove:   false,
+					Reasons:     []string{"principal lacks remove marking permission"},
+				},
+			},
+		},
+		CheckedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+	}
+	out, err := json.Marshal(resp)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, key := range []string{
+		"allowed", "applied", "dry_run", "build_id", "transaction_id",
+		"output_diffs", "blocked_removals", "checked_at",
+	} {
+		assert.Contains(t, view, key)
+	}
+	diff := view["output_diffs"].([]any)[0].(map[string]any)
+	for _, key := range []string{"output_resource", "before", "after", "added", "removed", "unchanged"} {
+		assert.Contains(t, diff, key)
+	}
+}
+
 func TestCreateMarkingCategoryRejectsEmptyRequiredFields(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
@@ -340,6 +465,51 @@ func TestListResourceMarkingsRejectsMissingQuery(t *testing.T) {
 	h.ListResourceMarkings(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "resource_kind")
+}
+
+func TestUpsertResourceMarkingEdgeRejectsSelfEdge(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	body := `{"source_resource_kind":"dataset","source_resource_id":"rid1","target_resource_kind":"dataset","target_resource_id":"rid1","relation_kind":"lineage"}`
+	req := httptest.NewRequest(http.MethodPut, "/resource-marking-edges", strings.NewReader(body))
+	req = markingCategoryWithClaims(req)
+	rec := httptest.NewRecorder()
+	h.UpsertResourceMarkingEdge(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "relation_kind")
+}
+
+func TestGetEffectiveResourceMarkingsRejectsMissingQuery(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest(http.MethodGet, "/resource-markings/effective", nil)
+	req = markingCategoryWithClaims(req)
+	rec := httptest.NewRecorder()
+	h.GetEffectiveResourceMarkings(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "resource_kind")
+}
+
+func TestCheckResourceAccessRejectsMissingResource(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest(http.MethodPost, "/resource-access:check", strings.NewReader(`{}`))
+	req = markingCategoryWithClaims(req)
+	rec := httptest.NewRecorder()
+	h.CheckResourceAccess(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "resource_kind")
+}
+
+func TestPublishMarkingBuildRejectsMissingResources(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest(http.MethodPost, "/resource-marking-builds:publish", strings.NewReader(`{}`))
+	req = markingCategoryWithClaims(req)
+	rec := httptest.NewRecorder()
+	h.PublishMarkingBuildOutput(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "input_resources")
 }
 
 func markingCategoryWithChiParam(r *http.Request, key, value string) *http.Request {

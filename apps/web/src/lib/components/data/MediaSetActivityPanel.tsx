@@ -22,11 +22,13 @@ export function MediaSetActivityPanel({ mediaSet }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [filters, setFilters] = useState<EventFilterDraft>({
-    source_service: SOURCE_SERVICE,
-    subject_id: '',
-    classification: '',
-  });
+	  const [filters, setFilters] = useState<EventFilterDraft>({
+	    source_service: SOURCE_SERVICE,
+	    subject_id: '',
+	    classification: '',
+	    category: '',
+	    trace_id: '',
+	  });
 
   const [draft, setDraft] = useState<EventDraft>({
     source_service: SOURCE_SERVICE,
@@ -39,23 +41,29 @@ export function MediaSetActivityPanel({ mediaSet }: Props) {
     severity: 'low',
     classification: 'public' as ClassificationLevel,
     subject_id: '',
-    ip_address: '',
-    location: '',
-    labels_text: '',
-    metadata_text: '{}',
-    retention_days: '365',
-  });
+	    ip_address: '',
+	    location: '',
+	    categories_text: '',
+	    origins_text: '',
+	    trace_id: '',
+	    labels_text: '',
+	    metadata_text: '{}',
+	    error_metadata_text: '{}',
+	    retention_days: '365',
+	  });
 
   async function load() {
     setLoading(true);
     setError('');
     try {
       const response = await listEvents({
-        source_service: SOURCE_SERVICE,
-        subject_id: filters.subject_id || undefined,
-        classification: filters.classification || undefined,
-        resource_id: mediaSet.rid,
-      });
+	        source_service: SOURCE_SERVICE,
+	        subject_id: filters.subject_id || undefined,
+	        classification: filters.classification || undefined,
+	        category: filters.category || undefined,
+	        trace_id: filters.trace_id || undefined,
+	        resource_id: mediaSet.rid,
+	      });
       setEvents(response.items);
       setAnomalies(response.anomalies);
     } catch (cause) {

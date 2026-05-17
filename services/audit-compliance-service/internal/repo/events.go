@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,12 +41,7 @@ func (r *Repo) LatestSequenceAndHash(ctx context.Context) (*int64, *string, erro
 func (r *Repo) GetAuditEvent(ctx context.Context, id uuid.UUID) (*models.AuditEvent, error) {
 	row := r.Pool.QueryRow(ctx, auditEventSelect+` WHERE id = $1`, id)
 	var e models.AuditEvent
-	if err := row.Scan(&e.ID, &e.Sequence, &e.PreviousHash, &e.EntryHash,
-		&e.SourceService, &e.Channel, &e.Actor, &e.Action,
-		&e.ResourceType, &e.ResourceID, &e.Status, &e.Severity,
-		&e.Classification, &e.SubjectID, &e.IPAddress, &e.Location,
-		&e.Metadata, &e.Labels, &e.RetentionUntil, &e.OccurredAt,
-		&e.IngestedAt); err != nil {
+	if err := scanAuditEvent(row, &e); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -72,30 +69,77 @@ func (r *Repo) PersistAuditEvent(ctx context.Context, request *models.AppendAudi
 
 	now := time.Now().UTC()
 	id := uuid.New()
+	eventID := id
+	if request.EventID != nil && *request.EventID != uuid.Nil {
+		eventID = *request.EventID
+	}
+	logEntryID := id
+	if request.LogEntryID != nil && *request.LogEntryID != uuid.Nil {
+		logEntryID = *request.LogEntryID
+	}
+	sequenceID := request.SequenceID
+	if sequenceID != nil && *sequenceID == uuid.Nil {
+		sequenceID = nil
+	}
 	labels := immutablelog.SortedUniqueLabels(request.Labels)
 	labelsJSON, err := json.Marshal(labels)
 	if err != nil {
 		return nil, err
 	}
-	metadata := request.Metadata
-	if len(metadata) == 0 {
-		metadata = json.RawMessage(`{}`)
+	metadata := defaultRawObject(request.Metadata)
+	errorMetadata := defaultRawObject(request.ErrorMetadata)
+	requestFields := defaultRawObject(request.RequestFields)
+	if len(request.RequestFields) == 0 {
+		requestFields = metadata
 	}
+	resultFields := defaultRawObject(request.ResultFields)
+	entities := request.Entities
+	if len(entities) == 0 {
+		entities = defaultAuditEntities(request.ResourceType, request.ResourceID)
+	}
+	categories := normalizedStrings(request.Categories)
+	origins := normalizedStrings(request.Origins)
+	product := defaultString(request.Product, request.SourceService)
+	producerType := defaultString(request.ProducerType, "SERVER")
+	actorID := defaultString(request.ActorID, request.Actor)
+	actorType := defaultString(request.ActorType, inferActorType(request.Actor, request.ServiceAccountID))
+	actor := request.Actor
+	if strings.TrimSpace(actor) == "" && request.ServiceAccountID != nil && strings.TrimSpace(*request.ServiceAccountID) != "" {
+		actor = "service:" + strings.TrimSpace(*request.ServiceAccountID)
+	}
+	if strings.TrimSpace(actorID) == "" {
+		actorID = actor
+	}
+	outcome := normalizeOutcome(request.Outcome, request.Status)
+	initiatorType := defaultString(request.InitiatorType, inferInitiatorType(origins, actorType))
+	auditAccessTier := defaultString(request.AuditAccessTier, "security_sensitive")
 	retentionUntil := now.AddDate(0, 0, int(request.EffectiveRetentionDays()))
 
 	if _, err := r.Pool.Exec(ctx,
 		`INSERT INTO audit_events
-		      (id, sequence, previous_hash, entry_hash, source_service, channel,
-		       actor, action, resource_type, resource_id, status, severity,
-		       classification, subject_id, ip_address, location, metadata, labels,
-		       retention_until, occurred_at, ingested_at)
-		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-		            $14, $15, $16, $17::jsonb, $18::jsonb, $19, $20, $21)`,
-		id, sequence, previousHash, entryHash, request.SourceService, request.Channel,
-		request.Actor, request.Action, request.ResourceType, request.ResourceID,
-		string(request.Status), string(request.Severity), string(request.Classification),
-		request.SubjectID, request.IPAddress, request.Location,
-		metadata, labelsJSON, retentionUntil, now, now,
+		      (id, event_id, log_entry_id, sequence_id, sequence, previous_hash,
+		       entry_hash, source_service, product, product_version, producer_type,
+		       channel, actor, actor_id, actor_type, session_id, service_account_id,
+		       token_id, action, categories, resource_type, resource_id, entities,
+		       origins, origin, source_origin, trace_id, status, outcome, severity,
+		       classification, subject_id, ip_address, location, metadata,
+		       error_metadata, request_fields, result_fields, labels, parent_event_id,
+		       initiator_type, audit_access_tier, retention_until, occurred_at, ingested_at)
+		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+		            $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+		            $21, $22, $23::jsonb, $24, $25, $26, $27, $28, $29, $30,
+		            $31, $32, $33, $34, $35::jsonb, $36::jsonb, $37::jsonb,
+		            $38::jsonb, $39::jsonb, $40, $41, $42, $43, $44, $45)`,
+		id, eventID, logEntryID, sequenceID, sequence, previousHash, entryHash,
+		request.SourceService, product, request.ProductVersion, producerType,
+		request.Channel, actor, actorID, actorType, request.SessionID,
+		request.ServiceAccountID, request.TokenID, request.Action, categories,
+		request.ResourceType, request.ResourceID, entities, origins, request.Origin,
+		request.SourceOrigin, request.TraceID, string(request.Status), outcome,
+		string(request.Severity), string(request.Classification), request.SubjectID,
+		request.IPAddress, request.Location, metadata, errorMetadata, requestFields,
+		resultFields, labelsJSON, request.ParentEventID, initiatorType,
+		auditAccessTier, retentionUntil, now, now,
 	); err != nil {
 		return nil, err
 	}
@@ -118,4 +162,89 @@ func (r *Repo) PersistAuditEvent(ctx context.Context, request *models.AppendAudi
 	}
 	stored.RetentionUntil = retentionUntil
 	return stored, nil
+}
+
+func defaultRawObject(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return json.RawMessage(`{}`)
+	}
+	return raw
+}
+
+func defaultAuditEntities(resourceType, resourceID string) json.RawMessage {
+	if strings.TrimSpace(resourceType) == "" && strings.TrimSpace(resourceID) == "" {
+		return json.RawMessage(`[]`)
+	}
+	body, _ := json.Marshal([]map[string]string{{
+		"kind": strings.TrimSpace(resourceType),
+		"id":   strings.TrimSpace(resourceID),
+		"rid":  strings.TrimSpace(resourceID),
+	}})
+	return body
+}
+
+func normalizedStrings(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func defaultString(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func inferActorType(actor string, serviceAccountID *string) string {
+	if serviceAccountID != nil && strings.TrimSpace(*serviceAccountID) != "" {
+		return "service"
+	}
+	actor = strings.TrimSpace(actor)
+	if strings.HasPrefix(actor, "service:") || strings.HasPrefix(actor, "system:") {
+		return "service"
+	}
+	return "user"
+}
+
+func inferInitiatorType(origins []string, actorType string) string {
+	if len(origins) > 0 {
+		return "user"
+	}
+	if actorType == "service" {
+		return "service"
+	}
+	return "user"
+}
+
+func normalizeOutcome(value string, status models.AuditEventStatus) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "success", "ok":
+		return "success"
+	case "denied", "unauthorized", "forbidden":
+		return "unauthorized"
+	case "failure", "failed", "error":
+		return "error"
+	}
+	switch status {
+	case models.StatusSuccess:
+		return "success"
+	case models.StatusDenied:
+		return "unauthorized"
+	default:
+		return "error"
+	}
 }

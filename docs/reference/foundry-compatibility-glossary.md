@@ -38,7 +38,7 @@ Official public documentation anchors:
 
 | Concept | Canonical OpenFoundry term | Canonical fields | Accepted or reserved aliases | Owning surface | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Resource RID | `rid` | `rid`, `resource_rid`, `dataset_rid`, `pipeline_rid`, `build.rid`, `branch_rid`, `transaction_rid` | `resource_id` should be avoided for stable external IDs; use `id` or `rid` explicitly. | Cross-platform | RID values are stable public identifiers. `id` remains valid for internal UUIDs. Do not invent Palantir RID prefixes unless the owning resource already has a documented OpenFoundry prefix. |
+| Resource RID | `rid` | `rid`, `resource_rid`, `dataset_rid`, `pipeline_rid`, `build.rid`, `branch_rid`, `transaction_rid` | `resource_id` should be avoided for stable external IDs; use `id` or `rid` explicitly. | Cross-platform | Platform-minted resource RIDs use `ri.<service>.<instance>.<type>.<uuid>` and are immutable across rename/move. `id` remains valid for internal UUIDs. New code must use `libs/core-models/rid` for parsing and validation; do not invent Palantir RID prefixes unless the owning resource already has a documented OpenFoundry prefix. |
 | App | `app` | `id`, `name`, `slug`, `description`, `status`, `pages`, `theme`, `settings`, `template_key`, `published_version_id` | `workshop_app`, `application`, `slate_app` only when importing/exporting Slate packages. | `application-composition-service`, `apps/web` | In OpenFoundry, an `app` is the top-level authored and published operational application. |
 | Module | `module` | `module_id`, `module_name`, `module_interface`, `module_variables` | `workshop_module`; current single-module apps may store module-like state under `app.settings`. | `application-composition-service`, `apps/web` | Reserve as a future first-class sub-app unit. Do not overload `page` or `widget` to mean module. |
 | Page | `page` | `id`, `name`, `path`, `description`, `layout`, `widgets`, `visible` | `route`, `view` only in UI copy, not wire models. | `application-composition-service`, `apps/web` | A page belongs to an app or module and owns the widgets visible at one route. |
@@ -114,4 +114,3 @@ Official public documentation anchors:
 | `libs/ontology-kernel` | `object_set`, `action_type`, `function_package`, `object_output`, `link_output` |
 | `services/connector-management-service` | `source`, `source_rid`, `webhook`, `output_parameters` |
 | `services/ontology-exploratory-analysis-service` | `geospatial_layer`, `map_layer`, `feature`, `cluster`, `tile` |
-

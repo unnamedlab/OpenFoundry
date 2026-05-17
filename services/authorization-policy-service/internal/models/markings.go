@@ -39,6 +39,30 @@ const (
 	ResourceMarkingAuditApplyDenied  = "resource_marking.apply_denied"
 	ResourceMarkingAuditRemoved      = "resource_marking.removed"
 	ResourceMarkingAuditRemoveDenied = "resource_marking.remove_denied"
+
+	ResourceMarkingRelationHierarchy = "hierarchy"
+	ResourceMarkingRelationLineage   = "lineage"
+
+	EffectiveResourceMarkingSourceDirect    = "direct"
+	EffectiveResourceMarkingSourceHierarchy = "hierarchy"
+	EffectiveResourceMarkingSourceLineage   = "lineage"
+	EffectiveResourceMarkingSourceMixed     = "mixed"
+
+	ResourceMarkingRequiredForResourceAccess = "resource_access"
+	ResourceMarkingRequiredForDataAccess     = "data_access"
+
+	ResourceAccessRequirementStatusPassed        = "passed"
+	ResourceAccessRequirementStatusFailed        = "failed"
+	ResourceAccessRequirementStatusNotApplicable = "not_applicable"
+
+	ResourceAccessRequirementOrganization    = "organization"
+	ResourceAccessRequirementRole            = "role"
+	ResourceAccessRequirementResourceMarking = "resource_marking"
+	ResourceAccessRequirementDataMarking     = "data_marking"
+
+	MarkingBuildStatusApplied = "applied"
+	MarkingBuildStatusBlocked = "blocked"
+	MarkingBuildStatusDryRun  = "dry_run"
 )
 
 // MarkingCategory is the SG.11 administrative container. Actual marking
@@ -250,4 +274,184 @@ type ResourceMarkingMutationResponse struct {
 	Allowed         bool                           `json:"allowed"`
 	ResourceMarking *ResourceMarking               `json:"resource_marking,omitempty"`
 	PermissionCheck MarkingPermissionCheckResponse `json:"permission_check"`
+}
+
+type ResourceMarkingEdge struct {
+	ID                 uuid.UUID       `json:"id"`
+	TenantID           *uuid.UUID      `json:"tenant_id,omitempty"`
+	SourceResourceKind string          `json:"source_resource_kind"`
+	SourceResourceID   string          `json:"source_resource_id"`
+	TargetResourceKind string          `json:"target_resource_kind"`
+	TargetResourceID   string          `json:"target_resource_id"`
+	RelationKind       string          `json:"relation_kind"`
+	Metadata           json.RawMessage `json:"metadata"`
+	CreatedBy          uuid.UUID       `json:"created_by"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+type UpsertResourceMarkingEdgeRequest struct {
+	SourceResourceKind string          `json:"source_resource_kind"`
+	SourceResourceID   string          `json:"source_resource_id"`
+	TargetResourceKind string          `json:"target_resource_kind"`
+	TargetResourceID   string          `json:"target_resource_id"`
+	RelationKind       string          `json:"relation_kind"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+}
+
+type DeleteResourceMarkingEdgeRequest struct {
+	SourceResourceKind string `json:"source_resource_kind"`
+	SourceResourceID   string `json:"source_resource_id"`
+	TargetResourceKind string `json:"target_resource_kind"`
+	TargetResourceID   string `json:"target_resource_id"`
+	RelationKind       string `json:"relation_kind"`
+}
+
+type ResourceMarkingPathHop struct {
+	ResourceKind string `json:"resource_kind"`
+	ResourceID   string `json:"resource_id"`
+	RelationKind string `json:"relation_kind,omitempty"`
+}
+
+type EffectiveResourceMarkingSource struct {
+	SourceKind              string                   `json:"source_kind"`
+	RequiredFor             string                   `json:"required_for"`
+	SourceResourceKind      string                   `json:"source_resource_kind"`
+	SourceResourceID        string                   `json:"source_resource_id"`
+	DirectResourceMarkingID uuid.UUID                `json:"direct_resource_marking_id"`
+	RelationKinds           []string                 `json:"relation_kinds,omitempty"`
+	Path                    []ResourceMarkingPathHop `json:"path"`
+	Metadata                json.RawMessage          `json:"metadata"`
+}
+
+type EffectiveResourceMarking struct {
+	MarkingID   uuid.UUID                        `json:"marking_id"`
+	MarkingName string                           `json:"marking_name"`
+	RequiredFor []string                         `json:"required_for"`
+	Sources     []EffectiveResourceMarkingSource `json:"sources"`
+}
+
+type EffectiveResourceMarkingsResponse struct {
+	ResourceKind string                     `json:"resource_kind"`
+	ResourceID   string                     `json:"resource_id"`
+	Items        []EffectiveResourceMarking `json:"items"`
+	CheckedAt    time.Time                  `json:"checked_at"`
+}
+
+type ResourceAccessCheckRequest struct {
+	PrincipalID            *uuid.UUID  `json:"principal_id,omitempty"`
+	GroupIDs               []uuid.UUID `json:"group_ids,omitempty"`
+	ResourceKind           string      `json:"resource_kind"`
+	ResourceID             string      `json:"resource_id"`
+	RequiredOrganizationID *uuid.UUID  `json:"required_organization_id,omitempty"`
+	UserOrganizationIDs    []uuid.UUID `json:"user_organization_ids,omitempty"`
+	RoleSatisfied          *bool       `json:"role_satisfied,omitempty"`
+	RoleLabel              string      `json:"role_label,omitempty"`
+	RoleDetail             string      `json:"role_detail,omitempty"`
+	MaxDepth               *int        `json:"max_depth,omitempty"`
+}
+
+type ResourceAccessRequirementResult struct {
+	Kind      string   `json:"kind"`
+	Label     string   `json:"label"`
+	Status    string   `json:"status"`
+	Satisfied bool     `json:"satisfied"`
+	Required  []string `json:"required,omitempty"`
+	Present   []string `json:"present,omitempty"`
+	Missing   []string `json:"missing,omitempty"`
+	Detail    string   `json:"detail"`
+	Sources   []string `json:"sources,omitempty"`
+}
+
+type ResourceAccessMarkingResult struct {
+	MarkingID   uuid.UUID                        `json:"marking_id"`
+	MarkingName string                           `json:"marking_name"`
+	RequiredFor []string                         `json:"required_for"`
+	Satisfied   bool                             `json:"satisfied"`
+	MissingFor  []string                         `json:"missing_for,omitempty"`
+	Sources     []EffectiveResourceMarkingSource `json:"sources"`
+}
+
+type ResourceAccessCheckResponse struct {
+	PrincipalID                uuid.UUID                         `json:"principal_id"`
+	ResourceKind               string                            `json:"resource_kind"`
+	ResourceID                 string                            `json:"resource_id"`
+	ResourceAccessAllowed      bool                              `json:"resource_access_allowed"`
+	DataAccessAllowed          bool                              `json:"data_access_allowed"`
+	AccessRequirements         []ResourceAccessRequirementResult `json:"access_requirements"`
+	AdditionalDataRequirements []ResourceAccessRequirementResult `json:"additional_data_requirements"`
+	EffectiveMarkings          []EffectiveResourceMarking        `json:"effective_markings"`
+	MarkingResults             []ResourceAccessMarkingResult     `json:"marking_results"`
+	CheckedAt                  time.Time                         `json:"checked_at"`
+}
+
+type MarkingBuildResourceRef struct {
+	ResourceKind string `json:"resource_kind"`
+	ResourceID   string `json:"resource_id"`
+}
+
+type MarkingDiffEntry struct {
+	MarkingID   uuid.UUID `json:"marking_id"`
+	MarkingName string    `json:"marking_name"`
+	RequiredFor []string  `json:"required_for"`
+}
+
+type MarkingBuildBlockedRemoval struct {
+	OutputResource MarkingBuildResourceRef        `json:"output_resource"`
+	MarkingID      uuid.UUID                      `json:"marking_id"`
+	MarkingName    string                         `json:"marking_name"`
+	RequiredFor    []string                       `json:"required_for"`
+	Permission     MarkingPermissionCheckResponse `json:"permission"`
+}
+
+type MarkingBuildOutputDiff struct {
+	OutputResource MarkingBuildResourceRef    `json:"output_resource"`
+	Before         []EffectiveResourceMarking `json:"before"`
+	After          []EffectiveResourceMarking `json:"after"`
+	Added          []MarkingDiffEntry         `json:"added"`
+	Removed        []MarkingDiffEntry         `json:"removed"`
+	Unchanged      []MarkingDiffEntry         `json:"unchanged"`
+}
+
+type PublishMarkingBuildRequest struct {
+	BuildID                        string                    `json:"build_id,omitempty"`
+	TransactionID                  string                    `json:"transaction_id,omitempty"`
+	InputResources                 []MarkingBuildResourceRef `json:"input_resources"`
+	OutputResources                []MarkingBuildResourceRef `json:"output_resources"`
+	ReplaceExistingLineageToOutput bool                      `json:"replace_existing_lineage_to_output"`
+	DryRun                         bool                      `json:"dry_run,omitempty"`
+	GroupIDs                       []uuid.UUID               `json:"group_ids,omitempty"`
+	ResourceUpdateMarkingsAllowed  bool                      `json:"resource_update_markings_allowed"`
+	ExpandAccessAllowed            bool                      `json:"expand_access_allowed,omitempty"`
+	Reason                         string                    `json:"reason,omitempty"`
+	Metadata                       json.RawMessage           `json:"metadata,omitempty"`
+}
+
+type PublishMarkingBuildResponse struct {
+	Allowed         bool                         `json:"allowed"`
+	Applied         bool                         `json:"applied"`
+	DryRun          bool                         `json:"dry_run"`
+	BuildID         string                       `json:"build_id,omitempty"`
+	TransactionID   string                       `json:"transaction_id,omitempty"`
+	OutputDiffs     []MarkingBuildOutputDiff     `json:"output_diffs"`
+	BlockedRemovals []MarkingBuildBlockedRemoval `json:"blocked_removals,omitempty"`
+	CheckedAt       time.Time                    `json:"checked_at"`
+}
+
+type MarkingBuildEvent struct {
+	ID                 uuid.UUID       `json:"id"`
+	TenantID           *uuid.UUID      `json:"tenant_id,omitempty"`
+	BuildID            string          `json:"build_id,omitempty"`
+	TransactionID      string          `json:"transaction_id,omitempty"`
+	OutputResourceKind string          `json:"output_resource_kind"`
+	OutputResourceID   string          `json:"output_resource_id"`
+	ActorID            uuid.UUID       `json:"actor_id"`
+	Status             string          `json:"status"`
+	Reason             string          `json:"reason,omitempty"`
+	InputResources     json.RawMessage `json:"input_resources"`
+	BeforeState        json.RawMessage `json:"before_state"`
+	AfterState         json.RawMessage `json:"after_state"`
+	Diff               json.RawMessage `json:"diff"`
+	Metadata           json.RawMessage `json:"metadata"`
+	CreatedAt          time.Time       `json:"created_at"`
 }

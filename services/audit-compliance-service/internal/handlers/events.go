@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -20,9 +21,8 @@ import (
 
 // GetOverview ports `handlers::events::get_overview`.
 func (h *Handlers) GetOverview(w http.ResponseWriter, r *http.Request) {
-	claims, ok := authmw.FromContext(r.Context())
+	claims, ok := requireAuditLogAccess(w, r)
 	if !ok {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	all, err := h.Repo.ListAuditEvents(r.Context(), 1000)
@@ -63,9 +63,8 @@ func (h *Handlers) GetOverview(w http.ResponseWriter, r *http.Request) {
 
 // ListEvents ports `handlers::events::list_events` with filtering.
 func (h *Handlers) ListEvents(w http.ResponseWriter, r *http.Request) {
-	claims, ok := authmw.FromContext(r.Context())
+	claims, ok := requireAuditLogAccess(w, r)
 	if !ok {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	all, err := h.Repo.ListAuditEvents(r.Context(), 1000)
@@ -91,6 +90,15 @@ func (h *Handlers) ListEvents(w http.ResponseWriter, r *http.Request) {
 		if q.ResourceID != nil && e.ResourceID != *q.ResourceID {
 			continue
 		}
+		if q.TraceID != nil && (e.TraceID == nil || *e.TraceID != *q.TraceID) {
+			continue
+		}
+		if q.EventID != nil && e.EventID.String() != *q.EventID {
+			continue
+		}
+		if q.Category != nil && !stringInSlice(e.Categories, *q.Category) {
+			continue
+		}
 		filtered = append(filtered, e)
 	}
 	anomalies := alerting.DetectAnomalies(events)
@@ -102,9 +110,8 @@ func (h *Handlers) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 // GetEvent ports `handlers::events::get_event`.
 func (h *Handlers) GetEvent(w http.ResponseWriter, r *http.Request) {
-	claims, ok := authmw.FromContext(r.Context())
+	claims, ok := requireAuditLogAccess(w, r)
 	if !ok {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
@@ -138,8 +145,17 @@ func (h *Handlers) AppendEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	normalizeAppendAuditEventRequest(r, &body)
 	if body.Action == "" {
 		writeJSONErr(w, http.StatusBadRequest, "action is required")
+		return
+	}
+	if !validOptionalJSONObject(body.Metadata) ||
+		!validOptionalJSONObject(body.ErrorMetadata) ||
+		!validOptionalJSONObject(body.RequestFields) ||
+		!validOptionalJSONObject(body.ResultFields) ||
+		!validOptionalJSONArray(body.Entities) {
+		writeJSONErr(w, http.StatusBadRequest, "metadata, error_metadata, request_fields, and result_fields must be JSON objects; entities must be a JSON array")
 		return
 	}
 	event, err := h.Repo.PersistAuditEvent(r.Context(), &body)
@@ -153,8 +169,8 @@ func (h *Handlers) AppendEvent(w http.ResponseWriter, r *http.Request) {
 
 // ListAnomalies ports `handlers::events::list_anomalies`.
 func (h *Handlers) ListAnomalies(w http.ResponseWriter, r *http.Request) {
-	if !authed(r) {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+	claims, ok := requireAuditLogAccess(w, r)
+	if !ok {
 		return
 	}
 	events, err := h.Repo.ListAuditEvents(r.Context(), 1000)
@@ -162,13 +178,14 @@ func (h *Handlers) ListAnomalies(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusInternalServerError, "database operation failed")
 		return
 	}
+	events = security.FilterEventsForClaims(events, claims)
 	writeJSON(w, http.StatusOK, alerting.DetectAnomalies(events))
 }
 
 // ListCollectors ports `handlers::events::list_collectors`.
 func (h *Handlers) ListCollectors(w http.ResponseWriter, r *http.Request) {
-	if !authed(r) {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+	claims, ok := requireAuditLogAccess(w, r)
+	if !ok {
 		return
 	}
 	events, err := h.Repo.ListAuditEvents(r.Context(), 1000)
@@ -176,7 +193,146 @@ func (h *Handlers) ListCollectors(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusInternalServerError, "database operation failed")
 		return
 	}
+	events = security.FilterEventsForClaims(events, claims)
 	writeJSON(w, http.StatusOK, collector.CollectorCatalog(events))
+}
+
+func requireAuditLogAccess(w http.ResponseWriter, r *http.Request) (*authmw.Claims, bool) {
+	claims, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	if !security.CanViewAuditLogs(claims) {
+		writeJSONErr(w, http.StatusForbidden, "audit log access requires audit-logs:view")
+		return nil, false
+	}
+	return claims, true
+}
+
+func normalizeAppendAuditEventRequest(r *http.Request, body *models.AppendAuditEventRequest) {
+	if body.Product == "" {
+		body.Product = body.SourceService
+	}
+	if body.ProducerType == "" {
+		body.ProducerType = "SERVER"
+	}
+	if body.ActorID == "" {
+		body.ActorID = body.Actor
+	}
+	if body.ActorType == "" {
+		body.ActorType = "user"
+		if body.ServiceAccountID != nil && *body.ServiceAccountID != "" {
+			body.ActorType = "service"
+		}
+	}
+	if body.InitiatorType == "" {
+		body.InitiatorType = "user"
+	}
+	if body.AuditAccessTier == "" {
+		body.AuditAccessTier = "security_sensitive"
+	}
+	if len(body.Origins) == 0 {
+		body.Origins = requestOrigins(r)
+	}
+	if body.Origin == nil {
+		if origin := firstNonEmpty(r.Header.Get("X-Forwarded-For"), r.RemoteAddr); origin != "" {
+			body.Origin = &origin
+		}
+	}
+	if body.SourceOrigin == nil {
+		if origin := firstNonEmpty(r.Header.Get("X-Real-IP"), r.RemoteAddr); origin != "" {
+			body.SourceOrigin = &origin
+		}
+	}
+	if body.TraceID == nil {
+		if trace := traceIDFromRequest(r); trace != "" {
+			body.TraceID = &trace
+		}
+	}
+	if body.SessionID == nil {
+		if sid := r.Header.Get("X-Session-Id"); sid != "" {
+			body.SessionID = &sid
+		}
+	}
+	if body.TokenID == nil {
+		if token := r.Header.Get("X-Token-Id"); token != "" {
+			body.TokenID = &token
+		}
+	}
+	if body.Outcome == "" {
+		switch body.Status {
+		case models.StatusSuccess:
+			body.Outcome = "success"
+		case models.StatusDenied:
+			body.Outcome = "unauthorized"
+		default:
+			body.Outcome = "error"
+		}
+	}
+}
+
+func requestOrigins(r *http.Request) []string {
+	values := []string{}
+	for _, header := range []string{"X-Forwarded-For", "Forwarded", "Origin", "Referer"} {
+		raw := r.Header.Get(header)
+		if raw == "" {
+			continue
+		}
+		for _, part := range strings.Split(raw, ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				values = append(values, v)
+			}
+		}
+	}
+	return values
+}
+
+func traceIDFromRequest(r *http.Request) string {
+	if raw := strings.TrimSpace(r.Header.Get("X-Trace-Id")); raw != "" {
+		return raw
+	}
+	traceparent := strings.TrimSpace(r.Header.Get("Traceparent"))
+	parts := strings.Split(traceparent, "-")
+	if len(parts) >= 2 && parts[1] != "" {
+		return parts[1]
+	}
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func validOptionalJSONObject(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	var holder map[string]any
+	return json.Unmarshal(raw, &holder) == nil
+}
+
+func validOptionalJSONArray(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	var holder []any
+	return json.Unmarshal(raw, &holder) == nil
+}
+
+func stringInSlice(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func parseEventQuery(r *http.Request) models.EventQuery {
@@ -192,6 +348,15 @@ func parseEventQuery(r *http.Request) models.EventQuery {
 	}
 	if v := r.URL.Query().Get("resource_id"); v != "" {
 		q.ResourceID = &v
+	}
+	if v := r.URL.Query().Get("category"); v != "" {
+		q.Category = &v
+	}
+	if v := r.URL.Query().Get("trace_id"); v != "" {
+		q.TraceID = &v
+	}
+	if v := r.URL.Query().Get("event_id"); v != "" {
+		q.EventID = &v
 	}
 	return q
 }

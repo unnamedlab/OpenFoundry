@@ -143,6 +143,146 @@ export interface ResourceMarkingMutationResponse {
   permission_check: MarkingPermissionCheckResponse;
 }
 
+export type ResourceMarkingRelationKind = 'hierarchy' | 'lineage';
+export type EffectiveResourceMarkingSourceKind = 'direct' | 'hierarchy' | 'lineage' | 'mixed';
+export type ResourceMarkingRequiredFor = 'resource_access' | 'data_access';
+
+export interface ResourceMarkingEdge {
+  id: string;
+  tenant_id?: string | null;
+  source_resource_kind: string;
+  source_resource_id: string;
+  target_resource_kind: string;
+  target_resource_id: string;
+  relation_kind: ResourceMarkingRelationKind;
+  metadata: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResourceMarkingPathHop {
+  resource_kind: string;
+  resource_id: string;
+  relation_kind?: ResourceMarkingRelationKind;
+}
+
+export interface EffectiveResourceMarkingSource {
+  source_kind: EffectiveResourceMarkingSourceKind;
+  required_for: ResourceMarkingRequiredFor;
+  source_resource_kind: string;
+  source_resource_id: string;
+  direct_resource_marking_id: string;
+  relation_kinds?: ResourceMarkingRelationKind[];
+  path: ResourceMarkingPathHop[];
+  metadata: Record<string, unknown>;
+}
+
+export interface EffectiveResourceMarking {
+  marking_id: string;
+  marking_name: string;
+  required_for: ResourceMarkingRequiredFor[];
+  sources: EffectiveResourceMarkingSource[];
+}
+
+export interface EffectiveResourceMarkingsResponse {
+  resource_kind: string;
+  resource_id: string;
+  items: EffectiveResourceMarking[];
+  checked_at: string;
+}
+
+export interface ResourceAccessRequirementResult {
+  kind: string;
+  label: string;
+  status: 'passed' | 'failed' | 'not_applicable';
+  satisfied: boolean;
+  required?: string[];
+  present?: string[];
+  missing?: string[];
+  detail: string;
+  sources?: string[];
+}
+
+export interface ResourceAccessMarkingResult {
+  marking_id: string;
+  marking_name: string;
+  required_for: ResourceMarkingRequiredFor[];
+  satisfied: boolean;
+  missing_for?: ResourceMarkingRequiredFor[];
+  sources: EffectiveResourceMarkingSource[];
+}
+
+export interface ResourceAccessCheckResponse {
+  principal_id: string;
+  resource_kind: string;
+  resource_id: string;
+  resource_access_allowed: boolean;
+  data_access_allowed: boolean;
+  access_requirements: ResourceAccessRequirementResult[];
+  additional_data_requirements: ResourceAccessRequirementResult[];
+  effective_markings: EffectiveResourceMarking[];
+  marking_results: ResourceAccessMarkingResult[];
+  checked_at: string;
+}
+
+export interface MarkingBuildResourceRef {
+  resource_kind: string;
+  resource_id: string;
+}
+
+export interface MarkingDiffEntry {
+  marking_id: string;
+  marking_name: string;
+  required_for: ResourceMarkingRequiredFor[];
+}
+
+export interface MarkingBuildBlockedRemoval {
+  output_resource: MarkingBuildResourceRef;
+  marking_id: string;
+  marking_name: string;
+  required_for: ResourceMarkingRequiredFor[];
+  permission: MarkingPermissionCheckResponse;
+}
+
+export interface MarkingBuildOutputDiff {
+  output_resource: MarkingBuildResourceRef;
+  before: EffectiveResourceMarking[];
+  after: EffectiveResourceMarking[];
+  added: MarkingDiffEntry[];
+  removed: MarkingDiffEntry[];
+  unchanged: MarkingDiffEntry[];
+}
+
+export interface PublishMarkingBuildResponse {
+  allowed: boolean;
+  applied: boolean;
+  dry_run: boolean;
+  build_id?: string;
+  transaction_id?: string;
+  output_diffs: MarkingBuildOutputDiff[];
+  blocked_removals?: MarkingBuildBlockedRemoval[];
+  checked_at: string;
+}
+
+export interface MarkingBuildEvent {
+  id: string;
+  tenant_id?: string | null;
+  build_id?: string;
+  transaction_id?: string;
+  output_resource_kind: string;
+  output_resource_id: string;
+  actor_id: string;
+  status: 'applied' | 'blocked' | 'dry_run';
+  reason?: string;
+  input_resources: MarkingBuildResourceRef[];
+  before_state: Record<string, unknown>;
+  after_state: Record<string, unknown>;
+  diff: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface CreateMarkingCategoryBody {
   slug: string;
   display_name: string;
@@ -320,4 +460,86 @@ export function removeResourceMarking(body: {
   reason?: string;
 }): Promise<ResourceMarkingMutationResponse> {
   return api.post<ResourceMarkingMutationResponse>('/resource-markings/remove', body);
+}
+
+export function listEffectiveResourceMarkings(
+  resourceKind: string,
+  resourceID: string,
+): Promise<EffectiveResourceMarkingsResponse> {
+  const qs = new URLSearchParams({ resource_kind: resourceKind, resource_id: resourceID });
+  return api.get<EffectiveResourceMarkingsResponse>(`/resource-markings/effective?${qs.toString()}`);
+}
+
+export function listResourceMarkingEdges(
+  resourceKind: string,
+  resourceID: string,
+  direction: 'all' | 'upstream' | 'downstream' = 'all',
+): Promise<{ items: ResourceMarkingEdge[] }> {
+  const qs = new URLSearchParams({ resource_kind: resourceKind, resource_id: resourceID, direction });
+  return api.get<{ items: ResourceMarkingEdge[] }>(`/resource-marking-edges?${qs.toString()}`);
+}
+
+export function upsertResourceMarkingEdge(body: {
+  source_resource_kind: string;
+  source_resource_id: string;
+  target_resource_kind: string;
+  target_resource_id: string;
+  relation_kind: ResourceMarkingRelationKind;
+  metadata?: Record<string, unknown>;
+}): Promise<ResourceMarkingEdge> {
+  return api.put<ResourceMarkingEdge>('/resource-marking-edges', body);
+}
+
+export function deleteResourceMarkingEdge(body: {
+  source_resource_kind: string;
+  source_resource_id: string;
+  target_resource_kind: string;
+  target_resource_id: string;
+  relation_kind: ResourceMarkingRelationKind;
+}): Promise<void> {
+  return api.fetch<void>('/resource-marking-edges', { method: 'DELETE', body });
+}
+
+export function checkResourceAccess(body: {
+  principal_id?: string;
+  group_ids?: string[];
+  resource_kind: string;
+  resource_id: string;
+  required_organization_id?: string;
+  user_organization_ids?: string[];
+  role_satisfied?: boolean;
+  role_label?: string;
+  role_detail?: string;
+}): Promise<ResourceAccessCheckResponse> {
+  return api.post<ResourceAccessCheckResponse>('/resource-access:check', body);
+}
+
+export function publishMarkingBuild(body: {
+  build_id?: string;
+  transaction_id?: string;
+  input_resources: MarkingBuildResourceRef[];
+  output_resources: MarkingBuildResourceRef[];
+  replace_existing_lineage_to_output: boolean;
+  dry_run?: boolean;
+  group_ids?: string[];
+  resource_update_markings_allowed: boolean;
+  expand_access_allowed?: boolean;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<PublishMarkingBuildResponse> {
+  return api.post<PublishMarkingBuildResponse>('/resource-marking-builds:publish', body);
+}
+
+export function listMarkingBuildEvents(params: {
+  build_id?: string;
+  transaction_id?: string;
+  resource_kind?: string;
+  resource_id?: string;
+}): Promise<{ items: MarkingBuildEvent[] }> {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) qs.set(key, value);
+  });
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return api.get<{ items: MarkingBuildEvent[] }>(`/resource-marking-build-events${suffix}`);
 }

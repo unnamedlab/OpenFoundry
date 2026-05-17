@@ -2,6 +2,7 @@
 // OpenFoundry service. Subpackages are organised by domain:
 //
 //   - ids        — typed UUID v7 identifiers
+//   - rid        — resource identifiers (`ri.<service>.<instance>.<type>.<locator>`)
 //   - errs       — shared error taxonomy
 //   - health     — /healthz response payload
 //   - pagination — cursor-based PageRequest / PageResponse

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/domain/security"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/repo"
 )
@@ -44,8 +45,13 @@ func authed(r *http.Request) bool {
 // ─── Audit ledger ──────────────────────────────────────────────────
 
 func (h *Handlers) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
-	if !authed(r) {
+	claims, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if !security.CanViewAuditLogs(claims) {
+		writeJSONErr(w, http.StatusForbidden, "audit log access requires audit-logs:view")
 		return
 	}
 	items, err := h.Repo.ListAuditEvents(r.Context(), parseLimit(r, 100))

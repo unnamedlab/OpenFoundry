@@ -6,28 +6,61 @@ export interface ListResponse<T> {
 
 export type ClassificationLevel = 'public' | 'confidential' | 'pii';
 export type AuditEventStatus = 'success' | 'failure' | 'denied';
+export type AuditOutcome = 'success' | 'error' | 'unauthorized';
 export type AuditSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type ComplianceStandard = 'soc2' | 'iso27001' | 'hipaa' | 'gdpr' | 'itar';
 
+export interface AuditEntity {
+	kind: string;
+	id?: string;
+	rid?: string;
+	name?: string;
+	attributes?: Record<string, unknown>;
+}
+
 export interface AuditEvent {
 	id: string;
+	event_id: string;
+	log_entry_id: string;
+	sequence_id?: string | null;
 	sequence: number;
 	previous_hash: string;
 	entry_hash: string;
 	source_service: string;
+	product: string;
+	product_version: string;
+	producer_type: string;
 	channel: string;
 	actor: string;
+	actor_id: string;
+	actor_type: string;
+	session_id?: string | null;
+	service_account_id?: string | null;
+	token_id?: string | null;
 	action: string;
+	categories: string[];
 	resource_type: string;
 	resource_id: string;
+	entities: AuditEntity[];
+	origins: string[];
+	origin?: string | null;
+	source_origin?: string | null;
+	trace_id?: string | null;
 	status: AuditEventStatus;
+	outcome: AuditOutcome | string;
 	severity: AuditSeverity;
 	classification: ClassificationLevel;
 	subject_id: string | null;
 	ip_address: string | null;
 	location: string | null;
 	metadata: Record<string, unknown>;
+	error_metadata: Record<string, unknown>;
+	request_fields: Record<string, unknown>;
+	result_fields: Record<string, unknown>;
 	labels: string[];
+	parent_event_id?: string | null;
+	initiator_type: string;
+	audit_access_tier: string;
 	retention_until: string;
 	occurred_at: string;
 	ingested_at: string;
@@ -88,6 +121,55 @@ export interface AuditPolicy {
 	updated_by: string;
 	created_at: string;
 	updated_at: string;
+}
+
+export type AuditDeliveryDestinationType = 'siem_api' | 'openfoundry_dataset';
+export type AuditDeliveryValidationStatus = 'pending' | 'valid' | 'invalid';
+export type AuditDeliveryBackfillStatus = 'idle' | 'running' | 'completed' | 'failed';
+
+export interface AuditDeliveryDestination {
+	id: string;
+	organization_id?: string | null;
+	name: string;
+	destination_type: AuditDeliveryDestinationType;
+	schema_version: string;
+	endpoint_url?: string | null;
+	dataset_rid?: string | null;
+	enabled: boolean;
+	validation_status: AuditDeliveryValidationStatus;
+	validation_message: string;
+	last_validated_at?: string | null;
+	last_backfill_status: AuditDeliveryBackfillStatus;
+	last_backfill_started_at?: string | null;
+	last_backfill_completed_at?: string | null;
+	metadata: Record<string, unknown>;
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface AuditDeliveryValidationResponse {
+	destination_id: string;
+	validation_status: AuditDeliveryValidationStatus;
+	message: string;
+	validated_at?: string | null;
+}
+
+export interface AuditDeliveryFile {
+	id: string;
+	destination_id: string;
+	organization_id?: string | null;
+	schema_version: string;
+	content_format: string;
+	start_time: string;
+	end_time: string;
+	event_count: number;
+	duplicate_count: number;
+	content_sha256: string;
+	content_bytes: number;
+	status: string;
+	error_message?: string;
+	created_at: string;
 }
 
 export interface ComplianceFinding {
@@ -226,12 +308,18 @@ export function listEvents(filters?: {
 	 * exactly.
 	 */
 	resource_id?: string;
+	category?: string;
+	trace_id?: string;
+	event_id?: string;
 }) {
 	const search = new URLSearchParams();
 	if (filters?.source_service) search.set('source_service', filters.source_service);
 	if (filters?.subject_id) search.set('subject_id', filters.subject_id);
 	if (filters?.classification) search.set('classification', filters.classification);
 	if (filters?.resource_id) search.set('resource_id', filters.resource_id);
+	if (filters?.category) search.set('category', filters.category);
+	if (filters?.trace_id) search.set('trace_id', filters.trace_id);
+	if (filters?.event_id) search.set('event_id', filters.event_id);
 	const query = search.toString();
 	return api.get<EventListResponse>(`/audit/events${query ? `?${query}` : ''}`);
 }
@@ -244,12 +332,23 @@ export function appendEvent(body: {
 	resource_type: string;
 	resource_id: string;
 	status: AuditEventStatus;
+	outcome?: AuditOutcome | string;
 	severity: AuditSeverity;
 	classification: ClassificationLevel;
+	categories?: string[];
+	entities?: AuditEntity[];
+	origins?: string[];
+	trace_id?: string | null;
+	session_id?: string | null;
+	service_account_id?: string | null;
+	token_id?: string | null;
 	subject_id?: string | null;
 	ip_address?: string | null;
 	location?: string | null;
 	metadata?: Record<string, unknown>;
+	error_metadata?: Record<string, unknown>;
+	request_fields?: Record<string, unknown>;
+	result_fields?: Record<string, unknown>;
 	labels?: string[];
 	retention_days?: number;
 }) {
@@ -303,6 +402,58 @@ export function updatePolicy(
 	}>,
 ) {
 	return api.patch<AuditPolicy>(`/audit/policies/${id}`, body);
+}
+
+export function listAuditDeliveryDestinations() {
+	return api.get<ListResponse<AuditDeliveryDestination>>('/audit/delivery/destinations');
+}
+
+export function createAuditDeliveryDestination(body: {
+	organization_id?: string;
+	name: string;
+	destination_type: AuditDeliveryDestinationType;
+	schema_version?: string;
+	endpoint_url?: string | null;
+	dataset_rid?: string | null;
+	enabled?: boolean;
+	metadata?: Record<string, unknown>;
+}) {
+	return api.post<AuditDeliveryDestination>('/audit/delivery/destinations', body);
+}
+
+export function validateAuditDeliveryDestination(id: string) {
+	return api.post<AuditDeliveryValidationResponse>(`/audit/delivery/destinations/${id}/validate`, {});
+}
+
+export function backfillAuditDeliveryDestination(
+	id: string,
+	body: {
+		start_time: string;
+		end_time: string;
+	},
+) {
+	return api.post<AuditDeliveryFile>(`/audit/delivery/destinations/${id}/backfill`, body);
+}
+
+export function listAuditDeliveryFiles(filters?: {
+	organization_id?: string;
+	start_time?: string;
+	end_time?: string;
+	schema_version?: string;
+}) {
+	const search = new URLSearchParams();
+	if (filters?.organization_id) search.set('organization_id', filters.organization_id);
+	if (filters?.start_time) search.set('start_time', filters.start_time);
+	if (filters?.end_time) search.set('end_time', filters.end_time);
+	if (filters?.schema_version) search.set('schema_version', filters.schema_version);
+	const query = search.toString();
+	return api.get<ListResponse<AuditDeliveryFile>>(`/audit/delivery/files${query ? `?${query}` : ''}`);
+}
+
+export function getAuditDeliveryFileContent(id: string) {
+	return api.text(`/audit/delivery/files/${id}/content`, {
+		headers: { Accept: 'application/x-ndjson' },
+	});
 }
 
 export function listGovernanceTemplates() {

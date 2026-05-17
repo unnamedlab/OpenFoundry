@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/libs/core-models/ids"
+	"github.com/openfoundry/openfoundry-go/libs/core-models/rid"
 )
 
 // ---------------------------------------------------------------------------
@@ -60,12 +61,12 @@ type DatasetRID string
 
 // NewDatasetRID mints a brand-new RID backed by a v7 UUID.
 func NewDatasetRID() DatasetRID {
-	return DatasetRIDFromUUID(ids.New())
+	return DatasetRID(rid.MustMintUUIDV7("foundry", rid.DefaultInstance, "dataset").String())
 }
 
 // DatasetRIDFromUUID builds the canonical "ri.foundry.main.dataset.<uuid>" form.
 func DatasetRIDFromUUID(id uuid.UUID) DatasetRID {
-	return DatasetRID(DatasetRIDPrefix + id.String())
+	return DatasetRID(rid.MustNewUUID("foundry", rid.DefaultInstance, "dataset", id).String())
 }
 
 // String returns the RID in its canonical form.
@@ -73,15 +74,18 @@ func (r DatasetRID) String() string { return string(r) }
 
 // UUID extracts the UUID suffix; returns false if the RID is malformed.
 func (r DatasetRID) UUID() (uuid.UUID, bool) {
-	tail, ok := strings.CutPrefix(string(r), DatasetRIDPrefix)
-	if !ok {
+	parsed, err := rid.ParseUUID(string(r))
+	if err != nil ||
+		parsed.Service != "foundry" ||
+		parsed.Instance != rid.DefaultInstance ||
+		parsed.ResourceType != "dataset" {
 		return uuid.UUID{}, false
 	}
-	parsed, err := uuid.Parse(tail)
+	id, err := uuid.Parse(parsed.Locator)
 	if err != nil {
 		return uuid.UUID{}, false
 	}
-	return parsed, true
+	return id, true
 }
 
 // ParseDatasetRID validates and returns a DatasetRID.

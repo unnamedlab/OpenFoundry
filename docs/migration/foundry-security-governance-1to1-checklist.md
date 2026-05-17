@@ -394,31 +394,59 @@ OpenFoundry canonical IDs.
     - Frontend client [`apps/web/src/lib/api/marking-categories.ts`](../../apps/web/src/lib/api/marking-categories.ts) and UI [`apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx) expose the permission check plus direct apply/remove workbench.
     - Out-of-scope follow-ups tracked under `SG.14`–`SG.15`: inherited markings, lineage propagation, cross-service resource role proofing, and build/output declassification guards.
 
-- [ ] `SG.14` Marking enforcement and inheritance (`P0`, `todo`)
+- [x] `SG.14` Marking enforcement and inheritance (`P0`, `done` 2026-05-17)
   - Require users to satisfy all applied markings plus organization and role requirements before reading or acting on a resource.
   - Inherit markings through project/folder hierarchy and data dependencies/lineage to derived resources.
   - Show marking source paths, direct versus inherited markings, and lineage-derived marking provenance.
   - Docs: [Markings](https://www.palantir.com/docs/foundry/security/markings/), [Checking permissions](https://www.palantir.com/docs/foundry/security/checking-permissions/).
+  - Implementation:
+    - Migration [`0012_sg14_marking_enforcement_inheritance.sql`](../../services/authorization-policy-service/internal/repo/migrations/0012_sg14_marking_enforcement_inheritance.sql) adds `resource_marking_edges` for `hierarchy` and `lineage` inheritance facts.
+    - [`Repo.EffectiveResourceMarkings`](../../services/authorization-policy-service/internal/repo/marking_enforcement.go) walks upstream inheritance paths from a target resource, folds in direct SG.13 markings, and returns source paths with `direct`, `hierarchy`, `lineage`, or `mixed` provenance.
+    - [`Repo.CheckResourceAccess`](../../services/authorization-policy-service/internal/repo/marking_enforcement.go) requires organization evidence, caller-supplied role evidence, and membership in every effective marking. Hierarchy/direct markings gate `resource_access`; lineage-derived markings gate `data_access`.
+    - API routes in [`authorization-policy-service/internal/server/server.go`](../../services/authorization-policy-service/internal/server/server.go): `GET /resource-markings/effective`, `GET/PUT/DELETE /resource-marking-edges`, and `POST /resource-access:check`.
+    - Frontend client [`apps/web/src/lib/api/marking-categories.ts`](../../apps/web/src/lib/api/marking-categories.ts) and UI [`apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx) expose inheritance edge management, effective marking provenance, and resource/data access checks.
+    - Out-of-scope follow-up tracked under `SG.15`: build/runtime services should emit lineage edges automatically and block output publishing/declassification at publish time.
 
-- [ ] `SG.15` Marking-aware builds and outputs (`P0`, `todo`)
+- [x] `SG.15` Marking-aware builds and outputs (`P0`, `done` 2026-05-17)
   - Propagate markings from datasets, media sets, code resources, object types, functions, and model artifacts into derived resources.
   - Block output publishing when marking removal is attempted without required permissions.
   - Provide transaction/security diff views showing marking changes between versions, branches, or builds where local versioning exists.
   - Docs: [Markings](https://www.palantir.com/docs/foundry/security/markings/), [Manage markings](https://www.palantir.com/docs/foundry/platform-security-management/manage-markings/).
+  - Implementation:
+    - Migration [`0013_sg15_marking_aware_build_outputs.sql`](../../services/authorization-policy-service/internal/repo/migrations/0013_sg15_marking_aware_build_outputs.sql) adds `resource_marking_build_events`, a build/transaction audit surface for output marking diffs.
+    - [`Repo.PublishMarkingBuild`](../../services/authorization-policy-service/internal/repo/marking_builds.go) accepts arbitrary input/output resource refs (`dataset`, `media_set`, `code_resource`, `object_type`, `function`, `model_artifact`, etc.), writes `lineage` inheritance edges to outputs, and computes before/after effective marking diffs.
+    - Publishing is blocked when replacing output lineage would remove an effective marking and the actor lacks the SG.13 removal rule: resource update-markings evidence plus `Remove marking` and either `Apply marking` or expand-access equivalent.
+    - API routes in [`authorization-policy-service/internal/server/server.go`](../../services/authorization-policy-service/internal/server/server.go): `POST /resource-marking-builds:publish` and `GET /resource-marking-build-events`.
+    - Frontend client [`apps/web/src/lib/api/marking-categories.ts`](../../apps/web/src/lib/api/marking-categories.ts) and UI [`apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx`](../../apps/web/src/routes/control-panel/MarkingCategoriesPage.tsx) expose dry-run/apply build publishing plus build/transaction diff history.
+    - Out-of-scope follow-up: individual build/runtime services should call this endpoint from their publish/commit paths; SG.15 now provides the shared authorization primitive and diff store.
 
 ### Audit and basic governance
 
-- [ ] `SG.16` Audit log event model (`P0`, `todo`)
+- [x] `SG.16` Audit log event model (`P0`, `done` 2026-05-17)
   - Capture actor, session/service account, action name, categories, timestamp, resource entities, origins, trace ID, event ID, outcome, and error metadata for security-relevant operations.
   - Treat audit logs as sensitive resources requiring separate access controls and retention policy.
   - Normalize service-initiated follow-up events and user-initiated request correlation.
   - Docs: [Audit logs overview](https://www.palantir.com/docs/foundry/security/audit-logs-overview), [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs).
+  - Implementation:
+    - Migration [`0007_sg16_audit_log_event_model.sql`](../../services/audit-compliance-service/internal/repo/migrations/0007_sg16_audit_log_event_model.sql) extends `audit_events` with `event_id`, `log_entry_id`, `sequence_id`, actor/session/service-account context, product/producer metadata, `categories`, `entities`, `origins`, `trace_id`, `outcome`, error/request/result fields, parent-event correlation, access tier, and indexes for trace/category/entity investigation.
+    - [`AppendAuditEventRequest`](../../services/audit-compliance-service/internal/models/audit_event.go) and [`AuditEvent`](../../services/audit-compliance-service/internal/models/models.go) expose the normalized event model while keeping the legacy hash-chain fields (`id`, `sequence`, `previous_hash`, `entry_hash`) intact.
+    - [`Repo.PersistAuditEvent`](../../services/audit-compliance-service/internal/repo/events.go) defaults missing audit.3-style fields from headers/body, derives user versus service initiation, preserves event/log-entry IDs when supplied, and stores JSON object/array fields with validation.
+    - Audit reads are now gated by a separate [`security.CanViewAuditLogs`](../../services/audit-compliance-service/internal/domain/security/security.go) check requiring `audit-logs:view`, `audit:read`, `audit:view`, `admin`, `auditor`, or `security-auditor` before classification/org/subject filters are applied.
+    - The migration seeds a system retention policy `AUDIT_LOG_SECURITY_RETENTION` for `audit_log` resources with legal-hold support, and the Audit UI/API now displays and filters categories and trace IDs.
 
-- [ ] `SG.17` Audit delivery basics (`P0`, `todo`)
+- [x] `SG.17` Audit delivery basics (`P0`, `done` 2026-05-17)
   - Deliver audit logs to an external SIEM API/export mechanism and optionally to governed OpenFoundry datasets for in-platform analysis.
   - Support date-range listing, content retrieval, schema versioning, duplicate detection, and per-organization export destinations.
   - Provide setup UI with validation, backfill status, and access controls.
   - Docs: [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs), [Audit log categories](https://www.palantir.com/docs/foundry/security/audit-log-categories).
+  - Implementation:
+    - Migration [`0008_sg17_audit_delivery_basics.sql`](../../services/audit-compliance-service/internal/repo/migrations/0008_sg17_audit_delivery_basics.sql) adds `audit_delivery_destinations` and `audit_delivery_files` for per-organization delivery setup, validation/backfill status, schema versioning, content checksums, and duplicate counts.
+    - [`repo/audit_delivery.go`](../../services/audit-compliance-service/internal/repo/audit_delivery.go) validates `siem_api` and `openfoundry_dataset` destinations, materializes date-range `audit.3` NDJSON snapshots, computes duplicate `log_entry_id` counts, and serves content retrieval metadata.
+    - API routes in [`server.go`](../../services/audit-compliance-service/internal/server/server.go) expose destination list/create/validate/backfill plus delivery-file list/content endpoints under `/api/v1/audit/delivery/*`.
+    - [`security.CanManageAuditDelivery`](../../services/audit-compliance-service/internal/domain/security/security.go) separates delivery setup/backfill permissions from ordinary audit-log read access.
+    - Frontend client [`apps/web/src/lib/api/audit.ts`](../../apps/web/src/lib/api/audit.ts) and [`AuditDeliveryPanel`](../../apps/web/src/lib/components/audit/AuditDeliveryPanel.tsx) add the setup UI with validation status, backfill status, date-range listing, and NDJSON preview in the Audit workspace.
+    - Documentation updated in [Audit and traceability](../security-governance/audit-and-traceability.md), [Audit model](../security-governance/audit-model/), and [Security overview](../security-governance/security-overview.md).
+    - Out-of-scope follow-up: a scheduled delivery worker and real external push/dataset-write adapters should consume this registry; SG.17 provides the secure registry, backfill, polling-style retrieval API, and UI.
 
 - [ ] `SG.18` Admin Control Panel shell (`P0`, `todo`)
   - Provide a centralized administration application for identity, users, groups, organizations, roles, markings, application access, egress, retention, email, audit, and third-party apps.

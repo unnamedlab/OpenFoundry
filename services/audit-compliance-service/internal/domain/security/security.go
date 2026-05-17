@@ -22,6 +22,9 @@ import (
 
 // FilterEventsForClaims mirrors `filter_events_for_claims`.
 func FilterEventsForClaims(events []models.AuditEvent, claims *authmw.Claims) []models.AuditEvent {
+	if !CanViewAuditLogs(claims) {
+		return nil
+	}
 	out := make([]models.AuditEvent, 0, len(events))
 	for i := range events {
 		if CanAccessEvent(&events[i], claims) {
@@ -34,6 +37,9 @@ func FilterEventsForClaims(events []models.AuditEvent, claims *authmw.Claims) []
 // CanAccessEvent mirrors `can_access_event` 1:1.
 func CanAccessEvent(event *models.AuditEvent, claims *authmw.Claims) bool {
 	if claims == nil {
+		return false
+	}
+	if !CanViewAuditLogs(claims) {
 		return false
 	}
 	if claims.HasRole("admin") {
@@ -63,6 +69,37 @@ func CanAccessEvent(event *models.AuditEvent, claims *authmw.Claims) bool {
 		return false
 	}
 	return event.Classification == string(models.ClassificationPublic)
+}
+
+// CanViewAuditLogs is the separate high-sensitivity gate for audit-log
+// resources. The per-event classification/org/subject filters still run
+// after this gate, but ordinary authenticated users do not get a generic
+// audit listing capability.
+func CanViewAuditLogs(claims *authmw.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	if claims.HasRole("admin") || claims.HasRole("security-auditor") || claims.HasRole("auditor") {
+		return true
+	}
+	return claims.HasPermission("audit-logs", "view") ||
+		claims.HasPermission("audit", "read") ||
+		claims.HasPermission("audit", "view")
+}
+
+// CanManageAuditDelivery gates SIEM/dataset export setup, validation, and
+// backfill operations. Reading delivered files still requires
+// CanViewAuditLogs plus the per-organization event checks.
+func CanManageAuditDelivery(claims *authmw.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	if claims.HasRole("admin") || claims.HasRole("security-auditor") {
+		return true
+	}
+	return claims.HasPermission("audit-logs", "manage") ||
+		claims.HasPermission("audit-delivery", "manage") ||
+		claims.HasPermission("audit", "write")
 }
 
 // CanAccessSubject mirrors `can_access_subject`.

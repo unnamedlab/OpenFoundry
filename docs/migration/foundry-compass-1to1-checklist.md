@@ -59,7 +59,9 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Concepts
 
-- [Resources, RIDs, and projects](https://www.palantir.com/docs/foundry/compass/resources)
+- [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/)
+- [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/)
+- [Resource Identifier specification](https://github.com/palantir/resource-identifier)
 - [Projects and folders](https://www.palantir.com/docs/foundry/compass/projects-folders)
 - [Search and catalog](https://www.palantir.com/docs/foundry/compass/search)
 - [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash)
@@ -75,11 +77,14 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Resource ID scheme
 
-- [ ] `CMP.1` RID format (`P0`, `todo`)
+- [x] `CMP.1` RID format (`P0`, `done`)
   - Format: `ri.<service-id>.<instance-id>.<type-id>.<uuid>` (e.g. `ri.dataset.main.dataset.b8e1...`).
   - RIDs are immutable for the lifetime of the resource (rename and move do not change the RID).
   - Documented as the canonical reference everywhere a resource is mentioned in URLs, API payloads, audit events, OSDK methods, and Marketplace bundles.
-  - Docs: [Resources, RIDs, and projects](https://www.palantir.com/docs/foundry/compass/resources).
+  - Implementation: `libs/core-models/rid` validates the public RID grammar, exposes UUID-locator parsing for platform-minted resources, mints UUIDv7-backed RIDs, and is used by the canonical dataset RID helper.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, and `docs/reference/foundry-compatibility-glossary.md` define RID as the cross-platform stable identifier and require `libs/core-models/rid` for new parsing/validation.
+  - Verification: `go test ./libs/core-models/...`.
+  - Docs: [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/), [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/), [Resource Identifier specification](https://github.com/palantir/resource-identifier).
 
 - [ ] `CMP.2` RID minting (`P0`, `todo`)
   - Central RID minter or per-service deterministic generator (UUIDv7 inside the `<uuid>` slot) with collision detection on insert into the registry.

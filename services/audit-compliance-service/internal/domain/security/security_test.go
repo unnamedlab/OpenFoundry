@@ -13,9 +13,10 @@ import (
 func claims(clearance string) *authmw.Claims {
 	attrs, _ := json.Marshal(map[string]string{"classification_clearance": clearance})
 	return &authmw.Claims{
-		Sub:        uuid.Nil,
-		Roles:      []string{"viewer"},
-		Attributes: attrs,
+		Sub:         uuid.Nil,
+		Roles:       []string{"viewer"},
+		Permissions: []string{"audit-logs:view"},
+		Attributes:  attrs,
 	}
 }
 
@@ -66,6 +67,36 @@ func TestNoClaimsRejected(t *testing.T) {
 	t.Parallel()
 	if CanAccessEvent(event(models.ClassificationPublic), nil) {
 		t.Fatal("nil claims must be rejected")
+	}
+}
+
+func TestAuditLogAccessRequiresDedicatedPermission(t *testing.T) {
+	t.Parallel()
+	c := &authmw.Claims{Sub: uuid.Nil, Roles: []string{"viewer"}}
+	if CanViewAuditLogs(c) {
+		t.Fatal("ordinary viewer must not get audit log access")
+	}
+	c.Permissions = []string{"audit-logs:view"}
+	if !CanViewAuditLogs(c) {
+		t.Fatal("audit-logs:view should grant audit log access")
+	}
+	if !CanViewAuditLogs(&authmw.Claims{Sub: uuid.Nil, Roles: []string{"security-auditor"}}) {
+		t.Fatal("security-auditor role should grant audit log access")
+	}
+}
+
+func TestAuditDeliveryManagementRequiresDedicatedPermission(t *testing.T) {
+	t.Parallel()
+	c := &authmw.Claims{Sub: uuid.Nil, Roles: []string{"viewer"}, Permissions: []string{"audit-logs:view"}}
+	if CanManageAuditDelivery(c) {
+		t.Fatal("audit log viewers must not manage delivery destinations")
+	}
+	c.Permissions = append(c.Permissions, "audit-delivery:manage")
+	if !CanManageAuditDelivery(c) {
+		t.Fatal("audit-delivery:manage should grant delivery management")
+	}
+	if !CanManageAuditDelivery(&authmw.Claims{Sub: uuid.Nil, Roles: []string{"security-auditor"}}) {
+		t.Fatal("security-auditor role should manage delivery destinations")
 	}
 }
 

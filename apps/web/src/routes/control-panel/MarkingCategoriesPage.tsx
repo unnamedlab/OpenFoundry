@@ -8,21 +8,30 @@ import {
   blockDeleteMarking,
   blockDeleteMarkingCategory,
   blockMoveMarkingCategory,
+  checkResourceAccess,
   checkMarkingPermission,
   createMarking,
   createMarkingCategory,
+  deleteResourceMarkingEdge,
   deleteMarkingPermission,
   deleteMarkingCategoryPermission,
+  listEffectiveResourceMarkings,
   listMarkingAuditEvents,
   listMarkingCategories,
   listMarkingCategoryAuditEvents,
   listMarkingsForCategory,
+  listMarkingBuildEvents,
+  listResourceMarkingEdges,
   listResourceMarkings,
+  publishMarkingBuild,
   removeResourceMarking,
   updateMarking,
   updateMarkingCategory,
+  upsertResourceMarkingEdge,
   upsertMarkingPermission,
   upsertMarkingCategoryPermission,
+  type EffectiveResourceMarking,
+  type MarkingBuildEvent,
   type MarkingAuditEvent,
   type MarkingCategoryAuditEvent,
   type MarkingCategoryPermissionName,
@@ -33,6 +42,10 @@ import {
   type MarkingPermissionCheckResponse,
   type MarkingPermissionName,
   type MarkingResponse,
+  type ResourceAccessCheckResponse,
+  type PublishMarkingBuildResponse,
+  type ResourceMarkingEdge,
+  type ResourceMarkingRelationKind,
   type ResourceMarking,
 } from '@/lib/api/marking-categories';
 
@@ -40,6 +53,7 @@ const PRINCIPAL_KINDS: MarkingCategoryPrincipalKind[] = ['user', 'group'];
 const PERMISSIONS: MarkingCategoryPermissionName[] = ['administrator', 'viewer'];
 const MARKING_PERMISSIONS: MarkingPermissionName[] = ['administrator', 'remover', 'applier', 'member'];
 const VISIBILITIES: MarkingCategoryVisibility[] = ['visible', 'hidden'];
+const RELATION_KINDS: ResourceMarkingRelationKind[] = ['hierarchy', 'lineage'];
 
 export function MarkingCategoriesPage() {
   const [items, setItems] = useState<MarkingCategoryResponse[]>([]);
@@ -108,6 +122,7 @@ export function MarkingCategoriesPage() {
       </section>
 
       <CreateCategoryForm onCreated={() => void refresh()} onError={setError} />
+      <BuildOutputWorkbench onError={setError} />
 
       <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
         <h2 className="of-heading-lg" style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
@@ -128,6 +143,150 @@ export function MarkingCategoriesPage() {
           ))
         )}
       </section>
+    </section>
+  );
+}
+
+function BuildOutputWorkbench({ onError }: { onError: (msg: string) => void }) {
+  const [buildID, setBuildID] = useState('');
+  const [transactionID, setTransactionID] = useState('');
+  const [inputResources, setInputResources] = useState('dataset:ri.input');
+  const [outputResources, setOutputResources] = useState('dataset:ri.output');
+  const [groupIDs, setGroupIDs] = useState('');
+  const [replaceLineage, setReplaceLineage] = useState(true);
+  const [dryRun, setDryRun] = useState(true);
+  const [resourceUpdateAllowed, setResourceUpdateAllowed] = useState(false);
+  const [expandAccessAllowed, setExpandAccessAllowed] = useState(false);
+  const [result, setResult] = useState<PublishMarkingBuildResponse | null>(null);
+  const [events, setEvents] = useState<MarkingBuildEvent[] | null>(null);
+
+  async function publish() {
+    let inputs;
+    let outputs;
+    try {
+      inputs = parseResourceRefs(inputResources);
+      outputs = parseResourceRefs(outputResources);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'resource refs must use kind:id lines');
+      return;
+    }
+    try {
+      const resp = await publishMarkingBuild({
+        build_id: buildID.trim() || undefined,
+        transaction_id: transactionID.trim() || undefined,
+        input_resources: inputs,
+        output_resources: outputs,
+        replace_existing_lineage_to_output: replaceLineage,
+        dry_run: dryRun,
+        group_ids: idList(groupIDs),
+        resource_update_markings_allowed: resourceUpdateAllowed,
+        expand_access_allowed: expandAccessAllowed,
+        reason: 'control-panel-build-output',
+      });
+      setResult(resp);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to publish marking-aware build output');
+    }
+  }
+
+  async function loadEvents() {
+    try {
+      const refs = parseResourceRefs(outputResources);
+      const first = refs[0];
+      const resp = await listMarkingBuildEvents({
+        build_id: buildID.trim() || undefined,
+        transaction_id: transactionID.trim() || undefined,
+        resource_kind: first?.resource_kind,
+        resource_id: first?.resource_id,
+      });
+      setEvents(resp.items);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to load build marking events');
+    }
+  }
+
+  return (
+    <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 10 }}>
+      <h2 className="of-heading-lg" style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+        Build output markings
+      </h2>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+        <label style={{ fontSize: 11 }}>
+          Build ID
+          <input className="of-input" value={buildID} onChange={(event) => setBuildID(event.target.value)} style={{ marginTop: 4 }} />
+        </label>
+        <label style={{ fontSize: 11 }}>
+          Transaction ID
+          <input className="of-input" value={transactionID} onChange={(event) => setTransactionID(event.target.value)} style={{ marginTop: 4 }} />
+        </label>
+        <label style={{ fontSize: 11 }}>
+          Group IDs
+          <input className="of-input" value={groupIDs} onChange={(event) => setGroupIDs(event.target.value)} style={{ marginTop: 4 }} />
+        </label>
+      </div>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <label style={{ fontSize: 11 }}>
+          Input resources
+          <textarea className="of-input" value={inputResources} onChange={(event) => setInputResources(event.target.value)} style={{ marginTop: 4, minHeight: 64, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+        </label>
+        <label style={{ fontSize: 11 }}>
+          Output resources
+          <textarea className="of-input" value={outputResources} onChange={(event) => setOutputResources(event.target.value)} style={{ marginTop: 4, minHeight: 64, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11 }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={replaceLineage} onChange={(event) => setReplaceLineage(event.target.checked)} />
+          Replace output lineage
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} />
+          Dry run
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={resourceUpdateAllowed} onChange={(event) => setResourceUpdateAllowed(event.target.checked)} />
+          Resource update-markings role
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={expandAccessAllowed} onChange={(event) => setExpandAccessAllowed(event.target.checked)} />
+          Expand-access equivalent
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button className="of-button" onClick={() => void publish()}>
+          Publish/plan markings
+        </button>
+        <button className="of-button of-button--ghost" onClick={() => void loadEvents()}>
+          Load build diffs
+        </button>
+      </div>
+      {result && (
+        <div style={{ fontSize: 11, display: 'grid', gap: 4 }}>
+          <div>
+            allowed {String(result.allowed)} · applied {String(result.applied)} · dry run {String(result.dry_run)}
+          </div>
+          {result.output_diffs.map((diff) => (
+            <div key={`${diff.output_resource.resource_kind}:${diff.output_resource.resource_id}`}>
+              {diff.output_resource.resource_kind} <code>{diff.output_resource.resource_id}</code> · +{diff.added.length} -{diff.removed.length} ={diff.unchanged.length}
+            </div>
+          ))}
+          {(result.blocked_removals ?? []).map((item) => (
+            <div key={`${item.output_resource.resource_id}:${item.marking_id}`} className="of-status-danger" style={{ padding: 8, borderRadius: 8 }}>
+              blocked removal {item.marking_name || item.marking_id}: {item.permission.reasons.join(', ')}
+            </div>
+          ))}
+        </div>
+      )}
+      {events && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4, fontSize: 11 }}>
+          {events.length === 0 && <li className="of-text-muted">No build marking diffs match this filter.</li>}
+          {events.slice(0, 8).map((event) => (
+            <li key={event.id}>
+              {event.status} · {event.output_resource_kind} <code>{event.output_resource_id}</code> · {new Date(event.created_at).toLocaleString()}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -642,6 +801,15 @@ function MarkingCard({
   const [expandAccessAllowed, setExpandAccessAllowed] = useState(false);
   const [permissionCheck, setPermissionCheck] = useState<MarkingPermissionCheckResponse | null>(null);
   const [resourceMarkings, setResourceMarkings] = useState<ResourceMarking[] | null>(null);
+  const [edgeSourceKind, setEdgeSourceKind] = useState('dataset');
+  const [edgeSourceID, setEdgeSourceID] = useState('');
+  const [edgeRelationKind, setEdgeRelationKind] = useState<ResourceMarkingRelationKind>('lineage');
+  const [resourceEdges, setResourceEdges] = useState<ResourceMarkingEdge[] | null>(null);
+  const [effectiveMarkings, setEffectiveMarkings] = useState<EffectiveResourceMarking[] | null>(null);
+  const [requiredOrgID, setRequiredOrgID] = useState('');
+  const [userOrgIDs, setUserOrgIDs] = useState('');
+  const [roleSatisfied, setRoleSatisfied] = useState(true);
+  const [accessCheck, setAccessCheck] = useState<ResourceAccessCheckResponse | null>(null);
 
   async function save() {
     let parsedMetadata: Record<string, unknown>;
@@ -791,6 +959,95 @@ function MarkingCard({
       await loadResourceMarkings();
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : 'Failed to remove marking');
+    }
+  }
+
+  async function loadEffectiveMarkings() {
+    if (!resourceKind.trim() || !resourceID.trim()) {
+      onError('resource kind and resource id are required');
+      return;
+    }
+    try {
+      const resp = await listEffectiveResourceMarkings(resourceKind.trim(), resourceID.trim());
+      setEffectiveMarkings(resp.items);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to load effective markings');
+    }
+  }
+
+  async function loadResourceEdges() {
+    if (!resourceKind.trim() || !resourceID.trim()) {
+      onError('resource kind and resource id are required');
+      return;
+    }
+    try {
+      const resp = await listResourceMarkingEdges(resourceKind.trim(), resourceID.trim(), 'all');
+      setResourceEdges(resp.items);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to load marking inheritance edges');
+    }
+  }
+
+  async function saveResourceEdge() {
+    if (!edgeSourceKind.trim() || !edgeSourceID.trim() || !resourceKind.trim() || !resourceID.trim()) {
+      onError('source and target resource fields are required');
+      return;
+    }
+    try {
+      await upsertResourceMarkingEdge({
+        source_resource_kind: edgeSourceKind.trim(),
+        source_resource_id: edgeSourceID.trim(),
+        target_resource_kind: resourceKind.trim(),
+        target_resource_id: resourceID.trim(),
+        relation_kind: edgeRelationKind,
+      });
+      await loadResourceEdges();
+      await loadEffectiveMarkings();
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to save marking inheritance edge');
+    }
+  }
+
+  async function removeResourceEdge() {
+    if (!edgeSourceKind.trim() || !edgeSourceID.trim() || !resourceKind.trim() || !resourceID.trim()) {
+      onError('source and target resource fields are required');
+      return;
+    }
+    try {
+      await deleteResourceMarkingEdge({
+        source_resource_kind: edgeSourceKind.trim(),
+        source_resource_id: edgeSourceID.trim(),
+        target_resource_kind: resourceKind.trim(),
+        target_resource_id: resourceID.trim(),
+        relation_kind: edgeRelationKind,
+      });
+      await loadResourceEdges();
+      await loadEffectiveMarkings();
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to remove marking inheritance edge');
+    }
+  }
+
+  async function runResourceAccessCheck() {
+    if (!resourceKind.trim() || !resourceID.trim()) {
+      onError('resource kind and resource id are required');
+      return;
+    }
+    try {
+      const resp = await checkResourceAccess({
+        principal_id: checkPrincipalID.trim() || undefined,
+        group_ids: idList(checkGroupIDs),
+        resource_kind: resourceKind.trim(),
+        resource_id: resourceID.trim(),
+        required_organization_id: requiredOrgID.trim() || undefined,
+        user_organization_ids: idList(userOrgIDs),
+        role_satisfied: roleSatisfied,
+        role_label: 'Caller-supplied project/folder role',
+      });
+      setAccessCheck(resp);
+      setEffectiveMarkings(resp.effective_markings);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to check resource access');
     }
   }
 
@@ -980,6 +1237,98 @@ function MarkingCard({
             ))}
           </ul>
         )}
+        <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          <label style={{ fontSize: 11 }}>
+            Inherits from kind
+            <input className="of-input" value={edgeSourceKind} onChange={(event) => setEdgeSourceKind(event.target.value)} style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 11 }}>
+            Inherits from ID
+            <input className="of-input" value={edgeSourceID} onChange={(event) => setEdgeSourceID(event.target.value)} style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 11 }}>
+            Relation
+            <select
+              className="of-input"
+              value={edgeRelationKind}
+              onChange={(event) => setEdgeRelationKind(event.target.value as ResourceMarkingRelationKind)}
+              style={{ marginTop: 4 }}
+            >
+              {RELATION_KINDS.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button className="of-button of-button--ghost" onClick={() => void saveResourceEdge()}>
+            Save inheritance edge
+          </button>
+          <button className="of-button of-button--ghost" onClick={() => void removeResourceEdge()}>
+            Remove inheritance edge
+          </button>
+          <button className="of-button of-button--ghost" onClick={() => void loadResourceEdges()}>
+            Load edges
+          </button>
+          <button className="of-button of-button--ghost" onClick={() => void loadEffectiveMarkings()}>
+            Effective markings
+          </button>
+        </div>
+        {resourceEdges && (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4, fontSize: 11 }}>
+            {resourceEdges.length === 0 && <li className="of-text-muted">No inheritance edges for this resource.</li>}
+            {resourceEdges.map((entry) => (
+              <li key={entry.id}>
+                {entry.source_resource_kind} <code>{entry.source_resource_id}</code> -&gt; {entry.target_resource_kind} <code>{entry.target_resource_id}</code> · {entry.relation_kind}
+              </li>
+            ))}
+          </ul>
+        )}
+        {effectiveMarkings && (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4, fontSize: 11 }}>
+            {effectiveMarkings.length === 0 && <li className="of-text-muted">No effective markings on this resource.</li>}
+            {effectiveMarkings.map((entry) => (
+              <li key={entry.marking_id}>
+                {entry.marking_name} · {entry.required_for.join(', ')} · {entry.sources.map((source) => `${source.source_kind}:${source.required_for}`).join(', ')}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          <label style={{ fontSize: 11 }}>
+            Required organization ID
+            <input className="of-input" value={requiredOrgID} onChange={(event) => setRequiredOrgID(event.target.value)} style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 11 }}>
+            User organization IDs
+            <input className="of-input" value={userOrgIDs} onChange={(event) => setUserOrgIDs(event.target.value)} style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 20 }}>
+            <input
+              type="checkbox"
+              checked={roleSatisfied}
+              onChange={(event) => setRoleSatisfied(event.target.checked)}
+            />
+            Role requirement satisfied
+          </label>
+        </div>
+        <div>
+          <button className="of-button" onClick={() => void runResourceAccessCheck()}>
+            Check resource access
+          </button>
+        </div>
+        {accessCheck && (
+          <div style={{ fontSize: 11, display: 'grid', gap: 4 }}>
+            <div>
+              resource access {String(accessCheck.resource_access_allowed)} · data access {String(accessCheck.data_access_allowed)}
+            </div>
+            {[...accessCheck.access_requirements, ...accessCheck.additional_data_requirements].map((req) => (
+              <div key={`${req.kind}:${req.label}`}>
+                {req.label}: {req.status}{req.missing?.length ? ` · missing ${req.missing.join(', ')}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       {auditEvents && <AuditEventList events={auditEvents} />}
     </article>
@@ -1024,6 +1373,28 @@ function idList(raw: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseResourceRefs(raw: string) {
+  const refs = raw
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const [resourceKind, ...rest] = item.split(':');
+      const resourceID = rest.join(':').trim();
+      if (!resourceKind.trim() || !resourceID) {
+        throw new Error('resource refs must use kind:id');
+      }
+      return {
+        resource_kind: resourceKind.trim(),
+        resource_id: resourceID,
+      };
+    });
+  if (refs.length === 0) {
+    throw new Error('at least one resource ref is required');
+  }
+  return refs;
 }
 
 function parseMetadata(raw: string): Record<string, unknown> {

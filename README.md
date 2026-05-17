@@ -199,6 +199,7 @@ Some contracts are pinned by golden tests and must not change without an explici
 
 - `/healthz` payload shape (`status`, `service`, `version`, `timestamp`).
 - JWT claim names and JSON tags.
+- Resource RID format: `ri.<service>.<instance>.<type>.<uuid>` for platform-minted resources; `libs/core-models/rid` owns parsing and validation.
 - Dataset RID format: `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state/type tokens: `open|committed|aborted` and `snapshot|append|update|delete`.
 - Marking source and schema field type discriminators.
@@ -217,4 +218,3 @@ Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the PR p
 ## License
 
 OpenFoundry is licensed under **AGPL-3.0-only**. See [`LICENSE`](LICENSE).
-

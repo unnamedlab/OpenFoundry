@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { AuditLogViewer, type EventDraft, type EventFilterDraft } from '@/lib/components/audit/AuditLogViewer';
+import { AuditDeliveryPanel, type AuditDeliveryDraft } from '@/lib/components/audit/AuditDeliveryPanel';
 import { AuditTimeline } from '@/lib/components/audit/AuditTimeline';
 import { ComplianceDashboard } from '@/lib/components/audit/ComplianceDashboard';
 import { ExportWizard, type GdprDraft, type ReportDraft } from '@/lib/components/audit/ExportWizard';
@@ -9,12 +10,17 @@ import { PolicyManager, type PolicyDraft } from '@/lib/components/audit/PolicyMa
 import {
   appendEvent,
   applyGovernanceTemplate,
+  backfillAuditDeliveryDestination,
+  createAuditDeliveryDestination,
   createPolicy,
   eraseSubjectData,
   exportSubjectData,
   generateReport,
+  getAuditDeliveryFileContent,
   getCompliancePosture,
   getOverview,
+  listAuditDeliveryDestinations,
+  listAuditDeliveryFiles,
   listAnomalies,
   listClassifications,
   listCollectors,
@@ -25,7 +31,10 @@ import {
   listReports,
   scanSensitiveData,
   updatePolicy,
+  validateAuditDeliveryDestination,
   type AnomalyAlert,
+  type AuditDeliveryDestination,
+  type AuditDeliveryFile,
   type AuditEvent,
   type AuditOverview,
   type AuditPolicy,
@@ -47,7 +56,7 @@ function toLocalDateTime(date: Date) {
 }
 
 function emptyFilters(): EventFilterDraft {
-  return { source_service: '', subject_id: '', classification: '' };
+  return { source_service: '', subject_id: '', classification: '', category: '', trace_id: '' };
 }
 
 function emptyEventDraft(): EventDraft {
@@ -64,8 +73,12 @@ function emptyEventDraft(): EventDraft {
     subject_id: 'subject-demo-3',
     ip_address: '10.0.0.14',
     location: 'Madrid',
+    categories_text: 'apiGatewayRequest, dataLoad',
+    origins_text: '10.0.0.14',
+    trace_id: 'trace-demo-0001',
     labels_text: 'manual-probe, phase4',
     metadata_text: JSON.stringify({ method: 'GET', route: '/api/v1/apps', origin: 'audit-console' }, null, 2),
+    error_metadata_text: JSON.stringify({}, null, 2),
     retention_days: '365',
   };
 }
@@ -114,6 +127,22 @@ function emptyGovernanceTemplateDraft(): GovernanceTemplateDraft {
   };
 }
 
+function emptyAuditDeliveryDraft(): AuditDeliveryDraft {
+  const now = new Date();
+  const start = new Date(now.getTime() - 1000 * 60 * 60 * 24);
+  return {
+    name: 'Security SIEM export',
+    destination_type: 'siem_api',
+    organization_id: '',
+    endpoint_url: 'https://siem.example.invalid/audit',
+    dataset_rid: '',
+    schema_version: 'audit.3',
+    metadata_text: JSON.stringify({ owner: 'security-operations' }, null, 2),
+    start_time: toLocalDateTime(start),
+    end_time: toLocalDateTime(now),
+  };
+}
+
 function parseCsv(value: string) {
   return value
     .split(',')
@@ -148,6 +177,28 @@ function policyToDraft(policy: AuditPolicy): PolicyDraft {
   };
 }
 
+function deliveryDestinationToDraft(destination: AuditDeliveryDestination, current: AuditDeliveryDraft): AuditDeliveryDraft {
+  return {
+    name: destination.name,
+    destination_type: destination.destination_type,
+    organization_id: destination.organization_id ?? '',
+    endpoint_url: destination.endpoint_url ?? '',
+    dataset_rid: destination.dataset_rid ?? '',
+    schema_version: destination.schema_version,
+    metadata_text: JSON.stringify(destination.metadata ?? {}, null, 2),
+    start_time: current.start_time,
+    end_time: current.end_time,
+  };
+}
+
+function localDateTimeToIso(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Invalid date range');
+  }
+  return date.toISOString();
+}
+
 export function AuditPage() {
   const [overview, setOverview] = useState<AuditOverview | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -159,11 +210,15 @@ export function AuditPage() {
   const [governanceTemplates, setGovernanceTemplates] = useState<GovernanceTemplate[]>([]);
   const [governanceApplications, setGovernanceApplications] = useState<GovernanceTemplateApplication[]>([]);
   const [compliancePosture, setCompliancePosture] = useState<CompliancePostureOverview | null>(null);
+  const [deliveryDestinations, setDeliveryDestinations] = useState<AuditDeliveryDestination[]>([]);
+  const [deliveryFiles, setDeliveryFiles] = useState<AuditDeliveryFile[]>([]);
+  const [deliveryContentPreview, setDeliveryContentPreview] = useState('');
   const [exportPayload, setExportPayload] = useState<GdprExportPayload | null>(null);
   const [eraseResponse, setEraseResponse] = useState<GdprEraseResponse | null>(null);
   const [scanResult, setScanResult] = useState<SensitiveDataScanResponse | null>(null);
 
   const [selectedPolicyId, setSelectedPolicyId] = useState('');
+  const [selectedDeliveryDestinationId, setSelectedDeliveryDestinationId] = useState('');
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState('');
   const [uiError, setUiError] = useState('');
@@ -174,6 +229,7 @@ export function AuditPage() {
   const [reportDraft, setReportDraft] = useState<ReportDraft>(emptyReportDraft);
   const [gdprDraft, setGdprDraft] = useState<GdprDraft>(emptyGdprDraft);
   const [governanceTemplateDraft, setGovernanceTemplateDraft] = useState<GovernanceTemplateDraft>(emptyGovernanceTemplateDraft);
+  const [auditDeliveryDraft, setAuditDeliveryDraft] = useState<AuditDeliveryDraft>(emptyAuditDeliveryDraft);
 
   const busy = loading || busyAction.length > 0;
 
@@ -192,6 +248,8 @@ export function AuditPage() {
         governanceTemplateResponse,
         governanceApplicationResponse,
         compliancePostureResponse,
+        deliveryDestinationsResponse,
+        deliveryFilesResponse,
       ] = await Promise.all([
         getOverview(),
         listEvents(currentFilters),
@@ -203,6 +261,8 @@ export function AuditPage() {
         listGovernanceTemplates(),
         listGovernanceApplications(),
         getCompliancePosture(),
+        listAuditDeliveryDestinations(),
+        listAuditDeliveryFiles({ schema_version: 'audit.3' }),
       ]);
 
       setOverview(overviewResponse);
@@ -215,10 +275,15 @@ export function AuditPage() {
       setGovernanceTemplates(governanceTemplateResponse);
       setGovernanceApplications(governanceApplicationResponse.items);
       setCompliancePosture(compliancePostureResponse);
+      setDeliveryDestinations(deliveryDestinationsResponse.items);
+      setDeliveryFiles(deliveryFilesResponse.items);
 
       if (selectedPolicyId) {
         const selected = policiesResponse.items.find((policy) => policy.id === selectedPolicyId);
         if (selected) setPolicyDraft(policyToDraft(selected));
+      }
+      if (selectedDeliveryDestinationId && !deliveryDestinationsResponse.items.some((item) => item.id === selectedDeliveryDestinationId)) {
+        setSelectedDeliveryDestinationId('');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load audit surfaces';
@@ -262,10 +327,14 @@ export function AuditPage() {
         status: eventDraft.status,
         severity: eventDraft.severity,
         classification: eventDraft.classification,
+        categories: parseCsv(eventDraft.categories_text),
+        origins: parseCsv(eventDraft.origins_text),
+        trace_id: eventDraft.trace_id || null,
         subject_id: eventDraft.subject_id || null,
         ip_address: eventDraft.ip_address || null,
         location: eventDraft.location || null,
         metadata: parseJson<Record<string, unknown>>(eventDraft.metadata_text),
+        error_metadata: parseJson<Record<string, unknown>>(eventDraft.error_metadata_text),
         labels: parseCsv(eventDraft.labels_text),
         retention_days: Number(eventDraft.retention_days),
       });
@@ -284,6 +353,13 @@ export function AuditPage() {
     setSelectedPolicyId(policyId);
     const policy = policies.find((entry) => entry.id === policyId);
     setPolicyDraft(policy ? policyToDraft(policy) : emptyPolicyDraft());
+  }
+
+  function selectDeliveryDestination(destinationId: string) {
+    setSelectedDeliveryDestinationId(destinationId);
+    const destination = deliveryDestinations.find((entry) => entry.id === destinationId);
+    setAuditDeliveryDraft(destination ? deliveryDestinationToDraft(destination, auditDeliveryDraft) : emptyAuditDeliveryDraft());
+    setDeliveryContentPreview('');
   }
 
   async function savePolicy() {
@@ -409,6 +485,106 @@ export function AuditPage() {
     }
   }
 
+  async function createDeliveryDestinationAction() {
+    setBusyAction('audit-delivery-create');
+    try {
+      const destination = await createAuditDeliveryDestination({
+        name: auditDeliveryDraft.name,
+        destination_type: auditDeliveryDraft.destination_type,
+        organization_id: auditDeliveryDraft.organization_id || undefined,
+        endpoint_url: auditDeliveryDraft.endpoint_url || null,
+        dataset_rid: auditDeliveryDraft.dataset_rid || null,
+        schema_version: auditDeliveryDraft.schema_version || 'audit.3',
+        enabled: true,
+        metadata: parseJson<Record<string, unknown>>(auditDeliveryDraft.metadata_text || '{}'),
+      });
+      setSelectedDeliveryDestinationId(destination.id);
+      setAuditDeliveryDraft(deliveryDestinationToDraft(destination, auditDeliveryDraft));
+      await refreshAll();
+      notifications.success(`Created audit delivery destination ${destination.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create audit delivery destination';
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function validateDeliveryDestinationAction() {
+    if (!selectedDeliveryDestinationId) return;
+    setBusyAction('audit-delivery-validate');
+    try {
+      const result = await validateAuditDeliveryDestination(selectedDeliveryDestinationId);
+      await refreshAll();
+      notifications.success(`Destination validation ${result.validation_status}: ${result.message}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to validate audit delivery destination';
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function backfillDeliveryDestinationAction() {
+    if (!selectedDeliveryDestinationId) return;
+    setBusyAction('audit-delivery-backfill');
+    try {
+      const file = await backfillAuditDeliveryDestination(selectedDeliveryDestinationId, {
+        start_time: localDateTimeToIso(auditDeliveryDraft.start_time),
+        end_time: localDateTimeToIso(auditDeliveryDraft.end_time),
+      });
+      const files = await listAuditDeliveryFiles({
+        organization_id: auditDeliveryDraft.organization_id || undefined,
+        schema_version: auditDeliveryDraft.schema_version || 'audit.3',
+      });
+      setDeliveryFiles(files.items);
+      await refreshAll();
+      notifications.success(`Backfilled ${file.event_count} audit events`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to backfill audit delivery destination';
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function loadDeliveryFilesAction() {
+    setBusyAction('audit-delivery-files');
+    try {
+      const response = await listAuditDeliveryFiles({
+        organization_id: auditDeliveryDraft.organization_id || undefined,
+        start_time: auditDeliveryDraft.start_time ? localDateTimeToIso(auditDeliveryDraft.start_time) : undefined,
+        end_time: auditDeliveryDraft.end_time ? localDateTimeToIso(auditDeliveryDraft.end_time) : undefined,
+        schema_version: auditDeliveryDraft.schema_version || 'audit.3',
+      });
+      setDeliveryFiles(response.items);
+      notifications.success(`Loaded ${response.items.length} delivery files`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load audit delivery files';
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function previewDeliveryFileAction(fileId: string) {
+    setBusyAction(`audit-delivery-preview-${fileId}`);
+    try {
+      const content = await getAuditDeliveryFileContent(fileId);
+      setDeliveryContentPreview(content.length > 12000 ? `${content.slice(0, 12000)}\n...` : content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to preview audit delivery file';
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
   return (
     <section className="of-page" style={{ display: 'grid', gap: 16 }}>
       <section
@@ -460,6 +636,22 @@ export function AuditPage() {
         onDraftChange={(patch) => setGovernanceTemplateDraft((current) => ({ ...current, ...patch }))}
         onApplyTemplate={(slug) => void applyGovernanceTemplateAction(slug)}
         onScan={() => void runSensitiveDataScanAction()}
+      />
+
+      <AuditDeliveryPanel
+        destinations={deliveryDestinations}
+        files={deliveryFiles}
+        selectedDestinationId={selectedDeliveryDestinationId}
+        draft={auditDeliveryDraft}
+        contentPreview={deliveryContentPreview}
+        busy={busy}
+        onDestinationChange={selectDeliveryDestination}
+        onDraftChange={(patch) => setAuditDeliveryDraft((current) => ({ ...current, ...patch }))}
+        onCreateDestination={() => void createDeliveryDestinationAction()}
+        onValidateDestination={() => void validateDeliveryDestinationAction()}
+        onBackfillDestination={() => void backfillDeliveryDestinationAction()}
+        onLoadFiles={() => void loadDeliveryFilesAction()}
+        onPreviewFile={(id) => void previewDeliveryFileAction(id)}
       />
 
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1.05fr) minmax(0, 0.95fr)' }}>

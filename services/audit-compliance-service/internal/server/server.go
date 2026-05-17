@@ -27,10 +27,10 @@ import (
 // Subsystems bundles the per-subsystem handler sets so server.New
 // stays tidy as the surface grows.
 type Subsystems struct {
-	Audit            *handlers.Handlers
-	SDS              *sds.Handlers
-	Retention        *retentionpolicy.Handlers
-	LineageDeletion  *lineagedeletion.Handlers
+	Audit           *handlers.Handlers
+	SDS             *sds.Handlers
+	Retention       *retentionpolicy.Handlers
+	LineageDeletion *lineagedeletion.Handlers
 }
 
 func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
@@ -72,6 +72,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, sub *Subsystems, m *observab
 			api.Get("/audit/events/{id}", sub.Audit.GetEvent)
 			api.Get("/audit/anomalies", sub.Audit.ListAnomalies)
 			api.Get("/audit/collectors", sub.Audit.ListCollectors)
+			api.Get("/audit/delivery/destinations", sub.Audit.ListAuditDeliveryDestinations)
+			api.Post("/audit/delivery/destinations", sub.Audit.CreateAuditDeliveryDestination)
+			api.Post("/audit/delivery/destinations/{id}/validate", sub.Audit.ValidateAuditDeliveryDestination)
+			api.Post("/audit/delivery/destinations/{id}/backfill", sub.Audit.BackfillAuditDeliveryDestination)
+			api.Get("/audit/delivery/files", sub.Audit.ListAuditDeliveryFiles)
+			api.Get("/audit/delivery/files/{id}/content", sub.Audit.GetAuditDeliveryFileContent)
 			// Legacy list endpoint (pre-existing).
 			api.Get("/audit-events", sub.Audit.ListAuditEvents)
 

@@ -166,10 +166,9 @@ A user can read a marked resource only if they are a **member** of
 every marking that applies — directly, through project/folder
 inheritance, or through dataset lineage propagation.
 
-- Marking categories and markings are owned by
-  `authorization-policy-service` today; a dedicated `marking-service`
-  carve-out is planned for enforcement/inheritance follow-ups (see
-  [checklist `SG.14`–`SG.15`](../migration/foundry-security-governance-1to1-checklist.md)).
+- Marking categories, markings, inheritance, and build output diffs are
+  owned by `authorization-policy-service` today; a dedicated
+  `marking-service` carve-out remains a future service-boundary option.
 - Categories carry visible/hidden state, optional organization
   restriction, Category Administrator / Category Viewer grants, and
   immutable lifecycle rules. Category deletion is blocked and audited.
@@ -185,6 +184,18 @@ inheritance, or through dataset lineage propagation.
   `remove marking`, resource update-markings evidence, and either
   `apply marking` or equivalent expand-access authority; denied attempts
   are audited to prevent silent declassification.
+- Effective resource markings now resolve direct, hierarchy-inherited,
+  and lineage-derived requirements with source paths. Direct and
+  hierarchy requirements gate resource access; lineage requirements gate
+  data access after the resource itself is visible.
+- `POST /api/v1/resource-access:check` composes organization evidence,
+  caller-supplied role evidence, and marking membership into one
+  resource/data access answer.
+- `POST /api/v1/resource-marking-builds:publish` is the shared
+  publish-time guard for derived outputs. It propagates input markings
+  through lineage edges, stores a build/transaction security diff, and
+  rejects output publication if the plan would remove a marking without
+  remove-marking plus apply/expand-access authority.
 
 > Parity reference:
 > [Markings](https://www.palantir.com/docs/foundry/security/markings/) ·
@@ -224,11 +235,22 @@ deletion — emits a normalized audit event.
 - [`services/audit-compliance-service`](../../services/audit-compliance-service/)
   owns the platform audit ledger, the retention policy registry, and
   the lineage deletion subsystem.
+- The hot ledger captures audit.3-style fields: `event_id`,
+  `log_entry_id`, action `categories`, resource `entities`, request
+  `origins`, `trace_id`, session/service-account identifiers, `outcome`,
+  and structured error/request/result metadata.
 - [`services/audit-sink`](../../services/audit-sink/) is the
   Kafka → Iceberg consumer for the `audit.events.v1` stream and is the
   long-term archive used by SIEM exports.
+- Audit delivery destinations can be configured per organization for
+  SIEM API polling or governed OpenFoundry dataset analysis. Backfills
+  generate schema-versioned `audit.3` NDJSON files with time-range
+  listing, content retrieval, checksums, and duplicate detection.
 - Audit data is itself sensitive: access to audit datasets is gated by
-  separate permissions, not by ordinary project roles.
+  separate `audit-logs:view` / auditor permissions, not by ordinary
+  project roles. Delivery setup/backfill additionally requires audit
+  delivery management permission, and audit-log resources carry their
+  own retention policy.
 
 Detailed surface: [Audit and traceability](./audit-and-traceability.md) ·
 [Audit model](./audit-model/).

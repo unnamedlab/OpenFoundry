@@ -10,6 +10,8 @@ export interface EventFilterDraft {
   source_service: string;
   subject_id: string;
   classification: string;
+  category: string;
+  trace_id: string;
 }
 
 export interface EventDraft {
@@ -25,8 +27,12 @@ export interface EventDraft {
   subject_id: string;
   ip_address: string;
   location: string;
+  categories_text: string;
+  origins_text: string;
+  trace_id: string;
   labels_text: string;
   metadata_text: string;
+  error_metadata_text: string;
   retention_days: string;
 }
 
@@ -124,6 +130,22 @@ export function AuditLogViewer({
                 ))}
               </select>
             </label>
+            <label style={{ fontSize: 13 }}>
+              <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Category</span>
+              <input
+                value={filters.category}
+                onChange={(e) => onFilterChange({ category: e.target.value })}
+                className="of-input"
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Trace ID</span>
+              <input
+                value={filters.trace_id}
+                onChange={(e) => onFilterChange({ trace_id: e.target.value })}
+                className="of-input"
+              />
+            </label>
           </div>
           <button type="button" onClick={onApplyFilters} disabled={busy} className="of-button" style={{ width: 'fit-content' }}>
             Apply filters
@@ -154,13 +176,29 @@ export function AuditLogViewer({
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
                   <span className="of-chip">{event.status}</span>
+                  <span className="of-chip">{event.outcome}</span>
                   <span className="of-chip">{event.classification}</span>
+                  {(event.categories ?? []).map((category) => (
+                    <span key={category} className="of-chip" style={{ background: '#ecfeff', color: '#0e7490' }}>
+                      {category}
+                    </span>
+                  ))}
                   {event.labels.map((label) => (
                     <span key={label} className="of-chip" style={{ background: '#dbeafe', color: '#0369a1' }}>
                       {label}
                     </span>
                   ))}
                 </div>
+                {(event.trace_id || event.event_id) && (
+                  <p className="of-text-muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    event <code>{event.event_id}</code>
+                    {event.trace_id ? (
+                      <>
+                        {' '}· trace <code>{event.trace_id}</code>
+                      </>
+                    ) : null}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -234,6 +272,30 @@ export function AuditLogViewer({
                   />
                 </label>
               ))}
+              <label style={{ fontSize: 13, color: '#f5f5f4' }}>
+                <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Categories</span>
+                <input
+                  value={draft.categories_text}
+                  onChange={(e) => onDraftChange({ categories_text: e.target.value })}
+                  style={darkInput}
+                />
+              </label>
+              <label style={{ fontSize: 13, color: '#f5f5f4' }}>
+                <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Origins</span>
+                <input
+                  value={draft.origins_text}
+                  onChange={(e) => onDraftChange({ origins_text: e.target.value })}
+                  style={darkInput}
+                />
+              </label>
+              <label style={{ fontSize: 13, color: '#f5f5f4', gridColumn: 'span 2' }}>
+                <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Trace ID</span>
+                <input
+                  value={draft.trace_id}
+                  onChange={(e) => onDraftChange({ trace_id: e.target.value })}
+                  style={darkInput}
+                />
+              </label>
               <label style={{ fontSize: 13, color: '#f5f5f4', gridColumn: 'span 2' }}>
                 <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Labels</span>
                 <input
@@ -248,6 +310,14 @@ export function AuditLogViewer({
                   value={draft.metadata_text}
                   onChange={(e) => onDraftChange({ metadata_text: e.target.value })}
                   style={{ ...darkInput, minHeight: 90, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#7dd3fc', resize: 'vertical' }}
+                />
+              </label>
+              <label style={{ fontSize: 13, color: '#f5f5f4', gridColumn: 'span 2' }}>
+                <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Error metadata JSON</span>
+                <textarea
+                  value={draft.error_metadata_text}
+                  onChange={(e) => onDraftChange({ error_metadata_text: e.target.value })}
+                  style={{ ...darkInput, minHeight: 70, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#7dd3fc', resize: 'vertical' }}
                 />
               </label>
               <label style={{ fontSize: 13, color: '#f5f5f4', gridColumn: 'span 2' }}>

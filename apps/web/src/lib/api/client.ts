@@ -18,6 +18,17 @@ class ApiClient {
   }
 
   async fetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const response = await this.request(path, options);
+    if (response.status === 204) return undefined as T;
+    return response.json();
+  }
+
+  async text(path: string, options: RequestOptions = {}): Promise<string> {
+    const response = await this.request(path, options);
+    return response.text();
+  }
+
+  private async request(path: string, options: RequestOptions = {}): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -60,8 +71,7 @@ class ApiClient {
       throw new ApiError(response.status, message);
     }
 
-    if (response.status === 204) return undefined as T;
-    return response.json();
+    return response;
   }
 
   get<T>(path: string) {
