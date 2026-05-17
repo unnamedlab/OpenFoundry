@@ -33,6 +33,55 @@ const (
 	HdrGuestAccess             = "x-openfoundry-guest-access"
 )
 
+// gatewayAssertedHeaders is the full set of x-openfoundry-* headers
+// that ApplyTenantHeaders / ApplyAuthContextHeaders may write on an
+// outbound request. Downstream services trust these as gateway-asserted
+// facts (subject, tenant scope, markings, …), so any client-supplied
+// value MUST be stripped before we attach our own — otherwise a caller
+// can forge identity by sending the header themselves alongside an
+// invalid (or missing) bearer token.
+//
+// The list is intentionally exhaustive: even when a particular header
+// would not be re-written for the current claims (e.g. HdrOrgID for a
+// claims-less request), we still strip it so the client value cannot
+// leak through unchanged.
+var gatewayAssertedHeaders = []string{
+	HdrTenantScope,
+	HdrTenantTier,
+	HdrQuotaQueryLimit,
+	HdrQuotaPipelineWorkers,
+	HdrQuotaRequestsPerMin,
+	HdrAuthSub,
+	HdrAuthEmail,
+	HdrAuthMethods,
+	HdrZeroTrust,
+	HdrOrgID,
+	HdrSessionKind,
+	HdrClassificationClearance,
+	HdrScopeWorkspace,
+	HdrScopePathPrefixes,
+	HdrAllowedOrgIDs,
+	HdrAllowedMarkings,
+	HdrRestrictedViewIDs,
+	HdrConsumerMode,
+	HdrGuestEmail,
+	HdrGuestAccess,
+}
+
+// StripClientAuthHeaders removes every x-openfoundry-* header listed in
+// gatewayAssertedHeaders from the outbound request, regardless of
+// whether ApplyTenantHeaders / ApplyAuthContextHeaders will later
+// re-write it. Callers MUST invoke this before applying tenant / auth
+// headers; see the comment on gatewayAssertedHeaders for why.
+func StripClientAuthHeaders(req *http.Request) {
+	if req == nil {
+		return
+	}
+	for _, h := range gatewayAssertedHeaders {
+		req.Header.Del(h)
+	}
+}
+
 // ApplyTenantHeaders sets the per-tenant headers on the upstream request.
 func ApplyTenantHeaders(req *http.Request, t *authmw.TenantContext) {
 	if t == nil {

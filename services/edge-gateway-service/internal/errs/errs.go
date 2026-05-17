@@ -35,6 +35,7 @@ const (
 	CodeUpstreamUnavailable       = "upstream_unavailable"
 	CodeProxyResponseBuildFailed  = "proxy_response_build_failed"
 	CodeServiceNotImplemented     = "service_not_implemented"
+	CodeInvalidCredentials        = "invalid_credentials"
 )
 
 // Write serialises the envelope and emits status + JSON to w.

@@ -57,7 +57,12 @@ func NewHandler(cfg *config.Config, jwt *authmw.JWTConfig) *Handler {
 
 // ServeHTTP implements net/http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	claims := h.tryDecodeClaims(r)
+	claims, err := h.tryDecodeClaims(r)
+	if err != nil {
+		errs.Write(w, http.StatusUnauthorized,
+			errs.CodeInvalidCredentials, "invalid credentials")
+		return
+	}
 
 	// Zero-trust scope enforcement (only when a session_scope is present).
 	if claims != nil {
@@ -112,6 +117,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyHeadersExceptHost(r.Header, out.Header)
+	// CRITICAL: strip any client-supplied x-openfoundry-* identity headers
+	// BEFORE applying our own. Downstream services trust these headers as
+	// gateway-asserted facts; a client that injects them must not be able
+	// to forge subject / tenant / markings.
+	StripClientAuthHeaders(out)
 	ApplyTenantHeaders(out, &tenant)
 	if claims != nil {
 		ApplyAuthContextHeaders(out, claims)
@@ -142,28 +152,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// tryDecodeClaims pulls the bearer token, ignoring any decode failure
-// (the gateway treats unauthenticated requests as anonymous; downstream
-// services enforce auth where they require it).
-func (h *Handler) tryDecodeClaims(r *http.Request) *authmw.Claims {
+// tryDecodeClaims pulls the bearer token and returns the decoded claims.
+//
+// Returns (nil, nil) when no credential is presented at all (anonymous
+// access, downstream services enforce auth where they need it).
+//
+// Returns (nil, ErrInvalidCredentials) when the caller DID present a
+// credential but it does not validate — we must NOT silently fall back
+// to anonymous, because the same request can also carry forged
+// x-openfoundry-* headers that downstream services would otherwise
+// trust. The caller responds 401.
+func (h *Handler) tryDecodeClaims(r *http.Request) (*authmw.Claims, error) {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
-		return nil
+		return nil, nil
 	}
 	tok, ok := strings.CutPrefix(auth, "Bearer ")
 	if !ok {
-		return nil
+		return nil, ErrInvalidCredentials
 	}
 	tok = strings.TrimSpace(tok)
 	if tok == "" {
-		return nil
+		return nil, ErrInvalidCredentials
 	}
 	claims, err := authmw.DecodeToken(h.JWT, tok)
 	if err != nil {
-		return nil
+		return nil, ErrInvalidCredentials
 	}
-	return claims
+	return claims, nil
 }
+
+// ErrInvalidCredentials is returned by tryDecodeClaims when the caller
+// presented an Authorization header but the token did not validate.
+var ErrInvalidCredentials = errors.New("invalid credentials")
 
 // buildUpstreamURL joins the upstream base with the rewritten path + original query.
 func buildUpstreamURL(base string, in *url.URL) (*url.URL, error) {
