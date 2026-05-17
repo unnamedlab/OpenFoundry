@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/models"
@@ -48,8 +49,18 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// DB is the pgx surface used by Repo; *pgxpool.Pool and pgxmock pools
+// both satisfy it. Exists so repo logic (notably tenant filtering on
+// abac_policies) can be unit-tested without spinning up Postgres.
+type DB interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // Repo wraps the cedar_policies SQL surface.
-type Repo struct{ Pool *pgxpool.Pool }
+type Repo struct{ Pool DB }
 
 const cedarSelect = `SELECT id, version, source, description, active,
 	created_by, created_at, updated_at FROM cedar_policies`
@@ -165,12 +176,16 @@ func scanCedarPolicy(r rowLikeT) (*models.CedarPolicy, error) {
 
 // ─── ABAC policies ──────────────────────────────────────────────────
 
-const abacSelect = `SELECT id, name, description, effect, resource, action,
+const abacSelect = `SELECT id, tenant_id, name, description, effect, resource, action,
 	conditions, row_filter, enabled, created_by, created_at, updated_at
 	FROM abac_policies`
 
-func (r *Repo) ListABACPolicies(ctx context.Context) ([]models.ABACPolicy, error) {
-	rows, err := r.Pool.Query(ctx, abacSelect+` ORDER BY updated_at DESC LIMIT 500`)
+// ListABACPolicies returns every policy owned by tenantID. Cross-tenant
+// reads are rejected at the SQL layer — there is no admin override.
+func (r *Repo) ListABACPolicies(ctx context.Context, tenantID uuid.UUID) ([]models.ABACPolicy, error) {
+	rows, err := r.Pool.Query(ctx,
+		abacSelect+` WHERE tenant_id = $1 ORDER BY updated_at DESC LIMIT 500`,
+		tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +201,11 @@ func (r *Repo) ListABACPolicies(ctx context.Context) ([]models.ABACPolicy, error
 	return out, rows.Err()
 }
 
-func (r *Repo) GetABACPolicy(ctx context.Context, id uuid.UUID) (*models.ABACPolicy, error) {
-	row := r.Pool.QueryRow(ctx, abacSelect+` WHERE id = $1`, id)
+// GetABACPolicy returns the policy when it exists *and* belongs to
+// tenantID. A row that belongs to a different tenant is reported as
+// not-found so callers cannot probe other tenants by guessing IDs.
+func (r *Repo) GetABACPolicy(ctx context.Context, tenantID, id uuid.UUID) (*models.ABACPolicy, error) {
+	row := r.Pool.QueryRow(ctx, abacSelect+` WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 	p, err := scanABACPolicy(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -195,7 +213,10 @@ func (r *Repo) GetABACPolicy(ctx context.Context, id uuid.UUID) (*models.ABACPol
 	return p, err
 }
 
-func (r *Repo) CreateABACPolicy(ctx context.Context, body *models.CreateABACPolicyRequest, callerID uuid.UUID) (*models.ABACPolicy, error) {
+// CreateABACPolicy inserts a new policy under tenantID. The caller-supplied
+// body never carries tenant_id — it is derived from the auth context by
+// the handler so a tenant A user cannot author policies for tenant B.
+func (r *Repo) CreateABACPolicy(ctx context.Context, body *models.CreateABACPolicyRequest, tenantID, callerID uuid.UUID) (*models.ABACPolicy, error) {
 	id := uuid.New()
 	enabled := true
 	if body.Enabled != nil {
@@ -207,19 +228,19 @@ func (r *Repo) CreateABACPolicy(ctx context.Context, body *models.CreateABACPoli
 	}
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO abac_policies
-		    (id, name, description, effect, resource, action, conditions, row_filter, enabled, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		 RETURNING id, name, description, effect, resource, action, conditions,
+		    (id, tenant_id, name, description, effect, resource, action, conditions, row_filter, enabled, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 RETURNING id, tenant_id, name, description, effect, resource, action, conditions,
 		           row_filter, enabled, created_by, created_at, updated_at`,
-		id, strings.TrimSpace(body.Name), body.Description,
+		id, tenantID, strings.TrimSpace(body.Name), body.Description,
 		body.Effect, strings.TrimSpace(body.Resource), strings.TrimSpace(body.Action),
 		conds, body.RowFilter, enabled, callerID,
 	)
 	return scanABACPolicy(row)
 }
 
-func (r *Repo) UpdateABACPolicy(ctx context.Context, id uuid.UUID, body *models.UpdateABACPolicyRequest) (*models.ABACPolicy, error) {
-	current, err := r.GetABACPolicy(ctx, id)
+func (r *Repo) UpdateABACPolicy(ctx context.Context, tenantID, id uuid.UUID, body *models.UpdateABACPolicyRequest) (*models.ABACPolicy, error) {
+	current, err := r.GetABACPolicy(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -256,18 +277,20 @@ func (r *Repo) UpdateABACPolicy(ctx context.Context, id uuid.UUID, body *models.
 	}
 	row := r.Pool.QueryRow(ctx,
 		`UPDATE abac_policies SET
-		    description = $2, effect = $3, resource = $4, action = $5,
-		    conditions = $6, row_filter = $7, enabled = $8, updated_at = $9
-		  WHERE id = $1
-		  RETURNING id, name, description, effect, resource, action, conditions,
+		    description = $3, effect = $4, resource = $5, action = $6,
+		    conditions = $7, row_filter = $8, enabled = $9, updated_at = $10
+		  WHERE id = $1 AND tenant_id = $2
+		  RETURNING id, tenant_id, name, description, effect, resource, action, conditions,
 		            row_filter, enabled, created_by, created_at, updated_at`,
-		id, desc, effect, resource, action, conds, rowFilter, enabled, time.Now().UTC(),
+		id, tenantID, desc, effect, resource, action, conds, rowFilter, enabled, time.Now().UTC(),
 	)
 	return scanABACPolicy(row)
 }
 
-func (r *Repo) DeleteABACPolicy(ctx context.Context, id uuid.UUID) (bool, error) {
-	cmd, err := r.Pool.Exec(ctx, `DELETE FROM abac_policies WHERE id = $1`, id)
+func (r *Repo) DeleteABACPolicy(ctx context.Context, tenantID, id uuid.UUID) (bool, error) {
+	cmd, err := r.Pool.Exec(ctx,
+		`DELETE FROM abac_policies WHERE id = $1 AND tenant_id = $2`,
+		id, tenantID)
 	if err != nil {
 		return false, err
 	}
@@ -276,7 +299,7 @@ func (r *Repo) DeleteABACPolicy(ctx context.Context, id uuid.UUID) (bool, error)
 
 func scanABACPolicy(r rowLikeT) (*models.ABACPolicy, error) {
 	p := &models.ABACPolicy{}
-	if err := r.Scan(&p.ID, &p.Name, &p.Description, &p.Effect, &p.Resource,
+	if err := r.Scan(&p.ID, &p.TenantID, &p.Name, &p.Description, &p.Effect, &p.Resource,
 		&p.Action, &p.Conditions, &p.RowFilter, &p.Enabled,
 		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
@@ -284,17 +307,19 @@ func scanABACPolicy(r rowLikeT) (*models.ABACPolicy, error) {
 	return p, nil
 }
 
-// ListEnabledABACPoliciesMatching returns enabled abac_policies
-// matching (resource, action) — wildcards `*` accepted on either side.
-// Used by the ABAC evaluator (slice 3).
-func (r *Repo) ListEnabledABACPoliciesMatching(ctx context.Context, resource, action string) ([]models.ABACPolicy, error) {
+// ListEnabledABACPoliciesMatching returns enabled abac_policies owned by
+// tenantID and matching (resource, action) — wildcards `*` accepted on
+// either side. Tenant filtering is mandatory: passing uuid.Nil collapses
+// every tenant's policies into one bucket and is treated as a caller bug.
+func (r *Repo) ListEnabledABACPoliciesMatching(ctx context.Context, tenantID uuid.UUID, resource, action string) ([]models.ABACPolicy, error) {
 	rows, err := r.Pool.Query(ctx,
 		abacSelect+`
-		WHERE enabled = TRUE
-		  AND (resource = $1 OR resource = '*')
-		  AND (action = $2 OR action = '*')
+		WHERE tenant_id = $1
+		  AND enabled = TRUE
+		  AND (resource = $2 OR resource = '*')
+		  AND (action = $3 OR action = '*')
 		ORDER BY created_at ASC`,
-		resource, action)
+		tenantID, resource, action)
 	if err != nil {
 		return nil, err
 	}

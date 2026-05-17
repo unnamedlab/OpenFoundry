@@ -17,6 +17,15 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/models"
 )
 
+// claimsWithTenant returns a minimal *Claims tied to a fresh tenant.
+// Every CRUD handler now requires a tenant on the JWT; tests that
+// exercise validation paths still need to clear the auth gate.
+func claimsWithTenant(t *testing.T) (*authmw.Claims, uuid.UUID) {
+	t.Helper()
+	tenantID := uuid.New()
+	return &authmw.Claims{Sub: uuid.New(), OrgID: &tenantID}, tenantID
+}
+
 // ─── Wire-format pinning ─────────────────────────────────────────────
 
 func TestABACPolicyJSONShape(t *testing.T) {
@@ -25,7 +34,9 @@ func TestABACPolicyJSONShape(t *testing.T) {
 	rowFilter := "tenant = $caller_tenant"
 	cb := uuid.New()
 	p := models.ABACPolicy{
-		ID: uuid.New(), Name: "deny-pii",
+		ID:       uuid.New(),
+		TenantID: uuid.New(),
+		Name:     "deny-pii",
 		Description: &desc, Effect: "deny",
 		Resource: "datasets", Action: "read",
 		Conditions: json.RawMessage(`{"marking":"pii"}`),
@@ -39,7 +50,7 @@ func TestABACPolicyJSONShape(t *testing.T) {
 	var view map[string]any
 	require.NoError(t, json.Unmarshal(out, &view))
 	for _, k := range []string{
-		"id", "name", "description", "effect", "resource", "action",
+		"id", "tenant_id", "name", "description", "effect", "resource", "action",
 		"conditions", "row_filter", "enabled", "created_by",
 		"created_at", "updated_at",
 	} {
@@ -60,10 +71,24 @@ func TestCreateABACPolicyRequiresAuth(t *testing.T) {
 	assert.Equal(t, 401, rec.Code)
 }
 
+func TestCreateABACPolicyRequiresTenant(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	// Authenticated but no OrgID on the claims — handler must 403.
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/abac-policies",
+		strings.NewReader(`{"name":"x","effect":"allow","resource":"r","action":"a"}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateABACPolicy(rec, req)
+	assert.Equal(t, 403, rec.Code)
+	assert.Contains(t, rec.Body.String(), "tenant scope required")
+}
+
 func TestCreateABACPolicyRejectsBadEffect(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
-	c := &authmw.Claims{Sub: uuid.New()}
+	c, _ := claimsWithTenant(t)
 	req := httptest.NewRequest("POST", "/abac-policies",
 		strings.NewReader(`{"name":"x","effect":"maybe","resource":"r","action":"a"}`))
 	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
@@ -76,7 +101,7 @@ func TestCreateABACPolicyRejectsBadEffect(t *testing.T) {
 func TestCreateABACPolicyRejectsEmptyFields(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
-	c := &authmw.Claims{Sub: uuid.New()}
+	c, _ := claimsWithTenant(t)
 	req := httptest.NewRequest("POST", "/abac-policies",
 		strings.NewReader(`{"name":"","effect":"allow","resource":"r","action":""}`))
 	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
@@ -89,7 +114,7 @@ func TestCreateABACPolicyRejectsEmptyFields(t *testing.T) {
 func TestCreateABACPolicyRejectsInvalidConditionsJSON(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
-	c := &authmw.Claims{Sub: uuid.New()}
+	c, _ := claimsWithTenant(t)
 	// `conditions` is a json.RawMessage in Go — sending a string with invalid JSON via the
 	// conditions field surfaces a 400 from the handler.
 	req := httptest.NewRequest("POST", "/abac-policies",
@@ -104,7 +129,7 @@ func TestCreateABACPolicyRejectsInvalidConditionsJSON(t *testing.T) {
 func TestUpdateABACPolicyRejectsBadEffect(t *testing.T) {
 	t.Parallel()
 	h := &handlers.Handlers{}
-	c := &authmw.Claims{Sub: uuid.New()}
+	c, _ := claimsWithTenant(t)
 	req := httptest.NewRequest("PATCH", "/abac-policies/"+uuid.New().String(),
 		strings.NewReader(`{"effect":"hack"}`))
 	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
@@ -129,4 +154,16 @@ func TestListABACPoliciesRequiresAuth(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ListABACPolicies(rec, req)
 	assert.Equal(t, 401, rec.Code)
+}
+
+func TestListABACPoliciesRequiresTenant(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("GET", "/abac-policies", nil)
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.ListABACPolicies(rec, req)
+	assert.Equal(t, 403, rec.Code)
+	assert.Contains(t, rec.Body.String(), "tenant scope required")
 }

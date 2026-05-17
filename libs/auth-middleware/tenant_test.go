@@ -1,6 +1,7 @@
 package authmw_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -9,6 +10,32 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
+
+func TestTenantFromContextReturnsOrgID(t *testing.T) {
+	t.Parallel()
+	orgID := uuid.New()
+	c := &authmw.Claims{Sub: uuid.New(), OrgID: &orgID}
+	ctx := authmw.ContextWithClaims(context.Background(), c)
+	got, ok := authmw.TenantFromContext(ctx)
+	assert.True(t, ok)
+	assert.Equal(t, orgID, got)
+}
+
+func TestTenantFromContextReportsMissingTenant(t *testing.T) {
+	t.Parallel()
+	c := &authmw.Claims{Sub: uuid.New()} // no OrgID
+	ctx := authmw.ContextWithClaims(context.Background(), c)
+	got, ok := authmw.TenantFromContext(ctx)
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, got)
+}
+
+func TestTenantFromContextReportsUnauthenticated(t *testing.T) {
+	t.Parallel()
+	got, ok := authmw.TenantFromContext(context.Background())
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, got)
+}
 
 func TestQuotaTiersMatchRustNumbers(t *testing.T) {
 	t.Parallel()

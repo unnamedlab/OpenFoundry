@@ -19,13 +19,30 @@ func validEffect(effect string) bool {
 	return effect == "allow" || effect == "deny"
 }
 
-// ListABACPolicies handles GET /api/v1/abac-policies.
-func (h *Handlers) ListABACPolicies(w http.ResponseWriter, r *http.Request) {
+// requireTenant resolves the caller's tenant UUID from the auth context.
+// Responds 401 when unauthenticated and 403 when the JWT does not carry
+// org_id — there is no admin override: ABAC rows are tenant-scoped, a
+// caller without a tenant has nothing to read.
+func requireTenant(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	if _, ok := authmw.FromContext(r.Context()); !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return uuid.Nil, false
+	}
+	tenantID, ok := authmw.TenantFromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusForbidden, "tenant scope required")
+		return uuid.Nil, false
+	}
+	return tenantID, true
+}
+
+// ListABACPolicies handles GET /api/v1/abac-policies.
+func (h *Handlers) ListABACPolicies(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := requireTenant(w, r)
+	if !ok {
 		return
 	}
-	items, err := h.Repo.ListABACPolicies(r.Context())
+	items, err := h.Repo.ListABACPolicies(r.Context(), tenantID)
 	if err != nil {
 		slog.Error("list abac policies", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to list policies")
@@ -36,8 +53,8 @@ func (h *Handlers) ListABACPolicies(w http.ResponseWriter, r *http.Request) {
 
 // GetABACPolicy handles GET /api/v1/abac-policies/{id}.
 func (h *Handlers) GetABACPolicy(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+	tenantID, ok := requireTenant(w, r)
+	if !ok {
 		return
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
@@ -45,7 +62,7 @@ func (h *Handlers) GetABACPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	p, err := h.Repo.GetABACPolicy(r.Context(), id)
+	p, err := h.Repo.GetABACPolicy(r.Context(), tenantID, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -62,6 +79,11 @@ func (h *Handlers) CreateABACPolicy(w http.ResponseWriter, r *http.Request) {
 	caller, ok := authmw.FromContext(r.Context())
 	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	tenantID, ok := authmw.TenantFromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusForbidden, "tenant scope required")
 		return
 	}
 	var body models.CreateABACPolicyRequest
@@ -84,7 +106,7 @@ func (h *Handlers) CreateABACPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "conditions must be valid JSON")
 		return
 	}
-	p, err := h.Repo.CreateABACPolicy(r.Context(), &body, caller.Sub)
+	p, err := h.Repo.CreateABACPolicy(r.Context(), &body, tenantID, caller.Sub)
 	if err != nil {
 		slog.Error("create abac policy", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
@@ -95,8 +117,8 @@ func (h *Handlers) CreateABACPolicy(w http.ResponseWriter, r *http.Request) {
 
 // UpdateABACPolicy handles PATCH /api/v1/abac-policies/{id}.
 func (h *Handlers) UpdateABACPolicy(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+	tenantID, ok := requireTenant(w, r)
+	if !ok {
 		return
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
@@ -117,7 +139,7 @@ func (h *Handlers) UpdateABACPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "conditions must be valid JSON")
 		return
 	}
-	p, err := h.Repo.UpdateABACPolicy(r.Context(), id, &body)
+	p, err := h.Repo.UpdateABACPolicy(r.Context(), tenantID, id, &body)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -131,8 +153,8 @@ func (h *Handlers) UpdateABACPolicy(w http.ResponseWriter, r *http.Request) {
 
 // DeleteABACPolicy handles DELETE /api/v1/abac-policies/{id}.
 func (h *Handlers) DeleteABACPolicy(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
-		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+	tenantID, ok := requireTenant(w, r)
+	if !ok {
 		return
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
@@ -140,7 +162,7 @@ func (h *Handlers) DeleteABACPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	deleted, err := h.Repo.DeleteABACPolicy(r.Context(), id)
+	deleted, err := h.Repo.DeleteABACPolicy(r.Context(), tenantID, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return

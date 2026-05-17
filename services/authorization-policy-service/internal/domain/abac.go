@@ -63,10 +63,11 @@ func Evaluate(
 	ctx context.Context,
 	r *repo.Repo,
 	claims *authmw.Claims,
+	tenantID uuid.UUID,
 	resource, action string,
 	resourceAttributes json.RawMessage,
 ) (*EvaluationResult, error) {
-	policies, err := r.ListEnabledABACPoliciesMatching(ctx, resource, action)
+	policies, err := r.ListEnabledABACPoliciesMatching(ctx, tenantID, resource, action)
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
