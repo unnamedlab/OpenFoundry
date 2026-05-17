@@ -20,8 +20,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm"
+	"github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/domain/llm/anthropic"
+	aimodels "github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/models"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
@@ -78,11 +82,50 @@ func main() {
 
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	h := &handlers.Handlers{Repo: &repo.Repo{Pool: pool}, AllowFakeLLMProvider: cfg.AllowFakeLLMProvider, PurposeCheckpoint: purposeCheckpoint}
+	wireLLMRuntime(h, log)
 	metrics := observability.NewMetrics()
 
 	srv := server.New(cfg, jwt, h, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
+	}
+}
+
+// wireLLMRuntime selects the LLM runtime based on env: ANTHROPIC_API_KEY
+// engages the real Anthropic provider; otherwise we fall back to the
+// in-process FakeRuntime so dev/test setups keep working, and log a
+// WARN so operators notice the missing production credential.
+func wireLLMRuntime(h *handlers.Handlers, log *slog.Logger) {
+	if provider, ok := anthropic.FromEnv(); ok {
+		h.Runtime = provider
+		h.Provider = anthropicCatalogEntry(provider.Model)
+		log.Info("anthropic llm runtime engaged",
+			slog.String("model", provider.Model),
+			slog.String("base_url", provider.BaseURL),
+		)
+		return
+	}
+	log.Warn("ANTHROPIC_API_KEY unset — falling back to in-process FakeRuntime (non-production)")
+	h.Runtime = &llm.FakeRuntime{}
+	h.AllowFakeLLMProvider = true
+}
+
+// anthropicCatalogEntry mints a synthetic LlmProvider so the chat
+// handler's provider-required gate passes without a DB-provisioned row.
+// The api_mode/model fields drive estimated-cost calculations and the
+// provider name surfaced in copilot responses.
+func anthropicCatalogEntry(model string) *aimodels.LlmProvider {
+	rules := aimodels.DefaultProviderRoutingRules()
+	return &aimodels.LlmProvider{
+		ID:              uuid.MustParse("00000000-0000-0000-0000-0000000a17c1"),
+		Name:            "anthropic-env",
+		ProviderType:    "anthropic",
+		ModelName:       model,
+		EndpointURL:     anthropic.DefaultBaseURL,
+		APIMode:         "messages",
+		Enabled:         true,
+		MaxOutputTokens: 1024,
+		RouteRules:      rules,
 	}
 }
