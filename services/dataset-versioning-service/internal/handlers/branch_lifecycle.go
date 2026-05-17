@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -219,6 +221,41 @@ func (h *Handlers) RollbackBranch(w http.ResponseWriter, r *http.Request) {
 		writeBranchError(w, err)
 		return
 	}
+	h.emitAudit(r.Context(), AuditEvent{Actor: claims.Sub.String(), Action: "dataset.rollback", DatasetRID: datasetID.String(), Details: map[string]any{
+		"branch":                       branchNameParam(r),
+		"target_transaction_id":        body.TransactionID.String(),
+		"target_transaction_rid":       models.TransactionRID(body.TransactionID),
+		"force_snapshot_on_next_build": body.ForceSnapshotOnNextBuild != nil && *body.ForceSnapshotOnNextBuild,
+		"confirmation":                 body.Confirmation,
+	}})
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handlers) ForceSnapshotOnNextBuild(w http.ResponseWriter, r *http.Request) {
+	datasetID, ok := h.resolveDatasetForCatalog(w, r)
+	if !ok {
+		return
+	}
+	claims, ok := h.requireDatasetWrite(w, r, datasetID)
+	if !ok {
+		return
+	}
+	var body models.ForceSnapshotBody
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSONErr(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+	}
+	out, err := h.Repo.ForceSnapshotOnNextBuild(r.Context(), datasetID, branchNameParam(r), &body, claims.Sub)
+	if err != nil {
+		writeBranchError(w, err)
+		return
+	}
+	h.emitAudit(r.Context(), AuditEvent{Actor: claims.Sub.String(), Action: "dataset.force_snapshot_on_next_build", DatasetRID: datasetID.String(), Details: map[string]any{
+		"branch":  branchNameParam(r),
+		"summary": body.Summary,
+	}})
 	writeJSON(w, http.StatusOK, out)
 }
 

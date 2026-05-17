@@ -23,6 +23,7 @@ import { ScheduleDiff } from '@/lib/components/pipeline/ScheduleDiff';
 import { EditScheduleDialog } from '@/lib/components/schedules/EditScheduleDialog';
 
 type PauseFilter = 'all' | 'paused' | 'active';
+type LatestOutcomeFilter = 'all' | RunOutcome | 'NEVER';
 type SortKey = 'name' | 'created_at' | 'last_run_at' | 'updated_at';
 
 interface DiffRange {
@@ -30,11 +31,51 @@ interface DiffRange {
   to: number;
 }
 
+interface ScheduleDiscoveryFilters {
+  files: string[];
+  users: string[];
+  projects: string[];
+  name: string;
+  paused: PauseFilter;
+  branch: string;
+  latestOutcome: LatestOutcomeFilter;
+  sort: SortKey;
+}
+
+interface SavedScheduleQuery {
+  id: string;
+  name: string;
+  description: string;
+  filters: ScheduleDiscoveryFilters;
+  savedAt: string;
+}
+
+type GuardrailSeverity = 'info' | 'warning' | 'critical';
+
+interface ScheduleGuardrail {
+  code: string;
+  severity: GuardrailSeverity;
+  title: string;
+  message: string;
+  recommendation: string;
+}
+
+const SAVED_SCHEDULE_QUERIES_KEY = 'openfoundry:schedule-discovery:saved-queries:v1';
+const BROAD_TARGET_THRESHOLD = 20;
+
 const SORT_LABELS: Record<SortKey, string> = {
   name: 'name',
   created_at: 'creation date',
   last_run_at: 'last run',
   updated_at: 'last update',
+};
+
+const LATEST_OUTCOME_LABELS: Record<LatestOutcomeFilter, string> = {
+  all: 'Any latest run',
+  SUCCEEDED: 'Succeeded',
+  FAILED: 'Failed',
+  IGNORED: 'Ignored',
+  NEVER: 'Never run',
 };
 
 const OUTCOME_TONE: Record<RunOutcome, { background: string; color: string; borderColor: string }> = {
@@ -55,8 +96,75 @@ const OUTCOME_TONE: Record<RunOutcome, { background: string; color: string; bord
   },
 };
 
+const BUILT_IN_QUERY_IDS = {
+  paused: 'builtin-paused',
+  project: 'builtin-project',
+  dataset: 'builtin-dataset',
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function defaultDiscoveryFilters(): ScheduleDiscoveryFilters {
+  return {
+    files: [],
+    users: [],
+    projects: [],
+    name: '',
+    paused: 'all',
+    branch: '',
+    latestOutcome: 'all',
+    sort: 'updated_at',
+  };
+}
+
+function canUseLocalStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function loadSavedScheduleQueries(): SavedScheduleQuery[] {
+  if (!canUseLocalStorage()) return [];
+  try {
+    const raw = window.localStorage.getItem(SAVED_SCHEDULE_QUERIES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is SavedScheduleQuery => isRecord(entry) && typeof entry.id === 'string' && typeof entry.name === 'string' && isRecord(entry.filters));
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedScheduleQueries(queries: SavedScheduleQuery[]) {
+  if (!canUseLocalStorage()) return;
+  window.localStorage.setItem(SAVED_SCHEDULE_QUERIES_KEY, JSON.stringify(queries.slice(0, 20)));
+}
+
+function normalizeSavedFilters(filters: Partial<ScheduleDiscoveryFilters>): ScheduleDiscoveryFilters {
+  const defaults = defaultDiscoveryFilters();
+  return {
+    files: Array.isArray(filters.files) ? filters.files.filter(Boolean) : defaults.files,
+    users: Array.isArray(filters.users) ? filters.users.filter(Boolean) : defaults.users,
+    projects: Array.isArray(filters.projects) ? filters.projects.filter(Boolean) : defaults.projects,
+    name: typeof filters.name === 'string' ? filters.name : defaults.name,
+    paused: filters.paused === 'paused' || filters.paused === 'active' ? filters.paused : defaults.paused,
+    branch: typeof filters.branch === 'string' ? filters.branch : defaults.branch,
+    latestOutcome: filters.latestOutcome === 'SUCCEEDED' || filters.latestOutcome === 'FAILED' || filters.latestOutcome === 'IGNORED' || filters.latestOutcome === 'NEVER'
+      ? filters.latestOutcome
+      : defaults.latestOutcome,
+    sort: filters.sort === 'name' || filters.sort === 'created_at' || filters.sort === 'last_run_at' ? filters.sort : defaults.sort,
+  };
+}
+
+function savedQueryID() {
+  return `schedule-query-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function guardrailTone(severity: GuardrailSeverity) {
+  if (severity === 'critical') return 'of-status-danger';
+  if (severity === 'warning') return 'of-status-warning';
+  return 'of-status-info';
 }
 
 function formatDate(value: string | null) {
@@ -96,6 +204,123 @@ function summarizeTarget(target: ScheduleTarget): string {
     value.check_rid ??
     value.source_rid;
   return rid ? `${titleize(kind)}: ${String(rid)}` : titleize(kind);
+}
+
+function targetRecord(schedule: Schedule) {
+  const [, value] = Object.entries(schedule.target.kind)[0] ?? [];
+  return isRecord(value) ? value : null;
+}
+
+function targetStrategy(schedule: Schedule) {
+  const value = targetRecord(schedule)?.schedule_target_strategy;
+  return typeof value === 'string' ? value : '';
+}
+
+function targetCount(schedule: Schedule) {
+  const record = targetRecord(schedule);
+  const outputs = record?.output_dataset_rids;
+  if (Array.isArray(outputs)) return Math.max(schedule.target_rids.length, outputs.length);
+  return schedule.target_rids.length;
+}
+
+function hasScheduleStatusCheckMetadata(schedule: Schedule) {
+  const record = targetRecord(schedule);
+  const guardrails = record?.guardrails;
+  if (isRecord(guardrails) && guardrails.schedule_status_check_planned === true) return true;
+  const healthChecks = record?.health_checks;
+  if (Array.isArray(healthChecks)) {
+    return healthChecks.some((entry) => String(entry).toLowerCase().includes('schedule_status'));
+  }
+  return record?.schedule_status_check === true;
+}
+
+function isProductionSchedule(schedule: Schedule) {
+  const haystack = `${schedule.name} ${schedule.project_rid} ${schedule.branch}`.toLowerCase();
+  return /\b(prod|production)\b/.test(haystack) || ['main', 'master', 'production', 'prod'].includes((schedule.branch || '').toLowerCase());
+}
+
+function buildScheduleGuardrails(schedule: Schedule, visibleSchedules: Schedule[]): ScheduleGuardrail[] {
+  const out: ScheduleGuardrail[] = [];
+  const count = targetCount(schedule);
+  const strategy = targetStrategy(schedule);
+  const targetRids = new Set(schedule.target_rids);
+  const overlapping = visibleSchedules.filter((other) => (
+    other.rid !== schedule.rid &&
+    (other.branch || 'master') === (schedule.branch || 'master') &&
+    other.target_rids.some((rid) => targetRids.has(rid))
+  ));
+
+  if (count > BROAD_TARGET_THRESHOLD) {
+    out.push({
+      code: 'over_broad_targets',
+      severity: 'warning',
+      title: 'Broad target set',
+      message: `${count} resources are indexed on this schedule.`,
+      recommendation: 'Prefer connecting builds or split schedules around clear pipeline boundaries.',
+    });
+  }
+
+  if (overlapping.length > 0) {
+    out.push({
+      code: 'schedule_overlap',
+      severity: 'warning',
+      title: 'Visible schedule overlap',
+      message: `${overlapping.length} visible schedule${overlapping.length === 1 ? '' : 's'} share target resources on branch ${schedule.branch || 'master'}.`,
+      recommendation: `Review ${overlapping.slice(0, 3).map((item) => item.name).join(', ')} and keep one scheduled build per dataset or pipeline section.`,
+    });
+  }
+
+  if (['with_dependencies', 'descendants', 'mixed'].includes(strategy) && count > 1) {
+    out.push({
+      code: 'redundant_downstream_builds',
+      severity: 'info',
+      title: 'Check downstream redundancy',
+      message: `Strategy ${strategy || 'unknown'} builds multiple targets together.`,
+      recommendation: 'Avoid scheduling every pipeline step separately; target terminal datasets and use connecting builds for explicit boundaries.',
+    });
+  }
+
+  if (schedule.scope_kind === 'USER' && !schedule.run_as_identity) {
+    out.push({
+      code: 'missing_owner',
+      severity: 'warning',
+      title: 'User-scoped owner risk',
+      message: 'This schedule has no stable run-as identity recorded.',
+      recommendation: 'Use a project-scoped schedule or a service user so owner permission drift does not break production builds.',
+    });
+  }
+
+  if (schedule.build_strategy === 'FORCE' && count > 1) {
+    out.push({
+      code: 'expensive_force_build',
+      severity: 'critical',
+      title: 'Expensive force build',
+      message: `Force build is enabled for ${count} targets.`,
+      recommendation: 'Reserve force builds for raw Data Connection syncs and split those syncs away from derived datasets.',
+    });
+  }
+
+  if (isProductionSchedule(schedule) && !hasScheduleStatusCheckMetadata(schedule)) {
+    out.push({
+      code: 'missing_schedule_status_check',
+      severity: 'warning',
+      title: 'Missing schedule status check metadata',
+      message: 'This schedule looks production-facing, but no schedule status check acknowledgement is recorded.',
+      recommendation: 'Add a Data Health schedule status check to monitor failures across the whole scheduled build.',
+    });
+  }
+
+  if (schedule.target_rids.length === 0) {
+    out.push({
+      code: 'missing_health_checks',
+      severity: 'info',
+      title: 'No indexed target resources',
+      message: 'Target RIDs are empty, so dataset health check coverage cannot be verified here.',
+      recommendation: 'Re-save the schedule with explicit target resources and add status/freshness checks for production outputs.',
+    });
+  }
+
+  return out;
 }
 
 function getRunCounts(runs: ScheduleRun[]) {
@@ -165,6 +390,8 @@ function ScheduleCard({
   onDelete: () => void;
 }) {
   const timeTrigger = getTimeTrigger(schedule.trigger);
+  const latestOutcome = schedule.last_run_outcome ?? null;
+  const latestOutcomeTone = latestOutcome ? OUTCOME_TONE[latestOutcome] : null;
   return (
     <article
       className="of-panel"
@@ -218,12 +445,33 @@ function ScheduleCard({
                 Target
               </p>
               <p style={{ margin: '3px 0 0', overflowWrap: 'anywhere' }}>{summarizeTarget(schedule.target)}</p>
+              {schedule.target_rids.length > 0 && (
+                <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 11, overflowWrap: 'anywhere' }}>
+                  {schedule.target_rids.length} resource{schedule.target_rids.length === 1 ? '' : 's'} · {schedule.target_rids.slice(0, 2).join(', ')}
+                  {schedule.target_rids.length > 2 ? '...' : ''}
+                </p>
+              )}
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span className="of-chip">Branch {schedule.branch || 'master'}</span>
             <span className="of-chip">{schedule.scope_kind}</span>
             {timeTrigger && <span className="of-chip">{timeTrigger.flavor}</span>}
+            {latestOutcomeTone ? (
+              <span
+                className="of-chip"
+                style={{
+                  background: latestOutcomeTone.background,
+                  color: latestOutcomeTone.color,
+                  borderColor: latestOutcomeTone.borderColor,
+                }}
+              >
+                Latest {latestOutcome}
+              </span>
+            ) : (
+              <span className="of-chip">Never run</span>
+            )}
             {schedule.pending_re_run && <span className="of-chip of-status-info">Pending rerun</span>}
             {schedule.active_run_id && <span className="of-chip of-status-info">Run active</span>}
           </div>
@@ -233,7 +481,14 @@ function ScheduleCard({
               <p className="of-eyebrow" style={{ margin: 0 }}>
                 Last run
               </p>
-              <p style={{ margin: '3px 0 0' }}>{formatDate(schedule.last_run_at)}</p>
+              <p style={{ margin: '3px 0 0' }}>
+                {formatDate(schedule.last_run_at)}
+                {schedule.last_run_build_rid && (
+                  <Link to={`/builds/${schedule.last_run_build_rid}`} style={{ display: 'block', fontSize: 10, marginTop: 2 }}>
+                    {schedule.last_run_build_rid}
+                  </Link>
+                )}
+              </p>
             </div>
             <div>
               <p className="of-eyebrow" style={{ margin: 0 }}>
@@ -292,12 +547,18 @@ export function BuildSchedulesPage() {
   const [filterPaused, setFilterPaused] = useState<PauseFilter>(
     () => (searchParams.get('paused_filter') ?? 'all') as PauseFilter,
   );
+  const [filterBranch, setFilterBranch] = useState(() => searchParams.get('branch') ?? '');
+  const [filterLatestOutcome, setFilterLatestOutcome] = useState<LatestOutcomeFilter>(
+    () => (searchParams.get('latest_outcome') ?? 'all') as LatestOutcomeFilter,
+  );
   const [sortBy, setSortBy] = useState<SortKey>(() => (searchParams.get('sort') ?? 'updated_at') as SortKey);
   const [selectedRid, setSelectedRid] = useState(() => searchParams.get('selected') ?? '');
 
   const [filterInputFiles, setFilterInputFiles] = useState('');
   const [filterInputUsers, setFilterInputUsers] = useState('');
   const [filterInputProjects, setFilterInputProjects] = useState('');
+  const [savedQueryName, setSavedQueryName] = useState('');
+  const [savedQueries, setSavedQueries] = useState<SavedScheduleQuery[]>(() => loadSavedScheduleQueries());
 
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [total, setTotal] = useState(0);
@@ -321,9 +582,32 @@ export function BuildSchedulesPage() {
   const selectedScheduleRid = selectedSchedule?.rid ?? '';
   const selectedScheduleVersion = selectedSchedule?.version ?? 0;
   const runCounts = getRunCounts(runs);
+  const selectedGuardrails = useMemo(
+    () => (selectedSchedule ? buildScheduleGuardrails(selectedSchedule, schedules) : []),
+    [selectedSchedule, schedules],
+  );
+  const currentFilters = useMemo<ScheduleDiscoveryFilters>(
+    () => ({
+      files: filterFiles,
+      users: filterUsers,
+      projects: filterProjects,
+      name: filterName,
+      paused: filterPaused,
+      branch: filterBranch,
+      latestOutcome: filterLatestOutcome,
+      sort: sortBy,
+    }),
+    [filterFiles, filterUsers, filterProjects, filterName, filterPaused, filterBranch, filterLatestOutcome, sortBy],
+  );
 
   const showOwnerOnlyBanner =
-    filterFiles.length === 0 && filterProjects.length === 0 && filterName.trim() === '' && filterUsers.length === 0;
+    filterFiles.length === 0 &&
+    filterProjects.length === 0 &&
+    filterName.trim() === '' &&
+    filterUsers.length === 0 &&
+    filterBranch.trim() === '' &&
+    filterLatestOutcome === 'all' &&
+    filterPaused === 'all';
 
   function buildQuery(): ListSchedulesQuery {
     const query: ListSchedulesQuery = {
@@ -331,8 +615,10 @@ export function BuildSchedulesPage() {
       users: filterUsers,
       projects: filterProjects,
       q: filterName.trim() || undefined,
+      branch: filterBranch.trim() || undefined,
       sort: sortBy,
     };
+    if (filterLatestOutcome !== 'all') query.latest_outcome = filterLatestOutcome;
     if (filterPaused === 'paused') query.paused = true;
     else if (filterPaused === 'active') query.paused = false;
     return query;
@@ -365,6 +651,8 @@ export function BuildSchedulesPage() {
     for (const project of filterProjects) next.append('projects', project);
     if (filterName.trim()) next.set('q', filterName.trim());
     if (filterPaused !== 'all') next.set('paused_filter', filterPaused);
+    if (filterBranch.trim()) next.set('branch', filterBranch.trim());
+    if (filterLatestOutcome !== 'all') next.set('latest_outcome', filterLatestOutcome);
     if (sortBy !== 'updated_at') next.set('sort', sortBy);
     if (selectedRid) next.set('selected', selectedRid);
     setSearchParams(next, { replace: true });
@@ -395,7 +683,7 @@ export function BuildSchedulesPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterFiles, filterUsers, filterProjects, filterName, filterPaused, sortBy, selectedRid]);
+  }, [filterFiles, filterUsers, filterProjects, filterName, filterPaused, filterBranch, filterLatestOutcome, sortBy, selectedRid]);
 
   useEffect(() => {
     if (!selectedScheduleRid) {
@@ -456,6 +744,77 @@ export function BuildSchedulesPage() {
 
   function removeFilter(arr: string[], value: string): string[] {
     return arr.filter((x) => x !== value);
+  }
+
+  function applyFilters(filters: Partial<ScheduleDiscoveryFilters>) {
+    const next = normalizeSavedFilters(filters);
+    setFilterFiles(next.files);
+    setFilterUsers(next.users);
+    setFilterProjects(next.projects);
+    setFilterName(next.name);
+    setFilterPaused(next.paused);
+    setFilterBranch(next.branch);
+    setFilterLatestOutcome(next.latestOutcome);
+    setSortBy(next.sort);
+    setSelectedRid('');
+  }
+
+  function builtinQuery(kind: keyof typeof BUILT_IN_QUERY_IDS): SavedScheduleQuery {
+    const now = new Date().toISOString();
+    if (kind === 'paused') {
+      return {
+        id: BUILT_IN_QUERY_IDS.paused,
+        name: 'Paused schedules',
+        description: 'Schedules currently paused.',
+        savedAt: now,
+        filters: { ...defaultDiscoveryFilters(), paused: 'paused', sort: 'updated_at' },
+      };
+    }
+    if (kind === 'project') {
+      const project = filterProjects[0] || filterInputProjects.trim() || 'ri.foundry.main.project.default';
+      return {
+        id: BUILT_IN_QUERY_IDS.project,
+        name: 'Scoped to project',
+        description: project,
+        savedAt: now,
+        filters: { ...defaultDiscoveryFilters(), projects: [project], sort: 'updated_at' },
+      };
+    }
+    const dataset = filterFiles[0] || filterInputFiles.trim();
+    return {
+      id: BUILT_IN_QUERY_IDS.dataset,
+      name: 'Touching dataset',
+      description: dataset || 'Enter a dataset RID first.',
+      savedAt: now,
+      filters: { ...defaultDiscoveryFilters(), files: dataset ? [dataset] : [], sort: 'updated_at' },
+    };
+  }
+
+  function saveCurrentQuery() {
+    const name = savedQueryName.trim() || filterName.trim() || `Schedule query ${savedQueries.length + 1}`;
+    const query: SavedScheduleQuery = {
+      id: savedQueryID(),
+      name,
+      description: [
+        currentFilters.paused !== 'all' ? `status:${currentFilters.paused}` : '',
+        currentFilters.latestOutcome !== 'all' ? `latest:${currentFilters.latestOutcome}` : '',
+        currentFilters.branch.trim() ? `branch:${currentFilters.branch.trim()}` : '',
+        currentFilters.files.length ? `${currentFilters.files.length} resource filters` : '',
+        currentFilters.projects.length ? `${currentFilters.projects.length} project filters` : '',
+      ].filter(Boolean).join(' · ') || 'Custom schedule discovery query',
+      filters: normalizeSavedFilters(currentFilters),
+      savedAt: new Date().toISOString(),
+    };
+    const next = [query, ...savedQueries.filter((saved) => saved.name !== query.name)].slice(0, 20);
+    setSavedQueries(next);
+    persistSavedScheduleQueries(next);
+    setSavedQueryName('');
+  }
+
+  function deleteSavedQuery(id: string) {
+    const next = savedQueries.filter((query) => query.id !== id);
+    setSavedQueries(next);
+    persistSavedScheduleQueries(next);
   }
 
   function replaceSchedule(updated: Schedule) {
@@ -543,13 +902,76 @@ export function BuildSchedulesPage() {
             </p>
           </div>
 
+          <section data-testid="saved-schedule-queries" className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
+            <div>
+              <h3 className="of-eyebrow" style={{ margin: 0 }}>
+                Saved queries
+              </h3>
+              <p className="of-text-muted" style={{ margin: '3px 0 0', fontSize: 11 }}>
+                Apply common discovery views or save the active filters.
+              </p>
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {(['paused', 'project', 'dataset'] as const).map((kind) => {
+                const query = builtinQuery(kind);
+                const disabled = kind === 'dataset' && query.filters.files.length === 0;
+                return (
+                  <button
+                    type="button"
+                    key={query.id}
+                    className="of-button"
+                    onClick={() => applyFilters(query.filters)}
+                    disabled={disabled}
+                    style={{ justifyContent: 'flex-start', textAlign: 'left', minHeight: 32 }}
+                    title={disabled ? 'Type a dataset/resource RID before applying this query.' : query.description}
+                  >
+                    {query.name}
+                  </button>
+                );
+              })}
+            </div>
+            {savedQueries.length > 0 && (
+              <div style={{ display: 'grid', gap: 5 }}>
+                {savedQueries.map((query) => (
+                  <div key={query.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 4, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="of-button of-button--ghost"
+                      onClick={() => applyFilters(query.filters)}
+                      style={{ justifyContent: 'flex-start', textAlign: 'left', minWidth: 0 }}
+                      title={`${query.description} · saved ${formatDate(query.savedAt)}`}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{query.name}</span>
+                    </button>
+                    <button type="button" className="of-button of-button--ghost" onClick={() => deleteSavedQuery(query.id)} aria-label={`Delete saved query ${query.name}`}>
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6 }}>
+              <input
+                type="text"
+                placeholder="Save as..."
+                value={savedQueryName}
+                onChange={(e) => setSavedQueryName(e.target.value)}
+                className="of-input"
+                style={{ fontSize: 12 }}
+              />
+              <button type="button" className="of-button" onClick={saveCurrentQuery}>
+                Save
+              </button>
+            </div>
+          </section>
+
           <section data-testid="filter-files">
             <h3 className="of-eyebrow" style={{ margin: 0 }}>
-              Files
+              Datasets/resources
             </h3>
             <input
               type="text"
-              placeholder="Add dataset RID + Enter"
+              placeholder="Add dataset/resource RID + Enter"
               data-testid="filter-files-input"
               value={filterInputFiles}
               onChange={(e) => setFilterInputFiles(e.target.value)}
@@ -567,11 +989,11 @@ export function BuildSchedulesPage() {
 
           <section data-testid="filter-users">
             <h3 className="of-eyebrow" style={{ margin: 0 }}>
-              Users
+              Owners/updaters
             </h3>
             <input
               type="text"
-              placeholder="Add user id + Enter"
+              placeholder="Add owner/updater id + Enter"
               data-testid="filter-users-input"
               value={filterInputUsers}
               onChange={(e) => setFilterInputUsers(e.target.value)}
@@ -643,6 +1065,40 @@ export function BuildSchedulesPage() {
 
           <section>
             <h3 className="of-eyebrow" style={{ margin: 0 }}>
+              Latest run status
+            </h3>
+            <select
+              value={filterLatestOutcome}
+              onChange={(e) => setFilterLatestOutcome(e.target.value as LatestOutcomeFilter)}
+              data-testid="filter-latest-outcome-select"
+              className="of-select"
+              style={{ marginTop: 4, fontSize: 12 }}
+            >
+              <option value="all">All</option>
+              <option value="SUCCEEDED">Succeeded</option>
+              <option value="FAILED">Failed</option>
+              <option value="IGNORED">Ignored</option>
+              <option value="NEVER">Never run</option>
+            </select>
+          </section>
+
+          <section>
+            <h3 className="of-eyebrow" style={{ margin: 0 }}>
+              Branch
+            </h3>
+            <input
+              type="text"
+              placeholder="branch name"
+              data-testid="filter-branch-input"
+              value={filterBranch}
+              onChange={(e) => setFilterBranch(e.target.value)}
+              className="of-input"
+              style={{ marginTop: 4, fontSize: 12 }}
+            />
+          </section>
+
+          <section>
+            <h3 className="of-eyebrow" style={{ margin: 0 }}>
               Sort
             </h3>
             <select
@@ -666,6 +1122,11 @@ export function BuildSchedulesPage() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {filterName.trim() && <span className="of-chip">Name: {filterName.trim()}</span>}
               {filterPaused !== 'all' && <span className="of-chip">Status: {filterPaused}</span>}
+              {filterLatestOutcome !== 'all' && <span className="of-chip">Latest: {LATEST_OUTCOME_LABELS[filterLatestOutcome]}</span>}
+              {filterBranch.trim() && <span className="of-chip">Branch: {filterBranch.trim()}</span>}
+              {filterFiles.length > 0 && <span className="of-chip">{filterFiles.length} resources</span>}
+              {filterUsers.length > 0 && <span className="of-chip">{filterUsers.length} owners/updaters</span>}
+              {filterProjects.length > 0 && <span className="of-chip">{filterProjects.length} projects</span>}
               <span className="of-chip">Sort: {SORT_LABELS[sortBy]}</span>
             </div>
           </div>
@@ -730,7 +1191,7 @@ export function BuildSchedulesPage() {
                   {selectedSchedule.name}
                 </h2>
                 <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-                  v{selectedSchedule.version} · {selectedSchedule.project_rid}
+                  v{selectedSchedule.version} · {selectedSchedule.project_rid} · branch {selectedSchedule.branch || 'master'}
                 </p>
               </header>
 
@@ -818,7 +1279,50 @@ export function BuildSchedulesPage() {
                       {summarizeTarget(selectedSchedule.target)}
                     </p>
                   </div>
+                  <div>
+                    <strong>Resource index</strong>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, overflowWrap: 'anywhere' }}>
+                      {selectedSchedule.target_rids.length > 0 ? selectedSchedule.target_rids.join(', ') : 'No indexed resources'}
+                    </p>
+                  </div>
+                  <div>
+                    <strong>Owner / updater</strong>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, overflowWrap: 'anywhere' }}>
+                      {selectedSchedule.owner || selectedSchedule.created_by} / {selectedSchedule.last_updated_by}
+                    </p>
+                  </div>
+                  <div>
+                    <strong>Latest run status</strong>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, overflowWrap: 'anywhere' }}>
+                      {selectedSchedule.last_run_outcome ?? 'Never run'}
+                      {selectedSchedule.last_run_build_rid ? ` · ${selectedSchedule.last_run_build_rid}` : ''}
+                    </p>
+                  </div>
                 </div>
+              </section>
+
+              <section style={{ padding: 14, display: 'grid', gap: 8, borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                  <p className="of-eyebrow" style={{ margin: 0 }}>
+                    Best-practice guardrails
+                  </p>
+                  <span className="of-chip">{selectedGuardrails.length} finding{selectedGuardrails.length === 1 ? '' : 's'}</span>
+                </div>
+                {selectedGuardrails.length === 0 ? (
+                  <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+                    No guardrails are currently firing for this visible schedule context.
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gap: 7 }}>
+                    {selectedGuardrails.map((guardrail) => (
+                      <article key={guardrail.code} className={guardrailTone(guardrail.severity)} style={{ padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
+                        <strong style={{ display: 'block', fontSize: 12 }}>{guardrail.title}</strong>
+                        <p style={{ margin: '3px 0 0', fontSize: 11 }}>{guardrail.message}</p>
+                        <p style={{ margin: '3px 0 0', fontSize: 11 }}>{guardrail.recommendation}</p>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </section>
 
               <section style={{ padding: 14, display: 'grid', gap: 8, borderBottom: '1px solid var(--border-subtle)' }}>

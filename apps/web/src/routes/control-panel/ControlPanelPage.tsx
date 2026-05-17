@@ -174,6 +174,9 @@ export function ControlPanelPage() {
         <Link to="/control-panel/tenancy" className="of-button">Organizations &amp; spaces →</Link>
         <Link to="/control-panel/identity-providers" className="of-button">Identity providers →</Link>
         <Link to="/control-panel/users" className="of-button">Users →</Link>
+        <Link to="/control-panel/groups" className="of-button">Groups →</Link>
+        <Link to="/control-panel/projects" className="of-button">Projects (security) →</Link>
+        <Link to="/control-panel/role-sets" className="of-button">Role sets &amp; operations →</Link>
       </div>
 
       {settings && (

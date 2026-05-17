@@ -79,6 +79,19 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Post("/users/{id}/groups", h.AddUserToGroup)
 		api.Delete("/users/{id}/groups/{group_id}", h.RemoveUserFromGroup)
 
+		// SG.7: role sets, operation catalog, and the delegation
+		// rank checker. The legacy /roles + /permissions surfaces
+		// stay as-is so existing SDKs and admin UIs keep working.
+		api.Get("/role-sets", h.ListRoleSets)
+		api.Post("/role-sets", h.CreateRoleSet)
+		api.Get("/role-sets/{id}", h.GetRoleSet)
+		api.Patch("/role-sets/{id}", h.UpdateRoleSet)
+		api.Delete("/role-sets/{id}", h.DeleteRoleSet)
+		api.Post("/role-sets/{id}/roles", h.AddRoleToRoleSet)
+		api.Delete("/role-sets/{id}/roles/{role_id}", h.RemoveRoleFromRoleSet)
+		api.Post("/role-sets/{id}/delegation:check", h.CheckRoleSetDelegation)
+		api.Get("/operations", h.ListOperations)
+
 		api.Get("/governance-template-applications", h.ListGovernanceTemplateApplications)
 		api.Post("/governance-template-applications", h.ApplyGovernanceTemplate)
 		api.Delete("/governance-template-applications/{id}", h.DeleteGovernanceTemplateApplication)

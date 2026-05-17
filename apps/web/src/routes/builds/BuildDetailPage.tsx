@@ -8,6 +8,7 @@ import { Tabs } from '@/lib/components/Tabs';
 import { ArtifactsPanel } from '@/lib/components/builds/ArtifactsPanel';
 import { BuildRunLogs } from '@/lib/components/builds/BuildRunLogs';
 import { StateBadge } from '@/lib/components/builds/StateBadge';
+import { BuildExpectationResultsPanel } from '@/lib/components/pipeline/DataExpectationsPanel';
 import {
   abortBuildV1,
   getBuildV1,
@@ -211,6 +212,7 @@ export function BuildDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, alignItems: 'start' }}>
               <section style={{ display: 'grid', gap: 16 }}>
                 <JobsPanel build={build} selectedJobRid={selectedJob?.rid ?? ''} onSelectJob={setSelectedJobRid} />
+                <BuildExpectationResultsPanel build={build} />
                 <BuildTimeline build={build} />
               </section>
               <JobDataPanel job={selectedJob} />

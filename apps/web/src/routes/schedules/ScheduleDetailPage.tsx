@@ -17,6 +17,7 @@ import {
   type ScheduleVersion,
   type Trigger,
 } from '@/lib/api/schedules';
+import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
 import { notifications } from '@/lib/stores/notifications';
 
 type TabKey = 'overview' | 'runs' | 'versions' | 'raw';
@@ -481,6 +482,11 @@ export function ScheduleDetailPage() {
           label="Recent outcomes"
           value={`${runStats.failed}/${runStats.total} failed`}
           sub={`${runStats.succeeded} succeeded - ${runStats.ignored} ignored`}
+        />
+        <MetricCard
+          label="Data Health"
+          value={<ResourceHealthStatusBadge resourceRid={schedule.rid} compact />}
+          sub="Latest generated health report"
         />
       </div>
 

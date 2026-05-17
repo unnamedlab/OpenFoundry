@@ -503,6 +503,67 @@ OpenFoundry canonical IDs.
   - Provide cleanup plans that preserve lineage, audit, and downstream resource warnings.
   - Docs: [Data Connection overview](https://www.palantir.com/docs/foundry/data-connection/overview), [Virtual tables](https://www.palantir.com/docs/foundry/data-integration/virtual-tables/).
 
+## Milestone D: Magritte-style connector framework with coordinator
+
+> **Added 2026-05-17.** The connectors above describe per-connector
+> capability. This milestone adds the **connector framework** itself
+> (coordinator + agent runtime + connector SDK) so new connectors are
+> first-class plugins rather than per-service code, matching Palantir's
+> Magritte plane.
+
+### Coordinator and agent
+
+- [ ] `SDC.52` Connector coordinator service (`P1`, `todo`)
+  - Dedicated coordinator that registers connector kinds, validates source configs against connector schemas, dispatches sync/export/webhook work to agents or worker pools, and tracks per-source health.
+  - Coordinator is the single API surface for `services/connector-management-service` to publish source actions; per-connector adapters remain pluggable.
+  - Docs: [Connector framework overview](https://palantir.com/docs/foundry/data-connection/connector-framework), [Magritte coordinator concepts](https://palantir.com/docs/foundry/data-connection/coordinator).
+
+- [ ] `SDC.53` Downloadable agent for in-network sources (`P1`, `todo`)
+  - Provide a binary (Go) the customer can install on a host inside their network; agent registers with the coordinator using a service token and pulls work over a persistent outbound connection (no inbound port).
+  - Agent advertises capabilities (which connectors it supports, network reach, host metadata) and accepts only work dispatched by the coordinator.
+  - Docs: [Agents](https://palantir.com/docs/foundry/data-connection/set-up-agent).
+
+- [ ] `SDC.54` Agent ↔ coordinator transport (`P1`, `todo`)
+  - mTLS-secured outbound long-poll or gRPC stream from agent to coordinator; coordinator never originates connections to the agent.
+  - Standard heartbeat, version reporting, and graceful drain on agent shutdown.
+  - Docs: [Agents](https://palantir.com/docs/foundry/data-connection/set-up-agent).
+
+### Connector SDK
+
+- [ ] `SDC.55` Connector SDK contract (`P1`, `todo`)
+  - Versioned Go (and optionally Python) SDK with required interfaces: `Capabilities()`, `ValidateConfig(cfg)`, `TestConnection(cfg, creds)`, `Explore(cfg, creds, path)`, `SyncFiles(...)`, `SyncTable(...)`, `SyncStream(...)`, `ExportFiles(...)`, `ExportTable(...)`, `ExportStream(...)`, `InvokeWebhook(...)`.
+  - Optional interfaces for CDC, schema inference, push ingestion.
+  - SDK ships with a conformance harness that any new connector must pass.
+  - Docs: [Connector framework overview](https://palantir.com/docs/foundry/data-connection/connector-framework).
+
+- [ ] `SDC.56` Built-in connectors implemented against the SDK (`P1`, `todo`)
+  - Migrate REST v2, JDBC, S3, SFTP, Kafka, GCS, Azure Blob, SAP, Salesforce, and Databricks adapters to the new SDK; remove the existing per-connector `stubRunner` / `ErrNotImplemented` defaults.
+  - Each connector publishes a capability matrix that the coordinator surfaces in the source setup wizard.
+  - Docs: [Connector reference](https://palantir.com/docs/foundry/data-connection/connectors).
+
+### Credentials and egress
+
+- [ ] `SDC.57` Coordinator-managed credentials (`P1`, `todo`)
+  - Coordinator stores per-source credentials in the secret store (Vault Transit by default) and serves them to agents only at dispatch time over the mTLS channel.
+  - Per-credential rotation policy with audit emission on read.
+  - Docs: [Credentials](https://palantir.com/docs/foundry/data-connection/credentials).
+
+- [ ] `SDC.58` Egress policies enforced by coordinator (`P1`, `todo`)
+  - Coordinator refuses to dispatch work whose target violates the source's egress policy; agents independently re-validate against the policy snapshot they receive.
+  - Audit per refusal with reason code.
+  - Docs: [Egress policies](https://palantir.com/docs/foundry/data-connection/egress).
+
+### Operability
+
+- [ ] `SDC.59` Agent fleet view (`P2`, `todo`)
+  - Admin UI listing agents with version, last heartbeat, supported connectors, in-flight work, and queue depth.
+  - One-click "drain" to stop dispatching new work without killing in-flight syncs.
+  - Docs: [Agents](https://palantir.com/docs/foundry/data-connection/set-up-agent).
+
+- [ ] `SDC.60` Connector marketplace publication (`P2`, `todo`)
+  - Third-party connectors built against the SDK can be packaged as Marketplace products with capability declarations; install registers the connector with the coordinator.
+  - Docs: [Connector framework overview](https://palantir.com/docs/foundry/data-connection/connector-framework).
+
 ## Implementation inventory to collect before coding
 
 - [ ] `INV.1` Identify existing OpenFoundry connector/source models, REST source models, credential stores, network policy resources, and source permission models.

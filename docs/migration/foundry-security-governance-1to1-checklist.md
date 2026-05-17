@@ -260,37 +260,93 @@ OpenFoundry canonical IDs.
     - Frontend client [`apps/web/src/lib/api/users-admin.ts`](../../apps/web/src/lib/api/users-admin.ts) + admin page [`apps/web/src/routes/control-panel/UsersPage.tsx`](../../apps/web/src/routes/control-panel/UsersPage.tsx) at `/control-panel/users` — search/filter bar, preregister form, per-row activate / deactivate / soft-delete / restore / revoke-tokens, inspect side panel. Router entry in [`apps/web/src/router.tsx`](../../apps/web/src/router.tsx); Control Panel header now links it. `tsc -b --noEmit` clean, eslint clean.
     - Out-of-scope follow-ups tracked under their own checklist items: cross-service guest-membership fetch from `tenancy-organizations-service` (`SG.2`), audit-event link surfacing (`SG.16`–`SG.17`), token-policy configurability per organization (`SG.30`), and group-mapping recertification (`SG.5` / `SG.52`).
 
-- [ ] `SG.5` Group administration (`P0`, `todo`)
+- [x] `SG.5` Group administration (`P0`, `done` 2026-05-14)
   - Support internal, external, and rule-based groups with immutable group IDs, display names, descriptions, realm, nested members, attributes, and organization visibility.
   - Provide group administrators with manage permissions and manage membership permissions, including optional membership expiration.
   - Show direct and inherited project access for each group to support safe membership decisions.
   - Docs: [Manage groups](https://www.palantir.com/docs/foundry/platform-security-management/manage-groups), [Users and groups](https://www.palantir.com/docs/foundry/security/users-and-groups/).
+  - Implementation:
+    - Migration [`0012_slice5e_group_admin.sql`](../../services/identity-federation-service/internal/repo/migrations/0012_slice5e_group_admin.sql) adds `kind` (`internal`/`external`/`rule_based`), `display_name`, `realm`, `organization_id`, `attributes` JSONB, `rule_query` JSONB, `status`, and `updated_at` to `groups`; extends `group_members` with `added_at` / `added_by` / `expires_at` (partial index on non-null `expires_at`); creates `group_admins` (scope ∈ {`manage`, `manage_members`}) and `group_nested_members` (self-reference + cycle CHECKs).
+    - Wire types in [`internal/models/rbac.go`](../../services/identity-federation-service/internal/models/rbac.go): extended `Group`, new `CreateGroupRequest`/`UpdateGroupRequest` (nullable pointers via `**T` so JSON null clears fields), `ListGroupsFilter`, `ListGroupsResponse`, `GroupAdmin`, `CreateGroupAdminRequest`, `GroupMember`, `AddGroupMemberRequest`, `GroupNestedEdge`, `GroupInspection`. Stable wire constants for kinds, statuses, and admin scopes.
+    - Repo work in [`internal/repo/rbac.go`](../../services/identity-federation-service/internal/repo/rbac.go): canonical `groupSelectColumns`, refactored `scanGroupSingle` / `scanGroupRows`, `ListGroupsFiltered` (substring search + kind/realm/org/status filters + offset pagination + total count), extended `CreateGroup`/`UpdateGroup`/`AddGroupMember` (time-bounded membership via upsert), `CountGroupMembers` (direct + expiring), `ListGroupMembers`, `ListGroupAdmins`/`UpsertGroupAdmin`/`DeleteGroupAdmin`/`IsGroupAdmin`, `AddGroupNested`/`RemoveGroupNested` (rejects self-reference + cycles via a recursive CTE), `ListGroupParents`/`ListGroupChildren`.
+    - Handlers in [`internal/handlers/rbac.go`](../../services/identity-federation-service/internal/handlers/rbac.go) (extended `AddGroupMember` to accept an `expires_at` body and stamp `added_by` from the caller's claims) and new file [`internal/handlers/group_admin.go`](../../services/identity-federation-service/internal/handlers/group_admin.go) (`SearchGroups`, `InspectGroup`, `ListGroupMembers`, `ListGroupAdmins`/`AddGroupAdmin`/`RemoveGroupAdmin`, `ListGroupParents`/`ListGroupChildren`, `AddNestedGroup`/`RemoveNestedGroup`). `InspectGroup` includes a `project_access_hint` string pointing at the canonical project-access lookup on `tenancy-organizations-service`.
+    - Routes registered in [`internal/server/server.go`](../../services/identity-federation-service/internal/server/server.go): `GET /groups/search`, `GET /groups/{id}/inspect`, `GET /groups/{id}/members`, `GET/POST/DELETE /groups/{id}/admins[/{user_id}]`, `GET /groups/{id}/parents`, `GET /groups/{id}/children`, `PUT/DELETE /groups/{id}/nested/{member_id}`.
+    - Tests in [`internal/handlers/group_admin_test.go`](../../services/identity-federation-service/internal/handlers/group_admin_test.go) pin the SG.5 wire shapes (`Group`, `GroupAdmin`, `GroupMember`, `GroupInspection`), lock the kind/status/scope vocabulary, and cover the no-DB validation paths (bad kind, bad status, bad organization_id, missing user_id, bad admin scope). `go test ./services/identity-federation-service/...` is green; `go vet` clean.
+    - Frontend client [`apps/web/src/lib/api/groups-admin.ts`](../../apps/web/src/lib/api/groups-admin.ts) + admin page [`apps/web/src/routes/control-panel/GroupsPage.tsx`](../../apps/web/src/routes/control-panel/GroupsPage.tsx) at `/control-panel/groups` — search/filter bar, create form (kind / realm / org), per-row archive / restore / delete, inspect side panel with admin/nested/member sub-forms (datetime-local picker for member expiration). Router entry in [`apps/web/src/router.tsx`](../../apps/web/src/router.tsx); Control Panel header now links it. `tsc -b --noEmit` clean, eslint clean.
+    - Out-of-scope follow-ups tracked under their own checklist items: cross-service group→project access fetch from `tenancy-organizations-service` (SG.2 / SG.9), SCIM-driven `external` group sync (covered by the existing `internal/scim` package — see [SCIM users/groups](https://www.palantir.com/docs/foundry/scim/)), rule-based membership evaluation engine (`SG.20` granular policies and `SG.43` attribute cache semantics), and project-access-impact recertification flows (`SG.52`).
 
 ### Projects, roles, and discretionary access
 
-- [ ] `SG.6` Project security boundary (`P0`, `todo`)
+- [x] `SG.6` Project security boundary (`P0`, `done` 2026-05-17)
   - Treat projects as primary collaborative security boundaries with folders/resources, default roles, explicit grants, references, and point-of-contact metadata.
   - Recommend group-based project roles and provide viewer/editor/owner group setup shortcuts.
   - Ensure file/folder requests inside a project resolve to project-level access requests unless OpenFoundry intentionally diverges.
   - Docs: [Projects and roles](https://www.palantir.com/docs/foundry/security/projects-and-roles), [Compass overview](https://www.palantir.com/docs/foundry/compass/overview).
+  - Implementation:
+    - Migration [`0009_sg6_project_security_boundary.sql`](../../services/tenancy-organizations-service/internal/repo/migrations/0009_sg6_project_security_boundary.sql) extends `ontology_projects` with `default_role` (CHECK ∈ {`discoverer`, `viewer`, `editor`, `owner`}), `point_of_contact_user_id`, `point_of_contact_email`, and `references` JSONB. Widens the user-membership `role` CHECK to admit `discoverer`. Adds two new tables: `ontology_project_group_memberships` (project-level group grants) and `ontology_project_access_requests` (project- or resource-scoped requests with status, decision, reason, and decided_by/decided_at).
+    - Wire types in [`internal/models/project.go`](../../services/tenancy-organizations-service/internal/models/project.go): added `OntologyProjectRoleDiscoverer` (rank floor), extended `OntologyProject` with `DefaultRole` / `PointOfContactUserID` / `PointOfContactEmail` / `References`. Updated `CreateOntologyProjectRequest` / `UpdateOntologyProjectRequest` (the latter uses `**T` for nullable pointers so JSON null clears them). New types `OntologyProjectGroupMembership`, `UpsertProjectGroupMembershipRequest`, `OntologyProjectAccessRequest`, `CreateProjectAccessRequestRequest`, `DecideProjectAccessRequestRequest`, `EnsureProjectAccessGroupsRequest`/`Response`, and stable wire constants for the four access-request statuses.
+    - Handlers extended in [`internal/handlers/projects.go`](../../services/tenancy-organizations-service/internal/handlers/projects.go) (`scanProjectRow` helper, `CreateProject` accepts the new fields, `UpdateProject` honours the triple-state semantics for contact / references, both round-trip through `loadProject` to return the full SG.6 shape). New file [`internal/handlers/projects_sg6.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg6.go) implements `ListProjectGroupMemberships`, `UpsertProjectGroupMembership`, `DeleteProjectGroupMembership`, `EnsureProjectAccessGroups` (the viewer/editor/owner group-setup shortcut — transactional), `CreateProjectAccessRequest`, `ListProjectAccessRequests` (admins/owners see all; requesters see their own; `?status=` filter), `DecideProjectAccessRequest` (approve/deny with reason, decoupled from the grant materialisation), and `CancelProjectAccessRequest` (requester-only).
+    - Routes registered in [`internal/server/server.go`](../../services/tenancy-organizations-service/internal/server/server.go): `GET/PUT /projects/{id}/group-memberships`, `DELETE /projects/{id}/group-memberships/{group_id}`, `POST /projects/{id}/access-groups:bootstrap`, `GET/POST /projects/{id}/access-requests`, `POST /projects/{id}/access-requests/{request_id}/decision`, `POST /projects/{id}/access-requests/{request_id}:cancel`.
+    - Tests in [`internal/handlers/projects_sg6_test.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg6_test.go) pin the SG.6 wire shapes (`OntologyProject` extension, `OntologyProjectGroupMembership`, `OntologyProjectAccessRequest`), lock the access-request status vocabulary, and cover no-DB validation paths (empty body, bad decision, bootstrap-with-no-ids). Updated [`project_test.go`](../../services/tenancy-organizations-service/internal/models/project_test.go) for the new lattice ranks. `go test ./services/tenancy-organizations-service/...` is green; `go vet` clean.
+    - Frontend client extended in [`apps/web/src/lib/api/tenancy.ts`](../../apps/web/src/lib/api/tenancy.ts) with project + group-membership + access-request types and helpers. New admin page [`apps/web/src/routes/control-panel/ProjectsPage.tsx`](../../apps/web/src/routes/control-panel/ProjectsPage.tsx) at `/control-panel/projects` — project picker, default-role / contact / references editor, group-memberships sub-form, viewer/editor/owner bootstrap sub-form, and an access-request inbox with approve/deny/cancel actions plus a self-request form. Router entry in [`apps/web/src/router.tsx`](../../apps/web/src/router.tsx); Control Panel header now links it. `tsc -b --noEmit` clean, eslint clean.
+    - Docs updated in [`docs/security-governance/security-overview.md`](../security-governance/security-overview.md) §"Discretionary roles" to describe the project security boundary and the project-level access-request resolution rule.
+    - Out-of-scope follow-ups tracked under their own checklist items: marking-driven access-request approval routing (`SG.13` / `SG.16`), automatic Approvals-style decision queue (`SG.9`), Marketplace-aware project templates (`SG.46`), and the file/folder-creation UI integration that turns "I can't open this folder" into the scoped access-request prefill (covered by the existing workspace handlers in `services/tenancy-organizations-service/internal/workspace/`).
 
-- [ ] `SG.7` Role and operation model (`P0`, `todo`)
+- [x] `SG.7` Role and operation model (`P0`, `done` 2026-05-17)
   - Implement default Owner, Editor, Viewer, and Discoverer-style roles plus custom roles/role sets where locally supported.
   - Map each role to low-level operations checked by services and ensure role delegation cannot exceed the grantor's own role level.
   - Support context-specific role sets for projects, ontology, restricted views, and platform administration.
   - Docs: [Projects and roles](https://www.palantir.com/docs/foundry/security/projects-and-roles), [Manage roles](https://www.palantir.com/docs/foundry/platform-security-management/manage-roles/).
+  - Implementation:
+    - Migration [`0008_sg7_role_sets_and_operations.sql`](../../services/authorization-policy-service/internal/repo/migrations/0008_sg7_role_sets_and_operations.sql) introduces `role_sets` (context CHECK ∈ {`project`, `ontology`, `restricted_view`, `platform_admin`}) and `role_set_roles (rank INT > 0, UNIQUE(role_set_id, rank))`. Seeds the operation catalog (project / ontology / restricted_view / platform `resource:action` rows), the four default role sets, the per-context Owner/Editor/Viewer/Discoverer roles, and the `role_permissions` bindings that turn each role into its capability surface.
+    - Wire types in [`internal/models/rbac.go`](../../services/authorization-policy-service/internal/models/rbac.go): `RoleSet`, `RoleSetRole`, `RoleSetResponse`, `CreateRoleSetRequest`, `UpdateRoleSetRequest`, `AddRoleToRoleSetRequest`, `OperationCatalogEntry`, `ListOperationsResponse`, `CheckDelegationRequest`/`Response`, plus stable wire constants for the four role-set contexts.
+    - Repo work in [`internal/repo/role_sets.go`](../../services/authorization-policy-service/internal/repo/role_sets.go): `ListRoleSets` (tenant-scoped, optional `context` filter), `GetRoleSet`/`GetRoleSetBySlug` with eager-loaded members, `CreateRoleSet`/`UpdateRoleSet`/`DeleteRoleSet`, `ListRoleSetRoles`/`AddRoleToRoleSet` (upsert) / `RemoveRoleFromRoleSet`, `ListOperationCatalog`, and the SG.7 delegation primitive: `HighestRankInRoleSet` (resolves via direct `user_roles` and `group_roles → group_members`), `RankOfRoleInSet`, and `CheckDelegation` (returns the structured answer).
+    - Handlers in [`internal/handlers/role_sets.go`](../../services/authorization-policy-service/internal/handlers/role_sets.go) wire the HTTP surface and gate every route behind `requirePermission(roles, read|write)` (the existing APS gating). `CheckRoleSetDelegation` defaults the grantor to the authenticated subject when no `grantor_id` is supplied.
+    - Delegation rank enforced on the existing `POST /users/{id}/roles` handler: when callers supply `?role_set_id=<uuid>`, the handler calls `Repo.CheckDelegation` and returns 403 with `delegation denied: <reason>` if the grantor's rank is below the target. Admin-role short-circuit preserved to match the existing permission-gating semantics. Updated in [`internal/handlers/rbac.go`](../../services/authorization-policy-service/internal/handlers/rbac.go).
+    - Routes registered in [`internal/server/server.go`](../../services/authorization-policy-service/internal/server/server.go): `GET /role-sets`, `POST /role-sets`, `GET/PATCH/DELETE /role-sets/{id}`, `POST /role-sets/{id}/roles`, `DELETE /role-sets/{id}/roles/{role_id}`, `POST /role-sets/{id}/delegation:check`, `GET /operations`.
+    - Tests in [`internal/handlers/role_sets_test.go`](../../services/authorization-policy-service/internal/handlers/role_sets_test.go) pin the SG.7 wire shapes (`RoleSetResponse`, `RoleSetRole`, `CheckDelegationResponse`, `OperationCatalogEntry`), lock the role-set context vocabulary, and cover no-DB validation paths (bad context filter, bad create context, empty create body, missing target role on delegation check, non-positive rank). `go test ./services/authorization-policy-service/...` is green; `go vet` clean.
+    - Frontend client [`apps/web/src/lib/api/role-sets.ts`](../../apps/web/src/lib/api/role-sets.ts) + admin page [`apps/web/src/routes/control-panel/RoleSetsPage.tsx`](../../apps/web/src/routes/control-panel/RoleSetsPage.tsx) at `/control-panel/role-sets` — context filter, create form, per-role-set role-management cards with rank input, a delegation-check tool that surfaces the structured `{allowed, grantor_rank, target_rank, reason}` answer, and the grouped operation catalog. Router entry in [`apps/web/src/router.tsx`](../../apps/web/src/router.tsx); Control Panel header now links it. `tsc -b --noEmit` clean, eslint clean.
+    - Docs updated in [`docs/security-governance/policies-and-authorization.md`](../security-governance/policies-and-authorization.md) §"Role sets, operations, and delegation rank (SG.7)" with the seeded contexts, the admin endpoint table, and the delegation-rank invariant statement.
+    - Out-of-scope follow-ups tracked under their own checklist items: hot-loading the role-set catalog into the in-process Cedar policy bundle ([Policy bundles in-process](../security-governance/policy-bundles.md)), per-resource grant tables that pin `(principal, resource, role_set, role)` (`SG.8`), enforcing delegation rank in the per-project group-membership flow (extending the existing `tenancy-organizations-service` SG.6 endpoints), and ontology-resource-level role grants (`SG.23`).
 
-- [ ] `SG.8` Role inheritance and direct grants (`P0`, `todo`)
+- [x] `SG.8` Role inheritance and direct grants (`P0`, `done` 2026-05-17)
   - Inherit roles from projects/folders to child resources and allow direct resource grants only where product semantics permit.
   - Resolve effective permissions from user grants, nested group grants, default roles, organization membership, markings, and scoped session.
   - Show effective-access explanations for a selected user/resource without leaking protected resource details to unauthorized administrators.
   - Docs: [Projects and roles](https://www.palantir.com/docs/foundry/security/projects-and-roles), [Checking permissions](https://www.palantir.com/docs/foundry/security/checking-permissions/).
+  - Implementation:
+    - Migration [`0010_sg8_role_inheritance_and_direct_grants.sql`](../../services/tenancy-organizations-service/internal/repo/migrations/0010_sg8_role_inheritance_and_direct_grants.sql) creates `ontology_project_resource_grants` with explicit `scope_kind ∈ (project, folder)`, `principal_kind ∈ (user, group)`, `role ∈ (discoverer, viewer, editor, owner)`, a CHECK that pairs `scope_kind = 'project'` with a NULL `scope_id` and `scope_kind = 'folder'` with a non-NULL one, plus the principal/scope/project unique index. Ontology-resource-level direct grants are intentionally excluded — those kinds inherit from their project per the existing domain rules.
+    - Wire types in [`internal/models/project.go`](../../services/tenancy-organizations-service/internal/models/project.go): `ProjectResourceGrant`, `CreateProjectResourceGrantRequest`, `ListProjectResourceGrantsResponse`, `EffectiveAccessSource`, `EffectiveAccessResponse`, and stable wire constants for the four grant scope/principal vocabularies plus the ten `EffectiveAccessSource*` source-kind strings.
+    - Handlers and resolver in [`internal/handlers/projects_sg8.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg8.go): `ListProjectResourceGrants` (view-access required + optional `scope_kind/scope_id/principal_kind/principal_id` filters), `CreateProjectResourceGrant` (project owner / admin only; validates the `scope_kind ↔ scope_id` rule and that the folder actually belongs to the project), `DeleteProjectResourceGrant`, and `CheckEffectiveAccess` which walks: (1) project owner, (2) project default role, (3) user-direct membership, (4) group-via-project memberships, (5) project-scope direct grants, (6) folder-scope direct grants + every ancestor via a recursive CTE on `parent_folder_id`. Sources are insertion-sorted by rank so `sources[0]` is the winning role; `resolved_role` is set explicitly. Anti-leak gate: the inspected user, the project owner, or a platform admin only — non-admin callers get a 403 without disclosing project existence.
+    - Routes registered in [`internal/server/server.go`](../../services/tenancy-organizations-service/internal/server/server.go): `GET/POST /projects/{id}/resource-grants`, `DELETE /projects/{id}/resource-grants/{grant_id}`, `GET /projects/{id}/effective-access?user_id=…&scope_kind=…&scope_id=…&group_ids=…`. `group_ids` is supplied by the gateway from the user's JWT groups attribute because cross-service group-membership lookup lives in identity-federation-service.
+    - Tests in [`internal/handlers/projects_sg8_test.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg8_test.go) pin the SG.8 wire shapes (`ProjectResourceGrant`, `EffectiveAccessResponse`, ten source-kind strings, four scope/principal constants) and cover no-DB validation paths (bad scope_kind, `scope_kind=project` with `scope_id`, missing `user_id`, folder scope without `scope_id`, malformed `group_ids`). `go test ./services/tenancy-organizations-service/...` is green; `go vet` clean.
+    - Frontend client [`apps/web/src/lib/api/tenancy.ts`](../../apps/web/src/lib/api/tenancy.ts) extended with `ProjectResourceGrant`, `EffectiveAccessSource`, `EffectiveAccessResponse`, ten `EffectiveAccessSourceKind` wire literals, and the CRUD / resolver helpers. Admin UI [`apps/web/src/routes/control-panel/ProjectsPage.tsx`](../../apps/web/src/routes/control-panel/ProjectsPage.tsx) now hosts a "Resource grants (SG.8)" sub-section and an "Effective access (SG.8)" probe that surfaces the ordered `sources[]` breakdown beneath the project detail editor. `tsc -b --noEmit` clean, eslint clean.
+    - Docs updated in [`docs/security-governance/security-overview.md`](../security-governance/security-overview.md) §"Discretionary roles" to describe direct grants, inheritance, and the effective-access resolver's anti-leak gate.
+    - Out-of-scope follow-ups tracked under their own checklist items: marking-aware composition into the effective-access resolver (`SG.13`–`SG.15`), scoped-session intersection on the resolver output (`SG.24`–`SG.25`), cross-service group-membership auto-lookup so callers don't have to forward `group_ids` (`SG.43`), restricted-view per-row visibility composition (`SG.21`–`SG.22`), and visualising the access graph as a UI graph (`SG.10`).
 
-- [ ] `SG.9` Access request workflow (`P0`, `todo`)
+- [x] `SG.9` Access request workflow (`P0`, `done` 2026-05-17)
   - Let users request project access, additional project access, group membership for a project role, and required marking access with a reason.
   - Route internal group membership requests to group administrators and direct project role requests to project owners.
   - Support external group request handoff messages/URLs and per-project exclusion of sensitive groups from request forms.
   - Docs: [Projects and roles](https://www.palantir.com/docs/foundry/security/projects-and-roles), [Manage groups](https://www.palantir.com/docs/foundry/platform-security-management/manage-groups), [Approvals overview](https://www.palantir.com/docs/foundry/approvals/overview/).
+  - Implementation:
+    - Migration [`0011_sg9_access_request_workflow.sql`](../../services/tenancy-organizations-service/internal/repo/migrations/0011_sg9_access_request_workflow.sql) extends `ontology_project_access_requests` with `request_type`, `requested_for_user_ids`, `completed_at`, and the expanded status vocabulary. It adds three tables:
+      - `ontology_project_access_request_tasks` for independently routed `group_membership`, `project_role`, `marking_access`, and `external_group_handoff` subtasks.
+      - `ontology_project_access_group_settings` for project-local access-form overlays: group kind, group-admin reviewer IDs, custom form JSON, external handoff message/URL, and `excluded_from_request_forms`.
+      - `ontology_project_required_markings` for required marking-access prompts and reviewer IDs until the full marking service lands under `SG.11`–`SG.16`.
+    - Wire types in [`internal/models/project.go`](../../services/tenancy-organizations-service/internal/models/project.go): expanded `OntologyProjectAccessRequest`, `ProjectAccessRequestTask`, `ProjectAccessRequestGroupSetting`, `ProjectRequiredMarking`, `ProjectAccessRequestFormResponse`, plus stable constants for request type, task type/status, request status, and project access group kind.
+    - Handler work in [`internal/handlers/projects_sg9.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg9.go) plus the upgraded SG.6 handlers:
+      - `GET /projects/{id}/access-request-form` returns visible requestable groups, required markings, and direct-role reviewers without requiring pre-existing project access.
+      - `PUT/DELETE /projects/{id}/access-request-groups/{group_id}` configures internal/external/rule-based request behavior, reviewer IDs, handoff copy/URL, and per-project hidden sensitive groups.
+      - `PUT/DELETE /projects/{id}/access-request-markings/{marking_id}` configures required marking access prompts and marking reviewers.
+      - `POST /projects/{id}/access-requests` accepts legacy direct-role requests and SG.9 multi-task requests (`project_role_requests`, `group_membership_requests`, `marking_access_requests`) with a required reason.
+      - `GET /access-requests/inbox` exposes a reviewer inbox: project owners for direct project-role tasks, configured group admins for group tasks, configured marking reviewers for marking tasks, and platform admins for all tasks.
+      - `POST /projects/{id}/access-requests/{request_id}/decision` applies a reviewer decision only to eligible subtasks; direct project-role approvals materialize `ontology_project_memberships`.
+    - External groups are represented as `external_group_handoff` tasks in `action_required` state with the configured handoff message/URL, matching the public-doc behavior that externally managed groups redirect users outside Foundry rather than being approved locally.
+    - Tests: [`internal/handlers/projects_sg9_test.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg9_test.go) covers task-status summarization, request-type validation, and reviewer UUID JSON decoding; [`internal/models/project_test.go`](../../services/tenancy-organizations-service/internal/models/project_test.go) pins the SG.9 task and form wire shapes. `go test ./services/tenancy-organizations-service/...` is green; `pnpm --dir apps/web exec tsc -b --noEmit` is green.
+    - Frontend client [`apps/web/src/lib/api/tenancy.ts`](../../apps/web/src/lib/api/tenancy.ts) includes the SG.9 request/task/form/settings types and API helpers. Admin UI [`apps/web/src/routes/control-panel/ProjectsPage.tsx`](../../apps/web/src/routes/control-panel/ProjectsPage.tsx) adds access-request form configuration, external group handoff fields, sensitive-group exclusion, required marking reviewer setup, multi-task manual request creation, and task rendering in the access-request inbox.
+    - Docs updated in [`docs/security-governance/security-overview.md`](../security-governance/security-overview.md) and [`docs/security-governance/identity-and-access.md`](../security-governance/identity-and-access.md).
+    - Out-of-scope follow-ups tracked under their own checklist items: full marking category/marking membership persistence (`SG.11`–`SG.16`), cross-service identity lookup to auto-populate group-admin reviewer IDs from `identity-federation-service` (`SG.43`), notification delivery for reviewers (`SG.48`), and a dedicated visual access graph / permission-checking workbench (`SG.10`).
 
 - [ ] `SG.10` Permission checking and access graph (`P0`, `todo`)
   - Provide a permission-checking tool that explains whether a user satisfies organization, marking, scoped session, role, and restricted-view requirements.
@@ -599,6 +655,80 @@ OpenFoundry canonical IDs.
   - Support dry-run, diff, approval, rollout, rollback, and drift detection.
   - Ensure policy-as-code cannot bypass UI/API permission checks and all changes remain audited.
   - Docs: [Manage roles](https://www.palantir.com/docs/foundry/platform-security-management/manage-roles/), [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/), [Control Panel](https://www.palantir.com/docs/foundry/administration/control-panel/).
+
+## Milestone D: hierarchical markings, RV non-input enforcement, data residency
+
+> **Added 2026-05-17.** Closes three concrete gaps identified in the
+> 2026-05-17 parity audit: markings are currently flat, restricted views
+> are not blocked as transform inputs, and there is no data-residency /
+> region story.
+
+### Hierarchical markings
+
+- [ ] `SG.27` Hierarchical marking model (`P1`, `todo`)
+  - Replace flat marking labels with a hierarchical model where a marking can declare a parent (`synthetic ⊂ deidentified ⊂ identifiable` and similar lineages).
+  - Caller clearance for a child implies clearance for its ancestors; queries that filter on an ancestor automatically include descendants (admin-toggleable).
+  - Migration tool to convert existing flat markings into a single-level hierarchy with no behavior change.
+  - Docs: [Marking hierarchies](https://www.palantir.com/docs/foundry/security/markings#hierarchies).
+
+- [ ] `SG.28` Hierarchical marking admin UI (`P1`, `todo`)
+  - Marking admin view shows the full tree, allows parent reassignment with impact preview, and warns on cycles or orphaned descendants.
+  - Docs: [Marking hierarchies](https://www.palantir.com/docs/foundry/security/markings#hierarchies).
+
+- [ ] `SG.29` Hierarchy-aware propagation (`P1`, `todo`)
+  - Derived datasets, indexer pipelines, and Action writeback paths propagate the most specific marking encountered (deepest in the hierarchy) rather than a flat union.
+  - Audit events record both the applied marking and its hierarchy path.
+  - Docs: [Marking propagation](https://www.palantir.com/docs/foundry/security/marking-propagation).
+
+### Restricted-view non-input enforcement
+
+- [ ] `SG.30` Block restricted views as transform inputs (`P1`, `todo`)
+  - Pipeline Builder, Code Repos transforms, and dataset-build APIs reject a build whose input set includes any restricted view; surface a clear "use the underlying dataset" error with documentation link.
+  - Required to preserve reproducibility: restricted views are per-caller and not deterministic.
+  - Docs: [Restricted views constraints](https://www.palantir.com/docs/foundry/security/restricted-views#non-input-rule).
+
+- [ ] `SG.31` Auditor explanation for RV-input refusals (`P1`, `todo`)
+  - When a build is refused due to RV inputs, the audit event records the user, the involved RV RIDs, and the policy that produced the refusal.
+  - Docs: [Restricted views constraints](https://www.palantir.com/docs/foundry/security/restricted-views#non-input-rule).
+
+### Data residency and regions
+
+- [ ] `SG.32` Region tag on resources (`P2`, `todo`)
+  - Every Compass resource carries a region tag derived from the project's region; cross-region read/write requires explicit user action and audit.
+  - Docs: [Data residency](https://www.palantir.com/docs/foundry/security/data-residency).
+
+- [ ] `SG.33` Egress policy per region (`P2`, `todo`)
+  - Network egress policies declare allowed destination regions; calls to out-of-region destinations require an additional approval recorded in audit.
+  - Required to satisfy GDPR-EU and similar residency commitments.
+  - Docs: [Data residency](https://www.palantir.com/docs/foundry/security/data-residency).
+
+- [ ] `SG.34` Region pinning in OSDK and Functions (`P2`, `todo`)
+  - OSDK clients and Functions runtime carry a region context; out-of-region reads/writes return a typed `RegionDeniedError` (see [OSDK checklist](./foundry-osdk-1to1-checklist.md)).
+  - Docs: [Data residency](https://www.palantir.com/docs/foundry/security/data-residency).
+
+### Multi-tenant isolation hardening
+
+- [ ] `SG.35` Row-level security on tenant tables (`P1`, `todo`)
+  - For every shared Postgres table that stores per-tenant data, enable RLS policies that filter by `tenant_id` from the session context derived from the JWT.
+  - Migration step + linter that fails CI when a new table lacks an RLS policy in tenant-scoped schemas.
+  - Docs: [Multi-tenant isolation](https://www.palantir.com/docs/foundry/security/multi-tenancy).
+
+- [ ] `SG.36` Tenant boundary verification tests (`P1`, `todo`)
+  - Integration tests that attempt cross-tenant reads through every service's repo layer and expect rejection.
+  - Run in `make test-integration` with testcontainers.
+  - Docs: [Multi-tenant isolation](https://www.palantir.com/docs/foundry/security/multi-tenancy).
+
+### Cryptographic hardening
+
+- [ ] `SG.37` Refresh token rotation with revocation list (`P2`, `todo`)
+  - Refresh tokens rotate on every use; previous token immediately invalidated via a token revocation list with short TTL.
+  - Required for FedRAMP-style session integrity.
+  - Docs: [Identity tokens](https://www.palantir.com/docs/foundry/security/identity-tokens).
+
+- [ ] `SG.38` Token binding to caller fingerprint (`P2`, `todo`)
+  - Optional cryptographic binding of tokens to the originating device/IP fingerprint; mismatches reject with audit.
+  - Off by default; admin opt-in per organization.
+  - Docs: [Identity tokens](https://www.palantir.com/docs/foundry/security/identity-tokens).
 
 ## Implementation inventory checklist
 

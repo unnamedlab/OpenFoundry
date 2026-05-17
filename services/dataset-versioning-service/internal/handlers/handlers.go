@@ -71,6 +71,8 @@ type Store interface {
 	ListBranchMarkings(ctx context.Context, branchID uuid.UUID) ([]models.BranchMarking, error)
 	CompareBranches(ctx context.Context, datasetID uuid.UUID, base string, compare string) (*models.BranchCompareResponse, error)
 	RollbackBranch(ctx context.Context, datasetID uuid.UUID, branch string, body *models.RollbackBody, actor uuid.UUID) (map[string]any, error)
+	ForceSnapshotOnNextBuild(ctx context.Context, datasetID uuid.UUID, branch string, body *models.ForceSnapshotBody, actor uuid.UUID) (*models.RuntimeBranch, error)
+	ConsumeForceSnapshotOnNextBuild(ctx context.Context, datasetID uuid.UUID, branchID uuid.UUID, transactionID uuid.UUID) error
 	ListFallbacks(ctx context.Context, branchID uuid.UUID) ([]models.RuntimeFallbackEntry, error)
 	ReplaceFallbacks(ctx context.Context, branchID uuid.UUID, fallbackNames []string) error
 	ListViews(ctx context.Context, datasetID uuid.UUID) ([]models.DatasetView, error)
@@ -102,6 +104,8 @@ type Store interface {
 	GetRuntimeTransaction(ctx context.Context, datasetID uuid.UUID, txnID uuid.UUID) (*models.RuntimeTransaction, error)
 	ListRuntimeTransactions(ctx context.Context, datasetID uuid.UUID, branch *string, before *time.Time, limit int) ([]models.RuntimeTransaction, error)
 	GetDatasetIncrementalReadiness(ctx context.Context, datasetID uuid.UUID, branch string) (*models.DatasetIncrementalReadiness, error)
+	GetDatasetIcebergMetadata(ctx context.Context, datasetID uuid.UUID) (*models.DatasetIcebergMetadataBridge, error)
+	PutDatasetIcebergMetadata(ctx context.Context, datasetID uuid.UUID, body *models.PutDatasetIcebergMetadataRequest) (*models.DatasetIcebergMetadataBridge, error)
 	CommitTransaction(ctx context.Context, datasetID uuid.UUID, txnID uuid.UUID) error
 	AbortTransaction(ctx context.Context, datasetID uuid.UUID, txnID uuid.UUID) error
 	GetDatasetQuality(ctx context.Context, datasetID uuid.UUID) (*models.DatasetQualityResponse, error)

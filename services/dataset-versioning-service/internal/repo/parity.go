@@ -714,12 +714,20 @@ func (r *Repo) ReparentRuntimeBranch(ctx context.Context, datasetID uuid.UUID, b
 }
 
 func (r *Repo) RollbackBranch(ctx context.Context, datasetID uuid.UUID, branch string, body *models.RollbackBody, actor uuid.UUID) (map[string]any, error) {
+	if body == nil || body.TransactionID == uuid.Nil {
+		return nil, fmt.Errorf("%w: transaction_id is required", ErrValidation)
+	}
 	target, err := r.GetRuntimeBranch(ctx, datasetID, branch)
 	if err != nil {
 		return nil, err
 	}
+	if target.HeadTransactionID != nil && *target.HeadTransactionID == body.TransactionID {
+		return nil, fmt.Errorf("%w: branch is already at the requested transaction", ErrPreconditionFailed)
+	}
 	var status string
-	if err := r.Pool.QueryRow(ctx, `SELECT status FROM dataset_transactions WHERE dataset_id = $1 AND branch_id = $2 AND id = $3`, datasetID, target.ID, body.TransactionID).Scan(&status); err != nil {
+	var targetStarted time.Time
+	var targetCommitted *time.Time
+	if err := r.Pool.QueryRow(ctx, `SELECT status, started_at, committed_at FROM dataset_transactions WHERE dataset_id = $1 AND branch_id = $2 AND id = $3`, datasetID, target.ID, body.TransactionID).Scan(&status, &targetStarted, &targetCommitted); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -728,20 +736,175 @@ func (r *Repo) RollbackBranch(ctx context.Context, datasetID uuid.UUID, branch s
 	if status != string(models.TransactionStatusCommitted) {
 		return nil, fmt.Errorf("%w: rollback target must be COMMITTED", ErrValidation)
 	}
+	targetClosed := targetStarted
+	if targetCommitted != nil {
+		targetClosed = *targetCommitted
+	}
+	targetView, err := r.computeViewAt(ctx, datasetID, target.Name, viewCutoff{TransactionID: &body.TransactionID})
+	if err != nil {
+		return nil, err
+	}
 	summary := "rollback"
 	if body.Summary != nil {
 		summary = *body.Summary
 	}
-	txn, err := r.StartTransaction(ctx, datasetID, target.ID, target.Name, models.TransactionTypeSnapshot, summary, models.JSONValue(`{"rollback":true}`), actor)
+	providence, err := models.MarshalJSONValue(map[string]any{
+		"source":                 "dataset_rollback",
+		"rollback":               true,
+		"target_transaction_id":  body.TransactionID.String(),
+		"target_transaction_rid": models.TransactionRID(body.TransactionID),
+		"requested_by":           actor.String(),
+		"requested_at":           time.Now().UTC().Format(time.RFC3339Nano),
+	})
 	if err != nil {
+		return nil, err
+	}
+	txn, err := r.StartTransaction(ctx, datasetID, target.ID, target.Name, models.TransactionTypeSnapshot, summary, providence, actor)
+	if err != nil {
+		return nil, err
+	}
+	committedRollback := false
+	defer func() {
+		if !committedRollback {
+			_ = r.AbortTransaction(ctx, datasetID, txn.ID)
+		}
+	}()
+	staged := make([]models.StageTransactionFile, 0, len(targetView.Files))
+	for _, file := range targetView.Files {
+		staged = append(staged, models.StageTransactionFile{
+			LogicalPath:  file.LogicalPath,
+			PhysicalPath: file.PhysicalPath,
+			SizeBytes:    file.SizeBytes,
+			Operation:    models.FileOperationAdd,
+		})
+	}
+	if err := r.StageTransactionFiles(ctx, datasetID, txn.ID, staged); err != nil {
+		return nil, err
+	}
+	metadata, err := models.MarshalJSONValue(map[string]any{
+		"rollback":                        true,
+		"rollback_target_transaction_id":  body.TransactionID.String(),
+		"rollback_target_transaction_rid": models.TransactionRID(body.TransactionID),
+		"rollback_target_file_count":      targetView.FileCount,
+		"rollback_target_size_bytes":      targetView.SizeBytes,
+		"rollback_requested_by":           actor.String(),
+		"rollback_requested_at":           time.Now().UTC().Format(time.RFC3339Nano),
+		"force_snapshot_on_next_build":    body.ForceSnapshotOnNextBuild != nil && *body.ForceSnapshotOnNextBuild,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := r.MergeTransactionMetadata(ctx, datasetID, txn.ID, metadata); err != nil {
 		return nil, err
 	}
 	if err := r.CommitTransaction(ctx, datasetID, txn.ID); err != nil {
 		return nil, err
 	}
+	committedRollback = true
 	committed, _ := r.GetRuntimeTransaction(ctx, datasetID, txn.ID)
-	return map[string]any{"transaction": committed, "view": map[string]any{"branch": branch}}, nil
+	rollbackClosed := time.Now().UTC()
+	if committed != nil && committed.CommittedAt != nil {
+		rollbackClosed = *committed.CommittedAt
+	}
+	rolledBack, err := r.markRolledBackTransactions(ctx, datasetID, target.ID, body.TransactionID, txn.ID, targetClosed, rollbackClosed)
+	if err != nil {
+		return nil, err
+	}
+	forceSnapshot := body.ForceSnapshotOnNextBuild != nil && *body.ForceSnapshotOnNextBuild
+	if forceSnapshot {
+		if _, err := r.ForceSnapshotOnNextBuild(ctx, datasetID, target.Name, &models.ForceSnapshotBody{Summary: body.Summary}, actor); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{
+		"transaction":                  committed,
+		"transaction_rid":              models.TransactionRID(txn.ID),
+		"view":                         map[string]any{"branch": branch, "file_count": targetView.FileCount, "size_bytes": targetView.SizeBytes, "head_transaction_id": body.TransactionID, "head_transaction_rid": models.TransactionRID(body.TransactionID)},
+		"rolled_back_transaction_ids":  rolledBack,
+		"force_snapshot_on_next_build": forceSnapshot,
+	}, nil
 }
+
+func (r *Repo) markRolledBackTransactions(ctx context.Context, datasetID uuid.UUID, branchID uuid.UUID, targetTxnID uuid.UUID, rollbackTxnID uuid.UUID, targetClosed time.Time, rollbackClosed time.Time) ([]string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"rolled_back":                     true,
+		"rolled_back_at":                  rollbackClosed.UTC().Format(time.RFC3339Nano),
+		"rolled_back_by_transaction_id":   rollbackTxnID.String(),
+		"rolled_back_by_transaction_rid":  models.TransactionRID(rollbackTxnID),
+		"rollback_target_transaction_id":  targetTxnID.String(),
+		"rollback_target_transaction_rid": models.TransactionRID(targetTxnID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.Pool.Query(ctx, `UPDATE dataset_transactions
+		SET metadata = metadata || $7::jsonb
+		WHERE dataset_id = $1
+		  AND branch_id = $2
+		  AND id <> $3
+		  AND id <> $4
+		  AND status = 'COMMITTED'
+		  AND COALESCE(committed_at, started_at) > $5
+		  AND COALESCE(committed_at, started_at) <= $6
+		RETURNING id`, datasetID, branchID, targetTxnID, rollbackTxnID, targetClosed, rollbackClosed, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id.String())
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) ForceSnapshotOnNextBuild(ctx context.Context, datasetID uuid.UUID, branch string, body *models.ForceSnapshotBody, actor uuid.UUID) (*models.RuntimeBranch, error) {
+	target, err := r.GetRuntimeBranch(ctx, datasetID, branch)
+	if err != nil {
+		return nil, err
+	}
+	summary := ""
+	if body != nil && body.Summary != nil {
+		summary = strings.TrimSpace(*body.Summary)
+	}
+	labels, err := json.Marshal(map[string]any{
+		"force_snapshot_on_next_build": true,
+		"force_snapshot_requested_at":  time.Now().UTC().Format(time.RFC3339Nano),
+		"force_snapshot_requested_by":  actor.String(),
+		"force_snapshot_summary":       summary,
+	})
+	if err != nil {
+		return nil, err
+	}
+	row := r.Pool.QueryRow(ctx, `UPDATE dataset_branches
+		SET labels = labels || $3::jsonb, updated_at = NOW()
+		WHERE id = $1 AND dataset_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
+		RETURNING id, rid, dataset_id, dataset_rid, name, parent_branch_id, head_transaction_id, created_from_transaction_id, last_activity_at, labels, fallback_chain, created_at, updated_at`, target.ID, datasetID, labels)
+	return scanRuntimeBranch(row)
+}
+
+func (r *Repo) ConsumeForceSnapshotOnNextBuild(ctx context.Context, datasetID uuid.UUID, branchID uuid.UUID, transactionID uuid.UUID) error {
+	labels, err := json.Marshal(map[string]any{
+		"last_forced_snapshot_transaction_id":  transactionID.String(),
+		"last_forced_snapshot_transaction_rid": models.TransactionRID(transactionID),
+		"last_forced_snapshot_at":              time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = r.Pool.Exec(ctx, `UPDATE dataset_branches
+		SET labels = (((((labels - 'force_snapshot_on_next_build') - 'force_snapshot_requested_at') - 'force_snapshot_requested_by') - 'force_snapshot_summary') || $3::jsonb),
+		    updated_at = NOW()
+		WHERE dataset_id = $1
+		  AND id = $2
+		  AND labels->>'force_snapshot_on_next_build' = 'true'`, datasetID, branchID, labels)
+	return err
+}
+
 func (r *Repo) BranchAncestry(ctx context.Context, datasetID uuid.UUID, branch string) ([]models.RuntimeBranch, error) {
 	rows, err := r.Pool.Query(ctx, `WITH RECURSIVE ancestry AS (
 		SELECT id, rid, dataset_id, dataset_rid, name, parent_branch_id, head_transaction_id,
@@ -1067,6 +1230,137 @@ func (r *Repo) GetDatasetIncrementalReadiness(ctx context.Context, datasetID uui
 		return nil, err
 	}
 	return computeIncrementalReadiness(*dataset, branch, txns), nil
+}
+
+func (r *Repo) GetDatasetIcebergMetadata(ctx context.Context, datasetID uuid.UUID) (*models.DatasetIcebergMetadataBridge, error) {
+	dataset, err := r.GetDataset(ctx, datasetID)
+	if err != nil {
+		return nil, err
+	}
+	if dataset == nil {
+		return nil, ErrNotFound
+	}
+	row := r.Pool.QueryRow(ctx, `SELECT table_rid, namespace, table_name, table_uuid, format_version,
+			current_iceberg_snapshot_id, current_metadata_location, previous_metadata_location,
+			schema_json, branch_schema_behavior, last_operation, last_operation_at,
+			replace_snapshot_count, compaction_count, metadata, feature_gaps, updated_at
+		FROM dataset_iceberg_metadata WHERE dataset_id = $1`, datasetID)
+	out, err := scanDatasetIcebergMetadata(row, *dataset)
+	if errors.Is(err, pgx.ErrNoRows) {
+		derived := deriveIcebergMetadataBridge(*dataset)
+		if derived == nil {
+			return nil, ErrNotFound
+		}
+		return derived, nil
+	}
+	return out, err
+}
+
+func (r *Repo) PutDatasetIcebergMetadata(ctx context.Context, datasetID uuid.UUID, body *models.PutDatasetIcebergMetadataRequest) (*models.DatasetIcebergMetadataBridge, error) {
+	dataset, err := r.GetDataset(ctx, datasetID)
+	if err != nil {
+		return nil, err
+	}
+	if dataset == nil {
+		return nil, ErrNotFound
+	}
+	if body == nil {
+		body = &models.PutDatasetIcebergMetadataRequest{}
+	}
+	formatVersion := 2
+	if body.FormatVersion != nil {
+		formatVersion = *body.FormatVersion
+	}
+	if formatVersion != 1 && formatVersion != 2 {
+		return nil, fmt.Errorf("%w: format_version must be 1 or 2", ErrValidation)
+	}
+	branchSchemaBehavior := normalizeIcebergBranchSchemaBehavior(body.BranchSchemaBehavior)
+	if branchSchemaBehavior == "" {
+		return nil, fmt.Errorf("%w: branch_schema_behavior must be shared, per_branch, or inherit_current", ErrValidation)
+	}
+	schema := body.CurrentSchema
+	if len(schema) == 0 {
+		schema = body.Schema
+	}
+	if len(schema) == 0 {
+		schema = []byte(`{}`)
+	}
+	if !json.Valid(schema) {
+		return nil, fmt.Errorf("%w: current_schema must be valid JSON", ErrValidation)
+	}
+	metadata := body.Metadata
+	if len(metadata) == 0 {
+		metadata = []byte(`{}`)
+	}
+	if !json.Valid(metadata) {
+		return nil, fmt.Errorf("%w: metadata must be valid JSON", ErrValidation)
+	}
+	featureGaps := body.FeatureGaps
+	if featureGaps == nil {
+		featureGaps = defaultIcebergFeatureGaps()
+	}
+	gapsRaw, err := json.Marshal(featureGaps)
+	if err != nil {
+		return nil, err
+	}
+	replaceSnapshotCount := 0
+	if body.ReplaceSnapshotCount != nil {
+		replaceSnapshotCount = *body.ReplaceSnapshotCount
+	}
+	compactionCount := 0
+	if body.CompactionCount != nil {
+		compactionCount = *body.CompactionCount
+	}
+	if replaceSnapshotCount < 0 || compactionCount < 0 {
+		return nil, fmt.Errorf("%w: operation counts cannot be negative", ErrValidation)
+	}
+	row := r.Pool.QueryRow(ctx, `INSERT INTO dataset_iceberg_metadata (
+			dataset_id, table_rid, namespace, table_name, table_uuid, format_version,
+			current_iceberg_snapshot_id, current_metadata_location, previous_metadata_location,
+			schema_json, branch_schema_behavior, last_operation, last_operation_at,
+			replace_snapshot_count, compaction_count, metadata, feature_gaps, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,NOW())
+		ON CONFLICT (dataset_id) DO UPDATE SET
+			table_rid = EXCLUDED.table_rid,
+			namespace = EXCLUDED.namespace,
+			table_name = EXCLUDED.table_name,
+			table_uuid = EXCLUDED.table_uuid,
+			format_version = EXCLUDED.format_version,
+			current_iceberg_snapshot_id = EXCLUDED.current_iceberg_snapshot_id,
+			current_metadata_location = EXCLUDED.current_metadata_location,
+			previous_metadata_location = EXCLUDED.previous_metadata_location,
+			schema_json = EXCLUDED.schema_json,
+			branch_schema_behavior = EXCLUDED.branch_schema_behavior,
+			last_operation = EXCLUDED.last_operation,
+			last_operation_at = EXCLUDED.last_operation_at,
+			replace_snapshot_count = EXCLUDED.replace_snapshot_count,
+			compaction_count = EXCLUDED.compaction_count,
+			metadata = EXCLUDED.metadata,
+			feature_gaps = EXCLUDED.feature_gaps,
+			updated_at = NOW()
+		RETURNING table_rid, namespace, table_name, table_uuid, format_version,
+			current_iceberg_snapshot_id, current_metadata_location, previous_metadata_location,
+			schema_json, branch_schema_behavior, last_operation, last_operation_at,
+			replace_snapshot_count, compaction_count, metadata, feature_gaps, updated_at`,
+		datasetID,
+		strings.TrimSpace(body.TableRID),
+		strings.TrimSpace(body.Namespace),
+		strings.TrimSpace(body.TableName),
+		strings.TrimSpace(body.TableUUID),
+		formatVersion,
+		strings.TrimSpace(body.CurrentIcebergSnapshotID),
+		strings.TrimSpace(body.CurrentMetadataLocation),
+		strings.TrimSpace(body.PreviousMetadataLocation),
+		[]byte(schema),
+		branchSchemaBehavior,
+		strings.TrimSpace(body.LastOperation),
+		body.LastOperationAt,
+		replaceSnapshotCount,
+		compactionCount,
+		[]byte(metadata),
+		gapsRaw,
+	)
+	return scanDatasetIcebergMetadata(row, *dataset)
 }
 
 func computeIncrementalReadiness(dataset models.Dataset, branch string, txns []incrementalTransactionRecord) *models.DatasetIncrementalReadiness {
@@ -3159,6 +3453,210 @@ func scanCatalogDataset(r rowLikeT) (*models.CatalogDataset, error) {
 		v.Links = datasetLinks(v.ID)
 	}
 	return v, nil
+}
+
+func scanDatasetIcebergMetadata(r rowLikeT, dataset models.Dataset) (*models.DatasetIcebergMetadataBridge, error) {
+	out := &models.DatasetIcebergMetadataBridge{
+		DatasetID:  dataset.ID,
+		DatasetRID: dataset.RID,
+	}
+	var currentMetadataLocation string
+	var previousMetadataLocation string
+	var schemaRaw []byte
+	var metadataRaw []byte
+	var featureGapsRaw []byte
+	if err := r.Scan(
+		&out.TableRID,
+		&out.Namespace,
+		&out.TableName,
+		&out.TableUUID,
+		&out.FormatVersion,
+		&out.CurrentIcebergSnapshotID,
+		&currentMetadataLocation,
+		&previousMetadataLocation,
+		&schemaRaw,
+		&out.BranchSchemaBehavior,
+		&out.Operations.LastOperation,
+		&out.Operations.LastOperationAt,
+		&out.Operations.ReplaceSnapshotCount,
+		&out.Operations.CompactionCount,
+		&metadataRaw,
+		&featureGapsRaw,
+		&out.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	hydrateIcebergMetadataBridge(out, dataset, schemaRaw, metadataRaw, featureGapsRaw, currentMetadataLocation, previousMetadataLocation)
+	return out, nil
+}
+
+func hydrateIcebergMetadataBridge(out *models.DatasetIcebergMetadataBridge, dataset models.Dataset, schemaRaw []byte, metadataRaw []byte, featureGapsRaw []byte, currentMetadataLocation string, previousMetadataLocation string) {
+	if out.DatasetRID == "" {
+		out.DatasetRID = dataset.RID
+	}
+	if out.DatasetRID == "" {
+		out.DatasetRID = "ri.foundry.main.dataset." + dataset.ID.String()
+	}
+	if out.TableRID == "" {
+		out.TableRID = metadataString(dataset.Metadata, "iceberg.table_rid", "iceberg.tableRid", "table_rid", "tableRid")
+	}
+	if out.Namespace == "" {
+		out.Namespace = metadataString(dataset.Metadata, "iceberg.namespace", "namespace")
+	}
+	if out.TableName == "" {
+		out.TableName = metadataString(dataset.Metadata, "iceberg.table_name", "iceberg.tableName", "table_name", "tableName")
+	}
+	if out.TableUUID == "" {
+		out.TableUUID = metadataString(dataset.Metadata, "iceberg.table_uuid", "iceberg.tableUuid", "table_uuid", "tableUuid")
+	}
+	if out.FormatVersion == 0 {
+		out.FormatVersion = 2
+	}
+	if out.CurrentIcebergSnapshotID == "" {
+		out.CurrentIcebergSnapshotID = metadataString(dataset.Metadata, "iceberg.current_snapshot_id", "iceberg.currentSnapshotId", "current_iceberg_snapshot_id", "currentIcebergSnapshotId")
+	}
+	if currentMetadataLocation == "" {
+		currentMetadataLocation = metadataString(dataset.Metadata, "iceberg.current_metadata_location", "iceberg.metadata_location", "iceberg.currentMetadataLocation", "metadata_location")
+	}
+	if previousMetadataLocation == "" {
+		previousMetadataLocation = metadataString(dataset.Metadata, "iceberg.previous_metadata_location", "iceberg.previousMetadataLocation")
+	}
+	out.MetadataPointer = models.IcebergMetadataPointer{Current: currentMetadataLocation, Previous: previousMetadataLocation}
+	if len(schemaRaw) == 0 {
+		schemaRaw = metadataRawJSON(dataset.Metadata, "iceberg.schema", "schema")
+	}
+	if len(schemaRaw) == 0 || !json.Valid(schemaRaw) {
+		schemaRaw = []byte(`{}`)
+	}
+	out.CurrentSchema = models.JSONValue(schemaRaw)
+	if out.BranchSchemaBehavior == "" {
+		out.BranchSchemaBehavior = normalizeIcebergBranchSchemaBehavior(metadataString(dataset.Metadata, "iceberg.branch_schema_behavior", "iceberg.branchSchemaBehavior", "branch_schema_behavior"))
+	}
+	if out.BranchSchemaBehavior == "" {
+		out.BranchSchemaBehavior = "shared"
+	}
+	if len(metadataRaw) == 0 || !json.Valid(metadataRaw) {
+		metadataRaw = []byte(`{}`)
+	}
+	out.Metadata = models.JSONValue(metadataRaw)
+	out.FeatureGaps = decodeIcebergFeatureGaps(featureGapsRaw)
+	if len(out.FeatureGaps) == 0 {
+		out.FeatureGaps = defaultIcebergFeatureGaps()
+	}
+	out.Limitations = make([]string, 0, len(out.FeatureGaps))
+	for _, gap := range out.FeatureGaps {
+		out.Limitations = append(out.Limitations, gap.Message)
+	}
+	if out.UpdatedAt.IsZero() {
+		out.UpdatedAt = time.Now().UTC()
+	}
+}
+
+func deriveIcebergMetadataBridge(dataset models.Dataset) *models.DatasetIcebergMetadataBridge {
+	if !datasetLooksIceberg(dataset) {
+		return nil
+	}
+	out := &models.DatasetIcebergMetadataBridge{
+		DatasetID:            dataset.ID,
+		DatasetRID:           dataset.RID,
+		FormatVersion:        2,
+		BranchSchemaBehavior: "shared",
+		FeatureGaps:          defaultIcebergFeatureGaps(),
+		CurrentSchema:        []byte(`{}`),
+		Metadata:             []byte(`{}`),
+		UpdatedAt:            dataset.UpdatedAt,
+	}
+	hydrateIcebergMetadataBridge(out, dataset, nil, nil, nil, "", "")
+	return out
+}
+
+func datasetLooksIceberg(dataset models.Dataset) bool {
+	for _, value := range []string{dataset.Format, dataset.RID, dataset.StoragePath} {
+		if strings.Contains(strings.ToLower(value), "iceberg") {
+			return true
+		}
+	}
+	if metadataString(dataset.Metadata, "iceberg.table_rid", "iceberg.tableRid", "current_iceberg_snapshot_id", "iceberg.current_snapshot_id") != "" {
+		return true
+	}
+	return len(metadataRawJSON(dataset.Metadata, "iceberg")) > 0
+}
+
+func normalizeIcebergBranchSchemaBehavior(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "shared":
+		return "shared"
+	case "per_branch", "per-branch", "branch":
+		return "per_branch"
+	case "inherit_current", "inherit-current", "inherit":
+		return "inherit_current"
+	default:
+		return ""
+	}
+}
+
+func defaultIcebergFeatureGaps() []models.IcebergFeatureGap {
+	return []models.IcebergFeatureGap{
+		{Code: "restricted_views", Severity: "info", Message: "Restricted views over Iceberg-backed datasets are not yet fully modeled."},
+		{Code: "streaming_syncs", Severity: "info", Message: "Streaming sync behavior is exposed as a platform limitation for Iceberg-backed datasets."},
+		{Code: "time_series_syncs", Severity: "info", Message: "Time series sync and projection behaviors are not represented by the Iceberg metadata bridge."},
+		{Code: "pipeline_runtime_features", Severity: "info", Message: "Some pipeline runtime optimizations remain dataset-format specific and may differ from file-backed datasets."},
+	}
+}
+
+func decodeIcebergFeatureGaps(raw []byte) []models.IcebergFeatureGap {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil
+	}
+	out := []models.IcebergFeatureGap{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func metadataString(metadata []byte, paths ...string) string {
+	for _, path := range paths {
+		raw := metadataPath(metadata, path)
+		if value, ok := raw.(string); ok {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
+func metadataRawJSON(metadata []byte, paths ...string) []byte {
+	for _, path := range paths {
+		raw := metadataPath(metadata, path)
+		if raw == nil {
+			continue
+		}
+		encoded, err := json.Marshal(raw)
+		if err == nil && len(encoded) > 0 && string(encoded) != "null" {
+			return encoded
+		}
+	}
+	return nil
+}
+
+func metadataPath(metadata []byte, path string) any {
+	if len(metadata) == 0 || !json.Valid(metadata) {
+		return nil
+	}
+	var current any
+	if err := json.Unmarshal(metadata, &current); err != nil {
+		return nil
+	}
+	for _, part := range strings.Split(path, ".") {
+		obj, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = obj[part]
+	}
+	return current
 }
 
 func scanPermission(r rowLikeT) (*models.DatasetPermissionEdge, error) {

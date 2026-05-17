@@ -785,6 +785,91 @@ exists as a single page.
 
 ---
 
+## Block N — Modeling Objectives gated release (added 2026-05-17)
+
+Modeling Objectives are Palantir's "mission control" for a modeling
+problem: a single resource that owns the problem statement, candidate
+submissions, evaluation results, reviewer workflow, and the release →
+deployment handoff. The earlier blocks above (I1, I2) treat them as a
+governance wrapper around catalog + deployments; this block defines the
+gated release workflow that makes the objective genuinely the production
+gate.
+
+### Task N1. Objective resource and submissions
+
+**Prompt**:
+> Add `modeling_objective` rows that own:
+> - problem statement (markdown), target metrics list, evaluation
+>   dataset RID, baseline model RID (optional).
+> - submission queue: model version + adapter version + evaluation result
+>   + submitter + timestamp + status (pending, reviewed, approved,
+>   rejected, retired).
+> - reviewer policy: who can review (group RIDs), required approvals,
+>   blocking criteria (metric thresholds).
+>
+> Implement `POST /objectives`, `POST /objectives/{rid}/submissions`,
+> `GET /objectives/{rid}` and a per-submission detail endpoint that
+> resolves the candidate's evaluation summary, lineage, and audit trail.
+> Submissions must reuse the existing model catalog / evaluation tables
+> (no parallel copy).
+>
+> **References**:
+> - Modeling Objectives overview: https://www.palantir.com/docs/foundry/manage-models/modeling-objectives-overview
+
+### Task N2. Reviewer workflow + gated release
+
+**Prompt**:
+> Build the reviewer queue UI in `apps/web/src/routes/ml/`:
+> - inbox of pending submissions per objective with metric diff vs
+>   baseline.
+> - per-submission decision panel: approve, request changes, reject,
+>   with mandatory rationale.
+> - block "release" until the configured number of approvals is
+>   reached and all blocking criteria pass.
+>
+> Implement `POST /objectives/{rid}/submissions/{sid}/decision` that
+> records the decision in audit (`audit-compliance-service`) and
+> transitions submission status. A "release" transition is a separate
+> endpoint that requires `approved` status + reviewer quorum and emits
+> a `model_objective_release` event consumed by the deployment service.
+
+### Task N3. Release → deployment handoff
+
+**Prompt**:
+> When a submission is released, the deployment service picks up the
+> `model_objective_release` event and either:
+> - promotes the released model version to the configured live
+>   deployment slot (canary/full per the objective's deployment
+>   policy), or
+> - creates a batch deployment job for the next scheduled inference
+>   window.
+>
+> Releases are immutable: rolling back to a prior release re-runs the
+> handoff with the previous model version and records the rollback in
+> audit. The objective's "current release" pointer must be visible
+> from the Workshop ML module so consumers can see which model the
+> Ontology bindings currently resolve to.
+
+### Task N4. Objective in lineage and Compass
+
+**Prompt**:
+> Surface objectives as Compass resources (stable RID, search index,
+> breadcrumbs, sharing). Append objective nodes to the lineage graph
+> between the input datasets and the deployed model so a user inspecting
+> a model serving endpoint can trace back to the objective and its
+> release history.
+>
+> **Acceptance**:
+> 1. Create an objective, submit a model from a notebook training run,
+>    evaluate, request review.
+> 2. Approve with two reviewers (one rejection path tested separately).
+> 3. Release; verify the deployment slot updates and the lineage graph
+>    shows the objective node.
+> 4. Roll back; verify the previous version is restored and audit
+>    captures both transitions.
+
+---
+
 ## Recommended execution order
 
 1. **A1, A2, B1, B3** — Adapter SDK + functional Catalog/registry with bundle.
@@ -794,7 +879,7 @@ exists as a single page.
 5. **E1, E2, E3** — Base live deployments (single replica → autoscale).
 6. **F1, F2** — Batch deployments + auto-eval (needs E1+).
 7. **H1, H2, H3** — Model Functions + ontology binding + Workshop.
-8. **I1, I2** — Modeling Objectives (closes governance).
+8. **I1, I2, N1, N2, N3, N4** — Modeling Objectives (closes governance + gated release).
 9. **G1, G2, G3** — Feature Store offline+online+drift.
 10. **J1, J2, J3** — Monitoring + shadow.
 11. **E4, E5** — Advanced rollouts + externals.

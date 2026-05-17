@@ -291,6 +291,18 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/UsersPage')).UsersPage }),
       },
       {
+        path: 'control-panel/groups',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/GroupsPage')).GroupsPage }),
+      },
+      {
+        path: 'control-panel/projects',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/ProjectsPage')).ProjectsPage }),
+      },
+      {
+        path: 'control-panel/role-sets',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/RoleSetsPage')).RoleSetsPage }),
+      },
+      {
         path: 'functions',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },

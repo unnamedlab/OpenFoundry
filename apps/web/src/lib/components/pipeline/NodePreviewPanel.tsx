@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 
+import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
 import { previewPipelineNode, type PipelineDAG, type PipelineNode, type PipelinePreviewOutput } from '@/lib/api/pipelines';
+import type { ResourceHealthCheckKind } from '@/lib/api/resource-health-checks';
 import { VirtualizedPreviewTable } from '@/lib/components/dataset/VirtualizedPreviewTable';
+import { DataExpectationsPanel } from '@/lib/components/pipeline/DataExpectationsPanel';
 
 interface NodePreviewPanelProps {
   pipelineId: string;
@@ -9,9 +12,37 @@ interface NodePreviewPanelProps {
   draftDag?: PipelineDAG | null;
   draftKey?: string;
   sampleSize?: number;
+  branchName?: string;
+  onNodeChange?: (node: PipelineNode) => void;
 }
 
-export function NodePreviewPanel({ pipelineId, node, draftDag = null, draftKey = '', sampleSize = 50 }: NodePreviewPanelProps) {
+function pipelinePreviewHealthCheckKinds(node: PipelineNode | null, preview: PipelinePreviewOutput | null, error: string | null) {
+  const kinds = new Set<ResourceHealthCheckKind>();
+  if (!node) return [];
+  kinds.add('status');
+  if (preview || error) kinds.add('content');
+  if (preview) {
+    kinds.add('freshness');
+    kinds.add('size');
+    kinds.add('schema');
+  }
+  if (node.output_dataset_id) {
+    kinds.add('build');
+    kinds.add('job');
+  }
+  if (node.preview_status || node.validation_status) kinds.add('status');
+  return Array.from(kinds);
+}
+
+export function NodePreviewPanel({
+  pipelineId,
+  node,
+  draftDag = null,
+  draftKey = '',
+  sampleSize = 50,
+  branchName = 'main',
+  onNodeChange,
+}: NodePreviewPanelProps) {
   const [preview, setPreview] = useState<PipelinePreviewOutput | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +73,13 @@ export function NodePreviewPanel({ pipelineId, node, draftDag = null, draftKey =
 
   const columns = (preview?.columns ?? []).map((name) => ({ name }));
   const rows = preview?.rows ?? [];
+  const healthKinds = pipelinePreviewHealthCheckKinds(node, preview, error);
+  const resourceRid = node ? `${pipelineId}:${node.id}` : '';
+  const expectationPreview = preview
+    ? { columns: preview.columns, rows: preview.rows, error: preview.error ?? null }
+    : error
+      ? { columns: [], rows: [], error: { message: error } }
+      : null;
 
   async function refresh() {
     if (!node || !pipelineId) return;
@@ -93,6 +131,28 @@ export function NodePreviewPanel({ pipelineId, node, draftDag = null, draftKey =
           <VirtualizedPreviewTable columns={columns} rows={rows} transactions={[]} />
         </div>
       ) : null}
+      {node && (
+        <>
+          <ResourceHealthChecksPanel
+            resourceRid={resourceRid}
+            resourceName={node.label || node.id}
+            resourceType="pipeline_node"
+            sourceSurface="pipeline_builder"
+            availableKinds={healthKinds}
+            defaultGroup="Pipeline Builder preview"
+            defaultMonitoringView={node.output_dataset_id || pipelineId}
+            compact
+          />
+          <DataExpectationsPanel
+            pipelineId={pipelineId}
+            branchName={branchName}
+            node={node}
+            preview={expectationPreview}
+            onNodeChange={onNodeChange}
+            compact
+          />
+        </>
+      )}
     </section>
   );
 }

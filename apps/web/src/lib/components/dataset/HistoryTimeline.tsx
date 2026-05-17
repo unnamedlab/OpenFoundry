@@ -44,6 +44,15 @@ function author(tx: DatasetTransaction) {
   return typeof a === 'string' ? a : 'system';
 }
 
+function flag(tx: DatasetTransaction, key: string) {
+  const value = tx.metadata?.[key];
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function rolledBack(tx: DatasetTransaction) {
+  return flag(tx, 'rolled_back') || flag(tx, 'rolledBack');
+}
+
 export function HistoryTimeline({
   transactions,
   rollingBack = null,
@@ -52,6 +61,7 @@ export function HistoryTimeline({
   retentionPurges = {},
   onOpenRetention,
 }: HistoryTimelineProps) {
+  const currentCommittedId = transactions.find((tx) => tx.status === 'COMMITTED')?.id ?? null;
   return (
     <section style={{ display: 'grid', gap: 12 }}>
       <header>
@@ -71,6 +81,9 @@ export function HistoryTimeline({
           {transactions.map((tx) => {
             const tone = TONE[tx.operation.toUpperCase()] ?? { border: '#475569', bg: '#1e293b' };
             const marker = retentionPurges[tx.id];
+            const isRolledBack = rolledBack(tx);
+            const isCurrent = tx.id === currentCommittedId;
+            const rollbackDisabled = tx.status !== 'COMMITTED' || isRolledBack || isCurrent || Boolean(rollingBack);
             return (
               <li
                 key={tx.id}
@@ -79,17 +92,28 @@ export function HistoryTimeline({
                   borderRadius: 12,
                   background: tone.bg,
                   boxShadow: `inset 0 0 0 1px ${tone.border}`,
+                  opacity: isRolledBack ? 0.56 : 1,
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <span style={{ fontSize: 18, lineHeight: 1 }} aria-hidden="true">{icon(tx.operation)}</span>
-                    <div>
+                    <div style={{ textDecoration: isRolledBack ? 'line-through' : undefined }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500 }}>
                         <span style={{ textTransform: 'uppercase' }}>{tx.operation}</span>
                         <span style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 999, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                           {tx.status}
                         </span>
+                        {isCurrent && (
+                          <span style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 999, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Current head
+                          </span>
+                        )}
+                        {isRolledBack && (
+                          <span style={{ background: '#7f1d1d', color: '#fecaca', padding: '2px 8px', borderRadius: 999, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Rolled back
+                          </span>
+                        )}
                       </div>
                       <div style={{ marginTop: 2, fontSize: 11, opacity: 0.8 }}>
                         {author(tx)} · {new Date(tx.created_at).toLocaleString()} · files {delta(tx)}
@@ -126,11 +150,11 @@ export function HistoryTimeline({
                     <button
                       type="button"
                       onClick={() => void onRollback?.(tx)}
-                      disabled={rollingBack === tx.id}
+                      disabled={rollbackDisabled}
                       className="of-button"
                       style={{ fontSize: 11 }}
                     >
-                      {rollingBack === tx.id ? 'Rolling back…' : 'Roll back to this transaction'}
+                      {rollingBack === tx.id ? 'Rolling back…' : isCurrent ? 'Current head' : isRolledBack ? 'Already rolled back' : 'Roll back to this transaction'}
                     </button>
                   </div>
                 </div>

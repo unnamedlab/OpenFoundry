@@ -441,6 +441,31 @@ export interface DatasetTransaction {
   closedTime?: string | null;
 }
 
+export interface DatasetRollbackParams {
+  transaction_id: string;
+  summary?: string;
+  force_snapshot_on_next_build?: boolean;
+  confirmation?: string;
+}
+
+export interface DatasetRollbackResponse {
+  transaction?: DatasetTransaction | null;
+  transaction_rid?: string;
+  view?: {
+    branch?: string;
+    file_count?: number;
+    size_bytes?: number;
+    head_transaction_id?: string;
+    head_transaction_rid?: string;
+  };
+  rolled_back_transaction_ids?: string[];
+  force_snapshot_on_next_build?: boolean;
+}
+
+export interface ForceSnapshotOnNextBuildParams {
+  summary?: string;
+}
+
 interface DatasetTransactionsPage {
   data: DatasetTransaction[];
   next_cursor?: string | null;
@@ -1146,6 +1171,43 @@ export interface DatasetIncrementalReadiness {
   computed_at: string;
 }
 
+export interface IcebergMetadataPointer {
+  current?: string;
+  previous?: string;
+}
+
+export interface IcebergTableOperationSummary {
+  last_operation?: string;
+  last_operation_at?: string | null;
+  replace_snapshot_count: number;
+  compaction_count: number;
+}
+
+export interface IcebergFeatureGap {
+  code: string;
+  severity: string;
+  message: string;
+}
+
+export interface DatasetIcebergMetadataBridge {
+  dataset_id: string;
+  dataset_rid: string;
+  table_rid?: string;
+  namespace?: string;
+  table_name?: string;
+  table_uuid?: string;
+  format_version: number;
+  current_iceberg_snapshot_id?: string;
+  current_schema?: Record<string, unknown> | unknown[] | null;
+  branch_schema_behavior: string;
+  metadata_pointer: IcebergMetadataPointer;
+  operations: IcebergTableOperationSummary;
+  feature_gaps?: IcebergFeatureGap[];
+  limitations?: string[];
+  metadata?: Record<string, unknown> | null;
+  updated_at: string;
+}
+
 export function getDatasetIncrementalReadiness(datasetId: string, params: { branch?: string } = {}) {
   const query = new URLSearchParams();
   if (params.branch) query.set('branch', params.branch);
@@ -1153,6 +1215,10 @@ export function getDatasetIncrementalReadiness(datasetId: string, params: { bran
   return api.get<DatasetIncrementalReadiness>(
     `/datasets/${encodeURIComponent(datasetId)}/incremental-readiness${qs ? `?${qs}` : ''}`,
   );
+}
+
+export function getDatasetIcebergMetadata(datasetId: string) {
+  return api.get<DatasetIcebergMetadataBridge>(`/datasets/${encodeURIComponent(datasetId)}/iceberg-metadata`);
 }
 
 export function listBranches(datasetId: string) {
@@ -1323,6 +1389,43 @@ export interface ApplicablePoliciesParams {
   org_id?: string;
 }
 
+export interface ListRetentionPoliciesParams {
+  dataset_rid?: string;
+  project_id?: string;
+  marking_id?: string;
+  active?: boolean;
+  system_only?: boolean;
+}
+
+export interface RetentionJob {
+  id: string;
+  policy_id: string;
+  target_dataset_id?: string | null;
+  target_transaction_id?: string | null;
+  status: string;
+  action_summary: string;
+  affected_record_count: number;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface RunRetentionJobParams {
+  policy_id: string;
+  target_dataset_id?: string;
+  target_transaction_id?: string;
+}
+
+function retentionPolicyQuery(params: ListRetentionPoliciesParams = {}) {
+  const query = new URLSearchParams();
+  if (params.dataset_rid) query.set('dataset_rid', params.dataset_rid);
+  if (params.project_id) query.set('project_id', params.project_id);
+  if (params.marking_id) query.set('marking_id', params.marking_id);
+  if (params.active !== undefined) query.set('active', String(params.active));
+  if (params.system_only !== undefined) query.set('system_only', String(params.system_only));
+  const qs = query.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export function getApplicablePolicies(
   datasetRid: string,
   params: ApplicablePoliciesParams = {},
@@ -1350,6 +1453,14 @@ export function getRetentionPreview(
   return api.get<RetentionPreviewResponse>(
     `/datasets/${datasetRid}/retention-preview?${query.toString()}`,
   );
+}
+
+export function listRetentionPolicies(params: ListRetentionPoliciesParams = {}) {
+  return api.get<RetentionPolicy[]>(`/retention/policies${retentionPolicyQuery(params)}`);
+}
+
+export function getRetentionPolicy(id: string) {
+  return api.get<RetentionPolicy>(`/retention/policies/${id}`);
 }
 
 export interface CreateRetentionPolicyParams {
@@ -1380,6 +1491,14 @@ export function updateRetentionPolicy(id: string, params: Partial<CreateRetentio
 
 export function deleteRetentionPolicy(id: string) {
   return api.delete(`/retention/policies/${id}`);
+}
+
+export function listRetentionJobs() {
+  return api.get<RetentionJob[]>(`/retention/jobs`);
+}
+
+export function runRetentionJob(params: RunRetentionJobParams) {
+  return api.post<RetentionJob>(`/retention/jobs`, params);
 }
 
 // ─── P6 — Dataset health (Foundry "Data Health" + "Health checks") ────────
@@ -1665,6 +1784,31 @@ export function restoreBranch(datasetRid: string, branchName: string) {
   return api.post<{ branch: string; restored_at: string; previously_archived_at: string }>(
     `/datasets/${encodeURIComponent(datasetRid)}/branches/${encodeURIComponent(branchName)}:restore`,
     {},
+  );
+}
+
+export function rollbackDatasetBranch(
+  datasetRid: string,
+  branchName: string,
+  params: DatasetRollbackParams,
+) {
+  return api.post<DatasetRollbackResponse>(
+    `/datasets/${encodeURIComponent(datasetRid)}/branches/${encodeURIComponent(branchName)}/rollback`,
+    params,
+  ).then((response) => ({
+    ...response,
+    transaction: response.transaction ? normalizeDatasetTransaction(response.transaction) : response.transaction,
+  }));
+}
+
+export function forceSnapshotOnNextBuild(
+  datasetRid: string,
+  branchName: string,
+  params: ForceSnapshotOnNextBuildParams = {},
+) {
+  return api.post<DatasetBranch>(
+    `/datasets/${encodeURIComponent(datasetRid)}/branches/${encodeURIComponent(branchName)}:force-snapshot`,
+    params,
   );
 }
 

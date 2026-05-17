@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { MetadataPanel } from '@/lib/components/dataset/MetadataPanel';
+import { HistoryTimeline } from '@/lib/components/dataset/HistoryTimeline';
 import { QualityDashboard } from '@/lib/components/dataset/QualityDashboard';
 import { RetentionPoliciesTab } from '@/lib/components/dataset/RetentionPoliciesTab';
 import { VirtualizedPreviewTable } from '@/lib/components/dataset/VirtualizedPreviewTable';
+import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
+import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
 import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
 import { Tabs } from '@/lib/components/Tabs';
 import { ApiError } from '@/lib/api/client';
@@ -12,8 +15,10 @@ import {
   deleteDataset,
   datasetFileDownloadUrl,
   exportDataset,
+  forceSnapshotOnNextBuild,
   getDataset,
   getDatasetHealth,
+  getDatasetIcebergMetadata,
   getDatasetIncrementalReadiness,
   getDatasetLint,
   getDatasetQuality,
@@ -27,6 +32,7 @@ import {
   previewDataset,
   putDatasetSchemaForBranch,
   refreshDatasetQualityProfile,
+  rollbackDatasetBranch,
   startDatasetBuild,
   updateDataset,
   type Dataset,
@@ -38,6 +44,7 @@ import {
   type DatasetField,
   type DatasetFileFormat,
   type DatasetHealthResponse,
+  type DatasetIcebergMetadataBridge,
   type DatasetIncrementalReadiness,
   type DatasetSchemaInferenceResponse,
   type DatasetSchemaPayload,
@@ -51,10 +58,11 @@ import {
   type IncrementalTransactionBoundary,
 } from '@/lib/api/datasets';
 import { BUILD_STATE_COLORS, listDatasetBuildsV1, type Build } from '@/lib/api/buildsV1';
+import type { ResourceHealthCheckKind } from '@/lib/api/resource-health-checks';
 import { listSchedules, type Schedule } from '@/lib/api/schedules';
 
 type Tab = 'preview' | 'files' | 'details' | 'schema' | 'history' | 'jobs' | 'schedules' | 'health' | 'lineage' | 'retention';
-type BusyAction = 'save' | 'delete' | 'hard-delete' | 'build' | 'profile' | 'export' | 'quality-rule' | null;
+type BusyAction = 'save' | 'delete' | 'hard-delete' | 'build' | 'profile' | 'export' | 'quality-rule' | 'rollback' | 'force-snapshot' | null;
 type Notice = { type: 'success' | 'info' | 'error'; text: string };
 
 const DATASET_TABS = [
@@ -106,6 +114,22 @@ function shortHash(value?: string | null) {
   return value.length > 12 ? `${value.slice(0, 12)}...` : value;
 }
 
+function metadataFlag(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function transactionRolledBack(transaction: DatasetTransaction) {
+  return metadataFlag(transaction.metadata, 'rolled_back') || metadataFlag(transaction.metadata, 'rolledBack');
+}
+
+function labelValue(value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
 function fileStorageURI(file: DatasetBackingFile) {
   const storage = file.storage_location;
   const uri = storage && typeof storage.uri === 'string' ? storage.uri : undefined;
@@ -128,6 +152,46 @@ function userFacingError(cause: unknown, fallback: string) {
   return cause instanceof Error ? cause.message : fallback;
 }
 
+function datasetHealthCheckKinds(input: {
+  dataset: Dataset;
+  schema: DatasetSchema | DatasetSchemaResponse | null;
+  health: DatasetHealthResponse | null;
+  quality: DatasetQualityResponse | null;
+  lint: DatasetLintResponse | null;
+  builds: Build[];
+  schedules: Schedule[];
+}) {
+  const kinds = new Set<ResourceHealthCheckKind>(['status']);
+  if (input.health) {
+    kinds.add('freshness');
+    kinds.add('build');
+    kinds.add('schema');
+  }
+  if (input.quality?.profile || (input.lint?.summary.total_findings ?? 0) > 0) kinds.add('content');
+  if (input.schema) kinds.add('schema');
+  if (input.dataset.size_bytes > 0 || input.dataset.row_count >= 0) kinds.add('size');
+  if (input.builds.length > 0) {
+    kinds.add('duration');
+    kinds.add('build');
+    kinds.add('job');
+  }
+  if (input.schedules.length > 0) {
+    kinds.add('duration');
+    kinds.add('schedule');
+  }
+  const metadata = input.dataset.metadata ?? {};
+  const syncSignal = [
+    input.dataset.format,
+    input.dataset.storage_path,
+    ...input.dataset.tags,
+    metadata.sync_id,
+    metadata.source_id,
+    metadata.connector_type,
+  ].some((value) => typeof value === 'string' && value.toLowerCase().includes('sync'));
+  if (syncSignal) kinds.add('sync');
+  return Array.from(kinds);
+}
+
 function parseVersionParam(value: string | null) {
   if (!value) return null;
   const parsed = Number(value);
@@ -147,6 +211,7 @@ export function DatasetDetailPage() {
   const [branches, setBranches] = useState<DatasetBranch[]>([]);
   const [transactions, setTransactions] = useState<DatasetTransaction[]>([]);
   const [incrementalReadiness, setIncrementalReadiness] = useState<DatasetIncrementalReadiness | null>(null);
+  const [icebergMetadata, setIcebergMetadata] = useState<DatasetIcebergMetadataBridge | null>(null);
   const [versions, setVersions] = useState<DatasetVersion[]>([]);
   const [builds, setBuilds] = useState<Build[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -163,6 +228,8 @@ export function DatasetDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [rollbackTarget, setRollbackTarget] = useState<DatasetTransaction | null>(null);
+  const [forceSnapshotOpen, setForceSnapshotOpen] = useState(false);
   const [exportError, setExportError] = useState('');
   const [exportResult, setExportResult] = useState<DatasetExportResponse | null>(null);
 
@@ -204,6 +271,7 @@ export function DatasetDetailPage() {
       setBranches([]);
       setTransactions([]);
       setIncrementalReadiness(null);
+      setIcebergMetadata(null);
       setVersions([]);
       setBuilds([]);
       setSchedules([]);
@@ -262,6 +330,9 @@ export function DatasetDetailPage() {
     return Object.keys(previewRows[0]).map((columnName) => ({ name: columnName }));
   }, [preview?.columns, previewRows]);
   const activeBranch = selectedBranchName || dataset?.active_branch || 'main';
+  const activeBranchRecord = branches.find((branch) => branch.name === activeBranch);
+  const activeBranchLabels = (activeBranchRecord?.labels ?? {}) as Record<string, unknown>;
+  const forceSnapshotPending = metadataFlag(activeBranchLabels, 'force_snapshot_on_next_build');
   const branchMissing = branches.length > 0 && !branches.some((branch) => branch.name === activeBranch);
   const branchTransactions = useMemo(() => {
     return transactions.filter((transaction) => !transaction.branch_name || transaction.branch_name === activeBranch);
@@ -311,7 +382,17 @@ export function DatasetDetailPage() {
         setLoadedTabs((prev) => ({ ...prev, [next]: true }));
         return;
       }
-      if (next === 'preview') {
+      if (next === 'details') {
+        try {
+          setIcebergMetadata(await getDatasetIcebergMetadata(id));
+        } catch (cause) {
+          setIcebergMetadata(null);
+          if (!(cause instanceof ApiError && cause.status === 404)) {
+            setTabErrors((prev) => ({ ...prev, details: userFacingError(cause, 'Iceberg metadata is not available for this dataset.') }));
+          }
+        }
+        setLoadedTabs((prev) => ({ ...prev, details: true }));
+      } else if (next === 'preview') {
         const selectedColumns = previewColumnText.split(',').map((column) => column.trim()).filter(Boolean);
         const selectedSort = previewSort.split(',').map((column) => column.trim()).filter(Boolean);
         const [previewResponse, txResponse] = await Promise.all([
@@ -378,10 +459,13 @@ export function DatasetDetailPage() {
         setLoadedTabs((prev) => ({ ...prev, schedules: true }));
       } else if (next === 'health') {
         const rid = dataset?.rid || id;
-        const [qualityResult, healthResult, lintResult] = await Promise.allSettled([
+        const [qualityResult, healthResult, lintResult, buildsResult, schedulesResult, schemaResult] = await Promise.allSettled([
           getDatasetQuality(id),
           getDatasetHealth(rid),
           getDatasetLint(id),
+          listDatasetBuildsV1(rid),
+          listSchedules({ files: [rid], limit: 100, sort: 'updated_at' }),
+          getDatasetSchemaForBranch(id, activeBranch),
         ]);
         const messages: string[] = [];
         if (qualityResult.status === 'fulfilled') setQuality(qualityResult.value);
@@ -392,6 +476,9 @@ export function DatasetDetailPage() {
         }
         if (lintResult.status === 'fulfilled') setLint(lintResult.value);
         else messages.push(userFacingError(lintResult.reason, 'Lint summary is not available.'));
+        if (buildsResult.status === 'fulfilled') setBuilds(buildsResult.value.data ?? []);
+        if (schedulesResult.status === 'fulfilled') setSchedules(schedulesResult.value.data ?? []);
+        if (schemaResult.status === 'fulfilled') setSchema(schemaResult.value);
         if (messages.length > 0) setTabErrors((prev) => ({ ...prev, health: messages.join(' ') }));
         setLoadedTabs((prev) => ({ ...prev, health: true }));
       } else {
@@ -516,6 +603,65 @@ export function DatasetDetailPage() {
     }
   }
 
+  async function rollbackToTransaction() {
+    if (!dataset || !rollbackTarget) return;
+    const target = rollbackTarget;
+    setBusyAction('rollback');
+    setError('');
+    setNotice(null);
+    try {
+      const response = await rollbackDatasetBranch(dataset.id, activeBranch, {
+        transaction_id: target.id,
+        summary: `Rollback ${dataset.name} on ${activeBranch} to ${shortId(target.id, 12)}`,
+        confirmation: `ROLLBACK ${activeBranch}`,
+      });
+      const [txRows, versionRows, readiness, branchRows] = await Promise.all([
+        listDatasetTransactions(id, { branch: activeBranch }),
+        getVersions(id),
+        getDatasetIncrementalReadiness(id, { branch: activeBranch }),
+        listBranches(id),
+      ]);
+      setRollbackTarget(null);
+      setTransactions(txRows);
+      setVersions(versionRows);
+      setIncrementalReadiness(readiness);
+      setBranches(branchRows);
+      setPreview(null);
+      setFiles([]);
+      setSchema(null);
+      setLoadedTabs((prev) => ({ ...prev, preview: false, files: false, schema: false, history: true, details: false }));
+      const params = new URLSearchParams(searchParams);
+      params.delete('txn');
+      params.delete('version');
+      setSearchParams(params);
+      const created = response.transaction?.id ?? response.transaction_rid;
+      setNotice({ type: 'success', text: `Rolled back ${activeBranch} to ${shortId(target.id)}${created ? ` using snapshot ${shortId(created)}` : ''}.` });
+    } catch (cause) {
+      setNotice({ type: 'error', text: userFacingError(cause, 'Rollback failed.') });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function requestForceSnapshot() {
+    if (!dataset) return;
+    setBusyAction('force-snapshot');
+    setError('');
+    setNotice(null);
+    try {
+      const updated = await forceSnapshotOnNextBuild(dataset.id, activeBranch, {
+        summary: `Manual recovery request from Dataset Preview on ${activeBranch}`,
+      });
+      setBranches((prev) => prev.map((branch) => (branch.name === activeBranch ? { ...branch, labels: updated.labels ?? branch.labels } : branch)));
+      setForceSnapshotOpen(false);
+      setNotice({ type: 'success', text: `The next build on ${activeBranch} will commit a SNAPSHOT transaction.` });
+    } catch (cause) {
+      setNotice({ type: 'error', text: userFacingError(cause, 'Failed to mark the branch for snapshot recovery.') });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function runBuild() {
     if (!dataset) return;
     setBusyAction('build');
@@ -523,7 +669,7 @@ export function DatasetDetailPage() {
     setNotice(null);
     try {
       const response = await startDatasetBuild(dataset.id, {
-        branch: dataset.active_branch,
+        branch: activeBranch,
         reason: 'manual dataset detail action',
       });
       setNotice({ type: 'success', text: `Build started${actionReference(response)}.` });
@@ -774,6 +920,27 @@ export function DatasetDetailPage() {
         onCancel={() => setHardDeleteOpen(false)}
         onConfirm={() => void hardRemoveDataset()}
       />
+
+      <ConfirmDialog
+        open={Boolean(rollbackTarget)}
+        title="Roll back dataset"
+        message={`Roll back branch ${activeBranch} to transaction ${shortId(rollbackTarget?.id)}? This creates a new SNAPSHOT transaction, records an audit event, and marks later committed transactions as rolled back in History.`}
+        confirmLabel="Roll back"
+        danger
+        busy={busyAction === 'rollback'}
+        onCancel={() => setRollbackTarget(null)}
+        onConfirm={() => void rollbackToTransaction()}
+      />
+
+      <ConfirmDialog
+        open={forceSnapshotOpen}
+        title="Force snapshot on next build"
+        message={`Mark branch ${activeBranch} so the next build writes a SNAPSHOT transaction even if the pipeline normally builds incrementally.`}
+        confirmLabel="Force snapshot"
+        busy={busyAction === 'force-snapshot'}
+        onCancel={() => setForceSnapshotOpen(false)}
+        onConfirm={() => void requestForceSnapshot()}
+      />
     </section>
   );
 
@@ -877,6 +1044,7 @@ export function DatasetDetailPage() {
             busyAction={busyAction}
             activeBranch={activeBranch}
             selectedVersion={selectedVersion}
+            icebergMetadata={icebergMetadata}
             onName={setName}
             onDescription={setDescription}
             onTagsText={setTagsText}
@@ -922,10 +1090,15 @@ export function DatasetDetailPage() {
               transactions={branchTransactions}
               incrementalReadiness={incrementalReadiness}
               versions={versions}
+              activeBranch={activeBranch}
+              forceSnapshotPending={forceSnapshotPending}
+              rollingBack={busyAction === 'rollback' ? rollbackTarget?.id ?? null : null}
               selectedTransactionId={selectedTransactionId}
               selectedVersion={selectedVersion}
               onSelectTransaction={selectPreviewTransaction}
               onSelectVersion={selectVersion}
+              onRollback={setRollbackTarget}
+              onForceSnapshot={() => setForceSnapshotOpen(true)}
             />
           )}
         </TabBody>
@@ -953,10 +1126,14 @@ export function DatasetDetailPage() {
         <TabBody>
           {tabError && <PermissionState message={tabError} />}
           <HealthTab
+            dataset={currentDataset}
             datasetRid={currentDataset.rid}
+            schema={schema}
             quality={quality}
             health={healthSnapshot}
             lint={lint}
+            builds={builds}
+            schedules={schedules}
             loading={Boolean(tabLoading.health)}
             refreshing={busyAction === 'profile'}
             onRefreshProfile={() => void refreshQuality()}
@@ -1021,6 +1198,7 @@ function DetailsTab({
   busyAction,
   activeBranch,
   selectedVersion,
+  icebergMetadata,
   onName,
   onDescription,
   onTagsText,
@@ -1041,6 +1219,7 @@ function DetailsTab({
   busyAction: BusyAction;
   activeBranch: string;
   selectedVersion: number | null;
+  icebergMetadata: DatasetIcebergMetadataBridge | null;
   onName: (value: string) => void;
   onDescription: (value: string) => void;
   onTagsText: (value: string) => void;
@@ -1051,6 +1230,13 @@ function DetailsTab({
   onCopy: (text: string, label: string) => void;
 }) {
   const previewPath = `/api/v1/datasets/${encodeURIComponent(dataset.id)}/preview?branch=${encodeURIComponent(activeBranch)}${selectedVersion ? `&version=${selectedVersion}` : ''}`;
+  const showIceberg = datasetLooksIceberg(dataset, icebergMetadata);
+  const apiLinks = [
+    ['Preview', previewPath],
+    ['Files', `/api/v1/datasets/${encodeURIComponent(dataset.id)}/files?branch=${encodeURIComponent(activeBranch)}`],
+    ['Schema', `/api/v1/datasets/${encodeURIComponent(dataset.id)}/schema?branch=${encodeURIComponent(activeBranch)}`],
+    ...(showIceberg ? [['Iceberg', `/api/v1/datasets/${encodeURIComponent(dataset.id)}/iceberg-metadata`]] : []),
+  ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16, alignItems: 'start' }}>
       <div style={{ display: 'grid', gap: 10, maxWidth: 760 }}>
@@ -1100,11 +1286,7 @@ function DetailsTab({
         </section>
         <section style={{ padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-muted)', display: 'grid', gap: 8 }}>
           <p className="of-eyebrow">API</p>
-          {[
-            ['Preview', previewPath],
-            ['Files', `/api/v1/datasets/${encodeURIComponent(dataset.id)}/files?branch=${encodeURIComponent(activeBranch)}`],
-            ['Schema', `/api/v1/datasets/${encodeURIComponent(dataset.id)}/schema?branch=${encodeURIComponent(activeBranch)}`],
-          ].map(([label, path]) => (
+          {apiLinks.map(([label, path]) => (
             <div key={label} style={{ display: 'grid', gap: 4 }}>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</span>
               <button type="button" onClick={() => onCopy(path, `${label} API path`)} className="of-button" style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: 11, overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
@@ -1113,8 +1295,80 @@ function DetailsTab({
             </div>
           ))}
         </section>
+        {showIceberg && <IcebergMetadataPanel metadata={icebergMetadata} />}
       </aside>
     </div>
+  );
+}
+
+function datasetLooksIceberg(dataset: Dataset, metadata: DatasetIcebergMetadataBridge | null) {
+  if (metadata) return true;
+  const haystack = [dataset.format, dataset.rid, dataset.storage_path].filter(Boolean).join(' ').toLowerCase();
+  if (haystack.includes('iceberg')) return true;
+  return isRecord(dataset.metadata) && isRecord(dataset.metadata.iceberg);
+}
+
+function icebergSchemaFieldCount(schema: DatasetIcebergMetadataBridge['current_schema']) {
+  if (isRecord(schema) && Array.isArray(schema.fields)) return schema.fields.length;
+  if (isRecord(schema) && Array.isArray(schema.fieldSchemaList)) return schema.fieldSchemaList.length;
+  return null;
+}
+
+function IcebergMetadataPanel({ metadata }: { metadata: DatasetIcebergMetadataBridge | null }) {
+  if (!metadata) {
+    return (
+      <section style={{ padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-muted)', display: 'grid', gap: 6 }}>
+        <p className="of-eyebrow">Iceberg bridge</p>
+        <div className="of-status-info" style={{ padding: 8, borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+          Iceberg table metadata has not been captured for this dataset yet.
+        </div>
+      </section>
+    );
+  }
+  const gaps = metadata.feature_gaps ?? [];
+  const fieldCount = icebergSchemaFieldCount(metadata.current_schema);
+  return (
+    <section style={{ padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-muted)', display: 'grid', gap: 10 }}>
+      <div>
+        <p className="of-eyebrow">Iceberg bridge</p>
+        <h3 className="of-heading-sm" style={{ marginTop: 2 }}>{metadata.table_name || metadata.namespace || 'Table metadata'}</h3>
+      </div>
+      <dl style={{ display: 'grid', gridTemplateColumns: '112px minmax(0, 1fr)', gap: '6px 8px', margin: 0, fontSize: 12 }}>
+        <dt className="of-text-muted">Table RID</dt>
+        <dd style={{ margin: 0, fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{metadata.table_rid || 'n/a'}</dd>
+        <dt className="of-text-muted">Namespace</dt>
+        <dd style={{ margin: 0 }}>{metadata.namespace || 'n/a'}</dd>
+        <dt className="of-text-muted">Table UUID</dt>
+        <dd style={{ margin: 0, fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{metadata.table_uuid || 'n/a'}</dd>
+        <dt className="of-text-muted">Iceberg snapshot</dt>
+        <dd style={{ margin: 0, fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }}>{metadata.current_iceberg_snapshot_id || 'n/a'}</dd>
+        <dt className="of-text-muted">Schema behavior</dt>
+        <dd style={{ margin: 0 }}>{metadata.branch_schema_behavior}</dd>
+        <dt className="of-text-muted">Format</dt>
+        <dd style={{ margin: 0 }}>Iceberg v{metadata.format_version}{fieldCount !== null ? ` · ${fieldCount} fields` : ''}</dd>
+      </dl>
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div className="of-text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Metadata pointer</div>
+        <code style={{ fontSize: 11, overflowWrap: 'anywhere' }}>{metadata.metadata_pointer.current || 'n/a'}</code>
+        {metadata.metadata_pointer.previous && <code style={{ fontSize: 11, color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>previous: {metadata.metadata_pointer.previous}</code>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+        <HealthStat label="Last op" value={metadata.operations.last_operation || 'n/a'} />
+        <HealthStat label="Replace snapshots" value={String(metadata.operations.replace_snapshot_count ?? 0)} />
+        <HealthStat label="Compactions" value={String(metadata.operations.compaction_count ?? 0)} />
+        <HealthStat label="Updated" value={formatDate(metadata.updated_at)} />
+      </div>
+      {gaps.length > 0 && (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {gaps.map((gap) => (
+            <div key={gap.code} className="of-callout of-callout--warning">
+              <strong>{gap.code}</strong>
+              <span style={{ display: 'block', marginTop: 2 }}>{gap.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1561,22 +1815,50 @@ function HistoryPanel({
   transactions,
   incrementalReadiness,
   versions,
+  activeBranch,
+  forceSnapshotPending,
+  rollingBack,
   selectedTransactionId,
   selectedVersion,
   onSelectTransaction,
   onSelectVersion,
+  onRollback,
+  onForceSnapshot,
 }: {
   transactions: DatasetTransaction[];
   incrementalReadiness: DatasetIncrementalReadiness | null;
   versions: DatasetVersion[];
+  activeBranch: string;
+  forceSnapshotPending: boolean;
+  rollingBack: string | null;
   selectedTransactionId: string | null;
   selectedVersion: number | null;
   onSelectTransaction: (txId: string | null) => void;
   onSelectVersion: (version: number | null) => void;
+  onRollback: (tx: DatasetTransaction) => void;
+  onForceSnapshot: () => void;
 }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <IncrementalReadinessPanel readiness={incrementalReadiness} />
+      <section style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 12 }}>
+        <div>
+          <p className="of-eyebrow">Rollback Recovery</p>
+          <h2 className="of-heading-sm" style={{ marginTop: 2 }}>Branch {activeBranch}</h2>
+          <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+            {forceSnapshotPending ? 'Next build is marked for SNAPSHOT recovery.' : 'No forced snapshot recovery is pending.'}
+          </p>
+        </div>
+        <button type="button" className="of-button" disabled={forceSnapshotPending} onClick={onForceSnapshot} style={{ fontSize: 12 }}>
+          {forceSnapshotPending ? 'Snapshot recovery pending' : 'Force snapshot next build'}
+        </button>
+      </section>
+      <HistoryTimeline
+        transactions={transactions}
+        rollingBack={rollingBack}
+        onView={(transaction) => onSelectTransaction(transaction.id)}
+        onRollback={onRollback}
+      />
       <section>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div>
@@ -1784,24 +2066,43 @@ function SchedulesTable({ schedules, datasetRid }: { schedules: Schedule[]; data
 }
 
 function HealthTab({
+  dataset,
   datasetRid,
+  schema,
   quality,
   health,
   lint,
+  builds,
+  schedules,
   loading,
   refreshing,
   onRefreshProfile,
 }: {
+  dataset: Dataset;
   datasetRid?: string;
+  schema: DatasetSchema | DatasetSchemaResponse | null;
   quality: DatasetQualityResponse | null;
   health: DatasetHealthResponse | null;
   lint: DatasetLintResponse | null;
+  builds: Build[];
+  schedules: Schedule[];
   loading: boolean;
   refreshing: boolean;
   onRefreshProfile: () => void;
 }) {
+  const availableKinds = datasetHealthCheckKinds({ dataset, schema, health, quality, lint, builds, schedules });
+  const resourceRid = datasetRid || dataset.rid || dataset.id;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
+      <section className="of-panel-muted" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div>
+          <p className="of-eyebrow">Latest generated report</p>
+          <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+            Status is sourced from the latest Data Health report snapshot for this dataset.
+          </p>
+        </div>
+        <ResourceHealthStatusBadge resourceRid={resourceRid} />
+      </section>
       <QualityDashboard
         datasetRid={datasetRid}
         quality={quality}
@@ -1831,6 +2132,15 @@ function HealthTab({
           </tbody>
         </table>
       )}
+      <ResourceHealthChecksPanel
+        resourceRid={resourceRid}
+        resourceName={dataset.display_name || dataset.name || resourceRid}
+        resourceType="dataset"
+        sourceSurface="dataset_preview"
+        availableKinds={availableKinds}
+        defaultGroup="Dataset Preview"
+        defaultMonitoringView={dataset.project_rid || dataset.project_id || dataset.folder_path || ''}
+      />
       {!loading && !health && !quality?.profile && !lint && <EmptyBlock label="No health data is available for this dataset yet." />}
     </div>
   );
@@ -1878,12 +2188,21 @@ function TransactionsTable({ transactions, selectedTransactionId }: { transactio
       <tbody>
         {transactions.map((transaction) => {
           const selected = selectedTransactionId === transaction.id;
+          const rolledBack = transactionRolledBack(transaction);
+          const rollbackMarker = labelValue(transaction.metadata?.rolled_back_by_transaction_rid ?? transaction.metadata?.rolled_back_by_transaction_id);
           return (
-            <tr key={transaction.id} style={{ background: selected ? 'var(--status-info-bg)' : undefined }}>
+            <tr key={transaction.id} style={{ background: selected ? 'var(--status-info-bg)' : undefined, opacity: rolledBack ? 0.58 : undefined, textDecoration: rolledBack ? 'line-through' : undefined }}>
               <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{transaction.id}</td>
               <td>{transaction.operation}</td>
               <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{transaction.branch_name ?? 'n/a'}</td>
-              <td>{transaction.status}</td>
+              <td>
+                <span>{transaction.status}</span>
+                {rolledBack && (
+                  <span className="of-chip" style={{ marginLeft: 6, fontSize: 10 }}>
+                    Rolled back{rollbackMarker ? ` by ${shortId(rollbackMarker, 10)}` : ''}
+                  </span>
+                )}
+              </td>
               <td>{formatDate(transaction.created_at)}</td>
               <td>{formatDate(transaction.closedTime || transaction.committed_at || transaction.aborted_at)}</td>
               <td className="of-text-muted">{transaction.summary || 'n/a'}</td>

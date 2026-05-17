@@ -69,10 +69,10 @@ func SyncWorkflowLineage(ctx context.Context, state *AppState, workflowID uuid.U
 	}
 
 	overlay, err := json.Marshal(map[string]any{
-		"status":              body.Workflow.Status,
-		"trigger_type":        body.Workflow.TriggerType,
-		"source":              "workflow_service",
-		"lineage_synced_at":   nowUTC(),
+		"status":            body.Workflow.Status,
+		"trigger_type":      body.Workflow.TriggerType,
+		"source":            "workflow_service",
+		"lineage_synced_at": nowUTC(),
 	})
 	if err != nil {
 		return err
@@ -196,6 +196,10 @@ func ensureExternalNodes(ctx context.Context, state *AppState, r *models.Workflo
 			// writing a placeholder when missing — UpsertNode is a
 			// no-op when the row exists (ON CONFLICT DO UPDATE).
 			if err := EnsurePlaceholderWorkflow(ctx, state.DB, ref.id); err != nil {
+				return err
+			}
+		default:
+			if err := EnsurePlaceholderNode(ctx, state.DB, ref.id, nk); err != nil {
 				return err
 			}
 		}

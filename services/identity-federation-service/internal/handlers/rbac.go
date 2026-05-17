@@ -447,7 +447,22 @@ func (h *RBAC) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
-	if err := h.Repo.AddGroupMember(r.Context(), groupID, userID); err != nil {
+	// SG.5: PUT body is optional. When present, it carries an
+	// expires_at for time-bounded membership. Empty body keeps the
+	// existing semantics (permanent membership).
+	var body models.AddGroupMemberRequest
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+	}
+	var addedBy *uuid.UUID
+	if caller := authCallerID(r); caller != uuid.Nil {
+		c := caller
+		addedBy = &c
+	}
+	if err := h.Repo.AddGroupMember(r.Context(), groupID, userID, addedBy, body.ExpiresAt); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

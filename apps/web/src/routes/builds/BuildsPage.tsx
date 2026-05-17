@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { listBuildsV1, runBuildV1, type Build, type BuildState, type CreateBuildRequest, type ListBuildsParams } from '@/lib/api/buildsV1';
+import { listBuildsV1, type Build, type BuildState, type CreateBuildRequest, type ListBuildsParams } from '@/lib/api/buildsV1';
+import { runBuildWithExpectationGates } from '@/lib/api/data-expectations';
 import { AbortAction, isBuildAbortable } from '@/lib/components/builds/AbortAction';
 import { StateBadge } from '@/lib/components/builds/StateBadge';
 
@@ -255,8 +256,12 @@ export function BuildsPage() {
     setFeedback('');
     try {
       const request = parseCreateBody(createBody);
-      const response = await runBuildV1(request);
-      setFeedback(`Build ${response.build_id} accepted with ${response.job_count} job${response.job_count === 1 ? '' : 's'}.`);
+      const response = await runBuildWithExpectationGates(request);
+      if (response.state === 'BUILD_ABORTED') {
+        setFeedback(`Build ${response.build_id} aborted by data expectation gates: ${response.queued_reason}`);
+      } else {
+        setFeedback(`Build ${response.build_id} accepted with ${response.job_count} job${response.job_count === 1 ? '' : 's'}.`);
+      }
       await refresh(activeFilters);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Create failed');

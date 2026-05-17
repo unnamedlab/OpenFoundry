@@ -433,6 +433,61 @@ OpenFoundry canonical IDs.
   - Ensure admin settings do not silently break existing open branches; require migration or warning flows.
   - Docs: [Global Branching overview](https://www.palantir.com/docs/foundry/foundry-branching/overview/), [Branch retention](https://www.palantir.com/docs/foundry/global-branching/branch-retention), [Branch security](https://www.palantir.com/docs/foundry/foundry-branching/branch-security).
 
+## Milestone D: cross-application atomic propagation
+
+> **Added 2026-05-17.** The existing milestones model branches as a
+> registry of branched resources from many applications, but do not
+> guarantee that creating, switching, merging, or closing a branch
+> propagates **atomically** across all participating applications. This
+> milestone closes that gap.
+
+### Atomic branch lifecycle propagation
+
+- [ ] `GB.28` Atomic create across applications (`P1`, `todo`)
+  - Branch creation is a two-phase commit across the participating application adapters (Pipeline Builder, Ontology Manager, Workshop, Functions, AIP Logic, Object Views, Dataset Versioning, Schedule, Data Health, Object Storage V2 overlays).
+  - Failure in any adapter aborts the branch creation; partial state is rolled back and the creator sees a single typed error.
+  - Docs: [Branching lifecycle](https://www.palantir.com/docs/foundry/foundry-branching/branching-lifecycle-usage/).
+
+- [ ] `GB.29` Atomic merge across applications (`P1`, `todo`)
+  - Merge orchestrator records a multi-resource merge plan and executes it as a saga (use existing `libs/saga`) with per-adapter compensation steps.
+  - Build-scope choice from `GB.17` applies after the saga has materialized resource changes on main.
+  - Docs: [Branching lifecycle](https://www.palantir.com/docs/foundry/foundry-branching/branching-lifecycle-usage/).
+
+- [ ] `GB.30` Atomic close and retention sweep (`P1`, `todo`)
+  - Branch close releases adapter overlays (Object Storage V2 branch overlay, dataset branch transactions, Workshop branch versions, etc.) in a single audited operation.
+  - Retention policy can close branches inactive for N days; the same atomic close path runs.
+  - Docs: [Branch retention](https://www.palantir.com/docs/foundry/global-branching/branch-retention).
+
+### Cross-application preview consistency
+
+- [ ] `GB.31` Cross-resource preview snapshot (`P1`, `todo`)
+  - A "preview" command on a proposal builds a consistent snapshot id used by every adapter to render the proposal at that moment; later edits do not affect the preview.
+  - Workshop, Object Views, Vertex, Map, Quiver, dashboards all honor the snapshot id when rendering proposal previews.
+  - Docs: [Supported functionality](https://www.palantir.com/docs/foundry/foundry-branching/supported-functionality/).
+
+- [ ] `GB.32` Consistent preview for action chains (`P1`, `todo`)
+  - When a preview includes a chain of actions (e.g. action A's writes feed action B), the preview applies them in declared order against the branch overlay so the user sees the same end state every time.
+  - Docs: [Best practices and technical details](https://www.palantir.com/docs/foundry/foundry-branching/best-practices-and-technical-details/).
+
+### Cross-application audit
+
+- [ ] `GB.33` Single audit envelope per branch operation (`P2`, `todo`)
+  - Create, merge, close, and rebase emit a single audit envelope with per-adapter sub-events keyed by a shared operation id, so an auditor can reconstruct the whole change without joining across services.
+  - Docs: [Branch security](https://www.palantir.com/docs/foundry/foundry-branching/branch-security).
+
+### Cross-application cost insights
+
+- [ ] `GB.34` Branch cost rollup (`P2`, `todo`)
+  - Branch detail shows aggregate cost across all branched resource kinds (build runs, function executions, agent runs, notebook sessions, indexer reprocessing) sourced from the Resource Management accounting (see [Resource Management checklist](./foundry-resource-management-1to1-checklist.md)).
+  - Docs: [Branch cost insights](https://www.palantir.com/docs/foundry/foundry-branching/cost-insights).
+
+### Restricted-view interaction
+
+- [ ] `GB.35` Branch + restricted view safety (`P2`, `todo`)
+  - Branches may not create restricted views that depend on branched datasets (transform-input rule from Security/Governance `SG.30` applies).
+  - Adapter rejects with a clear error and links to the policy doc.
+  - Docs: [Restricted views constraints](https://www.palantir.com/docs/foundry/security/restricted-views#non-input-rule).
+
 ## Implementation inventory to collect before coding
 
 - [ ] `INV.1` Identify existing OpenFoundry global branch API routes, frontend pages, branch models, and generated SDK methods.

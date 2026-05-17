@@ -98,6 +98,33 @@ func New(
 		api.Post("/projects/{id}/resources", ph.BindProjectResource)
 		api.Delete("/projects/{id}/resources/{kind}/{resource_id}", ph.UnbindProjectResource)
 
+		// SG.6: group-based memberships + project-level access
+		// requests + viewer/editor/owner group setup shortcut.
+		api.Get("/projects/{id}/group-memberships", ph.ListProjectGroupMemberships)
+		api.Put("/projects/{id}/group-memberships", ph.UpsertProjectGroupMembership)
+		api.Delete("/projects/{id}/group-memberships/{group_id}", ph.DeleteProjectGroupMembership)
+		api.Post("/projects/{id}/access-groups:bootstrap", ph.EnsureProjectAccessGroups)
+		api.Get("/projects/{id}/access-request-form", ph.GetProjectAccessRequestForm)
+		api.Put("/projects/{id}/access-request-groups/{group_id}", ph.UpsertProjectAccessRequestGroupSetting)
+		api.Delete("/projects/{id}/access-request-groups/{group_id}", ph.DeleteProjectAccessRequestGroupSetting)
+		api.Put("/projects/{id}/access-request-markings/{marking_id}", ph.UpsertProjectRequiredMarking)
+		api.Delete("/projects/{id}/access-request-markings/{marking_id}", ph.DeleteProjectRequiredMarking)
+		api.Get("/projects/{id}/access-requests", ph.ListProjectAccessRequests)
+		api.Post("/projects/{id}/access-requests", ph.CreateProjectAccessRequest)
+		api.Post("/projects/{id}/access-requests/{request_id}/decision", ph.DecideProjectAccessRequest)
+		api.Post("/projects/{id}/access-requests/{request_id}:cancel", ph.CancelProjectAccessRequest)
+		api.Get("/access-requests/inbox", ph.ListAccessRequestInbox)
+
+		// SG.8: direct resource grants and the effective-access
+		// resolver. Resource grants are scoped to a project or
+		// folder; ontology-resource-level direct grants are
+		// disallowed (resources inherit from their project per
+		// the existing domain rules).
+		api.Get("/projects/{id}/resource-grants", ph.ListProjectResourceGrants)
+		api.Post("/projects/{id}/resource-grants", ph.CreateProjectResourceGrant)
+		api.Delete("/projects/{id}/resource-grants/{grant_id}", ph.DeleteProjectResourceGrant)
+		api.Get("/projects/{id}/effective-access", ph.CheckEffectiveAccess)
+
 		// Nexus federation peer spaces — distinct from the SG.2
 		// tenancy_spaces above. Kept under /nexus to avoid collision
 		// with the Foundry-style /organizations/{id}/spaces.

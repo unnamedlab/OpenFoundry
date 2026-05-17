@@ -41,6 +41,7 @@ import { composeUnionSql, newUnionDraft, type UnionDraft } from '@/lib/component
 import { OutputDrawer, type OutputDraft } from '@/lib/components/pipeline/OutputDrawer';
 import { DeployDrawer } from '@/lib/components/pipeline/DeployDrawer';
 import { previewDataset } from '@/lib/api/datasets';
+import { ensureExpectationChangesReviewed, guardPipelineRunWithExpectationGates } from '@/lib/api/data-expectations';
 import { virtualTableExternalReference, type VirtualTable } from '@/lib/api/virtual-tables';
 
 function parseJson<T>(value: string, fallback: T): T {
@@ -203,6 +204,10 @@ export function PipelineEditPage() {
 
   function setPipelineNodes(nodes: PipelineNode[]) {
     setNodesJson(JSON.stringify(pipelineDAGWithNodes(currentDAG(), nodes), null, 2));
+  }
+
+  function patchPipelineNode(nextNode: PipelineNode) {
+    setPipelineNodes(currentNodes().map((node) => (node.id === nextNode.id ? nextNode : node)));
   }
 
   async function fetchSchemaForNode(node: PipelineNode, allNodes: PipelineNode[]): Promise<string[]> {
@@ -660,7 +665,13 @@ export function PipelineEditPage() {
   async function runNow() {
     if (!pipeline) return;
     setBusy(true);
+    setError('');
     try {
+      guardPipelineRunWithExpectationGates({
+        pipelineId: pipeline.id,
+        branchName: branchName.trim() || 'main',
+        nodes: currentNodes(),
+      });
       await triggerRun(pipeline.id);
       await loadRuns();
       setTab('runs');
@@ -769,6 +780,11 @@ export function PipelineEditPage() {
     setHistoryBusy(true);
     setError('');
     try {
+      ensureExpectationChangesReviewed({
+        pipelineId: pipeline.id,
+        branchName: branchName.trim() || 'main',
+        nodes: currentNodes(),
+      });
       const response = await publishPipeline(pipeline.id, {
         message: `Published ${new Date().toLocaleString()}`,
         branch_name: branchName.trim() || 'main',
@@ -943,7 +959,14 @@ export function PipelineEditPage() {
               {isPipelineEmpty(parsedNodes) ? (
                 <PipelineWelcomePanel onAddFoundryData={() => setAddDataOpen(true)} />
               ) : null}
-              <NodePreviewPanel pipelineId={pipeline.id} node={selectedPreviewNode} draftDag={parsedDAG} draftKey={nodesJson} />
+              <NodePreviewPanel
+                pipelineId={pipeline.id}
+                node={selectedPreviewNode}
+                draftDag={parsedDAG}
+                draftKey={nodesJson}
+                branchName={branchName.trim() || 'main'}
+                onNodeChange={patchPipelineNode}
+              />
               {aipOpen && (
                 <PipelineAIPGeneratePanel
                   prompt={aipPrompt}

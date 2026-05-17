@@ -573,53 +573,197 @@ func (r *Repo) RevokePermissionFromRole(ctx context.Context, roleID, permID uuid
 
 // ─── Groups ─────────────────────────────────────────────────────────────
 
+// groupSelectColumns is the canonical projection used by every
+// groups-table SELECT.
+const groupSelectColumns = `id, name, COALESCE(display_name, name) AS display_name,
+	description, kind, realm, organization_id, attributes, rule_query,
+	status, created_at, updated_at`
+
 func (r *Repo) ListGroups(ctx context.Context) ([]models.Group, error) {
 	rows, err := r.Pool.Query(ctx,
-		`SELECT id, name, description, created_at FROM groups ORDER BY name`)
+		`SELECT `+groupSelectColumns+`
+		 FROM groups WHERE status = 'active'
+		 ORDER BY display_name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]models.Group, 0)
-	for rows.Next() {
-		var g models.Group
-		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, g)
+	return scanGroupRows(rows)
+}
+
+// ListGroupsFiltered is the SG.5 search surface used by
+// /groups/search. Supports case-insensitive substring on name +
+// display_name + description, exact kind / realm / organization_id
+// filters, status filter, offset pagination, and a total count.
+func (r *Repo) ListGroupsFiltered(ctx context.Context, f *models.ListGroupsFilter) ([]models.Group, int64, error) {
+	if f == nil {
+		f = &models.ListGroupsFilter{}
 	}
-	return out, rows.Err()
+	limit := f.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	args := make([]any, 0, 8)
+	conds := make([]string, 0, 6)
+	if q := strings.TrimSpace(f.Query); q != "" {
+		args = append(args, "%"+strings.ToLower(q)+"%")
+		conds = append(conds,
+			fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(COALESCE(display_name,'')) LIKE $%d OR LOWER(COALESCE(description,'')) LIKE $%d)",
+				len(args), len(args), len(args)))
+	}
+	if kind := strings.TrimSpace(f.Kind); kind != "" {
+		args = append(args, kind)
+		conds = append(conds, fmt.Sprintf("kind = $%d", len(args)))
+	}
+	if realm := strings.TrimSpace(f.Realm); realm != "" {
+		args = append(args, realm)
+		conds = append(conds, fmt.Sprintf("realm = $%d", len(args)))
+	}
+	if f.OrganizationID != nil {
+		args = append(args, *f.OrganizationID)
+		conds = append(conds, fmt.Sprintf("organization_id = $%d", len(args)))
+	}
+	if status := strings.TrimSpace(f.Status); status != "" {
+		args = append(args, status)
+		conds = append(conds, fmt.Sprintf("status = $%d", len(args)))
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + strings.Join(conds, " AND ")
+	}
+	var total int64
+	if err := r.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM groups "+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count groups: %w", err)
+	}
+	args = append(args, limit, offset)
+	query := "SELECT " + groupSelectColumns + " FROM groups " + where +
+		fmt.Sprintf(" ORDER BY display_name LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	rows, err := r.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	groups, err := scanGroupRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return groups, total, nil
 }
 
 func (r *Repo) GetGroup(ctx context.Context, id uuid.UUID) (*models.Group, error) {
 	row := r.Pool.QueryRow(ctx,
-		`SELECT id, name, description, created_at FROM groups WHERE id = $1`, id)
-	g := &models.Group{}
-	if err := row.Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
+		`SELECT `+groupSelectColumns+`
+		 FROM groups WHERE id = $1`, id)
+	g, err := scanGroupSingle(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
 	}
-	return g, nil
+	return g, err
 }
 
 func (r *Repo) CreateGroup(ctx context.Context, body *models.CreateGroupRequest) (*models.Group, error) {
+	if strings.TrimSpace(body.Name) == "" {
+		return nil, fmt.Errorf("name is required")
+	}
 	id := uuid.New()
+	kind := models.GroupKindInternal
+	if body.Kind != nil && strings.TrimSpace(*body.Kind) != "" {
+		kind = strings.ToLower(strings.TrimSpace(*body.Kind))
+	}
+	if !isValidGroupKind(kind) {
+		return nil, fmt.Errorf("kind must be 'internal', 'external', or 'rule_based'")
+	}
+	realm := "local"
+	if body.Realm != nil && strings.TrimSpace(*body.Realm) != "" {
+		realm = strings.TrimSpace(*body.Realm)
+	}
+	status := models.GroupStatusActive
+	if body.Status != nil && strings.TrimSpace(*body.Status) != "" {
+		status = strings.ToLower(strings.TrimSpace(*body.Status))
+	}
+	display := strings.TrimSpace(body.Name)
+	if body.DisplayName != nil && strings.TrimSpace(*body.DisplayName) != "" {
+		display = strings.TrimSpace(*body.DisplayName)
+	}
+	attrs := body.Attributes
+	if len(attrs) == 0 {
+		attrs = []byte("{}")
+	}
 	_, err := r.Pool.Exec(ctx,
-		`INSERT INTO groups (id, name, description) VALUES ($1, $2, $3)`,
-		id, body.Name, body.Description,
+		`INSERT INTO groups
+		   (id, name, display_name, description, kind, realm, organization_id,
+		    attributes, rule_query, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
+		id, strings.TrimSpace(body.Name), display, body.Description, kind, realm,
+		body.OrganizationID, attrs, jsonOrNil(body.RuleQuery), status,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("insert group: %w", err)
 	}
 	return r.GetGroup(ctx, id)
 }
 
 func (r *Repo) UpdateGroup(ctx context.Context, id uuid.UUID, body *models.UpdateGroupRequest) (*models.Group, error) {
-	_, err := r.Pool.Exec(ctx,
-		`UPDATE groups SET name = $2, description = $3 WHERE id = $1`,
-		id, body.Name, body.Description,
+	current, err := r.GetGroup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, nil
+	}
+	name := current.Name
+	if body.Name != nil {
+		name = *body.Name
+	}
+	display := current.DisplayName
+	if body.DisplayName != nil {
+		display = *body.DisplayName
+	}
+	desc := current.Description
+	if body.Description != nil {
+		desc = *body.Description
+	}
+	kind := current.Kind
+	if body.Kind != nil {
+		kind = strings.ToLower(strings.TrimSpace(*body.Kind))
+	}
+	if !isValidGroupKind(kind) {
+		return nil, fmt.Errorf("kind must be 'internal', 'external', or 'rule_based'")
+	}
+	realm := current.Realm
+	if body.Realm != nil {
+		realm = strings.TrimSpace(*body.Realm)
+	}
+	orgID := current.OrganizationID
+	if body.OrganizationID != nil {
+		orgID = *body.OrganizationID
+	}
+	attrs := current.Attributes
+	if body.Attributes != nil {
+		attrs = *body.Attributes
+	}
+	if len(attrs) == 0 {
+		attrs = []byte("{}")
+	}
+	rule := current.RuleQuery
+	if body.RuleQuery != nil {
+		rule = *body.RuleQuery
+	}
+	status := current.Status
+	if body.Status != nil {
+		status = strings.ToLower(strings.TrimSpace(*body.Status))
+	}
+	_, err = r.Pool.Exec(ctx,
+		`UPDATE groups SET
+		   name = $2, display_name = $3, description = $4, kind = $5, realm = $6,
+		   organization_id = $7, attributes = $8::jsonb, rule_query = $9, status = $10,
+		   updated_at = NOW()
+		 WHERE id = $1`,
+		id, name, display, desc, kind, realm, orgID, attrs, jsonOrNil(rule), status,
 	)
 	if err != nil {
 		return nil, err
@@ -632,10 +776,16 @@ func (r *Repo) DeleteGroup(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-func (r *Repo) AddGroupMember(ctx context.Context, groupID, userID uuid.UUID) error {
+// AddGroupMember inserts (or refreshes the metadata of) one
+// group_members row. SG.5: optionally time-bounded membership.
+func (r *Repo) AddGroupMember(ctx context.Context, groupID, userID uuid.UUID, addedBy *uuid.UUID, expiresAt *time.Time) error {
 	_, err := r.Pool.Exec(ctx,
-		`INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		groupID, userID,
+		`INSERT INTO group_members (group_id, user_id, added_by, expires_at)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (group_id, user_id) DO UPDATE
+		   SET added_by   = COALESCE(EXCLUDED.added_by, group_members.added_by),
+		       expires_at = EXCLUDED.expires_at`,
+		groupID, userID, addedBy, expiresAt,
 	)
 	return err
 }
@@ -646,6 +796,281 @@ func (r *Repo) RemoveGroupMember(ctx context.Context, groupID, userID uuid.UUID)
 		groupID, userID,
 	)
 	return err
+}
+
+// ListGroupMembers returns one row per direct member with the SG.5
+// expiration columns.
+func (r *Repo) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]models.GroupMember, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT group_id, user_id, added_at, added_by, expires_at
+		 FROM group_members
+		 WHERE group_id = $1
+		 ORDER BY added_at DESC`,
+		groupID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.GroupMember, 0)
+	for rows.Next() {
+		m := models.GroupMember{}
+		if err := rows.Scan(&m.GroupID, &m.UserID, &m.AddedAt, &m.AddedBy, &m.ExpiresAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// CountGroupMembers returns (direct, expiring) counts for the SG.5
+// inspect view. `expiring` is the subset of direct members whose
+// expires_at is non-null and in the future.
+func (r *Repo) CountGroupMembers(ctx context.Context, groupID uuid.UUID) (int, int, error) {
+	var direct, expiring int
+	err := r.Pool.QueryRow(ctx,
+		`SELECT
+		   COUNT(*) AS direct,
+		   COUNT(*) FILTER (WHERE expires_at IS NOT NULL AND expires_at > NOW()) AS expiring
+		 FROM group_members WHERE group_id = $1`,
+		groupID,
+	).Scan(&direct, &expiring)
+	return direct, expiring, err
+}
+
+// ─── Group admins (SG.5) ────────────────────────────────────────────────
+
+func (r *Repo) ListGroupAdmins(ctx context.Context, groupID uuid.UUID) ([]models.GroupAdmin, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT group_id, user_id, scope, granted_by, created_at
+		 FROM group_admins WHERE group_id = $1
+		 ORDER BY created_at DESC`,
+		groupID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.GroupAdmin, 0)
+	for rows.Next() {
+		a := models.GroupAdmin{}
+		if err := rows.Scan(&a.GroupID, &a.UserID, &a.Scope, &a.GrantedBy, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) UpsertGroupAdmin(ctx context.Context, groupID uuid.UUID, body *models.CreateGroupAdminRequest) (*models.GroupAdmin, error) {
+	scope := models.GroupAdminScopeManage
+	if body.Scope != nil && strings.TrimSpace(*body.Scope) != "" {
+		scope = strings.ToLower(strings.TrimSpace(*body.Scope))
+	}
+	if scope != models.GroupAdminScopeManage && scope != models.GroupAdminScopeManageMembers {
+		return nil, fmt.Errorf("scope must be 'manage' or 'manage_members'")
+	}
+	row := r.Pool.QueryRow(ctx,
+		`INSERT INTO group_admins (group_id, user_id, scope, granted_by)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (group_id, user_id, scope) DO UPDATE
+		   SET granted_by = EXCLUDED.granted_by
+		 RETURNING group_id, user_id, scope, granted_by, created_at`,
+		groupID, body.UserID, scope, body.GrantedBy,
+	)
+	a := &models.GroupAdmin{}
+	if err := row.Scan(&a.GroupID, &a.UserID, &a.Scope, &a.GrantedBy, &a.CreatedAt); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (r *Repo) DeleteGroupAdmin(ctx context.Context, groupID, userID uuid.UUID, scope string) error {
+	_, err := r.Pool.Exec(ctx,
+		`DELETE FROM group_admins
+		 WHERE group_id = $1 AND user_id = $2 AND scope = $3`,
+		groupID, userID, scope,
+	)
+	return err
+}
+
+// IsGroupAdmin returns true when `userID` carries any admin scope on
+// `groupID`. SG.5: gateway for group-membership write authorization.
+func (r *Repo) IsGroupAdmin(ctx context.Context, groupID, userID uuid.UUID) (bool, error) {
+	var count int
+	err := r.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM group_admins
+		 WHERE group_id = $1 AND user_id = $2`, groupID, userID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// ─── Nested group membership (SG.5) ─────────────────────────────────────
+
+func (r *Repo) AddGroupNested(ctx context.Context, parentID, memberID uuid.UUID, addedBy *uuid.UUID) error {
+	if parentID == memberID {
+		return fmt.Errorf("a group cannot contain itself")
+	}
+	// Cheap cycle check: if memberID is already an ancestor of
+	// parentID, the new edge would close a cycle. Walk up the
+	// member's ancestors looking for parentID.
+	cycle, err := r.groupCycleWouldClose(ctx, parentID, memberID)
+	if err != nil {
+		return err
+	}
+	if cycle {
+		return fmt.Errorf("would close a nesting cycle")
+	}
+	_, err = r.Pool.Exec(ctx,
+		`INSERT INTO group_nested_members (parent_group_id, member_group_id, added_by)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT DO NOTHING`,
+		parentID, memberID, addedBy,
+	)
+	return err
+}
+
+func (r *Repo) RemoveGroupNested(ctx context.Context, parentID, memberID uuid.UUID) error {
+	_, err := r.Pool.Exec(ctx,
+		`DELETE FROM group_nested_members
+		 WHERE parent_group_id = $1 AND member_group_id = $2`,
+		parentID, memberID,
+	)
+	return err
+}
+
+// ListGroupParents returns the groups that directly contain `groupID`.
+func (r *Repo) ListGroupParents(ctx context.Context, groupID uuid.UUID) ([]models.GroupBrief, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT g.id, COALESCE(NULLIF(g.display_name,''), g.name)
+		 FROM group_nested_members gnm
+		 INNER JOIN groups g ON g.id = gnm.parent_group_id
+		 WHERE gnm.member_group_id = $1
+		 ORDER BY 2`,
+		groupID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.GroupBrief, 0)
+	for rows.Next() {
+		var b models.GroupBrief
+		if err := rows.Scan(&b.ID, &b.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// ListGroupChildren returns the groups directly contained by `groupID`.
+func (r *Repo) ListGroupChildren(ctx context.Context, groupID uuid.UUID) ([]models.GroupBrief, error) {
+	rows, err := r.Pool.Query(ctx,
+		`SELECT g.id, COALESCE(NULLIF(g.display_name,''), g.name)
+		 FROM group_nested_members gnm
+		 INNER JOIN groups g ON g.id = gnm.member_group_id
+		 WHERE gnm.parent_group_id = $1
+		 ORDER BY 2`,
+		groupID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.GroupBrief, 0)
+	for rows.Next() {
+		var b models.GroupBrief
+		if err := rows.Scan(&b.ID, &b.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// groupCycleWouldClose reports whether adding parent->member would
+// close a nesting cycle. Implemented with a CTE that walks up from
+// `parent` looking for `member`.
+func (r *Repo) groupCycleWouldClose(ctx context.Context, parent, member uuid.UUID) (bool, error) {
+	var hit bool
+	err := r.Pool.QueryRow(ctx,
+		`WITH RECURSIVE ancestors(g) AS (
+		   SELECT $1::uuid
+		   UNION ALL
+		   SELECT gnm.parent_group_id
+		   FROM group_nested_members gnm
+		   INNER JOIN ancestors a ON a.g = gnm.member_group_id
+		 )
+		 SELECT EXISTS(SELECT 1 FROM ancestors WHERE g = $2::uuid)`,
+		parent, member,
+	).Scan(&hit)
+	return hit, err
+}
+
+// ─── helpers ────────────────────────────────────────────────────────────
+
+func scanGroupSingle(row pgx.Row) (*models.Group, error) {
+	g := &models.Group{}
+	var attrs, rule []byte
+	if err := row.Scan(
+		&g.ID, &g.Name, &g.DisplayName, &g.Description, &g.Kind, &g.Realm,
+		&g.OrganizationID, &attrs, &rule, &g.Status, &g.CreatedAt, &g.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if len(attrs) == 0 {
+		attrs = []byte("{}")
+	}
+	g.Attributes = attrs
+	g.RuleQuery = rule
+	return g, nil
+}
+
+func scanGroupRows(rows pgx.Rows) ([]models.Group, error) {
+	out := make([]models.Group, 0)
+	for rows.Next() {
+		g := models.Group{}
+		var attrs, rule []byte
+		if err := rows.Scan(
+			&g.ID, &g.Name, &g.DisplayName, &g.Description, &g.Kind, &g.Realm,
+			&g.OrganizationID, &attrs, &rule, &g.Status, &g.CreatedAt, &g.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if len(attrs) == 0 {
+			attrs = []byte("{}")
+		}
+		g.Attributes = attrs
+		g.RuleQuery = rule
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func isValidGroupKind(kind string) bool {
+	switch kind {
+	case models.GroupKindInternal, models.GroupKindExternal, models.GroupKindRuleBased:
+		return true
+	default:
+		return false
+	}
+}
+
+// jsonOrNil collapses an empty / empty-object JSON value to a NULL
+// SQL parameter so the column reflects "no rule" with NULL.
+func jsonOrNil(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	trimmed := strings.TrimSpace(string(b))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	return b
 }
 
 // ─── API keys ───────────────────────────────────────────────────────────

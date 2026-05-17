@@ -12,18 +12,22 @@ import (
 
 func TestOntologyProjectRoleRank(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, uint8(1), OntologyProjectRoleViewer.Rank())
-	assert.Equal(t, uint8(2), OntologyProjectRoleEditor.Rank())
-	assert.Equal(t, uint8(3), OntologyProjectRoleOwner.Rank())
+	// SG.6: Discoverer is the new lattice floor; existing ranks
+	// shift up by one.
+	assert.Equal(t, uint8(1), OntologyProjectRoleDiscoverer.Rank())
+	assert.Equal(t, uint8(2), OntologyProjectRoleViewer.Rank())
+	assert.Equal(t, uint8(3), OntologyProjectRoleEditor.Rank())
+	assert.Equal(t, uint8(4), OntologyProjectRoleOwner.Rank())
 	assert.Equal(t, uint8(0), OntologyProjectRole("unknown").Rank())
 }
 
 func TestOntologyProjectRoleJSONShape(t *testing.T) {
 	t.Parallel()
 	cases := map[OntologyProjectRole]string{
-		OntologyProjectRoleViewer: `"viewer"`,
-		OntologyProjectRoleEditor: `"editor"`,
-		OntologyProjectRoleOwner:  `"owner"`,
+		OntologyProjectRoleDiscoverer: `"discoverer"`,
+		OntologyProjectRoleViewer:     `"viewer"`,
+		OntologyProjectRoleEditor:     `"editor"`,
+		OntologyProjectRoleOwner:      `"owner"`,
 	}
 	for role, want := range cases {
 		b, err := json.Marshal(role)
@@ -167,6 +171,69 @@ func TestUpsertOntologyProjectMembershipRequestJSONRoundtrip(t *testing.T) {
 	var got UpsertOntologyProjectMembershipRequest
 	require.NoError(t, json.Unmarshal(b, &got))
 	assert.Equal(t, in, got)
+}
+
+func TestProjectAccessRequestTaskSG9JSONRoundtrip(t *testing.T) {
+	t.Parallel()
+	role := OntologyProjectRoleViewer
+	groupID := uuid.New()
+	in := ProjectAccessRequestTask{
+		ID:              uuid.New(),
+		RequestID:       uuid.New(),
+		ProjectID:       uuid.New(),
+		TaskType:        ProjectAccessRequestTaskGroupMembership,
+		TargetUserID:    uuid.New(),
+		RequestedRole:   &role,
+		GroupID:         &groupID,
+		Reason:          "Need incident workspace access",
+		Status:          ProjectAccessRequestTaskStatusReview,
+		ReviewerUserIDs: []uuid.UUID{uuid.New()},
+		CreatedAt:       time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var got ProjectAccessRequestTask
+	require.NoError(t, json.Unmarshal(b, &got))
+	assert.Equal(t, in.ID, got.ID)
+	assert.Equal(t, ProjectAccessRequestTaskGroupMembership, got.TaskType)
+	assert.Equal(t, ProjectAccessRequestTaskStatusReview, got.Status)
+	assert.Equal(t, in.ReviewerUserIDs, got.ReviewerUserIDs)
+}
+
+func TestProjectAccessRequestFormSG9JSONShape(t *testing.T) {
+	t.Parallel()
+	resp := ProjectAccessRequestFormResponse{
+		ProjectID:           uuid.New(),
+		RequesterID:         uuid.New(),
+		ProjectOwnerID:      uuid.New(),
+		DefaultRole:         OntologyProjectRoleDiscoverer,
+		DirectRoleReviewers: []uuid.UUID{uuid.New()},
+		Groups: []ProjectAccessRequestFormGroup{{
+			GroupID:         uuid.New(),
+			Role:            OntologyProjectRoleViewer,
+			GroupKind:       ProjectAccessGroupKindExternal,
+			ReviewerUserIDs: []uuid.UUID{},
+			CustomForm:      map[string]any{"Team": "blue"},
+		}},
+		RequiredMarkings: []ProjectRequiredMarking{{
+			ProjectID:       uuid.New(),
+			MarkingID:       uuid.New(),
+			MarkingName:     "PII",
+			ReviewerUserIDs: []uuid.UUID{uuid.New()},
+			CreatedAt:       time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+			UpdatedAt:       time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		}},
+	}
+	b, err := json.Marshal(resp)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(b, &view))
+	for _, key := range []string{
+		"project_id", "requester_id", "project_owner_id", "default_role",
+		"groups", "required_markings", "direct_role_reviewers",
+	} {
+		assert.Contains(t, view, key)
+	}
 }
 
 func TestBindOntologyProjectResourceRequestJSONRoundtrip(t *testing.T) {

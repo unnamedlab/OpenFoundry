@@ -630,6 +630,56 @@ OpenFoundry canonical IDs.
   - Enforce per-project or per-user budgets and require confirmation for high-cost experiment grids.
   - Docs: [AIP Logic compute usage](https://www.palantir.com/docs/foundry/logic/compute-usage), [Run experiments](https://www.palantir.com/docs/foundry/aip-evals/experiments/).
 
+## Milestone D: AIP Console and AIP Now distribution
+
+> **Added 2026-05-17.** This milestone covers the **admin governance
+> plane (AIP Console)** and the **solution distribution plane (AIP Now)**
+> that wrap AIP Logic / Evals / Agents. Both are first-class products in
+> Palantir but were absent from this checklist.
+
+### AIP Console (admin governance)
+
+- [ ] `AIPLE.53` AIP enablement per enrollment (`P1`, `todo`)
+  - Master toggle that enables/disables AIP product surfaces (Agents, Threads, Assist, Logic, Evals) for the enrollment; default OFF on first install.
+  - Per-organization opt-in within an enabled enrollment.
+  - Docs: [AIP enablement](https://palantir.com/docs/foundry/aip/enablement), [AIP Console overview](https://palantir.com/docs/foundry/aip/console).
+
+- [ ] `AIPLE.54` Model availability matrix (`P1`, `todo`)
+  - Per-enrollment matrix of LLM providers × models × modalities × regions with admin toggles to enable, disable, or flag as experimental.
+  - Experimental models require a per-user opt-in before use; usage flagged as experimental in metrics and audit.
+  - Docs: [Model availability](https://palantir.com/docs/foundry/aip/model-availability).
+
+- [ ] `AIPLE.55` Token cost and quota policies (`P1`, `todo`)
+  - Per-organization and per-project monthly token/cost budgets with soft-warning + hard-stop thresholds; per-user override available only to admins with audit.
+  - Real-time consumption dashboard with per-model breakdown.
+  - Docs: [AIP cost](https://palantir.com/docs/foundry/aip/cost).
+
+- [ ] `AIPLE.56` Safety policies (`P2`, `todo`)
+  - Per-enrollment configuration of prompt-injection scanning, PII detection, toxicity thresholds, and tool-call rate limits.
+  - Per-tool allowlist for production agents (e.g. block `execute_function` for a given agent unless explicitly allowed).
+  - Docs: [AIP safety](https://palantir.com/docs/foundry/aip/safety).
+
+- [ ] `AIPLE.57` AIP audit and compliance reports (`P2`, `todo`)
+  - Aggregate AIP-specific audit view: who used what model on what data with what tools, queryable by user/project/time-range/marking.
+  - Compliance reports (e.g. for SOC2/ISO) generatable from the audit substrate.
+  - Docs: [AIP audit](https://palantir.com/docs/foundry/aip/audit).
+
+### AIP Now (solution distribution)
+
+- [ ] `AIPLE.58` AIP Now catalog (`P1`, `todo`)
+  - Curated catalog of ready-to-deploy AIP solutions (Agents + Logic + Evals + supporting datasets/ontology) packaged as Marketplace products with an AIP-specific landing experience.
+  - Filter by use case, industry, required model providers, and required ontology features.
+  - Docs: [AIP Now overview](https://aip.palantir.com/), [Marketplace AIP products](https://palantir.com/docs/foundry/aip/now).
+
+- [ ] `AIPLE.59` Install + enable flow (`P1`, `todo`)
+  - One-click install that resolves model availability, sets up required ontology types/objects, deploys the agents/logic, and creates an AIP Console policy entry pre-filled with sensible defaults.
+  - Post-install verification (test conversation, eval suite sanity run) before marking the solution active.
+  - Docs: [AIP Now overview](https://aip.palantir.com/).
+
+- [ ] `AIPLE.60` Solution evaluation harness (`P2`, `todo`)
+  - Every AIP Now solution ships with an eval suite that an admin can re-run after install to confirm parity with the catalog spec; failures block "active" status.
+  - Docs: [AIP Now overview](https://aip.palantir.com/).
+
 ## Implementation inventory to collect before coding
 
 - [ ] `INV.1` Identify existing OpenFoundry Logic-like, function-builder, prompt-builder, or workflow-builder models that can store inputs, blocks, outputs, versions, and published functions.

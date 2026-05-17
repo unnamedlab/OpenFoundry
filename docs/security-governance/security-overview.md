@@ -101,7 +101,46 @@ retention scope, and quotas.
 Roles are **bundles of operations** granted on a project, folder,
 resource, or platform context. Default roles follow the public Foundry
 shapes — Owner, Editor, Viewer, Discoverer — and OpenFoundry supports
-context-specific role sets on top.
+context-specific role sets on top. As of SG.6 (2026-05-17) the
+project-role lattice in
+[`internal/models/project.go`](../../services/tenancy-organizations-service/internal/models/project.go)
+is `discoverer (1) < viewer (2) < editor (3) < owner (4)`.
+
+Projects are the **primary collaborative security boundary**:
+
+- A project carries its own `default_role` (applied to every member
+  who hasn't been granted an explicit role), `point_of_contact_user_id`
+  / `point_of_contact_email`, and a `references` list pointing at
+  sibling projects / resources used by this project.
+- Project-level grants can target either a **user** (`ontology_project_memberships`)
+  or a **group** (`ontology_project_group_memberships`); the SG.5
+  group surface and the SG.6 group memberships compose so admins can
+  set up viewer/editor/owner *groups* once and reuse them across
+  projects.
+- File / folder access requests inside a project resolve to
+  **project-level access requests** in
+  `ontology_project_access_requests`. The row carries the scope
+  (`scope_resource_kind` + `scope_resource_id`) for context but the
+  decision lives on the project — see SG.6 in the parity checklist.
+- Access requests now have **task-level routing** (SG.9): direct
+  project-role tasks route to project owners, internal/rule-based
+  group membership tasks route to configured group administrators,
+  marking-access tasks route to configured marking reviewers, and
+  external groups return an action-required handoff message/URL
+  instead of being approved inside OpenFoundry. Per-project access
+  form settings live in `ontology_project_access_group_settings` and
+  can hide sensitive groups from the request form.
+- **Direct resource grants** at the project or folder scope live in
+  `ontology_project_resource_grants` (SG.8). Folder grants inherit
+  to every descendant folder and resource; ontology-resource-level
+  grants are intentionally disallowed because resources inherit from
+  their project.
+- The **effective-access resolver** at
+  `GET /api/v1/projects/{id}/effective-access` composes user
+  memberships, group memberships, the project default role, owner
+  status, and folder ancestry into a structured `sources[]`
+  breakdown sorted with the winning role first. Anti-leak gate: the
+  inspected user, the project owner, or a platform admin only.
 
 - The RBAC primitives live in
   [`services/identity-federation-service/internal/domain/rbac`](../../services/identity-federation-service/internal/domain/rbac/).

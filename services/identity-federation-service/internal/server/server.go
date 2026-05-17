@@ -122,11 +122,23 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 
 		api.Get("/groups", rbac.ListGroups)
 		api.Post("/groups", rbac.CreateGroup)
+		// SG.5: filter + envelope search alongside the bare-array list.
+		api.Get("/groups/search", rbac.SearchGroups)
 		api.Get("/groups/{id}", rbac.GetGroup)
 		api.Patch("/groups/{id}", rbac.UpdateGroup)
 		api.Delete("/groups/{id}", rbac.DeleteGroup)
+		api.Get("/groups/{id}/inspect", rbac.InspectGroup)
+		api.Get("/groups/{id}/members", rbac.ListGroupMembers)
 		api.Put("/groups/{id}/members/{user_id}", rbac.AddGroupMember)
 		api.Delete("/groups/{id}/members/{user_id}", rbac.RemoveGroupMember)
+		// SG.5: per-group admin grants and nested edges.
+		api.Get("/groups/{id}/admins", rbac.ListGroupAdmins)
+		api.Post("/groups/{id}/admins", rbac.AddGroupAdmin)
+		api.Delete("/groups/{id}/admins/{user_id}", rbac.RemoveGroupAdmin)
+		api.Get("/groups/{id}/parents", rbac.ListGroupParents)
+		api.Get("/groups/{id}/children", rbac.ListGroupChildren)
+		api.Put("/groups/{id}/nested/{member_id}", rbac.AddNestedGroup)
+		api.Delete("/groups/{id}/nested/{member_id}", rbac.RemoveNestedGroup)
 
 		api.Get("/api-keys", rbac.ListAPIKeys)
 		api.Post("/api-keys", rbac.CreateAPIKey)

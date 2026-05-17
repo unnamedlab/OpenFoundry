@@ -292,7 +292,7 @@ should use OpenFoundry canonical IDs.
   - Show first-snapshot state and incremental view boundaries.
   - Docs: [Datasets transaction types](https://www.palantir.com/docs/foundry/data-integration/datasets), [Create incremental syncs](https://www.palantir.com/docs/foundry/building-pipelines/create-incremental-syncs/).
 
-- [ ] `DF.19` Iceberg table metadata bridge (`P1`, `todo`)
+- [x] `DF.19` Iceberg table metadata bridge (`P1`, `done`)
   - Represent Iceberg table snapshots distinctly from Foundry-style `SNAPSHOT` transactions.
   - Track current schema, branch schema behavior, replace-snapshot/compaction operations, and table metadata pointers.
   - Expose limitations and feature gaps in Dataset Preview.
@@ -300,90 +300,103 @@ should use OpenFoundry canonical IDs.
 
 ### Data Lineage graph
 
-- [ ] `DF.20` Data Lineage graph explorer (`P1`, `todo`)
+- [x] `DF.20` Data Lineage graph explorer (`P1`, `done`)
   - Build an interactive graph from datasets, transforms, builds, schedules, Ontology outputs, and workflow handoffs.
   - Support search by dataset, path, project, folder, resource type, repository, schedule, and branch.
   - Provide node details for schema, preview, history, jobs, schedules, health, permissions, and code/source references.
+  - Implementation note: Data Lineage now keeps the Cytoscape explorer interactive while enriching the base lineage graph with transform-step nodes, build execution nodes, schedule nodes, ontology-output nodes, and workflow handoff nodes where metadata exists. Search indexes dataset IDs/RIDs, labels, paths, projects, folders, resource types, repositories, schedules, and branches. The selected-node bottom panel now covers Preview, Schema, History, Jobs, Schedules, Health, Permissions, and Code, pulling dataset schema, preview rows, build/job history, schedule matches, health rollups, access context, and source/code references from the existing OpenFoundry APIs.
   - Docs: [Data Lineage overview](https://www.palantir.com/docs/foundry/data-lineage/overview/), [Workflow Lineage overview](https://www.palantir.com/docs/foundry/workflow-builder/overview).
 
-- [ ] `DF.21` Data Lineage build helper (`P1`, `todo`)
+- [x] `DF.21` Data Lineage build helper (`P1`, `done`)
   - From selected lineage nodes, preview and run build strategies:
     - all ancestor datasets;
     - all transforms between selected datasets;
     - selected datasets only.
   - Apply branch and fallback-branch context when resolving build targets.
   - Allow force build for up-to-date datasets.
+  - Implementation note: The Data Lineage right-rail Tools panel now contains a build helper with multi-node selection, Preview, and Run Build. It resolves the three Foundry-style strategies from the active lineage graph, orders dataset targets by dependency depth, shows blocked targets without producing pipeline RIDs, carries the graph branch plus comma-separated fallback branches into `/v1/builds`, and exposes a force-build toggle that maps to `trigger_kind=FORCE`. Preview is client-side and non-mutating; Run groups output datasets by producing pipeline RID before enqueueing builds.
   - Docs: [Build datasets from Data Lineage](https://www.palantir.com/docs/foundry/data-lineage/build-datasets/).
 
-- [ ] `DF.22` Data Lineage node coloring and filters (`P1`, `todo`)
+- [x] `DF.22` Data Lineage node coloring and filters (`P1`, `done`)
   - Provide built-in coloring for resource type, project, folder, repository, build status, Data Health, out-of-date, branch, code status, storage, compute, transaction type, permissions, custom groups, user views, and issues.
   - Allow filters and legends to be saved with graph snapshots.
   - Docs: [Node coloring](https://www.palantir.com/docs/foundry/data-lineage/node-coloring/).
+  - Implementation note: Data Lineage now exposes the full Foundry-style coloring catalogue from the ribbon and Tools panel. Node colors are derived from resource kind, metadata, build/job-spec status, branch, health/freshness flags, storage/compute facts, transaction type, permission/marking context, custom group metadata, user-view counts, and issue diagnostics. The legend is interactive: each category can be toggled into a graph filter, hidden nodes also remove their incident edges, and active filters can be cleared per coloring mode. Local graph snapshots now persist branch, selected nodes, coloring mode, legend visibility, legend filters, find query, layout/group-by-color toggles, and camera state, with restore/delete exposed from the Clipboard drawer.
 
-- [ ] `DF.23` Saved lineage graphs and snapshots (`P1`, `todo`)
+- [x] `DF.23` Saved lineage graphs and snapshots (`P1`, `done`)
   - Save graph state, selected nodes, expanded ancestors/descendants, colors, filters, branch, and camera/layout.
   - Support copy link, duplicate graph, export metadata, and presentation-friendly read-only mode.
   - Docs: [Data Lineage overview](https://www.palantir.com/docs/foundry/data-lineage/overview/).
+  - Implementation note: Saved Data Lineage snapshots now capture graph state metadata, selected nodes, branch, coloring mode, legend visibility, hidden color filters, find text, expanded ancestor/descendant counts, layout/grouping flags, layout engine, and Cytoscape camera. The Clipboard drawer can restore, duplicate, delete, export JSON metadata, copy normal/read-only links, and open a presentation-friendly read-only route via `?snapshot=<id>&readonly=1`, which hides mutating chrome while preserving the saved camera, legend, colors, filters, branch, and selection.
 
 ### Build and schedule operations
 
-- [ ] `DF.24` Schedule target strategies (`P1`, `todo`)
+- [x] `DF.24` Schedule target strategies (`P1`, `done`)
   - Configure scheduled builds for one dataset, one dataset plus dependencies, all descendants of a dataset, all datasets connecting two datasets, and mixed target sets.
   - Preview exact build targets before saving.
   - Docs: [Scheduling overview](https://www.palantir.com/docs/foundry/building-pipelines/scheduling-overview), [Create a schedule](https://www.palantir.com/docs/foundry/building-pipelines/create-schedule/).
+  - Implementation note: Schedule creation now supports target-set rows for one dataset, one dataset plus upstream dependencies, all descendants, all datasets connecting an input and target dataset, and mixed target sets. The form loads Data Lineage, previews the exact resolved output dataset RIDs before saving, separates event-trigger datasets from build targets, and stores strategy metadata plus the resolved `output_dataset_rids` in the schedule target payload. The backend schedule RID extractor now indexes array-valued `*_rids` fields so schedule discovery, filters, and run dispatch can see every resolved build target.
 
-- [ ] `DF.25` Schedule discovery application (`P1`, `todo`)
+- [x] `DF.25` Schedule discovery application (`P1`, `done`)
   - List schedules by file/dataset/resource, project, owner/updater, name substring, pause state, latest run status, latest run time, and branch.
   - Support saved queries such as paused schedules, schedules scoped to a project, and schedules touching a dataset.
   - Docs: [Schedules core concepts](https://www.palantir.com/docs/foundry/data-integration/schedules/).
+  - Implementation note: Build Schedules is now a discovery app with server-side filters for indexed dataset/resource RIDs, projects, owner/updater users, name/RID text, pause state, branch, sort order, and latest run outcome including never-run schedules. Schedule cards and the details rail surface branch, target resource indexes, owner/updater, latest run status, latest build RID, and latest run time. The sidebar includes built-in saved queries for paused schedules, project-scoped schedules, and schedules touching a dataset, plus local custom saved queries that persist the active filter state.
 
-- [ ] `DF.26` Schedule best-practice guardrails (`P1`, `todo`)
+- [x] `DF.26` Schedule best-practice guardrails (`P1`, `done`)
   - Warn on over-broad targets, schedule overlap, redundant downstream builds, missing health checks, missing owner, and expensive force-build settings.
   - Suggest schedule-status checks for production schedules.
   - Docs: [Scheduling best practices](https://www.palantir.com/docs/foundry/building-pipelines/scheduling-best-practices/), [Data Health check types](https://www.palantir.com/docs/foundry/data-health/check-types/).
+  - Implementation note: Schedule creation and discovery now surface best-practice guardrails for broad target sets, overlapping schedules on the same branch, upstream/downstream target redundancy, missing or unverifiable health-check coverage, user-scoped owner risk, and multi-target force builds. New schedules can record project scope, run-as identity, and schedule-status-check acknowledgement, and production-looking schedules are prompted to add Data Health schedule status monitoring. Existing schedule detail panels now audit the selected schedule against the visible schedule set and show actionable recommendations.
 
 ### Data Health and expectations
 
-- [ ] `DF.27` Data Health monitoring views (`P1`, `todo`)
+- [x] `DF.27` Data Health monitoring views (`P1`, `done`)
   - Create scope-based monitoring views for projects, folders, single resources, and resource types.
   - Include datasets, schedules, streaming datasets, agents, object types, functions, actions, automations, and pipeline resources as monitorable resource classes where local services exist.
   - Support watched checks and aggregate status rollups.
   - Docs: [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/), [Observability overview](https://www.palantir.com/docs/foundry/observability/overview).
+  - Implementation note: The Control Panel Data Health page now builds scope-based monitoring views from local datasets, schedules, streaming datasets, connector agents, object types, functions, actions, automations, pipelines, and lineage-only resources. Users can filter by project, folder, single resource, or resource type; save monitoring views locally; watch individual checks; and see aggregate rollups for overall health, resource class counts, critical/warning/healthy resources, and watched checks. Generated checks normalize local health signals for dataset freshness/build/schema drift, schedule runs and pending triggers, stream lag/checkpoints, connector agent heartbeat/failures, ontology/action/function readiness, workflow automation status, and pipeline publication/schedule state.
 
-- [ ] `DF.28` Resource-level health checks (`P1`, `todo`)
+- [x] `DF.28` Resource-level health checks (`P1`, `done`)
   - Configure health checks from Dataset Preview, Data Lineage, and Pipeline Builder preview panels.
   - Include status, duration, freshness, content, size, schema, sync, build, job, and schedule checks where data is available.
   - Store severity, escalation after consecutive failures, group/monitoring view, notes, and issue-creation prompt.
   - Docs: [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/), [Check types](https://www.palantir.com/docs/foundry/data-health/check-types/), [Checks reference](https://www.palantir.com/docs/foundry/data-health/checks-reference/), [Configure health checks](https://www.palantir.com/docs/foundry/pipeline-builder/dataexpectations-configure-health-check).
+  - Implementation note: Resource-level checks now use a shared browser-side health-check model and configurator across Dataset Preview, Data Lineage, and Pipeline Builder node previews. The configurator exposes status, duration, freshness, content, size, schema, sync, build, job, and schedule check types only when the active panel has supporting local signals. Each saved check stores severity, comparator/thresholds, column/unit, escalation-after-consecutive-failures, group, monitoring view, notes, pause state, and issue-creation prompt. Dataset Preview enriches the Health tab with build, schedule, and schema signals before presenting checks; Lineage reuses node health/build/schedule/schema details; Pipeline Builder preview derives checks from node preview rows, columns, freshness, errors, and output dataset references.
 
-- [ ] `DF.29` Health reports, alerts, and subscriptions (`P1`, `todo`)
+- [x] `DF.29` Health reports, alerts, and subscriptions (`P1`, `done`)
   - Generate latest and historical check reports.
   - Notify through in-platform notifications and email digests.
   - Provide extension points for Slack, PagerDuty, and arbitrary REST/webhook destinations without hard-coding external credentials.
   - Show health status in Dataset Preview, Data Lineage, schedule details, and project dashboards.
   - Docs: [Data Health](https://www.palantir.com/docs/foundry/observability/data-health/), [Foundry API overview](https://www.palantir.com/docs/foundry/api/).
+  - Implementation note: Data Health now generates persisted latest/historical report snapshots from scoped monitoring signals and saved resource-level checks, including status rollups, per-check report rows, and reusable email-digest text. A new alert subscription model stores in-platform, email digest, Slack, PagerDuty, and generic webhook delivery channels as destination references instead of credentials, dispatches matching alert records when reports cross configured severity thresholds, and supports acknowledgement. Dataset Preview, Data Lineage node health, schedule detail cards, and project dashboards now show the latest generated Data Health status for their resource scope.
 
-- [ ] `DF.30` Data expectations as build-time gates (`P1`, `todo`)
+- [x] `DF.30` Data expectations as build-time gates (`P1`, `done`)
   - Define input and output expectations alongside transform code or Pipeline Builder nodes.
   - Abort builds on failed expectations when configured.
   - Publish expectation results into Data Health reports.
   - Require branch/review workflow for expectation changes when protected branches are enabled.
+  - Implementation note: Pipeline Builder node previews now include a Data Expectations authoring panel for input pre-conditions and output post-conditions, with unique check names, failure behavior (`ABORT_BUILD` or warning), supported column/schema/row-count/parse-error/custom-SQL expectation kinds, preview evaluation, and protected-branch review state. Build submission through the Builds app, Data Lineage build helper, and Pipeline Builder run flow now evaluates saved expectations before dispatch, blocks unreviewed protected-branch changes, aborts configured failing gates with synthetic aborted build/run feedback, and records build-linked expectation results. Expectation results are converted into Data Health signals so Dataset Preview/Lineage/project health surfaces can report latest and historical expectation status.
   - Docs: [Define data expectations](https://www.palantir.com/docs/foundry/maintaining-pipelines/define-data-expectations/), [Check types](https://www.palantir.com/docs/foundry/data-health/check-types/).
 
 ### Rollback and recovery
 
-- [ ] `DF.31` Dataset rollback (`P1`, `todo`)
+- [x] `DF.31` Dataset rollback (`P1`, `done`)
   - Roll a transactional dataset back to a successful earlier transaction.
   - Support force-snapshot-on-next-build for incremental recovery.
   - Require editor permission, branch selection, confirmation, and rollback audit records.
   - Show crossed-out rolled-back transactions in History.
+  - Implemented with rollback-as-SNAPSHOT reconstruction, rollback audit events, history strike-through metadata, and Dataset Preview recovery controls.
   - Docs: [Roll back a dataset](https://www.palantir.com/docs/foundry/data-lineage/dataset-rollback).
 
-- [ ] `DF.32` Pipeline rollback (`P1`, `todo`)
+- [x] `DF.32` Pipeline rollback (`P1`, `done`)
   - Roll back a selected upstream dataset and downstream transactional datasets with preview before confirmation.
   - Allow excluding downstream datasets.
   - Show unsupported resources such as streaming datasets, media sets, virtual tables, and restricted views.
   - Preserve incrementality where possible and warn when logic changed after the selected transaction.
+  - Implemented in Data Lineage as a preview-first rollback tool that composes dataset rollback, downstream exclusions, unsupported-resource reporting, snapshot-recovery fallbacks, and logic-change warnings.
   - Docs: [Roll back a pipeline](https://www.palantir.com/docs/foundry/data-lineage/pipeline-rollback).
 
 ## Milestone C: advanced parity, governance, and scale

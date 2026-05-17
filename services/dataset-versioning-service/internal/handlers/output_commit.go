@@ -72,13 +72,20 @@ func (h *Handlers) CommitDatasetOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	forceSnapshot := branchForceSnapshotOnNextBuild(branch)
 	txType := body.TransactionType
 	if txType == "" {
+		txType = models.TransactionTypeSnapshot
+	}
+	if forceSnapshot {
 		txType = models.TransactionTypeSnapshot
 	}
 	summary := strings.TrimSpace(body.Summary)
 	if summary == "" {
 		summary = "Pipeline dataset output commit"
+	}
+	if forceSnapshot && !strings.Contains(strings.ToLower(summary), "forced snapshot") {
+		summary += " (forced snapshot recovery)"
 	}
 	provenance := body.Provenance
 	if len(provenance) == 0 {
@@ -105,7 +112,7 @@ func (h *Handlers) CommitDatasetOutput(w http.ResponseWriter, r *http.Request) {
 		writeTransactionError(w, err)
 		return
 	}
-	metadataPatch, err := outputCommitMetadata(body, len(indexEntries))
+	metadataPatch, err := outputCommitMetadata(body, len(indexEntries), forceSnapshot)
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -119,6 +126,12 @@ func (h *Handlers) CommitDatasetOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	committed = true
+	if forceSnapshot {
+		if err := h.Repo.ConsumeForceSnapshotOnNextBuild(r.Context(), dataset.ID, branch.ID, txn.ID); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, "failed to clear force snapshot recovery flag")
+			return
+		}
+	}
 	if len(indexEntries) > 0 {
 		if err := h.Repo.ReplaceDatasetFileIndex(r.Context(), dataset.ID, indexEntries); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, "failed to update dataset file index")
@@ -247,7 +260,7 @@ func outputFileMetadata(datasetID uuid.UUID, txnID uuid.UUID, file models.Commit
 	return models.JSONValue(raw), err
 }
 
-func outputCommitMetadata(body models.CommitDatasetOutputRequest, fileCount int) (models.JSONValue, error) {
+func outputCommitMetadata(body models.CommitDatasetOutputRequest, fileCount int, forceSnapshot bool) (models.JSONValue, error) {
 	meta := map[string]any{"pipeline_output": true}
 	if len(body.Metadata) > 0 {
 		if err := json.Unmarshal(body.Metadata, &meta); err != nil {
@@ -261,8 +274,32 @@ func outputCommitMetadata(body models.CommitDatasetOutputRequest, fileCount int)
 	meta["preview_columns"] = body.PreviewColumns
 	meta["preview_rows"] = body.PreviewRows
 	meta["file_count"] = fileCount
+	if forceSnapshot {
+		meta["forced_snapshot_recovery"] = true
+	}
 	raw, err := json.Marshal(meta)
 	return models.JSONValue(raw), err
+}
+
+func branchForceSnapshotOnNextBuild(branch *models.RuntimeBranch) bool {
+	if branch == nil || len(branch.Labels) == 0 {
+		return false
+	}
+	var labels map[string]any
+	if err := json.Unmarshal(branch.Labels, &labels); err != nil {
+		return false
+	}
+	value := labels["force_snapshot_on_next_build"]
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true") || v == "1"
+	case float64:
+		return v == 1
+	default:
+		return false
+	}
 }
 
 func firstErr(err error, fallback error) error {

@@ -34,3 +34,47 @@ Operational platforms usually need a layered model:
 - restricted views for row/column-level filtering
 
 The current repo already contains the primitives for that model. The pattern for distributing policies to the data-plane in-process is documented in [Policy bundles in-process](./policy-bundles.md).
+
+## Role sets, operations, and delegation rank (SG.7)
+
+Roles are bundled into **role sets** scoped to a resource context.
+Migration [`0008_sg7_role_sets_and_operations.sql`](../../services/authorization-policy-service/internal/repo/migrations/0008_sg7_role_sets_and_operations.sql)
+seeds the four canonical contexts:
+
+| Context | Seeded role set | Default roles (rank → name) |
+|---|---|---|
+| `project` | `project-default` | 1: discoverer · 2: viewer · 3: editor · 4: owner |
+| `ontology` | `ontology-default` | 1: discoverer · 2: viewer · 3: editor · 4: owner |
+| `restricted_view` | `restricted-view-default` | 1: viewer · 2: editor · 3: owner |
+| `platform_admin` | `platform-admin-default` | 1: viewer · 2: admin |
+
+Each default role is bound to a low-level **operation catalog** entry
+(`resource:action`) seeded by the same migration — `project:discover`,
+`project:read`, `project:edit`, `project:manage`, `project:build`,
+`project:apply`, `project:share`, the parallel `ontology:*` and
+`restricted_view:*` entries, and the `platform:read|manage|audit`
+admin operations.
+
+The admin surface lives on the authorization-policy-service:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/role-sets[?context=…]` | List role sets (filtered). Returns each set with its ranked role members. |
+| `POST/GET/PATCH/DELETE /api/v1/role-sets[/{id}]` | Role-set CRUD. `context` must be one of the four wire constants. |
+| `POST /api/v1/role-sets/{id}/roles` | Add a role to the set with an explicit `rank`. Upsert on `(role_set_id, role_id)`. |
+| `DELETE /api/v1/role-sets/{id}/roles/{role_id}` | Remove a role from the set. |
+| `POST /api/v1/role-sets/{id}/delegation:check` | Returns `{allowed, grantor_rank, target_rank, reason}`. The check resolves the grantor's highest rank via direct `user_roles` and `group_roles → group_members`, then compares to the target role's rank. |
+| `GET /api/v1/operations` | The seeded operation catalog. |
+
+**Delegation rank invariant.** SG.7 requires that "role delegation
+cannot exceed the grantor's own role level." The
+[`Repo.CheckDelegation`](../../services/authorization-policy-service/internal/repo/role_sets.go)
+helper resolves the grantor's highest rank inside a role set and
+compares against the target role's rank. `AssignRole` enforces it
+opt-in via `POST /api/v1/users/{id}/roles?role_set_id=<uuid>` (admins
+bypass per the gateway permission check); callers that don't supply
+`role_set_id` keep the legacy "permission gate alone" behaviour for
+backwards compatibility. The
+[`/control-panel/role-sets`](../../apps/web/src/routes/control-panel/RoleSetsPage.tsx)
+admin UI exposes a "Delegation check" tool that hits the same
+endpoint without performing the grant.

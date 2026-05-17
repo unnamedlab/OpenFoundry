@@ -542,6 +542,82 @@ OpenFoundry canonical IDs.
   - Implementation note: The ontology API now exposes `buildOntologyAuditEventLog`, which synthesizes a unified audit timeline (`OntologyAuditEvent[]`) from `OntologySavedChangeRecord` entries, pending `OntologyStagedChange` working changes, Object View `version_history` publish entries, `metadata.branch_rebased_at` rebases, marketplace packaging outputs, and permission-bearing change payloads. Each event carries category (`resource_crud`, `datasource_mapping`, `object_view_edit`, `object_view_publish`, `import`, `export`, `restore`, `branch_rebase`, `marketplace_packaging`, `permission_change`), status (`saved`, `pending`, `failed`, `info`), actor, timestamp, source, and a stable `resource_kind/resource_id` pair. A second function, `buildOntologyHealthReport`, runs seven operational detectors and emits `OntologyHealthIssue[]` with `OntologyHealthSeverity` (`info`/`warning`/`critical`) and remediation guidance: stale datasources (object types with backing dataset and `updated_at` older than the threshold), broken links (source/target object type missing from the catalog), widget load failures (empty visible tabs, legacy builder, runtime failures supplied via `widgetFailures` input), inaccessible backing data (no binding configured, or principal can view definition but not instances), indexing lag (`restricted_view_policy_version` ahead of `restricted_view_indexed_policy_version`), missing value type validation (`property.value_type_id` not present in the active value type list), and permission mismatches (owner without edit rights, blocked staged changes from `OntologyPermissionAnalysis.change_checks`). Both builders are pure and feed a new "Audit & health" section in `OntologyManagerPage`, with filters by category/status/actor for the timeline and category-card click-throughs plus severity filtering for the health panel; the nav badge totals are wired into `shellNavCount` so the section surface mirrors how many events + issues are currently active.
   - Docs: [Review and restore changes](https://www.palantir.com/docs/foundry/ontology-manager/restore-changes), [Viewing usage](https://www.palantir.com/docs/foundry/ontology-manager/viewing-usage), [Object Views overview](https://www.palantir.com/docs/foundry/object-views/overview).
 
+## Milestone D: staged edits, function types, derived properties, monitors, schema versioning
+
+> **Added 2026-05-17.** Closes the gaps that make the ontology a real
+> semantic platform rather than a CRUD layer: staged edits with human
+> review, function types as first-class contracts, derived (computed)
+> properties, monitors/triggers, and full ontology schema versioning.
+
+### Staged edits and Function-Type-backed Actions
+
+- [ ] `OMOV.27` Staged-edit substrate (`P1`, `todo`)
+  - Action and Function executions accumulate writes as a `staged_edit_set` with object-level diffs; nothing materializes until `commit()`.
+  - Staged sets are addressable resources (Compass RID) with markings, owner, expiration, and audit.
+  - Required by Function-backed Actions (see [Functions runtime checklist](./foundry-functions-runtime-1to1-checklist.md)).
+  - Docs: [Staged writes](https://palantir.com/docs/foundry/functions/staged-writes).
+
+- [ ] `OMOV.28` Reviewer workflow for staged edits (`P1`, `todo`)
+  - Action types may declare `requires_review: true`; staged edits surface in a reviewer queue with diff view and reviewer comments.
+  - Approve/reject decisions audited; reject returns rationale to the original caller.
+  - Docs: [Staged writes](https://palantir.com/docs/foundry/functions/staged-writes).
+
+### Function types as first-class contracts
+
+- [ ] `OMOV.29` Function type binding for Actions (`P1`, `todo`)
+  - Action types may bind their behavior to a function type version (see [Functions runtime](./foundry-functions-runtime-1to1-checklist.md)); compatibility checks gate publication.
+  - The ontology surface lists which action types are function-backed and their current implementation pointer per environment.
+  - Docs: [Function-backed actions](https://palantir.com/docs/foundry/functions/function-backed-actions).
+
+- [ ] `OMOV.30` Function type browse from Ontology Manager (`P1`, `todo`)
+  - Function types are visible in the ontology manager catalog, filterable by signature and side-effect declaration, with deep links to the Functions runtime UI.
+  - Docs: [Function types](https://palantir.com/docs/foundry/functions/function-types).
+
+### Derived (computed) properties
+
+- [ ] `OMOV.31` Derived property definition (`P1`, `todo`)
+  - Object type properties may declare a derivation expression: a function type call, a constant expression, an aggregation over linked objects, or a SQL-like projection.
+  - Derivations evaluated on read by default; expensive ones can be marked `materialized` and recomputed by the indexer.
+  - Docs: [Derived properties](https://palantir.com/docs/foundry/ontology/derived-properties).
+
+- [ ] `OMOV.32` Derived property dependency tracking (`P1`, `todo`)
+  - The schema records which source properties each derived property depends on; updates to sources mark derived values stale.
+  - Object Storage V2 invalidates materialized derived values incrementally.
+  - Docs: [Derived properties](https://palantir.com/docs/foundry/ontology/derived-properties).
+
+### Monitors and triggers
+
+- [ ] `OMOV.33` Object monitor resource (`P1`, `todo`)
+  - `object_monitor` rows attached to an object type with: trigger (object created/updated/deleted, property crossed threshold, link added/removed), filter predicate, evaluation cadence, action to run (function/action invocation, notification, automation rule).
+  - Stable RID, Compass-discoverable.
+  - Docs: [Object monitors](https://palantir.com/docs/foundry/ontology/monitors).
+
+- [ ] `OMOV.34` Monitor evaluation engine (`P1`, `todo`)
+  - Continuous (event-driven) and scheduled (cron) evaluation backends; idempotent firing with dedup window.
+  - Per-monitor audit of every firing with input, decision, action result.
+  - Docs: [Object monitors](https://palantir.com/docs/foundry/ontology/monitors).
+
+- [ ] `OMOV.35` Monitor backpressure and quota (`P2`, `todo`)
+  - Hard cap on firings per minute per monitor; soft-throttle with notification when nearing cap.
+  - Per-project monitor count quota.
+  - Docs: [Object monitors](https://palantir.com/docs/foundry/ontology/monitors).
+
+### Ontology schema versioning
+
+- [ ] `OMOV.36` Ontology version resource (`P1`, `todo`)
+  - Every published change to ontology types/properties/links/actions/interfaces produces an immutable `ontology_version` with content hash, author, timestamp, changelog.
+  - OSDK generation (see [OSDK checklist](./foundry-osdk-1to1-checklist.md)) and Functions runtime pin to a specific ontology version.
+  - Docs: [Ontology versioning](https://palantir.com/docs/foundry/ontology/versioning).
+
+- [ ] `OMOV.37` Rollback to prior ontology version (`P1`, `todo`)
+  - Admin can roll back to a prior published version; dependent OSDKs and apps are listed before commit and the rollback is recorded with audit.
+  - Forward-incompatible rollbacks (data already written in the new shape) are blocked unless a migration is provided.
+  - Docs: [Ontology versioning](https://palantir.com/docs/foundry/ontology/versioning).
+
+- [ ] `OMOV.38` Ontology version diff view (`P2`, `todo`)
+  - UI diff between any two versions showing added/removed/changed types, properties, links, actions, and the impact on dependent resources.
+  - Docs: [Ontology versioning](https://palantir.com/docs/foundry/ontology/versioning).
+
 ## Implementation inventory to collect before coding
 
 - [ ] `INV.1` Identify existing OpenFoundry ontology definition models for object types, properties, links, actions, interfaces, shared properties, and groups.

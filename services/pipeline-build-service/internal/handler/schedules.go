@@ -379,17 +379,24 @@ func parseListSchedulesQuery(r *http.Request) models.ListSchedulesQuery {
 			paused = &parsed
 		}
 	}
+	latestOutcome := strings.TrimSpace(q.Get("latest_outcome"))
+	if latestOutcome == "" {
+		latestOutcome = strings.TrimSpace(q.Get("last_run_outcome"))
+	}
+	latestOutcome = strings.ToUpper(latestOutcome)
 	return models.ListSchedulesQuery{
-		Project:  strings.TrimSpace(q.Get("project")),
-		Paused:   paused,
-		Owner:    strings.TrimSpace(q.Get("owner")),
-		Q:        strings.TrimSpace(q.Get("q")),
-		Files:    q["files"],
-		Users:    q["users"],
-		Projects: q["projects"],
-		Sort:     strings.TrimSpace(q.Get("sort")),
-		Limit:    int64(firstPositiveQueryInt(r, "limit", 50)),
-		Offset:   int64(queryInt(r, "offset")),
+		Project:       strings.TrimSpace(q.Get("project")),
+		Paused:        paused,
+		Owner:         strings.TrimSpace(q.Get("owner")),
+		Q:             strings.TrimSpace(q.Get("q")),
+		Files:         q["files"],
+		Users:         q["users"],
+		Projects:      q["projects"],
+		Branch:        strings.TrimSpace(q.Get("branch")),
+		LatestOutcome: latestOutcome,
+		Sort:          strings.TrimSpace(q.Get("sort")),
+		Limit:         int64(firstPositiveQueryInt(r, "limit", 50)),
+		Offset:        int64(queryInt(r, "offset")),
 	}
 }
 

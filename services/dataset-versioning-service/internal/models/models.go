@@ -718,8 +718,14 @@ type BranchDeleteResponse struct {
 }
 
 type RollbackBody struct {
-	TransactionID uuid.UUID `json:"transaction_id"`
-	Summary       *string   `json:"summary"`
+	TransactionID            uuid.UUID `json:"transaction_id"`
+	Summary                  *string   `json:"summary"`
+	ForceSnapshotOnNextBuild *bool     `json:"force_snapshot_on_next_build,omitempty"`
+	Confirmation             *string   `json:"confirmation,omitempty"`
+}
+
+type ForceSnapshotBody struct {
+	Summary *string `json:"summary,omitempty"`
 }
 
 type BranchAncestryResponse struct {
@@ -1117,6 +1123,63 @@ type DatasetIncrementalReadiness struct {
 	ViewBoundaries    []IncrementalViewBoundary       `json:"view_boundaries"`
 	Warnings          []IncrementalReadinessWarning   `json:"warnings,omitempty"`
 	ComputedAt        time.Time                       `json:"computed_at"`
+}
+
+type IcebergMetadataPointer struct {
+	Current  string `json:"current,omitempty"`
+	Previous string `json:"previous,omitempty"`
+}
+
+type IcebergTableOperationSummary struct {
+	LastOperation        string     `json:"last_operation,omitempty"`
+	LastOperationAt      *time.Time `json:"last_operation_at,omitempty"`
+	ReplaceSnapshotCount int        `json:"replace_snapshot_count"`
+	CompactionCount      int        `json:"compaction_count"`
+}
+
+type IcebergFeatureGap struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+type DatasetIcebergMetadataBridge struct {
+	DatasetID                uuid.UUID                    `json:"dataset_id"`
+	DatasetRID               string                       `json:"dataset_rid"`
+	TableRID                 string                       `json:"table_rid,omitempty"`
+	Namespace                string                       `json:"namespace,omitempty"`
+	TableName                string                       `json:"table_name,omitempty"`
+	TableUUID                string                       `json:"table_uuid,omitempty"`
+	FormatVersion            int                          `json:"format_version"`
+	CurrentIcebergSnapshotID string                       `json:"current_iceberg_snapshot_id,omitempty"`
+	CurrentSchema            JSONValue                    `json:"current_schema,omitempty"`
+	BranchSchemaBehavior     string                       `json:"branch_schema_behavior"`
+	MetadataPointer          IcebergMetadataPointer       `json:"metadata_pointer"`
+	Operations               IcebergTableOperationSummary `json:"operations"`
+	FeatureGaps              []IcebergFeatureGap          `json:"feature_gaps,omitempty"`
+	Limitations              []string                     `json:"limitations,omitempty"`
+	Metadata                 JSONValue                    `json:"metadata,omitempty"`
+	UpdatedAt                time.Time                    `json:"updated_at"`
+}
+
+type PutDatasetIcebergMetadataRequest struct {
+	TableRID                 string              `json:"table_rid,omitempty"`
+	Namespace                string              `json:"namespace,omitempty"`
+	TableName                string              `json:"table_name,omitempty"`
+	TableUUID                string              `json:"table_uuid,omitempty"`
+	FormatVersion            *int                `json:"format_version,omitempty"`
+	CurrentIcebergSnapshotID string              `json:"current_iceberg_snapshot_id,omitempty"`
+	CurrentSchema            JSONValue           `json:"current_schema,omitempty"`
+	Schema                   JSONValue           `json:"schema,omitempty"`
+	BranchSchemaBehavior     string              `json:"branch_schema_behavior,omitempty"`
+	CurrentMetadataLocation  string              `json:"current_metadata_location,omitempty"`
+	PreviousMetadataLocation string              `json:"previous_metadata_location,omitempty"`
+	LastOperation            string              `json:"last_operation,omitempty"`
+	LastOperationAt          *time.Time          `json:"last_operation_at,omitempty"`
+	ReplaceSnapshotCount     *int                `json:"replace_snapshot_count,omitempty"`
+	CompactionCount          *int                `json:"compaction_count,omitempty"`
+	FeatureGaps              []IcebergFeatureGap `json:"feature_gaps,omitempty"`
+	Metadata                 JSONValue           `json:"metadata,omitempty"`
 }
 
 type DatasetTransaction struct {

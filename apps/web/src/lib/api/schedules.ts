@@ -62,6 +62,8 @@ export interface Schedule {
   created_at: string;
   updated_at: string;
   last_run_at: string | null;
+  last_run_outcome?: RunOutcome | null;
+  last_run_build_rid?: string | null;
   scope_kind: ScheduleScopeKind;
   project_scope_rids: string[];
   run_as_user_id: string | null;
@@ -129,6 +131,8 @@ export interface ListSchedulesQuery {
   files?: string[];
   users?: string[];
   projects?: string[];
+  branch?: string;
+  latest_outcome?: RunOutcome | 'NEVER';
   sort?: 'name' | 'created_at' | 'last_run_at' | 'updated_at';
   limit?: number;
   offset?: number;
@@ -143,6 +147,8 @@ export function listSchedules(params: ListSchedulesQuery = {}) {
   for (const f of params.files ?? []) qs.append('files', f);
   for (const u of params.users ?? []) qs.append('users', u);
   for (const p of params.projects ?? []) qs.append('projects', p);
+  if (params.branch) qs.set('branch', params.branch);
+  if (params.latest_outcome) qs.set('latest_outcome', params.latest_outcome);
   if (params.sort) qs.set('sort', params.sort);
   if (params.limit) qs.set('limit', String(params.limit));
   if (params.offset) qs.set('offset', String(params.offset));

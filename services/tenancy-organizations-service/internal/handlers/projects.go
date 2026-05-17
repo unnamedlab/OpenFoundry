@@ -159,19 +159,50 @@ func authClaims(w http.ResponseWriter, r *http.Request) (*authmw.Claims, bool) {
 
 func loadProject(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.OntologyProject, error) {
 	row := pool.QueryRow(ctx,
-		`SELECT id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at
+		`SELECT id, slug, display_name, description, workspace_slug, owner_id,
+		        default_role, point_of_contact_user_id, point_of_contact_email,
+		        "references", created_at, updated_at
 		 FROM ontology_projects
 		 WHERE id = $1 AND is_deleted = FALSE`,
 		id,
 	)
+	return scanProjectRow(row)
+}
+
+// projectScannable is the minimal Scan(...any) contract shared by
+// pgx.Row (single-row QueryRow result) and pgx.Rows (streaming
+// query result). scanProjectRow accepts either so the helper can be
+// reused by loadProject (single) and ListProjects (rows).
+type projectScannable interface {
+	Scan(dest ...any) error
+}
+
+// scanProjectRow is the shared scan path used by loadProject and any
+// future list/get helper that wants the SG.6-extended shape.
+func scanProjectRow(row projectScannable) (*models.OntologyProject, error) {
 	p := &models.OntologyProject{}
-	err := row.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Description,
-		&p.WorkspaceSlug, &p.OwnerID, &p.CreatedAt, &p.UpdatedAt)
+	var defaultRole string
+	var refs []byte
+	err := row.Scan(
+		&p.ID, &p.Slug, &p.DisplayName, &p.Description,
+		&p.WorkspaceSlug, &p.OwnerID,
+		&defaultRole, &p.PointOfContactUserID, &p.PointOfContactEmail,
+		&refs, &p.CreatedAt, &p.UpdatedAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load ontology project: %s", err)
+	}
+	p.DefaultRole = models.OntologyProjectRole(defaultRole)
+	if len(refs) == 0 {
+		p.References = []models.OntologyProjectReference{}
+	} else if err := json.Unmarshal(refs, &p.References); err != nil {
+		return nil, fmt.Errorf("decode project references: %s", err)
+	}
+	if p.References == nil {
+		p.References = []models.OntologyProjectReference{}
 	}
 	return p, nil
 }
@@ -296,7 +327,9 @@ func (h *ProjectsHandlers) ListProjects(w http.ResponseWriter, r *http.Request) 
 	pattern := "%" + search + "%"
 
 	rows, err := h.Pool.Query(r.Context(),
-		`SELECT id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at
+		`SELECT id, slug, display_name, description, workspace_slug, owner_id,
+		        default_role, point_of_contact_user_id, point_of_contact_email,
+		        "references", created_at, updated_at
 		 FROM ontology_projects
 		 WHERE slug ILIKE $1 OR display_name ILIKE $1
 		 ORDER BY created_at DESC`,
@@ -310,13 +343,15 @@ func (h *ProjectsHandlers) ListProjects(w http.ResponseWriter, r *http.Request) 
 
 	projects := make([]models.OntologyProject, 0)
 	for rows.Next() {
-		var p models.OntologyProject
-		if err := rows.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Description,
-			&p.WorkspaceSlug, &p.OwnerID, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology projects: %s", err))
+		p, scanErr := scanProjectRow(rows)
+		if scanErr != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology projects: %s", scanErr))
 			return
 		}
-		projects = append(projects, p)
+		if p == nil {
+			continue
+		}
+		projects = append(projects, *p)
 	}
 	if err := rows.Err(); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology projects: %s", err))
@@ -385,6 +420,25 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		description = *body.Description
 	}
 
+	// SG.6: optional default_role / contact / references on create.
+	defaultRole := models.OntologyProjectRoleViewer
+	if body.DefaultRole != nil {
+		parsed, parseErr := models.ParseOntologyProjectRole(string(*body.DefaultRole))
+		if parseErr != nil {
+			writeJSONErr(w, http.StatusBadRequest, parseErr.Error())
+			return
+		}
+		defaultRole = parsed
+	}
+	if body.References == nil {
+		body.References = []models.OntologyProjectReference{}
+	}
+	refsJSON, err := json.Marshal(body.References)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode references: %s", err))
+		return
+	}
+
 	tx, err := h.Pool.Begin(r.Context())
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to start ontology project transaction: %s", err))
@@ -392,21 +446,21 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 	}
 	defer tx.Rollback(context.Background())
 
-	row := tx.QueryRow(r.Context(),
-		`INSERT INTO ontology_projects (id, slug, display_name, description, workspace_slug, owner_id)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at`,
-		ids.New(), slug, displayName, description, workspaceSlug, claims.Sub,
-	)
-	project := &models.OntologyProject{}
-	if err := row.Scan(&project.ID, &project.Slug, &project.DisplayName, &project.Description,
-		&project.WorkspaceSlug, &project.OwnerID, &project.CreatedAt, &project.UpdatedAt); err != nil {
+	projectID := ids.New()
+	if _, err := tx.Exec(r.Context(),
+		`INSERT INTO ontology_projects
+		   (id, slug, display_name, description, workspace_slug, owner_id,
+		    default_role, point_of_contact_user_id, point_of_contact_email, "references")
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+		projectID, slug, displayName, description, workspaceSlug, claims.Sub,
+		string(defaultRole), body.PointOfContactUserID, body.PointOfContactEmail, refsJSON,
+	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to create ontology project: %s", err))
 		return
 	}
 
 	for i := range body.Folders {
-		if _, err := insertProjectFolder(r.Context(), tx, project.ID, claims.Sub, &body.Folders[i]); err != nil {
+		if _, err := insertProjectFolder(r.Context(), tx, projectID, claims.Sub, &body.Folders[i]); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -414,6 +468,11 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 
 	if err := tx.Commit(r.Context()); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit ontology project transaction: %s", err))
+		return
+	}
+	project, err := loadProject(r.Context(), h.Pool, projectID)
+	if err != nil || project == nil {
+		writeJSONErr(w, http.StatusInternalServerError, "failed to reload created project")
 		return
 	}
 	writeJSON(w, http.StatusCreated, project)
@@ -511,24 +570,91 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	row := h.Pool.QueryRow(r.Context(),
+	// SG.6: optional patches for default_role / contact / references.
+	defaultRole := existing.DefaultRole
+	if rawRole, present := raw["default_role"]; present {
+		var s string
+		if err := json.Unmarshal(rawRole, &s); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "default_role must be a string")
+			return
+		}
+		parsed, parseErr := models.ParseOntologyProjectRole(s)
+		if parseErr != nil {
+			writeJSONErr(w, http.StatusBadRequest, parseErr.Error())
+			return
+		}
+		defaultRole = parsed
+	}
+	pocUserID := existing.PointOfContactUserID
+	if rawPOC, present := raw["point_of_contact_user_id"]; present {
+		trimmed := strings.TrimSpace(string(rawPOC))
+		if trimmed == "null" {
+			pocUserID = nil
+		} else {
+			var parsed uuid.UUID
+			if err := json.Unmarshal(rawPOC, &parsed); err != nil {
+				writeJSONErr(w, http.StatusBadRequest, "point_of_contact_user_id must be a uuid or null")
+				return
+			}
+			pocUserID = &parsed
+		}
+	}
+	pocEmail := existing.PointOfContactEmail
+	if rawEmail, present := raw["point_of_contact_email"]; present {
+		trimmed := strings.TrimSpace(string(rawEmail))
+		if trimmed == "null" {
+			pocEmail = nil
+		} else {
+			var parsed string
+			if err := json.Unmarshal(rawEmail, &parsed); err != nil {
+				writeJSONErr(w, http.StatusBadRequest, "point_of_contact_email must be a string or null")
+				return
+			}
+			pocEmail = &parsed
+		}
+	}
+	refs := existing.References
+	if rawRefs, present := raw["references"]; present {
+		var parsed []models.OntologyProjectReference
+		if err := json.Unmarshal(rawRefs, &parsed); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "references must be an array of {kind,id} objects")
+			return
+		}
+		refs = parsed
+	}
+	if refs == nil {
+		refs = []models.OntologyProjectReference{}
+	}
+	refsJSON, err := json.Marshal(refs)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode references: %s", err))
+		return
+	}
+
+	if _, err := h.Pool.Exec(r.Context(),
 		`UPDATE ontology_projects
 		 SET display_name = COALESCE($2, display_name),
 		     description = COALESCE($3, description),
 		     workspace_slug = $4,
+		     default_role = $5,
+		     point_of_contact_user_id = $6,
+		     point_of_contact_email = $7,
+		     "references" = $8::jsonb,
 		     updated_at = NOW()
-		 WHERE id = $1
-		 RETURNING id, slug, display_name, description, workspace_slug, owner_id, created_at, updated_at`,
+		 WHERE id = $1`,
 		id, displayName, description, workspaceSlug,
-	)
-	updated := &models.OntologyProject{}
-	if err := row.Scan(&updated.ID, &updated.Slug, &updated.DisplayName, &updated.Description,
-		&updated.WorkspaceSlug, &updated.OwnerID, &updated.CreatedAt, &updated.UpdatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeJSONErr(w, http.StatusNotFound, "ontology project not found")
-			return
-		}
+		string(defaultRole), pocUserID, pocEmail, refsJSON,
+	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to update ontology project: %s", err))
+		return
+	}
+	updated, err := loadProject(r.Context(), h.Pool, id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if updated == nil {
+		writeJSONErr(w, http.StatusNotFound, "ontology project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)

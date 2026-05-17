@@ -211,6 +211,27 @@ func (h *Handlers) AssignRole(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	// SG.7: when the caller supplies ?role_set_id=<uuid>, enforce the
+	// delegation rank invariant — the grantor must hold a role with
+	// rank ≥ the target role's rank in that role set. Admin role
+	// claims short-circuit because they already pass the higher
+	// permission check at the gateway.
+	if rsParam := strings.TrimSpace(r.URL.Query().Get("role_set_id")); rsParam != "" && !claims.HasRole("admin") {
+		roleSetID, err := uuid.Parse(rsParam)
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "role_set_id must be a uuid")
+			return
+		}
+		decision, err := h.Repo.CheckDelegation(r.Context(), roleSetID, claims.Sub, body.RoleID)
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if !decision.Allowed {
+			writeJSONErr(w, http.StatusForbidden, "delegation denied: "+decision.Reason)
+			return
+		}
+	}
 	err := h.Repo.AssignRole(r.Context(), tenantFromClaims(claims), userID, body.RoleID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSONErr(w, http.StatusNotFound, "role not found")

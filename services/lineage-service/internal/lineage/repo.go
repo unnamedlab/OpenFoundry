@@ -89,22 +89,29 @@ func LoadNodeOverlays(ctx context.Context, db *pgxpool.Pool, keys map[models.Nod
 	return overlays, rows.Err()
 }
 
-// EnsurePlaceholderWorkflow ports `ensure_placeholder_workflow`. No-op
-// when the workflow row already exists.
-func EnsurePlaceholderWorkflow(ctx context.Context, db *pgxpool.Pool, workflowID uuid.UUID) error {
-	existing, err := GetNodeRecord(ctx, db, workflowID, models.KindWorkflow)
+// EnsurePlaceholderNode inserts a lightweight overlay for lineage resources
+// whose canonical service is not available to the lineage service. No-op when
+// the row already exists.
+func EnsurePlaceholderNode(ctx context.Context, db *pgxpool.Pool, entityID uuid.UUID, kind models.NodeKind) error {
+	existing, err := GetNodeRecord(ctx, db, entityID, kind)
 	if err != nil {
 		return err
 	}
 	if existing != nil {
 		return nil
 	}
-	_, err = UpsertNode(ctx, db, workflowID, models.KindWorkflow,
-		SyntheticLabel(models.KindWorkflow, workflowID),
+	_, err = UpsertNode(ctx, db, entityID, kind,
+		SyntheticLabel(kind, entityID),
 		"public",
-		json.RawMessage(`{"placeholder":true}`),
+		json.RawMessage(`{"placeholder":true,"source":"lineage_sync"}`),
 	)
 	return err
+}
+
+// EnsurePlaceholderWorkflow ports `ensure_placeholder_workflow`. No-op
+// when the workflow row already exists.
+func EnsurePlaceholderWorkflow(ctx context.Context, db *pgxpool.Pool, workflowID uuid.UUID) error {
+	return EnsurePlaceholderNode(ctx, db, workflowID, models.KindWorkflow)
 }
 
 // LoadPipelineByID ports `load_pipeline_by_id`. The Rust impl runs

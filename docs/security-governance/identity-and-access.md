@@ -149,6 +149,90 @@ The Control Panel UI lives at
 — search bar, preregister form, per-row activate / deactivate /
 soft-delete / restore / revoke-tokens, and an inspect side panel.
 
+## Group administration (SG.5)
+
+Groups extend the user record with three concrete shapes:
+
+| Kind | Membership source | Admin write semantics |
+|---|---|---|
+| `internal` | Manually managed by admins. | `PUT /groups/{id}/members/{user_id}` accepts an optional `expires_at` for time-bounded grants. |
+| `external` | SCIM / IdP-synced. The handler refuses direct member mutations from non-SCIM callers in a follow-up RFC. | Treated as read-only in the UI; SCIM provisioning is the writer. |
+| `rule_based` | Membership is the evaluation of `rule_query` against the user attributes graph. | The rule is the source of truth — direct member writes are rejected. |
+
+Schema (migration
+[`0012_slice5e_group_admin.sql`](../../services/identity-federation-service/internal/repo/migrations/0012_slice5e_group_admin.sql)):
+
+- `groups` gains `kind`, `display_name`, `realm`, `organization_id`,
+  `attributes`, `rule_query`, `status`, `updated_at`. `display_name`
+  backfills from `name`.
+- `group_members` gains `added_at`, `added_by`, `expires_at` with a
+  partial index on non-null `expires_at` for the SG.5 inspect-view
+  count.
+- New `group_admins(group_id, user_id, scope, granted_by, created_at)`
+  with scope ∈ {`manage`, `manage_members`}.
+- New `group_nested_members(parent_group_id, member_group_id,
+  added_at, added_by)` with a self-reference CHECK and a recursive
+  cycle-detection helper in [`internal/repo/rbac.go`](../../services/identity-federation-service/internal/repo/rbac.go).
+
+Admin endpoints (all under `/api/v1`, bearer-protected):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /groups` | Bare-array list of active groups (legacy SDK shape). |
+| `GET /groups/search` | SG.5 envelope `{items, total}` with `q` / `kind` / `realm` / `organization_id` / `status` / `limit` / `offset`. |
+| `POST /groups`, `PATCH /groups/{id}`, `DELETE /groups/{id}` | Extended CRUD. PATCH honours nullable pointers (`**string` / `**uuid.UUID`) so JSON null clears them. |
+| `GET /groups/{id}/inspect` | Combined view: group core + member counts (direct + expiring) + admins + nested parents/children + project-access hint pointing at `tenancy-organizations-service`. |
+| `GET /groups/{id}/members` | Returns one row per direct member with `expires_at`. |
+| `PUT /groups/{id}/members/{user_id}` | Body `{ expires_at? }` for time-bounded grants. |
+| `GET/POST/DELETE /groups/{id}/admins[/{user_id}]` | Per-group admin grants. `?scope=manage_members` switches the deletion scope. |
+| `GET /groups/{id}/parents`, `GET /groups/{id}/children` | Nested-membership projection. |
+| `PUT/DELETE /groups/{id}/nested/{member_id}` | Nested edge CRUD; the repo rejects self-references and cycles via a recursive CTE. |
+
+The Control Panel UI lives at
+[`/control-panel/groups`](../../apps/web/src/routes/control-panel/GroupsPage.tsx)
+— search/filter, create form (kind / realm / org), per-row archive /
+restore / delete, and an inspect side panel that surfaces admins,
+nested parents/children, direct members, and time-bounded memberships.
+
+## Access request workflow (SG.9)
+
+Project access requests are owned by
+[`tenancy-organizations-service`](../../services/tenancy-organizations-service/),
+but they compose with the group-administration model above:
+
+- `ontology_project_access_requests` is the parent request. It records
+  the requester, requested users, required reason, scope context, and
+  request status.
+- `ontology_project_access_request_tasks` records independent
+  subtasks for direct project role grants, internal group membership,
+  required marking access, and external group handoffs.
+- `ontology_project_access_group_settings` is the per-project overlay
+  used by the access form: group display label, `internal` /
+  `external` / `rule_based` kind, group-admin reviewer IDs, custom
+  form metadata, external request message/URL, and the
+  `excluded_from_request_forms` flag for sensitive groups.
+- `ontology_project_required_markings` lets project owners describe
+  required marking-access tasks and their reviewer IDs until the full
+  marking service lands under `SG.11`–`SG.16`.
+
+Admin endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /projects/{id}/access-request-form` | Returns visible requestable groups, required markings, and project-owner reviewers. Does not require existing project access because it powers denied-link / Discoverer flows. |
+| `PUT/DELETE /projects/{id}/access-request-groups/{group_id}` | Configure or clear the project-local group request overlay, including external handoff and hidden-sensitive-group behavior. |
+| `PUT/DELETE /projects/{id}/access-request-markings/{marking_id}` | Configure required marking access prompts and marking reviewer IDs. |
+| `POST /projects/{id}/access-requests` | Creates a request with one or more subtasks. Legacy `{requested_role, reason}` still creates a direct project-role task. |
+| `GET /projects/{id}/access-requests` | Project request list. Owners/admins see all; requesters see their own. |
+| `GET /access-requests/inbox` | Reviewer inbox: project owners see direct-role tasks, configured group admins see group tasks, configured marking reviewers see marking tasks. |
+| `POST /projects/{id}/access-requests/{request_id}/decision` | Applies an approve/deny decision to the subtasks the caller is eligible to review. Direct project-role approvals materialize `ontology_project_memberships`. |
+
+The Control Panel project page at
+[`/control-panel/projects`](../../apps/web/src/routes/control-panel/ProjectsPage.tsx)
+now exposes the request-form configuration, external handoff settings,
+required markings, manual request creation, and the task list inside
+each request.
+
 ## Why this matters
 
 This gives OpenFoundry a strong foundation for identity-aware operational workflows, not only for simple API authentication.

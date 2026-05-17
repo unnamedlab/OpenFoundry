@@ -42,6 +42,8 @@ type Schedule struct {
 	CreatedAt          time.Time         `json:"created_at"`
 	UpdatedAt          time.Time         `json:"updated_at"`
 	LastRunAt          *time.Time        `json:"last_run_at"`
+	LastRunOutcome     *string           `json:"last_run_outcome,omitempty"`
+	LastRunBuildRID    *string           `json:"last_run_build_rid,omitempty"`
 	ScopeKind          ScheduleScopeKind `json:"scope_kind"`
 	ProjectScopeRIDs   []string          `json:"project_scope_rids"`
 	RunAsUserID        *uuid.UUID        `json:"run_as_user_id"`
@@ -87,16 +89,18 @@ type PatchScheduleRequest struct {
 }
 
 type ListSchedulesQuery struct {
-	Project  string
-	Paused   *bool
-	Owner    string
-	Q        string
-	Files    []string
-	Users    []string
-	Projects []string
-	Sort     string
-	Limit    int64
-	Offset   int64
+	Project       string
+	Paused        *bool
+	Owner         string
+	Q             string
+	Files         []string
+	Users         []string
+	Projects      []string
+	Branch        string
+	LatestOutcome string
+	Sort          string
+	Limit         int64
+	Offset        int64
 }
 
 type ListSchedulesResponse struct {
@@ -230,14 +234,39 @@ func collectScheduleRIDs(value any, seen map[string]struct{}) {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, child := range v {
-			if s, ok := child.(string); ok && strings.HasSuffix(strings.ToLower(key), "rid") && strings.TrimSpace(s) != "" {
+			lowerKey := strings.ToLower(key)
+			if s, ok := child.(string); ok && strings.HasSuffix(lowerKey, "rid") && strings.TrimSpace(s) != "" {
 				seen[strings.TrimSpace(s)] = struct{}{}
+			}
+			if strings.HasSuffix(lowerKey, "rids") {
+				collectScheduleRIDList(child, seen)
 			}
 			collectScheduleRIDs(child, seen)
 		}
 	case []any:
 		for _, child := range v {
 			collectScheduleRIDs(child, seen)
+		}
+	}
+}
+
+func collectScheduleRIDList(value any, seen map[string]struct{}) {
+	switch v := value.(type) {
+	case []any:
+		for _, child := range v {
+			if s, ok := child.(string); ok && strings.TrimSpace(s) != "" {
+				seen[strings.TrimSpace(s)] = struct{}{}
+			}
+		}
+	case []string:
+		for _, child := range v {
+			if strings.TrimSpace(child) != "" {
+				seen[strings.TrimSpace(child)] = struct{}{}
+			}
+		}
+	case string:
+		if strings.TrimSpace(v) != "" {
+			seen[strings.TrimSpace(v)] = struct{}{}
 		}
 	}
 }

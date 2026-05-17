@@ -41,6 +41,7 @@ import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/wor
 import { ResourcePermissionsDrawer } from '@/lib/components/workspace/ResourcePermissionsDrawer';
 import { ShareDialog } from '@/lib/components/workspace/ShareDialog';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { ProjectHealthSummary } from '@/lib/components/health/HealthReportsPanel';
 import { ResourcePickerDialog, type ResourcePickerAction } from '@/lib/components/projects/ResourcePickerDialog';
 import { UploadFilesDialog } from '@/lib/components/projects/UploadFilesDialog';
 
@@ -378,6 +379,13 @@ export function ProjectDetailPage() {
       };
     });
   }, [project, resourceLabels, resources]);
+
+  const projectHealthResourceRids = useMemo(() => (
+    [
+      project?.id,
+      ...projectResources.map((entry) => entry.summary.id),
+    ].filter((value): value is string => Boolean(value))
+  ), [project?.id, projectResources]);
 
   const filteredResources = useMemo(() => {
     return projectResources.filter((entry) => {
@@ -1096,6 +1104,11 @@ export function ProjectDetailPage() {
                   <SnapshotCard label="Trash" value={trash.length} icon="trash" tone="#cb2431" />
                 </div>
               </section>
+
+              <ProjectHealthSummary
+                resourceRids={projectHealthResourceRids}
+                title={`${project.display_name || project.slug} health`}
+              />
             </div>
           )}
 

@@ -380,6 +380,69 @@ OpenFoundry canonical IDs.
   - Provide builder/admin dashboards and exportable datasets for continuous improvement.
   - Docs: [AIP Agent Studio getting started](https://www.palantir.com/docs/foundry/agent-studio/getting-started/), [AIP Assist best practices](https://www.palantir.com/docs/foundry/assist/best-practices/).
 
+## Milestone D: agent execution loop, persistent threads, tool permission boundary
+
+> **Added 2026-05-17.** The earlier milestones cover the CRUD, app
+> shells, retrieval, and packaging surfaces. This milestone tracks the
+> **runtime semantics** that determine whether an agent really executes
+> (ReAct-style loop), whether threads are truly replayable, and whether
+> tools honor the caller's permissions on every invocation.
+
+### Agent execution loop
+
+- [ ] `AIPAG.41` Agent loop executor (`P0`, `todo`)
+  - Server-side loop that, given an agent definition and an input, alternates LLM calls and tool invocations until a stop condition (final answer, max-step budget, human-approval gate, error).
+  - Loop emits per-step events (`thought`, `tool_call_start`, `tool_call_end`, `assistant_partial`, `assistant_final`, `error`) to a stream consumable by SSE/WebSocket clients.
+  - Required to make `agent-runtime-service` an actual runtime instead of a passive recorder of runs.
+  - Docs: [Agent execution](https://palantir.com/docs/foundry/agent-studio/execution), [Agent loop](https://palantir.com/docs/foundry/agent-studio/loop).
+
+- [ ] `AIPAG.42` Tool dispatcher with caller permission propagation (`P0`, `todo`)
+  - Every tool invocation inside the loop carries the original caller's identity and clearances; the dispatcher resolves the tool's contract (`execute_function`, `apply_action`, `query_objects`, `update_app_variable`, `command`) and enforces permission checks at the tool's natural boundary (Functions runtime, Action engine, Object Storage V2 query layer).
+  - The agent never gains elevated permissions; failed tool calls become structured error events the loop can react to.
+  - Docs: [Tools](https://palantir.com/docs/foundry/agent-studio/tools).
+
+- [ ] `AIPAG.43` Step budget and tool-call rate limits (`P1`, `todo`)
+  - Per-agent max-step budget and per-invocation tool-call budget; exceeding either is a clean stop with a structured reason.
+  - Per-tool rate limit declared in the AIP Console policy (see [AIP Logic/Evals milestone D](./foundry-aip-logic-evals-1to1-checklist.md#milestone-d-aip-console-and-aip-now-distribution)).
+  - Docs: [Agent execution](https://palantir.com/docs/foundry/agent-studio/execution).
+
+- [ ] `AIPAG.44` Human-approval gates (`P1`, `todo`)
+  - Tools or final answers may declare `requires_human_approval: true`; the loop pauses, records a pending approval, and surfaces it to the operator UI; resume on decision.
+  - Approvals audited with decider identity and rationale.
+  - Docs: [Human approval](https://palantir.com/docs/foundry/agent-studio/human-approval).
+
+### Persistent and replayable threads
+
+- [ ] `AIPAG.45` Thread message log (`P0`, `todo`)
+  - Every message and every tool-call event in a thread is appended to an immutable per-thread log with sequence numbers; the thread's state at any prefix is reconstructable.
+  - Required for true conversation resumption, audit, and evaluation replay.
+  - Docs: [Threads](https://palantir.com/docs/foundry/threads/overview), [Thread persistence](https://palantir.com/docs/foundry/threads/persistence).
+
+- [ ] `AIPAG.46` Thread resume across sessions (`P0`, `todo`)
+  - Loading a thread restores the full message + tool-call log; new turns append to the log under the new caller's identity (subject to permission re-checks on any retained context).
+  - Docs: [Threads](https://palantir.com/docs/foundry/threads/overview).
+
+- [ ] `AIPAG.47` Replay-as-eval mode (`P1`, `todo`)
+  - Replay a recorded thread against a new agent version or new model with the same inputs to produce a side-by-side comparison consumable by AIP Evals.
+  - Replay enforces deterministic seeds where the model supports it.
+  - Docs: [Replay for evals](https://palantir.com/docs/foundry/threads/replay).
+
+- [ ] `AIPAG.48` Thread retention and redaction (`P2`, `todo`)
+  - Per-organization retention policies on threads; auto-redact PII in retained turns when retention exceeds a threshold.
+  - Hard-delete via Compass trash flow.
+  - Docs: [Threads retention](https://palantir.com/docs/foundry/threads/retention).
+
+### Observability
+
+- [ ] `AIPAG.49` Per-loop trace (`P1`, `todo`)
+  - Each loop emits a parent OTel span with child spans per LLM call and per tool call; latency, token counts, and cost recorded.
+  - Trace consumable from the agent detail UI and from the central observability stack.
+  - Docs: [Agent execution](https://palantir.com/docs/foundry/agent-studio/execution).
+
+- [ ] `AIPAG.50` Per-tool failure analytics (`P1`, `todo`)
+  - Aggregate failure rate, p95 latency, and rate-limit hits per tool per agent over rolling windows; surface in the agent metrics view.
+  - Docs: [Agent execution](https://palantir.com/docs/foundry/agent-studio/execution).
+
 ## Implementation inventory to collect before coding
 
 - [ ] `INV.1` Identify existing OpenFoundry chat, LLM provider, model routing, prompt, token metering, and streaming response components.

@@ -37,21 +37,141 @@ type CreatePermissionRequest struct {
 	Action   string `json:"action"`
 }
 
-// Group mirrors `models::group::Group`.
+// Group mirrors `models::group::Group`. SG.5 (2026-05-14) extends
+// the shape with Kind ('internal' | 'external' | 'rule_based'),
+// DisplayName, Realm, OrganizationID, Attributes, RuleQuery, Status,
+// and UpdatedAt. Existing rows backfill DisplayName from Name and
+// stay on Kind 'internal' / Realm 'local' / Status 'active'.
 type Group struct {
-	ID          uuid.UUID `json:"id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID             uuid.UUID       `json:"id"`
+	Name           string          `json:"name"`
+	DisplayName    string          `json:"display_name"`
+	Description    *string         `json:"description,omitempty"`
+	Kind           string          `json:"kind"`
+	Realm          string          `json:"realm"`
+	OrganizationID *uuid.UUID      `json:"organization_id,omitempty"`
+	Attributes     json.RawMessage `json:"attributes,omitempty"`
+	RuleQuery      json.RawMessage `json:"rule_query,omitempty"`
+	Status         string          `json:"status"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-// CreateGroupRequest / UpdateGroupRequest match the Rust shape.
+// Stable wire constants for Group.Kind / Group.Status. Renames are
+// wire-breaking — the admin UI keys translations off these.
+const (
+	GroupKindInternal  = "internal"
+	GroupKindExternal  = "external"
+	GroupKindRuleBased = "rule_based"
+
+	GroupStatusActive   = "active"
+	GroupStatusArchived = "archived"
+
+	GroupAdminScopeManage        = "manage"
+	GroupAdminScopeManageMembers = "manage_members"
+)
+
+// CreateGroupRequest / UpdateGroupRequest now carry the SG.5
+// surface. DisplayName falls back to Name on create; Kind defaults
+// to 'internal'.
 type CreateGroupRequest struct {
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
+	Name           string          `json:"name"`
+	DisplayName    *string         `json:"display_name,omitempty"`
+	Description    *string         `json:"description,omitempty"`
+	Kind           *string         `json:"kind,omitempty"`
+	Realm          *string         `json:"realm,omitempty"`
+	OrganizationID *uuid.UUID      `json:"organization_id,omitempty"`
+	Attributes     json.RawMessage `json:"attributes,omitempty"`
+	RuleQuery      json.RawMessage `json:"rule_query,omitempty"`
+	Status         *string         `json:"status,omitempty"`
 }
 
-type UpdateGroupRequest = CreateGroupRequest
+// UpdateGroupRequest is the body of PATCH /groups/{id}. Every field
+// optional — missing keys preserve the current value; nullable
+// pointer fields take `**T` so a JSON null clears them.
+type UpdateGroupRequest struct {
+	Name           *string          `json:"name,omitempty"`
+	DisplayName    *string          `json:"display_name,omitempty"`
+	Description    **string         `json:"description,omitempty"`
+	Kind           *string          `json:"kind,omitempty"`
+	Realm          *string          `json:"realm,omitempty"`
+	OrganizationID **uuid.UUID      `json:"organization_id,omitempty"`
+	Attributes     *json.RawMessage `json:"attributes,omitempty"`
+	RuleQuery      *json.RawMessage `json:"rule_query,omitempty"`
+	Status         *string          `json:"status,omitempty"`
+}
+
+// ListGroupsFilter is the query-string projection of GET /groups.
+type ListGroupsFilter struct {
+	Query          string
+	Kind           string // "" | "internal" | "external" | "rule_based"
+	Realm          string
+	OrganizationID *uuid.UUID
+	Status         string // "" | "active" | "archived"
+	Limit          int
+	Offset         int
+}
+
+// ListGroupsResponse is the wire envelope for GET /groups (SG.5).
+// Legacy `/groups` keeps the bare-array shape; the SG.5 search
+// endpoint returns this envelope.
+type ListGroupsResponse struct {
+	Items []Group `json:"items"`
+	Total int64   `json:"total"`
+}
+
+// GroupAdmin describes one row in group_admins.
+type GroupAdmin struct {
+	GroupID   uuid.UUID  `json:"group_id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Scope     string     `json:"scope"`
+	GrantedBy *uuid.UUID `json:"granted_by,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// CreateGroupAdminRequest is the body of POST /groups/{id}/admins.
+type CreateGroupAdminRequest struct {
+	UserID    uuid.UUID  `json:"user_id"`
+	Scope     *string    `json:"scope,omitempty"`
+	GrantedBy *uuid.UUID `json:"granted_by,omitempty"`
+}
+
+// GroupMember describes one row in group_members. SG.5 added the
+// optional ExpiresAt so admins can grant time-bounded membership.
+type GroupMember struct {
+	GroupID   uuid.UUID  `json:"group_id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	AddedAt   time.Time  `json:"added_at"`
+	AddedBy   *uuid.UUID `json:"added_by,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// AddGroupMemberRequest is the body of PUT /groups/{id}/members/{user_id}.
+type AddGroupMemberRequest struct {
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// GroupNestedEdge represents a parent->member group containment.
+type GroupNestedEdge struct {
+	ParentGroupID uuid.UUID  `json:"parent_group_id"`
+	MemberGroupID uuid.UUID  `json:"member_group_id"`
+	AddedAt       time.Time  `json:"added_at"`
+	AddedBy       *uuid.UUID `json:"added_by,omitempty"`
+}
+
+// GroupInspection is the response of GET /groups/{id}/inspect.
+// Surfaces direct members + admins + nested edges + a pointer to
+// project access lookups (cross-service via tenancy-organizations-
+// service).
+type GroupInspection struct {
+	Group               Group               `json:"group"`
+	DirectMemberCount   int                 `json:"direct_member_count"`
+	ExpiringMemberCount int                 `json:"expiring_member_count"`
+	Admins              []GroupAdmin        `json:"admins"`
+	Parents             []GroupBrief        `json:"parents"`
+	Children            []GroupBrief        `json:"children"`
+	ProjectAccessHint   string              `json:"project_access_hint"`
+}
 
 // APIKey mirrors `models::api_key::ApiKey`. The plaintext token is
 // never persisted; `key_hash` is the SHA-256 of it.

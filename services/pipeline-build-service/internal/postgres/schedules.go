@@ -141,8 +141,15 @@ func (r *Repository) ListSchedules(ctx context.Context, query models.ListSchedul
 		paused = fmt.Sprintf("%t", *query.Paused)
 	}
 	orderBy := scheduleOrderBy(query.Sort)
-	q := `SELECT ` + scheduleSelectColumns + `, COUNT(*) OVER()
+	q := `SELECT ` + scheduleSelectColumns + `, latest_run.outcome, latest_run.build_rid, COUNT(*) OVER()
 FROM schedules
+LEFT JOIN LATERAL (
+  SELECT outcome, build_rid
+  FROM schedule_runs
+  WHERE schedule_id = schedules.id
+  ORDER BY triggered_at DESC, id DESC
+  LIMIT 1
+) latest_run ON TRUE
 WHERE ($1 = '' OR project_rid = $1)
   AND ($2 = '' OR paused = $2::boolean)
   AND ($3 = '' OR created_by = $3)
@@ -150,9 +157,11 @@ WHERE ($1 = '' OR project_rid = $1)
   AND (cardinality($5::text[]) = 0 OR project_rid = ANY($5::text[]) OR project_scope_rids && $5::text[])
   AND (cardinality($6::text[]) = 0 OR target_rids && $6::text[])
   AND ($7 = '' OR name ILIKE '%' || $7 || '%' OR rid ILIKE '%' || $7 || '%')
+  AND ($8 = '' OR branch = $8)
+  AND ($9 = '' OR ($9 = 'NEVER' AND latest_run.outcome IS NULL) OR latest_run.outcome = $9)
 ORDER BY ` + orderBy + `
-LIMIT $8 OFFSET $9`
-	rows, err := r.db.Query(ctx, q, query.Project, paused, query.Owner, uniqueStrings(query.Users), uniqueStrings(query.Projects), uniqueStrings(query.Files), query.Q, query.Limit, query.Offset)
+LIMIT $10 OFFSET $11`
+	rows, err := r.db.Query(ctx, q, query.Project, paused, query.Owner, uniqueStrings(query.Users), uniqueStrings(query.Projects), uniqueStrings(query.Files), query.Q, query.Branch, query.LatestOutcome, query.Limit, query.Offset)
 	if err != nil {
 		return models.ListSchedulesResponse{}, err
 	}
@@ -160,14 +169,22 @@ LIMIT $8 OFFSET $9`
 	out := models.ListSchedulesResponse{Data: []models.Schedule{}}
 	for rows.Next() {
 		var row scheduleRow
+		var latestOutcome sql.NullString
+		var latestBuildRID sql.NullString
 		var total int
-		dest := append(row.dest(), &total)
+		dest := append(row.dest(), &latestOutcome, &latestBuildRID, &total)
 		if err := rows.Scan(dest...); err != nil {
 			return models.ListSchedulesResponse{}, err
 		}
 		item, err := row.model()
 		if err != nil {
 			return models.ListSchedulesResponse{}, err
+		}
+		if latestOutcome.Valid {
+			item.LastRunOutcome = &latestOutcome.String
+		}
+		if latestBuildRID.Valid {
+			item.LastRunBuildRID = &latestBuildRID.String
 		}
 		out.Data = append(out.Data, *item)
 		out.Total = total

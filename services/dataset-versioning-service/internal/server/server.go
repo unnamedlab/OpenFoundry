@@ -73,6 +73,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/datasets/{id}/transactions", h.ListTransactions)
 		api.Post("/datasets/{id}/transactions:batchGet", h.BatchGetTransactions)
 		api.Get("/datasets/{id}/incremental-readiness", h.GetIncrementalReadiness)
+		api.Get("/datasets/{id}/iceberg-metadata", h.GetIcebergMetadata)
+		api.Put("/datasets/{id}/iceberg-metadata", h.PutIcebergMetadata)
 
 		api.Get("/datasets/{id}/files", h.ListFiles)
 		api.Get("/datasets/{id}/files/metadata", h.GetFileMetadataByPath)
@@ -131,6 +133,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/datasets/{rid}/transactions", h.ListTransactions)
 		api.Post("/datasets/{rid}/transactions:batchGet", h.BatchGetTransactions)
 		api.Get("/datasets/{rid}/incremental-readiness", h.GetIncrementalReadiness)
+		api.Get("/datasets/{rid}/iceberg-metadata", h.GetIcebergMetadata)
+		api.Put("/datasets/{rid}/iceberg-metadata", h.PutIcebergMetadata)
 		api.Get("/datasets/{rid}/files", h.ListFiles)
 		api.Get("/datasets/{rid}/files/metadata", h.GetFileMetadataByPath)
 		api.Get("/datasets/{rid}/files/content", h.DownloadFileContentByPath)
@@ -211,6 +215,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Patch("/datasets/{rid}/branches/{branch}/retention", h.UpdateRetention)
 		api.Get("/datasets/{rid}/branches/{branch}/markings", h.GetBranchMarkings)
 		api.Post("/datasets/{rid}/branches/{branch}:restore", h.RestoreBranch)
+		api.Post("/datasets/{rid}/branches/{branch}:force-snapshot", h.ForceSnapshotOnNextBuild)
 		api.Post("/datasets/{rid}/branches/{branch}/rollback", h.RollbackBranch)
 		api.Get("/datasets/{rid}/branches/{branch}/fallbacks", h.ListFallbacks)
 		api.Put("/datasets/{rid}/branches/{branch}/fallbacks", h.PutFallbacks)
@@ -224,6 +229,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 		api.Get("/datasets/{rid}/transactions", h.ListTransactions)
 		api.Post("/datasets/{rid}/transactions:batchGet", h.BatchGetTransactions)
 		api.Get("/datasets/{rid}/incremental-readiness", h.GetIncrementalReadiness)
+		api.Get("/datasets/{rid}/iceberg-metadata", h.GetIcebergMetadata)
+		api.Put("/datasets/{rid}/iceberg-metadata", h.PutIcebergMetadata)
 
 		api.Get("/datasets/{rid}/compare", h.CompareViews)
 

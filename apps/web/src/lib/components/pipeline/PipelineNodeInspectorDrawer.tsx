@@ -101,7 +101,7 @@ export function PipelineNodeInspectorDrawer({
             )}
 
             {tab === 'preview' && (
-              <NodePreviewPanel pipelineId={pipelineId} node={node} />
+              <NodePreviewPanel pipelineId={pipelineId} node={node} onNodeChange={onChange} />
             )}
 
             {tab === 'validation' && (

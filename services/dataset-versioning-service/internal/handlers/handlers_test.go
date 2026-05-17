@@ -295,6 +295,7 @@ type fakeStore struct {
 	viewBacking         map[uuid.UUID][]models.ViewBackingDataset
 	viewPrimaryKeys     map[uuid.UUID][]string
 	schemas             map[uuid.UUID]models.SchemaResponse
+	icebergMetadata     map[uuid.UUID]models.DatasetIcebergMetadataBridge
 	quality             map[uuid.UUID]*models.DatasetQualityResponse
 	health              map[string]*models.DatasetHealth
 	lint                map[uuid.UUID]*models.DatasetLintSummary
@@ -317,7 +318,7 @@ func newFakeStore(owner uuid.UUID) *fakeStore {
 	ds.DisplayName = ds.Name
 	ds.Path = "/datasets/" + ds.Name
 	ds.Links = &models.DatasetLinks{Self: "/datasets/" + ds.ID.String(), Preview: "/datasets/" + ds.ID.String(), Lineage: "/lineage?dataset=" + ds.ID.String()}
-	return &fakeStore{datasets: []models.Dataset{ds}, versions: map[uuid.UUID][]models.DatasetVersion{}, branches: map[uuid.UUID][]models.DatasetBranch{}, files: map[uuid.UUID][]models.DatasetFile{}, transactions: map[uuid.UUID]string{}, runtimeTransactions: map[uuid.UUID]models.RuntimeTransaction{}, markings: map[uuid.UUID][]models.EffectiveMarking{}, permissions: map[uuid.UUID][]models.DatasetPermissionEdge{}, lineageLinks: map[uuid.UUID][]models.DatasetLineageLink{}, fileIndex: map[uuid.UUID][]models.DatasetFileIndexEntry{}, stagedFiles: map[uuid.UUID][]models.StageTransactionFile{}, views: map[uuid.UUID][]models.DatasetView{}, viewBacking: map[uuid.UUID][]models.ViewBackingDataset{}, viewPrimaryKeys: map[uuid.UUID][]string{}, schemas: map[uuid.UUID]models.SchemaResponse{}, quality: map[uuid.UUID]*models.DatasetQualityResponse{}, health: map[string]*models.DatasetHealth{}, lint: map[uuid.UUID]*models.DatasetLintSummary{}, fallbacks: map[uuid.UUID][]string{}}
+	return &fakeStore{datasets: []models.Dataset{ds}, versions: map[uuid.UUID][]models.DatasetVersion{}, branches: map[uuid.UUID][]models.DatasetBranch{}, files: map[uuid.UUID][]models.DatasetFile{}, transactions: map[uuid.UUID]string{}, runtimeTransactions: map[uuid.UUID]models.RuntimeTransaction{}, markings: map[uuid.UUID][]models.EffectiveMarking{}, permissions: map[uuid.UUID][]models.DatasetPermissionEdge{}, lineageLinks: map[uuid.UUID][]models.DatasetLineageLink{}, fileIndex: map[uuid.UUID][]models.DatasetFileIndexEntry{}, stagedFiles: map[uuid.UUID][]models.StageTransactionFile{}, views: map[uuid.UUID][]models.DatasetView{}, viewBacking: map[uuid.UUID][]models.ViewBackingDataset{}, viewPrimaryKeys: map[uuid.UUID][]string{}, schemas: map[uuid.UUID]models.SchemaResponse{}, icebergMetadata: map[uuid.UUID]models.DatasetIcebergMetadataBridge{}, quality: map[uuid.UUID]*models.DatasetQualityResponse{}, health: map[string]*models.DatasetHealth{}, lint: map[uuid.UUID]*models.DatasetLintSummary{}, fallbacks: map[uuid.UUID][]string{}}
 }
 
 func (f *fakeStore) ListDatasets(_ context.Context, ownerID *uuid.UUID, _ int) ([]models.Dataset, error) {
@@ -951,6 +952,45 @@ func (f *fakeStore) CompareBranches(_ context.Context, _ uuid.UUID, base string,
 func (f *fakeStore) RollbackBranch(_ context.Context, _ uuid.UUID, branch string, _ *models.RollbackBody, _ uuid.UUID) (map[string]any, error) {
 	return map[string]any{"view": map[string]any{"branch": branch}}, nil
 }
+func (f *fakeStore) ForceSnapshotOnNextBuild(_ context.Context, datasetID uuid.UUID, branch string, body *models.ForceSnapshotBody, actor uuid.UUID) (*models.RuntimeBranch, error) {
+	for i := range f.branches[datasetID] {
+		if f.branches[datasetID][i].Name != branch {
+			continue
+		}
+		labels := map[string]any{}
+		if len(f.branches[datasetID][i].Labels) > 0 {
+			_ = json.Unmarshal(f.branches[datasetID][i].Labels, &labels)
+		}
+		labels["force_snapshot_on_next_build"] = true
+		labels["force_snapshot_requested_by"] = actor.String()
+		if body != nil && body.Summary != nil {
+			labels["force_snapshot_summary"] = *body.Summary
+		}
+		raw, _ := json.Marshal(labels)
+		f.branches[datasetID][i].Labels = raw
+		return f.GetRuntimeBranch(context.Background(), datasetID, branch)
+	}
+	return nil, repo.ErrNotFound
+}
+func (f *fakeStore) ConsumeForceSnapshotOnNextBuild(_ context.Context, datasetID uuid.UUID, branchID uuid.UUID, transactionID uuid.UUID) error {
+	for i := range f.branches[datasetID] {
+		if f.branches[datasetID][i].ID != branchID {
+			continue
+		}
+		labels := map[string]any{}
+		if len(f.branches[datasetID][i].Labels) > 0 {
+			_ = json.Unmarshal(f.branches[datasetID][i].Labels, &labels)
+		}
+		delete(labels, "force_snapshot_on_next_build")
+		delete(labels, "force_snapshot_requested_by")
+		delete(labels, "force_snapshot_summary")
+		labels["last_forced_snapshot_transaction_id"] = transactionID.String()
+		raw, _ := json.Marshal(labels)
+		f.branches[datasetID][i].Labels = raw
+		return nil
+	}
+	return repo.ErrNotFound
+}
 func (f *fakeStore) ListFallbacks(_ context.Context, branchID uuid.UUID) ([]models.RuntimeFallbackEntry, error) {
 	out := []models.RuntimeFallbackEntry{}
 	for i, name := range f.fallbacks[branchID] {
@@ -1115,6 +1155,106 @@ func (f *fakeStore) GetDatasetIncrementalReadiness(_ context.Context, datasetID 
 	out.IncrementalReady = out.AppendOnly
 	out.ViewBoundaries = []models.IncrementalViewBoundary{{Start: *out.CurrentViewStart, End: *out.CurrentViewEnd, StartReason: "latest_snapshot_or_earliest", TransactionCount: len(rows), Counts: counts, AppendOnly: out.AppendOnly, HasUpdate: counts["UPDATE"] > 0, HasDelete: counts["DELETE"] > 0, HasSnapshot: counts["SNAPSHOT"] > 0}}
 	return out, nil
+}
+
+func (f *fakeStore) GetDatasetIcebergMetadata(_ context.Context, datasetID uuid.UUID) (*models.DatasetIcebergMetadataBridge, error) {
+	if v, ok := f.icebergMetadata[datasetID]; ok {
+		return &v, nil
+	}
+	dataset, err := f.GetDataset(context.Background(), datasetID)
+	if err != nil {
+		return nil, err
+	}
+	if dataset == nil {
+		return nil, repo.ErrNotFound
+	}
+	if !strings.Contains(strings.ToLower(dataset.Format), "iceberg") && !strings.Contains(strings.ToLower(dataset.RID), "iceberg") {
+		return nil, repo.ErrNotFound
+	}
+	out := fakeIcebergBridge(*dataset)
+	return &out, nil
+}
+
+func (f *fakeStore) PutDatasetIcebergMetadata(_ context.Context, datasetID uuid.UUID, body *models.PutDatasetIcebergMetadataRequest) (*models.DatasetIcebergMetadataBridge, error) {
+	dataset, err := f.GetDataset(context.Background(), datasetID)
+	if err != nil {
+		return nil, err
+	}
+	if dataset == nil {
+		return nil, repo.ErrNotFound
+	}
+	formatVersion := 2
+	if body != nil && body.FormatVersion != nil {
+		formatVersion = *body.FormatVersion
+	}
+	if formatVersion != 1 && formatVersion != 2 {
+		return nil, repo.ErrValidation
+	}
+	currentSchema := models.JSONValue([]byte(`{}`))
+	if body != nil && len(body.CurrentSchema) > 0 {
+		currentSchema = body.CurrentSchema
+	} else if body != nil && len(body.Schema) > 0 {
+		currentSchema = body.Schema
+	}
+	if !json.Valid(currentSchema) {
+		return nil, repo.ErrValidation
+	}
+	gaps := fakeIcebergFeatureGaps()
+	if body != nil && body.FeatureGaps != nil {
+		gaps = body.FeatureGaps
+	}
+	out := fakeIcebergBridge(*dataset)
+	if body != nil {
+		out.TableRID = body.TableRID
+		out.Namespace = body.Namespace
+		out.TableName = body.TableName
+		out.TableUUID = body.TableUUID
+		out.FormatVersion = formatVersion
+		out.CurrentIcebergSnapshotID = body.CurrentIcebergSnapshotID
+		out.CurrentSchema = currentSchema
+		out.BranchSchemaBehavior = body.BranchSchemaBehavior
+		if out.BranchSchemaBehavior == "" {
+			out.BranchSchemaBehavior = "shared"
+		}
+		out.MetadataPointer = models.IcebergMetadataPointer{Current: body.CurrentMetadataLocation, Previous: body.PreviousMetadataLocation}
+		out.Operations.LastOperation = body.LastOperation
+		out.Operations.LastOperationAt = body.LastOperationAt
+		if body.ReplaceSnapshotCount != nil {
+			out.Operations.ReplaceSnapshotCount = *body.ReplaceSnapshotCount
+		}
+		if body.CompactionCount != nil {
+			out.Operations.CompactionCount = *body.CompactionCount
+		}
+		if len(body.Metadata) > 0 {
+			out.Metadata = body.Metadata
+		}
+	}
+	out.FeatureGaps = gaps
+	out.Limitations = []string{}
+	for _, gap := range gaps {
+		out.Limitations = append(out.Limitations, gap.Message)
+	}
+	out.UpdatedAt = time.Now().UTC()
+	f.icebergMetadata[datasetID] = out
+	return &out, nil
+}
+
+func fakeIcebergBridge(dataset models.Dataset) models.DatasetIcebergMetadataBridge {
+	return models.DatasetIcebergMetadataBridge{
+		DatasetID:            dataset.ID,
+		DatasetRID:           dataset.RID,
+		FormatVersion:        2,
+		BranchSchemaBehavior: "shared",
+		CurrentSchema:        []byte(`{}`),
+		FeatureGaps:          fakeIcebergFeatureGaps(),
+		Limitations:          []string{"Restricted views over Iceberg-backed datasets are not yet fully modeled."},
+		Metadata:             []byte(`{}`),
+		UpdatedAt:            time.Now().UTC(),
+	}
+}
+
+func fakeIcebergFeatureGaps() []models.IcebergFeatureGap {
+	return []models.IcebergFeatureGap{{Code: "restricted_views", Severity: "info", Message: "Restricted views over Iceberg-backed datasets are not yet fully modeled."}}
 }
 
 func fakeIncrementalMode(counts map[string]int) string {
@@ -3226,6 +3366,60 @@ func TestIncrementalReadinessWarnsForUpdateDeleteAndShowsBoundaries(t *testing.T
 	require.Contains(t, body, "update_breaks_append_only")
 	require.Contains(t, body, "delete_breaks_append_only")
 	require.NotEmpty(t, out.ViewBoundaries)
+}
+
+func TestIcebergMetadataBridgeRoundTripsTableSnapshotSeparately(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	datasetID := store.datasets[0].ID
+	formatVersion := 2
+	replaceCount := 3
+	compactionCount := 1
+	h := &handlers.Handlers{Repo: store}
+
+	req := authedReq(http.MethodPut, "/v1/datasets/"+datasetID.String()+"/iceberg-metadata", `{
+		"table_rid":"ri.foundry.main.iceberg-table.orders",
+		"namespace":"warehouse.gold",
+		"table_name":"orders",
+		"table_uuid":"iceberg-table-uuid",
+		"format_version":2,
+		"current_iceberg_snapshot_id":"932419204791",
+		"current_metadata_location":"s3://warehouse/orders/metadata/v4.metadata.json",
+		"previous_metadata_location":"s3://warehouse/orders/metadata/v3.metadata.json",
+		"current_schema":{"schema-id":4,"fields":[{"id":1,"name":"order_id","type":"long","required":true}]},
+		"branch_schema_behavior":"per_branch",
+		"last_operation":"REPLACE_SNAPSHOT",
+		"replace_snapshot_count":3,
+		"compaction_count":1
+	}`, owner)
+	req = withRouteParam(req, "rid", datasetID.String())
+	rec := httptest.NewRecorder()
+
+	h.PutIcebergMetadata(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var saved models.DatasetIcebergMetadataBridge
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&saved))
+	require.Equal(t, "932419204791", saved.CurrentIcebergSnapshotID)
+	require.Equal(t, "per_branch", saved.BranchSchemaBehavior)
+	require.Equal(t, "REPLACE_SNAPSHOT", saved.Operations.LastOperation)
+	require.Equal(t, formatVersion, saved.FormatVersion)
+	require.Equal(t, replaceCount, saved.Operations.ReplaceSnapshotCount)
+	require.Equal(t, compactionCount, saved.Operations.CompactionCount)
+	require.NotContains(t, string(saved.CurrentSchema), "SNAPSHOT")
+
+	getReq := authedReq(http.MethodGet, "/v1/datasets/"+datasetID.String()+"/iceberg-metadata", "", owner)
+	getReq = withRouteParam(getReq, "rid", datasetID.String())
+	getRec := httptest.NewRecorder()
+
+	h.GetIcebergMetadata(getRec, getReq)
+	require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
+	var out models.DatasetIcebergMetadataBridge
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.Equal(t, saved.CurrentIcebergSnapshotID, out.CurrentIcebergSnapshotID)
+	require.Equal(t, "s3://warehouse/orders/metadata/v4.metadata.json", out.MetadataPointer.Current)
+	require.Equal(t, "s3://warehouse/orders/metadata/v3.metadata.json", out.MetadataPointer.Previous)
+	require.NotEmpty(t, out.FeatureGaps)
+	require.NotEmpty(t, out.Limitations)
 }
 
 func TestConcurrentTransactionsRejectedOnSameBranch(t *testing.T) {

@@ -232,9 +232,18 @@ type DatasetMetadata struct {
 type NodeKind string
 
 const (
-	KindDataset  NodeKind = "dataset"
-	KindPipeline NodeKind = "pipeline"
-	KindWorkflow NodeKind = "workflow"
+	KindDataset         NodeKind = "dataset"
+	KindPipeline        NodeKind = "pipeline"
+	KindWorkflow        NodeKind = "workflow"
+	KindTransform       NodeKind = "transform"
+	KindBuild           NodeKind = "build"
+	KindSchedule        NodeKind = "schedule"
+	KindOntologyOutput  NodeKind = "ontology_output"
+	KindObjectType      NodeKind = "object_type"
+	KindAction          NodeKind = "action"
+	KindFunction        NodeKind = "function"
+	KindApplication     NodeKind = "application"
+	KindWorkflowHandoff NodeKind = "workflow_handoff"
 )
 
 // ParseNodeKind returns (kind, true) for valid kinds, or (_, false).
@@ -246,6 +255,24 @@ func ParseNodeKind(s string) (NodeKind, bool) {
 		return KindPipeline, true
 	case "workflow":
 		return KindWorkflow, true
+	case "transform":
+		return KindTransform, true
+	case "build":
+		return KindBuild, true
+	case "schedule":
+		return KindSchedule, true
+	case "ontology_output", "ontology_object":
+		return KindOntologyOutput, true
+	case "object_type":
+		return KindObjectType, true
+	case "action":
+		return KindAction, true
+	case "function":
+		return KindFunction, true
+	case "application", "workshop_application":
+		return KindApplication, true
+	case "workflow_handoff", "handoff":
+		return KindWorkflowHandoff, true
 	default:
 		return "", false
 	}
