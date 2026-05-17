@@ -2,11 +2,26 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
+
+	"github.com/openfoundry/openfoundry-go/services/pipeline-runner/internal/server"
+)
+
+// envHealthAddr names the env var that overrides the default
+// /healthz + /metrics bind address. PORT is honored as a fallback to
+// match the k8s downward API convention used by sibling sinks.
+const (
+	envHealthAddr     = "OF_PIPELINE_RUNNER_HEALTH_ADDR"
+	envHealthPort     = "PORT"
+	defaultHealthAddr = "0.0.0.0:9090"
 )
 
 // Spark integration mode. Override with OF_PIPELINE_RUNNER_SPARK_MODE
@@ -22,8 +37,8 @@ const (
 
 // sparkSubmitDefault matches the upstream apache/spark layout.
 const (
-	sparkSubmitDefault   = "/opt/spark/bin/spark-submit"
-	sparkAppJarDefault   = "/opt/spark/jars/pipeline-runner-spark.jar"
+	sparkSubmitDefault    = "/opt/spark/bin/spark-submit"
+	sparkAppJarDefault    = "/opt/spark/jars/pipeline-runner-spark.jar"
 	sparkMainClassDefault = "com.openfoundry.pipeline.PipelineRunner"
 )
 
@@ -42,9 +57,38 @@ const (
 func Run(args Args) error {
 	log(args, fmt.Sprintf("starting (smoke=%t, version=%s)", args.Smoke, args.Version))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	addr := healthAddr()
+	httpSrv := server.New(addr, "pipeline-runner", args.Version)
+	log(args, fmt.Sprintf("health/metrics listening on %s", addr))
+
+	var wg sync.WaitGroup
+	httpErr := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := httpSrv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			httpErr <- err
+		}
+		close(httpErr)
+	}()
+
+	runErr := runWork(ctx, args)
+	cancel()
+	wg.Wait()
+
+	if runErr != nil {
+		return runErr
+	}
+	if err, ok := <-httpErr; ok && err != nil {
+		return fmt.Errorf("health server: %w", err)
+	}
+	return nil
+}
+
+func runWork(ctx context.Context, args Args) error {
 	spec, err := ResolveSpec(ctx, args)
 	if err != nil {
 		return err
@@ -63,6 +107,19 @@ func Run(args Args) error {
 	default:
 		return fmt.Errorf("unknown %s value: %q", envSparkMode, os.Getenv(envSparkMode))
 	}
+}
+
+// healthAddr resolves the bind address for /healthz + /metrics from
+// OF_PIPELINE_RUNNER_HEALTH_ADDR (full host:port) or PORT (port only),
+// falling back to 0.0.0.0:9090 — matches the sink services.
+func healthAddr() string {
+	if v := strings.TrimSpace(os.Getenv(envHealthAddr)); v != "" {
+		return v
+	}
+	if p := strings.TrimSpace(os.Getenv(envHealthPort)); p != "" {
+		return "0.0.0.0:" + p
+	}
+	return defaultHealthAddr
 }
 
 func submitToSpark(ctx context.Context, args Args, spec TransformSpec) error {
