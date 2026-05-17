@@ -28,15 +28,56 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/models"
 )
 
-const policySelect = `SELECT id, name, scope, target_kind, retention_days,
+const policySelect = `SELECT id, org_id, name, scope, target_kind, retention_days,
         legal_hold, purge_mode, rules, updated_by, active, is_system, selector,
         criteria, grace_period_minutes, last_applied_at, next_run_at,
         created_at, updated_at
         FROM retention_policies`
 
-// LoadPolicies mirrors `domain::retention::load_policies`.
-func LoadPolicies(ctx context.Context, db *pgxpool.Pool) ([]models.RetentionPolicy, error) {
-	rows, err := db.Query(ctx, policySelect+` ORDER BY updated_at DESC`)
+// OrgScope describes the tenant boundary a caller may act under.
+//
+// Non-admin callers always carry OrgID == claims.OrgID (AllOrgs=false);
+// reads then become `WHERE org_id = $N OR is_system = TRUE` so system
+// policies stay visible across tenants.
+//
+// Admin callers set AllOrgs=true to bypass scoping (cross-org reads).
+// For writes, admins still pass a concrete OrgID (which may be nil to
+// keep a policy global).
+type OrgScope struct {
+	OrgID   *uuid.UUID
+	AllOrgs bool
+}
+
+// PinnedToOrg reports whether the caller is restricted to a single
+// (non-nil) tenant.
+func (s OrgScope) PinnedToOrg() bool {
+	return !s.AllOrgs && s.OrgID != nil
+}
+
+// appendOrgFilter appends `(org_id = $N OR is_system = TRUE)` to the
+// running args slice when the scope is pinned to a single org, and
+// returns the SQL fragment plus the updated arg list. AllOrgs returns
+// an empty fragment (no extra filter).
+func (s OrgScope) appendOrgFilter(args []any) (string, []any) {
+	if s.AllOrgs {
+		return "", args
+	}
+	args = append(args, s.OrgID)
+	return fmt.Sprintf("(org_id = $%d OR is_system = TRUE)", len(args)), args
+}
+
+// LoadPolicies mirrors `domain::retention::load_policies`, scoped to
+// the caller's [OrgScope]. Non-admin callers always see their own org
+// plus the global `is_system` rows; admins (AllOrgs=true) get every
+// policy.
+func LoadPolicies(ctx context.Context, db *pgxpool.Pool, scope OrgScope) ([]models.RetentionPolicy, error) {
+	where, args := scope.appendOrgFilter(nil)
+	sql := policySelect
+	if where != "" {
+		sql += " WHERE " + where
+	}
+	sql += " ORDER BY updated_at DESC"
+	rows, err := db.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,9 +93,16 @@ func LoadPolicies(ctx context.Context, db *pgxpool.Pool) ([]models.RetentionPoli
 	return out, rows.Err()
 }
 
-// LoadPolicy returns a single policy or nil.
-func LoadPolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) (*models.RetentionPolicy, error) {
-	row := db.QueryRow(ctx, policySelect+` WHERE id = $1`, id)
+// LoadPolicy returns a single policy or nil. Non-admin callers can
+// only fetch policies that belong to their org (or system policies).
+func LoadPolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, scope OrgScope) (*models.RetentionPolicy, error) {
+	args := []any{id}
+	sql := policySelect + ` WHERE id = $1`
+	if extra, updated := scope.appendOrgFilter(args); extra != "" {
+		sql += " AND " + extra
+		args = updated
+	}
+	row := db.QueryRow(ctx, sql, args...)
 	v, err := scanPolicy(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -68,7 +116,7 @@ type rowLikeT interface {
 
 func scanPolicy(r rowLikeT) (*models.RetentionPolicy, error) {
 	v := &models.RetentionPolicy{}
-	if err := r.Scan(&v.ID, &v.Name, &v.Scope, &v.TargetKind, &v.RetentionDays,
+	if err := r.Scan(&v.ID, &v.OrgID, &v.Name, &v.Scope, &v.TargetKind, &v.RetentionDays,
 		&v.LegalHold, &v.PurgeMode, &v.Rules, &v.UpdatedBy, &v.Active,
 		&v.IsSystem, &v.Selector, &v.Criteria, &v.GracePeriodMinutes,
 		&v.LastAppliedAt, &v.NextRunAt, &v.CreatedAt, &v.UpdatedAt); err != nil {
@@ -316,8 +364,10 @@ type UpdateRetentionPolicyRequest struct {
 	GracePeriodMinutes *int32                    `json:"grace_period_minutes,omitempty"`
 }
 
-// CreatePolicy mirrors `handlers::retention::create_policy`.
-func CreatePolicy(ctx context.Context, db *pgxpool.Pool, request *CreateRetentionPolicyRequest) (*models.RetentionPolicy, error) {
+// CreatePolicy mirrors `handlers::retention::create_policy`. The
+// policy is persisted under `orgID` (may be nil only when the caller
+// is an admin creating a global/system-equivalent row).
+func CreatePolicy(ctx context.Context, db *pgxpool.Pool, request *CreateRetentionPolicyRequest, orgID *uuid.UUID) (*models.RetentionPolicy, error) {
 	if strings.TrimSpace(request.Name) == "" {
 		return nil, errors.New("name is required")
 	}
@@ -344,15 +394,15 @@ func CreatePolicy(ctx context.Context, db *pgxpool.Pool, request *CreateRetentio
 	}
 
 	row := db.QueryRow(ctx,
-		`INSERT INTO retention_policies (id, name, scope, target_kind, retention_days,
+		`INSERT INTO retention_policies (id, org_id, name, scope, target_kind, retention_days,
 		       legal_hold, purge_mode, rules, updated_by, active, selector, criteria,
 		       grace_period_minutes)
-		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13)
-		    RETURNING id, name, scope, target_kind, retention_days, legal_hold,
+		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb, $13::jsonb, $14)
+		    RETURNING id, org_id, name, scope, target_kind, retention_days, legal_hold,
 		              purge_mode, rules, updated_by, active, is_system, selector,
 		              criteria, grace_period_minutes, last_applied_at, next_run_at,
 		              created_at, updated_at`,
-		uuid.New(), request.Name, request.Scope, request.TargetKind, request.RetentionDays,
+		uuid.New(), orgID, request.Name, request.Scope, request.TargetKind, request.RetentionDays,
 		request.LegalHold, request.PurgeMode, rulesJSON, request.UpdatedBy,
 		request.EffectiveActive(), selectorJSON, criteriaJSON, request.EffectiveGrace(),
 	)
@@ -360,9 +410,11 @@ func CreatePolicy(ctx context.Context, db *pgxpool.Pool, request *CreateRetentio
 }
 
 // UpdatePolicy mirrors `handlers::retention::update_policy`. Returns
-// nil + nil error when the policy id does not exist.
-func UpdatePolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, request *UpdateRetentionPolicyRequest) (*models.RetentionPolicy, error) {
-	current, err := LoadPolicy(ctx, db, id)
+// nil + nil error when the policy id does not exist or is invisible
+// to the caller's [OrgScope]. The org_id column is never mutated —
+// re-homing a policy to another tenant is intentionally not supported.
+func UpdatePolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, request *UpdateRetentionPolicyRequest, scope OrgScope) (*models.RetentionPolicy, error) {
+	current, err := LoadPolicy(ctx, db, id, scope)
 	if err != nil || current == nil {
 		return current, err
 	}
@@ -375,28 +427,43 @@ func UpdatePolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, request *
 	if err != nil {
 		return nil, err
 	}
-	row := db.QueryRow(ctx,
-		`UPDATE retention_policies
+	// Re-apply the org filter on the UPDATE so a concurrent owner
+	// change can't bypass tenant isolation between LoadPolicy and the
+	// write.
+	args := []any{
+		id, current.Name, current.Scope, current.TargetKind, current.RetentionDays,
+		current.LegalHold, current.PurgeMode, rulesJSON, current.UpdatedBy, current.Active,
+		current.Selector, current.Criteria, current.GracePeriodMinutes,
+	}
+	sql := `UPDATE retention_policies
 		    SET name = $2, scope = $3, target_kind = $4, retention_days = $5,
 		        legal_hold = $6, purge_mode = $7, rules = $8::jsonb,
 		        updated_by = $9, active = $10, selector = $11::jsonb,
 		        criteria = $12::jsonb, grace_period_minutes = $13, updated_at = NOW()
-		  WHERE id = $1
-		  RETURNING id, name, scope, target_kind, retention_days, legal_hold,
+		  WHERE id = $1`
+	if extra, updated := scope.appendOrgFilter(args); extra != "" {
+		sql += " AND " + extra
+		args = updated
+	}
+	sql += `
+		  RETURNING id, org_id, name, scope, target_kind, retention_days, legal_hold,
 		            purge_mode, rules, updated_by, active, is_system, selector,
 		            criteria, grace_period_minutes, last_applied_at, next_run_at,
-		            created_at, updated_at`,
-		id, current.Name, current.Scope, current.TargetKind, current.RetentionDays,
-		current.LegalHold, current.PurgeMode, rulesJSON, current.UpdatedBy, current.Active,
-		current.Selector, current.Criteria, current.GracePeriodMinutes,
-	)
-	return scanPolicy(row)
+		            created_at, updated_at`
+	row := db.QueryRow(ctx, sql, args...)
+	v, err := scanPolicy(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
 }
 
 // DeletePolicy mirrors `handlers::retention::delete_policy`. Returns
-// `ErrPolicyIsSystem` when the row carries `is_system = true`.
-func DeletePolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) error {
-	current, err := LoadPolicy(ctx, db, id)
+// `ErrPolicyIsSystem` when the row carries `is_system = true`, and
+// `ErrPolicyNotFound` when the row is missing OR invisible to the
+// caller's [OrgScope].
+func DeletePolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, scope OrgScope) error {
+	current, err := LoadPolicy(ctx, db, id, scope)
 	if err != nil {
 		return err
 	}
@@ -406,7 +473,13 @@ func DeletePolicy(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) error {
 	if current.IsSystem {
 		return ErrPolicyIsSystem
 	}
-	if _, err := db.Exec(ctx, `DELETE FROM retention_policies WHERE id = $1`, id); err != nil {
+	args := []any{id}
+	sql := `DELETE FROM retention_policies WHERE id = $1`
+	if extra, updated := scope.appendOrgFilter(args); extra != "" {
+		sql += " AND " + extra
+		args = updated
+	}
+	if _, err := db.Exec(ctx, sql, args...); err != nil {
 		return err
 	}
 	return nil
@@ -430,9 +503,11 @@ func MaterialiseRules(raw json.RawMessage) ([]string, error) {
 	return out, nil
 }
 
-// RunJob mirrors `domain::retention::run_job`.
-func RunJob(ctx context.Context, db *pgxpool.Pool, request *models.RunRetentionJobRequest) (*models.RetentionJob, error) {
-	policy, err := LoadPolicy(ctx, db, request.PolicyID)
+// RunJob mirrors `domain::retention::run_job`. The job is rejected
+// when the policy is invisible to the caller's [OrgScope] (same
+// shape as `ErrPolicyNotFound`).
+func RunJob(ctx context.Context, db *pgxpool.Pool, request *models.RunRetentionJobRequest, scope OrgScope) (*models.RetentionJob, error) {
+	policy, err := LoadPolicy(ctx, db, request.PolicyID, scope)
 	if err != nil {
 		return nil, err
 	}

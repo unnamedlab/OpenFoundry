@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/models"
 )
 
@@ -27,7 +28,11 @@ func New(pool *pgxpool.Pool) *Handlers { return &Handlers{Pool: pool} }
 
 // ListPolicies ports `handlers::retention::list_policies`.
 func (h *Handlers) ListPolicies(w http.ResponseWriter, r *http.Request) {
-	policies, err := LoadPolicies(r.Context(), h.Pool)
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
+	policies, err := LoadPolicies(r.Context(), h.Pool, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -38,12 +43,17 @@ func (h *Handlers) ListPolicies(w http.ResponseWriter, r *http.Request) {
 
 // CreatePolicyHandler ports `handlers::retention::create_policy`.
 func (h *Handlers) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	var body CreateRetentionPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	policy, err := CreatePolicy(r.Context(), h.Pool, &body)
+	orgID := resolveWriteOrgID(scope)
+	policy, err := CreatePolicy(r.Context(), h.Pool, &body, orgID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, errors.New("name is required")) ||
@@ -58,6 +68,10 @@ func (h *Handlers) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdatePolicyHandler ports `handlers::retention::update_policy`.
 func (h *Handlers) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
@@ -68,7 +82,7 @@ func (h *Handlers) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	policy, err := UpdatePolicy(r.Context(), h.Pool, id, &body)
+	policy, err := UpdatePolicy(r.Context(), h.Pool, id, &body, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -82,12 +96,16 @@ func (h *Handlers) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetPolicyHandler ports `handlers::retention::get_policy`.
 func (h *Handlers) GetPolicyHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	policy, err := LoadPolicy(r.Context(), h.Pool, id)
+	policy, err := LoadPolicy(r.Context(), h.Pool, id, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -104,12 +122,16 @@ func (h *Handlers) GetPolicyHandler(w http.ResponseWriter, r *http.Request) {
 // System policies (is_system=true) emit a 409 Conflict mirroring the
 // Rust impl; missing rows emit 404.
 func (h *Handlers) DeletePolicyHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := DeletePolicy(r.Context(), h.Pool, id); err != nil {
+	if err := DeletePolicy(r.Context(), h.Pool, id, scope); err != nil {
 		switch {
 		case errors.Is(err, ErrPolicyNotFound):
 			writeJSONErr(w, http.StatusNotFound, err.Error())
@@ -123,13 +145,26 @@ func (h *Handlers) DeletePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListJobs ports `handlers::retention::list_jobs`.
+// ListJobs ports `handlers::retention::list_jobs`. Jobs are joined to
+// `retention_policies` so the tenant filter cascades transparently;
+// admins see every job.
 func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.Pool.Query(r.Context(),
-		`SELECT id, policy_id, target_dataset_id, target_transaction_id, status,
-		        action_summary, affected_record_count, created_at, completed_at
-		   FROM retention_jobs
-		  ORDER BY created_at DESC`)
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
+	sql := `SELECT j.id, j.policy_id, j.target_dataset_id, j.target_transaction_id,
+		        j.status, j.action_summary, j.affected_record_count,
+		        j.created_at, j.completed_at
+		   FROM retention_jobs j
+		   JOIN retention_policies p ON p.id = j.policy_id`
+	var args []any
+	if !scope.AllOrgs {
+		args = append(args, scope.OrgID)
+		sql += " WHERE (p.org_id = $1 OR p.is_system = TRUE)"
+	}
+	sql += " ORDER BY j.created_at DESC"
+	rows, err := h.Pool.Query(r.Context(), sql, args...)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -151,12 +186,16 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 
 // RunJobHandler ports `handlers::retention::run_job`.
 func (h *Handlers) RunJobHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	var body models.RunRetentionJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	job, err := RunJob(r.Context(), h.Pool, &body)
+	job, err := RunJob(r.Context(), h.Pool, &body, scope)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrPolicyNotFound):
@@ -171,12 +210,16 @@ func (h *Handlers) RunJobHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetDatasetRetention ports `handlers::retention::get_dataset_retention`.
 func (h *Handlers) GetDatasetRetention(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	datasetID, err := uuid.Parse(chi.URLParam(r, "dataset_id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid dataset_id")
 		return
 	}
-	policies, err := LoadPolicies(r.Context(), h.Pool)
+	policies, err := LoadPolicies(r.Context(), h.Pool, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -195,12 +238,16 @@ func (h *Handlers) GetDatasetRetention(w http.ResponseWriter, r *http.Request) {
 
 // GetTransactionRetention ports `handlers::retention::get_transaction_retention`.
 func (h *Handlers) GetTransactionRetention(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	txID, err := uuid.Parse(chi.URLParam(r, "transaction_id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid transaction_id")
 		return
 	}
-	policies, err := LoadPolicies(r.Context(), h.Pool)
+	policies, err := LoadPolicies(r.Context(), h.Pool, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -219,8 +266,12 @@ func (h *Handlers) GetTransactionRetention(w http.ResponseWriter, r *http.Reques
 
 // ApplicablePolicies ports `handlers::retention::applicable_policies`.
 func (h *Handlers) ApplicablePolicies(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	rid := chi.URLParam(r, "rid")
-	policies, err := LoadPolicies(r.Context(), h.Pool)
+	policies, err := LoadPolicies(r.Context(), h.Pool, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -239,8 +290,12 @@ func (h *Handlers) ApplicablePolicies(w http.ResponseWriter, r *http.Request) {
 
 // RetentionPreviewHandler ports `handlers::retention::retention_preview`.
 func (h *Handlers) RetentionPreviewHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
 	rid := chi.URLParam(r, "rid")
-	policies, err := LoadPolicies(r.Context(), h.Pool)
+	policies, err := LoadPolicies(r.Context(), h.Pool, scope)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -267,6 +322,89 @@ func (h *Handlers) RetentionPreviewHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, preview)
+}
+
+// resolveOrgScope resolves the caller's tenant boundary from the
+// authenticated claims. Non-admin callers are pinned to their own
+// `claims.OrgID`; the `?org_id=…` query parameter is intentionally
+// ignored on this path so a tenant cannot escape isolation by
+// rewriting the URL.
+//
+// Admin callers (RoleAdmin or the `retention-policies:admin`
+// permission) may pass `?org_id=<uuid>` to scope to a specific tenant
+// or `?all_orgs=true` to drop the filter entirely.
+//
+// Errors are written directly to `w`. The second return is false when
+// the request was rejected and the handler must abort.
+func resolveOrgScope(w http.ResponseWriter, r *http.Request) (OrgScope, bool) {
+	claims, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "missing authentication")
+		return OrgScope{}, false
+	}
+	admin := isRetentionAdmin(claims)
+	requestedOrg, requestedOrgPresent, err := parseOrgIDQuery(r)
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid org_id")
+		return OrgScope{}, false
+	}
+	if !admin {
+		if requestedOrgPresent && (claims.OrgID == nil || *requestedOrg != *claims.OrgID) {
+			writeJSONErr(w, http.StatusForbidden, "cross-org access requires retention-policies:admin")
+			return OrgScope{}, false
+		}
+		if claims.OrgID == nil {
+			writeJSONErr(w, http.StatusForbidden, "tenant context required")
+			return OrgScope{}, false
+		}
+		return OrgScope{OrgID: claims.OrgID}, true
+	}
+	if requestedOrgPresent {
+		return OrgScope{OrgID: requestedOrg}, true
+	}
+	if allOrgs, _ := strconv.ParseBool(r.URL.Query().Get("all_orgs")); allOrgs {
+		return OrgScope{AllOrgs: true}, true
+	}
+	// Admin without an explicit scope hint defaults to their own org
+	// if they carry one — least privilege for routine admin reads —
+	// and falls back to cross-org for platform operators that lack a
+	// concrete org.
+	if claims.OrgID != nil {
+		return OrgScope{OrgID: claims.OrgID}, true
+	}
+	return OrgScope{AllOrgs: true}, true
+}
+
+// resolveWriteOrgID returns the org_id a Create call should persist.
+// For non-admins this is scope.OrgID; for admins with AllOrgs=true the
+// row is created globally (org_id NULL).
+func resolveWriteOrgID(scope OrgScope) *uuid.UUID {
+	if scope.AllOrgs {
+		return nil
+	}
+	return scope.OrgID
+}
+
+// isRetentionAdmin reports whether the claims grant cross-org access
+// to retention policies. Either RoleAdmin or the explicit
+// `retention-policies:admin` permission qualifies.
+func isRetentionAdmin(c *authmw.Claims) bool {
+	if c.HasRole(authmw.RoleAdmin) {
+		return true
+	}
+	return c.HasPermissionKey("retention-policies:admin")
+}
+
+func parseOrgIDQuery(r *http.Request) (*uuid.UUID, bool, error) {
+	raw := r.URL.Query().Get("org_id")
+	if raw == "" {
+		return nil, false, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, true, err
+	}
+	return &id, true, nil
 }
 
 func parseListQuery(r *http.Request) models.ListRetentionPoliciesQuery {

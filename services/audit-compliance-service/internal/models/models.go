@@ -175,6 +175,7 @@ type ComplianceReport struct {
 
 type RetentionPolicy struct {
 	ID                 uuid.UUID       `json:"id"`
+	OrgID              *uuid.UUID      `json:"org_id,omitempty"`
 	Name               string          `json:"name"`
 	Scope              string          `json:"scope"`
 	TargetKind         string          `json:"target_kind"`
