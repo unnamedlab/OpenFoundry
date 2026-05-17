@@ -24,6 +24,7 @@
     "description": "dataset read policy",
     "id": "permit-cleared-readers",
     "source": "permit(principal, action == Action::\\\"read\\\", resource is Dataset);",
+    "tenant_id": "44444444-4444-4444-4444-444444444444",
     "updated_at": "2026-05-07T09:00:00Z",
     "version": 2
   },

@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/openfoundry/openfoundry-go/services/authorization-policy-service/internal/models"
@@ -51,12 +52,34 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 // Repo wraps the cedar_policies SQL surface.
 type Repo struct{ Pool *pgxpool.Pool }
 
-const cedarSelect = `SELECT id, version, source, description, active,
+const cedarSelect = `SELECT id, tenant_id, version, source, description, active,
 	created_by, created_at, updated_at FROM cedar_policies`
 
-// ListCedarPolicies returns every row, ordered most-recent-first.
-func (r *Repo) ListCedarPolicies(ctx context.Context) ([]models.CedarPolicy, error) {
-	rows, err := r.Pool.Query(ctx, cedarSelect+` ORDER BY updated_at DESC LIMIT 500`)
+// Tenant scoping for cedar_policies:
+//
+//   - Reads (List/Get): a non-nil tenantID returns the tenant's own rows
+//     plus any platform-global rows (tenant_id IS NULL). A nil tenantID
+//     denotes a platform/admin caller and returns only global rows so
+//     cross-tenant data never leaks through the absence of an org claim.
+//   - Writes (Create/Update/Delete): match the row's tenant_id exactly
+//     against the caller's sealed tenant. A tenant caller can never
+//     touch a global row, and vice versa.
+
+// ListCedarPolicies returns rows visible to `tenantID`, ordered
+// most-recent-first. See package comment for the scoping rules.
+func (r *Repo) ListCedarPolicies(ctx context.Context, tenantID *uuid.UUID) ([]models.CedarPolicy, error) {
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if tenantID == nil {
+		rows, err = r.Pool.Query(ctx,
+			cedarSelect+` WHERE tenant_id IS NULL ORDER BY updated_at DESC LIMIT 500`)
+	} else {
+		rows, err = r.Pool.Query(ctx,
+			cedarSelect+` WHERE tenant_id = $1 OR tenant_id IS NULL
+			 ORDER BY updated_at DESC LIMIT 500`, *tenantID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -72,9 +95,18 @@ func (r *Repo) ListCedarPolicies(ctx context.Context) ([]models.CedarPolicy, err
 	return out, rows.Err()
 }
 
-// GetCedarPolicy returns one row by id. Returns (nil, nil) on no row.
-func (r *Repo) GetCedarPolicy(ctx context.Context, id string) (*models.CedarPolicy, error) {
-	row := r.Pool.QueryRow(ctx, cedarSelect+` WHERE id = $1`, id)
+// GetCedarPolicy returns one row by id, scoped to `tenantID` per the
+// read rules above. Returns (nil, nil) on no row.
+func (r *Repo) GetCedarPolicy(ctx context.Context, tenantID *uuid.UUID, id string) (*models.CedarPolicy, error) {
+	var row pgx.Row
+	if tenantID == nil {
+		row = r.Pool.QueryRow(ctx,
+			cedarSelect+` WHERE id = $1 AND tenant_id IS NULL`, id)
+	} else {
+		row = r.Pool.QueryRow(ctx,
+			cedarSelect+` WHERE id = $1 AND (tenant_id = $2 OR tenant_id IS NULL)`,
+			id, *tenantID)
+	}
 	p, err := scanCedarPolicy(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -82,9 +114,10 @@ func (r *Repo) GetCedarPolicy(ctx context.Context, id string) (*models.CedarPoli
 	return p, err
 }
 
-// CreateCedarPolicy inserts a new row. The caller MUST have already
-// validated `body.Source` against the Cedar schema — repo trusts the input.
-func (r *Repo) CreateCedarPolicy(ctx context.Context, body *models.CreateCedarPolicyRequest, callerID uuid.UUID) (*models.CedarPolicy, error) {
+// CreateCedarPolicy inserts a new row stamped with `tenantID` (sealed
+// from the caller's JWT). The caller MUST have already validated
+// `body.Source` against the Cedar schema — repo trusts the input.
+func (r *Repo) CreateCedarPolicy(ctx context.Context, body *models.CreateCedarPolicyRequest, callerID uuid.UUID, tenantID *uuid.UUID) (*models.CedarPolicy, error) {
 	version := int32(1)
 	if body.Version != nil && *body.Version > 0 {
 		version = *body.Version
@@ -96,19 +129,22 @@ func (r *Repo) CreateCedarPolicy(ctx context.Context, body *models.CreateCedarPo
 	now := time.Now().UTC()
 	row := r.Pool.QueryRow(ctx,
 		`INSERT INTO cedar_policies
-		    (id, version, source, description, active, created_by, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-		 RETURNING id, version, source, description, active, created_by, created_at, updated_at`,
-		strings.TrimSpace(body.ID), version, body.Source, body.Description,
+		    (id, tenant_id, version, source, description, active, created_by, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+		 RETURNING id, tenant_id, version, source, description, active, created_by, created_at, updated_at`,
+		strings.TrimSpace(body.ID), tenantID, version, body.Source, body.Description,
 		active, callerID, now,
 	)
 	return scanCedarPolicy(row)
 }
 
-// UpdateCedarPolicy applies a partial patch and bumps version on source
-// changes. Returns (nil, nil) when the row doesn't exist.
-func (r *Repo) UpdateCedarPolicy(ctx context.Context, id string, body *models.UpdateCedarPolicyRequest) (*models.CedarPolicy, error) {
-	current, err := r.GetCedarPolicy(ctx, id)
+// UpdateCedarPolicy applies a partial patch to a row owned by `tenantID`
+// and bumps version on source changes. Returns (nil, nil) when no row
+// matches both `id` and the caller's tenant boundary — callers must
+// translate that into a 404 (not 403) to avoid leaking the existence
+// of another tenant's row.
+func (r *Repo) UpdateCedarPolicy(ctx context.Context, tenantID *uuid.UUID, id string, body *models.UpdateCedarPolicyRequest) (*models.CedarPolicy, error) {
+	current, err := r.getCedarPolicyForWrite(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -134,16 +170,28 @@ func (r *Repo) UpdateCedarPolicy(ctx context.Context, id string, body *models.Up
 		    version = $2, source = $3, description = $4, active = $5,
 		    updated_at = $6
 		  WHERE id = $1
-		  RETURNING id, version, source, description, active, created_by,
+		  RETURNING id, tenant_id, version, source, description, active, created_by,
 		            created_at, updated_at`,
 		id, version, source, desc, active, time.Now().UTC(),
 	)
 	return scanCedarPolicy(row)
 }
 
-// DeleteCedarPolicy removes a row. Returns false when no row matched.
-func (r *Repo) DeleteCedarPolicy(ctx context.Context, id string) (bool, error) {
-	cmd, err := r.Pool.Exec(ctx, `DELETE FROM cedar_policies WHERE id = $1`, id)
+// DeleteCedarPolicy removes a row owned by `tenantID`. Returns false
+// when no row matched the (id, tenantID) pair.
+func (r *Repo) DeleteCedarPolicy(ctx context.Context, tenantID *uuid.UUID, id string) (bool, error) {
+	var (
+		cmd pgconn.CommandTag
+		err error
+	)
+	if tenantID == nil {
+		cmd, err = r.Pool.Exec(ctx,
+			`DELETE FROM cedar_policies WHERE id = $1 AND tenant_id IS NULL`, id)
+	} else {
+		cmd, err = r.Pool.Exec(ctx,
+			`DELETE FROM cedar_policies WHERE id = $1 AND tenant_id = $2`,
+			id, *tenantID)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -156,11 +204,31 @@ type rowLikeT interface{ Scan(...any) error }
 
 func scanCedarPolicy(r rowLikeT) (*models.CedarPolicy, error) {
 	p := &models.CedarPolicy{}
-	if err := r.Scan(&p.ID, &p.Version, &p.Source, &p.Description,
+	if err := r.Scan(&p.ID, &p.TenantID, &p.Version, &p.Source, &p.Description,
 		&p.Active, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return p, nil
+}
+
+// getCedarPolicyForWrite returns the policy only when it is owned by the
+// caller's tenant. Globals (tenant_id IS NULL) are read-visible but not
+// writable from a tenant context — they must be edited by the platform
+// admin path (tenantID == nil).
+func (r *Repo) getCedarPolicyForWrite(ctx context.Context, tenantID *uuid.UUID, id string) (*models.CedarPolicy, error) {
+	var row pgx.Row
+	if tenantID == nil {
+		row = r.Pool.QueryRow(ctx,
+			cedarSelect+` WHERE id = $1 AND tenant_id IS NULL`, id)
+	} else {
+		row = r.Pool.QueryRow(ctx,
+			cedarSelect+` WHERE id = $1 AND tenant_id = $2`, id, *tenantID)
+	}
+	p, err := scanCedarPolicy(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
 }
 
 // ─── ABAC policies ──────────────────────────────────────────────────

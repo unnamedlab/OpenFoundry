@@ -62,9 +62,17 @@ func NewHandlers(r *repo.Repo, nc *nats.Conn) *Handlers {
 
 // ─── Cedar policies CRUD ────────────────────────────────────────────
 
-// ListCedarPolicies handles GET /api/v1/cedar-policies.
+// ListCedarPolicies handles GET /api/v1/cedar-policies. Scoped to the
+// caller's tenant (claims.OrgID): tenant callers see their own rows
+// plus platform-global rows; platform admins (no OrgID claim) see only
+// the global rows.
 func (h *Handlers) ListCedarPolicies(w http.ResponseWriter, r *http.Request) {
-	items, err := h.Repo.ListCedarPolicies(r.Context())
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	items, err := h.Repo.ListCedarPolicies(r.Context(), caller.OrgID)
 	if err != nil {
 		slog.Error("list cedar policies", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to list policies")
@@ -73,14 +81,20 @@ func (h *Handlers) ListCedarPolicies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, models.ListResponse[models.CedarPolicy]{Items: items})
 }
 
-// GetCedarPolicy handles GET /api/v1/cedar-policies/{id}.
+// GetCedarPolicy handles GET /api/v1/cedar-policies/{id}. Scoped to
+// the caller's tenant — see [ListCedarPolicies] for the rules.
 func (h *Handlers) GetCedarPolicy(w http.ResponseWriter, r *http.Request) {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeJSONErr(w, http.StatusBadRequest, "id required")
 		return
 	}
-	p, err := h.Repo.GetCedarPolicy(r.Context(), id)
+	p, err := h.Repo.GetCedarPolicy(r.Context(), caller.OrgID, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -123,7 +137,9 @@ func (h *Handlers) CreateCedarPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.Repo.CreateCedarPolicy(r.Context(), &body, caller.Sub)
+	// Tenant is sealed from JWT claims — body cannot override. nil OrgID
+	// means a platform/admin caller writing a global row.
+	p, err := h.Repo.CreateCedarPolicy(r.Context(), &body, caller.Sub, caller.OrgID)
 	if err != nil {
 		slog.Error("create cedar policy", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
@@ -137,9 +153,11 @@ func (h *Handlers) CreateCedarPolicy(w http.ResponseWriter, r *http.Request) {
 //
 // Bumping `source` re-validates against the schema and increments the
 // version. Toggling `active` does NOT bump the version — it's a state
-// flip, not a source change.
+// flip, not a source change. Writes are confined to rows owned by the
+// caller's tenant (or globals when no OrgID claim is present).
 func (h *Handlers) UpdateCedarPolicy(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -163,12 +181,15 @@ func (h *Handlers) UpdateCedarPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	p, err := h.Repo.UpdateCedarPolicy(r.Context(), id, &body)
+	p, err := h.Repo.UpdateCedarPolicy(r.Context(), caller.OrgID, id, &body)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if p == nil {
+		// 404 (not 403) so the absence of another tenant's row is
+		// indistinguishable from a missing id — cross-tenant probing
+		// returns no signal.
 		writeJSONErr(w, http.StatusNotFound, "policy not found")
 		return
 	}
@@ -176,9 +197,11 @@ func (h *Handlers) UpdateCedarPolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
-// DeleteCedarPolicy handles DELETE /api/v1/cedar-policies/{id}.
+// DeleteCedarPolicy handles DELETE /api/v1/cedar-policies/{id}. Scoped
+// to rows owned by the caller's tenant.
 func (h *Handlers) DeleteCedarPolicy(w http.ResponseWriter, r *http.Request) {
-	if _, ok := authmw.FromContext(r.Context()); !ok {
+	caller, ok := authmw.FromContext(r.Context())
+	if !ok {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -187,7 +210,7 @@ func (h *Handlers) DeleteCedarPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "id required")
 		return
 	}
-	deleted, err := h.Repo.DeleteCedarPolicy(r.Context(), id)
+	deleted, err := h.Repo.DeleteCedarPolicy(r.Context(), caller.OrgID, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return

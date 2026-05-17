@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -167,6 +168,157 @@ func TestPgPolicyStoreReloadFailsOnInvalidCedar(t *testing.T) {
 	assert.Equal(t, "broken", ppe.ID)
 	// Active set is preserved — the bad bundle was never swapped in.
 	assert.Equal(t, 1, store.Len(), "failed reload preserves previous policies")
+}
+
+// Tenant-scoped Reload narrows the WHERE clause to that tenant plus
+// globals. Mirrors the multi-tenant guarantee the policy-service repo
+// enforces on the write path.
+func TestPgPolicyStoreReloadFiltersByTenant(t *testing.T) {
+	t.Parallel()
+	store, err := cedarauthz.NewEmpty()
+	require.NoError(t, err)
+	mock, err := pgxmock.NewPool()
+	require.NoError(t, err)
+	t.Cleanup(mock.Close)
+
+	tenant := uuid.New()
+	rows := pgxmock.NewRows([]string{"id", "version", "source", "description"}).
+		AddRow("p-tenant", int32(1),
+			`permit(principal, action == Action::"read", resource is Dataset);`,
+			(*string)(nil))
+	mock.ExpectQuery(`tenant_id = \$1 OR tenant_id IS NULL`).
+		WithArgs(tenant).
+		WillReturnRows(rows)
+
+	pg := cedarauthz.NewPgPolicyStore(mock, store).WithTenantID(&tenant)
+	count, err := pg.Reload(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Platform (nil tenant) reload only loads global rows — no tenant data
+// leaks into an admin engine.
+func TestPgPolicyStoreReloadPlatformOnlyLoadsGlobals(t *testing.T) {
+	t.Parallel()
+	store, err := cedarauthz.NewEmpty()
+	require.NoError(t, err)
+	mock, err := pgxmock.NewPool()
+	require.NoError(t, err)
+	t.Cleanup(mock.Close)
+
+	rows := pgxmock.NewRows([]string{"id", "version", "source", "description"})
+	mock.ExpectQuery(`tenant_id IS NULL`).
+		WillReturnRows(rows)
+
+	pg := cedarauthz.NewPgPolicyStore(mock, store)
+	count, err := pg.Reload(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TenantPolicyCache hands out per-tenant stores so two tenants never
+// share a PolicySet pointer — the only way to make engine evaluation
+// safe under cross-tenant traffic.
+func TestTenantPolicyCacheIsolatesTenants(t *testing.T) {
+	t.Parallel()
+	mock, err := pgxmock.NewPool()
+	require.NoError(t, err)
+	t.Cleanup(mock.Close)
+
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+
+	src := `permit(principal, action == Action::"read", resource is Dataset);`
+	mock.ExpectQuery(`tenant_id = \$1 OR tenant_id IS NULL`).
+		WithArgs(tenantA).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "version", "source", "description"}).
+			AddRow("p-a", int32(1), src, (*string)(nil)))
+	mock.ExpectQuery(`tenant_id = \$1 OR tenant_id IS NULL`).
+		WithArgs(tenantB).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "version", "source", "description"}).
+			AddRow("p-b1", int32(1), src, (*string)(nil)).
+			AddRow("p-b2", int32(1), src, (*string)(nil)))
+
+	cache := cedarauthz.NewTenantPolicyCache(mock)
+	storeA, vA, err := cache.Get(context.Background(), &tenantA)
+	require.NoError(t, err)
+	require.NotNil(t, storeA)
+	assert.Equal(t, 1, storeA.Len())
+	assert.Equal(t, uint64(1), vA)
+
+	storeB, vB, err := cache.Get(context.Background(), &tenantB)
+	require.NoError(t, err)
+	require.NotNil(t, storeB)
+	assert.Equal(t, 2, storeB.Len())
+	assert.Equal(t, uint64(1), vB)
+
+	assert.NotSame(t, storeA, storeB, "each tenant must own its own PolicyStore handle")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A second Get for the same tenant returns the cached store without
+// re-querying. Confirms the (tenantID → store) entry is sticky until
+// invalidated.
+func TestTenantPolicyCacheReusesCachedStore(t *testing.T) {
+	t.Parallel()
+	mock, err := pgxmock.NewPool()
+	require.NoError(t, err)
+	t.Cleanup(mock.Close)
+
+	tenant := uuid.New()
+	src := `permit(principal, action == Action::"read", resource is Dataset);`
+	mock.ExpectQuery(`tenant_id = \$1 OR tenant_id IS NULL`).
+		WithArgs(tenant).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "version", "source", "description"}).
+			AddRow("p1", int32(1), src, (*string)(nil)))
+
+	cache := cedarauthz.NewTenantPolicyCache(mock)
+	first, v1, err := cache.Get(context.Background(), &tenant)
+	require.NoError(t, err)
+
+	second, v2, err := cache.Get(context.Background(), &tenant)
+	require.NoError(t, err)
+	assert.Same(t, first, second, "second Get must return the cached store")
+	assert.Equal(t, v1, v2, "version token stable until Reload/Invalidate")
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Reload bumps the version token so callers can detect cache flips.
+// Invalidate drops the entry so the next Get re-fetches.
+func TestTenantPolicyCacheReloadAndInvalidate(t *testing.T) {
+	t.Parallel()
+	mock, err := pgxmock.NewPool()
+	require.NoError(t, err)
+	t.Cleanup(mock.Close)
+
+	tenant := uuid.New()
+	src := `permit(principal, action == Action::"read", resource is Dataset);`
+	// Three expected queries: initial Get, explicit Reload, post-Invalidate Get.
+	for i := 0; i < 3; i++ {
+		mock.ExpectQuery(`tenant_id = \$1 OR tenant_id IS NULL`).
+			WithArgs(tenant).
+			WillReturnRows(pgxmock.NewRows([]string{"id", "version", "source", "description"}).
+				AddRow("p1", int32(1), src, (*string)(nil)))
+	}
+
+	cache := cedarauthz.NewTenantPolicyCache(mock)
+	_, v1, err := cache.Get(context.Background(), &tenant)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), v1)
+
+	_, v2, err := cache.Reload(context.Background(), &tenant)
+	require.NoError(t, err)
+	assert.Greater(t, v2, v1, "reload bumps the version token")
+
+	cache.Invalidate(&tenant)
+	_, v3, err := cache.Get(context.Background(), &tenant)
+	require.NoError(t, err)
+	assert.NotEqual(t, v2, v3, "post-invalidate Get rebuilds the entry and resets the token")
+
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // Smoke test for context cancellation propagation.

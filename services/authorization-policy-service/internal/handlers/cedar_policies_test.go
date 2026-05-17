@@ -162,6 +162,64 @@ func TestDeleteCedarPolicyRequiresAuth(t *testing.T) {
 	assert.Equal(t, 401, rec.Code)
 }
 
+// Tenant scoping is now enforced at every Cedar-policy endpoint:
+// the handler MUST refuse to serve the route when no auth claims are
+// attached, otherwise a request that bypassed the middleware could
+// reach the repo with a nil tenant filter and leak cross-tenant rows.
+func TestListCedarPolicyRequiresAuth(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest("GET", "/cedar-policies", nil)
+	rec := httptest.NewRecorder()
+	h.ListCedarPolicies(rec, req)
+	assert.Equal(t, 401, rec.Code)
+}
+
+func TestGetCedarPolicyRequiresAuth(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest("GET", "/cedar-policies/p", nil)
+	rec := httptest.NewRecorder()
+	h.GetCedarPolicy(rec, req)
+	assert.Equal(t, 401, rec.Code)
+}
+
+func TestUpdateCedarPolicyRequiresAuth(t *testing.T) {
+	t.Parallel()
+	h := &handlers.Handlers{}
+	req := httptest.NewRequest("PATCH", "/cedar-policies/p",
+		strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	h.UpdateCedarPolicy(rec, req)
+	assert.Equal(t, 401, rec.Code)
+}
+
+// CreateCedarPolicyIgnoresUnknownBodyFields — a JSON body that carries
+// a `tenant_id` field MUST be silently dropped by the decoder. The
+// CreateCedarPolicyRequest type intentionally has no TenantID field so
+// the tenant always comes from the JWT, never the wire body.
+func TestCreateCedarPolicyRequestRejectsBodyTenantID(t *testing.T) {
+	t.Parallel()
+	// Pin the wire contract: the request type does not unmarshal a
+	// `tenant_id` field, so even an attacker-controlled body cannot
+	// override the JWT-sealed tenant. We assert via reflection.
+	var req models.CreateCedarPolicyRequest
+	out, err := json.Marshal(req)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	assert.NotContains(t, view, "tenant_id",
+		"CreateCedarPolicyRequest must not carry tenant_id — tenant is sealed from claims")
+
+	var updateReq models.UpdateCedarPolicyRequest
+	out, err = json.Marshal(updateReq)
+	require.NoError(t, err)
+	view = nil
+	require.NoError(t, json.Unmarshal(out, &view))
+	assert.NotContains(t, view, "tenant_id",
+		"UpdateCedarPolicyRequest must not carry tenant_id — tenant is sealed from claims")
+}
+
 // Real validator (libs/authz-cedar-go) → confirms the integration is
 // live: an actually-valid policy (refs the bundled schema) reaches the
 // repo step (which we don't run here, so we expect a downstream nil
