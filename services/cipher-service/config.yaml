@@ -1,0 +1,21 @@
+# Defaults shipped inside the container image.
+# Override per-environment via CONFIG_FILE or OF_* env vars.
+
+service:
+  name: cipher-service
+  version: 0.1.0
+
+server:
+  addr: ":8080"
+  shutdown_timeout: 15s
+
+jwt:
+  # In production the secret comes from a Kubernetes Secret mounted
+  # as OF_JWT__SECRET, never from this file.
+  secret: ""
+  issuer: "https://auth.openfoundry.local"
+  audience: "openfoundry"
+
+telemetry:
+  otlp_endpoint: "localhost:4317"
+  log_format: "plain"
