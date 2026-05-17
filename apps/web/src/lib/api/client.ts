@@ -4,13 +4,33 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
+  skipAuthHooks?: boolean;
 }
 
-class ApiClient {
+type PreRequestHook = () => void | Promise<void>;
+type RefreshHandler = () => Promise<string | null>;
+type LogoutHandler = () => void;
+
+export class ApiClient {
   private token: string | null = null;
+  private preRequestHook: PreRequestHook | null = null;
+  private refreshHandler: RefreshHandler | null = null;
+  private logoutHandler: LogoutHandler | null = null;
 
   setToken(token: string | null) {
     this.token = token;
+  }
+
+  setPreRequestHook(hook: PreRequestHook | null) {
+    this.preRequestHook = hook;
+  }
+
+  setRefreshHandler(handler: RefreshHandler | null) {
+    this.refreshHandler = handler;
+  }
+
+  setLogoutHandler(handler: LogoutHandler | null) {
+    this.logoutHandler = handler;
   }
 
   authorizationHeaders(): Record<string, string> {
@@ -28,7 +48,25 @@ class ApiClient {
     return response.text();
   }
 
-  private async request(path: string, options: RequestOptions = {}): Promise<Response> {
+  private async runPreRequestHook() {
+    if (!this.preRequestHook) return;
+    try {
+      await this.preRequestHook();
+    } catch {
+      // Pre-request hook failures must not block the request; the request will
+      // either succeed with the existing token or take the 401 refresh path.
+    }
+  }
+
+  private async request(
+    path: string,
+    options: RequestOptions = {},
+    isRetry = false,
+  ): Promise<Response> {
+    if (!options.skipAuthHooks && !isRetry) {
+      await this.runPreRequestHook();
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -59,16 +97,24 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      const raw = error?.error ?? error?.message;
-      let message: string;
-      if (typeof raw === 'string') {
-        message = raw;
-      } else if (raw && typeof raw === 'object' && typeof raw.message === 'string') {
-        message = raw.message;
-      } else {
-        message = response.statusText || 'Unknown error';
+
+      if (
+        response.status === 401 &&
+        !options.skipAuthHooks &&
+        !isRetry &&
+        this.refreshHandler &&
+        isTokenExpired(error)
+      ) {
+        const refreshed = await this.refreshHandler();
+        if (refreshed === null) {
+          this.logoutHandler?.();
+          throw new ApiError(response.status, extractMessage(error, response));
+        }
+        this.token = refreshed;
+        return this.request(path, options, true);
       }
-      throw new ApiError(response.status, message);
+
+      throw new ApiError(response.status, extractMessage(error, response));
     }
 
     return response;
@@ -118,6 +164,28 @@ export class ApiUnavailableError extends ApiError {
       (this as { cause?: unknown }).cause = options.cause;
     }
   }
+}
+
+function isTokenExpired(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const envelope = error as { code?: unknown; error?: unknown };
+  if (envelope.code === 'token_expired') return true;
+  if (envelope.error && typeof envelope.error === 'object') {
+    const nested = envelope.error as { code?: unknown };
+    if (nested.code === 'token_expired') return true;
+  }
+  return false;
+}
+
+function extractMessage(error: unknown, response: Response): string {
+  if (!error || typeof error !== 'object') return response.statusText || 'Unknown error';
+  const envelope = error as { error?: unknown; message?: unknown };
+  const raw = envelope.error ?? envelope.message;
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof raw === 'object' && typeof (raw as { message?: unknown }).message === 'string') {
+    return (raw as { message: string }).message;
+  }
+  return response.statusText || 'Unknown error';
 }
 
 function extractService(path: string): string {
