@@ -11,4 +11,4 @@
 # observability work (T17). See docs/observability/index.md.
 
 include:
-  - path: infra/docker-compose.yml
+  - path: infra/compose/docker-compose.yml
