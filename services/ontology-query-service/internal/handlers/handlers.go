@@ -7,6 +7,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -90,7 +91,8 @@ func (h *Handlers) GetObject(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusForbidden, "marking access denied")
 		return
 	}
-	writeJSON(w, http.StatusOK, obj)
+	masked := ApplyPropertyMask(*obj, h.propertyMarkingsFor(r.Context(), obj.TypeID, consistency), claims)
+	writeJSON(w, http.StatusOK, masked)
 }
 
 func (h *Handlers) ListObjectsByType(w http.ResponseWriter, r *http.Request) {
@@ -130,10 +132,11 @@ func (h *Handlers) ListObjectsByType(w http.ResponseWriter, r *http.Request) {
 		repoErrorToResponse(w, err)
 		return
 	}
+	schema := h.propertyMarkingsFor(r.Context(), repos.TypeId(typeID), consistency)
 	items := make([]repos.Object, 0, len(res.Items))
 	for _, obj := range res.Items {
 		if canReadMarkings(claims, obj.Markings) {
-			items = append(items, obj)
+			items = append(items, ApplyPropertyMask(obj, schema, claims))
 		}
 	}
 	writeJSON(w, http.StatusOK, ListResponse[repos.Object]{Items: items, NextToken: res.NextToken})
@@ -216,6 +219,23 @@ func canReadTenant(claims *authmw.Claims, tenant string) bool {
 		return true
 	}
 	return claims.OrgID.String() == tenant
+}
+
+// propertyMarkingsFor returns the per-property marking requirements
+// for `typeID`'s latest schema, or nil when the SchemaStore is not
+// wired or the lookup fails. Schema lookup errors are deliberately
+// swallowed: callers still get the object, just without per-property
+// redaction, which preserves the previous behaviour for backends that
+// have not yet populated marking metadata.
+func (h *Handlers) propertyMarkingsFor(ctx context.Context, typeID repos.TypeId, consistency repos.ReadConsistency) []PropertyMarkings {
+	if h.state.Schemas == nil {
+		return nil
+	}
+	schema, err := h.state.Schemas.GetLatest(ctx, typeID, consistency)
+	if err != nil || schema == nil {
+		return nil
+	}
+	return PropertyMarkingsFromSchema(schema.JsonSchema)
 }
 
 func canReadMarkings(claims *authmw.Claims, markings []repos.MarkingId) bool {
