@@ -34,6 +34,7 @@ const (
 	CodeScopedSessionPathDenied   = "scoped_session_path_denied"
 	CodeUpstreamUnavailable       = "upstream_unavailable"
 	CodeProxyResponseBuildFailed  = "proxy_response_build_failed"
+	CodeServiceNotImplemented     = "service_not_implemented"
 )
 
 // Write serialises the envelope and emits status + JSON to w.
