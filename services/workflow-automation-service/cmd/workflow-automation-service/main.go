@@ -40,6 +40,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/repo"
+	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/scheduler"
 	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/workflow-automation-service/internal/state"
 
@@ -126,6 +127,31 @@ func main() {
 
 	// ── Background consumer best-effort boots ─────────────────────────
 	var wg sync.WaitGroup
+
+	// Cron-driven workflow scheduler — gated by OF_WORKFLOW_SCHEDULER_ENABLED
+	// so multi-replica rollouts can elect a single scheduler pod via env
+	// without code changes. Always uses the same transactional dispatch
+	// path manual / webhook triggers take.
+	if os.Getenv("OF_WORKFLOW_SCHEDULER_ENABLED") == "true" {
+		sched := scheduler.New(
+			pool,
+			scheduler.RealClock{},
+			func(ctx context.Context, id uuid.UUID) (*models.WorkflowDefinition, error) {
+				return handlers.LoadWorkflow(ctx, pool, id)
+			},
+			func(ctx context.Context, workflow *models.WorkflowDefinition) (*models.WorkflowRun, error) {
+				return handlers.DispatchRun(ctx, appState, workflow, "schedule", nil, nil)
+			},
+			log,
+		)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sched.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("workflow scheduler stopped", slog.String("error", err.Error()))
+			}
+		}()
+	}
 
 	// Legacy NATS consumer for `of.workflows.run.requested`.
 	if cfg.NATSURL != "" {
