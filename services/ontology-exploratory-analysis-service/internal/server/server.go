@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
@@ -23,8 +24,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ontology-exploratory-analysis-service/internal/handlers/geospatial"
 )
 
-func New(cfg *config.Config, m *observability.Metrics, geo *geospatial.AppState, probes ...capabilities.DependencyProbe) *http.Server {
-	r := buildRouter(cfg, m, nil, geo, probes...)
+func New(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, geo *geospatial.AppState, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, jwt, m, nil, geo, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -36,8 +37,8 @@ func New(cfg *config.Config, m *observability.Metrics, geo *geospatial.AppState,
 // BuildRouter returns the substrate-only router (only /health,
 // /readiness, /healthz, /metrics). Mirrors the Rust binary's
 // substrate-only surface.
-func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, m, nil, nil, probes...)
+func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, m, nil, nil, probes...)
 }
 
 // BuildRouterWithHandlers returns a router with the saved-view /
@@ -45,18 +46,18 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 // probes. Callers thread an OEA Handlers value when they want the
 // Rust-equivalent CRUD surface live; the binary main passes nil to
 // preserve the substrate-only contract documented in src/main.rs.
-func BuildRouterWithHandlers(cfg *config.Config, m *observability.Metrics, h *handlers.Handlers, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, m, h, nil, probes...)
+func BuildRouterWithHandlers(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, h *handlers.Handlers, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, m, h, nil, probes...)
 }
 
 // BuildRouterWithGeospatial returns a router with the productive geospatial
 // surface mounted alongside substrate probes. Tests use this constructor to
 // smoke the normal binary route set without opening a real listener.
-func BuildRouterWithGeospatial(cfg *config.Config, m *observability.Metrics, geo *geospatial.AppState, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, m, nil, geo, probes...)
+func BuildRouterWithGeospatial(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, geo *geospatial.AppState, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, m, nil, geo, probes...)
 }
 
-func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handlers, geo *geospatial.AppState, probes ...capabilities.DependencyProbe) chi.Router {
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, m *observability.Metrics, h *handlers.Handlers, geo *geospatial.AppState, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(15 * time.Second))
@@ -66,7 +67,9 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handl
 		_ = json.NewEncoder(w).Encode(health.OK(cfg.Service.Name, cfg.Service.Version))
 	}
 	// /health + /readiness preserve the Rust route names verbatim;
-	// /healthz is the openfoundry-go convention probe.
+	// /healthz is the openfoundry-go convention probe. These remain
+	// public alongside /metrics so liveness/readiness probes and the
+	// Prometheus scrape do not need a bearer token.
 	r.Get("/health", healthHandler)
 	r.Get("/readiness", healthHandler)
 	r.Get("/healthz", healthHandler)
@@ -81,16 +84,27 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, h *handlers.Handl
 	}
 	caps.Mount(r)
 
-	if h != nil {
-		h.MountViews(r)
-		h.MountMaps(r)
-		if h.Actions != nil {
-			h.MountWriteback(r)
+	// All productive HTTP surface is mounted under /api/v1 and
+	// requires a valid Bearer token. Substrate probes above are mounted
+	// outside this group on purpose. We use chi.Group (not Route) so
+	// the existing MountViews/MountMaps/MountWriteback handlers — which
+	// register absolute paths — keep their wire-compatible URLs while
+	// inheriting the auth middleware.
+	r.Group(func(api chi.Router) {
+		if jwt != nil {
+			api.Use(authmw.Middleware(jwt))
 		}
-	}
-	if geo != nil {
-		r.Mount("/api/v1/geospatial", geo.Routes())
-	}
+		if h != nil {
+			h.MountViews(api)
+			h.MountMaps(api)
+			if h.Actions != nil {
+				h.MountWriteback(api)
+			}
+		}
+		if geo != nil {
+			api.Mount("/api/v1/geospatial", geo.Routes())
+		}
+	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "ontology-eda",

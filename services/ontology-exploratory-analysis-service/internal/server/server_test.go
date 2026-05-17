@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	kernelStores "github.com/openfoundry/openfoundry-go/libs/ontology-kernel/stores"
 	storageabstraction "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
@@ -24,12 +25,34 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/ontology-exploratory-analysis-service/internal/models"
 )
 
+const testJWTSecret = "ontology-exploratory-analysis-router-test-secret"
+
+func testJWTConfig() *authmw.JWTConfig {
+	return authmw.NewJWTConfig(testJWTSecret)
+}
+
+func issueTestToken(t *testing.T, jwt *authmw.JWTConfig) string {
+	t.Helper()
+	now := time.Now()
+	tok, err := authmw.EncodeToken(jwt, &authmw.Claims{
+		Sub:   uuid.New(),
+		IAT:   now.Unix(),
+		EXP:   now.Add(time.Hour).Unix(),
+		JTI:   uuid.New(),
+		Email: "ontology-eda-test@example.com",
+		Name:  "OEA Test",
+		Roles: []string{"admin"},
+	})
+	require.NoError(t, err)
+	return tok
+}
+
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	cfg := &config.Config{}
 	cfg.Service.Name = "ontology-exploratory-analysis-service"
 	cfg.Service.Version = "test"
-	return httptest.NewServer(BuildRouter(cfg, observability.NewMetrics()))
+	return httptest.NewServer(BuildRouter(cfg, testJWTConfig(), observability.NewMetrics()))
 }
 
 func TestSubstrateProbesAreMounted(t *testing.T) {
@@ -91,24 +114,41 @@ func TestDomainHandlersMountedWhenWired(t *testing.T) {
 		Tenant:      storageabstraction.TenantId("tenant-a"),
 		Subject:     "analyst-1",
 	}
-	srv := httptest.NewServer(BuildRouterWithHandlers(cfg, observability.NewMetrics(), h))
+	jwt := testJWTConfig()
+	srv := httptest.NewServer(BuildRouterWithHandlers(cfg, jwt, observability.NewMetrics(), h))
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Get(srv.URL + "/api/v1/views")
+	tok := issueTestToken(t, jwt)
+	authedGet := func(path string) (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		return http.DefaultClient.Do(req)
+	}
+
+	resp, err := authedGet("/api/v1/views")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	resp, err = http.Get(srv.URL + "/api/v1/maps")
+	resp, err = authedGet("/api/v1/maps")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Substrate probe still works.
+	// Substrate probe still works without a token.
 	resp, err = http.Get(srv.URL + "/health")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// And the same path without a bearer token is rejected by authmw.
+	resp, err = http.Get(srv.URL + "/api/v1/views")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestGeospatialHandlersMountedWhenWired(t *testing.T) {
@@ -120,11 +160,31 @@ func TestGeospatialHandlersMountedWhenWired(t *testing.T) {
 	cfg.Service.Name = "ontology-exploratory-analysis-service"
 	cfg.Service.Version = "test"
 	layerID := uuid.New()
-	srv := httptest.NewServer(BuildRouterWithGeospatial(cfg, observability.NewMetrics(), &geospatial.AppState{DB: mock}))
+	jwt := testJWTConfig()
+	srv := httptest.NewServer(BuildRouterWithGeospatial(cfg, jwt, observability.NewMetrics(), &geospatial.AppState{DB: mock}))
 	t.Cleanup(srv.Close)
 
+	tok := issueTestToken(t, jwt)
+	authedGet := func(path string) (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		return http.DefaultClient.Do(req)
+	}
+	authedPost := func(path, contentType string, body []byte) (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodPost, srv.URL+path, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", contentType)
+		return http.DefaultClient.Do(req)
+	}
+
 	addLayerListExpectation(t, mock, layerID)
-	resp, err := http.Get(srv.URL + "/api/v1/geospatial/overview")
+	resp, err := authedGet("/api/v1/geospatial/overview")
 	require.NoError(t, err)
 	var overview models.GeospatialOverview
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&overview))
@@ -134,7 +194,7 @@ func TestGeospatialHandlersMountedWhenWired(t *testing.T) {
 	assert.Equal(t, 2, overview.TotalFeatures)
 
 	addLayerListExpectation(t, mock, layerID)
-	resp, err = http.Get(srv.URL + "/api/v1/geospatial/layers")
+	resp, err = authedGet("/api/v1/geospatial/layers")
 	require.NoError(t, err)
 	var layers models.ListResponse[models.LayerDefinition]
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&layers))
@@ -149,7 +209,7 @@ func TestGeospatialHandlersMountedWhenWired(t *testing.T) {
 		"operation":"within",
 		"bounds":{"min_lat":39.9,"min_lon":-105.4,"max_lat":40.2,"max_lon":-105.1}
 	}`)
-	resp, err = http.Post(srv.URL+"/api/v1/geospatial/query", "application/json", bytes.NewReader(queryBody))
+	resp, err = authedPost("/api/v1/geospatial/query", "application/json", queryBody)
 	require.NoError(t, err)
 	var query models.SpatialQueryResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&query))
@@ -159,7 +219,7 @@ func TestGeospatialHandlersMountedWhenWired(t *testing.T) {
 
 	addLayerListExpectation(t, mock, layerID)
 	clusterBody := []byte(`{"layer_id":"` + layerID.String() + `","algorithm":"kmeans","cluster_count":1}`)
-	resp, err = http.Post(srv.URL+"/api/v1/geospatial/clusters", "application/json", bytes.NewReader(clusterBody))
+	resp, err = authedPost("/api/v1/geospatial/clusters", "application/json", clusterBody)
 	require.NoError(t, err)
 	var clusters models.ClusterResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&clusters))
@@ -168,6 +228,12 @@ func TestGeospatialHandlersMountedWhenWired(t *testing.T) {
 	require.Len(t, clusters.Clusters, 1)
 
 	require.NoError(t, mock.ExpectationsWereMet())
+
+	// Without a token the same geospatial routes return 401.
+	resp, err = http.Get(srv.URL + "/api/v1/geospatial/overview")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestRouteSmokeMountsNormalBinaryGeospatialRoutes(t *testing.T) {
@@ -175,7 +241,7 @@ func TestRouteSmokeMountsNormalBinaryGeospatialRoutes(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Service.Name = "ontology-exploratory-analysis-service"
 	cfg.Service.Version = "test"
-	srv := New(cfg, nil, &geospatial.AppState{})
+	srv := New(cfg, testJWTConfig(), nil, &geospatial.AppState{})
 
 	assertServerRoutesMounted(t, srv.Handler, []serverRouteSmokeCase{
 		{http.MethodGet, "/api/v1/geospatial/overview"},

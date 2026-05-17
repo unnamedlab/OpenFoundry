@@ -30,6 +30,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/ontology-exploratory-analysis-service/internal/config"
@@ -73,8 +74,9 @@ func main() {
 	}
 
 	metrics := observability.NewMetrics()
+	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	geo := &geospatial.AppState{DB: pool}
-	srv := server.New(cfg, metrics, geo, probes.Postgres("primary", pool))
+	srv := server.New(cfg, jwt, metrics, geo, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
