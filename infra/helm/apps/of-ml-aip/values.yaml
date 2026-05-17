@@ -166,6 +166,21 @@ services:
         cpu: "1"
         memory: 1Gi
 
+  # Stub binary backing /api/v1/ai/knowledge-bases — exists so the
+  # gateway routes return a structured 501 instead of a 502.
+  knowledge-index-service:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: "200m"
+        memory: 256Mi
+
   ai-evaluation-service:
     replicas: 2
     ports:

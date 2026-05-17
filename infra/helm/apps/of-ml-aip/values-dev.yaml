@@ -87,3 +87,5 @@ services:
       DATABASE_READ_URL:
         secretName: retrieval-context-db-dsn
         key: reader_url
+  knowledge-index-service:
+    replicas: 1
