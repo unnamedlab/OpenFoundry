@@ -22,6 +22,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/kafka"
+	s3adapter "github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/s3"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/repo"
@@ -88,6 +89,7 @@ func main() {
 	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
 	adapterRegistry := adapters.NewRegistry()
 	adapterRegistry.MustRegister("kafka", kafka.Factory())
+	adapterRegistry.MustRegister(s3adapter.ConnectorType, s3adapter.Factory())
 
 	h := &handlers.Handlers{
 		Repo:            store,

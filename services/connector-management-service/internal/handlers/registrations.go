@@ -691,6 +691,55 @@ func (h *Handlers) TestConnection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": result.Success, "message": result.Message, "latency_ms": latency, "details": result.Details})
 }
 
+// TestConnectorDriver mirrors [Handlers.TestConnection] but answers with a
+// stricter HTTP semantics: 200 when the adapter reports a live connection,
+// 503 when the active driver reports an error (HeadBucket failed, the
+// connector type does not expose a driver, …). This is the surface the
+// `POST /api/v1/connectors/{id}:test` route is mounted at and complements
+// the legacy `POST /api/v1/connections/{id}/test` route which always
+// returns 200 with `success:false` regardless of outcome.
+func (h *Handlers) TestConnectorDriver(w http.ResponseWriter, r *http.Request) {
+	id, _, err := routeUUIDParam(r, "id", "source_id")
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	c, actorID, ok := h.sourceForRoleClaims(w, r, id, models.SourceRoleUse)
+	if !ok {
+		return
+	}
+	result := adapters.ConnectionTestResult{
+		Success: false,
+		Message: fmt.Sprintf("driver not registered for connector type: %s", c.ConnectorType),
+	}
+	if h.AdapterRegistry != nil {
+		if adapter, err := h.AdapterRegistry.Lookup(c.ConnectorType); err != nil {
+			result.Message = err.Error()
+		} else if tester, ok := adapter.(connectionTestAdapter); ok {
+			if tested, err := tester.TestConnection(r.Context(), c.Config); err != nil {
+				result.Message = err.Error()
+			} else {
+				result = tested
+			}
+		} else {
+			result.Message = fmt.Sprintf("test_connection is not supported for connector type: %s", c.ConnectorType)
+		}
+	}
+	status := "error"
+	httpStatus := http.StatusServiceUnavailable
+	if result.Success {
+		status = "connected"
+		httpStatus = http.StatusOK
+	}
+	_, _ = h.Repo.UpdateConnection(r.Context(), id, &models.UpdateConnectionRequest{Status: &status})
+	var latency any
+	if result.Success || result.LatencyMS != 0 {
+		latency = result.LatencyMS
+	}
+	h.recordSourceUseAudit(r.Context(), id, actorID, "connection_tested", "connection_test", "", models.SourceRIDForConnection(id), "Tested external source driver", map[string]any{"success": result.Success, "status": status})
+	writeJSON(w, httpStatus, map[string]any{"success": result.Success, "message": result.Message, "latency_ms": latency, "details": result.Details})
+}
+
 type webhookHistoryAppender interface {
 	AppendWebhookHistory(ctx context.Context, body *models.CreateWebhookHistoryEntry) (*models.WebhookHistoryEntry, error)
 }

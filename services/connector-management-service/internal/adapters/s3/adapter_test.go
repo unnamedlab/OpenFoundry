@@ -8,8 +8,62 @@ import (
 	"testing"
 
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters"
+	s3driver "github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/drivers/s3"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
 )
+
+type fakeDriver struct {
+	err error
+}
+
+func (f *fakeDriver) Connect(_ context.Context) error { return f.err }
+
+func TestAdapter_TestConnection_Success(t *testing.T) {
+	t.Parallel()
+	a := New()
+	a.SetDriverFactory(func(_ context.Context, _ s3driver.Config) (driver, error) {
+		return &fakeDriver{}, nil
+	})
+	res, err := a.TestConnection(context.Background(), json.RawMessage(`{"bucket":"b"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got %+v", res)
+	}
+	if !strings.Contains(res.Message, "reachable") {
+		t.Fatalf("unexpected message: %q", res.Message)
+	}
+}
+
+func TestAdapter_TestConnection_FailurePropagates(t *testing.T) {
+	t.Parallel()
+	a := New()
+	a.SetDriverFactory(func(_ context.Context, _ s3driver.Config) (driver, error) {
+		return &fakeDriver{err: errors.New("boom")}, nil
+	})
+	res, err := a.TestConnection(context.Background(), json.RawMessage(`{"bucket":"b"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected Success=false, got %+v", res)
+	}
+	if !strings.Contains(res.Message, "boom") {
+		t.Fatalf("unexpected message: %q", res.Message)
+	}
+}
+
+func TestAdapter_TestConnection_RejectsInvalidConfig(t *testing.T) {
+	t.Parallel()
+	res, err := New().TestConnection(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected Success=false for empty config")
+	}
+}
 
 func TestValidateConfigRejectsMissingIdentity(t *testing.T) {
 	t.Parallel()
