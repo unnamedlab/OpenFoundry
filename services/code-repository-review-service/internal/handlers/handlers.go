@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/outbox"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/codesecurity"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/models"
@@ -48,6 +49,16 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg})
 }
 
+// requestActor prefers the authenticated subject from claims, falling
+// back to the service-level actor when the route allows anonymous
+// access (e.g. internal tests that bypass middleware).
+func (h *Handlers) requestActor(r *http.Request) string {
+	if claims, ok := authmw.FromContext(r.Context()); ok {
+		return claims.Sub.String()
+	}
+	return h.Actor
+}
+
 // --- handlers -----------------------------------------------------------
 
 func (h *Handlers) ListGlobalBranches(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +80,8 @@ func (h *Handlers) CreateGlobalBranch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	branch, err := h.Repo.CreateBranch(r.Context(), body, h.Actor)
+	actor := h.requestActor(r)
+	branch, err := h.Repo.CreateBranch(r.Context(), body, actor)
 	if err != nil {
 		if repo.IsUniqueViolation(err) {
 			writeJSON(w, http.StatusConflict, map[string]any{
@@ -82,7 +94,7 @@ func (h *Handlers) CreateGlobalBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("audit", slog.String("action", "global_branch.created"),
-		slog.String("actor", h.Actor), slog.String("target", branch.RID),
+		slog.String("actor", actor), slog.String("target", branch.RID),
 		slog.String("name", branch.Name))
 	writeJSON(w, http.StatusCreated, branch)
 }
@@ -143,7 +155,7 @@ func (h *Handlers) AddLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("audit", slog.String("action", "global_branch.link.added"),
-		slog.String("actor", h.Actor), slog.String("target", id.String()),
+		slog.String("actor", h.requestActor(r)), slog.String("target", id.String()),
 		slog.String("resource_type", body.ResourceType),
 		slog.String("resource_rid", body.ResourceRID),
 		slog.String("branch_rid", body.BranchRID))
@@ -180,8 +192,9 @@ func (h *Handlers) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actor := h.requestActor(r)
 	eventID := uuid.New()
-	payload, err := buildPromotePayload(branch.ID, branch.Name, h.Actor)
+	payload, err := buildPromotePayload(branch.ID, branch.Name, actor)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -213,7 +226,7 @@ func (h *Handlers) Promote(w http.ResponseWriter, r *http.Request) {
 	committed = true
 
 	slog.Info("audit", slog.String("action", "global_branch.promote.requested"),
-		slog.String("actor", h.Actor), slog.String("target", branch.RID),
+		slog.String("actor", actor), slog.String("target", branch.RID),
 		slog.String("event_id", eventID.String()))
 
 	writeJSON(w, http.StatusOK, models.PromoteResponse{

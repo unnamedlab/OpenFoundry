@@ -13,15 +13,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/handlers"
 )
 
-func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
-	r := buildRouter(cfg, h, m, probes...)
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+	r := buildRouter(cfg, jwt, h, m, probes...)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	return &http.Server{
 		Addr:              addr,
@@ -31,11 +32,11 @@ func New(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, pro
 }
 
 // BuildRouter is exposed for tests so httptest can mount it.
-func BuildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
-	return buildRouter(cfg, h, m, probes...)
+func BuildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) http.Handler {
+	return buildRouter(cfg, jwt, h, m, probes...)
 }
 
-func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
+func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -62,20 +63,24 @@ func buildRouter(cfg *config.Config, h *handlers.Handlers, m *observability.Metr
 	}
 	caps.Mount(r)
 
-	r.Post("/v1/code-security/scans", h.CreateCodeSecurityScan)
+	r.Route("/v1", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
 
-	r.Route("/v1/global-branches", func(api chi.Router) {
-		api.Get("/", h.ListGlobalBranches)
-		api.Post("/", h.CreateGlobalBranch)
-		api.Get("/{id}", h.GetGlobalBranch)
-		api.Post("/{id}/links", h.AddLink)
-		api.Get("/{id}/resources", h.ListResources)
-		api.Post("/{id}/promote", h.Promote)
+		api.Post("/code-security/scans", h.CreateCodeSecurityScan)
+
+		api.Route("/global-branches", func(gb chi.Router) {
+			gb.Get("/", h.ListGlobalBranches)
+			gb.Post("/", h.CreateGlobalBranch)
+			gb.Get("/{id}", h.GetGlobalBranch)
+			gb.Post("/{id}/links", h.AddLink)
+			gb.Get("/{id}/resources", h.ListResources)
+			gb.Post("/{id}/promote", h.Promote)
+		})
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "code-review",
-		AuthPaths: []string{"/v1/global-branches"},
+		AuthPaths: []string{"/v1/global-branches", "/v1/code-security"},
 		Tags:      []string{"code"},
 	}); err != nil {
 		panic("code-repository-review-service: capability ingest failed: " + err.Error())
