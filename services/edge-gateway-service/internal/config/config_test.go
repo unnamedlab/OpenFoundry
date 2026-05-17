@@ -20,8 +20,16 @@ var knownUpstreamAliases = [][]string{
 	{"OntologyDefinition", "Ontology"},
 	{"ML", "ModelCatalog"},
 	{"AI", "AgentRuntime"},
-	{"AuditCompliance", "Audit"},
+	// ADR-0030: CheckpointsPurpose is served by audit-compliance-service
+	// alongside the Audit alias of the same surface.
+	{"AuditCompliance", "Audit", "CheckpointsPurpose"},
 	{"AuthorizationPolicy", "SecurityGovernance"},
+	// Known port-binding overlap: iceberg-catalog-service and
+	// application-composition-service both bind :50118 today (see each
+	// service's internal/config/config.go). Tracked here so this test
+	// keeps catching unintended collisions; untangling the two
+	// service-side defaults is a follow-up outside this gateway change.
+	{"IcebergCatalog", "ApplicationComposition"},
 }
 
 func aliasGroupOf(field string) int {

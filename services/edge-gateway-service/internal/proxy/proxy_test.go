@@ -218,14 +218,16 @@ func TestProxyZeroTrustScopeBlocksDisallowedMethod(t *testing.T) {
 
 	allowedPath := "/api/v1/datasets"
 	allowedMethod := "GET"
+	accessUse := "access"
 	c := &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   time.Now().Unix(),
-		EXP:   time.Now().Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "guest@example.com",
-		Name:  "Guest",
-		Roles: []string{"guest"},
+		Sub:      uuid.New(),
+		IAT:      time.Now().Unix(),
+		EXP:      time.Now().Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "guest@example.com",
+		Name:     "Guest",
+		Roles:    []string{"guest"},
+		TokenUse: &accessUse,
 		SessionScope: &authmw.SessionScope{
 			AllowedMethods:      []string{allowedMethod},
 			AllowedPathPrefixes: []string{allowedPath},
@@ -282,6 +284,7 @@ func TestProxyInjectsTenantHeaders(t *testing.T) {
 	defer gw.Close()
 
 	orgID := uuid.New()
+	accessUse := "access"
 	c := &authmw.Claims{
 		Sub:        uuid.New(),
 		IAT:        time.Now().Unix(),
@@ -290,6 +293,7 @@ func TestProxyInjectsTenantHeaders(t *testing.T) {
 		Email:      "user@example.com",
 		Roles:      []string{"member"},
 		OrgID:      &orgID,
+		TokenUse:   &accessUse,
 		Attributes: json.RawMessage(`{"tenant_tier":"team"}`),
 	}
 	tok, err := authmw.EncodeToken(jwt, c)
@@ -428,6 +432,7 @@ func TestHeaderRewriteOnValidJWT(t *testing.T) {
 
 	realSub := uuid.New()
 	realOrg := uuid.New()
+	accessUse := "access"
 	c := &authmw.Claims{
 		Sub:        realSub,
 		IAT:        time.Now().Unix(),
@@ -436,6 +441,7 @@ func TestHeaderRewriteOnValidJWT(t *testing.T) {
 		Email:      "real-user@example.com",
 		Roles:      []string{"member"},
 		OrgID:      &realOrg,
+		TokenUse:   &accessUse,
 		Attributes: json.RawMessage(`{"tenant_tier":"team"}`),
 	}
 	tok, err := authmw.EncodeToken(jwt, c)
