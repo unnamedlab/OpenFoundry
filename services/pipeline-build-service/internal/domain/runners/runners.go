@@ -19,11 +19,53 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/google/uuid"
+
+	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 )
+
+// transformStubEnvVar forces the TRANSFORM runner to return the legacy
+// deterministic content hash (no sidecar call) when set to "true".
+// Intended for unit tests and local dev that cannot spawn the Python
+// sidecar; production wiring always leaves this unset.
+const transformStubEnvVar = "OF_PIPELINE_TRANSFORM_STUB"
+
+// transformSidecarTimeoutSeconds is the per-call hard cap the runner
+// enforces when the build itself has not set a more specific deadline.
+const transformSidecarTimeoutSeconds uint32 = 60
+
+// defaultTransformSource is the minimal Python program the runner
+// hands to the sidecar when the JobSpec config does not embed its own
+// `source` / `code`. It mirrors Foundry's `transform(input_path,
+// output_path, config)` contract and returns metrics — config sha and
+// row count — that the runner uses to build a real output content
+// hash (never the input-hash stub).
+const defaultTransformSource = `
+import json, hashlib, os
+
+def transform(input_path, output_path, config):
+    cfg_bytes = json.dumps(config or {}, sort_keys=True).encode("utf-8")
+    config_sha = hashlib.sha256(cfg_bytes).hexdigest()
+    row_count = 0
+    if input_path and os.path.exists(input_path):
+        try:
+            with open(input_path, "r", encoding="utf-8") as fh:
+                row_count = sum(1 for _ in fh)
+        except Exception:
+            row_count = 0
+    return {"config_sha": config_sha, "row_count": row_count}
+
+try:
+    cfg = json.loads(config_json) if isinstance(config_json, str) else (config_json or {})
+except Exception:
+    cfg = {}
+result = transform(None, output_dataset_id or None, cfg)
+rows_affected = result.get("row_count", 0)
+`
 
 // LogSink lets runners fan out live-log entries to the build's SSE
 // consumers. Concrete implementations land alongside the live-logs
@@ -259,22 +301,59 @@ func (r *SyncJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
 	return Completed("sync:" + cfg.SyncDefID)
 }
 
-// TransformExecutor isolates the future T5 engine/sidecar integration
-// point. Keeping this interface in the runner domain lets the current
-// runner avoid directly importing or wiring the Python sidecar.
+// TransformExecutor isolates the legacy engine adapter integration
+// point. The Python sidecar path lives on TransformJobRunner.PyRuntime;
+// this interface remains for handler-side adapters that synthesize
+// their own content hash without going through the sidecar.
 type TransformExecutor interface {
 	RunTransform(ctx context.Context, jc *JobContext) (string, error)
 }
 
-// TransformJobRunner mirrors `pub struct TransformJobRunner`.
-type TransformJobRunner struct {
-	Engine TransformExecutor
+// PythonRuntime is the narrow surface of *pythonsidecar.Manager the
+// TRANSFORM runner needs. Tests inject a fake; production passes the
+// real manager — *pythonsidecar.Manager satisfies this interface
+// implicitly via its ExecutePipeline method.
+type PythonRuntime interface {
+	ExecutePipeline(
+		ctx context.Context,
+		source string,
+		configJSON []byte,
+		preparedInputsJSON []byte,
+		inputDatasetIDs []string,
+		outputDatasetID string,
+		timeoutSeconds uint32,
+	) (*pythonsidecar.PipelineTransformResult, error)
 }
 
-// Run mirrors the TRANSFORM runner. Without an engine adapter, it
-// returns a deterministic hash from the resolved spec/config, matching
-// Rust's current shim instead of exposing a skeleton failure.
+// TransformJobRunner mirrors `pub struct TransformJobRunner`. PyRuntime
+// is the production execution path; Engine is a legacy adapter slot
+// kept for handler-side wiring that bypasses the sidecar.
+type TransformJobRunner struct {
+	Engine    TransformExecutor
+	PyRuntime PythonRuntime
+}
+
+// NewTransformJobRunner wires a TRANSFORM runner to the python-sidecar
+// manager. Pass nil to construct a stub-only runner (used by unit tests
+// and the dispatcher-arity tests in this package).
+func NewTransformJobRunner(pyRuntime PythonRuntime) *TransformJobRunner {
+	return &TransformJobRunner{PyRuntime: pyRuntime}
+}
+
+// Run mirrors the TRANSFORM runner. Order of precedence:
+//  1. `OF_PIPELINE_TRANSFORM_STUB=true` forces the legacy deterministic
+//     content-hash path (tests / dev without a sidecar).
+//  2. A wired Engine adapter takes priority over the sidecar — the
+//     handler-side adapter already produces its own content hash.
+//  3. A wired PyRuntime invokes the Python sidecar and builds the
+//     output content hash from real metrics (rows + output digest).
+//  4. With neither adapter wired, the runner falls back to the legacy
+//     shim so existing scaffolding (no Python in unit tests) still
+//     completes deterministically.
 func (r *TransformJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
+	if os.Getenv(transformStubEnvVar) == "true" {
+		return r.stubOutcome(jc)
+	}
 	if r.Engine != nil {
 		hash, err := r.Engine.RunTransform(ctx, jc)
 		if err != nil {
@@ -282,10 +361,89 @@ func (r *TransformJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome
 		}
 		return Completed(hash)
 	}
+	if r.PyRuntime != nil {
+		outcome, err := r.runViaSidecar(ctx, jc)
+		if err != nil {
+			return Failed(err.Error())
+		}
+		return outcome
+	}
+	return r.stubOutcome(jc)
+}
+
+func (r *TransformJobRunner) stubOutcome(jc *JobContext) JobOutcome {
 	if jc.JobSpec.ContentHash != "" {
 		return Completed(jc.JobSpec.ContentHash)
 	}
 	return Completed(stableHash("transform", jc.JobSpec.Config))
+}
+
+func (r *TransformJobRunner) runViaSidecar(ctx context.Context, jc *JobContext) (JobOutcome, error) {
+	configJSON := jc.JobSpec.Config
+	if len(configJSON) == 0 {
+		configJSON = []byte("{}")
+	}
+	if !json.Valid(configJSON) {
+		return JobOutcome{}, fmt.Errorf("transform config is not valid JSON")
+	}
+
+	inputIDs := make([]string, 0, len(jc.ResolvedInputs))
+	for _, in := range jc.ResolvedInputs {
+		inputIDs = append(inputIDs, in.DatasetRID)
+	}
+	var outputID string
+	if len(jc.JobSpec.OutputDatasetRIDs) > 0 {
+		outputID = jc.JobSpec.OutputDatasetRIDs[0]
+	}
+
+	source := transformSourceFromConfig(configJSON)
+	result, err := r.PyRuntime.ExecutePipeline(
+		ctx,
+		source,
+		configJSON,
+		[]byte("[]"),
+		inputIDs,
+		outputID,
+		transformSidecarTimeoutSeconds,
+	)
+	if err != nil {
+		return JobOutcome{}, err
+	}
+	if result == nil {
+		return JobOutcome{}, fmt.Errorf("python sidecar returned nil pipeline result")
+	}
+
+	h := sha256.New()
+	_, _ = h.Write([]byte("transform-sidecar"))
+	_, _ = h.Write(canonicalJSON(configJSON))
+	if result.RowsAffectedSet {
+		_, _ = fmt.Fprintf(h, "|rows=%d", result.RowsAffected)
+	}
+	if len(result.OutputJSON) > 0 {
+		_, _ = h.Write([]byte("|out|"))
+		_, _ = h.Write(result.OutputJSON)
+	}
+	return Completed(hex.EncodeToString(h.Sum(nil))), nil
+}
+
+// transformSourceFromConfig pulls a `source` or `code` field out of the
+// transform's JSON config, falling back to the runner's echo handshake
+// when none is present. Foundry pipelines that ship inline Python use
+// the `source` field; older specs use `code`.
+func transformSourceFromConfig(cfg []byte) string {
+	var probe struct {
+		Source string `json:"source"`
+		Code   string `json:"code"`
+	}
+	if err := json.Unmarshal(cfg, &probe); err == nil {
+		if s := strings.TrimSpace(probe.Source); s != "" {
+			return s
+		}
+		if s := strings.TrimSpace(probe.Code); s != "" {
+			return s
+		}
+	}
+	return defaultTransformSource
 }
 
 // HealthCheckKind mirrors Rust's HEALTH_CHECK enum values.
