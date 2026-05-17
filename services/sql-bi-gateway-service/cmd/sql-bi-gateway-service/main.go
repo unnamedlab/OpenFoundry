@@ -19,9 +19,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -34,6 +36,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/flightsql"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/server"
+	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/wire"
 )
 
 var version = "dev"
@@ -79,8 +82,13 @@ func main() {
 	}, sqlProbes...)
 	flight := flightsql.New(cfg, log)
 
+	var pgWire *wire.Server
+	if cfg.PostgresWirePort != 0 {
+		pgWire = wire.New(net.JoinHostPort(cfg.Host, strconv.Itoa(int(cfg.PostgresWirePort))), log, nil)
+	}
+
 	var wg sync.WaitGroup
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 
 	wg.Add(2)
 	go func() {
@@ -96,6 +104,16 @@ func main() {
 			errCh <- err
 		}
 	}()
+	if pgWire != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Info("postgres wire listening", slog.Int("port", int(cfg.PostgresWirePort)))
+			if err := pgWire.Serve(ctx); err != nil && !errors.Is(err, net.ErrClosed) {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -108,6 +126,9 @@ func main() {
 	defer shutdownCancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
 	_ = flight.Stop()
+	if pgWire != nil {
+		_ = pgWire.Stop()
+	}
 	wg.Wait()
 }
 

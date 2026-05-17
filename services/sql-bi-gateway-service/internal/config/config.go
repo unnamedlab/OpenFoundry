@@ -24,6 +24,10 @@ type Config struct {
 	Port uint16
 	// HealthzPort is the HTTP side router port (health + saved queries).
 	HealthzPort uint16
+	// PostgresWirePort is the Postgres wire (v3) listener BI tools
+	// connect to when they prefer libpq over Arrow Flight SQL. Set to
+	// 0 to disable the listener.
+	PostgresWirePort uint16
 
 	DatabaseURL string
 	JWTSecret   string
@@ -46,6 +50,7 @@ func FromEnv() (*Config, error) {
 	c.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
 	c.Port = parseUint16(os.Getenv("PORT"), 50133)
 	c.HealthzPort = parseUint16(os.Getenv("HEALTHZ_PORT"), 50134)
+	c.PostgresWirePort = parseUint16(os.Getenv("POSTGRES_WIRE_PORT"), 5433)
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
 	c.JWTSecret = os.Getenv("JWT_SECRET")
 	c.WarehousingFlightSQLURL = os.Getenv("WAREHOUSING_FLIGHT_SQL_URL")
