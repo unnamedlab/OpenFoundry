@@ -13,8 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/retrieval-context-service/internal/config"
 )
@@ -52,9 +53,23 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 		caps.RegisterDependency(p)
 	}
 	caps.Mount(r)
+
+	// Protected route group. Real handlers wire alongside
+	// libs/ai-kernel-go/handlers in a follow-up slice; until then the
+	// group only carries an auth probe so the middleware chain is
+	// exercised end-to-end. Anything mounted under /api/v1 in the
+	// future inherits authmw enforcement by default.
+	jwt := authmw.NewJWTConfig(cfg.JWTSecret)
+	r.Route("/api/v1", func(api chi.Router) {
+		api.Use(authmw.Middleware(jwt))
+		api.Get("/_authz_probe", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "retrieval-context",
-		AuthPaths: nil,
+		AuthPaths: []string{"/api/v1"},
 		Tags:      []string{"ai"},
 	}); err != nil {
 		panic("retrieval-context-service: capability ingest failed: " + err.Error())
