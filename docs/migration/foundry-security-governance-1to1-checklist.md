@@ -524,17 +524,26 @@ OpenFoundry canonical IDs.
     - [`scoped_sessions.go`](../../services/identity-federation-service/internal/handlers/scoped_sessions.go) exposes authenticated options/select endpoints. It computes full marking membership from stored user attributes, filters presets by required markings, limits bypass to configured groups/admin roles, and issues scoped JWTs whose refresh tokens retain `session_scope`.
     - [`ScopedSessionsPage.tsx`](../../apps/web/src/routes/control-panel/ScopedSessionsPage.tsx) adds the Control Panel editor, while [`ScopedSessionBanner.tsx`](../../apps/web/src/lib/components/ScopedSessionBanner.tsx) shows the active session and switches sessions with a workspace reload.
 
-- [ ] `SG.25` Scoped session enforcement (`P1`, `todo`)
+- [x] `SG.25` Scoped session enforcement (`P1`, `done` 2026-05-17)
   - Apply scoped session marking subset across filesystem, Ontology, analytics, API, and application requests.
   - Ensure users with no scoped session see their full marking set only if organization policy allows bypass.
   - Prevent cross-pollination by blocking access to resources outside the active scope even when the user normally has the required marking membership.
   - Docs: [Configure scoped sessions](https://www.palantir.com/docs/foundry/administration/configure-scoped-sessions/), [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+  - Implementation notes:
+    - [`Claims.AllowedMarkings`](../../libs/auth-middleware/claims.go) is now the canonical effective marking set for downstream services: an active `session_scope.allowed_markings` subset wins over stored membership, classification clearance, and admin role widening; no active scope falls back to the normal full-clearance cascade.
+    - Cedar principal hydration, object/media Cedar gates, Ontology object access, Ontology Query masks, restricted-view/ABAC marking checks, Iceberg/catalog marking guards, and the edge gateway forwarded `x-openfoundry-allowed-markings` header now consume the effective active set instead of reading raw session scope ad hoc.
+    - [`CheckResourceAccess`](../../services/authorization-policy-service/internal/repo/marking_enforcement.go) reports scoped-session requirements separately from marking membership, including per-marking `membership_satisfied`, `scoped_session_satisfied`, and source-aware resource-vs-lineage data requirements.
+    - [`scoped_sessions.go`](../../services/identity-federation-service/internal/handlers/scoped_sessions.go) issues an explicit full-marking session scope for the no-scoped-session option only after the organization bypass policy permits it, so refresh and downstream data planes do not infer bypass from an absent scope.
 
-- [ ] `SG.26` Project templates (`P1`, `todo`)
+- [x] `SG.26` Project templates (`P1`, `done` 2026-05-17)
   - Create project templates with default role grants, generated owner/editor/viewer groups, default role, markings, folder structure, point of contact, and constraints.
   - Validate template users have permissions to create groups, apply markings, and set project defaults before execution.
   - Support governance frameworks by making secure project setup repeatable and auditable.
   - Docs: [Manage Project templates](https://www.palantir.com/docs/foundry/platform-security-management/manage-project-templates), [Projects and roles](https://www.palantir.com/docs/foundry/security/projects-and-roles).
+  - Implementation notes:
+    - [`0016_sg26_project_templates.sql`](../../services/tenancy-organizations-service/internal/repo/migrations/0016_sg26_project_templates.sql) adds durable project templates plus immutable template-application audit rows for variables, generated groups, markings, constraints, validation checks, actor, and created project.
+    - [`projects_sg26.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg26.go) exposes template list/create/get APIs, applies templates during `POST /projects`, creates template folder skeletons, binds generated viewer/editor/owner groups to project roles, records request-form metadata for those groups, applies project marking requirements into `marking_rids`/required markings, and blocks deployment when the caller lacks group, marking, constraint, or project-default permissions.
+    - [`CreateProjectModal.tsx`](../../apps/web/src/lib/components/projects/CreateProjectModal.tsx) now sends `template_key` and default role from the template picker, and surfaces template security contents before project creation.
 
 - [ ] `SG.27` Application access controls (`P1`, `todo`)
   - Configure organization-level platform/application visibility by user or group allow/block rules and lifecycle stage.

@@ -163,7 +163,10 @@ lineage, or from a mixed path. `POST /api/v1/resource-access:check`
 combines this effective marking set with caller-supplied organization
 and role evidence. Resource access requires organization, role, and all
 direct/hierarchy markings; data access additionally requires all
-lineage-derived markings.
+lineage-derived markings. The check also evaluates the caller's active
+scoped-session marking subset separately from membership, so a result
+can explain "member but outside current scope" without confusing it
+with missing marking access.
 
 SG.15 is the publish-time primitive that build/runtime services should
 call before committing derived resources. The publish request is generic

@@ -37,7 +37,8 @@ type PropertyMarkings struct {
 // The function is a no-op when:
 //   - the schema list is empty
 //   - claims is nil
-//   - the caller has the admin role, ontology:read_all, or rows:all
+//   - the caller has the admin role, ontology:read_all, or rows:all and no
+//     active scoped-session marking subset
 //   - the payload is not a JSON object (e.g., null / array / scalar)
 //
 // Properties whose RequiredMarkings slice is empty are always kept.
@@ -45,15 +46,9 @@ func ApplyPropertyMask(obj repos.Object, schema []PropertyMarkings, claims *auth
 	if claims == nil || len(schema) == 0 || len(obj.Payload) == 0 {
 		return obj
 	}
-	if claims.HasRole("admin") || claims.HasPermissionKey("rows:all") || claims.HasPermissionKey("ontology:read_all") {
+	if !claims.HasActiveMarkingScope() &&
+		(claims.HasRole("admin") || claims.HasPermissionKey("rows:all") || claims.HasPermissionKey("ontology:read_all")) {
 		return obj
-	}
-
-	allowed := map[string]struct{}{}
-	if claims.SessionScope != nil {
-		for _, m := range claims.SessionScope.AllowedMarkings {
-			allowed[m] = struct{}{}
-		}
 	}
 
 	var payload map[string]json.RawMessage
@@ -69,7 +64,7 @@ func ApplyPropertyMask(obj repos.Object, schema []PropertyMarkings, claims *auth
 		if _, present := payload[prop.Name]; !present {
 			continue
 		}
-		if hasAllMarkings(prop.RequiredMarkings, allowed) {
+		if claims.AllowsAllMarkings(prop.RequiredMarkings) {
 			continue
 		}
 		delete(payload, prop.Name)
@@ -91,15 +86,6 @@ func ApplyPropertyMask(obj repos.Object, schema []PropertyMarkings, claims *auth
 		out.Payload = newPayload
 	}
 	return out
-}
-
-func hasAllMarkings(required []string, allowed map[string]struct{}) bool {
-	for _, r := range required {
-		if _, ok := allowed[r]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 // PropertyMarkingsFromSchema extracts per-property marking

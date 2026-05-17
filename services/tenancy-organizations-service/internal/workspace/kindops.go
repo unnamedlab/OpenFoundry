@@ -97,6 +97,9 @@ func init() {
 	registerTrashHandler(ResourceOntologyProject, sqlKindHandler{
 		restoreSQL: `UPDATE ontology_projects
 		    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
+		        purge_after = NULL,
+		        original_project_id = NULL,
+		        original_parent_folder_id = NULL,
 		        updated_at = NOW()
 		  WHERE id = $1 AND is_deleted = TRUE`,
 		purgeSQL: `DELETE FROM ontology_projects WHERE id = $1 AND is_deleted = TRUE`,
@@ -104,13 +107,19 @@ func init() {
 	registerTrashHandler(ResourceOntologyFolder, sqlKindHandler{
 		restoreSQL: `UPDATE ontology_project_folders
 		    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
+		        purge_after = NULL,
+		        original_project_id = NULL,
+		        original_parent_folder_id = NULL,
 		        updated_at = NOW()
 		  WHERE id = $1 AND is_deleted = TRUE`,
 		purgeSQL: `DELETE FROM ontology_project_folders WHERE id = $1 AND is_deleted = TRUE`,
 	})
 	registerTrashHandler(ResourceOntologyResourceBinding, sqlKindHandler{
 		restoreSQL: `UPDATE ontology_project_resources
-		    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
+		    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
+		        purge_after = NULL,
+		        original_project_id = NULL,
+		        original_parent_folder_id = NULL
 		  WHERE resource_id = $1 AND is_deleted = TRUE`,
 		purgeSQL: `DELETE FROM ontology_project_resources WHERE resource_id = $1 AND is_deleted = TRUE`,
 	})

@@ -130,6 +130,12 @@ Projects are the **primary collaborative security boundary**:
   instead of being approved inside OpenFoundry. Per-project access
   form settings live in `ontology_project_access_group_settings` and
   can hide sensitive groups from the request form.
+- **Project templates** (SG.26) make secure setup repeatable: a
+  template can define default roles, point of contact, generated
+  viewer/editor/owner groups, folder skeleton, markings, project
+  constraints, and role grants. Deployment validates the caller's
+  extra group/marking/constraint/project-default permissions and writes
+  an immutable template-application audit row.
 - **Direct resource grants** at the project or folder scope live in
   `ontology_project_resource_grants` (SG.8). Folder grants inherit
   to every descendant folder and resource; ontology-resource-level
@@ -285,9 +291,14 @@ set without changing the user's underlying marking memberships.
   a token refresh does not silently widen the active session.
 - The app shell shows the active scoped-session banner and refreshes the
   workspace after a permitted session change.
-- Enforcement for every data plane is tracked separately under
-  [checklist `SG.25`](../migration/foundry-security-governance-1to1-checklist.md);
-  the gateway already forwards active session-scope headers downstream.
+- The selected marking subset is now enforced through the shared claims
+  helpers, Cedar principal hydration, resource-access explanations,
+  Ontology/object/media gates, restricted-view/ABAC checks, and the edge
+  gateway's `x-openfoundry-allowed-markings` header.
+- The no-scoped-session choice emits an explicit full-marking scope only
+  after organization bypass policy allows it; an active scoped session
+  blocks resources outside the subset even when the user normally holds
+  the required marking.
 
 > Parity reference:
 > [Configure scoped sessions](https://www.palantir.com/docs/foundry/administration/configure-scoped-sessions/) ·

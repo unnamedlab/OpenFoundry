@@ -14,10 +14,9 @@ package workspace
 //   - POST   /api/v1/workspace/resources/{kind}/{id}/restore
 //   - DELETE /api/v1/workspace/resources/{kind}/{id}/purge
 //
-// Retention-TTL enforcement (the "only after TTL" rule from the
-// functional contract) is the responsibility of a separate scheduled
-// reaper job — the HTTP surface itself only refuses to purge rows that
-// are not currently trashed (`is_deleted = TRUE` guard in the DELETE).
+// Soft-delete records the retention window and purge_after timestamp.
+// A later reaper can hard-delete expired rows; the interactive purge
+// endpoint remains explicit and guarded by `is_deleted = TRUE`.
 
 import (
 	"context"
@@ -42,18 +41,39 @@ import (
 // `DeletedBy` is nullable to mirror legacy rows whose deleter id was
 // never recorded (Rust column is `deleted_by UUID NULL`).
 type TrashEntry struct {
-	ResourceKind string     `json:"resource_kind"`
-	ResourceID   uuid.UUID  `json:"resource_id"`
-	ProjectID    *uuid.UUID `json:"project_id"`
-	DisplayName  string     `json:"display_name"`
-	DeletedAt    time.Time  `json:"deleted_at"`
-	DeletedBy    *uuid.UUID `json:"deleted_by"`
+	ResourceKind           string     `json:"resource_kind"`
+	ResourceID             uuid.UUID  `json:"resource_id"`
+	ProjectID              *uuid.UUID `json:"project_id"`
+	DisplayName            string     `json:"display_name"`
+	DeletedAt              time.Time  `json:"deleted_at"`
+	DeletedBy              *uuid.UUID `json:"deleted_by"`
+	RetentionDays          int        `json:"retention_days"`
+	PurgeAfter             *time.Time `json:"purge_after"`
+	OriginalProjectID      *uuid.UUID `json:"original_project_id"`
+	OriginalParentFolderID *uuid.UUID `json:"original_parent_folder_id"`
+	RestoreTargetStatus    string     `json:"restore_target_status"`
 }
 
 // ListTrashResponse pins the {data:[...]} envelope used across the
 // workspace surface (matches Rust impl).
 type ListTrashResponse struct {
 	Data []TrashEntry `json:"data"`
+}
+
+type RestoreResourceResponse struct {
+	Restored               bool       `json:"restored"`
+	RestoredToOriginalPath bool       `json:"restored_to_original_path"`
+	RestoredToProjectID    *uuid.UUID `json:"restored_to_project_id,omitempty"`
+	RestoredToFolderID     *uuid.UUID `json:"restored_to_folder_id,omitempty"`
+	Banner                 *string    `json:"banner,omitempty"`
+}
+
+type RestoreResult struct {
+	RowsAffected           int64
+	RestoredToOriginalPath bool
+	RestoredToProjectID    *uuid.UUID
+	RestoredToFolderID     *uuid.UUID
+	Banner                 *string
 }
 
 // ─── HTTP handlers ──────────────────────────────────────────────────
@@ -114,22 +134,32 @@ func (h *Handlers) RestoreResource(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "invalid resource id")
 		return
 	}
+	if !IsTrashKindSupported(kind) {
+		writeJSONErr(w, http.StatusUnprocessableEntity, ErrResourceKindUnsupported.Error())
+		return
+	}
 	if status, msg := h.Repo.ensureCanModifyTrashed(r.Context(), claims, kind, resourceID); status != 0 {
 		writeJSONErr(w, status, msg)
 		return
 	}
 
-	rowsAffected, err := h.Repo.RestoreTrashed(r.Context(), kind, resourceID)
+	result, err := h.Repo.RestoreTrashed(r.Context(), kind, resourceID)
 	if err != nil {
 		slog.Error("restore resource", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to restore resource")
 		return
 	}
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		writeJSONErr(w, http.StatusNotFound, "no trashed row matched")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"restored": true})
+	writeJSON(w, http.StatusOK, RestoreResourceResponse{
+		Restored:               true,
+		RestoredToOriginalPath: result.RestoredToOriginalPath,
+		RestoredToProjectID:    result.RestoredToProjectID,
+		RestoredToFolderID:     result.RestoredToFolderID,
+		Banner:                 result.Banner,
+	})
 }
 
 // PurgeResource handles DELETE /api/v1/workspace/resources/{kind}/{id}/purge.
@@ -150,6 +180,10 @@ func (h *Handlers) PurgeResource(w http.ResponseWriter, r *http.Request) {
 	resourceID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid resource id")
+		return
+	}
+	if !IsTrashKindSupported(kind) {
+		writeJSONErr(w, http.StatusUnprocessableEntity, ErrResourceKindUnsupported.Error())
 		return
 	}
 	if status, msg := h.Repo.ensureCanModifyTrashed(r.Context(), claims, kind, resourceID); status != 0 {
@@ -182,11 +216,16 @@ func (r *Repo) ListTrash(ctx context.Context, userID uuid.UUID, isAdmin bool, ki
 
 	if kind == "" || kind == ResourceOntologyProject {
 		rows, err := r.Pool.Query(ctx,
-			`SELECT id, NULL::uuid AS project_id, display_name, deleted_at, deleted_by
+			`SELECT id, NULL::uuid AS project_id, display_name, deleted_at, deleted_by,
+			        COALESCE(trash_retention_days, $4) AS retention_days,
+			        COALESCE(purge_after, deleted_at + (COALESCE(trash_retention_days, $4) * INTERVAL '1 day')) AS purge_after,
+			        original_project_id,
+			        original_parent_folder_id,
+			        'original_path' AS restore_target_status
 			   FROM ontology_projects
 			  WHERE is_deleted = TRUE AND ($1 OR deleted_by = $2)
 			  ORDER BY deleted_at DESC LIMIT $3`,
-			isAdmin, userID, limit)
+			isAdmin, userID, limit, DefaultTrashRetentionDays)
 		if err != nil {
 			return nil, fmt.Errorf("list trashed projects: %w", err)
 		}
@@ -200,11 +239,21 @@ func (r *Repo) ListTrash(ctx context.Context, userID uuid.UUID, isAdmin bool, ki
 
 	if kind == "" || kind == ResourceOntologyFolder {
 		rows, err := r.Pool.Query(ctx,
-			`SELECT id, project_id, name AS display_name, deleted_at, deleted_by
-			   FROM ontology_project_folders
-			  WHERE is_deleted = TRUE AND ($1 OR deleted_by = $2)
-			  ORDER BY deleted_at DESC LIMIT $3`,
-			isAdmin, userID, limit)
+			`SELECT f.id, f.project_id, f.name AS display_name, f.deleted_at, f.deleted_by,
+			        COALESCE(f.trash_retention_days, $4) AS retention_days,
+			        COALESCE(f.purge_after, f.deleted_at + (COALESCE(f.trash_retention_days, $4) * INTERVAL '1 day')) AS purge_after,
+			        f.original_project_id,
+			        f.original_parent_folder_id,
+			        CASE
+			            WHEN f.parent_folder_id IS NULL AND f.original_parent_folder_id IS NOT NULL THEN 'project_root'
+			            WHEN f.parent_folder_id IS NOT NULL AND (parent.id IS NULL OR parent.is_deleted = TRUE) THEN 'project_root'
+			            ELSE 'original_path'
+			        END AS restore_target_status
+			   FROM ontology_project_folders f
+			   LEFT JOIN ontology_project_folders parent ON parent.id = f.parent_folder_id
+			  WHERE f.is_deleted = TRUE AND ($1 OR f.deleted_by = $2)
+			  ORDER BY f.deleted_at DESC LIMIT $3`,
+			isAdmin, userID, limit, DefaultTrashRetentionDays)
 		if err != nil {
 			return nil, fmt.Errorf("list trashed folders: %w", err)
 		}
@@ -221,11 +270,16 @@ func (r *Repo) ListTrash(ctx context.Context, userID uuid.UUID, isAdmin bool, ki
 		// resource_kind so the UI can render "dataset · …" without an
 		// extra round-trip to resource-resolve.
 		rows, err := r.Pool.Query(ctx,
-			`SELECT resource_id, project_id, resource_kind AS display_name, deleted_at, deleted_by
+			`SELECT resource_id, project_id, resource_kind AS display_name, deleted_at, deleted_by,
+			        COALESCE(trash_retention_days, $4) AS retention_days,
+			        COALESCE(purge_after, deleted_at + (COALESCE(trash_retention_days, $4) * INTERVAL '1 day')) AS purge_after,
+			        original_project_id,
+			        original_parent_folder_id,
+			        'original_path' AS restore_target_status
 			   FROM ontology_project_resources
 			  WHERE is_deleted = TRUE AND ($1 OR deleted_by = $2)
 			  ORDER BY deleted_at DESC LIMIT $3`,
-			isAdmin, userID, limit)
+			isAdmin, userID, limit, DefaultTrashRetentionDays)
 		if err != nil {
 			return nil, fmt.Errorf("list trashed resource bindings: %w", err)
 		}
@@ -246,66 +300,91 @@ func (r *Repo) ListTrash(ctx context.Context, userID uuid.UUID, isAdmin bool, ki
 	return entries, nil
 }
 
-// RestoreTrashed clears the soft-delete columns. Returns the number of
-// rows affected so the handler can map 0 → 404.
-func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID) (int64, error) {
+// RestoreTrashed clears the soft-delete columns and reports whether the
+// resource could be restored to its original path. Folders whose original
+// parent was purged or is still in Trash are restored to the project root.
+func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID) (RestoreResult, error) {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return RestoreResult{}, err
 	}
 	defer tx.Rollback(context.Background())
 
-	var rowsAffected int64
+	result := RestoreResult{RestoredToOriginalPath: true}
 	switch kind {
 	case ResourceOntologyProject:
 		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_projects
 			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
+			        purge_after = NULL,
+			        original_project_id = NULL,
+			        original_parent_folder_id = NULL,
 			        updated_at = NOW()
 			  WHERE id = $1 AND is_deleted = TRUE`,
 			resourceID)
 		if err != nil {
-			return 0, err
+			return RestoreResult{}, err
 		}
-		rowsAffected = ct.RowsAffected()
-		if rowsAffected > 0 {
+		result.RowsAffected = ct.RowsAffected()
+		if result.RowsAffected > 0 {
+			result.RestoredToProjectID = &resourceID
 			if err := UpsertProjectSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventRestored); err != nil {
-				return 0, err
+				return RestoreResult{}, err
 			}
 		}
 	case ResourceOntologyFolder:
+		placement, err := r.folderRestorePlacement(ctx, tx, resourceID)
+		if err != nil {
+			return RestoreResult{}, err
+		}
+		result.RestoredToProjectID = &placement.ProjectID
+		result.RestoredToFolderID = placement.TargetParentFolderID
+		result.RestoredToOriginalPath = placement.OriginalPath
+		result.Banner = placement.Banner
 		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_project_folders
 			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
+			        purge_after = NULL,
+			        original_project_id = NULL,
+			        original_parent_folder_id = NULL,
+			        parent_folder_id = $2,
 			        updated_at = NOW()
 			  WHERE id = $1 AND is_deleted = TRUE`,
-			resourceID)
+			resourceID, placement.TargetParentFolderID)
 		if err != nil {
-			return 0, err
+			return RestoreResult{}, err
 		}
-		rowsAffected = ct.RowsAffected()
-		if rowsAffected > 0 {
+		result.RowsAffected = ct.RowsAffected()
+		if result.RowsAffected > 0 {
 			if err := UpsertFolderSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventRestored); err != nil {
-				return 0, err
+				return RestoreResult{}, err
 			}
 		}
 	case ResourceOntologyResourceBinding:
+		projectID, err := r.bindingRestoreProject(ctx, tx, resourceID)
+		if err != nil {
+			return RestoreResult{}, err
+		}
+		result.RestoredToProjectID = projectID
 		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_project_resources
-			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
+			    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL,
+			        purge_after = NULL,
+			        original_project_id = NULL,
+			        original_parent_folder_id = NULL
 			  WHERE resource_id = $1 AND is_deleted = TRUE`,
 			resourceID)
 		if err != nil {
-			return 0, err
+			return RestoreResult{}, err
 		}
-		rowsAffected = ct.RowsAffected()
+		result.RowsAffected = ct.RowsAffected()
 	default:
-		return 0, fmt.Errorf("restore is not implemented for resource_kind '%s'", kind)
+		return RestoreResult{}, fmt.Errorf("restore is not implemented for resource_kind '%s'", kind)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return RestoreResult{}, err
 	}
-	return rowsAffected, nil
+	return result, nil
 }
 
 // PurgeTrashed hard-deletes a previously soft-deleted row. The
@@ -427,28 +506,120 @@ func (r *Repo) ensureCanModifyTrashed(ctx context.Context, claims *authmw.Claims
 		"only the owner or the user who deleted the resource may restore or purge it"
 }
 
-// scanTrashEntries reads (resource_id, project_id, display_name,
-// deleted_at, deleted_by) tuples and stamps `kind` on each row.
+type folderRestorePlacement struct {
+	ProjectID            uuid.UUID
+	TargetParentFolderID *uuid.UUID
+	OriginalPath         bool
+	Banner               *string
+}
+
+func (r *Repo) folderRestorePlacement(ctx context.Context, tx pgx.Tx, folderID uuid.UUID) (folderRestorePlacement, error) {
+	var (
+		placement       folderRestorePlacement
+		parentFolderID  *uuid.UUID
+		originalParent  *uuid.UUID
+		parentAvailable bool
+	)
+	err := tx.QueryRow(ctx,
+		`SELECT f.project_id,
+		        f.parent_folder_id,
+		        f.original_parent_folder_id,
+		        CASE
+		            WHEN f.parent_folder_id IS NULL THEN TRUE
+		            ELSE EXISTS (
+		                SELECT 1
+		                  FROM ontology_project_folders parent
+		                 WHERE parent.id = f.parent_folder_id
+		                   AND parent.project_id = f.project_id
+		                   AND parent.is_deleted = FALSE
+		            )
+		        END AS parent_available
+		   FROM ontology_project_folders f
+		  WHERE f.id = $1 AND f.is_deleted = TRUE`,
+		folderID,
+	).Scan(&placement.ProjectID, &parentFolderID, &originalParent, &parentAvailable)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return placement, nil
+		}
+		return placement, err
+	}
+	placement.TargetParentFolderID = parentFolderID
+	placement.OriginalPath = true
+	if parentFolderID != nil && !parentAvailable {
+		placement.TargetParentFolderID = nil
+		placement.OriginalPath = false
+		msg := "Original folder path is no longer available; restored to the project root."
+		placement.Banner = &msg
+	}
+	if parentFolderID == nil && originalParent != nil {
+		placement.OriginalPath = false
+		msg := "Original folder path is no longer available; restored to the project root."
+		placement.Banner = &msg
+	}
+	return placement, nil
+}
+
+func (r *Repo) bindingRestoreProject(ctx context.Context, tx pgx.Tx, resourceID uuid.UUID) (*uuid.UUID, error) {
+	var projectID uuid.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT project_id
+		   FROM ontology_project_resources
+		  WHERE resource_id = $1 AND is_deleted = TRUE`,
+		resourceID,
+	).Scan(&projectID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &projectID, nil
+}
+
+// scanTrashEntries reads the trash projection tuples and stamps `kind`
+// on each row.
 func scanTrashEntries(rows pgxRowsLike, kind string) ([]TrashEntry, error) {
 	out := make([]TrashEntry, 0)
 	for rows.Next() {
 		var (
-			id        uuid.UUID
-			projectID *uuid.UUID
-			name      string
-			deletedAt time.Time
-			deletedBy *uuid.UUID
+			id                     uuid.UUID
+			projectID              *uuid.UUID
+			name                   string
+			deletedAt              time.Time
+			deletedBy              *uuid.UUID
+			retentionDays          int
+			purgeAfter             *time.Time
+			originalProjectID      *uuid.UUID
+			originalParentFolderID *uuid.UUID
+			restoreTargetStatus    string
 		)
-		if err := rows.Scan(&id, &projectID, &name, &deletedAt, &deletedBy); err != nil {
+		if err := rows.Scan(
+			&id,
+			&projectID,
+			&name,
+			&deletedAt,
+			&deletedBy,
+			&retentionDays,
+			&purgeAfter,
+			&originalProjectID,
+			&originalParentFolderID,
+			&restoreTargetStatus,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, TrashEntry{
-			ResourceKind: kind,
-			ResourceID:   id,
-			ProjectID:    projectID,
-			DisplayName:  name,
-			DeletedAt:    deletedAt,
-			DeletedBy:    deletedBy,
+			ResourceKind:           kind,
+			ResourceID:             id,
+			ProjectID:              projectID,
+			DisplayName:            name,
+			DeletedAt:              deletedAt,
+			DeletedBy:              deletedBy,
+			RetentionDays:          retentionDays,
+			PurgeAfter:             purgeAfter,
+			OriginalProjectID:      originalProjectID,
+			OriginalParentFolderID: originalParentFolderID,
+			RestoreTargetStatus:    restoreTargetStatus,
 		})
 	}
 	return out, rows.Err()

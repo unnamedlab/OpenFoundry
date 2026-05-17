@@ -29,13 +29,20 @@ func TestTrashEntryJSONShape(t *testing.T) {
 	t.Parallel()
 	deletedBy := uuid.New()
 	projectID := uuid.New()
+	originalParentID := uuid.New()
+	purgeAfter := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
 	e := workspace.TrashEntry{
-		ResourceKind: "ontology_folder",
-		ResourceID:   uuid.New(),
-		ProjectID:    &projectID,
-		DisplayName:  "demo",
-		DeletedAt:    time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
-		DeletedBy:    &deletedBy,
+		ResourceKind:           "ontology_folder",
+		ResourceID:             uuid.New(),
+		ProjectID:              &projectID,
+		DisplayName:            "demo",
+		DeletedAt:              time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
+		DeletedBy:              &deletedBy,
+		RetentionDays:          30,
+		PurgeAfter:             &purgeAfter,
+		OriginalProjectID:      &projectID,
+		OriginalParentFolderID: &originalParentID,
+		RestoreTargetStatus:    "original_path",
 	}
 	out, err := json.Marshal(e)
 	require.NoError(t, err)
@@ -44,10 +51,14 @@ func TestTrashEntryJSONShape(t *testing.T) {
 	for _, k := range []string{
 		"resource_kind", "resource_id", "project_id",
 		"display_name", "deleted_at", "deleted_by",
+		"retention_days", "purge_after", "original_project_id",
+		"original_parent_folder_id", "restore_target_status",
 	} {
 		assert.Contains(t, view, k)
 	}
 	assert.Equal(t, "ontology_folder", view["resource_kind"])
+	assert.Equal(t, float64(30), view["retention_days"])
+	assert.Equal(t, "original_path", view["restore_target_status"])
 }
 
 func TestTrashEntryJSONNullsForUnset(t *testing.T) {
@@ -56,10 +67,12 @@ func TestTrashEntryJSONNullsForUnset(t *testing.T) {
 	// deleted_by. Both must serialize as JSON null (not be omitted) so
 	// the UI can rely on the field always being present.
 	e := workspace.TrashEntry{
-		ResourceKind: "ontology_project",
-		ResourceID:   uuid.New(),
-		DisplayName:  "p",
-		DeletedAt:    time.Now().UTC(),
+		ResourceKind:        "ontology_project",
+		ResourceID:          uuid.New(),
+		DisplayName:         "p",
+		DeletedAt:           time.Now().UTC(),
+		RetentionDays:       30,
+		RestoreTargetStatus: "original_path",
 	}
 	out, err := json.Marshal(e)
 	require.NoError(t, err)
@@ -69,6 +82,27 @@ func TestTrashEntryJSONNullsForUnset(t *testing.T) {
 	assert.Nil(t, view["project_id"])
 	assert.Contains(t, view, "deleted_by")
 	assert.Nil(t, view["deleted_by"])
+	assert.Contains(t, view, "purge_after")
+	assert.Nil(t, view["purge_after"])
+}
+
+func TestRestoreResourceResponseJSONShape(t *testing.T) {
+	t.Parallel()
+	projectID := uuid.New()
+	msg := "Original folder path is no longer available; restored to the project root."
+	out, err := json.Marshal(workspace.RestoreResourceResponse{
+		Restored:               true,
+		RestoredToOriginalPath: false,
+		RestoredToProjectID:    &projectID,
+		Banner:                 &msg,
+	})
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	assert.Equal(t, true, view["restored"])
+	assert.Equal(t, false, view["restored_to_original_path"])
+	assert.Equal(t, msg, view["banner"])
+	assert.Equal(t, projectID.String(), view["restored_to_project_id"])
 }
 
 func TestListTrashEnvelopeIsData(t *testing.T) {

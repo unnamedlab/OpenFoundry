@@ -3,8 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { BulkActionsToolbar, type BulkAction } from '@/lib/components/workspace/BulkActionsToolbar';
 import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
 import { FolderTree } from '@/lib/components/workspace/FolderTree';
 import { MoveDialog } from '@/lib/components/workspace/MoveDialog';
+import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
 import { buildProjectFolderBreadcrumbItems, ProjectBreadcrumb } from '@/lib/components/workspace/ProjectBreadcrumb';
 import { RenameDialog } from '@/lib/components/workspace/RenameDialog';
 import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/workspace/ResourceDetailsPanel';
@@ -247,13 +249,21 @@ export function ProjectFolderPage() {
   }
 
   function resourceSummary(item: ExplorerItem): ResourceSummary {
+    const rid = item.type === 'folder'
+      ? item.folder.rid
+      : resourceRIDForKind(item.shareKind, item.id);
     return {
       id: item.id,
+      rid,
       name: item.name,
       kind: item.shareKind,
       description: item.description,
       owner_id: item.ownerId,
       location: breadcrumbLocation,
+      project_id: project?.id,
+      project_rid: item.type === 'folder'
+        ? item.folder.project_rid
+        : project ? resourceRIDForKind('ontology_project', project.id) : null,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
       tags: item.type === 'folder' ? ['folder'] : [item.binding.resource_kind, 'project-binding'],
@@ -446,22 +456,31 @@ export function ProjectFolderPage() {
             {folder.description && ` - ${folder.description}`}
           </p>
         </div>
-        <button type="button" onClick={() => setDetailsResource(resourceSummary({
-          key: `folder:${folder.id}`,
-          type: 'folder',
-          id: folder.id,
-          name: folder.name,
-          description: folder.description || null,
-          kind: 'ontology_folder',
-          operationKind: 'ontology_folder',
-          shareKind: 'ontology_folder',
-          createdAt: folder.created_at,
-          updatedAt: folder.updated_at,
-          ownerId: folder.created_by,
-          folder,
-        }))} className="of-button">
-          Details
-        </button>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <OpenWithMenu
+            resourceKind="ontology_folder"
+            resourceId={folder.id}
+            resourceRid={folder.rid}
+            projectId={project.id}
+            projectRid={folder.project_rid}
+          />
+          <button type="button" onClick={() => setDetailsResource(resourceSummary({
+            key: `folder:${folder.id}`,
+            type: 'folder',
+            id: folder.id,
+            name: folder.name,
+            description: folder.description || null,
+            kind: 'ontology_folder',
+            operationKind: 'ontology_folder',
+            shareKind: 'ontology_folder',
+            createdAt: folder.created_at,
+            updatedAt: folder.updated_at,
+            ownerId: folder.created_by,
+            folder,
+          }))} className="of-button">
+            Details
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -519,7 +538,7 @@ export function ProjectFolderPage() {
               </button>
             </div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760, fontSize: 12 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 840, fontSize: 12 }}>
                 <thead>
                   <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-default)' }}>
                     <th style={{ padding: '10px 12px', width: 38 }}>
@@ -534,6 +553,7 @@ export function ProjectFolderPage() {
                     <th style={{ padding: '10px 12px' }}>Kind</th>
                     <th style={{ padding: '10px 12px' }}>Owner</th>
                     <th style={{ padding: '10px 12px' }}>Updated</th>
+                    <th style={{ padding: '10px 12px', width: 58 }} />
                     <th style={{ padding: '10px 12px', width: 52 }} />
                   </tr>
                 </thead>
@@ -571,6 +591,19 @@ export function ProjectFolderPage() {
                       <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{shortId(item.ownerId)}</td>
                       <td style={{ padding: '10px 12px' }}>{formatDate(item.updatedAt ?? item.createdAt)}</td>
                       <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <OpenWithMenu
+                          compact
+                          resourceKind={item.shareKind}
+                          resourceId={item.id}
+                          resourceRid={item.type === 'folder' ? item.folder.rid : resourceRIDForKind(item.shareKind, item.id)}
+                          projectId={project.id}
+                          projectRid={item.type === 'folder' ? item.folder.project_rid : resourceRIDForKind('ontology_project', project.id)}
+                          onOpen={() => {
+                            if (item.type !== 'folder') recordAccess({ resource_kind: item.shareKind, resource_id: item.id }).catch(() => {});
+                          }}
+                        />
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
                         <RowActionsMenu
                           actions={[
                             { id: 'open', label: item.type === 'folder' ? 'Open folder' : 'Open details' },
@@ -588,7 +621,7 @@ export function ProjectFolderPage() {
                   ))}
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="of-text-muted" style={{ padding: 16 }}>
+                      <td colSpan={7} className="of-text-muted" style={{ padding: 16 }}>
                         This folder is empty.
                       </td>
                     </tr>

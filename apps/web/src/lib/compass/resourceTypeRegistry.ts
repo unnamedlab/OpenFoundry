@@ -10,6 +10,30 @@ export interface OpenWithTarget {
   urlTemplate: string;
 }
 
+export interface ResolvedOpenWithTarget extends OpenWithTarget {
+  href: string;
+}
+
+export interface ResourceOpenContext {
+  rid?: string | null;
+  id?: string | null;
+  type?: string | null;
+  kind?: string | null;
+  project_rid?: string | null;
+  project_id?: string | null;
+  open_url?: string | null;
+}
+
+interface NormalizedResourceOpenContext {
+  rid: string;
+  id: string;
+  type: string;
+  kind: string;
+  project_rid: string;
+  project_id: string;
+  open_url: string;
+}
+
 export interface CompassResourceTypeDefinition {
   id: string;
   type: string;
@@ -60,8 +84,11 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/datasets/{rid}',
     openWith: [
-      { id: 'dataset', label: 'Dataset', icon: 'database', urlTemplate: '/datasets/{rid}' },
+      { id: 'dataset-preview', label: 'Dataset Preview', icon: 'database', urlTemplate: '/datasets/{rid}' },
       { id: 'catalog', label: 'Data Catalog', icon: 'badge-check', urlTemplate: '/projects?catalog=1&q={rid}' },
+      { id: 'pipeline-builder', label: 'Pipeline Builder', icon: 'graph', urlTemplate: '/pipelines/new?dataset_rid={rid}' },
+      { id: 'code-workbook', label: 'Code Workbook', icon: 'code', urlTemplate: '/notebooks/new?dataset_rid={rid}' },
+      { id: 'quiver', label: 'Quiver', icon: 'query', urlTemplate: '/quiver?dataset_rid={rid}' },
     ],
   },
   {
@@ -201,6 +228,19 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     openWith: [{ id: 'notebook', label: 'Notebook', icon: 'code', urlTemplate: '/notebooks/{rid}' }],
   },
   {
+    id: 'WORKSHOP_DASHBOARD',
+    type: 'dashboard',
+    displayName: 'Dashboard',
+    owningService: 'application-composition-service',
+    defaultIcon: 'graph',
+    supportedActions: COMMON_ACTIONS,
+    openAppURLTemplate: '/dashboards/{rid}',
+    openWith: [
+      { id: 'dashboard', label: 'Dashboard', icon: 'graph', urlTemplate: '/dashboards/{rid}' },
+      { id: 'workshop', label: 'Workshop', icon: 'app', urlTemplate: '/apps/{rid}' },
+    ],
+  },
+  {
     id: 'MODELS_MODEL',
     type: 'model',
     displayName: 'Model',
@@ -210,9 +250,29 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     openAppURLTemplate: '/ml?model={rid}',
     openWith: [{ id: 'model', label: 'Model catalog', icon: 'cube', urlTemplate: '/ml?model={rid}' }],
   },
+  {
+    id: 'FOUNDRY_WORKFLOW',
+    type: 'workflow',
+    displayName: 'Workflow',
+    owningService: 'workflow-orchestration-service',
+    defaultIcon: 'list',
+    supportedActions: COMMON_ACTIONS,
+    openAppURLTemplate: '/workflows/{rid}',
+    openWith: [
+      { id: 'workflow', label: 'Workflow', icon: 'list', urlTemplate: '/workflows/{rid}' },
+      { id: 'workflow-lineage', label: 'Workflow Lineage', icon: 'graph', urlTemplate: '/lineage?rid={rid}' },
+    ],
+  },
 ];
 
 const REGISTRY_BY_TYPE = new Map(COMPASS_RESOURCE_TYPE_REGISTRY.map((entry) => [entry.type, entry]));
+const RESOURCE_KIND_TO_TYPE: Record<string, string> = {
+  ontology_project: 'project',
+  ontology_folder: 'folder',
+  ontology_resource_binding: 'unknown',
+  project: 'project',
+  folder: 'folder',
+};
 
 export const UNKNOWN_RESOURCE_TYPE: CompassResourceTypeDefinition = {
   id: 'UNKNOWN_RESOURCE_TYPE',
@@ -226,39 +286,114 @@ export const UNKNOWN_RESOURCE_TYPE: CompassResourceTypeDefinition = {
 };
 
 export function getResourceTypeDefinition(type: string): CompassResourceTypeDefinition {
-  return REGISTRY_BY_TYPE.get(type) ?? {
+  const normalizedType = resourceTypeFromKind(type);
+  return REGISTRY_BY_TYPE.get(normalizedType) ?? {
     ...UNKNOWN_RESOURCE_TYPE,
-    type: type || UNKNOWN_RESOURCE_TYPE.type,
+    type: normalizedType || UNKNOWN_RESOURCE_TYPE.type,
   };
 }
 
 export function openURLForCompassResource(result: CompassSearchResult): string {
-  const definition = getResourceTypeDefinition(result.type);
-  const registryURL = expandResourceURL(definition.openAppURLTemplate, result);
-  if (registryURL) return registryURL;
-  return result.open_url || expandResourceURL(UNKNOWN_RESOURCE_TYPE.openAppURLTemplate, result);
+  return openURLForResource(result.type, compassResultToOpenContext(result));
 }
 
 export function openWithTargetsForCompassResource(result: CompassSearchResult): OpenWithTarget[] {
-  const definition = getResourceTypeDefinition(result.type);
+  return openWithTargetsForResource(result.type);
+}
+
+export function openURLForResource(kind: string, context: ResourceOpenContext = {}): string {
+  const normalizedContext = normalizeResourceContext(kind, context);
+  const definition = getResourceTypeDefinition(normalizedContext.type || kind);
+  const registryURL = expandResourceURL(definition.openAppURLTemplate, normalizedContext);
+  if (registryURL) return registryURL;
+  return normalizedContext.open_url || expandResourceURL(UNKNOWN_RESOURCE_TYPE.openAppURLTemplate, normalizedContext);
+}
+
+export function openWithTargetsForResource(kind: string): OpenWithTarget[] {
+  const definition = getResourceTypeDefinition(kind);
   return definition.openWith.length > 0 ? definition.openWith : UNKNOWN_RESOURCE_TYPE.openWith;
 }
 
-export function expandResourceURL(template: string, result: CompassSearchResult): string {
-  const parsed = parseRID(result.rid);
+export function resolveOpenWithTargetsForResource(
+  kind: string,
+  context: ResourceOpenContext = {},
+): ResolvedOpenWithTarget[] {
+  const normalizedContext = normalizeResourceContext(kind, context);
+  const fallbackHref = openURLForResource(kind, normalizedContext);
+  return openWithTargetsForResource(normalizedContext.type || kind).map((target) => ({
+    ...target,
+    href: expandResourceURL(target.urlTemplate, normalizedContext) || fallbackHref,
+  }));
+}
+
+export function resourceTypeFromKind(kind: string | null | undefined): string {
+  if (!kind) return UNKNOWN_RESOURCE_TYPE.type;
+  return RESOURCE_KIND_TO_TYPE[kind] ?? kind;
+}
+
+export function resourceRIDForKind(kind: string, id: string | null | undefined): string {
+  if (!id) return '';
+  if (id.startsWith('ri.')) return id;
+  const type = resourceTypeFromKind(kind);
+  if (type === 'project') return `ri.compass.main.project.${id}`;
+  if (type === 'folder') return `ri.compass.main.folder.${id}`;
+  return id;
+}
+
+export function expandResourceURL(template: string, resource: CompassSearchResult | ResourceOpenContext): string {
+  const resourceKind = 'kind' in resource ? resource.kind : undefined;
+  const context = normalizeResourceContext(resource.type ?? resourceKind ?? UNKNOWN_RESOURCE_TYPE.type, resource);
+  const parsed = parseRID(context.rid);
   const replacements: Record<string, string> = {
-    rid: result.rid,
-    project_rid: result.owning_project_rid ?? '',
-    project_id: result.owning_project_id ?? '',
+    rid: context.rid,
+    id: context.id,
+    resource_id: context.id,
+    project_rid: context.project_rid ?? '',
+    project_id: context.project_id ?? '',
     service: parsed.service,
     instance: parsed.instance,
-    type: parsed.type || result.type,
+    type: parsed.type || context.type,
     locator: parsed.locator,
   };
 
-  const url = template.replace(/\{([a-z_]+)\}/g, (_match, key: string) => replacements[key] ?? '');
-  if (url.includes('//') || url.endsWith('/')) return url.replace(/\/{2,}/g, '/').replace(/\/$/, '');
+  const url = template.replace(/\{([a-z_]+)\}/g, (_match, key: string) => {
+    const value = replacements[key] ?? '';
+    return encodeURIComponent(value);
+  });
+  if (url.includes('//') || url.endsWith('/')) return url.replace(/([^:])\/{2,}/g, '$1/').replace(/\/$/, '');
   return url;
+}
+
+function compassResultToOpenContext(result: CompassSearchResult): ResourceOpenContext {
+  return {
+    rid: result.rid,
+    id: parseRID(result.rid).locator || result.rid,
+    type: result.type,
+    project_rid: result.owning_project_rid,
+    project_id: result.owning_project_id,
+    open_url: result.open_url,
+  };
+}
+
+function normalizeResourceContext(kind: string, context: CompassSearchResult | ResourceOpenContext): NormalizedResourceOpenContext {
+  const contextKind = 'kind' in context ? context.kind : undefined;
+  const contextId = 'id' in context ? context.id : undefined;
+  const contextProjectRID = 'project_rid' in context ? context.project_rid : undefined;
+  const contextProjectID = 'project_id' in context ? context.project_id : undefined;
+  const type = resourceTypeFromKind(context.type ?? contextKind ?? kind);
+  const sourceId = contextId ?? ('rid' in context ? context.rid : null) ?? '';
+  const rid = context.rid ?? resourceRIDForKind(type, sourceId) ?? sourceId;
+  const parsed = parseRID(rid);
+  const id = contextId ?? parsed.locator ?? rid;
+  return {
+    rid,
+    id,
+    type,
+    kind: contextKind ?? kind,
+    project_rid: contextProjectRID ?? ('owning_project_rid' in context ? context.owning_project_rid : null) ?? '',
+    project_id: contextProjectID ?? ('owning_project_id' in context ? context.owning_project_id : null) ?? '',
+    open_url: context.open_url ?? '',
+  };
 }
 
 function parseRID(value: string) {

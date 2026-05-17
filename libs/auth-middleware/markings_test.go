@@ -40,6 +40,24 @@ func TestAdminBypassesEnforcement(t *testing.T) {
 	require.NoError(t, authmw.EnforceMarkings([]security.MarkingID{restricted}, &clearances))
 }
 
+func TestActiveScopedSessionDisablesAdminMarkingBypass(t *testing.T) {
+	t.Parallel()
+	public := security.NewMarkingID()
+	restricted := security.NewMarkingID()
+	resolver := authmw.NewStaticMarkingNameResolver(map[string]security.MarkingID{
+		"public":     public,
+		"restricted": restricted,
+	})
+	c := claimsWith([]string{"admin"}, []string{"public"})
+	clearances := authmw.CallerClearancesFromClaims(c, resolver)
+	assert.False(t, clearances.IsAdmin())
+	err := authmw.EnforceMarkings([]security.MarkingID{restricted}, &clearances)
+	require.Error(t, err)
+	var enf *authmw.MarkingEnforcementError
+	require.True(t, errors.As(err, &enf))
+	assert.Equal(t, []security.MarkingID{restricted}, enf.Missing)
+}
+
 func TestNonAdminWithFullCoveragePasses(t *testing.T) {
 	t.Parallel()
 	public := security.NewMarkingID()

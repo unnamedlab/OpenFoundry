@@ -127,6 +127,11 @@ and must not drift:
   permission-aware Compass resource search, loads recents/favorites for
   jump-to mode, shows marking badges, and resolves resource "Open with"
   actions through the frontend resource type registry).
+- Compass open-with menu
+  ([`apps/web/src/lib/components/workspace/OpenWithMenu.tsx`](apps/web/src/lib/components/workspace/OpenWithMenu.tsx)
+  is the shared launcher for search results, project/folder list rows, and
+  resource detail headers; URL templates are declared by resource type and
+  resolve against RID/project RID context with an unknown-resource fallback).
 - Compass breadcrumbs
   ([`apps/web/src/lib/components/workspace/ProjectBreadcrumb.tsx`](apps/web/src/lib/components/workspace/ProjectBreadcrumb.tsx)
   builds the standard project/folder path from current resource metadata,

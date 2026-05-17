@@ -15,12 +15,11 @@ import {
   type UserFavorite,
 } from '@/lib/api/workspace';
 import {
-  expandResourceURL,
   getResourceTypeDefinition,
   openURLForCompassResource,
-  openWithTargetsForCompassResource,
 } from '@/lib/compass/resourceTypeRegistry';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
+import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
 
 // ──────────────────────────────────────────────────────────────────
 // SEARCH-001 — Quicksearch full-results page (jump-to + tabs).
@@ -1190,37 +1189,17 @@ function CompassResourceRow({ result }: { result: CompassSearchResult }) {
           <Glyph name="history" size={13} /> {formatDateTime(result.last_modified_at)}
         </span>
         <span className="of-quicksearch__rowChip">{definition.displayName}</span>
-        <OpenWithMenu result={result} />
+        <OpenWithMenu
+          resourceKind={result.type}
+          resourceId={ridLocator(result.rid) || result.rid}
+          resourceRid={result.rid}
+          projectRid={result.owning_project_rid}
+          projectId={result.owning_project_id}
+          openUrl={result.open_url}
+          onOpen={() => recordCompassAccess(result)}
+        />
       </div>
     </article>
-  );
-}
-
-function OpenWithMenu({ result }: { result: CompassSearchResult }) {
-  const targets = openWithTargetsForCompassResource(result);
-  return (
-    <details className="of-quicksearch__openWith">
-      <summary>
-        <span>Open with</span>
-        <Glyph name="chevron-down" size={12} />
-      </summary>
-      <div className="of-quicksearch__openWithMenu">
-        {targets.map((target) => {
-          const href = expandResourceURL(target.urlTemplate, result) || openURLForCompassResource(result);
-          return (
-            <Link
-              key={target.id}
-              to={href}
-              className="of-quicksearch__openWithItem"
-              onClick={() => recordCompassAccess(result)}
-            >
-              <Glyph name={target.icon} size={13} />
-              <span>{target.label}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </details>
   );
 }
 

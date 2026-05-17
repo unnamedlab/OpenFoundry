@@ -57,6 +57,7 @@ const (
 
 	ResourceAccessRequirementOrganization    = "organization"
 	ResourceAccessRequirementRole            = "role"
+	ResourceAccessRequirementScopedSession   = "scoped_session"
 	ResourceAccessRequirementResourceMarking = "resource_marking"
 	ResourceAccessRequirementDataMarking     = "data_marking"
 
@@ -364,12 +365,15 @@ type ResourceAccessRequirementResult struct {
 }
 
 type ResourceAccessMarkingResult struct {
-	MarkingID   uuid.UUID                        `json:"marking_id"`
-	MarkingName string                           `json:"marking_name"`
-	RequiredFor []string                         `json:"required_for"`
-	Satisfied   bool                             `json:"satisfied"`
-	MissingFor  []string                         `json:"missing_for,omitempty"`
-	Sources     []EffectiveResourceMarkingSource `json:"sources"`
+	MarkingID                uuid.UUID                        `json:"marking_id"`
+	MarkingName              string                           `json:"marking_name"`
+	RequiredFor              []string                         `json:"required_for"`
+	Satisfied                bool                             `json:"satisfied"`
+	MembershipSatisfied      bool                             `json:"membership_satisfied"`
+	ScopedSessionSatisfied   bool                             `json:"scoped_session_satisfied"`
+	ScopedSessionRequirement bool                             `json:"scoped_session_requirement"`
+	MissingFor               []string                         `json:"missing_for,omitempty"`
+	Sources                  []EffectiveResourceMarkingSource `json:"sources"`
 }
 
 type ResourceAccessCheckResponse struct {

@@ -233,6 +233,38 @@ now exposes the request-form configuration, external handoff settings,
 required markings, manual request creation, and the task list inside
 each request.
 
+## Project templates (SG.26)
+
+Project templates live in
+[`tenancy-organizations-service`](../../services/tenancy-organizations-service/)
+and standardize secure project creation for a space or globally:
+
+- `ontology_project_templates` stores the repeatable definition:
+  default role, point of contact, variables, folder skeleton, generated
+  groups, default user/group/project-creator role grants, markings,
+  project constraints, and governance tags.
+- `ontology_project_template_applications` is the immutable audit row
+  written when a project is created from a template. It records actor,
+  template key, resolved variables, generated group IDs, applied marking
+  RIDs, applied constraints, and validation checks.
+- `POST /api/v1/projects/templates` is gated by
+  `project_templates:write`, `projects:manage`, or
+  `control_panel:write`; `GET /api/v1/projects/templates` optionally
+  filters by `space_slug` while keeping global templates visible.
+- `POST /api/v1/projects` accepts `template_key` and
+  `template_variables`. During deployment the service validates the
+  caller has the additional permissions implied by the template:
+  group creation/binding, marking application or creation, constraint
+  application, and sensitive project-default changes.
+- Generated viewer/editor/owner groups are bound through
+  `ontology_project_group_memberships` and mirrored into
+  `ontology_project_access_group_settings` so access-request forms can
+  route or hide those groups consistently with SG.9.
+
+The create-project modal sends the selected template key and shows the
+template's default role, groups, markings, constraints, and folder count
+before the project is created.
+
 ## Why this matters
 
 This gives OpenFoundry a strong foundation for identity-aware operational workflows, not only for simple API authentication.

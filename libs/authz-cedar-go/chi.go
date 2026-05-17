@@ -156,8 +156,10 @@ func OutcomeFromContext(ctx context.Context) (*AuthorizeOutcome, bool) {
 //   - UID id:     `Claims.Sub` (UUID v7)
 //   - tenant:     `Claims.OrgID` (or "" if absent)
 //   - roles:      `Claims.Roles`
-//   - clearances: `Claims.SessionScope.AllowedMarkings`, materialised
-//     as `Marking::"<id>"` entity references.
+//   - clearances: `Claims.AllowedMarkings()`, materialised as
+//     `Marking::"<id>"` entity references. Scoped-session markings win
+//     over the normal clearance cascade, so Cedar decisions cannot widen
+//     outside the active session.
 //
 // Locked: the schema's `User` entity declares `tenant` (String),
 // `roles` (Set<String>), `clearances` (Set<Marking>) — these three
@@ -171,11 +173,10 @@ func PrincipalEntityFromClaims(claims *authmw.Claims) cedar.Entity {
 		tenant = claims.OrgID.String()
 	}
 
-	clearances := make([]cedar.Value, 0)
-	if claims.SessionScope != nil {
-		for _, m := range claims.SessionScope.AllowedMarkings {
-			clearances = append(clearances, MustEntityUID("Marking", m))
-		}
+	allowedMarkings := claims.AllowedMarkings()
+	clearances := make([]cedar.Value, 0, len(allowedMarkings))
+	for _, m := range allowedMarkings {
+		clearances = append(clearances, MustEntityUID("Marking", m))
 	}
 	roles := make([]cedar.Value, 0, len(claims.Roles))
 	for _, r := range claims.Roles {

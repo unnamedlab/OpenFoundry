@@ -39,7 +39,8 @@ function projectName(project: OntologyProject) {
   return project.display_name || project.slug;
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return new Intl.DateTimeFormat('en-US', {
@@ -55,6 +56,10 @@ function formatDateTime(value: string) {
 
 function formatKind(kind: string) {
   return kind.replace(/_/g, ' ');
+}
+
+function trashRetentionLabel(entry: TrashEntry) {
+  return `Purge after ${formatDateTime(entry.purge_after)} · ${entry.retention_days}d`;
 }
 
 function sharedResourceHref(share: ResourceShare): string | null {
@@ -223,6 +228,7 @@ export function ProjectsListPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [requestNotice, setRequestNotice] = useState('');
+  const [trashNotice, setTrashNotice] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<OntologyProject | null>(null);
@@ -334,8 +340,10 @@ export function ProjectsListPage() {
   async function restore(entry: TrashEntry) {
     setBusy(true);
     setError('');
+    setTrashNotice('');
     try {
-      await restoreResource(entry.resource_kind, entry.resource_id);
+      const result = await restoreResource(entry.resource_kind, entry.resource_id);
+      setTrashNotice(result.banner || `${entry.display_name || entry.resource_id} restored.`);
       await loadTrash();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Restore failed');
@@ -566,6 +574,20 @@ export function ProjectsListPage() {
           }}
         >
           {requestNotice}
+        </div>
+      ) : null}
+
+      {trashNotice ? (
+        <div
+          className="of-status-info"
+          style={{
+            margin: '8px 22px 0',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-md)',
+            fontSize: 13,
+          }}
+        >
+          {trashNotice}
         </div>
       ) : null}
 
@@ -910,7 +932,7 @@ function TrashTable({
         <tr>
           <th style={{ paddingLeft: 22 }}>Resource</th>
           <th>Deleted by</th>
-          <th>Deleted</th>
+          <th>Retention</th>
           <th style={{ width: 200 }}>Actions</th>
         </tr>
       </thead>
@@ -930,8 +952,18 @@ function TrashTable({
                   {formatKind(entry.resource_kind)} / {entry.resource_id}
                 </div>
               </td>
-              <td className="of-text-muted">{entry.deleted_by}</td>
-              <td className="of-text-muted">{formatDateTime(entry.deleted_at)}</td>
+              <td className="of-text-muted">{entry.deleted_by ?? 'unknown'}</td>
+              <td className="of-text-muted">
+                {formatDateTime(entry.deleted_at)}
+                <div className="of-text-soft" style={{ marginTop: 2 }}>
+                  {trashRetentionLabel(entry)}
+                </div>
+                {entry.restore_target_status === 'project_root' ? (
+                  <span className="of-chip" style={{ marginTop: 4, background: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}>
+                    Restores to project root
+                  </span>
+                ) : null}
+              </td>
               <td>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <button type="button" className="of-button" onClick={() => onRestore(entry)} style={{ fontSize: 11 }}>
@@ -1027,7 +1059,7 @@ function TrashOverlay({
               <tr>
                 <th>Resource</th>
                 <th>Deleted by</th>
-                <th>Deleted</th>
+                <th>Retention</th>
                 <th style={{ width: 200 }}>Actions</th>
               </tr>
             </thead>
@@ -1047,8 +1079,18 @@ function TrashOverlay({
                         {formatKind(entry.resource_kind)} / {entry.resource_id}
                       </div>
                     </td>
-                    <td className="of-text-muted">{entry.deleted_by}</td>
-                    <td className="of-text-muted">{formatDateTime(entry.deleted_at)}</td>
+                    <td className="of-text-muted">{entry.deleted_by ?? 'unknown'}</td>
+                    <td className="of-text-muted">
+                      {formatDateTime(entry.deleted_at)}
+                      <div className="of-text-soft" style={{ marginTop: 2 }}>
+                        {trashRetentionLabel(entry)}
+                      </div>
+                      {entry.restore_target_status === 'project_root' ? (
+                        <span className="of-chip" style={{ marginTop: 4, background: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}>
+                          Restores to project root
+                        </span>
+                      ) : null}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                         <button type="button" className="of-button" onClick={() => onRestore(entry)} style={{ fontSize: 11 }}>

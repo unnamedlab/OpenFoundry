@@ -532,7 +532,14 @@ func (h *Handlers) CheckResourceAccess(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "principal_id must be a non-empty uuid")
 		return
 	}
-	resp, err := h.Repo.CheckResourceAccess(r.Context(), tenantFromClaims(claims), claims.Sub, &body)
+	resp, err := h.Repo.CheckResourceAccess(
+		r.Context(),
+		tenantFromClaims(claims),
+		claims.Sub,
+		&body,
+		claims.AllowedMarkings(),
+		claims.HasActiveMarkingScope(),
+	)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
 		return

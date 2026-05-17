@@ -112,6 +112,33 @@ func TestScopedSessionSelectIssuesScopedToken(t *testing.T) {
 	assert.Equal(t, []string{"public", "pii"}, issuer.scope.AllowedMarkings)
 }
 
+func TestNoScopedSessionIssuesExplicitFullMarkingScope(t *testing.T) {
+	userID := uuid.New()
+	panel := NewControlPanel()
+	panel.settings.ScopedSessions = ScopedSessionConfig{
+		Enabled:              true,
+		AllowNoScopedSession: true,
+	}
+	repo := &fakeScopedRepo{user: &models.User{
+		ID:         userID,
+		Email:      "ana@example.com",
+		Name:       "Ana",
+		IsActive:   true,
+		Attributes: json.RawMessage(`{"allowed_markings":["public","pii"]}`),
+	}}
+	issuer := &fakeScopedIssuer{}
+	handler := NewScopedSessions(panel, repo, issuer)
+	req := httptest.NewRequest(http.MethodPost, "/auth/scoped-sessions/select", strings.NewReader(`{"preset_id":"no_scoped_session"}`)).
+		WithContext(authmw.ContextWithClaims(context.Background(), &authmw.Claims{Sub: userID, Email: "ana@example.com"}))
+	rec := httptest.NewRecorder()
+
+	handler.Select(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, issuer.scope)
+	assert.Equal(t, []string{"public", "pii"}, issuer.scope.AllowedMarkings)
+}
+
 func TestScopedSessionBypassCanBeLimitedToGroups(t *testing.T) {
 	groupID := uuid.New()
 	cfg := ScopedSessionConfig{

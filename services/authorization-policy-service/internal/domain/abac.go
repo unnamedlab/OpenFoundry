@@ -129,7 +129,7 @@ func Evaluate(
 		denyReasons = append(denyReasons, "organization isolation boundary denied access")
 	}
 	if resourceMark != nil {
-		if !claims.HasRole("admin") && !claims.AllowsMarking(*resourceMark) {
+		if !claims.AllowsMarking(*resourceMark) {
 			denyReasons = append(denyReasons,
 				fmt.Sprintf("classification boundary denied marking '%s'", *resourceMark))
 		}

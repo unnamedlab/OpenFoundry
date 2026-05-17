@@ -139,7 +139,20 @@ export interface TrashEntry {
   project_id: string | null;
   display_name: string;
   deleted_at: string;
-  deleted_by: string;
+  deleted_by: string | null;
+  retention_days: number;
+  purge_after: string | null;
+  original_project_id: string | null;
+  original_parent_folder_id: string | null;
+  restore_target_status: 'original_path' | 'project_root' | string;
+}
+
+export interface RestoreResourceResponse {
+  restored: boolean;
+  restored_to_original_path: boolean;
+  restored_to_project_id?: string | null;
+  restored_to_folder_id?: string | null;
+  banner?: string | null;
 }
 
 export function listTrash(params?: { kind?: ResourceKind; limit?: number }) {
@@ -155,7 +168,7 @@ export function listTrash(params?: { kind?: ResourceKind; limit?: number }) {
 }
 
 export function restoreResource(kind: ResourceKind, id: string) {
-  return api.post<{ ok: true }>(`/workspace/resources/${kind}/${id}/restore`, {});
+  return api.post<RestoreResourceResponse>(`/workspace/resources/${kind}/${id}/restore`, {});
 }
 
 export function purgeResource(kind: ResourceKind, id: string) {
@@ -258,8 +271,11 @@ export function duplicateResource(
   );
 }
 
-export function softDeleteResource(kind: ResourceKind, id: string) {
-  return api.delete(`/workspace/resources/${kind}/${id}`);
+export function softDeleteResource(kind: ResourceKind, id: string, params?: { retention_days?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.retention_days) qs.set('retention_days', String(params.retention_days));
+  const query = qs.toString();
+  return api.delete(`/workspace/resources/${kind}/${id}${query ? `?${query}` : ''}`);
 }
 
 export interface BatchAction {
@@ -272,6 +288,7 @@ export interface BatchAction {
   target_project_rid?: string | null;
   confirm_access_policy_change?: boolean;
   confirm_marking_change?: boolean;
+  retention_days?: number;
   name?: string;
 }
 

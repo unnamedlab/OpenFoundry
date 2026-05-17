@@ -86,9 +86,13 @@ func New(
 
 		api.Get("/projects", ph.ListProjects)
 		api.Post("/projects", ph.CreateProject)
+		api.Get("/projects/templates", ph.ListTemplates)
+		api.Post("/projects/templates", ph.CreateProjectTemplate)
+		api.Get("/projects/templates/{key}", ph.GetProjectTemplate)
 		api.Get("/projects/{id}", ph.GetProject)
 		api.Patch("/projects/{id}", ph.UpdateProject)
 		api.Delete("/projects/{id}", ph.DeleteProject)
+		api.Get("/projects/{id}/template-applications", ph.ListProjectTemplateApplications)
 		api.Get("/projects/{id}/memberships", ph.ListProjectMemberships)
 		api.Put("/projects/{id}/memberships", ph.UpsertProjectMembership)
 		api.Delete("/projects/{id}/memberships/{user_id}", ph.DeleteProjectMembership)

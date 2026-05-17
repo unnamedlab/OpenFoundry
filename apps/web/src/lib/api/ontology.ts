@@ -2252,7 +2252,7 @@ export interface OntologyInterface {
   properties?: InterfaceProperty[];
 }
 
-export type OntologyProjectRole = "viewer" | "editor" | "owner";
+export type OntologyProjectRole = "discoverer" | "viewer" | "editor" | "owner";
 
 export interface OntologyProject {
   id: string;
@@ -2261,6 +2261,10 @@ export interface OntologyProject {
   description: string;
   workspace_slug: string | null;
   owner_id: string;
+  default_role?: OntologyProjectRole;
+  point_of_contact_user_id?: string | null;
+  point_of_contact_email?: string | null;
+  references?: Array<{ kind: string; id: string; label?: string }>;
   created_at: string;
   updated_at: string;
 }
@@ -2698,6 +2702,25 @@ export interface ProjectTemplate {
   key: string;
   name: string;
   description: string;
+  space_slug?: string | null;
+  default_role?: OntologyProjectRole;
+  variables?: Array<{
+    key: string;
+    label?: string;
+    description?: string;
+    default_value?: string | null;
+    required: boolean;
+  }>;
+  folder_structure?: Array<{ key?: string; name: string; description?: string; parent_key?: string | null }>;
+  generated_groups?: Array<{
+    role: OntologyProjectRole;
+    slug_suffix?: string;
+    display_name_template?: string;
+    requestable?: boolean;
+  }>;
+  markings?: Array<{ display_name: string; marking_id?: string; marking_rid?: string; create_if_missing?: boolean }>;
+  constraints?: Array<{ name: string; mode?: string }>;
+  governance_tags?: string[];
 }
 
 export function listProjectTemplates() {
@@ -2719,6 +2742,9 @@ export function createProject(body: {
   display_name?: string;
   description?: string;
   workspace_slug?: string;
+  default_role?: OntologyProjectRole;
+  template_key?: string;
+  template_variables?: Record<string, string>;
   folders?: Array<{
     name: string;
     description?: string;

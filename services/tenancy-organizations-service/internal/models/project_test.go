@@ -252,6 +252,56 @@ func TestProjectAccessRequestFormSG9JSONShape(t *testing.T) {
 	}
 }
 
+func TestProjectTemplateSG26JSONShape(t *testing.T) {
+	t.Parallel()
+	role := OntologyProjectRoleEditor
+	markingID := uuid.New()
+	tpl := ProjectTemplate{
+		ID:          uuid.New(),
+		Key:         "governed-project",
+		Name:        "Governed Project",
+		Description: "Repeatable secure setup",
+		DefaultRole: OntologyProjectRoleViewer,
+		Variables: []ProjectTemplateVariable{{
+			Key: "business_unit", Required: true,
+		}},
+		FolderStructure: []ProjectTemplateFolderSpec{{
+			Key: "data", Name: "Data",
+		}},
+		GeneratedGroups: []ProjectTemplateGeneratedGroup{{
+			Role: OntologyProjectRoleViewer, SlugSuffix: "viewers", Requestable: true,
+		}},
+		DefaultRoleGrants: []ProjectTemplateRoleGrant{{
+			PrincipalKind:      ProjectTemplatePrincipalGeneratedGroup,
+			GeneratedGroupRole: &role,
+			Role:               OntologyProjectRoleEditor,
+		}},
+		Markings: []ProjectTemplateMarking{{
+			MarkingID:   &markingID,
+			DisplayName: "Confidential",
+		}},
+		Constraints: []ProjectTemplateConstraint{{
+			Name: "No external sharing", Metadata: map[string]any{"scope": "project"},
+		}},
+		GovernanceTags: []string{"governed"},
+		Active:         true,
+		CreatedAt:      time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:      time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+	}
+	out, err := json.Marshal(tpl)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, key := range []string{
+		"id", "key", "name", "default_role", "variables", "folder_structure",
+		"generated_groups", "default_role_grants", "markings", "constraints",
+		"governance_tags", "active", "created_at", "updated_at",
+	} {
+		assert.Contains(t, view, key)
+	}
+	assert.Equal(t, "viewer", view["default_role"])
+}
+
 func TestBindOntologyProjectResourceRequestJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	in := BindOntologyProjectResourceRequest{

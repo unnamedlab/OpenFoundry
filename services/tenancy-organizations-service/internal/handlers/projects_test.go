@@ -11,6 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/models"
 )
 
 func TestNormalizeFolderNameCollapsesWhitespace(t *testing.T) {
@@ -119,4 +122,56 @@ func TestParseFolderRIDLocatorRejectsOtherResourceTypes(t *testing.T) {
 	_, err := parseFolderRIDLocator("ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000001", "parent_folder_rid")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "compass folder RID")
+}
+
+func TestProjectTemplateSubstitution(t *testing.T) {
+	t.Parallel()
+	values := map[string]string{
+		"project.name": "Alpha",
+		"var.region":   "eu-west",
+	}
+	got := substituteTemplateString("{{ project.name }} / {{var.region}} / {{missing}}", values)
+	assert.Equal(t, "Alpha / eu-west / ", got)
+}
+
+func TestValidateProjectTemplateDeploymentRequiresFeaturePermissions(t *testing.T) {
+	t.Parallel()
+	role := models.OntologyProjectRoleViewer
+	template := &models.ProjectTemplate{
+		DefaultRole: models.OntologyProjectRoleOwner,
+		GeneratedGroups: []models.ProjectTemplateGeneratedGroup{{
+			Role: models.OntologyProjectRoleViewer,
+		}},
+		DefaultRoleGrants: []models.ProjectTemplateRoleGrant{{
+			PrincipalKind:      models.ProjectTemplatePrincipalGeneratedGroup,
+			GeneratedGroupRole: &role,
+			Role:               models.OntologyProjectRoleViewer,
+		}},
+		Markings: []models.ProjectTemplateMarking{{
+			DisplayName: "Confidential", CreateIfMissing: true,
+		}},
+		Constraints: []models.ProjectTemplateConstraint{{
+			Name: "No export",
+		}},
+	}
+	denied := validateProjectTemplateDeployment(&authmw.Claims{}, template)
+	assert.False(t, denied.Allowed)
+	assert.Contains(t, denied.MissingPermissions, "groups:write or groups:manage")
+	assert.Contains(t, denied.MissingPermissions, "markings:apply or markings:write")
+
+	allowed := validateProjectTemplateDeployment(&authmw.Claims{
+		Permissions: []string{"projects:manage", "groups:manage", "markings:apply", "project_constraints:apply"},
+	}, template)
+	assert.True(t, allowed.Allowed)
+	assert.Empty(t, allowed.MissingPermissions)
+}
+
+func TestResolveProjectTemplateVariablesRequiresMissingInput(t *testing.T) {
+	t.Parallel()
+	template := &models.ProjectTemplate{
+		Variables: []models.ProjectTemplateVariable{{Key: "region", Required: true}},
+	}
+	_, err := resolveProjectTemplateVariables(template, &models.CreateOntologyProjectRequest{}, "alpha", "Alpha", uuid.New())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "region")
 }

@@ -14,8 +14,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -27,6 +29,8 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/core-models/rid"
 	"github.com/openfoundry/openfoundry-go/services/tenancy-organizations-service/internal/models"
 )
+
+const DefaultTrashRetentionDays = 30
 
 // MoveRequest is the body of POST /workspace/resources/{kind}/{id}/move.
 type MoveRequest struct {
@@ -89,6 +93,7 @@ type BatchAction struct {
 	TargetProjectRID          *string    `json:"target_project_rid,omitempty"`
 	ConfirmAccessPolicyChange bool       `json:"confirm_access_policy_change,omitempty"`
 	ConfirmMarkingChange      bool       `json:"confirm_marking_change,omitempty"`
+	RetentionDays             *int       `json:"retention_days,omitempty"`
 }
 
 // BatchRequest is the body of POST /workspace/resources/batch.
@@ -146,7 +151,6 @@ func (h *Handlers) MoveResource(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, status, msg)
 		return
 	}
-
 	switch kind {
 	case ResourceOntologyFolder:
 		if err := h.Repo.moveFolder(r.Context(), claims, resourceID, body); err != nil {
@@ -206,7 +210,6 @@ func (h *Handlers) RenameResource(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, status, msg)
 		return
 	}
-
 	switch kind {
 	case ResourceOntologyProject:
 		tx, err := h.Repo.Pool.Begin(r.Context())
@@ -386,6 +389,11 @@ func (h *Handlers) SoftDeleteResource(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, status, msg)
 		return
 	}
+	retentionDays, err := trashRetentionDaysFromRequest(r)
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	switch kind {
 	case ResourceOntologyProject, ResourceOntologyFolder, ResourceOntologyResourceBinding:
@@ -395,7 +403,7 @@ func (h *Handlers) SoftDeleteResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback(context.Background())
-		rowsAffected, err := h.Repo.softDeleteOneTx(r.Context(), tx, claims.Sub, kind, resourceID)
+		rowsAffected, err := h.Repo.softDeleteOneTx(r.Context(), tx, claims.Sub, kind, resourceID, retentionDays)
 		if err != nil {
 			slog.Error("failed to delete resource", slog.String("error", err.Error()))
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete resource: %s", err))
@@ -454,7 +462,12 @@ func (h *Handlers) BatchApply(w http.ResponseWriter, r *http.Request) {
 			if status, _ := h.Repo.ensureOwnerOrAdmin(r.Context(), claims, kind, action.ResourceID); status != 0 {
 				opErr = errors.New("forbidden")
 			} else {
-				opErr = h.Repo.softDeleteOne(r.Context(), claims.Sub, kind, action.ResourceID)
+				retentionDays, err := normalizeTrashRetentionDays(action.RetentionDays)
+				if err != nil {
+					opErr = err
+					break
+				}
+				opErr = h.Repo.softDeleteOne(r.Context(), claims.Sub, kind, action.ResourceID, retentionDays)
 			}
 		case "move":
 			if status, _ := h.Repo.ensureOwnerOrAdmin(r.Context(), claims, kind, action.ResourceID); status != 0 {
@@ -885,27 +898,31 @@ func writeExecOutcome(w http.ResponseWriter, ct rowsAffectedTag, err error, fail
 
 // softDeleteOne runs the same UPDATE as SoftDeleteResource but in the
 // batch path, where no per-row response envelope is emitted.
-func (r *Repo) softDeleteOne(ctx context.Context, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID) error {
+func (r *Repo) softDeleteOne(ctx context.Context, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID, retentionDays int) error {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(context.Background())
-	if _, err := r.softDeleteOneTx(ctx, tx, actor, kind, resourceID); err != nil {
+	if _, err := r.softDeleteOneTx(ctx, tx, actor, kind, resourceID, retentionDays); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID) (int64, error) {
+func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, kind ResourceKind, resourceID uuid.UUID, retentionDays int) (int64, error) {
 	switch kind {
 	case ResourceOntologyProject:
 		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_projects
 			   SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = $2,
+			       trash_retention_days = $3,
+			       purge_after = NOW() + ($3::int * INTERVAL '1 day'),
+			       original_project_id = NULL,
+			       original_parent_folder_id = NULL,
 			       updated_at = NOW()
 			   WHERE id = $1 AND is_deleted = FALSE`,
-			resourceID, actor)
+			resourceID, actor, retentionDays)
 		if err != nil || ct.RowsAffected() == 0 {
 			return ct.RowsAffected(), err
 		}
@@ -917,9 +934,13 @@ func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, 
 		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_project_folders
 			   SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = $2,
+			       trash_retention_days = $3,
+			       purge_after = NOW() + ($3::int * INTERVAL '1 day'),
+			       original_project_id = project_id,
+			       original_parent_folder_id = parent_folder_id,
 			       updated_at = NOW()
 			   WHERE id = $1 AND is_deleted = FALSE`,
-			resourceID, actor)
+			resourceID, actor, retentionDays)
 		if err != nil || ct.RowsAffected() == 0 {
 			return ct.RowsAffected(), err
 		}
@@ -930,13 +951,61 @@ func (r *Repo) softDeleteOneTx(ctx context.Context, tx pgx.Tx, actor uuid.UUID, 
 	case ResourceOntologyResourceBinding:
 		ct, err := tx.Exec(ctx,
 			`UPDATE ontology_project_resources
-			   SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = $2
+			   SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = $2,
+			       trash_retention_days = $3,
+			       purge_after = NOW() + ($3::int * INTERVAL '1 day'),
+			       original_project_id = project_id,
+			       original_parent_folder_id = NULL
 			   WHERE resource_id = $1 AND is_deleted = FALSE`,
-			resourceID, actor)
+			resourceID, actor, retentionDays)
 		return ct.RowsAffected(), err
 	}
 	// Unsupported kinds are filtered before reaching here in BatchApply.
 	return 0, nil
+}
+
+func trashRetentionDaysFromRequest(r *http.Request) (int, error) {
+	days, err := normalizeTrashRetentionDays(nil)
+	if err != nil {
+		return 0, err
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("retention_days")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, fmt.Errorf("retention_days must be an integer")
+		}
+		days, err = normalizeTrashRetentionDays(&n)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+		return days, nil
+	}
+	var body struct {
+		RetentionDays *int `json:"retention_days,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if errors.Is(err, io.EOF) {
+			return days, nil
+		}
+		return 0, fmt.Errorf("invalid trash body")
+	}
+	if body.RetentionDays == nil {
+		return days, nil
+	}
+	return normalizeTrashRetentionDays(body.RetentionDays)
+}
+
+func normalizeTrashRetentionDays(value *int) (int, error) {
+	days := DefaultTrashRetentionDays
+	if value != nil {
+		days = *value
+	}
+	if days < 1 || days > 3650 {
+		return 0, fmt.Errorf("retention_days must be between 1 and 3650")
+	}
+	return days, nil
 }
 
 // ensureOwnerOrAdmin authorises a single resource_ops action.

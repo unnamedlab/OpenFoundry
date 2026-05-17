@@ -161,8 +161,175 @@ type CreateOntologyProjectRequest struct {
 	DefaultRole          *OntologyProjectRole                 `json:"default_role,omitempty"`
 	PointOfContactUserID *uuid.UUID                           `json:"point_of_contact_user_id,omitempty"`
 	PointOfContactEmail  *string                              `json:"point_of_contact_email,omitempty"`
+	TemplateKey          *string                              `json:"template_key,omitempty"`
+	TemplateVariables    map[string]string                    `json:"template_variables,omitempty"`
 	References           []OntologyProjectReference           `json:"references,omitempty"`
 	Folders              []CreateOntologyProjectFolderRequest `json:"folders,omitempty"`
+}
+
+// ─── SG.26: project templates ──────────────────────────────────────────
+
+const (
+	ProjectTemplatePrincipalUser           = "user"
+	ProjectTemplatePrincipalGroup          = "group"
+	ProjectTemplatePrincipalProjectCreator = "project_creator"
+	ProjectTemplatePrincipalGeneratedGroup = "generated_group"
+)
+
+// ProjectTemplateVariable declares a parameter that is resolved when a
+// project is created from a template.
+type ProjectTemplateVariable struct {
+	Key          string  `json:"key"`
+	Label        string  `json:"label,omitempty"`
+	Description  string  `json:"description,omitempty"`
+	DefaultValue *string `json:"default_value,omitempty"`
+	Required     bool    `json:"required"`
+}
+
+// ProjectTemplateFolderSpec defines one folder created during template
+// deployment. ParentKey references another template folder in the same
+// array, so templates can encode a repeatable hierarchy without binding
+// to pre-existing folder UUIDs.
+type ProjectTemplateFolderSpec struct {
+	Key         string  `json:"key,omitempty"`
+	Name        string  `json:"name"`
+	Description string  `json:"description,omitempty"`
+	ParentKey   *string `json:"parent_key,omitempty"`
+}
+
+// ProjectTemplateGeneratedGroup represents a group that should be
+// created/bound when the template is deployed. Identity ownership still
+// lives in identity-federation-service; this service records the intended
+// generated group metadata and binds the resulting group ID to the project.
+type ProjectTemplateGeneratedGroup struct {
+	Role                   OntologyProjectRole   `json:"role"`
+	SlugSuffix             string                `json:"slug_suffix,omitempty"`
+	DisplayNameTemplate    string                `json:"display_name_template,omitempty"`
+	Description            string                `json:"description,omitempty"`
+	ManagesGeneratedRoles  []OntologyProjectRole `json:"manages_generated_roles,omitempty"`
+	Requestable            bool                  `json:"requestable"`
+	ExternalRequestMessage *string               `json:"external_request_message,omitempty"`
+	ExternalRequestURL     *string               `json:"external_request_url,omitempty"`
+}
+
+type ProjectTemplateRoleGrant struct {
+	PrincipalKind      string               `json:"principal_kind"`
+	PrincipalID        *uuid.UUID           `json:"principal_id,omitempty"`
+	GeneratedGroupRole *OntologyProjectRole `json:"generated_group_role,omitempty"`
+	Role               OntologyProjectRole  `json:"role"`
+}
+
+type ProjectTemplateMarking struct {
+	MarkingID       *uuid.UUID  `json:"marking_id,omitempty"`
+	MarkingRID      *string     `json:"marking_rid,omitempty"`
+	DisplayName     string      `json:"display_name"`
+	ReasonPrompt    *string     `json:"reason_prompt,omitempty"`
+	ReviewerUserIDs []uuid.UUID `json:"reviewer_user_ids,omitempty"`
+	CreateIfMissing bool        `json:"create_if_missing"`
+	RequiredFor     []string    `json:"required_for,omitempty"`
+}
+
+type ProjectTemplateConstraint struct {
+	ConstraintID      *uuid.UUID     `json:"constraint_id,omitempty"`
+	ConstraintRID     *string        `json:"constraint_rid,omitempty"`
+	Name              string         `json:"name"`
+	Mode              string         `json:"mode,omitempty"`
+	AllowedMarkingIDs []uuid.UUID    `json:"allowed_marking_ids,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
+}
+
+type ProjectTemplate struct {
+	ID                   uuid.UUID                       `json:"id"`
+	Key                  string                          `json:"key"`
+	Name                 string                          `json:"name"`
+	Description          string                          `json:"description"`
+	SpaceSlug            *string                         `json:"space_slug,omitempty"`
+	DefaultRole          OntologyProjectRole             `json:"default_role"`
+	PointOfContactUserID *uuid.UUID                      `json:"point_of_contact_user_id,omitempty"`
+	PointOfContactEmail  *string                         `json:"point_of_contact_email,omitempty"`
+	Variables            []ProjectTemplateVariable       `json:"variables"`
+	FolderStructure      []ProjectTemplateFolderSpec     `json:"folder_structure"`
+	GeneratedGroups      []ProjectTemplateGeneratedGroup `json:"generated_groups"`
+	DefaultRoleGrants    []ProjectTemplateRoleGrant      `json:"default_role_grants"`
+	Markings             []ProjectTemplateMarking        `json:"markings"`
+	Constraints          []ProjectTemplateConstraint     `json:"constraints"`
+	GovernanceTags       []string                        `json:"governance_tags"`
+	Active               bool                            `json:"active"`
+	CreatedBy            *uuid.UUID                      `json:"created_by,omitempty"`
+	CreatedAt            time.Time                       `json:"created_at"`
+	UpdatedAt            time.Time                       `json:"updated_at"`
+}
+
+type CreateProjectTemplateRequest struct {
+	Key                  string                          `json:"key"`
+	Name                 string                          `json:"name"`
+	Description          string                          `json:"description,omitempty"`
+	SpaceSlug            *string                         `json:"space_slug,omitempty"`
+	DefaultRole          *OntologyProjectRole            `json:"default_role,omitempty"`
+	PointOfContactUserID *uuid.UUID                      `json:"point_of_contact_user_id,omitempty"`
+	PointOfContactEmail  *string                         `json:"point_of_contact_email,omitempty"`
+	Variables            []ProjectTemplateVariable       `json:"variables,omitempty"`
+	FolderStructure      []ProjectTemplateFolderSpec     `json:"folder_structure,omitempty"`
+	GeneratedGroups      []ProjectTemplateGeneratedGroup `json:"generated_groups,omitempty"`
+	DefaultRoleGrants    []ProjectTemplateRoleGrant      `json:"default_role_grants,omitempty"`
+	Markings             []ProjectTemplateMarking        `json:"markings,omitempty"`
+	Constraints          []ProjectTemplateConstraint     `json:"constraints,omitempty"`
+	GovernanceTags       []string                        `json:"governance_tags,omitempty"`
+	Active               *bool                           `json:"active,omitempty"`
+}
+
+type ListProjectTemplatesResponse struct {
+	Data []ProjectTemplate `json:"data"`
+}
+
+type ProjectTemplateValidationCheck struct {
+	Key         string `json:"key"`
+	Allowed     bool   `json:"allowed"`
+	Description string `json:"description"`
+}
+
+type ProjectTemplateValidationResult struct {
+	Allowed            bool                             `json:"allowed"`
+	MissingPermissions []string                         `json:"missing_permissions"`
+	Checks             []ProjectTemplateValidationCheck `json:"checks"`
+}
+
+type ProjectTemplateGeneratedGroupResult struct {
+	GroupID               uuid.UUID             `json:"group_id"`
+	Role                  OntologyProjectRole   `json:"role"`
+	Slug                  string                `json:"slug"`
+	DisplayName           string                `json:"display_name"`
+	Description           string                `json:"description,omitempty"`
+	ManagesGeneratedRoles []OntologyProjectRole `json:"manages_generated_roles,omitempty"`
+	Requestable           bool                  `json:"requestable"`
+	ExternalRequestURL    *string               `json:"external_request_url,omitempty"`
+}
+
+type ProjectTemplateAppliedMarking struct {
+	MarkingID       uuid.UUID   `json:"marking_id"`
+	MarkingRID      string      `json:"marking_rid"`
+	DisplayName     string      `json:"display_name"`
+	ReasonPrompt    *string     `json:"reason_prompt,omitempty"`
+	ReviewerUserIDs []uuid.UUID `json:"reviewer_user_ids,omitempty"`
+	Created         bool        `json:"created"`
+}
+
+type ProjectTemplateApplication struct {
+	ID                 uuid.UUID                             `json:"id"`
+	TemplateID         uuid.UUID                             `json:"template_id"`
+	TemplateKey        string                                `json:"template_key"`
+	ProjectID          uuid.UUID                             `json:"project_id"`
+	AppliedBy          uuid.UUID                             `json:"applied_by"`
+	Variables          map[string]string                     `json:"variables"`
+	GeneratedGroups    []ProjectTemplateGeneratedGroupResult `json:"generated_groups"`
+	AppliedMarkings    []ProjectTemplateAppliedMarking       `json:"applied_markings"`
+	AppliedConstraints []ProjectTemplateConstraint           `json:"applied_constraints"`
+	Validation         ProjectTemplateValidationResult       `json:"validation"`
+	CreatedAt          time.Time                             `json:"created_at"`
+}
+
+type ListProjectTemplateApplicationsResponse struct {
+	Data []ProjectTemplateApplication `json:"data"`
 }
 
 // UpdateOntologyProjectRequest is the body of PATCH /projects/:id.

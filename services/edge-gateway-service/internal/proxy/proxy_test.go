@@ -309,6 +309,7 @@ func TestProxyInjectsTenantHeaders(t *testing.T) {
 	assert.Equal(t, "user@example.com", capturedHeaders.Get(proxy.HdrAuthEmail))
 	assert.Equal(t, orgID.String(), capturedHeaders.Get(proxy.HdrOrgID))
 	assert.Equal(t, "standard", capturedHeaders.Get(proxy.HdrZeroTrust))
+	assert.Equal(t, "public", capturedHeaders.Get(proxy.HdrAllowedMarkings))
 	// Host header is stripped — the outbound URL owns it.
 	assert.Empty(t, capturedHeaders.Get("Host"))
 }

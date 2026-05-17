@@ -35,11 +35,13 @@ import {
   type TrashEntry,
 } from '@/lib/api/workspace';
 import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
 import { MoveDialog } from '@/lib/components/workspace/MoveDialog';
 import { buildProjectFolderBreadcrumbItems, ProjectBreadcrumb } from '@/lib/components/workspace/ProjectBreadcrumb';
+import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
 import { RenameDialog } from '@/lib/components/workspace/RenameDialog';
 import { ResourceDetailsPanel, type ResourceSummary } from '@/lib/components/workspace/ResourceDetailsPanel';
-import { ResourcePermissionsDrawer } from '@/lib/components/workspace/ResourcePermissionsDrawer';
+import { ResourcePermissionsDrawer, type AccessGraphMembership } from '@/lib/components/workspace/ResourcePermissionsDrawer';
 import { ShareDialog } from '@/lib/components/workspace/ShareDialog';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { ProjectHealthSummary } from '@/lib/components/health/HealthReportsPanel';
@@ -157,6 +159,12 @@ function toResourceKind(kind: string): ResourceKind {
   return ALL_RESOURCE_KINDS.includes(kind as ResourceKind) ? (kind as ResourceKind) : 'other';
 }
 
+function toAccessGraphMemberships(memberships: OntologyProjectMembership[]): AccessGraphMembership[] {
+  return memberships
+    .filter((membership) => membership.role === 'viewer' || membership.role === 'editor' || membership.role === 'owner')
+    .map((membership) => ({ user_id: membership.user_id, role: membership.role }));
+}
+
 function fallbackResourceName(kind: string, id: string) {
   const shortId = id.split('/').filter(Boolean).at(-1) ?? id;
   return shortId || RESOURCE_KIND_LABELS[toResourceKind(kind)];
@@ -200,6 +208,7 @@ export function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
@@ -369,11 +378,14 @@ export function ProjectDetailPage() {
         binding,
         summary: {
           id: binding.resource_id,
+          rid: resourceRIDForKind(kind, binding.resource_id),
           kind,
           name: label?.label || fallbackResourceName(binding.resource_kind, binding.resource_id),
           description: label?.description,
           owner_id: binding.bound_by,
           location: project ? `/${project.display_name || project.slug}` : undefined,
+          project_id: project?.id,
+          project_rid: project ? resourceRIDForKind('ontology_project', project.id) : null,
           created_at: binding.created_at,
           updated_at: binding.created_at,
         },
@@ -421,6 +433,8 @@ export function ProjectDetailPage() {
     return projectResources.find((entry) => resourceKey(entry.binding.resource_kind, entry.binding.resource_id) === highlightedKey) ?? null;
   }, [highlightedKey, projectResources]);
 
+  const accessGraphMemberships = useMemo(() => toAccessGraphMemberships(memberships), [memberships]);
+
   const breadcrumbItems = useMemo(
     () => (project ? buildProjectFolderBreadcrumbItems(project) : []),
     [project],
@@ -429,11 +443,14 @@ export function ProjectDetailPage() {
   const projectShareSummary: ResourceSummary | null = project
     ? {
         id: project.id,
+        rid: resourceRIDForKind('ontology_project', project.id),
         kind: 'ontology_project',
         name: project.display_name || project.slug,
         description: project.description,
         owner_id: project.owner_id,
         location: project.workspace_slug ?? undefined,
+        project_id: project.id,
+        project_rid: resourceRIDForKind('ontology_project', project.id),
         created_at: project.created_at,
         updated_at: project.updated_at,
       }
@@ -597,8 +614,11 @@ export function ProjectDetailPage() {
   async function restoreTrashEntry(entry: TrashEntry) {
     setBusy(true);
     setError('');
+    setNotice('');
     try {
-      await restoreResource(entry.resource_kind, entry.resource_id);
+      const result = await restoreResource(entry.resource_kind, entry.resource_id);
+      if (result.banner) setNotice(result.banner);
+      else setNotice(`${entry.display_name || entry.resource_id} restored.`);
       await Promise.all([refreshTrash(), refreshResources()]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Restore failed');
@@ -856,6 +876,13 @@ export function ProjectDetailPage() {
             <Glyph name="users" size={14} />
             Share
           </button>
+          <OpenWithMenu
+            resourceKind="ontology_project"
+            resourceId={project.id}
+            resourceRid={projectShareSummary?.rid}
+            projectId={project.id}
+            projectRid={projectShareSummary?.project_rid}
+          />
           <button
             type="button"
             onClick={() => setConfirm({ kind: 'project-delete' })}
@@ -887,6 +914,11 @@ export function ProjectDetailPage() {
       {error && (
         <div className="of-status-danger" style={{ padding: '10px 24px', fontSize: 13 }}>
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="of-status-info" style={{ padding: '10px 24px', fontSize: 13 }}>
+          {notice}
         </div>
       )}
 
@@ -1209,7 +1241,7 @@ export function ProjectDetailPage() {
         resource={selectedResource?.summary ?? null}
         isFavorite={selectedResource ? favoriteKeys.has(resourceKey(selectedResource.summary.kind, selectedResource.summary.id)) : false}
         projectLabel={project.display_name || project.slug}
-        projectMemberships={memberships}
+        projectMemberships={accessGraphMemberships}
         onClose={() => setSelectedResource(null)}
         onFavoriteToggle={(next) => {
           if (!selectedResource) return;
@@ -1235,7 +1267,7 @@ export function ProjectDetailPage() {
         resourceLabel={permissionsTarget?.name}
         ownerId={permissionsTarget?.owner_id}
         projectLabel={project.display_name || project.slug}
-        projectMemberships={memberships}
+        projectMemberships={accessGraphMemberships}
         onClose={() => setPermissionsTarget(null)}
       />
 
@@ -1714,18 +1746,20 @@ function FilesView(props: FilesViewProps) {
             <col style={{ width: 'auto' }} />
             <col style={{ width: 220 }} />
             <col style={{ width: 200 }} />
+            <col style={{ width: 58 }} />
           </colgroup>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
             <tr>
               <th>Name</th>
               <th>Last updated</th>
               <th>Tags</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {tabKey === 'autosaved' && fileRows.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                <td colSpan={4} style={{ padding: '40px 24px', textAlign: 'center' }}>
                   <span className="of-text-muted">
                     No autosaved drafts yet. Foundry-style autosaves of in-progress notebooks, dashboards and apps appear here.
                   </span>
@@ -1735,7 +1769,7 @@ function FilesView(props: FilesViewProps) {
 
             {tabKey === 'files' && fileRows.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                <td colSpan={4} style={{ padding: '40px 24px', textAlign: 'center' }}>
                   <span className="of-text-muted">No files. Use the New button to create folders or bind resources.</span>
                 </td>
               </tr>
@@ -1968,6 +2002,16 @@ function FolderRow({
       <td className="of-text-muted">
         {folder.description ? <span className="of-chip">{folder.description}</span> : null}
       </td>
+      <td style={{ textAlign: 'right' }}>
+        <OpenWithMenu
+          compact
+          resourceKind="ontology_folder"
+          resourceId={folder.id}
+          resourceRid={folder.rid}
+          projectId={project.id}
+          projectRid={folder.project_rid}
+        />
+      </td>
     </tr>
   );
 }
@@ -2039,6 +2083,23 @@ function ResourceRow({
         >
           {RESOURCE_KIND_LABELS[resource.summary.kind]}
         </span>
+      </td>
+      <td
+        style={{
+          textAlign: 'right',
+          color: highlighted ? '#fff' : undefined,
+        }}
+      >
+        <OpenWithMenu
+          compact
+          resourceKind={resource.summary.kind}
+          resourceId={resource.summary.id}
+          resourceRid={resource.summary.rid}
+          projectId={resource.summary.project_id}
+          projectRid={resource.summary.project_rid}
+          openUrl={resource.summary.open_url}
+          onOpen={() => onDoubleClick()}
+        />
       </td>
     </tr>
   );
@@ -2130,7 +2191,7 @@ function TrashView({
           <thead>
             <tr>
               <th>Name</th>
-              <th>Deleted</th>
+              <th>Retention</th>
               <th></th>
             </tr>
           </thead>
@@ -2154,10 +2215,20 @@ function TrashView({
                       <span className="of-chip" style={{ marginLeft: 4, background: '#fbe6e8', color: '#a63232' }}>In trash</span>
                     </div>
                     <div className="of-text-soft" style={{ fontSize: 11, marginTop: 2, marginLeft: 24 }}>
-                      Deleted by <code>{entry.deleted_by}</code>
+                      Deleted by <code>{entry.deleted_by ?? 'unknown'}</code>
+                      {entry.restore_target_status === 'project_root' && (
+                        <span className="of-chip" style={{ marginLeft: 6, background: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}>
+                          Restores to project root
+                        </span>
+                      )}
                     </div>
                   </td>
-                  <td className="of-text-muted" style={{ fontSize: 12 }}>{fmtDate(entry.deleted_at)}</td>
+                  <td className="of-text-muted" style={{ fontSize: 12 }}>
+                    {fmtDate(entry.deleted_at)}
+                    <div className="of-text-soft" style={{ marginTop: 2 }}>
+                      Purge after {fmtDate(entry.purge_after)} · {entry.retention_days}d
+                    </div>
+                  </td>
                   <td style={{ position: 'relative' }}>
                     <button
                       type="button"

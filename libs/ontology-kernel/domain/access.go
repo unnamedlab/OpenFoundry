@@ -29,21 +29,21 @@ func ValidateMarking(marking string) error {
 // ErrForbiddenOrg / ErrForbiddenMarking / ErrForbiddenClearance map
 // onto the three Rust error strings the handler-side code matches on.
 var (
-	ErrForbiddenOrg        = errors.New("forbidden: object belongs to a different organization")
-	ErrForbiddenClearance  = errors.New("forbidden: insufficient classification clearance")
+	ErrForbiddenOrg       = errors.New("forbidden: object belongs to a different organization")
+	ErrForbiddenClearance = errors.New("forbidden: insufficient classification clearance")
 )
 
 // EnsureObjectAccess mirrors `pub fn ensure_object_access`.
 //
 // Decision cascade:
-//  1. Subject carrying the `admin` role → always allowed.
+//  1. Subject carrying the `admin` role and no active marking scope → allowed.
 //  2. Subject's `org_id` mismatching the object's `organization_id`
 //     → ErrForbiddenOrg.
 //  3. Object marking unknown → typed marking error.
-//  4. Subject's classification clearance < object marking rank
+//  4. Subject's current session marking set does not include the object marking
 //     → ErrForbiddenClearance.
 func EnsureObjectAccess(claims *authmw.Claims, object *ObjectInstance) error {
-	if claims.HasRole("admin") {
+	if claims.HasRole("admin") && !claims.HasActiveMarkingScope() {
 		return nil
 	}
 
@@ -53,12 +53,10 @@ func EnsureObjectAccess(claims *authmw.Claims, object *ObjectInstance) error {
 		}
 	}
 
-	required, ok := MarkingRank(object.Marking)
-	if !ok {
+	if _, ok := MarkingRank(object.Marking); !ok {
 		return fmt.Errorf("forbidden: unsupported object marking '%s'", object.Marking)
 	}
-	granted := ClearanceRank(claims)
-	if granted < required {
+	if !claims.AllowsMarking(object.Marking) {
 		return ErrForbiddenClearance
 	}
 	return nil

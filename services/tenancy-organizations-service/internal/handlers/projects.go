@@ -379,23 +379,29 @@ func ensureProjectOwnerOrAdmin(project *models.OntologyProject, claims *authmw.C
 
 // ─── list / create / get / update / delete ─────────────────────────────
 
-// ListTemplates returns the project templates available for the
-// "Create new project" wizard. Stubbed with a single Default Template
-// until template provisioning lands; the frontend just needs an entry
-// to render on the picker step.
+// ListTemplates returns the active Project templates available for the
+// create-project wizard. SG.26 makes this a persisted per-space surface;
+// the optional space_slug query keeps the default global template visible
+// while filtering space-scoped governance templates.
 func (h *ProjectsHandlers) ListTemplates(w http.ResponseWriter, r *http.Request) {
 	if _, ok := authClaims(w, r); !ok {
 		return
 	}
-	templates := []map[string]any{
-		{
-			"id":          "default",
-			"key":         "default",
-			"name":        "Default Template",
-			"description": "Empty project with the standard folder layout.",
-		},
+	var spaceSlug *string
+	if raw := strings.TrimSpace(r.URL.Query().Get("space_slug")); raw != "" {
+		normalized, err := normalizeOptionalSlug(&raw, "space_slug")
+		if err != nil {
+			writeJSONErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		spaceSlug = normalized
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": templates})
+	templates, err := listProjectTemplates(r.Context(), h.Pool, spaceSlug)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list project templates: %s", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ListProjectTemplatesResponse{Data: templates})
 }
 
 // ListProjects mirrors Rust `list_projects`: filter by search, paginate
@@ -441,7 +447,8 @@ func (h *ProjectsHandlers) ListProjects(w http.ResponseWriter, r *http.Request) 
 		        default_role, point_of_contact_user_id, point_of_contact_email,
 		        "references", created_at, updated_at
 		 FROM ontology_projects
-		 WHERE slug ILIKE $1 OR display_name ILIKE $1
+		 WHERE is_deleted = FALSE
+		   AND (slug ILIKE $1 OR display_name ILIKE $1)
 		 ORDER BY created_at DESC`,
 		pattern,
 	)
@@ -516,14 +523,24 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	displayName := slug
+	if body.DisplayName != nil {
+		displayName = *body.DisplayName
+	}
+	deployment, err := h.prepareProjectTemplateDeployment(r.Context(), claims, &body, slug, displayName)
+	if err != nil {
+		var typed projectTemplateHTTPError
+		if errors.As(err, &typed) {
+			writeJSONErr(w, typed.status, typed.message)
+			return
+		}
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	workspaceSlug, err := normalizeOptionalSlug(body.WorkspaceSlug, "workspace_slug")
 	if err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	displayName := slug
-	if body.DisplayName != nil {
-		displayName = *body.DisplayName
 	}
 	description := ""
 	if body.Description != nil {
@@ -569,10 +586,6 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to create ontology project: %s", err))
 		return
 	}
-	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, projectID, workspace.ResourceSearchEventCreated); err != nil {
-		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
-		return
-	}
 
 	for i := range body.Folders {
 		parentFolderID, status, msg, err := resolveProjectFolderParent(r.Context(), tx, projectID, projectRID, &body.Folders[i])
@@ -593,6 +606,25 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project folder: %s", err))
 			return
 		}
+	}
+	if deployment != nil {
+		if err := deployment.insertFolders(r.Context(), tx, projectID, projectRID, claims.Sub); err != nil {
+			var typed projectTemplateHTTPError
+			if errors.As(err, &typed) {
+				writeJSONErr(w, typed.status, typed.message)
+				return
+			}
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := deployment.applyPostCreate(r.Context(), tx, projectID, slug, claims.Sub); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, projectID, workspace.ResourceSearchEventCreated); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
+		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
@@ -804,7 +836,8 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// DeleteProject mirrors Rust `delete_project`.
+// DeleteProject moves the project into Trash. Permanent deletion is handled by
+// DELETE /api/v1/workspace/resources/ontology_project/{id}/purge.
 func (h *ProjectsHandlers) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	claims, ok := authClaims(w, r)
 	if !ok {
@@ -834,17 +867,28 @@ func (h *ProjectsHandlers) DeleteProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer tx.Rollback(context.Background())
-	if err := workspace.DeleteProjectSearchIndexTx(r.Context(), tx, id, workspace.ResourceSearchEventPurged); err != nil {
-		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to remove ontology project from search index: %s", err))
-		return
-	}
-	cmd, err := tx.Exec(r.Context(), `DELETE FROM ontology_projects WHERE id = $1`, id)
+	cmd, err := tx.Exec(r.Context(),
+		`UPDATE ontology_projects
+		    SET is_deleted = TRUE,
+		        deleted_at = NOW(),
+		        deleted_by = $2,
+		        trash_retention_days = $3,
+		        purge_after = NOW() + ($3::int * INTERVAL '1 day'),
+		        original_project_id = NULL,
+		        original_parent_folder_id = NULL,
+		        updated_at = NOW()
+		  WHERE id = $1 AND is_deleted = FALSE`,
+		id, claims.Sub, workspace.DefaultTrashRetentionDays)
 	if err != nil {
-		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete ontology project: %s", err))
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to move ontology project to trash: %s", err))
 		return
 	}
 	if cmd.RowsAffected() == 0 {
 		writeJSONErr(w, http.StatusNotFound, "ontology project not found")
+		return
+	}
+	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, id, workspace.ResourceSearchEventTrashed); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index trashed ontology project: %s", err))
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {

@@ -226,7 +226,7 @@ func (r *Repo) effectiveResourceMarkings(ctx context.Context, q resourceMarkingQ
 	}, nil
 }
 
-func (r *Repo) CheckResourceAccess(ctx context.Context, tenantID *uuid.UUID, actorID uuid.UUID, body *models.ResourceAccessCheckRequest) (*models.ResourceAccessCheckResponse, error) {
+func (r *Repo) CheckResourceAccess(ctx context.Context, tenantID *uuid.UUID, actorID uuid.UUID, body *models.ResourceAccessCheckRequest, activeAllowedMarkings []string, scopedSessionActive bool) (*models.ResourceAccessCheckResponse, error) {
 	principalID := actorID
 	if body.PrincipalID != nil {
 		principalID = *body.PrincipalID
@@ -246,27 +246,34 @@ func (r *Repo) CheckResourceAccess(ctx context.Context, tenantID *uuid.UUID, act
 			return nil, err
 		}
 		member := set[models.MarkingPermissionMember]
+		inScope := resourceMarkingAllowedByScope(item, activeAllowedMarkings, scopedSessionActive)
+		satisfied := member && inScope
 		missingFor := []string{}
-		if !member {
+		if !satisfied {
 			missingFor = append(missingFor, item.RequiredFor...)
 		}
 		markingResults = append(markingResults, models.ResourceAccessMarkingResult{
-			MarkingID:   item.MarkingID,
-			MarkingName: item.MarkingName,
-			RequiredFor: append([]string{}, item.RequiredFor...),
-			Satisfied:   member,
-			MissingFor:  missingFor,
-			Sources:     item.Sources,
+			MarkingID:                item.MarkingID,
+			MarkingName:              item.MarkingName,
+			RequiredFor:              append([]string{}, item.RequiredFor...),
+			Satisfied:                satisfied,
+			MembershipSatisfied:      member,
+			ScopedSessionSatisfied:   inScope,
+			ScopedSessionRequirement: scopedSessionActive,
+			MissingFor:               missingFor,
+			Sources:                  item.Sources,
 		})
 	}
 
 	orgReq := evaluateResourceOrganizationRequirement(body.RequiredOrganizationID, body.UserOrganizationIDs)
 	roleReq := evaluateResourceRoleRequirement(body.RoleSatisfied, body.RoleLabel, body.RoleDetail)
+	scopedResourceReq := evaluateScopedSessionRequirement("Scoped session", models.ResourceMarkingRequiredForResourceAccess, activeAllowedMarkings, scopedSessionActive, markingResults)
 	resourceMarkingReq := evaluateResourceMarkingRequirement(models.ResourceAccessRequirementResourceMarking, "Resource markings", models.ResourceMarkingRequiredForResourceAccess, markingResults)
+	scopedDataReq := evaluateScopedSessionRequirement("Scoped session data markings", models.ResourceMarkingRequiredForDataAccess, activeAllowedMarkings, scopedSessionActive, markingResults)
 	dataMarkingReq := evaluateResourceMarkingRequirement(models.ResourceAccessRequirementDataMarking, "Lineage-derived data markings", models.ResourceMarkingRequiredForDataAccess, markingResults)
 
-	accessReqs := []models.ResourceAccessRequirementResult{orgReq, roleReq, resourceMarkingReq}
-	dataReqs := []models.ResourceAccessRequirementResult{dataMarkingReq}
+	accessReqs := []models.ResourceAccessRequirementResult{orgReq, roleReq, scopedResourceReq, resourceMarkingReq}
+	dataReqs := []models.ResourceAccessRequirementResult{scopedDataReq, dataMarkingReq}
 	resourceAllowed := resourceAccessRequirementsSatisfied(accessReqs)
 	dataAllowed := resourceAllowed && resourceAccessRequirementsSatisfied(dataReqs)
 
@@ -447,11 +454,68 @@ func evaluateResourceRoleRequirement(roleSatisfied *bool, label, detail string) 
 	}
 }
 
+func evaluateScopedSessionRequirement(label, requiredFor string, activeAllowedMarkings []string, scopedSessionActive bool, results []models.ResourceAccessMarkingResult) models.ResourceAccessRequirementResult {
+	if strings.TrimSpace(label) == "" {
+		label = "Scoped session"
+	}
+	if !scopedSessionActive {
+		return notApplicableResourceRequirement(
+			models.ResourceAccessRequirementScopedSession,
+			label,
+			"No active scoped-session marking subset was supplied; normal marking membership decides access.",
+		)
+	}
+	required := []string{}
+	present := []string{}
+	missing := []string{}
+	for _, result := range results {
+		if !stringInSlice(result.RequiredFor, requiredFor) {
+			continue
+		}
+		markingLabel := effectiveMarkingLabel(result.MarkingID, result.MarkingName)
+		required = append(required, markingLabel)
+		if result.ScopedSessionSatisfied {
+			present = append(present, markingLabel)
+		} else {
+			missing = append(missing, markingLabel)
+		}
+	}
+	if len(required) == 0 {
+		return models.ResourceAccessRequirementResult{
+			Kind:      models.ResourceAccessRequirementScopedSession,
+			Label:     label,
+			Status:    models.ResourceAccessRequirementStatusPassed,
+			Satisfied: true,
+			Present:   normalizeAccessStrings(activeAllowedMarkings),
+			Detail:    "Active scoped session is present; the resource has no marking requirements outside it.",
+		}
+	}
+	passed := len(missing) == 0
+	status := models.ResourceAccessRequirementStatusFailed
+	detail := "Active scoped session excludes one or more required markings."
+	if passed {
+		status = models.ResourceAccessRequirementStatusPassed
+		detail = "Active scoped session includes every required resource and data marking."
+	}
+	return models.ResourceAccessRequirementResult{
+		Kind:      models.ResourceAccessRequirementScopedSession,
+		Label:     label,
+		Status:    status,
+		Satisfied: passed,
+		Required:  required,
+		Present:   present,
+		Missing:   missing,
+		Detail:    detail,
+	}
+}
+
 func evaluateResourceMarkingRequirement(kind, label, requiredFor string, results []models.ResourceAccessMarkingResult) models.ResourceAccessRequirementResult {
 	required := []string{}
 	present := []string{}
 	missing := []string{}
 	sources := []string{}
+	missingMembership := 0
+	missingScopedSession := 0
 	for _, result := range results {
 		if !stringInSlice(result.RequiredFor, requiredFor) {
 			continue
@@ -467,6 +531,12 @@ func evaluateResourceMarkingRequirement(kind, label, requiredFor string, results
 			present = append(present, markingLabel)
 		} else {
 			missing = append(missing, markingLabel)
+			if !result.MembershipSatisfied {
+				missingMembership++
+			}
+			if !result.ScopedSessionSatisfied {
+				missingScopedSession++
+			}
 		}
 	}
 	if len(required) == 0 {
@@ -478,6 +548,10 @@ func evaluateResourceMarkingRequirement(kind, label, requiredFor string, results
 	if passed {
 		status = models.ResourceAccessRequirementStatusPassed
 		detail = "Principal is a member of every required marking."
+	} else if missingMembership == 0 && missingScopedSession > 0 {
+		detail = "Principal is a member of the required markings, but the active scoped session excludes one or more of them."
+	} else if missingMembership > 0 && missingScopedSession > 0 {
+		detail = "Principal is missing marking membership and the active scoped session excludes one or more required markings."
 	}
 	return models.ResourceAccessRequirementResult{
 		Kind:      kind,
@@ -600,6 +674,42 @@ func stringInSlice(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func resourceMarkingAllowedByScope(item models.EffectiveResourceMarking, activeAllowedMarkings []string, scopedSessionActive bool) bool {
+	if !scopedSessionActive {
+		return true
+	}
+	allowed := markingAccessSet(activeAllowedMarkings)
+	if len(allowed) == 0 {
+		return false
+	}
+	if allowed[strings.ToLower(item.MarkingID.String())] {
+		return true
+	}
+	return allowed[strings.ToLower(strings.TrimSpace(item.MarkingName))]
+}
+
+func markingAccessSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		out[strings.ToLower(value)] = true
+	}
+	return out
+}
+
+func normalizeAccessStrings(values []string) []string {
+	set := markingAccessSet(values)
+	out := make([]string, 0, len(set))
+	for value := range set {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func uuidInSlice(values []uuid.UUID, want uuid.UUID) bool {

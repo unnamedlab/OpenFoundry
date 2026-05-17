@@ -72,6 +72,9 @@ func ApplyAuthContextHeaders(req *http.Request, c *authmw.Claims) {
 	if clr, ok := c.ClassificationClearance(); ok {
 		req.Header.Set(HdrClassificationClearance, clr)
 	}
+	if allowedMarkings := c.AllowedMarkings(); len(allowedMarkings) > 0 {
+		req.Header.Set(HdrAllowedMarkings, strings.Join(allowedMarkings, ","))
+	}
 
 	scope := c.SessionScope
 	if scope == nil {
@@ -89,9 +92,6 @@ func ApplyAuthContextHeaders(req *http.Request, c *authmw.Claims) {
 			ids[i] = id.String()
 		}
 		req.Header.Set(HdrAllowedOrgIDs, strings.Join(ids, ","))
-	}
-	if len(scope.AllowedMarkings) > 0 {
-		req.Header.Set(HdrAllowedMarkings, strings.Join(scope.AllowedMarkings, ","))
 	}
 	if len(scope.RestrictedViewIDs) > 0 {
 		ids := make([]string, len(scope.RestrictedViewIDs))

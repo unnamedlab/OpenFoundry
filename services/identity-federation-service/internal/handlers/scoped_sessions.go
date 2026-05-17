@@ -102,6 +102,13 @@ func (h *ScopedSessions) Select(w http.ResponseWriter, r *http.Request) {
 			writeJSONErr(w, http.StatusForbidden, "no scoped session bypass is not allowed")
 			return
 		}
+		if cfg.Enabled {
+			// No-scoped-session is still explicit once scoped sessions are enabled:
+			// the organization policy already allowed the bypass, and downstream
+			// data planes receive the caller's full marking set instead of
+			// inferring it from an absent scope.
+			scope = &authmw.SessionScope{AllowedMarkings: append([]string(nil), fullAllowed...)}
+		}
 	} else {
 		preset, found := findScopedSessionPreset(cfg, selectedID)
 		if !found || !preset.Enabled {

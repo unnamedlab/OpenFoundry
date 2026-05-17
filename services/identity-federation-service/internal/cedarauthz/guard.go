@@ -179,7 +179,7 @@ func AdminGuard(action cedar.EntityUID, resourceFn authzcedar.ResourceFunc) func
 // Claims set.
 //
 // Inputs read off claims:
-//   - Sub, OrgID, Roles, SessionScope.AllowedMarkings → baseline
+//   - Sub, OrgID, Roles, Claims.AllowedMarkings() → baseline
 //     ABAC fields (mirrors authzcedar.PrincipalEntityFromClaims).
 //   - Attributes.kind        → principal.kind (typically
 //     "service_account" or "human").
@@ -201,11 +201,10 @@ func PrincipalEntitiesFromClaims(claims *authmw.Claims) (cedar.Entity, []cedar.E
 		tenant = claims.OrgID.String()
 	}
 
-	clearances := make([]cedar.Value, 0)
-	if claims.SessionScope != nil {
-		for _, m := range claims.SessionScope.AllowedMarkings {
-			clearances = append(clearances, types.NewEntityUID("Marking", types.String(m)))
-		}
+	allowedMarkings := claims.AllowedMarkings()
+	clearances := make([]cedar.Value, 0, len(allowedMarkings))
+	for _, m := range allowedMarkings {
+		clearances = append(clearances, types.NewEntityUID("Marking", types.String(m)))
 	}
 
 	rolesSet := make([]cedar.Value, 0, len(claims.Roles))

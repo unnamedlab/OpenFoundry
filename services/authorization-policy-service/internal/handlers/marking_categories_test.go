@@ -223,6 +223,13 @@ func TestResourceAccessCheckSG14WireShape(t *testing.T) {
 		DataAccessAllowed:     false,
 		AccessRequirements: []models.ResourceAccessRequirementResult{
 			{
+				Kind:      models.ResourceAccessRequirementScopedSession,
+				Label:     "Scoped session",
+				Status:    models.ResourceAccessRequirementStatusPassed,
+				Satisfied: true,
+				Present:   []string{"PII"},
+			},
+			{
 				Kind:      models.ResourceAccessRequirementResourceMarking,
 				Label:     "Resource markings",
 				Status:    models.ResourceAccessRequirementStatusPassed,
@@ -238,6 +245,17 @@ func TestResourceAccessCheckSG14WireShape(t *testing.T) {
 				Missing:   []string{"PII"},
 			},
 		},
+		MarkingResults: []models.ResourceAccessMarkingResult{
+			{
+				MarkingID:                uuid.New(),
+				MarkingName:              "PII",
+				RequiredFor:              []string{models.ResourceMarkingRequiredForDataAccess},
+				Satisfied:                false,
+				MembershipSatisfied:      true,
+				ScopedSessionSatisfied:   false,
+				ScopedSessionRequirement: true,
+			},
+		},
 		CheckedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
 	}
 	out, err := json.Marshal(resp)
@@ -250,6 +268,10 @@ func TestResourceAccessCheckSG14WireShape(t *testing.T) {
 		"effective_markings", "marking_results", "checked_at",
 	} {
 		assert.Contains(t, view, key)
+	}
+	result := view["marking_results"].([]any)[0].(map[string]any)
+	for _, key := range []string{"membership_satisfied", "scoped_session_satisfied", "scoped_session_requirement"} {
+		assert.Contains(t, result, key)
 	}
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   createProject,
   listProjectTemplates,
+  type OntologyProjectRole,
   type OntologyProject,
   type ProjectTemplate,
 } from '@/lib/api/ontology';
@@ -16,11 +17,13 @@ interface CreateProjectModalProps {
 }
 
 type Step = 'template' | 'form';
-type DefaultRole = 'editor' | 'viewer';
+type DefaultRole = OntologyProjectRole;
 
 const ROLE_LABEL: Record<DefaultRole, string> = {
-  editor: 'Editor',
+  discoverer: 'Discoverer',
   viewer: 'Viewer',
+  editor: 'Editor',
+  owner: 'Owner',
 };
 
 function deriveSlug(value: string) {
@@ -155,6 +158,9 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
 
   function pickTemplate(next: ProjectTemplate) {
     setTemplate(next);
+    if (next.default_role && ROLE_LABEL[next.default_role]) {
+      setDefaultRole(next.default_role);
+    }
     setStep('form');
   }
 
@@ -173,6 +179,8 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
         display_name: name.trim(),
         description: description.trim() || undefined,
         workspace_slug: selectedSpace?.slug,
+        default_role: defaultRole,
+        template_key: template.key,
       });
       onCreated(project);
     } catch (cause) {
@@ -350,36 +358,52 @@ function TemplateStep({
               <span className="of-text-muted">No templates available.</span>
             </div>
           ) : (
-            templates.map((tpl) => (
-              <button
-                key={tpl.id}
-                type="button"
-                onClick={() => onPickTemplate(tpl)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                  padding: '14px 12px',
-                  border: 0,
-                  background: 'transparent',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(45, 114, 210, 0.06)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <FolderTemplateGlyph />
-                <div style={{ flex: 1, display: 'grid', gap: 2 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>{tpl.name}</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tpl.description}</span>
-                </div>
-                <span style={{ color: 'var(--text-muted)' }}>
-                  <ArrowRightGlyph />
-                </span>
-              </button>
-            ))
+            templates.map((tpl) => {
+              const groupCount = tpl.generated_groups?.length ?? 0;
+              const markingCount = tpl.markings?.length ?? 0;
+              const constraintCount = tpl.constraints?.length ?? 0;
+              const folderCount = tpl.folder_structure?.length ?? 0;
+              const details = [
+                tpl.default_role ? `Default ${ROLE_LABEL[tpl.default_role] ?? tpl.default_role}` : null,
+                groupCount > 0 ? `${groupCount} groups` : null,
+                markingCount > 0 ? `${markingCount} markings` : null,
+                constraintCount > 0 ? `${constraintCount} constraints` : null,
+                folderCount > 0 ? `${folderCount} folders` : null,
+              ].filter(Boolean);
+              return (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => onPickTemplate(tpl)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    padding: '14px 12px',
+                    border: 0,
+                    background: 'transparent',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(45, 114, 210, 0.06)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <FolderTemplateGlyph />
+                  <div style={{ flex: 1, display: 'grid', gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-strong)' }}>{tpl.name}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tpl.description}</span>
+                    {details.length > 0 ? (
+                      <span style={{ fontSize: 11, color: '#5f6b7a' }}>{details.join(' • ')}</span>
+                    ) : null}
+                  </div>
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    <ArrowRightGlyph />
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>
       </div>
@@ -393,8 +417,10 @@ function TemplateStep({
         <button
           type="button"
           className="of-link"
+          onClick={() => {
+            window.location.href = '/control-panel/projects';
+          }}
           style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 13, color: 'var(--status-info)' }}
-          disabled
         >
           Manage project templates ↗
         </button>
@@ -528,8 +554,10 @@ function FormStep({
                     background: '#fff',
                   }}
                 >
-                  <option value="editor">{ROLE_LABEL.editor}</option>
+                  <option value="discoverer">{ROLE_LABEL.discoverer}</option>
                   <option value="viewer">{ROLE_LABEL.viewer}</option>
+                  <option value="editor">{ROLE_LABEL.editor}</option>
+                  <option value="owner">{ROLE_LABEL.owner}</option>
                 </select>
               </label>
             </div>

@@ -7,16 +7,21 @@ import {
   type ResourceKind,
   type ResourceShare,
 } from '@/lib/api/workspace';
+import { OpenWithMenu } from './OpenWithMenu';
 import { ResourcePermissionsDrawer, type AccessGraphMembership } from './ResourcePermissionsDrawer';
 import { ShareDialog } from './ShareDialog';
 
 export interface ResourceSummary {
   id: string;
+  rid?: string | null;
   name: string;
   kind: ResourceKind;
   description?: string | null;
   owner_id?: string | null;
   location?: string | null;
+  project_id?: string | null;
+  project_rid?: string | null;
+  open_url?: string | null;
   tags?: string[];
   created_at?: string | null;
   updated_at?: string | null;
@@ -82,7 +87,7 @@ export function ResourceDetailsPanel({
 
   return (
     <>
-      <aside style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 380, background: '#0f172a', color: '#e2e8f0', borderLeft: '1px solid #1e293b', zIndex: 80, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <aside className="of-resource-details-panel" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 380, background: '#0f172a', color: '#e2e8f0', borderLeft: '1px solid #1e293b', zIndex: 80, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
           <div>
             <p className="of-text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{resource.kind}</p>
@@ -92,7 +97,16 @@ export function ResourceDetailsPanel({
           <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 16 }} aria-label="Close">✕</button>
         </header>
 
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <OpenWithMenu
+            resourceKind={resource.kind}
+            resourceId={resource.id}
+            resourceRid={resource.rid}
+            projectRid={resource.project_rid}
+            projectId={resource.project_id}
+            openUrl={resource.open_url}
+            align="left"
+          />
           <button type="button" onClick={() => void toggleFavorite()} className="of-button" style={{ fontSize: 11 }}>
             {isFavorite ? '★ Remove favorite' : '☆ Add to favorites'}
           </button>
@@ -103,7 +117,7 @@ export function ResourceDetailsPanel({
         <dl style={{ display: 'grid', gap: 6, fontSize: 12, margin: 0 }}>
           <div>
             <dt style={{ fontSize: 10, textTransform: 'uppercase', color: '#94a3b8' }}>RID</dt>
-            <dd style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all' }}>{resource.id}</dd>
+            <dd style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all' }}>{resource.rid ?? resource.id}</dd>
           </div>
           {resource.location && (
             <div>

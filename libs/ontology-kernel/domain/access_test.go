@@ -42,6 +42,20 @@ func TestEnsureObjectAccessAdminBypass(t *testing.T) {
 	}
 }
 
+func TestEnsureObjectAccessScopedAdminCannotReadOutsideSession(t *testing.T) {
+	t.Parallel()
+	c := &authmw.Claims{
+		Roles: []string{"admin"},
+		SessionScope: &authmw.SessionScope{
+			AllowedMarkings: []string{"public"},
+		},
+	}
+	err := EnsureObjectAccess(c, &ObjectInstance{Marking: "pii"})
+	if !errors.Is(err, ErrForbiddenClearance) {
+		t.Fatalf("expected scoped admin to be denied outside active scope, got %v", err)
+	}
+}
+
 func TestEnsureObjectAccessRejectsCrossOrg(t *testing.T) {
 	t.Parallel()
 	subjectOrg, objectOrg := uuid.New(), uuid.New()

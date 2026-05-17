@@ -271,10 +271,10 @@ func tenantFromClaims(claims *authmw.Claims) string {
 }
 
 func callerClearances(claims *authmw.Claims) []string {
-	if claims.SessionScope == nil {
+	if claims == nil {
 		return nil
 	}
-	return append([]string(nil), claims.SessionScope.AllowedMarkings...)
+	return append([]string(nil), claims.AllowedMarkings()...)
 }
 
 // ── Forbidden error with precise reason ───────────────────────────
@@ -302,7 +302,7 @@ func (e *ErrForbidden) Error() string {
 }
 
 func forbiddenWithMissing(required, clearances []string, claims *authmw.Claims) error {
-	if claims.HasRole("admin") {
+	if claims != nil && claims.HasRole("admin") && !claims.HasActiveMarkingScope() {
 		return &ErrForbidden{Generic: true}
 	}
 	owned := map[string]struct{}{}

@@ -12,17 +12,17 @@ import (
 // JSON tags are preserved verbatim — every JWT issued by either Rust
 // or Go services round-trips through this type unchanged.
 type SessionScope struct {
-	AllowedMethods         []string    `json:"allowed_methods,omitempty"`
-	AllowedPathPrefixes    []string    `json:"allowed_path_prefixes,omitempty"`
-	AllowedSubjectIDs      []string    `json:"allowed_subject_ids,omitempty"`
-	AllowedOrgIDs          []uuid.UUID `json:"allowed_org_ids,omitempty"`
-	Workspace              *string     `json:"workspace,omitempty"`
-	ClassificationClearance *string    `json:"classification_clearance,omitempty"`
-	AllowedMarkings        []string    `json:"allowed_markings,omitempty"`
-	RestrictedViewIDs      []uuid.UUID `json:"restricted_view_ids,omitempty"`
-	ConsumerMode           bool        `json:"consumer_mode,omitempty"`
-	GuestEmail             *string     `json:"guest_email,omitempty"`
-	GuestDisplayName       *string     `json:"guest_display_name,omitempty"`
+	AllowedMethods          []string    `json:"allowed_methods,omitempty"`
+	AllowedPathPrefixes     []string    `json:"allowed_path_prefixes,omitempty"`
+	AllowedSubjectIDs       []string    `json:"allowed_subject_ids,omitempty"`
+	AllowedOrgIDs           []uuid.UUID `json:"allowed_org_ids,omitempty"`
+	Workspace               *string     `json:"workspace,omitempty"`
+	ClassificationClearance *string     `json:"classification_clearance,omitempty"`
+	AllowedMarkings         []string    `json:"allowed_markings,omitempty"`
+	RestrictedViewIDs       []uuid.UUID `json:"restricted_view_ids,omitempty"`
+	ConsumerMode            bool        `json:"consumer_mode,omitempty"`
+	GuestEmail              *string     `json:"guest_email,omitempty"`
+	GuestDisplayName        *string     `json:"guest_display_name,omitempty"`
 }
 
 // Claims is the canonical JWT payload. Same field set + JSON tags as
@@ -126,9 +126,21 @@ func (c *Claims) ClassificationClearance() (string, bool) {
 	return v, ok
 }
 
-// AllowedMarkings returns the effective marking allowlist (mirrors
-// the Rust default cascade by clearance).
+// HasActiveMarkingScope reports whether this token carries an explicit
+// scoped-session marking subset. When true, the subset is authoritative:
+// callers must not widen access from role, clearance, or stored membership.
+func (c *Claims) HasActiveMarkingScope() bool {
+	return c != nil && c.SessionScope != nil && len(c.SessionScope.AllowedMarkings) > 0
+}
+
+// AllowedMarkings returns the effective marking allowlist. A scoped-session
+// subset wins over the normal classification/admin cascade so downstream
+// services can make one decision for filesystem, Ontology, API, and analytics
+// reads.
 func (c *Claims) AllowedMarkings() []string {
+	if c == nil {
+		return nil
+	}
 	if c.SessionScope != nil && len(c.SessionScope.AllowedMarkings) > 0 {
 		out := make([]string, len(c.SessionScope.AllowedMarkings))
 		copy(out, c.SessionScope.AllowedMarkings)
@@ -149,9 +161,15 @@ func (c *Claims) AllowedMarkings() []string {
 	return []string{"public"}
 }
 
-// AllowsMarking reports whether the effective scope permits `marking`.
+// AllowsMarking reports whether the effective active session permits `marking`.
+// Admin role bypass applies only when there is no explicit scoped-session
+// marking subset. This prevents an active scoped session from cross-pollinating
+// into data the same user could normally access outside the selected scope.
 func (c *Claims) AllowsMarking(marking string) bool {
-	if c.HasRole("admin") {
+	if c == nil {
+		return false
+	}
+	if !c.HasActiveMarkingScope() && c.HasRole("admin") {
 		return true
 	}
 	for _, m := range c.AllowedMarkings() {
@@ -160,6 +178,28 @@ func (c *Claims) AllowsMarking(marking string) bool {
 		}
 	}
 	return false
+}
+
+// MissingAllowedMarkings returns the subset of `markings` that the caller's
+// current session does not permit. Empty/blank requirements are ignored.
+func (c *Claims) MissingAllowedMarkings(markings []string) []string {
+	missing := make([]string, 0)
+	for _, marking := range markings {
+		marking = strings.TrimSpace(marking)
+		if marking == "" {
+			continue
+		}
+		if !c.AllowsMarking(marking) {
+			missing = append(missing, marking)
+		}
+	}
+	return missing
+}
+
+// AllowsAllMarkings reports whether every supplied marking is allowed by the
+// caller's current session.
+func (c *Claims) AllowsAllMarkings(markings []string) bool {
+	return len(c.MissingAllowedMarkings(markings)) == 0
 }
 
 // AllowsHTTPMethod returns true when the session scope permits `method`.

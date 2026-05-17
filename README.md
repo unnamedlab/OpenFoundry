@@ -207,6 +207,7 @@ Some contracts are pinned by golden tests and must not change without an explici
 - Compass search index: `tenancy-organizations-service` maintains `compass_resource_search_index` entries for project/folder RIDs and emits `compass.resource.search.updated.v1` outbox events on create/update/move/trash/restore/purge instead of relying on table polling.
 - Compass search API: `GET /api/v1/compass/search` is permission-aware, supports `q`, `type`, `project`, `owner`, `marking`, `limit`, and `cursor`, and paginates by opaque cursor over text score, last modified time, and RID.
 - Compass search UI shell: `apps/web` route `/search` combines ontology search with `GET /api/v1/compass/search`, keeps the `Cmd/Ctrl+J` global search shell, loads jump-to recents/favorites, displays marking badges, and derives resource "Open with" actions from the frontend Compass resource type registry.
+- Compass open-with menu: `apps/web/src/lib/components/workspace/OpenWithMenu.tsx` is the shared registry-backed launcher for search results, project/folder list views, and resource detail headers; targets resolve from immutable RIDs when present and retain an unknown-resource fallback.
 - Compass breadcrumbs: `apps/web` uses the shared `ProjectBreadcrumb` for project/folder paths, click-to-open navigation, and per-crumb copy-RID actions derived from stable project/folder RIDs.
 - Dataset RID format: `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state/type tokens: `open|committed|aborted` and `snapshot|append|update|delete`.

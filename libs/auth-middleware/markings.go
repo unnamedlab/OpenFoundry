@@ -23,8 +23,8 @@ type CallerClearances struct {
 	// handlers that haven't migrated to typed ids can still call
 	// `claims.allows_marking(&str)`-style checks via this struct.
 	names map[string]struct{}
-	// admin bypasses enforcement entirely (mirrors
-	// [Claims.AllowsMarking]).
+	// admin bypasses enforcement only when the token is not carrying an
+	// explicit scoped-session marking subset.
 	admin bool
 }
 
@@ -45,7 +45,7 @@ func CallerClearancesFromClaims(claims *Claims, resolver MarkingNameResolver) Ca
 	cc := CallerClearances{
 		ids:   make(map[security.MarkingID]struct{}),
 		names: make(map[string]struct{}),
-		admin: claims.HasRole("admin"),
+		admin: claims.HasRole("admin") && !claims.HasActiveMarkingScope(),
 	}
 	for _, n := range claims.AllowedMarkings() {
 		lower := asciiToLower(n)
@@ -64,7 +64,7 @@ func CallerClearancesFromClaimsNamesOnly(claims *Claims) CallerClearances {
 	cc := CallerClearances{
 		ids:   make(map[security.MarkingID]struct{}),
 		names: make(map[string]struct{}),
-		admin: claims.HasRole("admin"),
+		admin: claims.HasRole("admin") && !claims.HasActiveMarkingScope(),
 	}
 	for _, n := range claims.AllowedMarkings() {
 		cc.names[asciiToLower(n)] = struct{}{}

@@ -86,6 +86,20 @@ func TestSessionScopeLimitsSubjectsAndPrefersScopeClearance(t *testing.T) {
 	assert.True(t, c.ConsumerModeEnabled())
 }
 
+func TestActiveScopedSessionLimitsAdminMarkings(t *testing.T) {
+	t.Parallel()
+	c := &authmw.Claims{
+		Roles: []string{"admin"},
+		SessionScope: &authmw.SessionScope{
+			AllowedMarkings: []string{"public"},
+		},
+	}
+	assert.True(t, c.HasActiveMarkingScope())
+	assert.True(t, c.AllowsMarking("public"))
+	assert.False(t, c.AllowsMarking("pii"))
+	assert.Equal(t, []string{"pii"}, c.MissingAllowedMarkings([]string{"public", "pii"}))
+}
+
 func TestAllowedOrgIDsFallsBackToOrgIDWhenScopeUnset(t *testing.T) {
 	t.Parallel()
 	org := uuid.New()

@@ -239,20 +239,19 @@ func (h *Handlers) propertyMarkingsFor(ctx context.Context, typeID repos.TypeId,
 }
 
 func canReadMarkings(claims *authmw.Claims, markings []repos.MarkingId) bool {
-	if len(markings) == 0 || claims.HasRole("admin") || claims.HasPermissionKey("rows:all") || claims.HasPermissionKey("ontology:read_all") {
+	if len(markings) == 0 {
 		return true
 	}
-	if claims.SessionScope == nil || len(claims.SessionScope.AllowedMarkings) == 0 {
+	if claims == nil {
 		return false
 	}
-	allowed := make(map[string]struct{}, len(claims.SessionScope.AllowedMarkings))
-	for _, marking := range claims.SessionScope.AllowedMarkings {
-		allowed[marking] = struct{}{}
+	if !claims.HasActiveMarkingScope() &&
+		(claims.HasRole("admin") || claims.HasPermissionKey("rows:all") || claims.HasPermissionKey("ontology:read_all")) {
+		return true
 	}
+	required := make([]string, 0, len(markings))
 	for _, marking := range markings {
-		if _, ok := allowed[string(marking)]; !ok {
-			return false
-		}
+		required = append(required, string(marking))
 	}
-	return true
+	return claims.AllowsAllMarkings(required)
 }
