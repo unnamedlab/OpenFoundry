@@ -60,6 +60,30 @@ jobs:
           cache-dependency-path: go.sum
       - run: go vet ./...
 
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: cache GOMODCACHE and GOCACHE
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-
+      - name: go build (default tags)
+        run: go build ./...
+      - name: go build (integration tag)
+        run: go build -tags=integration ./...
+
   tidy:
     name: tidy (drift check)
     runs-on: ubuntu-latest
