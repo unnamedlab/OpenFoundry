@@ -1,91 +1,109 @@
-# SparkApplication that runs the IcebergToObjectStoreIndexer Scala main against
-# the PoC `transactions_clean` Iceberg table and PUTs each row into
-# object-database-service via /api/v1/object-database/objects/{tenant}/{id}.
+# Phase A of ADR-0045: replaces the previous SparkApplication CR
+# (sparkoperator.k8s.io/v1beta2 + Scala IcebergToObjectStoreIndexer)
+# with a plain Kubernetes Job running services/iceberg-object-indexer
+# (Go, apache/iceberg-go). No Spark Operator dependency.
 #
-# This is the production stand-in for tools/online-retail/seed_object_database.py
-# — same data destination, same wire shape, but reading from Iceberg snapshots
-# (truth source) instead of from the local CSV.
+# Same data destination, same row contract, same CLI flags as the Scala
+# version — verified against tools/online-retail/seed_object_database.py
+# baseline.
 #
 # Usage:
 #   # 1. Make sure object-database-service is running (stub mode or Cassandra):
 #   kubectl -n openfoundry get deploy object-database-service
-#   # 2. Apply the CR:
+#   # 2. Apply the Job:
 #   kubectl apply -f infra/dev/indexer-online-retail.yaml
 #   # 3. Watch:
-#   kubectl get sparkapplication -n openfoundry -w
-#   kubectl logs -n openfoundry indexer-online-retail-clean-001-driver -f
-#   # 4. Verify ObjectStore got the rows:
+#   kubectl logs -n openfoundry -l job-name=indexer-online-retail-clean -f
+#   # 4. Verify object-database got the rows:
 #   curl -s "http://localhost:18081/api/v1/ontology/types/678b55fe-db5f-4d3a-bbf2-8cb643af8d32/objects?per_page=5" \
 #     | python3 -m json.tool
 ---
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: indexer-online-retail-clean-001
+  name: indexer-online-retail-clean
   namespace: openfoundry
   labels:
     openfoundry.io/component: iceberg-indexer
     openfoundry.io/source-table: "transactions_clean"
     openfoundry.io/target-type-id: "678b55fe-db5f-4d3a-bbf2-8cb643af8d32"
 spec:
-  type: Scala
-  mode: cluster
-  image: registry.registry.svc.cluster.local:5000/pipeline-runner:indexer-002
-  imagePullPolicy: IfNotPresent
-  mainClass: "com.openfoundry.indexer.IcebergToObjectStoreIndexer"
-  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
-  arguments:
-    - "--source-table"
-    - "lakekeeper.default.transactions_clean"
-    - "--target-tenant"
-    - "default"
-    - "--target-type-id"
-    - "678b55fe-db5f-4d3a-bbf2-8cb643af8d32"   # transaction
-    - "--id-column"
-    - "transaction_id"
-    - "--object-database-url"
-    - "http://object-database-service.openfoundry.svc:8080"
-    - "--catalog"
-    - "lakekeeper"
-    - "--catalog-uri"
-    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    # Cap at 500 rows for the PoC run — same scale the seeder uses.
-    - "--limit"
-    - "500"
-  sparkVersion: "3.5.4"
-  restartPolicy:
-    type: Never
-  timeToLiveSeconds: 1800
-  driver:
-    cores: 1
-    coreRequest: "200m"
-    memory: "1024m"
-    serviceAccount: spark
-    env:
-      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
-      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
-  executor:
-    cores: 1
-    coreRequest: "200m"
-    instances: 1
-    memory: "1536m"
-    memoryOverhead: "512m"
-    env:
-      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
-      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
-  sparkConf:
-    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
-    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
-    spark.sql.catalog.lakekeeper.type: "rest"
-    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    spark.sql.catalog.lakekeeper.warehouse: "openfoundry"
-    spark.sql.catalog.lakekeeper.credential: "lakekeeper:s"
-    spark.sql.catalog.lakekeeper.oauth2-server-uri: "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
-    spark.sql.catalog.lakekeeper.scope: "openid"
-    spark.sql.defaultCatalog: "lakekeeper"
-    spark.hadoop.fs.s3a.endpoint: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
-    spark.hadoop.fs.s3a.path.style.access: "true"
-    spark.hadoop.fs.s3a.aws.credentials.provider: "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-    # Apache Arrow vectorised reader SIGSEGVs on arm64+JDK17 with Iceberg 1.5.x.
-    spark.sql.parquet.enableVectorizedReader: "false"
-    spark.sql.iceberg.vectorization.enabled: "false"
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        openfoundry.io/component: iceberg-indexer
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: indexer
+          image: registry.registry.svc.cluster.local:5000/openfoundry/iceberg-object-indexer:0.1.0
+          imagePullPolicy: Always
+          args:
+            - "--source-table"
+            - "lakekeeper.default.transactions_clean"
+            - "--target-tenant"
+            - "default"
+            - "--target-type-id"
+            - "678b55fe-db5f-4d3a-bbf2-8cb643af8d32"
+            - "--id-column"
+            - "transaction_id"
+            - "--object-database-url"
+            - "http://object-database-service.openfoundry.svc:8080"
+            - "--catalog"
+            - "lakekeeper"
+            - "--catalog-uri"
+            - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+            - "--catalog-warehouse"
+            - "openfoundry"
+            - "--catalog-credential"
+            - "lakekeeper:s"
+            - "--oauth-token-uri"
+            - "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+            - "--oauth-scope"
+            - "openid"
+            - "--limit"
+            - "500"
+            - "--log-format"
+            - "json"
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          # AWS_* env vars are kept for the Iceberg S3 backend: iceberg-go
+          # uses the standard aws-sdk-go-v2 chain to resolve credentials and
+          # endpoint when the catalog returns S3 file locations.
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openfoundry-iceberg
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openfoundry-iceberg
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: "true"
+            - name: AWS_ENDPOINT_URL_S3
+              value: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
