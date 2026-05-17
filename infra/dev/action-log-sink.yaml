@@ -1,8 +1,12 @@
-# SparkApplication para el ActionLogStreamSink — consume eventos de
-# `ontology.actions.applied.v1` (Kafka) y los appendea a la tabla Iceberg
-# `lakekeeper.default.action_log` (audit log inmutable con time-travel).
+# action-log-sink — Phase B of ADR-0045.
+# Replaces the previous SparkApplication CR (sparkoperator.k8s.io/v1beta2
+# + Scala ActionLogStreamSink) with a plain apps/v1 Deployment running
+# services/action-log-sink (Go). Same topic, table, schema, and
+# at-least-once-with-event_id-dedup contract documented in
+# services/action-log-sink/README.md.
 #
-# REQUIERE PRIMERO crear la tabla Iceberg vía Spark SQL (one-shot):
+# Pre-req — first-time creation of the target table (one-shot, e.g.
+# via Spark SQL or any Iceberg client that talks Lakekeeper):
 #
 #   CREATE TABLE IF NOT EXISTS lakekeeper.default.action_log (
 #     event_id              STRING,
@@ -25,80 +29,108 @@
 #   USING iceberg
 #   PARTITIONED BY (days(from_unixtime(applied_at_ms / 1000)));
 #
-# (Se puede aplicar como SparkApplication batch one-shot reusando el
-# pipeline-runner main con --inline-sql.)
-#
-# Time-travel ejemplo (consultar el estado del log a un snapshot pasado):
+# Time-travel example (state of the log at a historical snapshot):
 #
 #   SELECT * FROM lakekeeper.default.action_log VERSION AS OF <snapshot_id>;
-#
-# NO arrancar este CR en el cluster Lima 24/7 — consume memoria de Spark
-# de forma permanente. Para una demo: aplicarlo, dejar que procese 1-2
-# triggers, comprobar la tabla, suspender.
 ---
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: action-log-stream-sink-001
+  name: action-log-sink
   namespace: openfoundry
   labels:
     openfoundry.io/component: audit-stream-sink
     openfoundry.io/topic: "ontology.actions.applied.v1"
 spec:
-  type: Scala
-  mode: cluster
-  image: registry.registry.svc.cluster.local:5000/pipeline-runner:indexer-002
-  imagePullPolicy: IfNotPresent
-  mainClass: "com.openfoundry.audit.ActionLogStreamSink"
-  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
-  arguments:
-    - "--kafka-brokers"
-    - "openfoundry-kafka-bootstrap.kafka.svc:9092"
-    - "--topic"
-    - "ontology.actions.applied.v1"
-    - "--table"
-    - "lakekeeper.default.action_log"
-    - "--catalog-uri"
-    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    - "--checkpoint"
-    - "s3a://openfoundry-iceberg/_checkpoints/action_log"
-    - "--trigger-seconds"
-    - "30"
-  sparkVersion: "3.5.4"
-  restartPolicy:
-    type: Never
-  driver:
-    cores: 1
-    coreRequest: "200m"
-    memory: "1024m"
-    serviceAccount: spark
-    env:
-      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
-      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
-  executor:
-    cores: 1
-    coreRequest: "200m"
-    instances: 1
-    memory: "1536m"
-    memoryOverhead: "512m"
-    env:
-      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
-      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
-  deps:
-    packages:
-      - "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.4"
-  sparkConf:
-    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
-    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
-    spark.sql.catalog.lakekeeper.type: "rest"
-    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    spark.sql.catalog.lakekeeper.warehouse: "openfoundry"
-    spark.sql.catalog.lakekeeper.credential: "lakekeeper:s"
-    spark.sql.catalog.lakekeeper.oauth2-server-uri: "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
-    spark.sql.catalog.lakekeeper.scope: "openid"
-    spark.sql.defaultCatalog: "lakekeeper"
-    spark.hadoop.fs.s3a.endpoint: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
-    spark.hadoop.fs.s3a.path.style.access: "true"
-    spark.hadoop.fs.s3a.aws.credentials.provider: "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-    spark.sql.parquet.enableVectorizedReader: "false"
-    spark.sql.iceberg.vectorization.enabled: "false"
+  replicas: 1
+  strategy:
+    # Rolling with 0 surge prevents two consumers in the same group
+    # racing the same partitions during a deploy. The
+    # terminationGracePeriodSeconds below gives the outgoing pod time
+    # to drain its in-flight batch before the new one comes up.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      openfoundry.io/component: audit-stream-sink
+      openfoundry.io/topic: "ontology.actions.applied.v1"
+  template:
+    metadata:
+      labels:
+        openfoundry.io/component: audit-stream-sink
+        openfoundry.io/topic: "ontology.actions.applied.v1"
+    spec:
+      # Final flush on SIGTERM has up to (MaxWait + Append RTT) to
+      # complete. Default MaxWait is 60s; allow generous headroom.
+      terminationGracePeriodSeconds: 90
+      containers:
+        - name: action-log-sink
+          image: registry.registry.svc.cluster.local:5000/openfoundry/action-log-sink:0.1.0
+          imagePullPolicy: Always
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "openfoundry-kafka-bootstrap.kafka.svc:9092"
+            # Dev cluster uses PLAINTEXT — see openfoundry_dev_k3s memory note.
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: "PLAINTEXT"
+            - name: ICEBERG_CATALOG_URL
+              value: "http://iceberg-catalog-service.openfoundry.svc:8080"
+            - name: ICEBERG_WAREHOUSE
+              value: "openfoundry"
+            - name: METRICS_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: OTEL_TRACES_EXPORTER
+              value: "none"
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: action-log-sink
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: audit-stream-sink
+spec:
+  selector:
+    openfoundry.io/component: audit-stream-sink
+    openfoundry.io/topic: "ontology.actions.applied.v1"
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  type: ClusterIP
