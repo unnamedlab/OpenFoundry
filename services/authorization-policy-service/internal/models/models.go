@@ -72,8 +72,14 @@ type ListResponse[T any] struct {
 // ABACPolicy mirrors `abac_policies` rows — pre-Cedar legacy rules
 // kept around for backwards-compat with policies authored before
 // ADR-0027. The ABAC evaluator walks `Conditions` against the request context.
+//
+// TenantID is set from the authenticated caller's tenant on create;
+// it is never accepted from the request body. The evaluator filters
+// by tenant_id so a policy authored in one tenant cannot match a
+// caller from a different tenant.
 type ABACPolicy struct {
 	ID          uuid.UUID       `json:"id"`
+	TenantID    uuid.UUID       `json:"tenant_id"`
 	Name        string          `json:"name"`
 	Description *string         `json:"description"`
 	Effect      string          `json:"effect"`

@@ -1,10 +1,26 @@
 package authmw
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/google/uuid"
 )
+
+// TenantFromContext returns the authenticated caller's tenant UUID
+// (claims.OrgID) plus a present-flag. Returns (uuid.Nil, false) when
+// the request is unauthenticated or the JWT does not carry org_id.
+//
+// Services that gate per-tenant rows must call this *before* hitting
+// the repo — passing uuid.Nil to a tenant-scoped query collapses
+// every tenant into one bucket.
+func TenantFromContext(ctx context.Context) (uuid.UUID, bool) {
+	c, ok := FromContext(ctx)
+	if !ok || c.OrgID == nil {
+		return uuid.Nil, false
+	}
+	return *c.OrgID, true
+}
 
 // TenantQuotaPolicy is the resource budget a tenant tier carries through
 // every gateway hop. Values are wire-stable across services so dashboards,

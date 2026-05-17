@@ -15,6 +15,7 @@
     "name": "allow-marked-read",
     "resource": "dataset",
     "row_filter": "tenant_id = $tenant",
+    "tenant_id": "44444444-4444-4444-4444-444444444444",
     "updated_at": "2026-05-07T09:05:00Z"
   },
   "cedar_policy": {

@@ -28,6 +28,11 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	tenantID, ok := authmw.TenantFromContext(r.Context())
+	if !ok {
+		writeJSONErr(w, http.StatusForbidden, "tenant scope required")
+		return
+	}
 	var body EvaluatePolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, "invalid body")
@@ -37,7 +42,7 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "resource and action required")
 		return
 	}
-	out, err := domain.Evaluate(r.Context(), h.Repo, caller,
+	out, err := domain.Evaluate(r.Context(), h.Repo, caller, tenantID,
 		body.Resource, body.Action, body.ResourceAttributes)
 	if err != nil {
 		slog.Error("evaluate policy", slog.String("error", err.Error()))
