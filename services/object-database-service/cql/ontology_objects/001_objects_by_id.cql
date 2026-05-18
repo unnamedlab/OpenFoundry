@@ -1,22 +1,54 @@
--- 001_objects_by_id.cql — primary object record
--- Drives: handlers/objects.rs CRUD (get/create/update/delete),
---         handlers/funnel.rs writes, handlers/bindings.rs writes,
---         handlers/actions.rs mutations.
--- Access pattern: by (tenant, object_id) — single-row partition.
--- LWT used for optimistic concurrency on revision_number.
+-- 001_objects_by_id.cql — OSV2 primary object record
+-- Drives: object-database-service CRUD, Action writeback, and OSV2 point reads.
+-- Access pattern: per ontology tenant + object type + primary-key hash bucket.
+-- OSV2.1: partition by object type, then 64-way primary-key hash bucket to
+-- avoid hot tablets for fat object types. OSV2.2: hot row uses typed blobs keyed
+-- by property id; property names are not stored in the hot row.
 
 CREATE TABLE IF NOT EXISTS ontology_objects.objects_by_id (
-    tenant            text,
-    object_id         timeuuid,
-    type_id           text,
-    owner_id          uuid,
-    properties        text,                 -- canonical JSON document
-    marking           frozen<set<text>>,    -- multi-marking labels
-    organization_id   uuid,
-    revision_number   bigint,                -- monotonic counter (single-row partition; STATIC requires clustering, see ADR-0049)
-    created_at        timestamp,
-    updated_at        timestamp,
-    deleted           boolean,              -- soft-delete tombstone
+    tenant             text,
+    type_id            text,
+    primary_key_hash   tinyint,
+    object_id          timeuuid,
+    rid                text,
+    primary_key        text,
+    owner_id           uuid,
+    properties_blob    blob,                -- OSV2 typed property blob keyed by property id
+    markings_blob      blob,                -- OSV2 markings envelope
+    organizations      uuid,
+    revision_number    bigint,
+    created_at         timestamp,
+    updated_at         timestamp,
+    last_updated       timestamp,
+    last_updater       text,
+    deleted            boolean,
+    PRIMARY KEY ((tenant, type_id, primary_key_hash), object_id)
+)
+WITH compaction = {
+    'class': 'LeveledCompactionStrategy',
+    'sstable_size_in_mb': 160
+}
+ AND gc_grace_seconds = 86400
+ AND default_time_to_live = 0
+ AND comment = 'OSV2.1/OSV2.2 — partition by tenant,type,primary-key hash; typed property/marking blobs.';
+
+CREATE TABLE IF NOT EXISTS ontology_objects.objects_by_id_by_rid (
+    tenant             text,
+    object_id          timeuuid,
+    type_id            text,
+    primary_key_hash   tinyint,
+    rid                text,
+    primary_key        text,
+    owner_id           uuid,
+    properties_blob    blob,
+    markings_blob      blob,
+    organizations      uuid,
+    revision_number    bigint,
+    created_at         timestamp,
+    updated_at         timestamp,
+    last_updated       timestamp,
+    last_updater       text,
+    deleted            boolean,
     PRIMARY KEY ((tenant, object_id))
 )
 WITH compaction = {
@@ -25,4 +57,4 @@ WITH compaction = {
 }
  AND gc_grace_seconds = 86400
  AND default_time_to_live = 0
- AND comment = 'S1.1.b — primary object record. Source of truth for objects.rs CRUD.';
+ AND comment = 'OSV2.2 — point-read mirror by RID/object_id for Get(type, primary_key) compatibility.';

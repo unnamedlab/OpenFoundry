@@ -123,6 +123,26 @@ func AsRepoError(err error) (*RepoError, bool) {
 	return nil, false
 }
 
+// PointReadStore is implemented by stores that can fetch by object type plus
+// primary key/RID directly, matching OSV2.6 Get(type, primary_key).
+type PointReadStore interface {
+	GetByTypeAndPrimaryKey(ctx context.Context, tenant TenantId, typeID TypeId, primaryKey string, c ReadConsistency) (*Object, error)
+}
+
+// PropertyPredicate is the OSV2.4 property-index query contract used by
+// object-database-service query pushdown.
+type PropertyPredicate struct {
+	PropertyName string
+	Operator     string
+	Value        any
+}
+
+// PropertyQueryStore is implemented by stores that can push simple predicates
+// into the OSV2 property index instead of scanning the full object type.
+type PropertyQueryStore interface {
+	QueryByProperty(ctx context.Context, tenant TenantId, typeID TypeId, predicate PropertyPredicate, page Page, c ReadConsistency) (PagedResult[Object], error)
+}
+
 // ObjectStore is the contract used by handlers. Cassandra impl follows.
 type ObjectStore interface {
 	Get(ctx context.Context, tenant TenantId, id ObjectId, c ReadConsistency) (*Object, error)

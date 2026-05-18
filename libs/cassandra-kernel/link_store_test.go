@@ -47,8 +47,12 @@ func TestNewLinkStoreUsesDefaultKeyspace(t *testing.T) {
 	assert.Contains(t, s.cqlDeleteOutgoing(), "DELETE FROM ontology_indexes.links_outgoing")
 	assert.Contains(t, s.cqlDeleteIncoming(), "DELETE FROM ontology_indexes.links_incoming")
 	assert.Contains(t, s.cqlSelectOutgoing(), "FROM ontology_indexes.links_outgoing")
+	assert.Contains(t, s.cqlSelectOutgoing(), "LIMIT ?")
+	assert.Contains(t, s.cqlSelectOutgoingAfter(), "target_rid > ?")
 	assert.Contains(t, s.cqlSelectIncoming(), "FROM ontology_indexes.links_incoming")
-	assert.Contains(t, s.cqlSelectOutgoingExact(), "WHERE tenant = ? AND source_id = ?")
+	assert.Contains(t, s.cqlSelectIncoming(), "LIMIT ?")
+	assert.Contains(t, s.cqlSelectIncomingAfter(), "source_rid > ?")
+	assert.Contains(t, s.cqlSelectOutgoingExact(), "WHERE tenant = ? AND link_type_id = ? AND source_rid = ?")
 }
 
 func TestLinkStoreCustomKeyspace(t *testing.T) {
@@ -75,4 +79,23 @@ func TestLinkPayloadCanonicalisation(t *testing.T) {
 	got, err := canonicalJSON(json.RawMessage(`{"z":1,"a":2}`))
 	require.NoError(t, err)
 	assert.Equal(t, `{"a":2,"z":1}`, got)
+}
+
+func TestLinkCursorRoundTrip(t *testing.T) {
+	t.Parallel()
+	id, err := parseUUID("id", "018f3f37-6c7c-7d89-9abc-def012345678")
+	require.NoError(t, err)
+	token := encodeLinkCursor(id)
+	got, ok, err := decodeLinkCursor(token)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, id, got)
+}
+
+func TestLinkCursorMalformed(t *testing.T) {
+	t.Parallel()
+	bad := "not-base64"
+	_, _, err := decodeLinkCursor(&bad)
+	require.Error(t, err)
+	assert.True(t, repos.IsInvalidArgument(err))
 }

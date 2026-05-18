@@ -93,6 +93,42 @@ func TestObjectStoreDelete(t *testing.T) {
 	assert.False(t, deleted2)
 }
 
+func TestObjectStorePointReadByTypeAndPrimaryKey(t *testing.T) {
+	t.Parallel()
+	s := NewInMemoryObjectStore()
+	ctx := context.Background()
+	obj := Object{Tenant: "t", ID: "obj-1", TypeID: "aircraft", Payload: json.RawMessage(`{"tail":"N123"}`), UpdatedAtMs: 1}
+	_, err := s.Put(ctx, obj, nil)
+	require.NoError(t, err)
+
+	got, err := s.GetByTypeAndPrimaryKey(ctx, "t", "aircraft", "obj-1", ReadStrong)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.EqualValues(t, "obj-1", got.ID)
+
+	miss, err := s.GetByTypeAndPrimaryKey(ctx, "t", "vehicle", "obj-1", ReadStrong)
+	require.NoError(t, err)
+	assert.Nil(t, miss)
+}
+
+func TestObjectStoreQueryByPropertyStartsWith(t *testing.T) {
+	t.Parallel()
+	s := NewInMemoryObjectStore()
+	ctx := context.Background()
+	for _, obj := range []Object{
+		{Tenant: "t", ID: "a", TypeID: "aircraft", Payload: json.RawMessage(`{"tail":"N123"}`), UpdatedAtMs: 1},
+		{Tenant: "t", ID: "b", TypeID: "aircraft", Payload: json.RawMessage(`{"tail":"N999"}`), UpdatedAtMs: 2},
+		{Tenant: "t", ID: "c", TypeID: "aircraft", Payload: json.RawMessage(`{"tail":"X123"}`), UpdatedAtMs: 3},
+	} {
+		_, err := s.Put(ctx, obj, nil)
+		require.NoError(t, err)
+	}
+
+	res, err := s.QueryByProperty(ctx, "t", "aircraft", PropertyPredicate{PropertyName: "tail", Operator: "starts_with", Value: "N"}, Page{Size: 10}, ReadStrong)
+	require.NoError(t, err)
+	assert.Len(t, res.Items, 2)
+}
+
 func TestLinkStoreOutgoingIncoming(t *testing.T) {
 	t.Parallel()
 	s := NewInMemoryLinkStore()
@@ -112,6 +148,25 @@ func TestLinkStoreOutgoingIncoming(t *testing.T) {
 	deleted, err := s.Delete(ctx, "t", "owns", "a", "b")
 	require.NoError(t, err)
 	assert.True(t, deleted)
+}
+
+func TestLinkStorePaginationUsesStableNeighborCursor(t *testing.T) {
+	t.Parallel()
+	s := NewInMemoryLinkStore()
+	ctx := context.Background()
+	for _, to := range []ObjectId{"c", "a", "d", "b"} {
+		require.NoError(t, s.Put(ctx, Link{Tenant: "t", LinkType: "owns", From: "root", To: to, CreatedAtMs: int64(len(to))}))
+	}
+
+	page1, err := s.ListOutgoing(ctx, "t", "owns", "root", Page{Size: 2}, ReadStrong)
+	require.NoError(t, err)
+	require.NotNil(t, page1.NextToken)
+	assert.EqualValues(t, []ObjectId{"a", "b"}, []ObjectId{page1.Items[0].To, page1.Items[1].To})
+
+	page2, err := s.ListOutgoing(ctx, "t", "owns", "root", Page{Size: 2, Token: page1.NextToken}, ReadStrong)
+	require.NoError(t, err)
+	assert.Nil(t, page2.NextToken)
+	assert.EqualValues(t, []ObjectId{"c", "d"}, []ObjectId{page2.Items[0].To, page2.Items[1].To})
 }
 
 func TestObjectJSONShape(t *testing.T) {

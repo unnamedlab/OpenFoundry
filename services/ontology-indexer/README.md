@@ -39,3 +39,12 @@ kept but is skipped unless `KAFKA_BOOTSTRAP_SERVERS` is present:
 ```sh
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 go test ./services/ontology-indexer/internal/runtime -run TestConsumerWithRealKafkaValidMalformedAndRetry
 ```
+
+## OSV2 row projection mode
+
+In OSV2 deployments the worker can be wired with a `runtime.StorageProjector`
+(`ObjectStore` plus `LinkStore`) by calling `runtime.RunWithStores`. In this
+mode each Kafka record is applied to OSV2 object/link rows before the search
+projection. The runtime tracks `event_id` values and aggregate versions in the
+projection index, so duplicate producer retries are skipped and Kafka offsets are
+committed only after all configured row and search writes succeed.

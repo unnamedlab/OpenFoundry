@@ -109,7 +109,7 @@ func (h *Handlers) TraverseLinks(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[neighbour] = struct{}{}
 		obj, _ := h.Objects.Get(r.Context(), tenant, storage.ObjectId(neighbour), consistency)
-		if obj == nil {
+		if obj == nil || !callerCanReadStorageObject(r, obj) {
 			continue
 		}
 		ont := toOntologyObject(obj)

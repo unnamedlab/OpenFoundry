@@ -2,8 +2,10 @@ package cassandrakernel
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -11,7 +13,7 @@ import (
 	repos "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 )
 
-// LinkStore (P2.5.3) is the Cassandra-backed implementation of
+// LinkStore (OSV2.5) is the Cassandra-backed implementation of
 // repos.LinkStore mirroring libs/cassandra-kernel/src/repos.rs::
 // CassandraLinkStore. It writes against the `links_outgoing` and
 // `links_incoming` tables in the `ontology_indexes` keyspace.
@@ -41,51 +43,69 @@ var _ repos.LinkStore = (*LinkStore)(nil)
 func (s *LinkStore) cqlInsertOutgoing() string {
 	return fmt.Sprintf(
 		`INSERT INTO %s.links_outgoing
-            (tenant, source_id, link_type, target_id, target_type,
-             properties, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS`, s.keyspace)
+            (tenant, link_type_id, source_rid, target_rid, target_type,
+             properties_blob, markings_blob, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS`, s.keyspace)
 }
 
 func (s *LinkStore) cqlInsertIncoming() string {
 	return fmt.Sprintf(
 		`INSERT INTO %s.links_incoming
-            (tenant, target_id, link_type, source_id, source_type,
-             properties, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS`, s.keyspace)
+            (tenant, link_type_id, target_rid, source_rid, source_type,
+             properties_blob, markings_blob, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS`, s.keyspace)
 }
 
 func (s *LinkStore) cqlDeleteOutgoing() string {
 	return fmt.Sprintf(
 		`DELETE FROM %s.links_outgoing
-          WHERE tenant = ? AND source_id = ? AND link_type = ? AND target_id = ?`,
+          WHERE tenant = ? AND link_type_id = ? AND source_rid = ? AND target_rid = ?`,
 		s.keyspace)
 }
 
 func (s *LinkStore) cqlDeleteIncoming() string {
 	return fmt.Sprintf(
 		`DELETE FROM %s.links_incoming
-          WHERE tenant = ? AND target_id = ? AND link_type = ? AND source_id = ?`,
+          WHERE tenant = ? AND link_type_id = ? AND target_rid = ? AND source_rid = ?`,
 		s.keyspace)
 }
 
 func (s *LinkStore) cqlSelectOutgoing() string {
 	return fmt.Sprintf(
-		`SELECT target_id, properties, created_at
+		`SELECT target_rid, properties_blob, created_at
            FROM %s.links_outgoing
-          WHERE tenant = ? AND source_id = ? AND link_type = ?`, s.keyspace)
+          WHERE tenant = ? AND link_type_id = ? AND source_rid = ?
+          LIMIT ?`, s.keyspace)
+}
+
+func (s *LinkStore) cqlSelectOutgoingAfter() string {
+	return fmt.Sprintf(
+		`SELECT target_rid, properties_blob, created_at
+           FROM %s.links_outgoing
+          WHERE tenant = ? AND link_type_id = ? AND source_rid = ? AND target_rid > ?
+          LIMIT ?`, s.keyspace)
 }
 
 func (s *LinkStore) cqlSelectIncoming() string {
 	return fmt.Sprintf(
-		`SELECT source_id, properties, created_at
+		`SELECT source_rid, properties_blob, created_at
            FROM %s.links_incoming
-          WHERE tenant = ? AND target_id = ? AND link_type = ?`, s.keyspace)
+          WHERE tenant = ? AND link_type_id = ? AND target_rid = ?
+          LIMIT ?`, s.keyspace)
+}
+
+func (s *LinkStore) cqlSelectIncomingAfter() string {
+	return fmt.Sprintf(
+		`SELECT source_rid, properties_blob, created_at
+           FROM %s.links_incoming
+          WHERE tenant = ? AND link_type_id = ? AND target_rid = ? AND source_rid > ?
+          LIMIT ?`, s.keyspace)
 }
 
 func (s *LinkStore) cqlSelectOutgoingExact() string {
 	return fmt.Sprintf(
-		`SELECT target_id FROM %s.links_outgoing
-          WHERE tenant = ? AND source_id = ? AND link_type = ? AND target_id = ?`,
+		`SELECT target_rid FROM %s.links_outgoing
+          WHERE tenant = ? AND link_type_id = ? AND source_rid = ? AND target_rid = ?`,
 		s.keyspace)
 }
 
@@ -103,13 +123,13 @@ func (s *LinkStore) Put(ctx context.Context, link repos.Link) error {
 	}
 	createdAt := time.UnixMilli(link.CreatedAtMs).UTC()
 
-	var properties *string
-	if len(link.Payload) > 0 {
-		serialised, err := canonicalJSON(link.Payload)
-		if err != nil {
-			return invalidArgf("link payload is not serialisable: %v", err)
-		}
-		properties = &serialised
+	propertiesBlob, err := encodePropertiesBlob(link.Payload)
+	if err != nil {
+		return invalidArgf("link payload is not serialisable as OSV2 properties_blob: %v", err)
+	}
+	markingsBlob, err := encodeMarkingsBlob(nil)
+	if err != nil {
+		return invalidArgf("link markings are not serialisable as OSV2 markings_blob: %v", err)
 	}
 
 	tenant := tenantStr(link.Tenant)
@@ -117,7 +137,7 @@ func (s *LinkStore) Put(ctx context.Context, link repos.Link) error {
 
 	// outgoing side
 	q1 := s.session.Query(s.cqlInsertOutgoing(),
-		tenant, sourceID, linkType, targetID, "", properties, createdAt).
+		tenant, linkType, sourceID, targetID, "", propertiesBlob, markingsBlob, createdAt).
 		WithContext(ctx).
 		Consistency(gocql.LocalQuorum).
 		SerialConsistency(gocql.LocalSerial)
@@ -129,7 +149,7 @@ func (s *LinkStore) Put(ctx context.Context, link repos.Link) error {
 	}
 
 	q2 := s.session.Query(s.cqlInsertIncoming(),
-		tenant, targetID, linkType, sourceID, "", properties, createdAt).
+		tenant, linkType, targetID, sourceID, "", propertiesBlob, markingsBlob, createdAt).
 		WithContext(ctx).
 		Consistency(gocql.LocalQuorum).
 		SerialConsistency(gocql.LocalSerial)
@@ -160,7 +180,7 @@ func (s *LinkStore) Delete(
 	}
 
 	probe := s.session.Query(s.cqlSelectOutgoingExact(),
-		tenantStr(tenant), sourceID, string(linkType), targetID).
+		tenantStr(tenant), string(linkType), sourceID, targetID).
 		WithContext(ctx).
 		Consistency(gocql.LocalQuorum)
 	var probeTarget gocql.UUID
@@ -174,13 +194,13 @@ func (s *LinkStore) Delete(
 	}
 
 	if err := s.session.Query(s.cqlDeleteOutgoing(),
-		tenantStr(tenant), sourceID, string(linkType), targetID).
+		tenantStr(tenant), string(linkType), sourceID, targetID).
 		WithContext(ctx).
 		Consistency(gocql.LocalQuorum).Exec(); err != nil {
 		return false, driverErr(err)
 	}
 	if err := s.session.Query(s.cqlDeleteIncoming(),
-		tenantStr(tenant), targetID, string(linkType), sourceID).
+		tenantStr(tenant), string(linkType), targetID, sourceID).
 		WithContext(ctx).
 		Consistency(gocql.LocalQuorum).Exec(); err != nil {
 		return false, driverErr(err)
@@ -201,29 +221,34 @@ func (s *LinkStore) ListOutgoing(
 	if err != nil {
 		return repos.PagedResult[repos.Link]{}, err
 	}
-	pagingState, err := decodePagingState(page.Token)
+	after, hasAfter, err := decodeLinkCursor(page.Token)
 	if err != nil {
 		return repos.PagedResult[repos.Link]{}, err
 	}
 
-	q := s.session.Query(s.cqlSelectOutgoing(),
-		tenantStr(tenant), sourceID, string(linkType)).
-		WithContext(ctx).
-		Consistency(cqlConsistency(consistency)).
-		PageSize(clampPageSize(page.Size))
-	if len(pagingState) > 0 {
-		q = q.PageState(pagingState)
+	limit := clampPageSize(page.Size)
+	queryLimit := limit + 1
+	var q *gocql.Query
+	if hasAfter {
+		q = s.session.Query(s.cqlSelectOutgoingAfter(), tenantStr(tenant), string(linkType), sourceID, after, queryLimit)
+	} else {
+		q = s.session.Query(s.cqlSelectOutgoing(), tenantStr(tenant), string(linkType), sourceID, queryLimit)
 	}
-	iter := q.Iter()
+	iter := q.WithContext(ctx).Consistency(cqlConsistency(consistency)).Iter()
 
 	out := repos.PagedResult[repos.Link]{Items: []repos.Link{}}
+	var lastTarget gocql.UUID
 	var (
-		targetID   gocql.UUID
-		properties *string
-		createdAt  time.Time
+		targetID       gocql.UUID
+		propertiesBlob []byte
+		createdAt      time.Time
 	)
-	for iter.Scan(&targetID, &properties, &createdAt) {
-		payload, err := decodeLinkPayload(properties)
+	for iter.Scan(&targetID, &propertiesBlob, &createdAt) {
+		if len(out.Items) >= limit {
+			out.NextToken = encodeLinkCursor(lastTarget)
+			break
+		}
+		payload, err := decodePropertiesBlob(propertiesBlob)
 		if err != nil {
 			iter.Close()
 			return repos.PagedResult[repos.Link]{}, err
@@ -236,9 +261,7 @@ func (s *LinkStore) ListOutgoing(
 			Payload:     payload,
 			CreatedAtMs: createdAt.UnixMilli(),
 		})
-	}
-	if pageBytes := iter.PageState(); len(pageBytes) > 0 {
-		out.NextToken = encodePagingState(pageBytes)
+		lastTarget = targetID
 	}
 	if err := iter.Close(); err != nil {
 		return repos.PagedResult[repos.Link]{}, driverErr(err)
@@ -259,29 +282,34 @@ func (s *LinkStore) ListIncoming(
 	if err != nil {
 		return repos.PagedResult[repos.Link]{}, err
 	}
-	pagingState, err := decodePagingState(page.Token)
+	after, hasAfter, err := decodeLinkCursor(page.Token)
 	if err != nil {
 		return repos.PagedResult[repos.Link]{}, err
 	}
 
-	q := s.session.Query(s.cqlSelectIncoming(),
-		tenantStr(tenant), targetID, string(linkType)).
-		WithContext(ctx).
-		Consistency(cqlConsistency(consistency)).
-		PageSize(clampPageSize(page.Size))
-	if len(pagingState) > 0 {
-		q = q.PageState(pagingState)
+	limit := clampPageSize(page.Size)
+	queryLimit := limit + 1
+	var q *gocql.Query
+	if hasAfter {
+		q = s.session.Query(s.cqlSelectIncomingAfter(), tenantStr(tenant), string(linkType), targetID, after, queryLimit)
+	} else {
+		q = s.session.Query(s.cqlSelectIncoming(), tenantStr(tenant), string(linkType), targetID, queryLimit)
 	}
-	iter := q.Iter()
+	iter := q.WithContext(ctx).Consistency(cqlConsistency(consistency)).Iter()
 
 	out := repos.PagedResult[repos.Link]{Items: []repos.Link{}}
+	var lastSource gocql.UUID
 	var (
-		sourceID   gocql.UUID
-		properties *string
-		createdAt  time.Time
+		sourceID       gocql.UUID
+		propertiesBlob []byte
+		createdAt      time.Time
 	)
-	for iter.Scan(&sourceID, &properties, &createdAt) {
-		payload, err := decodeLinkPayload(properties)
+	for iter.Scan(&sourceID, &propertiesBlob, &createdAt) {
+		if len(out.Items) >= limit {
+			out.NextToken = encodeLinkCursor(lastSource)
+			break
+		}
+		payload, err := decodePropertiesBlob(propertiesBlob)
 		if err != nil {
 			iter.Close()
 			return repos.PagedResult[repos.Link]{}, err
@@ -294,14 +322,34 @@ func (s *LinkStore) ListIncoming(
 			Payload:     payload,
 			CreatedAtMs: createdAt.UnixMilli(),
 		})
-	}
-	if pageBytes := iter.PageState(); len(pageBytes) > 0 {
-		out.NextToken = encodePagingState(pageBytes)
+		lastSource = sourceID
 	}
 	if err := iter.Close(); err != nil {
 		return repos.PagedResult[repos.Link]{}, driverErr(err)
 	}
 	return out, nil
+}
+
+func encodeLinkCursor(id gocql.UUID) *string {
+	encoded := base64.RawURLEncoding.EncodeToString([]byte("link:v1:" + id.String()))
+	return &encoded
+}
+
+func decodeLinkCursor(token *string) (gocql.UUID, bool, error) {
+	if token == nil || strings.TrimSpace(*token) == "" {
+		return gocql.UUID{}, false, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(*token)
+	if err != nil {
+		return gocql.UUID{}, false, repos.Invalidf("malformed link page token: %v", err)
+	}
+	value := strings.TrimSpace(string(raw))
+	value = strings.TrimPrefix(value, "link:v1:")
+	id, err := parseUUID("link page token", value)
+	if err != nil {
+		return gocql.UUID{}, false, err
+	}
+	return id, true, nil
 }
 
 // decodeLinkPayload converts a possibly-nil text column into a

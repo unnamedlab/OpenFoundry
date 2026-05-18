@@ -111,12 +111,12 @@ type Schema struct {
 
 // Session is a user / service-account session.
 type Session struct {
-	Tenant       TenantId          `json:"tenant"`
-	ID           string            `json:"id"`
-	Subject      string            `json:"subject"`
-	Attributes   map[string]string `json:"attributes"`
-	IssuedAtMs   int64             `json:"issued_at_ms"`
-	ExpiresAtMs  int64             `json:"expires_at_ms"`
+	Tenant      TenantId          `json:"tenant"`
+	ID          string            `json:"id"`
+	Subject     string            `json:"subject"`
+	Attributes  map[string]string `json:"attributes"`
+	IssuedAtMs  int64             `json:"issued_at_ms"`
+	ExpiresAtMs int64             `json:"expires_at_ms"`
 }
 
 // ActionLogEntry is a single ontology action log entry.
@@ -172,7 +172,7 @@ const (
 // ReadConsistency is the consistency hint passed to read-side calls.
 // Mirrors the Rust enum (Strong | Eventual | BoundedStaleness(d)).
 type ReadConsistency struct {
-	Level    ConsistencyLevel
+	Level     ConsistencyLevel
 	Staleness time.Duration // valid only when Level == BoundedStaleness
 }
 
@@ -326,6 +326,19 @@ func IsTenantScope(err error) bool {
 func IsBackendError(err error) bool {
 	var re *RepoError
 	return errors.As(err, &re) && re.Kind == RepoBackend
+}
+
+// PointReadStore is implemented by repositories that can serve OSV2.6
+// Get(type, primary_key) without scanning.
+type PointReadStore interface {
+	GetByTypeAndPrimaryKey(ctx context.Context, tenant TenantId, typeID TypeId, primaryKey string, consistency ReadConsistency) (*Object, error)
+}
+
+// PropertyPredicate describes a single OSV2 property-index predicate.
+type PropertyPredicate struct {
+	PropertyName string
+	Operator     string
+	Value        any
 }
 
 // ----------------------------------------------------------------------

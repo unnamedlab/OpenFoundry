@@ -36,6 +36,52 @@ type SearchHit struct {
 	Snippet json.RawMessage `json:"snippet,omitempty"`
 }
 
+// TextQuery is an OSV2.11 per-type, per-property full-text query.
+// Phrase queries preserve token order, Prefix queries match token prefixes,
+// and Language selects the analyzer/stemmer configured by the backend.
+type TextQuery struct {
+	Tenant   TenantId `json:"tenant"`
+	TypeID   TypeId   `json:"type_id"`
+	Property string   `json:"property"`
+	Text     string   `json:"text"`
+	Phrase   bool     `json:"phrase,omitempty"`
+	Prefix   bool     `json:"prefix,omitempty"`
+	Language string   `json:"language,omitempty"`
+	Page     Page     `json:"page"`
+}
+
+// VectorDistance selects the OSV2.12 embedding distance function.
+type VectorDistance string
+
+const (
+	VectorDistanceCosine VectorDistance = "cosine"
+	VectorDistanceL2     VectorDistance = "l2"
+	VectorDistanceDot    VectorDistance = "dot"
+)
+
+// HybridQuery combines a BM25-style full-text clause with an ANN vector clause.
+type HybridQuery struct {
+	Tenant    TenantId          `json:"tenant"`
+	TypeID    TypeId            `json:"type_id"`
+	Property  string            `json:"property,omitempty"`
+	Text      string            `json:"text,omitempty"`
+	Embedding []float32         `json:"embedding,omitempty"`
+	K         uint32            `json:"k"`
+	Distance  VectorDistance    `json:"distance,omitempty"`
+	Filters   map[string]string `json:"filters,omitempty"`
+}
+
+// FullTextSearchBackend is the optional OSV2.11 surface implemented by
+// pluggable search backends that expose per-property inverted indexes.
+type FullTextSearchBackend interface {
+	SearchText(ctx context.Context, query TextQuery, consistency ReadConsistency) (PagedResult[SearchHit], error)
+}
+
+// HybridSearchBackend is the optional OSV2.12 surface for BM25 + ANN queries.
+type HybridSearchBackend interface {
+	SearchHybrid(ctx context.Context, query HybridQuery, consistency ReadConsistency) ([]SearchHit, error)
+}
+
 // IndexDoc is the indexable payload pushed by the funnel. The
 // backend MUST discard a write whose Version is older than the
 // currently-indexed one for the same (Tenant, ID).
@@ -265,6 +311,144 @@ func (b *InMemorySearchBackend) SearchVector(_ context.Context, query VectorQuer
 		})
 	}
 	return out, nil
+}
+
+// SearchText runs a per-property token search over in-memory JSON payloads.
+// It is intentionally simple but preserves OSV2 semantics for exact phrase,
+// token prefix, and default token-any matching used by handler/unit tests.
+func (b *InMemorySearchBackend) SearchText(_ context.Context, query TextQuery, _ ReadConsistency) (PagedResult[SearchHit], error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	needle := strings.ToLower(strings.TrimSpace(query.Text))
+	items := []SearchHit{}
+	for _, d := range b.rows {
+		if d.Tenant != query.Tenant || d.TypeID != query.TypeID {
+			continue
+		}
+		value := strings.ToLower(jsonStringProperty(d.Payload, query.Property))
+		if !matchesText(value, needle, query.Phrase, query.Prefix) {
+			continue
+		}
+		items = append(items, SearchHit{ID: d.ID, TypeID: d.TypeID, Score: 1, Snippet: append(json.RawMessage{}, d.Payload...)})
+	}
+	limit := query.Page.Size
+	if limit == 0 {
+		limit = 1
+	}
+	if uint32(len(items)) > limit {
+		items = items[:limit]
+	}
+	return PagedResult[SearchHit]{Items: items}, nil
+}
+
+// SearchHybrid blends lexical and ANN scores for local tests/dev. Production
+// backends map this contract to OpenSearch or Vespa native hybrid queries.
+func (b *InMemorySearchBackend) SearchHybrid(_ context.Context, query HybridQuery, _ ReadConsistency) ([]SearchHit, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	type scored struct {
+		score float32
+		doc   IndexDoc
+	}
+	needle := strings.ToLower(strings.TrimSpace(query.Text))
+	scores := []scored{}
+	for _, d := range b.rows {
+		if d.Tenant != query.Tenant || d.TypeID != query.TypeID || !matchesFilters(d.Payload, query.Filters) {
+			continue
+		}
+		var score float32
+		if needle != "" {
+			field := strings.ToLower(string(d.Payload))
+			if query.Property != "" {
+				field = strings.ToLower(jsonStringProperty(d.Payload, query.Property))
+			}
+			if strings.Contains(field, needle) {
+				score += 1
+			}
+		}
+		if len(query.Embedding) > 0 && len(d.Embedding) > 0 {
+			score += vectorScore(d.Embedding, query.Embedding, query.Distance)
+		}
+		if score > 0 || (needle == "" && len(query.Embedding) == 0) {
+			scores = append(scores, scored{score: score, doc: d})
+		}
+	}
+	sort.SliceStable(scores, func(i, j int) bool { return scores[i].score > scores[j].score })
+	k := query.K
+	if k == 0 {
+		k = 1
+	}
+	if uint32(len(scores)) > k {
+		scores = scores[:k]
+	}
+	out := make([]SearchHit, 0, len(scores))
+	for _, s := range scores {
+		out = append(out, SearchHit{ID: s.doc.ID, TypeID: s.doc.TypeID, Score: s.score, Snippet: append(json.RawMessage{}, s.doc.Payload...)})
+	}
+	return out, nil
+}
+
+func jsonStringProperty(payload json.RawMessage, property string) string {
+	obj := map[string]any{}
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return ""
+	}
+	v, ok := obj[property]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func matchesText(value, needle string, phrase, prefix bool) bool {
+	if needle == "" {
+		return true
+	}
+	if phrase {
+		return strings.Contains(value, needle)
+	}
+	tokens := strings.FieldsFunc(value, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') })
+	for _, token := range tokens {
+		if prefix && strings.HasPrefix(token, needle) {
+			return true
+		}
+		if !prefix && token == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func vectorScore(a, b []float32, distance VectorDistance) float32 {
+	switch distance {
+	case VectorDistanceL2:
+		return -l2Distance(a, b)
+	case VectorDistanceDot:
+		return dotProduct(a, b)
+	default:
+		return cosineSim(a, b)
+	}
+}
+
+func dotProduct(a, b []float32) float32 {
+	var dot float32
+	for i := 0; i < len(a) && i < len(b); i++ {
+		dot += a[i] * b[i]
+	}
+	return dot
+}
+
+func l2Distance(a, b []float32) float32 {
+	var sum float64
+	for i := 0; i < len(a) && i < len(b); i++ {
+		d := float64(a[i] - b[i])
+		sum += d * d
+	}
+	return float32(math.Sqrt(sum))
 }
 
 // BulkIndex delegates to DefaultBulkIndex.

@@ -44,8 +44,8 @@ flag mitigation hooks).
 | `objects_by_type` | `(tenant, type_id)` | T·K_t ≈ 25 000 | per tenant: 1–25 distinct types ⇒ **always ≥ 1**, platform-wide ≥ 25 000 | ✅ at platform level | optional `day_bucket` mitigation hook | ✅ pass; see §3.1 for sizing |
 | `objects_by_owner` | `(tenant, owner_id)` | T·U_t ≈ 250 000 | per tenant: U_t ≥ 1; floor would be 1 (single-user tenant). | ⚠️ requires extra check | not required by cardinality (always ≥ 1 per tenant; the rule applies platform-wide) | ✅ pass — platform-wide cardinality 250 k ≥ 10 |
 | `objects_by_marking` | `(tenant, marking_id)` | T·(M_t+1) ≈ 25 000 | M_t = 1 (single-marking tenant) ⇒ 1 partition for that tenant | ⚠️ but platform cardinality ≥ 25 000 | optional `created_day` mitigation hook documented in DDL | ✅ pass at platform level; see §3.2 for hot-partition risk |
-| `links_outgoing` | `(tenant, source_id)` | =O ≈ 10⁹ | =number of source objects ≥ 1 per tenant | **n/a** — bounded by object cardinality | none | ✅ pass |
-| `links_incoming` | `(tenant, target_id)` | =O ≈ 10⁹ | =number of target objects ≥ 1 per tenant | **n/a** — bounded by object cardinality | optional `month_bucket` for hub targets | ✅ pass; see §3.3 for hub risk |
+| `links_outgoing` | `(tenant, link_type_id, source_rid)` | =O ≈ 10⁹ | =source objects × link types | **n/a** — bounded by object cardinality | none | ✅ pass |
+| `links_incoming` | `(tenant, link_type_id, target_rid)` | =O ≈ 10⁹ | =target objects × link types | **n/a** — bounded by object cardinality | optional hash bucket for extreme hubs | ✅ pass; see §3.3 for hub risk |
 | `actions_log` | `(tenant, day_bucket)` | T·D_ttl ≈ 5 000 × 90 = 450 000 | per tenant: 1–90 partitions live | ✅ floor ≥ 90 per active tenant after first 90 days | none — `day_bucket` IS the time bucket | ✅ pass |
 
 > **Reading of the rule** — the rule intent is to prevent a table
@@ -58,6 +58,16 @@ flag mitigation hooks).
 > partition because its own write rate is bounded).
 
 ## 3. Hot-partition risk areas (and the mitigation already wired)
+
+### 3.0 OSV2 bucketed object-type partitions
+
+OSV2.1 upgrades the object hot path from a single `(tenant, type_id)` partition
+to `(tenant, type_id, primary_key_hash)`, where `primary_key_hash` is a 64-way
+SHA-256 bucket. The physical DDL is captured in
+`services/object-database-service/cql/ontology_objects/001_objects_by_id.cql`
+and `002_objects_by_type.cql`, and the implementation detail is documented in
+`docs/architecture/osv2-storage-layout.md`. This keeps object-type locality while
+preventing a single fat type from becoming one hot tablet.
 
 ### 3.1 `objects_by_type` for "fat type" tenants
 
@@ -103,10 +113,10 @@ partition grows unbounded.
 
 - **Mitigation hook (file
   [`002_links_incoming.cql`](../../services/object-database-service/cql/ontology_indexes/002_links_incoming.cql)):**
-  re-PK to `((tenant, target_id, month_bucket))` when a single target
-  exceeds 100 k incoming links.
-- The clustering on `(link_type, source_id)` already lets us read
-  "incoming `OWNS` links to X" without materialising the long tail
+  re-PK to `((tenant, link_type_id, target_rid, neighbor_bucket))` when a single target
+  exceeds 100 k incoming links for one link type.
+- The partition key includes `link_type_id`, and clustering on `source_rid` lets us page
+  "incoming `OWNS` links to X" with stable RID cursors without materialising the long tail
   of other link types, which is the dominant query.
 
 ## 4. Verification harness (S1.8 hand-off)
