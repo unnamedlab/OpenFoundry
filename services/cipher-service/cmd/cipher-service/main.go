@@ -130,8 +130,8 @@ func main() {
 
 // buildKMS picks the wrapping backend declared in config.
 //
-// "local" is fully functional for dev/test. The aws/aws_kms backend fails
-// closed in this build unless a real AWS client is linked.
+// "local" is fully functional for dev/test. The aws/aws_kms backend uses
+// AWS KMS Encrypt/Decrypt and supports AWS_ENDPOINT_URL for LocalStack/tests.
 func buildKMS(cfg *config.Config, log *slog.Logger) (kms.KMS, error) {
 	switch cfg.KMS.Backend {
 	case "local", "":
