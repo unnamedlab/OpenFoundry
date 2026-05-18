@@ -43,6 +43,7 @@ entity User in [Group, Role] = {
   "tenant": String,
   "clearances": Set<Marking>,
   "roles": Set<String>,
+  "project_scope_rids"?: Set<String>,
   "kind"?: String,
   "mfa_age_secs"?: Long,
 };
@@ -71,6 +72,12 @@ entity Object = {
 entity OntologyAction = {
   "type": String,
   "tenant": String,
+};
+
+entity CipherKey = {
+  "rid": String,
+  "tenant": String,
+  "markings": Set<Marking>,
 };
 
 // ── Media sets (H3) ───────────────────────────────────────────────
@@ -136,6 +143,21 @@ action "branch::merge" appliesTo {
 action "action::invoke" appliesTo {
   principal: [User],
   resource:  [OntologyAction],
+};
+
+action "cipher::encrypt" appliesTo {
+  principal: [User],
+  resource:  [CipherKey],
+};
+
+action "cipher::decrypt" appliesTo {
+  principal: [User],
+  resource:  [CipherKey],
+};
+
+action "cipher::manage" appliesTo {
+  principal: [User],
+  resource:  [CipherKey],
 };
 
 // ── Media-set actions (H3) ────────────────────────────────────────

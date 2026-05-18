@@ -172,3 +172,35 @@ func NewAWSKMSStub(keyARN string) *AWSKMSStub {
 func (s *AWSKMSStub) Wrap(_ []byte) ([]byte, error)   { return nil, ErrAWSNotImplemented }
 func (s *AWSKMSStub) Unwrap(_ []byte) ([]byte, error) { return nil, ErrAWSNotImplemented }
 func (s *AWSKMSStub) Ref() string                     { return "aws:kms:" + s.keyARN }
+
+// Backend identifies a configured KMS/HSM provider.
+type Backend string
+
+const (
+	BackendLocal         Backend = "local"
+	BackendVaultTransit  Backend = "vault_transit"
+	BackendAWSKMS        Backend = "aws_kms"
+	BackendGCPKMS        Backend = "gcp_kms"
+	BackendAzureKeyVault Backend = "azure_key_vault"
+	BackendPKCS11        Backend = "pkcs11"
+)
+
+// ErrBackendNotImplemented is returned by non-local stubs until their vendor
+// SDKs are wired in deployment-specific builds.
+var ErrBackendNotImplemented = errors.New("cipher kms: backend not implemented")
+
+type ExternalStub struct {
+	backend Backend
+	ref     string
+}
+
+func NewExternalStub(backend Backend, ref string) *ExternalStub {
+	if ref == "" {
+		ref = "stub"
+	}
+	return &ExternalStub{backend: backend, ref: ref}
+}
+
+func (s *ExternalStub) Wrap(_ []byte) ([]byte, error)   { return nil, ErrBackendNotImplemented }
+func (s *ExternalStub) Unwrap(_ []byte) ([]byte, error) { return nil, ErrBackendNotImplemented }
+func (s *ExternalStub) Ref() string                     { return string(s.backend) + ":" + s.ref }

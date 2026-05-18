@@ -23,12 +23,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 
+	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/anomaly"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/audit"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/handler"
@@ -96,10 +98,15 @@ func main() {
 	// so handlers stay unchanged.
 	recorder := audit.NewRecorder(audittrail.NopEmitter{}, log)
 
+	budgetWindow, _ := time.ParseDuration(cfg.Governance.BudgetWindow)
+	anomalyWindow, _ := time.ParseDuration(cfg.Governance.AnomalyWindow)
+
 	state := &handler.State{
-		Repo:  repo.New(pool),
-		KMS:   kmsImpl,
-		Audit: recorder,
+		Repo:    repo.New(pool),
+		KMS:     kmsImpl,
+		Audit:   recorder,
+		Budgets: handler.NewDecryptBudgetManager(cfg.Governance.DefaultDecryptBudget, budgetWindow),
+		Anomaly: anomaly.NewDetector(cfg.Governance.AnomalyBurstLimit, anomalyWindow, nil),
 	}
 
 	metrics := observability.NewMetrics()
@@ -130,10 +137,25 @@ func buildKMS(cfg *config.Config, log *slog.Logger) (kms.KMS, error) {
 		}
 		log.Info("kms backend ready", slog.String("backend", "local"), slog.String("ref", k.Ref()))
 		return k, nil
-	case "aws":
+	case "aws", "aws_kms":
 		k := kms.NewAWSKMSStub(cfg.KMS.AWSKeyARN)
-		log.Warn("kms backend is the AWS stub — encrypt/decrypt will fail until CIP.20",
-			slog.String("ref", k.Ref()))
+		log.Warn("kms backend is an AWS KMS stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "vault_transit":
+		k := kms.NewExternalStub(kms.BackendVaultTransit, cfg.KMS.VaultKey)
+		log.Warn("kms backend is a Vault Transit stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "gcp_kms":
+		k := kms.NewExternalStub(kms.BackendGCPKMS, cfg.KMS.GCPKey)
+		log.Warn("kms backend is a GCP KMS stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "azure_key_vault":
+		k := kms.NewExternalStub(kms.BackendAzureKeyVault, cfg.KMS.AzureKey)
+		log.Warn("kms backend is an Azure Key Vault stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "pkcs11":
+		k := kms.NewExternalStub(kms.BackendPKCS11, cfg.KMS.PKCS11Key)
+		log.Warn("kms backend is a PKCS#11 HSM stub", slog.String("ref", k.Ref()))
 		return k, nil
 	default:
 		return nil, errUnknownBackend(cfg.KMS.Backend)

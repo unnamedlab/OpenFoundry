@@ -26,7 +26,12 @@ const (
 	EventCipherKeyCreated  audittrail.EventKind = "cipher.key.created"
 	EventCipherKeyRotated  audittrail.EventKind = "cipher.key.rotated"
 	EventCipherKeyRetired  audittrail.EventKind = "cipher.key.retired"
+	EventCipherKeyRevoked  audittrail.EventKind = "cipher.key.revoked"
 	EventCipherBulkDecrypt audittrail.EventKind = "cipher.bulk_decrypt"
+	EventCipherEncrypt     audittrail.EventKind = "cipher.encrypt"
+	EventCipherDecrypt     audittrail.EventKind = "cipher.decrypt"
+	EventCipherTokenize    audittrail.EventKind = "cipher.tokenize"
+	EventCipherBatch       audittrail.EventKind = "cipher.batch"
 )
 
 // SourceService is the canonical OpenLineage `producer` facet for
@@ -99,6 +104,16 @@ func (r *Recorder) KeyRetired(ctx context.Context, actorID uuid.UUID, tenantID, 
 	})
 }
 
+// KeyRevoked records a CIP.17 revoke event.
+func (r *Recorder) KeyRevoked(ctx context.Context, actorID uuid.UUID, tenantID, keyID uuid.UUID, markings []string) {
+	r.emit(ctx, actorID, audittrail.AuditEvent{
+		Kind:            EventCipherKeyRevoked,
+		ResourceRID:     keyResourceRID(keyID),
+		ProjectRID:      tenantProjectRID(tenantID),
+		MarkingsAtEvent: markings,
+	})
+}
+
 // BulkDecrypt records a CIP.8 audit event for a multi-item decrypt
 // batch. Per-item events would amplify volume past audit-sink's
 // budget; the aggregate form keeps the actor + key + count.
@@ -114,14 +129,57 @@ func (r *Recorder) BulkDecrypt(ctx context.Context, actorID uuid.UUID, tenantID 
 	})
 }
 
+// Batch records CIP.21 aggregate batch summaries without emitting one audit envelope per item.
+func (r *Recorder) Batch(ctx context.Context, actorID uuid.UUID, tenantID uuid.UUID, operation string, items int, failures int, requestID string) {
+	r.emitWithRequest(ctx, actorID, requestID, audittrail.AuditEvent{
+		Kind:        EventCipherBatch,
+		ResourceRID: tenantProjectRID(tenantID),
+		ProjectRID:  tenantProjectRID(tenantID),
+		Name:        operation,
+		Path:        "items=" + uintToStr(uint32(items)) + ";failures=" + uintToStr(uint32(failures)),
+	})
+}
+
+// Operation records CIP.8 per-operation encrypt/decrypt audit details.
+func (r *Recorder) Operation(ctx context.Context, actorID uuid.UUID, tenantID uuid.UUID, keyID uuid.UUID, operation string, algorithm string, resourceRID string, success bool, markingResult string, requestID string, markings []string) {
+	kind := EventCipherEncrypt
+	switch operation {
+	case "decrypt":
+		kind = EventCipherDecrypt
+	case "tokenize":
+		kind = EventCipherTokenize
+	}
+	if resourceRID == "" {
+		resourceRID = keyResourceRID(keyID)
+	}
+	status := "failure"
+	if success {
+		status = "success"
+	}
+	r.emitWithRequest(ctx, actorID, requestID, audittrail.AuditEvent{
+		Kind:            kind,
+		ResourceRID:     resourceRID,
+		ProjectRID:      tenantProjectRID(tenantID),
+		MarkingsAtEvent: markings,
+		Name:            algorithm,
+		AccessPattern:   status,
+		Path:            "key=" + keyID.String() + ";marking=" + markingResult,
+	})
+}
+
 // emit is the single point of contact with audittrail.Emitter so
 // failure handling and actor injection stays consistent across events.
 func (r *Recorder) emit(ctx context.Context, actorID uuid.UUID, event audittrail.AuditEvent) {
+	r.emitWithRequest(ctx, actorID, "", event)
+}
+
+func (r *Recorder) emitWithRequest(ctx context.Context, actorID uuid.UUID, requestID string, event audittrail.AuditEvent) {
 	if r == nil || r.Emitter == nil {
 		return
 	}
 	auditCtx := audittrail.AuditContext{
 		ActorID:       actorID.String(),
+		RequestID:     requestID,
 		SourceService: SourceService,
 	}
 	if err := r.Emitter.Emit(ctx, event, auditCtx); err != nil && r.Log != nil {

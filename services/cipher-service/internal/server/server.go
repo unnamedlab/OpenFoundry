@@ -130,8 +130,17 @@ func (s *Server) shutdown() error {
 func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, state *handler.State) {
 	const basePath = "/api/v1/auth/cipher"
 
-	// Read paths.
+	// Registry / read paths.
 	read := r.With(authmw.RequirePermissions(PermKeysRead))
+	caps.MustRegister(read, capabilities.Capability{
+		ID:           "cipher.algorithms.list",
+		Method:       http.MethodGet,
+		Path:         basePath + "/algorithms",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "List built-in cipher algorithms and envelope metadata.",
+		Tags:         []string{"cipher", "algorithms"},
+	}, http.HandlerFunc(state.ListAlgorithms))
 	caps.MustRegister(read, capabilities.Capability{
 		ID:           "cipher.keys.list",
 		Method:       http.MethodGet,
@@ -162,6 +171,26 @@ func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, state *handler.St
 		Summary:      "Create a tenant-scoped cipher key.",
 		Tags:         []string{"cipher", "keys"},
 	}, http.HandlerFunc(state.CreateKey))
+	caps.MustRegister(admin, capabilities.Capability{ID: "cipher.peppers.create", Method: http.MethodPost, Path: basePath + "/peppers", Stable: true, RequiresAuth: true, Summary: "Create a tenant-scoped pepper registry entry.", Tags: []string{"cipher", "peppers"}}, http.HandlerFunc(state.CreatePepper))
+	caps.MustRegister(admin, capabilities.Capability{ID: "cipher.peppers.rotate", Method: http.MethodPost, Path: basePath + "/peppers/{id}/rotate", Stable: true, RequiresAuth: true, Summary: "Rotate a pepper's material.", Tags: []string{"cipher", "peppers"}}, http.HandlerFunc(state.RotatePepper))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.update",
+		Method:       http.MethodPatch,
+		Path:         basePath + "/keys/{id}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Update mutable cipher key resource metadata.",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.UpdateKey))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.delete",
+		Method:       http.MethodDelete,
+		Path:         basePath + "/keys/{id}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Delete a cipher key resource and its version rows.",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.DeleteKey))
 	caps.MustRegister(admin, capabilities.Capability{
 		ID:           "cipher.keys.rotate",
 		Method:       http.MethodPost,
@@ -171,6 +200,25 @@ func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, state *handler.St
 		Summary:      "Append a new version to a cipher key; older versions stay decryptable.",
 		Tags:         []string{"cipher", "keys"},
 	}, http.HandlerFunc(state.RotateKey))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.rotate_new",
+		Method:       http.MethodPost,
+		Path:         basePath + "/keys/{id}/rotate-new",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Create a successor cipher key id preserving policy and metadata.",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.RotateKeyToNewID))
+	caps.MustRegister(admin, capabilities.Capability{ID: "cipher.keys.wrap_for_promotion", Method: http.MethodPost, Path: basePath + "/keys/{id}/wrap-for-promotion", Stable: true, RequiresAuth: true, Summary: "Plan cross-environment key wrapping for Apollo promotion.", Tags: []string{"cipher", "keys", "promotion"}}, http.HandlerFunc(state.WrapKeyForPromotion))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.revoke",
+		Method:       http.MethodPost,
+		Path:         basePath + "/keys/{id}/revoke",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Revoke a cipher key (hard-stop encrypt and decrypt).",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.RevokeKey))
 	caps.MustRegister(admin, capabilities.Capability{
 		ID:           "cipher.keys.retire",
 		Method:       http.MethodPost,
@@ -189,9 +237,13 @@ func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, state *handler.St
 		Path:         basePath + "/encrypt",
 		Stable:       true,
 		RequiresAuth: true,
-		Summary:      "Batch-encrypt up to 64 values; per-item errors reported in-band.",
+		Summary:      "Encrypt one value or batch-encrypt up to 64 values; every operation is audited.",
 		Tags:         []string{"cipher", "batch"},
 	}, http.HandlerFunc(state.Encrypt))
+	caps.MustRegister(encrypt, capabilities.Capability{ID: "cipher.encrypt.batch.v2", Method: http.MethodPost, Path: basePath + "/encrypt-batch", Stable: true, RequiresAuth: true, Summary: "Batch encrypt up to 64 values preserving input order.", Tags: []string{"cipher", "batch"}}, http.HandlerFunc(state.EncryptBatch))
+
+	tokenize := r.With(authmw.RequirePermissions(PermEncrypt))
+	caps.MustRegister(tokenize, capabilities.Capability{ID: "cipher.tokenize", Method: http.MethodPost, Path: basePath + "/tokenize", Stable: true, RequiresAuth: true, Summary: "Tokenize plaintext with a pepper-backed stable hash.", Tags: []string{"cipher", "tokenize"}}, http.HandlerFunc(state.Tokenize))
 
 	decrypt := r.With(authmw.RequirePermissions(PermDecrypt))
 	caps.MustRegister(decrypt, capabilities.Capability{
@@ -200,7 +252,9 @@ func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, state *handler.St
 		Path:         basePath + "/decrypt",
 		Stable:       true,
 		RequiresAuth: true,
-		Summary:      "Batch-decrypt envelopes; emits one bulk_decrypt audit event.",
+		Summary:      "Decrypt one envelope or batch-decrypt up to 64 envelopes after policy and marking checks.",
 		Tags:         []string{"cipher", "batch"},
 	}, http.HandlerFunc(state.Decrypt))
+	caps.MustRegister(decrypt, capabilities.Capability{ID: "cipher.decrypt.batch.v2", Method: http.MethodPost, Path: basePath + "/decrypt-batch", Stable: true, RequiresAuth: true, Summary: "Batch decrypt up to 64 envelopes preserving input order.", Tags: []string{"cipher", "batch"}}, http.HandlerFunc(state.DecryptBatch))
+	caps.MustRegister(decrypt, capabilities.Capability{ID: "cipher.decrypt.stream", Method: http.MethodPost, Path: basePath + "/decrypt-stream", Stable: true, RequiresAuth: true, Summary: "Streaming newline-delimited decrypt for dataset column reads.", Tags: []string{"cipher", "streaming"}}, http.HandlerFunc(state.DecryptStream))
 }
