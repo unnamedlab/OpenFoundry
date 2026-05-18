@@ -139,3 +139,23 @@ func deadlineFromCtx(ctx context.Context, fallback time.Duration) time.Duration 
 	}
 	return fallback
 }
+
+// PythonSidecar reports whether the pipeline-build-service Python runtime
+// binary is configured. The probe is intentionally configuration-based: the
+// actual manager startup path owns process liveness, while capabilities need a
+// cheap, deterministic declaration of whether transform runtime capability can
+// be published by this service instance.
+func PythonSidecar(name, binaryPath string) capabilities.DependencyProbe {
+	return capabilities.DependencyProbe{
+		Name:            name,
+		Kind:            "runtime",
+		StatusOnSuccess: "available",
+		StatusOnError:   "unavailable",
+		Probe: func(context.Context) error {
+			if binaryPath == "" {
+				return errors.New("PYTHON_SIDECAR_BINARY is not configured")
+			}
+			return nil
+		},
+	}
+}

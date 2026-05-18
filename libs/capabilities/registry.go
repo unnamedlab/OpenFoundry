@@ -1,6 +1,7 @@
 package capabilities
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -103,11 +104,12 @@ func (rg *Registry) MustRegister(r Router, cap Capability, handler http.Handler)
 // Snapshot is the JSON shape served by `/_meta/capabilities`.
 // Stable across patch releases — see [SchemaVersion].
 type Snapshot struct {
-	SchemaVersion int          `json:"schema_version"`
-	Service       string       `json:"service"`
-	Version       string       `json:"version,omitempty"`
-	GeneratedAt   string       `json:"generated_at"`
-	Capabilities  []Capability `json:"capabilities"`
+	SchemaVersion int                `json:"schema_version"`
+	Service       string             `json:"service"`
+	Version       string             `json:"version,omitempty"`
+	GeneratedAt   string             `json:"generated_at"`
+	Capabilities  []Capability       `json:"capabilities"`
+	Dependencies  []DependencyStatus `json:"dependencies,omitempty"`
 }
 
 // Snapshot returns the registry's current capability list as a
@@ -131,6 +133,16 @@ func (rg *Registry) Snapshot() Snapshot {
 	}
 }
 
+// SnapshotWithDependencies returns the capability list plus current
+// dependency probe states. It is used by the HTTP handler so
+// /_meta/capabilities communicates whether runtime-backed capabilities
+// are actually available in this process.
+func (rg *Registry) SnapshotWithDependencies(ctx context.Context) Snapshot {
+	snap := rg.Snapshot()
+	snap.Dependencies = rg.Deps(ctx)
+	return snap
+}
+
 // Handler returns the HTTP handler that serves `GET
 // /_meta/capabilities`. Callers wire it themselves so they control
 // the mount point and any additional middleware (CORS, caching, …).
@@ -143,7 +155,7 @@ func (rg *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(rg.Snapshot())
+		_ = json.NewEncoder(w).Encode(rg.SnapshotWithDependencies(r.Context()))
 	})
 }
 

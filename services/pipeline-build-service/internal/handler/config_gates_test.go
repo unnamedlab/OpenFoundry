@@ -34,7 +34,8 @@ func TestConfigGatesReturnExplicitErrors(t *testing.T) {
 	})
 
 	t.Run("PYTHON_SIDECAR_BINARY", func(t *testing.T) {
-		restore := SetExecutionPorts(ExecutionPorts{Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}})
+		committer := &recordingCommitter{}
+		restore := SetExecutionPorts(ExecutionPorts{Committer: committer, Transactions: &recordingTransactions{}})
 		defer restore()
 
 		rr := httptest.NewRecorder()
@@ -46,6 +47,7 @@ func TestConfigGatesReturnExplicitErrors(t *testing.T) {
 		require.Equal(t, string(models.BuildFailed), payload.State)
 		require.Contains(t, payload.Reasons["py"], "python_sidecar_not_configured")
 		require.Contains(t, payload.Reasons["py"], "PYTHON_SIDECAR_BINARY")
+		require.Empty(t, committer.datasets, "failed transforms must not commit outputs")
 	})
 
 	t.Run("KUBERNETES_API_URL", func(t *testing.T) {

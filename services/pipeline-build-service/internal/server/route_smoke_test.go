@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -54,4 +56,63 @@ func assertRoutesMounted(t *testing.T, handler http.Handler, expected []routeSmo
 	for _, want := range expected {
 		require.True(t, seen[want], "%s %s is not mounted", want.method, want.path)
 	}
+}
+
+func TestCapabilitiesReportPythonSidecarDependencyUnavailable(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	cfg.Service.Name = "pipeline-build-service"
+	cfg.Service.Version = "test"
+	cfg.JWTSecret = "test-secret-32bytes-test-secret-3"
+
+	rr := httptest.NewRecorder()
+	server.BuildRouter(cfg, nil).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/_meta/capabilities", nil))
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var payload struct {
+		Dependencies []struct {
+			Name   string `json:"name"`
+			Kind   string `json:"kind"`
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		} `json:"dependencies"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&payload))
+	for _, dep := range payload.Dependencies {
+		if dep.Name == "python-sidecar" {
+			require.Equal(t, "runtime", dep.Kind)
+			require.Equal(t, "unavailable", dep.Status)
+			require.Contains(t, dep.Error, "PYTHON_SIDECAR_BINARY")
+			return
+		}
+	}
+	t.Fatalf("python-sidecar dependency missing from /_meta/capabilities: %+v", payload.Dependencies)
+}
+
+func TestCapabilitiesReportPythonSidecarDependencyAvailable(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	cfg.Service.Name = "pipeline-build-service"
+	cfg.Service.Version = "test"
+	cfg.JWTSecret = "test-secret-32bytes-test-secret-3"
+	cfg.PythonSidecarBinary = "/opt/openfoundry-pyruntime"
+
+	rr := httptest.NewRecorder()
+	server.BuildRouter(cfg, nil).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/_meta/capabilities", nil))
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var payload struct {
+		Dependencies []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"dependencies"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&payload))
+	for _, dep := range payload.Dependencies {
+		if dep.Name == "python-sidecar" {
+			require.Equal(t, "available", dep.Status)
+			return
+		}
+	}
+	t.Fatalf("python-sidecar dependency missing from /_meta/capabilities: %+v", payload.Dependencies)
 }
