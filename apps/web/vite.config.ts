@@ -20,6 +20,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5174,
     proxy: {
+      // Auth cookies (of_session, of_refresh) flow through the proxy
+      // back to the browser unchanged — vite's default proxy forwards
+      // Set-Cookie verbatim and the browser binds the cookie to the
+      // dev host (localhost:5174). `changeOrigin: true` rewrites the
+      // Host header on the way out; the cookie domain stays host-only
+      // because identity-federation-service does not set an explicit
+      // Domain attribute in dev.
       '/api/v1/data-connection/egress-policies': {
         target: 'http://127.0.0.1:50119',
         changeOrigin: true,

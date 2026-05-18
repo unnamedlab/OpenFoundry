@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-import type { TokenResponse } from '@api/auth';
 import {
   clearStoredAuthReturnTo,
   getAuthReturnTo,
@@ -22,18 +21,13 @@ function paramsFromHash(hash: string) {
   return new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
 }
 
-function parseTokenResponse(values: URLSearchParams): TokenResponse | null {
-  const accessToken = values.get('access_token');
-  const refreshToken = values.get('refresh_token');
-  if (!accessToken || !refreshToken) return null;
-
-  const rawExpiresIn = Number(values.get('expires_in') ?? 3600);
-  return {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    token_type: values.get('token_type') ?? 'Bearer',
-    expires_in: Number.isFinite(rawExpiresIn) && rawExpiresIn > 0 ? rawExpiresIn : 3600,
-  };
+// hasTokenFragment reports whether the IdP redirected with a
+// `#access_token=…` style fragment (legacy implicit-flow shape). With
+// httpOnly-cookie auth the SPA never reads the token; we still detect
+// the shape so the callback path can fall through to /users/me — the
+// cookie has already been set by the time the browser lands here.
+function hasTokenFragment(values: URLSearchParams) {
+  return values.get('access_token') !== null;
 }
 
 function completeCallbackOnce(key: string, run: () => Promise<CallbackResult>) {
@@ -84,15 +78,15 @@ export function CallbackPage() {
     let cancelled = false;
     (async () => {
       try {
-        const tokenResponse = parseTokenResponse(fragment) ?? parseTokenResponse(query);
-        const callbackKey = tokenResponse
+        const tokenInFragment = hasTokenFragment(fragment) || hasTokenFragment(query);
+        const callbackKey = tokenInFragment
           ? `token:${removeSensitiveCallbackParams(location.pathname, location.search)}`
           : `exchange:${location.pathname}${location.search}${location.hash}`;
         let result: CallbackResult;
 
-        if (tokenResponse) {
+        if (tokenInFragment) {
           setStep(1);
-          result = await completeCallbackOnce(callbackKey, () => auth.completeTokenCallback(tokenResponse));
+          result = await completeCallbackOnce(callbackKey, () => auth.completeTokenCallback());
           if (!cancelled && typeof window !== 'undefined') {
             window.history.replaceState(
               window.history.state,

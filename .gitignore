@@ -98,5 +98,18 @@ infra/argocd/notifications/slack-secret.yaml
 # `make tools` installs buf / golangci-lint / sqlc / gofumpt here
 /bin/
 
+# Local-built service binaries at the service root (same name as the dir).
+# Built by `go build ./services/<svc>/cmd/<svc>` without -o.
+/services/agent-runtime-service/agent-runtime-service
+/services/ai-evaluation-service/ai-evaluation-service
+/services/ai-sink/ai-sink
+/services/application-composition-service/application-composition-service
+/services/audit-compliance-service/audit-compliance-service
+/services/audit-sink/audit-sink
+/services/authorization-policy-service/authorization-policy-service
+/services/cipher-service/cipher-service
+/services/code-repository-review-service/code-repository-review-service
+/services/compute-module-service/compute-module-service
+
 # Claude Code local config / worktrees
 .claude/

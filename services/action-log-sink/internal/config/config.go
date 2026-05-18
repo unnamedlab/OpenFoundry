@@ -76,7 +76,7 @@ func FromEnv() (*Config, error) {
 	}
 	jsonlPath := os.Getenv("ACTION_LOG_SINK_JSONL_PATH")
 	catalogURL := os.Getenv("ICEBERG_CATALOG_URL")
-	if catalogURL == "" && jsonlPath == "" {
+	if catalogURL == "" && jsonlPath == "" && os.Getenv("DATABASE_URL") == "" {
 		return nil, &MissingEnvError{Key: "ICEBERG_CATALOG_URL"}
 	}
 	tableWriterURL := defaultStr(os.Getenv("ACTION_LOG_SINK_TABLE_WRITER_URL"), os.Getenv("ICEBERG_TABLE_WRITER_URL"))

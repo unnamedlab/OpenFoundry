@@ -60,9 +60,18 @@ type Options struct {
 	AnyTokenUse bool
 }
 
+// SessionCookieName is the canonical name of the httpOnly session
+// cookie that frontends set during login. Middleware reads this as a
+// fallback when no Authorization header is present so the SPA can
+// authenticate without exposing the JWT to JavaScript. The header
+// still wins when both are supplied, preserving backwards compatibility
+// for non-cookie consumers (CLIs, server-to-server, legacy clients).
+const SessionCookieName = "of_session"
+
 // Middleware returns the chi-compatible HTTP middleware that:
 //
-//   - Extracts `Authorization: Bearer <jwt>` (or rejects 401).
+//   - Extracts `Authorization: Bearer <jwt>` (or the `of_session` cookie
+//     as a fallback) or rejects 401.
 //   - Validates the token against `cfg`.
 //   - Stashes the *Claims under FromContext for downstream handlers.
 //
@@ -78,7 +87,7 @@ func Middleware(cfg *JWTConfig, opts ...Options) func(http.Handler) http.Handler
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeaderPresent := r.Header.Get("Authorization") != ""
-			tok, ok := bearerToken(r)
+			tok, ok := tokenFromRequest(r)
 			if !ok {
 				if o.AllowAnonymous {
 					if authHeaderPresent {
@@ -148,6 +157,28 @@ func bearerToken(r *http.Request) (string, bool) {
 		return "", false
 	}
 	tok := strings.TrimSpace(h[len(prefix):])
+	if tok == "" {
+		return "", false
+	}
+	return tok, true
+}
+
+// tokenFromRequest reads the JWT from the Authorization header first
+// and falls back to the of_session cookie when no header is present.
+// If the Authorization header IS present we never fall back to the
+// cookie — the header is authoritative even when malformed, so that
+// clients which deliberately pass a header keep getting deterministic
+// behaviour and a present-but-malformed header is still flagged as
+// such rather than silently bypassed by a cookie.
+func tokenFromRequest(r *http.Request) (string, bool) {
+	if r.Header.Get("Authorization") != "" {
+		return bearerToken(r)
+	}
+	c, err := r.Cookie(SessionCookieName)
+	if err != nil || c == nil {
+		return "", false
+	}
+	tok := strings.TrimSpace(c.Value)
 	if tok == "" {
 		return "", false
 	}

@@ -46,9 +46,6 @@ func (s *State) ListKernels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, errBody(err.Error()))
 		return
 	}
-	if out == nil {
-		out = nil
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 

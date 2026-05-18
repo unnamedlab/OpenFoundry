@@ -13,6 +13,7 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/services/network-boundary-service/internal/handler"
 )
 
 // TestMountAPIRoutes_StubReturns501ForBoundaryPrefixes keeps the legacy
@@ -22,7 +23,7 @@ func TestMountAPIRoutes_StubReturns501ForBoundaryPrefixes(t *testing.T) {
 	caps := capabilities.New("network-boundary-service", "test")
 	r := chi.NewRouter()
 	caps.Mount(r)
-	mountAPIRoutes(r, caps)
+	mountAPIRoutes(r, caps, handler.NewMemoryEgressPolicyStore())
 
 	cases := []struct {
 		method string
@@ -278,7 +279,7 @@ func testRouter() http.Handler {
 	caps := capabilities.New("network-boundary-service", "test")
 	r := chi.NewRouter()
 	caps.Mount(r)
-	mountAPIRoutes(r, caps)
+	mountAPIRoutes(r, caps, handler.NewMemoryEgressPolicyStore())
 	return r
 }
 

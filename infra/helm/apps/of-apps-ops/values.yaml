@@ -283,6 +283,48 @@ services:
         cpu: "500m"
         memory: 512Mi
 
+  # Kafka ontology.actions.applied.v1 → Postgres action_log_events (+
+  # optional Iceberg lakekeeper.default.action_log via the HTTP
+  # table-writer adapter). Same shape as audit-sink: metrics-only port,
+  # /healthz behind k8s probes, /api/v1/action-log/* mounted when
+  # DATABASE_URL is wired. Phase B of ADR-0045.
+  action-log-sink:
+    replicas: 2
+    ports:
+      - name: metrics
+        containerPort: 9090
+        servicePort: 9090
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    serviceAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics
+    probes:
+      readiness:
+        path: /healthz
+        port: metrics
+      liveness:
+        path: /healthz
+        port: metrics
+    env:
+      ICEBERG_CATALOG_URL: http://lakekeeper.lakekeeper.svc:8181
+      ICEBERG_WAREHOUSE: openfoundry-iceberg
+      METRICS_ADDR: 0.0.0.0:9090
+    envSecrets:
+      DATABASE_URL:
+        secretName: open-foundry-env
+        key: action_log_sink_database_url
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
   telemetry-governance-service:
     replicas: 2
     ports:

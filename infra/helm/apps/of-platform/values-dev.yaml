@@ -107,6 +107,13 @@ services:
       maxReplicas: 2
       targetCPUUtilizationPercentage: 70
       targetMemoryUtilizationPercentage: 80
+    envSecrets:
+      DATABASE_URL:
+        secretName: network-boundary-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: network-boundary-db-dsn
+        key: reader_url
   # S8 / ADR-0030 (B14): cipher-service and network-boundary-service
   # were re-split as standalone stub binaries (501 envelopes) so the
   # gateway's /api/v1/auth/cipher, /api/v1/network-boundaries,

@@ -36,12 +36,8 @@ describe('ApiClient lifecycle hooks', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('retries once after a 401 with code=token_expired using the refreshed token', async () => {
-    client.setToken('stale');
-    const refresh = vi.fn(async () => {
-      client.setToken('fresh');
-      return 'fresh';
-    });
+  it('retries once after a 401 with code=token_expired and re-issues the request with credentials', async () => {
+    const refresh = vi.fn(async () => true);
     client.setRefreshHandler(refresh);
 
     const fetchMock = mockFetchSequence([
@@ -55,12 +51,15 @@ describe('ApiClient lifecycle hooks', () => {
     expect(result).toEqual({ ok: true });
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(authHeaderOf(fetchMock.mock.calls[0])).toBe('Bearer stale');
-    expect(authHeaderOf(fetchMock.mock.calls[1])).toBe('Bearer fresh');
+    // No Authorization header is ever attached — auth travels via the
+    // httpOnly of_session cookie.
+    expect(authHeaderOf(fetchMock.mock.calls[0])).toBeUndefined();
+    expect(authHeaderOf(fetchMock.mock.calls[1])).toBeUndefined();
+    expect(credentialsOf(fetchMock.mock.calls[1])).toBe('include');
   });
 
   it('accepts the token_expired code at the top-level of the error envelope', async () => {
-    const refresh = vi.fn(async () => 'fresh');
+    const refresh = vi.fn(async () => true);
     client.setRefreshHandler(refresh);
 
     const fetchMock = mockFetchSequence([
@@ -84,8 +83,8 @@ describe('ApiClient lifecycle hooks', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes the logout handler when the 401 retry refresh returns null', async () => {
-    const refresh = vi.fn(async () => null);
+  it('invokes the logout handler when the 401 retry refresh returns false', async () => {
+    const refresh = vi.fn(async () => false);
     const onLogout = vi.fn();
     client.setRefreshHandler(refresh);
     client.setLogoutHandler(onLogout);
@@ -185,4 +184,9 @@ function authHeaderOf(call: unknown[]): string | undefined {
   const init = call[1] as RequestInit | undefined;
   const headers = init?.headers as Record<string, string> | undefined;
   return headers?.Authorization;
+}
+
+function credentialsOf(call: unknown[]): RequestCredentials | undefined {
+  const init = call[1] as RequestInit | undefined;
+  return init?.credentials;
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -21,6 +22,8 @@ type Config struct {
 	JWTSecret              string
 	CassandraContactPoints string
 	CassandraKeyspace      string
+	ApplyMigrations        bool
+	DevMode                bool
 	NATSURL                string
 	MetricsAddr            string
 }
@@ -36,7 +39,9 @@ func FromEnv() (*Config, error) {
 		return nil, &MissingEnvError{Key: "JWT_SECRET"}
 	}
 	cfg.CassandraContactPoints = os.Getenv("CASSANDRA_CONTACT_POINTS")
-	cfg.CassandraKeyspace = defaultStr(os.Getenv("CASSANDRA_KEYSPACE"), "ontology")
+	cfg.CassandraKeyspace = defaultStr(os.Getenv("CASSANDRA_KEYSPACE"), "ontology_objects")
+	cfg.ApplyMigrations = parseBool(os.Getenv("APPLY_CASSANDRA_MIGRATIONS"), true)
+	cfg.DevMode = parseBool(os.Getenv("OF_DEV_STUB_MODE"), false)
 	cfg.NATSURL = os.Getenv("NATS_URL")
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
 	return cfg, nil
@@ -66,4 +71,18 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func parseBool(v string, fallback bool) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

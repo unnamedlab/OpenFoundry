@@ -327,11 +327,18 @@ export function selectScopedSession(presetId: string | null) {
 }
 
 export function refreshToken(refresh_token: string) {
-  return api.post<TokenResponse>('/auth/refresh', { refresh_token });
+  return api.post<TokenResponse>('/auth/token/refresh', { refresh_token });
 }
 
 export function login(data: LoginRequest) {
   return api.post<LoginResponse>('/auth/login', data);
+}
+
+// logout is a 204 — there is nothing meaningful to return. The
+// server clears the of_session / of_refresh cookies; the SPA clears
+// its in-memory user state regardless of whether the call succeeds.
+export function logout() {
+  return api.fetch<void>('/auth/logout', { method: 'POST', skipAuthHooks: true });
 }
 
 export function register(data: RegisterRequest) {

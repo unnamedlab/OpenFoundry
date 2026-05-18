@@ -103,6 +103,10 @@ func (r *MemoryRepository) CancelInvocation(_ context.Context, id, _ uuid.UUID) 
 		return nil, function.ErrInvocationTerminal
 	}
 	now := r.nowFn()
+	if row.StartedAt == nil {
+		started := now
+		row.StartedAt = &started
+	}
 	row.Status = function.StatusCancelled
 	row.FinishedAt = &now
 	return row.Clone(), nil

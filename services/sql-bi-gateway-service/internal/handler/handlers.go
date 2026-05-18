@@ -9,6 +9,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -17,25 +18,29 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/repo"
 )
 
-// SavedQueries hosts the saved-queries CRUD handlers backed by pgx.
+// SavedQueries hosts the saved-queries CRUD handlers.
+//
+// When Repo is nil the handlers return seed-only stub responses so the
+// Flight SQL surface stays available during BI-database outages — same
+// behaviour as the Rust `build_router(None)`.
 type SavedQueries struct {
-	Pool *pgxpool.Pool
+	Repo repo.SavedQueries
 	Log  *slog.Logger
 }
 
-// New builds a SavedQueries handler set backed by pool. Pool may be
+// New builds a SavedQueries handler set backed by repo. repo may be
 // nil; in that case Mount only wires the in-memory stub responses
 // (matches the Rust behaviour when the saved-queries database is
 // unreachable: the Flight SQL surface stays available, the side
 // router only serves /healthz).
-func New(pool *pgxpool.Pool, log *slog.Logger) *SavedQueries {
-	return &SavedQueries{Pool: pool, Log: log}
+func New(r repo.SavedQueries, log *slog.Logger) *SavedQueries {
+	return &SavedQueries{Repo: r, Log: log}
 }
 
 // IsSafeRID returns true for RIDs that are safe to embed verbatim in
@@ -82,11 +87,11 @@ func (h *SavedQueries) CreateSavedQuery(w http.ResponseWriter, r *http.Request) 
 	}
 	sql := bodySQL
 	if sql == "" {
-		// P5 — Foundry "Open in SQL workbench" entry point. When the
-		// body `sql` is empty AND `?seed_dataset_rid=` is present,
-		// pre-fill with `SELECT * FROM <dataset>` so the user lands
-		// on a runnable query. RID is sanitised to alphanumeric +
-		// dot/dash/underscore so it can be embedded in SQL safely.
+		// Foundry "Open in SQL workbench" entry point: when the body's
+		// `sql` is empty AND `?seed_dataset_rid=` is present, pre-fill
+		// with `SELECT * FROM <dataset> LIMIT 100` so the user lands on
+		// a runnable query. RID is sanitised so it can be embedded
+		// without an injection vector.
 		if rid := r.URL.Query().Get("seed_dataset_rid"); IsSafeRID(rid) {
 			sql = `SELECT * FROM "` + rid + `" LIMIT 100`
 		}
@@ -97,7 +102,9 @@ func (h *SavedQueries) CreateSavedQuery(w http.ResponseWriter, r *http.Request) 
 		desc = *body.Description
 	}
 
-	if h.Pool == nil {
+	ownerID := claimsOwnerID(r)
+
+	if h.Repo == nil {
 		// No DB wired — return the body the caller would have got
 		// after a successful insert so dashboards keep working in
 		// smoke clusters.
@@ -107,32 +114,29 @@ func (h *SavedQueries) CreateSavedQuery(w http.ResponseWriter, r *http.Request) 
 			Name:        body.Name,
 			Description: desc,
 			SQL:         sql,
-			OwnerID:     uuid.Nil,
+			OwnerID:     ownerID,
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		})
 		return
 	}
 
-	id := uuid.New()
-	// owner_id must be derived from the authenticated user; until the
-	// chi auth layer is wired into this side router we accept the
-	// anonymous (nil) UUID and rely on the database's NOT NULL
-	// constraint as a backstop. The Flight SQL gRPC surface is the
-	// primary auth-gated entrypoint; the saved-queries CRUD here is
-	// a BI-dashboard convenience.
-	ownerID := uuid.Nil
-	row := h.Pool.QueryRow(r.Context(), `
-        INSERT INTO saved_queries (id, name, description, sql, owner_id)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, description, sql, owner_id, created_at, updated_at`,
-		id, body.Name, desc, sql, ownerID)
-
-	q, err := scanSavedQuery(row)
+	q, err := h.Repo.Create(r.Context(), models.SavedQuery{
+		Name:        body.Name,
+		Description: desc,
+		SQL:         sql,
+		OwnerID:     ownerID,
+	})
 	if err != nil {
-		h.Log.Error("create saved query failed", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
-		return
+		switch {
+		case errors.Is(err, repo.ErrValidation):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		default:
+			h.Log.Error("create saved query failed", slog.String("error", err.Error()))
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, q)
 }
@@ -154,39 +158,17 @@ func (h *SavedQueries) ListSavedQueries(w http.ResponseWriter, r *http.Request) 
 	}
 	offset := (page - 1) * perPage
 
-	if h.Pool == nil {
+	if h.Repo == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"data": []any{}, "page": page, "per_page": perPage,
 		})
 		return
 	}
 
-	var (
-		searchVal *string
-		search    = q.Get("search")
-	)
-	if search != "" {
-		pat := "%" + search + "%"
-		searchVal = &pat
-	}
-
-	rows, err := h.Pool.Query(r.Context(), `
-        SELECT id, name, description, sql, owner_id, created_at, updated_at
-        FROM saved_queries
-        WHERE ($1::TEXT IS NULL OR name ILIKE $1 OR description ILIKE $1)
-        ORDER BY updated_at DESC
-        LIMIT $2 OFFSET $3`, searchVal, perPage, offset)
+	out, err := h.Repo.List(r.Context(), q.Get("search"), perPage, offset)
 	if err != nil {
 		h.Log.Error("list saved queries failed", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusInternalServerError, nil)
-		return
-	}
-	defer rows.Close()
-
-	out, err := scanSavedQueries(rows)
-	if err != nil {
-		h.Log.Error("list saved queries scan", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusInternalServerError, nil)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -202,48 +184,34 @@ func (h *SavedQueries) DeleteSavedQuery(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if h.Pool == nil {
+	if h.Repo == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	tag, err := h.Pool.Exec(r.Context(), `DELETE FROM saved_queries WHERE id = $1`, id)
-	if err != nil {
-		h.Log.Error("delete saved query failed", slog.String("error", err.Error()))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	if tag.RowsAffected() == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		return
+	if err := h.Repo.Delete(r.Context(), id); err != nil {
+		switch {
+		case errors.Is(err, repo.ErrNotFound):
+			w.WriteHeader(http.StatusNotFound)
+			return
+		default:
+			h.Log.Error("delete saved query failed", slog.String("error", err.Error()))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- scanning helpers --------------------------------------------------
-
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanSavedQueries(rows pgx.Rows) ([]models.SavedQuery, error) {
-	out := make([]models.SavedQuery, 0)
-	for rows.Next() {
-		q, err := scanSavedQuery(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, q)
+// claimsOwnerID returns the subject of the bound JWT claims, or
+// uuid.Nil when the request was not authenticated. The HTTP side
+// router mounts authmw.Middleware on /api/v1, so authenticated requests
+// always reach the handler with claims attached; the nil-fallback only
+// fires in tests and in the `allow_anonymous` dev path.
+func claimsOwnerID(r *http.Request) uuid.UUID {
+	if claims, ok := authmw.FromContext(r.Context()); ok && claims != nil {
+		return claims.Sub
 	}
-	return out, rows.Err()
-}
-
-func scanSavedQuery(s rowScanner) (models.SavedQuery, error) {
-	var q models.SavedQuery
-	if err := s.Scan(&q.ID, &q.Name, &q.Description, &q.SQL, &q.OwnerID,
-		&q.CreatedAt, &q.UpdatedAt); err != nil {
-		return models.SavedQuery{}, err
-	}
-	return q, nil
+	return uuid.Nil
 }
 
 func parseInt64(s string, fallback int64) int64 {
@@ -265,4 +233,3 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	_ = json.NewEncoder(w).Encode(v)
 }
-

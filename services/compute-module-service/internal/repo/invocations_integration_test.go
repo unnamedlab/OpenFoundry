@@ -1,12 +1,9 @@
 //go:build integration
 
 // Integration coverage for the Postgres-backed function-invocations
-// repository. Until the pgx-backed implementation lands (CM.10+), the
-// integration build tag exercises the in-memory store through the same
-// public Repository contract so the surface stays stable. Once the
-// real Postgres repo lands the body can be replaced with a
-// testcontainers-driven driver — the table-driven assertions below
-// already work against any Repository implementation.
+// repository. Uses libs/testing.BootPostgres to spin up an ephemeral
+// postgres:16-alpine container, applies the embedded migrations, and
+// exercises the public Repository contract.
 package repo_test
 
 import (
@@ -18,18 +15,24 @@ import (
 
 	"github.com/google/uuid"
 
+	testingx "github.com/openfoundry/openfoundry-go/libs/testing"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/domain/function"
+	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/repo"
 )
 
-func newRepo(t *testing.T) repo.Repository {
+func newRepo(t *testing.T) (repo.Repository, context.Context) {
 	t.Helper()
-	return repo.NewMemoryRepository()
+	ctx := context.Background()
+	h := testingx.BootPostgres(ctx, t)
+	if err := repo.Migrate(ctx, h.Pool); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+	return repo.NewPgRepository(h.Pool), ctx
 }
 
 func TestInvocationLifecycle_Integration(t *testing.T) {
-	r := newRepo(t)
-	ctx := context.Background()
+	r, ctx := newRepo(t)
 
 	in := function.FunctionInvocation{
 		ModuleID:     uuid.New(),
@@ -65,15 +68,13 @@ func TestInvocationLifecycle_Integration(t *testing.T) {
 	if done.Status != function.StatusSucceeded || done.CostUnits != 42 || done.FinishedAt == nil {
 		t.Fatalf("terminal state wrong: %+v", done)
 	}
-	// Re-cancelling a terminal row must fail.
 	if _, err := r.CancelInvocation(ctx, row.ID, uuid.New()); !errors.Is(err, function.ErrInvocationTerminal) {
 		t.Fatalf("expected ErrInvocationTerminal, got %v", err)
 	}
 }
 
 func TestInvocationListFilter_Integration(t *testing.T) {
-	r := newRepo(t)
-	ctx := context.Background()
+	r, ctx := newRepo(t)
 
 	mod := uuid.New()
 	tenant := uuid.New()
@@ -90,7 +91,6 @@ func TestInvocationListFilter_Integration(t *testing.T) {
 			t.Fatalf("create %d: %v", i, err)
 		}
 	}
-	// One row for a different tenant must not leak across.
 	_, err := r.CreateInvocation(ctx, function.FunctionInvocation{
 		ModuleID:     mod,
 		FunctionName: "echo",
@@ -109,5 +109,72 @@ func TestInvocationListFilter_Integration(t *testing.T) {
 	}
 	if len(res.Items) != 3 {
 		t.Fatalf("expected 3 items scoped to tenant, got %d", len(res.Items))
+	}
+}
+
+func TestComputeModuleCRUD_Integration(t *testing.T) {
+	r, ctx := newRepo(t)
+
+	project := uuid.New()
+	actor := uuid.New()
+	created, err := r.Create(ctx, models.CreateParams{
+		Name:          "Echo Module",
+		ProjectID:     project,
+		ExecutionMode: models.ExecutionModeFunction,
+		Actor:         actor,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.State != models.LifecycleActive {
+		t.Fatalf("expected active state, got %q", created.State)
+	}
+
+	// Same name in same folder → conflict.
+	if _, err := r.Create(ctx, models.CreateParams{
+		Name:          "echo module",
+		ProjectID:     project,
+		ExecutionMode: models.ExecutionModeFunction,
+		Actor:         actor,
+	}); !errors.Is(err, repo.ErrNameConflict) {
+		t.Fatalf("expected ErrNameConflict, got %v", err)
+	}
+
+	newName := "Echo v2"
+	updated, err := r.UpdateMetadata(ctx, created.ID, models.UpdateMetadataParams{
+		Name:  &newName,
+		Actor: actor,
+	})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Name != newName {
+		t.Fatalf("expected name %q, got %q", newName, updated.Name)
+	}
+
+	archived, err := r.Archive(ctx, created.ID, actor)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if !archived.IsArchived() {
+		t.Fatalf("expected archived state, got %q", archived.State)
+	}
+	if _, err := r.Archive(ctx, created.ID, actor); !errors.Is(err, repo.ErrAlreadyArchived) {
+		t.Fatalf("re-archive should return ErrAlreadyArchived, got %v", err)
+	}
+
+	restored, err := r.Restore(ctx, created.ID, actor)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if restored.IsArchived() {
+		t.Fatalf("expected active after restore")
+	}
+
+	if err := r.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := r.Get(ctx, created.ID); !errors.Is(err, repo.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }

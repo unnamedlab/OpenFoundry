@@ -89,3 +89,10 @@ services:
         key: reader_url
   knowledge-index-service:
     replicas: 1
+    envSecrets:
+      DATABASE_URL:
+        secretName: knowledge-index-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: knowledge-index-db-dsn
+        key: reader_url

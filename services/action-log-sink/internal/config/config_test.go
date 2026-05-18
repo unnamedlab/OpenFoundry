@@ -56,10 +56,25 @@ func TestFromEnv_missingCatalogURLWhenNoJSONL(t *testing.T) {
 	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 	t.Setenv("ICEBERG_CATALOG_URL", "")
 	t.Setenv("ACTION_LOG_SINK_JSONL_PATH", "")
+	t.Setenv("DATABASE_URL", "")
 	_, err := FromEnv()
 	var me *MissingEnvError
 	if !errors.As(err, &me) || me.Key != "ICEBERG_CATALOG_URL" {
 		t.Fatalf("expected missing ICEBERG_CATALOG_URL, got %v", err)
+	}
+}
+
+func TestFromEnv_databaseURLSatisfiesWriterRequirement(t *testing.T) {
+	t.Setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+	t.Setenv("ICEBERG_CATALOG_URL", "")
+	t.Setenv("ACTION_LOG_SINK_JSONL_PATH", "")
+	t.Setenv("DATABASE_URL", "postgresql://x")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if cfg.CatalogURL != "" || cfg.JSONLWriterPath != "" {
+		t.Errorf("unexpected writer fields: %+v", cfg)
 	}
 }
 

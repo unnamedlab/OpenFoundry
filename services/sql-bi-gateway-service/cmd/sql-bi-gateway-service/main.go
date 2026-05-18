@@ -35,6 +35,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/flightsql"
+	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/server"
 	"github.com/openfoundry/openfoundry-go/services/sql-bi-gateway-service/internal/wire"
 )
@@ -70,6 +71,21 @@ func main() {
 			pool.Close()
 		}
 	}()
+
+	if pool != nil {
+		migrateCtx, migrateCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := repo.Migrate(migrateCtx, pool)
+		migrateCancel()
+		if err != nil {
+			// Migrations are applied best-effort: the helm pre-install
+			// Job already enforces schema on production releases. Logging
+			// at WARN keeps the gateway up so /healthz + Flight SQL stay
+			// reachable when the embedded migrator hits a transient
+			// permission glitch.
+			log.Warn("embedded migrations did not apply cleanly",
+				slog.String("error", err.Error()))
+		}
+	}
 
 	var sqlProbes []capabilities.DependencyProbe
 	if pool != nil {

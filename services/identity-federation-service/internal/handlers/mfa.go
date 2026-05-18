@@ -33,6 +33,7 @@ type MFARepo interface {
 type TokenIssuer interface {
 	IssueTokens(ctx context.Context, user *models.User, authMethods []string) (string, string, error)
 	AccessTokenTTL() time.Duration
+	RefreshTokenTTL() time.Duration
 }
 
 // MFA wires GET /status, /factors, POST totp/{enroll,verify,disable,complete-login}.
@@ -45,6 +46,10 @@ type MFA struct {
 	// the encrypt-on-enroll path (handlers return 503) — production
 	// MUST set MFA_AT_REST_KEY.
 	Sealer *service.Sealer
+
+	// SessionCookie shapes the of_session / of_refresh cookies
+	// emitted from /mfa/totp/complete-login. Mirrors Auth.SessionCookie.
+	SessionCookie SessionCookieConfig
 }
 
 // Status handles GET /api/v1/auth/mfa/status. Authenticated.
@@ -273,6 +278,8 @@ func (m *MFA) CompleteLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	SetSessionCookie(w, m.SessionCookie, access, m.Issuer.AccessTokenTTL())
+	SetRefreshCookie(w, m.SessionCookie, refresh, m.Issuer.RefreshTokenTTL())
 	writeJSON(w, http.StatusOK, models.LoginResponse{
 		Status:       models.LoginStatusAuthenticated,
 		AccessToken:  access,

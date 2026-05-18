@@ -20,3 +20,11 @@ telemetry:
   # When OTEL_TRACES_EXPORTER=none is set, tracing is disabled.
   otlp_endpoint: "localhost:4317"
   log_format: "plain"
+
+database:
+  # DATABASE_URL / DATABASE_READ_URL env override these blanks. The
+  # service falls back to an in-memory store when no DSN is configured
+  # so local dev works without Postgres; production overlays always
+  # inject DATABASE_URL via Helm envSecrets.
+  url: ""
+  read_url: ""

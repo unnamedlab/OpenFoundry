@@ -142,7 +142,8 @@ func (f *fakeIssuer) IssueTokens(_ context.Context, _ *models.User, methods []st
 	return "access-token", "refresh-token", nil
 }
 
-func (f *fakeIssuer) AccessTokenTTL() time.Duration { return time.Hour }
+func (f *fakeIssuer) AccessTokenTTL() time.Duration  { return time.Hour }
+func (f *fakeIssuer) RefreshTokenTTL() time.Duration { return 7 * 24 * time.Hour }
 
 func newMFAFixture(t *testing.T) (*handlers.MFA, *fakeMFARepo, *fakeIssuer, *models.User) {
 	t.Helper()
@@ -155,10 +156,11 @@ func newMFAFixture(t *testing.T) (*handlers.MFA, *fakeMFARepo, *fakeIssuer, *mod
 	repo := &fakeMFARepo{user: user}
 	issuer := &fakeIssuer{}
 	h := &handlers.MFA{
-		JWT:    authmw.NewJWTConfig("openfoundry-test-secret-aaaaaaaaaaaaaaaa"),
-		Repo:   repo,
-		Issuer: issuer,
-		Sealer: sealer,
+		JWT:           authmw.NewJWTConfig("openfoundry-test-secret-aaaaaaaaaaaaaaaa"),
+		Repo:          repo,
+		Issuer:        issuer,
+		Sealer:        sealer,
+		SessionCookie: handlers.SessionCookieConfig{Secure: false, SameSite: http.SameSiteLaxMode},
 	}
 	return h, repo, issuer, user
 }
@@ -516,6 +518,16 @@ func TestCompleteLoginExchangesChallengeForTokens(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "access-token", out.AccessToken)
 	assert.Equal(t, "refresh-token", out.RefreshToken)
+
+	cookies := map[string]*http.Cookie{}
+	for _, c := range rec.Result().Cookies() {
+		cookies[c.Name] = c
+	}
+	require.Contains(t, cookies, authmw.SessionCookieName, "mfa complete-login must emit of_session")
+	require.Contains(t, cookies, handlers.RefreshCookieName, "mfa complete-login must emit of_refresh")
+	assert.Equal(t, "access-token", cookies[authmw.SessionCookieName].Value)
+	assert.True(t, cookies[authmw.SessionCookieName].HttpOnly)
+	assert.Equal(t, "refresh-token", cookies[handlers.RefreshCookieName].Value)
 }
 
 func TestCompleteLoginConsumesRecoveryCode(t *testing.T) {

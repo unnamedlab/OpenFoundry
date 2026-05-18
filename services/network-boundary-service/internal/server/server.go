@@ -29,8 +29,14 @@ type Server struct {
 	log        *slog.Logger
 }
 
-// New builds a Server with all middleware and routes mounted.
-func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
+// New builds a Server with all middleware and routes mounted. The
+// egress policy store is injected so main.go can pick the persistent
+// (Postgres) or in-memory implementation depending on whether
+// DATABASE_URL is configured.
+func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, store handler.EgressPolicyStore, probes ...capabilities.DependencyProbe) (*Server, error) {
+	if store == nil {
+		store = handler.NewMemoryEgressPolicyStore()
+	}
 	jwtCfg := authmw.NewJWTConfig(cfg.JWT.Secret).
 		WithIssuer(cfg.JWT.Issuer).
 		WithAudience(cfg.JWT.Audience)
@@ -54,7 +60,7 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, p
 
 	// Authenticated API mount.
 	api := r.With(authmw.Middleware(jwtCfg))
-	mountAPIRoutes(api, caps)
+	mountAPIRoutes(api, caps, store)
 
 	s := &Server{
 		cfg: cfg,
@@ -113,10 +119,10 @@ var placeholderRoutes = []struct {
 // gets a single catch-all 501 placeholder bound to every common verb,
 // so the frontend always sees the documented envelope instead of a 405
 // or 502.
-func mountAPIRoutes(r chi.Router, caps *capabilities.Registry) {
+func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, store handler.EgressPolicyStore) {
 	const milestone = "S8.6/B14"
 	stub := handler.NotImplemented(milestone)
-	egress := handler.NewEgressHandler(handler.NewMemoryEgressPolicyStore())
+	egress := handler.NewEgressHandler(store)
 
 	registerCapability(caps, r, capabilities.Capability{
 		ID:           "network-boundary.egress-policies.list",

@@ -13,17 +13,22 @@ export interface CallOptions {
 }
 
 type PreRequestHook = () => void | Promise<void>;
-type RefreshHandler = () => Promise<string | null>;
+type RefreshHandler = () => Promise<boolean>;
 type LogoutHandler = () => void;
 
+// Authentication is now driven by the httpOnly of_session cookie set
+// by identity-federation-service. The client no longer holds an access
+// token in JS — every request opts into cookie propagation via
+// `credentials: 'include'`. setToken is kept as a no-op so call sites
+// that still invoke it during the migration window do not break; it
+// will be deleted once all callers have been updated.
 export class ApiClient {
-  private token: string | null = null;
   private preRequestHook: PreRequestHook | null = null;
   private refreshHandler: RefreshHandler | null = null;
   private logoutHandler: LogoutHandler | null = null;
 
-  setToken(token: string | null) {
-    this.token = token;
+  setToken(_token: string | null) {
+    // no-op: tokens live in the httpOnly cookie.
   }
 
   setPreRequestHook(hook: PreRequestHook | null) {
@@ -39,7 +44,7 @@ export class ApiClient {
   }
 
   authorizationHeaders(): Record<string, string> {
-    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+    return {};
   }
 
   async fetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -77,16 +82,17 @@ export class ApiClient {
       ...options.headers,
     };
 
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
     let response: Response;
     try {
       response = await fetch(`${API_BASE}${path}`, {
         method: options.method ?? 'GET',
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
+        // The auth JWT travels as an httpOnly cookie now; every fetch
+        // must opt into cookie propagation or the request lands at the
+        // backend unauthenticated even though the browser has the
+        // cookie.
+        credentials: 'include',
         signal: options.signal,
       });
     } catch (cause) {
@@ -115,11 +121,12 @@ export class ApiClient {
         isTokenExpired(error)
       ) {
         const refreshed = await this.refreshHandler();
-        if (refreshed === null) {
+        if (!refreshed) {
           this.logoutHandler?.();
           throw new ApiError(response.status, extractMessage(error, response));
         }
-        this.token = refreshed;
+        // Server rotated the of_session cookie; just retry — the new
+        // cookie will be attached to the next fetch by the browser.
         return this.request(path, options, true);
       }
 

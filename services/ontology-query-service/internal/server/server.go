@@ -44,6 +44,8 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 
 		api.Get("/objects/{tenant}/{object_id}", h.GetObject)
 		api.Get("/objects/{tenant}/by-type/{type_id}", h.ListObjectsByType)
+		api.Get("/objects/{tenant}/{object_id}/links/{link_type}/outgoing", h.ListOutgoingLinks)
+		api.Get("/objects/{tenant}/{object_id}/links/{link_type}/incoming", h.ListIncomingLinks)
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
@@ -58,7 +60,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 	return &http.Server{
 		Addr:              addr,
 		Handler:           r,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 
@@ -73,7 +78,7 @@ func Run(ctx context.Context, srv *http.Server, log *slog.Logger) error {
 	}()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		log.Info("shutting down")
 		return srv.Shutdown(shutdownCtx)

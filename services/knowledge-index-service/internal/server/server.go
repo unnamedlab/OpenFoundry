@@ -124,6 +124,12 @@ func buildKnowledgeHandlers(cfg *config.Config, opts options) (*aikernel.Knowled
 	return nil, fmt.Errorf("postgres pool is required when database.url is configured")
 }
 
+// Handler returns the wired HTTP handler. Exposed for tests that need to
+// drive the router via httptest.NewServer; production callers use Run.
+func (s *Server) Handler() http.Handler {
+	return s.httpServer.Handler
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {

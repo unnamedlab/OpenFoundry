@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -38,8 +40,13 @@ const (
 	egressPermissionGrantImporter = "network-egress:grant-importer"
 )
 
+// ErrEgressPolicyNotFound is returned by EgressPolicyStore implementations
+// when the targeted policy or approval task is missing. Exported so other
+// internal packages (e.g. repo) can return the same sentinel.
+var ErrEgressPolicyNotFound = errors.New("egress policy not found")
+
 var (
-	errNotFound        = errors.New("egress policy not found")
+	errNotFound        = ErrEgressPolicyNotFound
 	errDestinationMove = errors.New("egress policy destinations are immutable")
 
 	hostPattern = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
@@ -212,16 +219,20 @@ type EvaluateWorkloadEgressResponse struct {
 	Decisions  []EgressPolicyRuntimeDecision `json:"decisions"`
 }
 
+// EgressPolicyStore is the persistence boundary for the egress policy
+// surface. Implementations must be safe for concurrent use. ctx is
+// propagated so Postgres-backed implementations can honour request
+// cancellation and timeouts; in-memory implementations ignore it.
 type EgressPolicyStore interface {
-	ListPolicies() []NetworkEgressPolicy
-	CreatePolicy(policy NetworkEgressPolicy) NetworkEgressPolicy
-	GetPolicy(id string) (NetworkEgressPolicy, bool)
-	ListApprovals(status string) []EgressApprovalTask
-	RequestStateChange(id string, state string, actor string, reason string) (NetworkEgressPolicy, error)
-	DecideApproval(taskID string, decision string, actor string, reason string) (NetworkEgressPolicy, EgressApprovalTask, error)
-	UpdateState(id string, state string, actor string, reason string) (NetworkEgressPolicy, error)
-	UpdateSharing(id string, viewer []string, importer []string, admin []string, actor string, reason string) (NetworkEgressPolicy, error)
-	RecordRuntimeUse(policyID string, claims *authmw.Claims, body EvaluateWorkloadEgressRequest, decision EgressPolicyRuntimeDecision) error
+	ListPolicies(ctx context.Context) ([]NetworkEgressPolicy, error)
+	CreatePolicy(ctx context.Context, policy NetworkEgressPolicy) (NetworkEgressPolicy, error)
+	GetPolicy(ctx context.Context, id string) (NetworkEgressPolicy, bool, error)
+	ListApprovals(ctx context.Context, status string) ([]EgressApprovalTask, error)
+	RequestStateChange(ctx context.Context, id string, state string, actor string, reason string) (NetworkEgressPolicy, error)
+	DecideApproval(ctx context.Context, taskID string, decision string, actor string, reason string) (NetworkEgressPolicy, EgressApprovalTask, error)
+	UpdateState(ctx context.Context, id string, state string, actor string, reason string) (NetworkEgressPolicy, error)
+	UpdateSharing(ctx context.Context, id string, viewer []string, importer []string, admin []string, actor string, reason string) (NetworkEgressPolicy, error)
+	RecordRuntimeUse(ctx context.Context, policyID string, claims *authmw.Claims, body EvaluateWorkloadEgressRequest, decision EgressPolicyRuntimeDecision) error
 }
 
 type MemoryEgressPolicyStore struct {
@@ -233,7 +244,20 @@ func NewMemoryEgressPolicyStore() *MemoryEgressPolicyStore {
 	return &MemoryEgressPolicyStore{policies: map[string]NetworkEgressPolicy{}}
 }
 
-func (s *MemoryEgressPolicyStore) ListPolicies() []NetworkEgressPolicy {
+// Seed replaces the in-memory inventory with the supplied policies.
+// The Postgres-backed store uses this to host the pure decoration /
+// transition logic without duplicating it.
+func (s *MemoryEgressPolicyStore) Seed(_ context.Context, policies []NetworkEgressPolicy) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.policies = make(map[string]NetworkEgressPolicy, len(policies))
+	for _, policy := range policies {
+		s.policies[policy.ID] = clonePolicy(policy)
+	}
+	return nil
+}
+
+func (s *MemoryEgressPolicyStore) ListPolicies(_ context.Context) ([]NetworkEgressPolicy, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]NetworkEgressPolicy, 0, len(s.policies))
@@ -243,29 +267,29 @@ func (s *MemoryEgressPolicyStore) ListPolicies() []NetworkEgressPolicy {
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryEgressPolicyStore) CreatePolicy(policy NetworkEgressPolicy) NetworkEgressPolicy {
+func (s *MemoryEgressPolicyStore) CreatePolicy(_ context.Context, policy NetworkEgressPolicy) (NetworkEgressPolicy, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	policy = clonePolicy(policy)
 	policy = decoratePolicyWithInventory(policy, s.policies)
 	s.policies[policy.ID] = policy
-	return clonePolicy(policy)
+	return clonePolicy(policy), nil
 }
 
-func (s *MemoryEgressPolicyStore) GetPolicy(id string) (NetworkEgressPolicy, bool) {
+func (s *MemoryEgressPolicyStore) GetPolicy(_ context.Context, id string) (NetworkEgressPolicy, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	policy, ok := s.policies[id]
 	if !ok {
-		return NetworkEgressPolicy{}, false
+		return NetworkEgressPolicy{}, false, nil
 	}
-	return decoratePolicyWithInventory(policy, s.policies), true
+	return decoratePolicyWithInventory(policy, s.policies), true, nil
 }
 
-func (s *MemoryEgressPolicyStore) ListApprovals(status string) []EgressApprovalTask {
+func (s *MemoryEgressPolicyStore) ListApprovals(_ context.Context, status string) ([]EgressApprovalTask, error) {
 	status = strings.TrimSpace(status)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -281,10 +305,10 @@ func (s *MemoryEgressPolicyStore) ListApprovals(status string) []EgressApprovalT
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].RequestedAt.After(out[j].RequestedAt)
 	})
-	return out
+	return out, nil
 }
 
-func (s *MemoryEgressPolicyStore) RequestStateChange(id string, state string, actor string, reason string) (NetworkEgressPolicy, error) {
+func (s *MemoryEgressPolicyStore) RequestStateChange(_ context.Context, id string, state string, actor string, reason string) (NetworkEgressPolicy, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	policy, ok := s.policies[id]
@@ -308,7 +332,7 @@ func (s *MemoryEgressPolicyStore) RequestStateChange(id string, state string, ac
 	return clonePolicy(policy), nil
 }
 
-func (s *MemoryEgressPolicyStore) DecideApproval(taskID string, decision string, actor string, reason string) (NetworkEgressPolicy, EgressApprovalTask, error) {
+func (s *MemoryEgressPolicyStore) DecideApproval(_ context.Context, taskID string, decision string, actor string, reason string) (NetworkEgressPolicy, EgressApprovalTask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	decision = strings.ToLower(strings.TrimSpace(decision))
@@ -367,7 +391,7 @@ func (s *MemoryEgressPolicyStore) DecideApproval(taskID string, decision string,
 	return NetworkEgressPolicy{}, EgressApprovalTask{}, errNotFound
 }
 
-func (s *MemoryEgressPolicyStore) UpdateState(id string, state string, actor string, reason string) (NetworkEgressPolicy, error) {
+func (s *MemoryEgressPolicyStore) UpdateState(_ context.Context, id string, state string, actor string, reason string) (NetworkEgressPolicy, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	policy, ok := s.policies[id]
@@ -409,7 +433,7 @@ func (s *MemoryEgressPolicyStore) UpdateState(id string, state string, actor str
 	return clonePolicy(policy), nil
 }
 
-func (s *MemoryEgressPolicyStore) UpdateSharing(id string, viewer []string, importer []string, admin []string, actor string, reason string) (NetworkEgressPolicy, error) {
+func (s *MemoryEgressPolicyStore) UpdateSharing(_ context.Context, id string, viewer []string, importer []string, admin []string, actor string, reason string) (NetworkEgressPolicy, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	policy, ok := s.policies[id]
@@ -432,7 +456,7 @@ func (s *MemoryEgressPolicyStore) UpdateSharing(id string, viewer []string, impo
 	return clonePolicy(policy), nil
 }
 
-func (s *MemoryEgressPolicyStore) RecordRuntimeUse(policyID string, claims *authmw.Claims, body EvaluateWorkloadEgressRequest, decision EgressPolicyRuntimeDecision) error {
+func (s *MemoryEgressPolicyStore) RecordRuntimeUse(_ context.Context, policyID string, claims *authmw.Claims, body EvaluateWorkloadEgressRequest, decision EgressPolicyRuntimeDecision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	policy, ok := s.policies[policyID]
@@ -484,7 +508,12 @@ func (h *EgressHandler) ListPolicies(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	policies := h.Store.ListPolicies()
+	policies, err := h.Store.ListPolicies(r.Context())
+	if err != nil {
+		slog.ErrorContext(r.Context(), "egress: list policies failed", slog.String("error", err.Error()))
+		writeEgressError(w, http.StatusInternalServerError, "failed to list egress policies")
+		return
+	}
 	visible := make([]NetworkEgressPolicy, 0, len(policies))
 	for _, policy := range policies {
 		if policyVisibleTo(policy, claims) {
@@ -531,7 +560,13 @@ func (h *EgressHandler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	if len(policy.ImporterGrants) > 0 {
 		policy.AuditEvents = append(policy.AuditEvents, auditEvent(claims.Sub.String(), "network_egress.policy.importer_grants_changed", "success", body.Reason, true, map[string]any{"importer_grants": policy.ImporterGrants}))
 	}
-	writeEgressJSON(w, http.StatusCreated, h.Store.CreatePolicy(policy))
+	created, err := h.Store.CreatePolicy(r.Context(), policy)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "egress: create policy failed", slog.String("error", err.Error()))
+		writeEgressError(w, http.StatusInternalServerError, "failed to persist egress policy")
+		return
+	}
+	writeEgressJSON(w, http.StatusCreated, created)
 }
 
 func (h *EgressHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
@@ -539,7 +574,12 @@ func (h *EgressHandler) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	policy, found := h.Store.GetPolicy(chi.URLParam(r, "id"))
+	policy, found, err := h.Store.GetPolicy(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		slog.ErrorContext(r.Context(), "egress: get policy failed", slog.String("error", err.Error()))
+		writeEgressError(w, http.StatusInternalServerError, "failed to load egress policy")
+		return
+	}
 	if !found {
 		writeEgressError(w, http.StatusNotFound, "egress policy not found")
 		return
@@ -560,7 +600,13 @@ func (h *EgressHandler) ListApprovals(w http.ResponseWriter, r *http.Request) {
 		writeEgressError(w, http.StatusForbidden, "network egress approval permission required")
 		return
 	}
-	writeEgressJSON(w, http.StatusOK, h.Store.ListApprovals(strings.TrimSpace(r.URL.Query().Get("status"))))
+	approvals, err := h.Store.ListApprovals(r.Context(), strings.TrimSpace(r.URL.Query().Get("status")))
+	if err != nil {
+		slog.ErrorContext(r.Context(), "egress: list approvals failed", slog.String("error", err.Error()))
+		writeEgressError(w, http.StatusInternalServerError, "failed to list approval tasks")
+		return
+	}
+	writeEgressJSON(w, http.StatusOK, approvals)
 }
 
 func (h *EgressHandler) DecideApproval(w http.ResponseWriter, r *http.Request) {
@@ -577,7 +623,7 @@ func (h *EgressHandler) DecideApproval(w http.ResponseWriter, r *http.Request) {
 		writeEgressError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	policy, task, err := h.Store.DecideApproval(chi.URLParam(r, "task_id"), body.Decision, claims.Sub.String(), body.Reason)
+	policy, task, err := h.Store.DecideApproval(r.Context(), chi.URLParam(r, "task_id"), body.Decision, claims.Sub.String(), body.Reason)
 	if errors.Is(err, errNotFound) {
 		writeEgressError(w, http.StatusNotFound, "approval task not found")
 		return
@@ -607,7 +653,12 @@ func (h *EgressHandler) UpdateState(w http.ResponseWriter, r *http.Request) {
 		writeEgressError(w, http.StatusBadRequest, "state must be one of pending_approval, active, paused, revoked")
 		return
 	}
-	current, found := h.Store.GetPolicy(chi.URLParam(r, "id"))
+	current, found, err := h.Store.GetPolicy(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		slog.ErrorContext(r.Context(), "egress: get policy failed", slog.String("error", err.Error()))
+		writeEgressError(w, http.StatusInternalServerError, "failed to load egress policy")
+		return
+	}
 	if !found {
 		writeEgressError(w, http.StatusNotFound, "egress policy not found")
 		return
@@ -617,7 +668,7 @@ func (h *EgressHandler) UpdateState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canApproveEgress(claims) {
-		policy, err := h.Store.RequestStateChange(current.ID, body.State, claims.Sub.String(), body.Reason)
+		policy, err := h.Store.RequestStateChange(r.Context(), current.ID, body.State, claims.Sub.String(), body.Reason)
 		if err != nil {
 			writeEgressError(w, http.StatusBadRequest, err.Error())
 			return
@@ -625,7 +676,7 @@ func (h *EgressHandler) UpdateState(w http.ResponseWriter, r *http.Request) {
 		writeEgressJSON(w, http.StatusAccepted, policy)
 		return
 	}
-	policy, err := h.Store.UpdateState(chi.URLParam(r, "id"), body.State, claims.Sub.String(), body.Reason)
+	policy, err := h.Store.UpdateState(r.Context(), chi.URLParam(r, "id"), body.State, claims.Sub.String(), body.Reason)
 	if errors.Is(err, errNotFound) {
 		writeEgressError(w, http.StatusNotFound, "egress policy not found")
 		return
@@ -647,7 +698,12 @@ func (h *EgressHandler) UpdateSharing(w http.ResponseWriter, r *http.Request) {
 		writeEgressError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	policy, found := h.Store.GetPolicy(chi.URLParam(r, "id"))
+	policy, found, err := h.Store.GetPolicy(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		slog.ErrorContext(r.Context(), "egress: get policy failed", slog.String("error", err.Error()))
+		writeEgressError(w, http.StatusInternalServerError, "failed to load egress policy")
+		return
+	}
 	if !found {
 		writeEgressError(w, http.StatusNotFound, "egress policy not found")
 		return
@@ -660,7 +716,7 @@ func (h *EgressHandler) UpdateSharing(w http.ResponseWriter, r *http.Request) {
 	if len(importer) == 0 && len(body.Permissions) > 0 {
 		importer = body.Permissions
 	}
-	updated, err := h.Store.UpdateSharing(policy.ID, body.ViewerGrants, importer, body.AdminGrants, claims.Sub.String(), body.Reason)
+	updated, err := h.Store.UpdateSharing(r.Context(), policy.ID, body.ViewerGrants, importer, body.AdminGrants, claims.Sub.String(), body.Reason)
 	if err != nil {
 		writeEgressError(w, http.StatusBadRequest, err.Error())
 		return
@@ -682,7 +738,7 @@ func (h *EgressHandler) EvaluateWorkload(w http.ResponseWriter, r *http.Request)
 		writeEgressError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	response := h.evaluateRuntime(body, claims)
+	response := h.evaluateRuntime(r.Context(), body, claims)
 	status := http.StatusOK
 	if !response.Allowed {
 		status = http.StatusForbidden
@@ -690,7 +746,7 @@ func (h *EgressHandler) EvaluateWorkload(w http.ResponseWriter, r *http.Request)
 	writeEgressJSON(w, status, response)
 }
 
-func (h *EgressHandler) evaluateRuntime(body EvaluateWorkloadEgressRequest, claims *authmw.Claims) EvaluateWorkloadEgressResponse {
+func (h *EgressHandler) evaluateRuntime(ctx context.Context, body EvaluateWorkloadEgressRequest, claims *authmw.Claims) EvaluateWorkloadEgressResponse {
 	response := EvaluateWorkloadEgressResponse{Allowed: false, WorkloadID: strings.TrimSpace(body.WorkloadID), Decisions: []EgressPolicyRuntimeDecision{}}
 	policyIDs := normalizeStringSet(body.PolicyIDs)
 	if len(policyIDs) == 0 {
@@ -702,14 +758,23 @@ func (h *EgressHandler) evaluateRuntime(body EvaluateWorkloadEgressRequest, clai
 		return response
 	}
 	for _, policyID := range policyIDs {
-		policy, found := h.Store.GetPolicy(policyID)
+		policy, found, err := h.Store.GetPolicy(ctx, policyID)
+		if err != nil {
+			slog.ErrorContext(ctx, "egress: get policy failed during runtime evaluation",
+				slog.String("policy_id", policyID), slog.String("error", err.Error()))
+			response.Decisions = append(response.Decisions, EgressPolicyRuntimeDecision{PolicyID: policyID, Allowed: false, Code: "policy_lookup_failed", Message: "Failed to load egress policy from the policy store."})
+			continue
+		}
 		if !found {
 			response.Decisions = append(response.Decisions, EgressPolicyRuntimeDecision{PolicyID: policyID, Allowed: false, Code: "policy_not_found", Message: "Imported egress policy does not exist."})
 			continue
 		}
 		decision := evaluatePolicyRuntimeUse(policy, body, claims)
 		response.Decisions = append(response.Decisions, decision)
-		_ = h.Store.RecordRuntimeUse(policy.ID, claims, body, decision)
+		if err := h.Store.RecordRuntimeUse(ctx, policy.ID, claims, body, decision); err != nil {
+			slog.ErrorContext(ctx, "egress: record runtime use failed",
+				slog.String("policy_id", policy.ID), slog.String("error", err.Error()))
+		}
 	}
 	if len(response.Decisions) > 0 {
 		response.Allowed = true

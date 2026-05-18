@@ -141,6 +141,74 @@ func TestAnonymousLogsInvalidJWT(t *testing.T) {
 	assert.Equal(t, baseInvalid+1, got, "auth_invalid_token_total{reason=\"invalid\"} must increment by 1")
 }
 
+func TestCookieFallbackAuthenticates(t *testing.T) {
+	t.Parallel()
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+
+	tok, err := authmw.EncodeToken(cfg, sampleClaims(time.Hour))
+	require.NoError(t, err)
+
+	called := false
+	handler := authmw.Middleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, ok := authmw.FromContext(r.Context())
+		assert.True(t, ok, "cookie-bearing request must authenticate")
+		if ok {
+			assert.Equal(t, "demo@example.com", c.Email)
+		}
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.AddCookie(&http.Cookie{Name: authmw.SessionCookieName, Value: tok})
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHeaderWinsOverCookie(t *testing.T) {
+	t.Parallel()
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+
+	// A valid cookie alongside a malformed Authorization header MUST
+	// be rejected — the header is authoritative for backwards-compat
+	// callers that intentionally pass it.
+	good, err := authmw.EncodeToken(cfg, sampleClaims(time.Hour))
+	require.NoError(t, err)
+
+	handler := authmw.Middleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.Header.Set("Authorization", "Token not-a-bearer")
+	req.AddCookie(&http.Cookie{Name: authmw.SessionCookieName, Value: good})
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "malformed header must not fall back to cookie")
+}
+
+func TestCookieIgnoredWhenEmpty(t *testing.T) {
+	t.Parallel()
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+
+	handler := authmw.Middleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.AddCookie(&http.Cookie{Name: authmw.SessionCookieName, Value: "   "})
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
 func TestAnonymousLogsWrongTokenUse(t *testing.T) {
 	cfg, err := authmw.Generate()
 	require.NoError(t, err)

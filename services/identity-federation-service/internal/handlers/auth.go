@@ -28,6 +28,12 @@ type Auth struct {
 	Repo     *repo.Repo
 	Issuer   *service.Issuer
 	WebAuthn WebAuthnChecker // nil → WebAuthn detection skipped
+
+	// SessionCookie controls the of_session cookie emitted alongside
+	// the legacy JSON token body on /login, /mfa/totp/complete-login
+	// and /token/refresh. The frontend prefers the cookie; the JSON
+	// fields stay for one release so non-browser callers keep working.
+	SessionCookie SessionCookieConfig
 }
 
 // WebAuthnChecker is the bare-minimum surface Auth needs.
@@ -175,6 +181,8 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	if err := a.Repo.StampLogin(r.Context(), user.ID, time.Now().UTC(), clientIP(r)); err != nil {
 		slog.Warn("stamp login", slog.String("user_id", user.ID.String()), slog.String("error", err.Error()))
 	}
+	SetSessionCookie(w, a.SessionCookie, access, a.Issuer.AccessTTL)
+	SetRefreshCookie(w, a.SessionCookie, refresh, a.Issuer.RefreshTTL)
 	writeJSON(w, http.StatusOK, models.LoginResponse{
 		Status:       models.LoginStatusAuthenticated,
 		AccessToken:  access,
@@ -203,26 +211,64 @@ func clientIP(r *http.Request) string {
 }
 
 // Refresh handles POST /api/v1/auth/token/refresh.
+//
+// The refresh token is sourced first from the request body (legacy
+// non-cookie consumers) and then from the of_refresh cookie that the
+// SPA carries — so the browser flow never exposes a refresh token to
+// JavaScript while CLIs / server-to-server callers keep working
+// during the deprecation window.
 func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 	var body models.RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+	if r.Body != nil {
+		// An empty body is legitimate (cookie-only callers); ignore
+		// decode errors and fall back to the cookie path below.
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	refreshToken := strings.TrimSpace(body.RefreshToken)
+	if refreshToken == "" {
+		if c, err := r.Cookie(RefreshCookieName); err == nil && c != nil {
+			refreshToken = strings.TrimSpace(c.Value)
+		}
+	}
+	if refreshToken == "" {
+		writeJSONErr(w, http.StatusBadRequest, "refresh token required")
 		return
 	}
-	access, refresh, err := a.Issuer.RefreshTokens(r.Context(), body.RefreshToken)
+	access, refresh, err := a.Issuer.RefreshTokens(r.Context(), refreshToken)
 	if err != nil {
 		// Both Invalid + Reused map to 401 — the client should drop
 		// the family and reauthenticate. The slog log keeps them apart.
 		slog.Warn("refresh failed", slog.String("error", err.Error()))
+		// Reused/invalid refresh: clear the browser cookies so the
+		// SPA's next request goes straight to /auth/login instead of
+		// spinning on a token the server has already revoked.
+		ClearSessionCookie(w, a.SessionCookie)
 		writeJSONErr(w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
+	SetSessionCookie(w, a.SessionCookie, access, a.Issuer.AccessTTL)
+	SetRefreshCookie(w, a.SessionCookie, refresh, a.Issuer.RefreshTTL)
 	writeJSON(w, http.StatusOK, models.TokenResponse{
 		AccessToken:  access,
 		RefreshToken: refresh,
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(a.Issuer.AccessTTL.Seconds()),
 	})
+}
+
+// Logout handles POST /api/v1/auth/logout.
+//
+// Invalidates the of_session / of_refresh cookies so the browser
+// drops them immediately. The endpoint is intentionally idempotent
+// and does not require an existing valid session — calling logout
+// twice (or after the cookie already expired) is a 204, not a 401.
+//
+// Token-level revocation (refresh-token-family invalidation) still
+// happens at the issuer; this handler only owns the cookie side of
+// logout so the SPA cannot leave a stale Set-Cookie behind.
+func (a *Auth) Logout(w http.ResponseWriter, _ *http.Request) {
+	ClearSessionCookie(w, a.SessionCookie)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ExchangeAPIKey handles POST /api/v1/auth/api-key/exchange.

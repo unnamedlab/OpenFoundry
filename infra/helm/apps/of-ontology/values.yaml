@@ -188,11 +188,32 @@ services:
         cpu: "1"
         memory: 1Gi
 
+  # Read-side ontology slice (S1.5). Cassandra-only: schema and object
+  # rows live in the `ontology_objects` keyspace; no SQL surface.
+  # Environment contract:
+  #   PORT                            — listen port (default 50105)
+  #   JWT_SECRET / OPENFOUNDRY_JWT_SECRET
+  #   CASSANDRA_CONTACT_POINTS        — required in prod
+  #   CASSANDRA_KEYSPACE              — defaults to `ontology_objects`
+  #   CASSANDRA_LOCAL_DC              — wired from global.cassandra.localDc
+  #   APPLY_CASSANDRA_MIGRATIONS=true — idempotent CREATE TABLE IF NOT EXISTS
   ontology-query-service:
     replicas: 3
     ports:
       - name: http
-        containerPort: 8080
+        containerPort: 50105
+        servicePort: 50105
+    env:
+      PORT: "50105"
+      CASSANDRA_KEYSPACE: ontology_objects
+      APPLY_CASSANDRA_MIGRATIONS: "true"
+    probes:
+      readiness:
+        path: /healthz
+        port: http
+      liveness:
+        path: /healthz
+        port: http
     resources:
       requests:
         cpu: 200m

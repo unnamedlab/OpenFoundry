@@ -24,7 +24,10 @@ func New(cfg *config.Config, m *observability.Metrics, probes ...capabilities.De
 	return &http.Server{
 		Addr:              addr,
 		Handler:           r,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 
@@ -39,6 +42,7 @@ func buildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 	r.Use(chimw.Timeout(60 * time.Second))
 
 	r.Get("/healthz", runtime.HealthzHandler)
+	r.Get("/readyz", runtime.HealthzHandler)
 	r.Get("/catalog", runtime.ListCatalogHandler)
 	r.Get("/catalog/{kind}", runtime.CatalogEntryHandler(func(req *http.Request) string {
 		return chi.URLParam(req, "kind")
@@ -77,7 +81,7 @@ func Run(ctx context.Context, srv *http.Server, log *slog.Logger) error {
 	}()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		log.Info("shutting down")
 		return srv.Shutdown(shutdownCtx)

@@ -100,5 +100,6 @@ WORKDIR /home/nonroot
 STOPSIGNAL SIGTERM
 
 EXPOSE 50105
+ENV PORT=50105
 
 ENTRYPOINT ["/usr/local/bin/service"]

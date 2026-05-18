@@ -1,12 +1,9 @@
-// Command retrieval-context-service hosts the RAG context retrieval
-// surface. Substrate-only port — handlers/models/domain are all
-// `#[path]` re-exports from libs/ai-kernel in the Rust source. The
-// /api/v1/* routes wire alongside libs/ai-kernel-go/handlers in a
-// follow-up slice.
-//
-// Document-intelligence sub-domain (gated behind the Rust `parsers`
-// Cargo feature with a doc-comment noting it's "intentionally out
-// of scope for this consolidation PR") ports separately.
+// Command retrieval-context-service hosts the document-intelligence
+// HTTP surface plus the substrate routes (healthz, metrics, auth
+// probe). The knowledge-base + conversation surfaces live in
+// knowledge-index-service and agent-runtime-service respectively;
+// here we own only document-intelligence jobs, status events and
+// structured extractions.
 package main
 
 import (
@@ -19,9 +16,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/retrieval-context-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/retrieval-context-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/retrieval-context-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/retrieval-context-service/internal/server"
 )
@@ -49,25 +48,29 @@ func main() {
 	}
 	defer func() { _ = shutdownTracing(context.Background()) }()
 
-	var pool *pgxpool.Pool
-	if cfg.DatabaseURL != "" {
-		var err error
-		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
-		if err != nil {
-			log.Error("pgx pool failed", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-		defer pool.Close()
-		if err := repo.Migrate(ctx, pool); err != nil {
-			log.Error("migrations failed", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-	} else {
-		log.Warn("DATABASE_URL unset — migrations skipped (handlers wire with libs/ai-kernel-go/handlers slice)")
+	if cfg.DatabaseURL == "" {
+		log.Error("DATABASE_URL unset — refusing to start")
+		os.Exit(1)
+	}
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Error("pgx pool failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer pool.Close()
+	if err := repo.Migrate(ctx, pool); err != nil {
+		log.Error("migrations failed", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
 	metrics := observability.NewMetrics()
-	srv := server.New(cfg, metrics, probes.Postgres("primary", pool))
+	store := repo.NewPgStore(pool)
+	deps := server.Deps{
+		Jobs: &handlers.Jobs{Store: store, Logger: log},
+		JWT:  authmw.NewJWTConfig(cfg.JWTSecret),
+	}
+
+	srv := server.New(cfg, deps, metrics, probes.Postgres("primary", pool))
 	if err := server.Run(ctx, srv, log); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

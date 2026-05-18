@@ -3,12 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../api/client';
 import { auth } from './auth';
 
-const ACCESS_TOKEN_KEY = 'of_access_token';
-const REFRESH_TOKEN_KEY = 'of_refresh_token';
-const EXPIRES_AT_KEY = 'of_access_token_expires_at';
-
-describe('auth token lifecycle', () => {
+describe('auth cookie lifecycle', () => {
   beforeEach(() => {
+    // localStorage is mocked but expected to remain empty for auth state —
+    // the httpOnly of_session cookie owns the access token now and the JS
+    // store must never persist it.
     mockLocalStorage();
     mockSessionStorage();
     vi.useFakeTimers();
@@ -16,140 +15,97 @@ describe('auth token lifecycle', () => {
   });
 
   afterEach(() => {
-    auth.logout();
     api.setToken(null);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it('persists access/refresh tokens and a skew-adjusted expires_at on login', async () => {
-    const tokens = {
-      status: 'authenticated' as const,
-      access_token: 'access-abc',
-      refresh_token: 'refresh-xyz',
-      token_type: 'Bearer',
-      expires_in: 3600,
-    };
-
-    vi.stubGlobal(
-      'fetch',
-      mockFetchSequence([
-        jsonResponse(200, tokens), // POST /auth/login
-        jsonResponse(200, sampleProfile()), // GET /users/me
-      ]),
-    );
-
-    await auth.login('user@example.com', 'hunter2');
-
-    expect(localStorage.getItem(ACCESS_TOKEN_KEY)).toBe('access-abc');
-    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe('refresh-xyz');
-    expect(localStorage.getItem(EXPIRES_AT_KEY)).toBe(String(Date.now() + 3600_000 - 30_000));
-  });
-
-  it('clears all auth keys on logout', () => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, 'a');
-    localStorage.setItem(REFRESH_TOKEN_KEY, 'r');
-    localStorage.setItem(EXPIRES_AT_KEY, String(Date.now() + 600_000));
-
-    auth.logout();
-
-    expect(localStorage.getItem(ACCESS_TOKEN_KEY)).toBeNull();
-    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBeNull();
-    expect(localStorage.getItem(EXPIRES_AT_KEY)).toBeNull();
-  });
-
-  it('proactively refreshes the access token when expires_at is within the 60s leeway', async () => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, 'stale-token');
-    localStorage.setItem(REFRESH_TOKEN_KEY, 'refresh-1');
-    localStorage.setItem(EXPIRES_AT_KEY, String(Date.now() + 10_000)); // 10s left
-
+  it('does not persist any auth token in localStorage after login', async () => {
     const fetchMock = mockFetchSequence([
       jsonResponse(200, {
-        access_token: 'fresh-token',
-        refresh_token: 'refresh-2',
+        status: 'authenticated',
+        access_token: 'ignored-by-spa',
+        refresh_token: 'ignored-by-spa',
         token_type: 'Bearer',
         expires_in: 3600,
       }),
-      jsonResponse(200, { items: [] }),
+      jsonResponse(200, sampleProfile()),
     ]);
     vi.stubGlobal('fetch', fetchMock);
 
-    api.setToken('stale-token');
-    await api.get('/some/resource');
+    await auth.login('user@example.com', 'hunter2');
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(urlOf(fetchMock.mock.calls[0])).toContain('/auth/refresh');
-    expect(urlOf(fetchMock.mock.calls[1])).toContain('/some/resource');
-    expect(authHeaderOf(fetchMock.mock.calls[1])).toBe('Bearer fresh-token');
-    expect(localStorage.getItem(ACCESS_TOKEN_KEY)).toBe('fresh-token');
-    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBe('refresh-2');
+    expect(localStorage.getItem('of_access_token')).toBeNull();
+    expect(localStorage.getItem('of_refresh_token')).toBeNull();
+    expect(localStorage.getItem('of_access_token_expires_at')).toBeNull();
+    // The browser-side cookie is invisible to JS, so success is observed
+    // through getMe() returning a profile.
+    expect(auth.getSnapshot().user?.email).toBe('user@example.com');
   });
 
-  it('skips proactive refresh when the token has plenty of time left', async () => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, 'fresh');
-    localStorage.setItem(REFRESH_TOKEN_KEY, 'refresh-1');
-    localStorage.setItem(EXPIRES_AT_KEY, String(Date.now() + 600_000)); // 10 minutes
-
+  it('sends credentials:include on every authed fetch', async () => {
     const fetchMock = mockFetchSequence([jsonResponse(200, { items: [] })]);
     vi.stubGlobal('fetch', fetchMock);
 
-    api.setToken('fresh');
     await api.get('/some/resource');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(urlOf(fetchMock.mock.calls[0])).toContain('/some/resource');
+    const call = fetchMock.mock.calls[0] as unknown[];
+    const init = (call[1] ?? {}) as RequestInit;
+    expect(init.credentials).toBe('include');
+    expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
   });
 
-  it('deduplicates concurrent proactive refresh attempts', async () => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, 'stale');
-    localStorage.setItem(REFRESH_TOKEN_KEY, 'refresh-1');
-    localStorage.setItem(EXPIRES_AT_KEY, String(Date.now() + 5_000));
-
-    const refreshResponse = {
-      access_token: 'fresh',
-      refresh_token: 'refresh-2',
-      token_type: 'Bearer',
-      expires_in: 3600,
-    };
+  it('refreshes via /auth/token/refresh on 401 token_expired and retries the original request', async () => {
     const fetchMock = mockFetchByUrl({
-      '/auth/refresh': () => jsonResponse(200, refreshResponse),
-      '/a': () => jsonResponse(200, { a: 1 }),
-      '/b': () => jsonResponse(200, { b: 2 }),
+      '/auth/token/refresh': () => jsonResponse(200, {}),
+      '/some/resource': (() => {
+        let firstCall = true;
+        return () => {
+          if (firstCall) {
+            firstCall = false;
+            return jsonResponse(401, { error: { code: 'token_expired', message: 'expired' } });
+          }
+          return jsonResponse(200, { ok: true });
+        };
+      })(),
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    api.setToken('stale');
-    const [a, b] = await Promise.all([api.get('/a'), api.get('/b')]);
+    const out = await api.get('/some/resource');
 
-    expect(a).toEqual({ a: 1 });
-    expect(b).toEqual({ b: 2 });
-    // Exactly one refresh despite two concurrent callers seeing expiry near.
-    const refreshCalls = fetchMock.mock.calls.filter((c) => urlOf(c).includes('/auth/refresh'));
-    expect(refreshCalls).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(out).toEqual({ ok: true });
+    const urls = fetchMock.mock.calls.map((c) => urlOf(c));
+    expect(urls.some((u) => u.includes('/auth/token/refresh'))).toBe(true);
+    expect(urls.filter((u) => u.includes('/some/resource'))).toHaveLength(2);
   });
 
-  it('forces a redirect to /auth/login when a 401(token_expired) cannot be refreshed', async () => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, 'stale');
-    localStorage.setItem(REFRESH_TOKEN_KEY, 'refresh-1');
-    localStorage.setItem(EXPIRES_AT_KEY, String(Date.now() + 600_000)); // skip proactive
-
+  it('redirects to /auth/login when refresh fails', async () => {
     const fetchMock = mockFetchSequence([
       jsonResponse(401, { error: { code: 'token_expired', message: 'expired' } }),
-      jsonResponse(401, { error: 'invalid_grant' }), // refresh attempt fails
+      jsonResponse(401, { error: 'invalid_grant' }),
     ]);
     vi.stubGlobal('fetch', fetchMock);
 
     const assignMock = vi.fn();
     vi.stubGlobal('location', { assign: assignMock, href: 'http://localhost/' });
 
-    api.setToken('stale');
     await expect(api.get('/some/resource')).rejects.toBeDefined();
-
     expect(assignMock).toHaveBeenCalledWith('/auth/login');
-    expect(localStorage.getItem(ACCESS_TOKEN_KEY)).toBeNull();
-    expect(localStorage.getItem(REFRESH_TOKEN_KEY)).toBeNull();
-    expect(localStorage.getItem(EXPIRES_AT_KEY)).toBeNull();
+  });
+
+  it('logout POSTs to /auth/logout and clears the in-memory user', async () => {
+    const fetchMock = mockFetchSequence([new Response(null, { status: 204 })]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    // Seed a fake authenticated user.
+    auth.updateCurrentUserProfile(sampleProfile());
+    expect(auth.getSnapshot().user).not.toBeNull();
+
+    await auth.logout();
+
+    expect(urlOf(fetchMock.mock.calls[0])).toContain('/auth/logout');
+    expect(auth.getSnapshot().user).toBeNull();
   });
 });
 
@@ -194,7 +150,7 @@ function mockSessionStorage() {
 }
 
 function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
+  return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json' },
   });
@@ -214,7 +170,7 @@ function mockFetchByUrl(handlers: Record<string, () => Response>) {
   return vi.fn(async (input: unknown) => {
     const url = String(input);
     for (const [suffix, factory] of Object.entries(handlers)) {
-      if (url.endsWith(suffix)) return factory();
+      if (url.includes(suffix)) return factory();
     }
     throw new Error(`no mock handler for ${url}`);
   });
@@ -222,12 +178,6 @@ function mockFetchByUrl(handlers: Record<string, () => Response>) {
 
 function urlOf(call: unknown[]): string {
   return String(call[0]);
-}
-
-function authHeaderOf(call: unknown[]): string | undefined {
-  const init = call[1] as RequestInit | undefined;
-  const headers = init?.headers as Record<string, string> | undefined;
-  return headers?.Authorization;
 }
 
 function sampleProfile() {

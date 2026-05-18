@@ -2,6 +2,30 @@ version: v2
 managed:
   enabled: true
 plugins:
-  # TypeScript (connect-es)
+  # TypeScript (connect-es) — service stubs only.
+  #
+  # NOTE: This config is incomplete. It emits the `*_connect.{js,d.ts}`
+  # service descriptors but NOT the `*_pb.{js,d.ts}` message types, because
+  # the `bufbuild/es` plugin is missing. Without `_pb`, the generated
+  # service stubs cannot resolve their imports and are unusable.
+  #
+  # Additionally, the platform backend (services/*) speaks REST via chi
+  # routers, not Connect-RPC, so connect-es clients have no server to
+  # talk to today. apps/web/src/lib/api/*.ts uses hand-written REST
+  # clients against `/api/v1/...` and intentionally does not depend on
+  # generated bindings.
+  #
+  # The previously-generated orphan output at
+  # `apps/web/src/lib/api/gen/` was removed because no consumer
+  # imported it and the missing `_pb` files left it broken-by-design.
+  #
+  # To enable TypeScript codegen for the frontend, three things must
+  # happen together:
+  #   1. Add the `bufbuild/es` plugin here so `_pb` files are emitted.
+  #   2. Add `@bufbuild/protobuf` and `@connectrpc/connect-web` to
+  #      `apps/web/package.json`.
+  #   3. Stand up Connect-RPC handlers in the relevant Go services
+  #      (or settle on an OpenAPI→TS pipeline instead — see
+  #      `apps/web/public/generated/openapi/openfoundry.json`).
   - remote: buf.build/connectrpc/es
     out: ../apps/web/src/lib/api/gen

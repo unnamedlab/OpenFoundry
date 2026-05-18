@@ -293,6 +293,16 @@ services:
     ports:
       - name: http
         containerPort: 8080
+    envSecrets:
+      DATABASE_URL:
+        secretName: network-boundary-db-dsn
+        key: writer_url
+      DATABASE_READ_URL:
+        secretName: network-boundary-db-dsn
+        key: reader_url
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
     resources:
       requests:
         cpu: 50m

@@ -200,6 +200,12 @@ services:
         cpu: "500m"
         memory: 512Mi
 
+  # ai-sink consumes ai.events.v1 and writes to two tiers:
+  #   * Iceberg (`of_ai.{prompts,responses,evaluations,traces}`) — always on
+  #     via ICEBERG_CATALOG_URL below.
+  #   * Postgres `ai_events` — optional hot store fronted by the
+  #     `/api/v1/ai/events` HTTP API. Enable by uncommenting envSecrets
+  #     below and provisioning `ai-sink-db-dsn` (writer_url key).
   ai-sink:
     replicas: 2
     ports:
@@ -225,6 +231,10 @@ services:
       ICEBERG_CATALOG_URL: http://lakekeeper.lakekeeper.svc:8181
       ICEBERG_WAREHOUSE: openfoundry-iceberg
       METRICS_ADDR: 0.0.0.0:9090
+    # envSecrets:
+    #   DATABASE_URL:
+    #     secretName: ai-sink-db-dsn
+    #     key: writer_url
     resources:
       requests:
         cpu: 100m

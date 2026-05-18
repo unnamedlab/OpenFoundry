@@ -112,8 +112,13 @@ func main() {
 		log.Warn("MFA_AT_REST_KEY unset — TOTP enrolment will return 503 until configured")
 	}
 
-	auth := &handlers.Auth{Repo: r, Issuer: issuer, WebAuthn: waService}
-	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer, Sealer: mfaSealer}
+	sessionCookie := handlers.SessionCookieConfig{
+		Secure:   cfg.CookieSecure,
+		SameSite: handlers.ParseSameSite(cfg.CookieSameSite),
+		Domain:   cfg.CookieDomain,
+	}
+	auth := &handlers.Auth{Repo: r, Issuer: issuer, WebAuthn: waService, SessionCookie: sessionCookie}
+	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer, Sealer: mfaSealer, SessionCookie: sessionCookie}
 	wa := &handlers.WebAuthn{JWT: jwt, Repo: r, Service: waService, Issuer: issuer}
 	sso := &handlers.SSO{
 		Repo:          r,

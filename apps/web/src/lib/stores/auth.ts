@@ -1,8 +1,13 @@
-// TODO(security): access/refresh tokens are persisted in localStorage, which
-// exposes them to any script with XSS reach. Migrate to httpOnly cookies set
-// by identity-federation-service (on /auth/login, /auth/refresh) and forwarded
-// by the edge gateway. That requires coordinated backend changes, so it is
-// tracked separately from this auth-lifecycle pass.
+// Authentication is driven by the httpOnly `of_session` cookie set by
+// identity-federation-service. The store no longer holds an access or
+// refresh token — both live exclusively in cookies the JS cannot read,
+// which removes the localStorage XSS vector. Session validity is
+// inferred from a successful GET /users/me; expiry is observable only
+// as a 401 from the server.
+//
+// SSO and scoped-session flows still return TokenResponse JSON for
+// non-cookie consumers; the SPA now ignores those bodies because the
+// backend rotates the cookie alongside them.
 import { useEffect } from 'react';
 import { useSyncExternalStore } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -15,12 +20,11 @@ import {
   completeSsoLogin,
   getMe,
   login as apiLogin,
-  refreshToken,
+  logout as apiLogout,
   selectScopedSession,
   startSsoLogin as apiStartSsoLogin,
   type LoginResponse,
   type MfaRequiredResponse,
-  type TokenResponse,
   type UserProfile,
 } from '../api/auth';
 import {
@@ -31,19 +35,7 @@ import {
 } from '../auth/redirects';
 import { applyUserLocalePreference } from '../i18n/store';
 
-const ACCESS_TOKEN_KEY = 'of_access_token';
-const REFRESH_TOKEN_KEY = 'of_refresh_token';
-const EXPIRES_AT_KEY = 'of_access_token_expires_at';
 const PENDING_MFA_KEY = 'of_pending_mfa';
-
-// Subtracted from the response's expires_in when computing the persisted
-// expiry timestamp so we never treat the token as valid up to the last second
-// of its real lifetime.
-const TOKEN_SKEW_MS = 30_000;
-
-// If the cached access token will expire inside this window, trigger a
-// pro-active refresh before the next outbound request.
-const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 
 type AuthFlowResult = { status: 'authenticated' } | MfaRequiredResponse;
 type PendingMfaChallenge = MfaRequiredResponse & { received_at: number };
@@ -55,14 +47,12 @@ type CompleteMfaInput =
     };
 
 interface AuthSnapshot {
-  token: string | null;
   user: UserProfile | null;
   loading: boolean;
   pendingChallenge: PendingMfaChallenge | null;
 }
 
 const initialSnapshot: AuthSnapshot = {
-  token: null,
   user: null,
   loading: false,
   pendingChallenge: null,
@@ -84,40 +74,6 @@ function getSnapshot() {
 function setSnapshot(next: Partial<AuthSnapshot>) {
   snapshot = { ...snapshot, ...next };
   listeners.forEach((l) => l());
-}
-
-function persistTokens(access: string, refresh: string, expiresInSec: number) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(ACCESS_TOKEN_KEY, access);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
-  const expiresAt = Date.now() + expiresInSec * 1000 - TOKEN_SKEW_MS;
-  localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt));
-}
-
-function clearTokens() {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(EXPIRES_AT_KEY);
-}
-
-function getStoredRefreshToken(): string | null {
-  if (typeof localStorage === 'undefined') return null;
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
-function getStoredExpiresAt(): number | null {
-  if (typeof localStorage === 'undefined') return null;
-  const raw = localStorage.getItem(EXPIRES_AT_KEY);
-  if (!raw) return null;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
-}
-
-export function isAccessTokenExpiringSoon(): boolean {
-  const expiresAt = getStoredExpiresAt();
-  if (expiresAt === null) return false;
-  return expiresAt - Date.now() < TOKEN_REFRESH_THRESHOLD_MS;
 }
 
 function isPendingChallengeExpired(challenge: PendingMfaChallenge) {
@@ -170,18 +126,10 @@ function hydratePendingChallenge() {
   }
 }
 
-function setSession(resp: TokenResponse) {
-  api.setToken(resp.access_token);
-  setSnapshot({ token: resp.access_token });
-  persistTokens(resp.access_token, resp.refresh_token, resp.expires_in);
-}
-
-let pendingRefresh: Promise<string | null> | null = null;
+let pendingRefresh: Promise<boolean> | null = null;
 
 function forceLogoutRedirect() {
-  api.setToken(null);
-  setSnapshot({ token: null, user: null });
-  clearTokens();
+  setSnapshot({ user: null });
   clearPendingChallenge();
   const target = (typeof globalThis !== 'undefined' ? globalThis.location : undefined) as
     | { assign?: (url: string) => void }
@@ -191,30 +139,25 @@ function forceLogoutRedirect() {
   }
 }
 
-// Singleton-style proactive refresh: concurrent callers share the same
-// in-flight promise so we never fire two POST /auth/refresh in parallel.
-export function refreshAccessToken(): Promise<string | null> {
+// Singleton-style refresh: concurrent callers share the same in-flight
+// promise so we never fire two POST /auth/refresh in parallel. The
+// server reads the refresh token from the of_refresh cookie, so the
+// request body is empty; success is signalled by 200 + a rotated
+// of_session cookie that the browser stores automatically.
+export function refreshAccessToken(): Promise<boolean> {
   if (pendingRefresh) return pendingRefresh;
   pendingRefresh = (async () => {
     try {
-      const refresh = getStoredRefreshToken();
-      if (!refresh) {
-        forceLogoutRedirect();
-        return null;
-      }
       try {
-        // skipAuthHooks avoids re-entering the pre-request hook from inside
-        // the refresh call itself.
-        const resp = await api.fetch<TokenResponse>('/auth/refresh', {
+        await api.fetch<unknown>('/auth/token/refresh', {
           method: 'POST',
-          body: { refresh_token: refresh },
+          body: {},
           skipAuthHooks: true,
         });
-        setSession(resp);
-        return resp.access_token;
+        return true;
       } catch {
         forceLogoutRedirect();
-        return null;
+        return false;
       }
     } finally {
       pendingRefresh = null;
@@ -228,8 +171,7 @@ function updateCurrentUserProfile(profile: UserProfile) {
   applyUserLocalePreference(profile.attributes);
 }
 
-async function finalizeSession(resp: TokenResponse) {
-  setSession(resp);
+async function finalizeSession() {
   updateCurrentUserProfile(await getMe());
   clearPendingChallenge();
 }
@@ -239,7 +181,7 @@ async function handleLoginResponse(resp: LoginResponse): Promise<AuthFlowResult>
     persistChallenge(resp);
     return resp;
   }
-  await finalizeSession(resp);
+  await finalizeSession();
   return { status: 'authenticated' };
 }
 
@@ -279,8 +221,8 @@ async function completeMfa(input: CompleteMfaInput): Promise<{ status: 'authenti
   }
   setSnapshot({ loading: true });
   try {
-    const resp = await completeMfaLogin({ ...payload, challenge_token: challenge.challenge_token });
-    await finalizeSession(resp);
+    await completeMfaLogin({ ...payload, challenge_token: challenge.challenge_token });
+    await finalizeSession();
     return { status: 'authenticated' };
   } finally {
     setSnapshot({ loading: false });
@@ -302,10 +244,10 @@ async function startSsoLogin(slug: string, returnTo?: string | null) {
   }
 }
 
-async function completeTokenCallback(resp: TokenResponse): Promise<{ status: 'authenticated' }> {
+async function completeTokenCallback(): Promise<{ status: 'authenticated' }> {
   setSnapshot({ loading: true });
   try {
-    await finalizeSession(resp);
+    await finalizeSession();
     return { status: 'authenticated' };
   } finally {
     setSnapshot({ loading: false });
@@ -315,8 +257,8 @@ async function completeTokenCallback(resp: TokenResponse): Promise<{ status: 'au
 async function switchScopedSession(presetId: string | null): Promise<void> {
   setSnapshot({ loading: true });
   try {
-    const resp = await selectScopedSession(presetId);
-    await finalizeSession(resp);
+    await selectScopedSession(presetId);
+    await finalizeSession();
     if (typeof window !== 'undefined') {
       window.location.reload();
     }
@@ -340,12 +282,20 @@ async function handleSsoCallback(payload: {
   }
 }
 
-function logout() {
-  api.setToken(null);
-  setSnapshot({ token: null, user: null });
-  clearTokens();
+function clearLocalAuthState() {
+  setSnapshot({ user: null });
   clearPendingChallenge();
   clearStoredAuthReturnTo();
+}
+
+async function logout() {
+  try {
+    await apiLogout();
+  } catch {
+    // Server-side cookie clear is best-effort; the local state still
+    // drops so the UI bounces back to login regardless.
+  }
+  clearLocalAuthState();
 }
 
 async function restore() {
@@ -355,39 +305,11 @@ async function restore() {
     setSnapshot({ loading: true });
     try {
       hydratePendingChallenge();
-
-      if (typeof localStorage === 'undefined') return;
-
-      const savedAccess = localStorage.getItem(ACCESS_TOKEN_KEY);
-      const savedRefresh = localStorage.getItem(REFRESH_TOKEN_KEY);
-
-      if (savedAccess) {
-        api.setToken(savedAccess);
-        setSnapshot({ token: savedAccess });
-        try {
-          updateCurrentUserProfile(await getMe());
-          return;
-        } catch {
-          api.setToken(null);
-          setSnapshot({ token: null });
-        }
-      }
-
-      if (savedRefresh) {
-        try {
-          const refreshed = await refreshToken(savedRefresh);
-          await finalizeSession(refreshed);
-        } catch {
-          logout();
-        }
-      } else {
-        // Fallback: dev-auth shim does not require a token. If getMe() succeeds
-        // anonymously we still treat the user as authenticated for local dev.
-        try {
-          updateCurrentUserProfile(await getMe());
-        } catch {
-          // Stay unauthenticated; the page can prompt the user to sign in.
-        }
+      try {
+        updateCurrentUserProfile(await getMe());
+      } catch {
+        // No session cookie (or expired) — stay unauthenticated; the
+        // route guard will redirect to /auth/login when needed.
       }
     } finally {
       setSnapshot({ loading: false });
@@ -398,16 +320,9 @@ async function restore() {
   return restorePromise;
 }
 
-api.setPreRequestHook(async () => {
-  if (isAccessTokenExpiringSoon() && getStoredRefreshToken()) {
-    await refreshAccessToken();
-  }
-});
 api.setRefreshHandler(() => refreshAccessToken());
 api.setLogoutHandler(() => {
-  api.setToken(null);
-  setSnapshot({ token: null, user: null });
-  clearTokens();
+  clearLocalAuthState();
 });
 
 export const auth = {
@@ -434,8 +349,7 @@ export function useCurrentUser() {
 }
 
 export function useIsAuthenticated() {
-  const { token, user } = useAuth();
-  return Boolean(token) || Boolean(user);
+  return Boolean(useAuth().user);
 }
 
 export function usePendingMfaChallenge() {
@@ -443,10 +357,10 @@ export function usePendingMfaChallenge() {
 }
 
 export function useRequireAuth(redirectTo: string = '/auth/login') {
-  const { loading, token, user } = useAuth();
+  const { loading, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const authenticated = Boolean(token) || Boolean(user);
+  const authenticated = Boolean(user);
 
   useEffect(() => {
     if (!loading && !authenticated) {

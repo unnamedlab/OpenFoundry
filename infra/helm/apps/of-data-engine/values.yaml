@@ -218,6 +218,10 @@ services:
     ports:
       - name: http
         containerPort: 8080
+    env:
+      # Binary defaults to 50173; align with the chart-wide containerPort=8080
+      # so probes hitting `http` resolve correctly.
+      MEDIA_TRANSFORM_PORT: "8080"
     resources:
       requests:
         cpu: 200m
@@ -300,15 +304,70 @@ services:
         cpu: "1"
         memory: 1Gi
 
-  sql-bi-gateway-service:
+  # Compute Modules CRUD + project placement + function/pipeline mode
+  # selection + container image / runtime config + function invocations.
+  # S8 / ADR-0030 successor to the retired `compute-modules-control-plane-service`
+  # and `compute-modules-runtime-service` scaffolds.
+  compute-module-service:
     replicas: 2
     ports:
       - name: http
         containerPort: 8080
+    envSecrets:
+      DATABASE_URL:
+        secretName: compute-module-db-dsn
+        key: writer_url
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "500m"
+        memory: 512Mi
+
+  sql-bi-gateway-service:
+    replicas: 2
+    ports:
+      # HTTP side router (healthz + saved queries + warehouse/tabular REST).
+      - name: http
+        containerPort: 50134
+        servicePort: 8080
+      # Apache Arrow Flight SQL gRPC primary surface — BI clients
+      # (Tableau, Superset, JDBC notebooks) connect here.
+      - name: flight-sql
+        containerPort: 50133
+        servicePort: 50133
+      # Postgres wire v3 listener for libpq-speaking BI tools.
+      - name: postgres-wire
+        containerPort: 5433
+        servicePort: 5433
+    probes:
+      readiness:
+        path: /healthz
+        port: http
+      liveness:
+        path: /healthz
+        port: http
     env:
+      HOST: "0.0.0.0"
+      PORT: "50133"
+      HEALTHZ_PORT: "50134"
+      POSTGRES_WIRE_PORT: "5433"
       DISTRIBUTED_QUERY_WORKERS: "4"
-      RUST_LOG: info
       TRINO_FLIGHT_SQL_URL: http://trino-flight-sql-proxy.trino.svc:50133
+      ICEBERG_CATALOG_URL: http://iceberg-catalog-service:8197
+      ALLOW_ANONYMOUS: "false"
+      LOG_FORMAT: json
+    envSecrets:
+      DATABASE_URL:
+        secretName: pg-runtime-config-app
+        key: DATABASE_URL
+      JWT_SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
     resources:
       requests:
         cpu: 200m

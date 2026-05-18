@@ -98,6 +98,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Get("/bootstrap-status", auth.BootstrapStatus)
 		api.Post("/register", auth.Register)
 		api.Post("/login", auth.Login)
+		api.Post("/logout", auth.Logout)
 		api.Post("/token/refresh", auth.Refresh)
 		api.Post("/api-key/exchange", auth.ExchangeAPIKey)
 		api.Post("/mfa/totp/complete-login", mfa.CompleteLogin)

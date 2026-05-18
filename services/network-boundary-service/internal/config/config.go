@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -35,6 +36,15 @@ type Config struct {
 		OTLPEndpoint string `koanf:"otlp_endpoint"`
 		LogFormat    string `koanf:"log_format"`
 	} `koanf:"telemetry"`
+
+	Database struct {
+		// URL is the writer-pool DSN. When empty the service boots
+		// without persistence and falls back to the in-memory store —
+		// useful in local dev where Postgres is unavailable.
+		URL string `koanf:"url"`
+		// ReadURL targets the CNPG read-replica. Optional.
+		ReadURL string `koanf:"read_url"`
+	} `koanf:"database"`
 }
 
 func Load(defaultsPath, envPath string) (*Config, error) {
@@ -58,6 +68,12 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	var cfg Config
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if cfg.Database.URL == "" {
+		cfg.Database.URL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if cfg.Database.ReadURL == "" {
+		cfg.Database.ReadURL = strings.TrimSpace(os.Getenv("DATABASE_READ_URL"))
 	}
 	return &cfg, nil
 }

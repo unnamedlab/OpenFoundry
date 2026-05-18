@@ -33,6 +33,14 @@ type Config struct {
 	RefreshTTL time.Duration
 
 	MetricsAddr string
+
+	// Session cookie tunables. The cookie ships the JWT to the
+	// browser as an httpOnly+Secure value so the SPA does not have to
+	// touch localStorage. CookieSecure may be flipped off only in
+	// local development (http://localhost lacks a TLS context).
+	CookieSecure   bool
+	CookieSameSite string // "Lax" (default), "Strict" or "None"
+	CookieDomain   string // empty → host-only cookie
 }
 
 // FromEnv resolves config. Required: DATABASE_URL, JWT_SECRET (or
@@ -58,6 +66,10 @@ func FromEnv() (*Config, error) {
 	cfg.AccessTTL = parseDur(os.Getenv("ACCESS_TOKEN_TTL"), time.Hour)
 	cfg.RefreshTTL = parseDur(os.Getenv("REFRESH_TOKEN_TTL"), 7*24*time.Hour)
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+
+	cfg.CookieSecure = parseBool(os.Getenv("AUTH_COOKIE_SECURE"), true)
+	cfg.CookieSameSite = defaultStr(os.Getenv("AUTH_COOKIE_SAMESITE"), "Lax")
+	cfg.CookieDomain = os.Getenv("AUTH_COOKIE_DOMAIN")
 	return cfg, nil
 }
 
@@ -90,6 +102,17 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func parseBool(v string, fallback bool) bool {
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
 
 func parseDur(v string, fallback time.Duration) time.Duration {
