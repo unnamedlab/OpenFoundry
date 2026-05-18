@@ -58,6 +58,7 @@ import {
   type LogicExecuteFunctionToolConfig,
   type LogicFileSecurityPolicy,
   type LogicLlmBlockConfig,
+  type LogicQueryObjectsToolConfig,
   type LogicRunHistoryRecord,
   type LogicVersionDefinition,
 } from './blocks';
@@ -1125,8 +1126,55 @@ describe('Logic user-scoped execution policy', () => {
     expect(metrics.failureCount).toBe(1);
     expect(metrics.failureCategories).toEqual([{ category: 'validation_error', count: 1 }]);
     expect(metrics.p95DurationMs).toBe(420);
+    expect(metrics.failureRate).toBe(33.3);
+    expect(metrics.operationalHealth.metrics.map((metric) => metric.id)).toEqual(expect.arrayContaining([
+      'failure_rate',
+      'p95_duration',
+      'token_compute_usage',
+      'tool_failures',
+      'action_failures',
+      'object_query_failures',
+      'model_unavailability',
+      'run_history_dataset_failures',
+      'automation_proposal_backlog',
+    ]));
+    expect(metrics.operationalHealth.surfaces.map((surface) => surface.id)).toEqual(['logic_detail', 'workflow_lineage', 'data_health', 'project_dashboard']);
     expect(metrics.recentRuns.map((run) => run.id)).toEqual(['run-success-fast', 'run-validation-failure', 'run-success-slow']);
     expect(metrics.viewerPermissionRequired).toBe(true);
+  });
+
+  it('tracks operational health failures for tools, actions, queries, model availability, datasets, and automation backlog', () => {
+    const now = new Date('2026-05-13T12:00:00.000Z');
+    const failedRun = (id: string, errorMessage: string): LogicRunHistoryRecord => ({
+      id,
+      actorId: 'casey',
+      actorName: 'Casey Author',
+      executionMode: 'project_scoped',
+      status: 'failed',
+      invocationSurface: 'automate',
+      startedAtIso: '2026-05-13T11:00:00.000Z',
+      retentionExpiresAtIso: '2026-05-20T11:00:00.000Z',
+      durationMs: 31_000,
+      errorMessage,
+      computeUsage: meterLogicLlmBlockComputeUsage(block),
+    });
+    const metrics = calculateLogicMetrics([
+      failedRun('tool', 'Calculator tool failed'),
+      failedRun('action', 'Action Execution failed to apply ontology edit'),
+      failedRun('query', 'Object query failed'),
+      failedRun('model', 'Model unavailable due to capacity'),
+      failedRun('dataset', 'Run history dataset write failed'),
+    ], '24h', now, { automationProposalBacklog: 12 });
+
+    expect(metrics.toolFailureCount).toBe(1);
+    expect(metrics.actionFailureCount).toBe(1);
+    expect(metrics.objectQueryFailureCount).toBe(1);
+    expect(metrics.modelUnavailableCount).toBe(1);
+    expect(metrics.runHistoryDatasetFailureCount).toBe(1);
+    expect(metrics.automationProposalBacklog).toBe(12);
+    expect(metrics.totalComputeSeconds).toBeGreaterThan(0);
+    expect(metrics.totalPromptTokensEstimate).toBeGreaterThan(0);
+    expect(metrics.operationalHealth.status).toBe('critical');
   });
 });
 
@@ -1319,6 +1367,43 @@ describe('Logic permissions and security boundaries', () => {
       'media_set:media.set.demo',
     ]));
     expect(boundary.resources.every((resource) => resource.explicitlyConfigured && resource.permissioned)).toBe(true);
+    expect(boundary.exposureInventory.prompts[0]).toMatchObject({ blockId: block.id, variableRefs: block.promptVariableRefs });
+    expect(boundary.guardrailHooks.map((hook) => hook.id)).toEqual(['redaction', 'prompt_review', 'model_allowlist', 'export_logging_restriction']);
+  });
+
+  it('warns when LLM tools expose broad object sets or sensitive properties and reports governance hooks', () => {
+    const boundary = buildLogicSecurityBoundary({
+      definition: secureDefinition,
+      llmBlocks: [{
+        ...block,
+        toolAccess: [{
+          ...(block.toolAccess[0] as LogicQueryObjectsToolConfig),
+          selectedProperties: ['name', 'ssn'],
+          readablePropertiesByObjectType: { Customer: ['name', 'ssn'] },
+          maxObjects: 50,
+        }],
+      }],
+      policy: {
+        ...securityPolicy,
+        readablePropertiesByObjectType: { Customer: ['name', 'ssn'] },
+        sensitivePropertiesByObjectType: { Customer: ['ssn'] },
+        broadObjectAccessThreshold: 10,
+        promptReviewRequired: true,
+        redactionPolicyId: 'customer-redaction-v1',
+        modelAllowlist: ['gpt-4.1-mini'],
+        exportLoggingRestricted: true,
+      },
+      executionMode: 'user_scoped',
+      permissionSubjectId: 'casey',
+    });
+
+    expect(boundary.ready).toBe(true);
+    expect(boundary.minimizationWarnings.map((warning) => warning.field)).toEqual(expect.arrayContaining([
+      'tools.Customer lookup.maxObjects',
+      'tools.Customer lookup.selectedProperties',
+    ]));
+    expect(boundary.minimizationWarnings.find((warning) => warning.properties?.includes('ssn'))).toBeDefined();
+    expect(boundary.guardrailHooks.every((hook) => hook.enabled)).toBe(true);
   });
 
   it('flags object properties, functions, media, datasets, and project imports outside policy', () => {

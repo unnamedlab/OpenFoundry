@@ -2020,6 +2020,12 @@ export interface LogicFileSecurityPolicy {
   allowedResultDatasetRids: string[];
   projectImportedResourceIds: string[];
   markingAccessibleResourceIds: string[];
+  sensitivePropertiesByObjectType?: Record<string, string[]>;
+  broadObjectAccessThreshold?: number;
+  promptReviewRequired?: boolean;
+  redactionPolicyId?: string;
+  modelAllowlist?: string[];
+  exportLoggingRestricted?: boolean;
 }
 
 export interface LogicPermissionDecision {
@@ -2041,6 +2047,30 @@ export interface LogicSecurityResourceExposure {
   markingAccess: boolean;
 }
 
+export interface LogicSecurityGuardrailHook {
+  id: 'redaction' | 'prompt_review' | 'model_allowlist' | 'export_logging_restriction';
+  label: string;
+  enabled: boolean;
+  detail: string;
+}
+
+export interface LogicSecurityMinimizationWarning {
+  severity: 'warning';
+  field: string;
+  message: string;
+  resourceId?: string;
+  properties?: string[];
+}
+
+export interface LogicSecurityExposureInventory {
+  prompts: Array<{ blockId: string; blockName: string; variableRefs: string[]; modelBinding: LogicLlmBlockConfig['modelBinding'] }>;
+  objectTypes: LogicSecurityResourceExposure[];
+  actions: LogicSecurityResourceExposure[];
+  functions: LogicSecurityResourceExposure[];
+  mediaReferences: LogicSecurityResourceExposure[];
+  resultDatasets: LogicSecurityResourceExposure[];
+}
+
 export interface LogicSecurityBoundary {
   ready: boolean;
   executionMode: LogicPermissionExecutionMode;
@@ -2049,6 +2079,9 @@ export interface LogicSecurityBoundary {
   resources: LogicSecurityResourceExposure[];
   llmAccessibleResourceIds: string[];
   issues: LogicIssue[];
+  exposureInventory: LogicSecurityExposureInventory;
+  minimizationWarnings: LogicSecurityMinimizationWarning[];
+  guardrailHooks: LogicSecurityGuardrailHook[];
 }
 
 export type LogicMetricsWindow = '24h' | '7d' | '30d' | '90d';
@@ -2056,6 +2089,29 @@ export type LogicMetricsWindow = '24h' | '7d' | '30d' | '90d';
 export interface LogicFailureCategoryMetric {
   category: string;
   count: number;
+}
+
+export interface LogicOperationalHealthMetric {
+  id: 'failure_rate' | 'p95_duration' | 'token_compute_usage' | 'tool_failures' | 'action_failures' | 'object_query_failures' | 'model_unavailability' | 'run_history_dataset_failures' | 'automation_proposal_backlog';
+  label: string;
+  value: number;
+  unit: 'percent' | 'milliseconds' | 'compute_seconds' | 'tokens' | 'count';
+  status: 'healthy' | 'warning' | 'critical';
+  threshold?: number;
+}
+
+export interface LogicOperationalHealthSurface {
+  id: 'logic_detail' | 'workflow_lineage' | 'data_health' | 'project_dashboard';
+  label: string;
+  href: string;
+  visible: boolean;
+  metricIds: LogicOperationalHealthMetric['id'][];
+}
+
+export interface LogicOperationalHealthSummary {
+  status: 'healthy' | 'warning' | 'critical';
+  metrics: LogicOperationalHealthMetric[];
+  surfaces: LogicOperationalHealthSurface[];
 }
 
 export interface LogicMetricsSummary {
@@ -2068,6 +2124,16 @@ export interface LogicMetricsSummary {
   recentRuns: LogicRunHistoryRecord[];
   p95DurationMs: number | null;
   viewerPermissionRequired: boolean;
+  failureRate: number;
+  totalPromptTokensEstimate: number;
+  totalComputeSeconds: number;
+  toolFailureCount: number;
+  actionFailureCount: number;
+  objectQueryFailureCount: number;
+  modelUnavailableCount: number;
+  runHistoryDatasetFailureCount: number;
+  automationProposalBacklog: number;
+  operationalHealth: LogicOperationalHealthSummary;
 }
 
 export function logicExecutionModePolicy(mode: LogicPermissionExecutionMode): LogicExecutionModePolicy {
@@ -2190,6 +2256,40 @@ function blockToolsFromDefinition(definition: LogicVersionDefinition, llmBlocks?
     .filter((block): block is LogicLlmBlockConfig => Boolean(block));
 }
 
+
+function sensitivePropertiesFor(policy: LogicFileSecurityPolicy, objectTypeId: string): Set<string> {
+  return new Set(policy.sensitivePropertiesByObjectType?.[objectTypeId] ?? []);
+}
+
+function logicSecurityGuardrailHooks(policy: LogicFileSecurityPolicy): LogicSecurityGuardrailHook[] {
+  return [
+    {
+      id: 'redaction',
+      label: 'Redaction policy',
+      enabled: Boolean(policy.redactionPolicyId),
+      detail: policy.redactionPolicyId ? `Apply ${policy.redactionPolicyId} before prompt/tool logging.` : 'No local redaction policy configured.',
+    },
+    {
+      id: 'prompt_review',
+      label: 'Prompt review',
+      enabled: Boolean(policy.promptReviewRequired),
+      detail: policy.promptReviewRequired ? 'Prompt changes require governance review before publication.' : 'Prompt review is not required by local governance.',
+    },
+    {
+      id: 'model_allowlist',
+      label: 'Model allowlist',
+      enabled: Boolean(policy.modelAllowlist?.length),
+      detail: policy.modelAllowlist?.length ? `Allowed models: ${policy.modelAllowlist.join(', ')}.` : 'Any permissioned model binding may be selected.',
+    },
+    {
+      id: 'export_logging_restriction',
+      label: 'Export/logging restrictions',
+      enabled: Boolean(policy.exportLoggingRestricted),
+      detail: policy.exportLoggingRestricted ? 'Prompt, output, and run-history exports are restricted.' : 'No local export/logging restriction configured.',
+    },
+  ];
+}
+
 export function buildLogicSecurityBoundary({
   definition,
   policy,
@@ -2207,6 +2307,13 @@ export function buildLogicSecurityBoundary({
 }): LogicSecurityBoundary {
   const resources = new Map<string, LogicSecurityResourceExposure>();
   const issues: LogicIssue[] = [];
+  const minimizationWarnings: LogicSecurityMinimizationWarning[] = [];
+  const promptInventory = blockToolsFromDefinition(definition, llmBlocks).map((block) => ({
+    blockId: block.id,
+    blockName: block.name,
+    variableRefs: block.promptVariableRefs,
+    modelBinding: block.modelBinding,
+  }));
   const projectScoped = executionMode === 'project_scoped';
   const importReady = (kind: LogicSecurityResourceKind, id: string) => !projectScoped || securityContains(policy.projectImportedResourceIds, kind, id);
   const markingReady = (kind: LogicSecurityResourceKind, id: string) => !projectScoped || securityContains(policy.markingAccessibleResourceIds, kind, id);
@@ -2266,6 +2373,25 @@ export function buildLogicSecurityBoundary({
         });
         if (!explicitlyConfigured) issues.push({ severity: 'error', field: `tools.${tool.name}.selectedProperties`, message: `${tool.name} exposes object data that is not explicitly configured as readable.` });
         if (!permissioned) issues.push({ severity: 'error', field: `tools.${tool.name}.permissions`, message: `${tool.name} requests object data outside the actor/project permission boundary.` });
+        const broadThreshold = policy.broadObjectAccessThreshold ?? 25;
+        if (tool.maxObjects > broadThreshold) {
+          minimizationWarnings.push({
+            severity: 'warning',
+            field: `tools.${tool.name}.maxObjects`,
+            message: `${tool.name} can expose up to ${tool.maxObjects} ${tool.objectTypeId} objects to an LLM; narrow filters or lower the limit.`,
+            resourceId: tool.objectTypeId,
+          });
+        }
+        const sensitiveProperties = tool.selectedProperties.filter((property) => sensitivePropertiesFor(policy, tool.objectTypeId).has(property));
+        if (sensitiveProperties.length > 0) {
+          minimizationWarnings.push({
+            severity: 'warning',
+            field: `tools.${tool.name}.selectedProperties`,
+            message: `${tool.name} exposes sensitive ${tool.objectTypeId} properties to an LLM; apply redaction or remove them from the tool context.`,
+            resourceId: tool.objectTypeId,
+            properties: sensitiveProperties,
+          });
+        }
       }
       if (tool.kind === 'apply_action') {
         const explicitlyConfigured = tool.allowedActionTypeIds.includes(tool.actionTypeId);
@@ -2326,6 +2452,7 @@ export function buildLogicSecurityBoundary({
   }
 
   const resourceList = Array.from(resources.values()).sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+  const byKind = (kind: LogicSecurityResourceKind) => resourceList.filter((resource) => resource.kind === kind);
   return {
     ready: issues.length === 0,
     executionMode,
@@ -2334,6 +2461,16 @@ export function buildLogicSecurityBoundary({
     resources: resourceList,
     llmAccessibleResourceIds: resourceList.filter((resource) => resource.llmAccessible).map((resource) => securityResourceKey(resource.kind, resource.id)).sort(),
     issues,
+    exposureInventory: {
+      prompts: promptInventory,
+      objectTypes: byKind('object_type'),
+      actions: byKind('action_type'),
+      functions: byKind('function'),
+      mediaReferences: byKind('media_set'),
+      resultDatasets: byKind('result_dataset'),
+    },
+    minimizationWarnings,
+    guardrailHooks: logicSecurityGuardrailHooks(policy),
   };
 }
 
@@ -2520,7 +2657,66 @@ function p95DurationMs(runs: LogicRunHistoryRecord[]): number | null {
   return durations[Math.max(0, Math.ceil(durations.length * 0.95) - 1)] ?? null;
 }
 
-export function calculateLogicMetrics(runs: LogicRunHistoryRecord[], window: LogicMetricsWindow, now = new Date()): LogicMetricsSummary {
+function countRunsByFailureText(runs: LogicRunHistoryRecord[], patterns: RegExp[]): number {
+  return runs.filter((run) => {
+    const text = `${run.failureCategory ?? ''} ${run.errorMessage ?? ''}`.toLowerCase();
+    return patterns.some((pattern) => pattern.test(text));
+  }).length;
+}
+
+function logicHealthStatus(metrics: LogicOperationalHealthMetric[]): LogicOperationalHealthSummary['status'] {
+  if (metrics.some((metric) => metric.status === 'critical')) return 'critical';
+  if (metrics.some((metric) => metric.status === 'warning')) return 'warning';
+  return 'healthy';
+}
+
+function healthStatus(value: number, warning: number, critical: number): LogicOperationalHealthMetric['status'] {
+  if (value >= critical) return 'critical';
+  if (value >= warning) return 'warning';
+  return 'healthy';
+}
+
+function buildLogicOperationalHealthSummary(input: {
+  failureRate: number;
+  p95DurationMs: number | null;
+  totalComputeSeconds: number;
+  totalPromptTokensEstimate: number;
+  toolFailureCount: number;
+  actionFailureCount: number;
+  objectQueryFailureCount: number;
+  modelUnavailableCount: number;
+  runHistoryDatasetFailureCount: number;
+  automationProposalBacklog: number;
+}): LogicOperationalHealthSummary {
+  const metrics: LogicOperationalHealthMetric[] = [
+    { id: 'failure_rate', label: 'Failure rate', value: input.failureRate, unit: 'percent', threshold: 10, status: healthStatus(input.failureRate, 10, 25) },
+    { id: 'p95_duration', label: 'P95 duration', value: input.p95DurationMs ?? 0, unit: 'milliseconds', threshold: 10_000, status: input.p95DurationMs === null ? 'healthy' : healthStatus(input.p95DurationMs, 10_000, 30_000) },
+    { id: 'token_compute_usage', label: 'Token / compute usage', value: input.totalComputeSeconds, unit: 'compute_seconds', threshold: 250, status: healthStatus(input.totalComputeSeconds, 250, 1000) },
+    { id: 'tool_failures', label: 'Tool failures', value: input.toolFailureCount, unit: 'count', threshold: 1, status: healthStatus(input.toolFailureCount, 1, 5) },
+    { id: 'action_failures', label: 'Action failures', value: input.actionFailureCount, unit: 'count', threshold: 1, status: healthStatus(input.actionFailureCount, 1, 3) },
+    { id: 'object_query_failures', label: 'Object query failures', value: input.objectQueryFailureCount, unit: 'count', threshold: 1, status: healthStatus(input.objectQueryFailureCount, 1, 3) },
+    { id: 'model_unavailability', label: 'Model unavailability', value: input.modelUnavailableCount, unit: 'count', threshold: 1, status: healthStatus(input.modelUnavailableCount, 1, 3) },
+    { id: 'run_history_dataset_failures', label: 'Run-history dataset failures', value: input.runHistoryDatasetFailureCount, unit: 'count', threshold: 1, status: healthStatus(input.runHistoryDatasetFailureCount, 1, 2) },
+    { id: 'automation_proposal_backlog', label: 'Automation proposal backlog', value: input.automationProposalBacklog, unit: 'count', threshold: 10, status: healthStatus(input.automationProposalBacklog, 10, 25) },
+  ];
+  return {
+    status: logicHealthStatus(metrics),
+    metrics,
+    surfaces: [
+      { id: 'logic_detail', label: 'Logic detail', href: '/logic?rail=Metrics', visible: true, metricIds: metrics.map((metric) => metric.id) },
+      { id: 'workflow_lineage', label: 'Workflow Lineage', href: '/lineage?kind=logic', visible: true, metricIds: ['failure_rate', 'p95_duration', 'tool_failures', 'action_failures', 'object_query_failures', 'model_unavailability'] },
+      { id: 'data_health', label: 'Data Health', href: '/control-panel/data-health?asset=logic', visible: true, metricIds: ['run_history_dataset_failures', 'failure_rate'] },
+      { id: 'project_dashboard', label: 'Project dashboards', href: '/dashboards?template=logic-operational-health', visible: true, metricIds: ['failure_rate', 'p95_duration', 'token_compute_usage', 'automation_proposal_backlog'] },
+    ],
+  };
+}
+
+export function calculateLogicMetrics(
+  runs: LogicRunHistoryRecord[],
+  window: LogicMetricsWindow,
+  now = new Date(),
+  options: { automationProposalBacklog?: number } = {},
+): LogicMetricsSummary {
   const windowStart = logicMetricsWindowStart(window, now);
   const windowStartMs = windowStart.getTime();
   const windowEndMs = now.getTime();
@@ -2542,6 +2738,24 @@ export function calculateLogicMetrics(runs: LogicRunHistoryRecord[], window: Log
       failureCounts.set(category, (failureCounts.get(category) ?? 0) + 1);
     }
   }
+  const failedRuns = windowRuns.filter((run) => run.status === 'failed');
+  const p95 = p95DurationMs(windowRuns);
+  const totalComputeSeconds = windowRuns.reduce((sum, run) => sum + (run.computeUsage?.totalComputeSeconds ?? 0), 0);
+  const totalPromptTokensEstimate = windowRuns.reduce((sum, run) => sum + (run.computeUsage?.promptTokensEstimate ?? 0), 0);
+  const totalRuns = successCount + failureCount;
+  const failureRate = totalRuns === 0 ? 0 : Math.round((failureCount / totalRuns) * 1000) / 10;
+  const healthInput = {
+    failureRate,
+    p95DurationMs: p95,
+    totalComputeSeconds,
+    totalPromptTokensEstimate,
+    toolFailureCount: countRunsByFailureText(failedRuns, [/tool/, /function execution/, /calculator/]),
+    actionFailureCount: countRunsByFailureText(failedRuns, [/action/, /ontology edit/, /writeback/]),
+    objectQueryFailureCount: countRunsByFailureText(failedRuns, [/object query/, /query_objects/, /ontology query/]),
+    modelUnavailableCount: countRunsByFailureText(failedRuns, [/model unavailable/, /model_error/, /llm unavailable/, /capacity/]),
+    runHistoryDatasetFailureCount: countRunsByFailureText(failedRuns, [/run history dataset/, /dataset write/]),
+    automationProposalBacklog: Math.max(0, Math.floor(options.automationProposalBacklog ?? 0)),
+  };
   const failureCategories = Array.from(failureCounts.entries())
     .map(([category, count]) => ({ category, count }))
     .sort((left, right) => right.count - left.count || left.category.localeCompare(right.category));
@@ -2553,11 +2767,11 @@ export function calculateLogicMetrics(runs: LogicRunHistoryRecord[], window: Log
     failureCount,
     failureCategories,
     recentRuns: windowRuns.slice(0, 10),
-    p95DurationMs: p95DurationMs(windowRuns),
     viewerPermissionRequired: true,
+    ...healthInput,
+    operationalHealth: buildLogicOperationalHealthSummary(healthInput),
   };
 }
-
 const LOGIC_USAGE_DESCRIPTIONS: Record<LogicUsageSurfaceId, Pick<LogicUsageSurface, 'label' | 'description' | 'href'>> = {
   workshop: {
     label: 'Workshop',
