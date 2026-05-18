@@ -50,11 +50,11 @@ of services are dual-anchored (e.g. write-path services that govern
 | `entity-resolution-service` | `50058` | compute | Entity resolution and fusion-style APIs |
 | `ontology-exploratory-analysis-service` | `50131` | compute | Exploratory ontology analysis and geospatial-style APIs after consolidation |
 | `telemetry-governance-service` | `50153` | control | Monitoring views, monitor rules, and telemetry governance |
-| `cipher-service` | `:8080` from `config.yaml` | control | Current `/api/v1/auth/cipher/*` placeholder and future key/encryption lifecycle surface |
+| `cipher-service` | `:8080` from `config.yaml`; `50160` in compose/gateway | control | Current `/api/v1/auth/cipher/*` key/encryption lifecycle surface |
 | `network-boundary-service` | `:8080` from `config.yaml` | control | Egress-policy APIs plus network-boundary placeholder routes |
-| `global-branch-service` | `:8080` from `config.yaml` | state | Branch CRUD service skeleton; gateway defaults still route branch paths through `code-repository-review-service` |
-| `report-service` | `:8080` from `config.yaml` | compute | `/api/v1/reports*` placeholder owner |
-| `knowledge-index-service` | `:8080` from `config.yaml` | compute | `/api/v1/ai/knowledge-bases*` placeholder owner except `*/search` |
+| `global-branch-service` | `:8080` from `config.yaml`; `50161` in compose/gateway | state | `/api/v1/global-branches` branch CRUD owner; legacy `/api/v1/code-repos/.../branches` stays on code-repository-review without gateway rewrites |
+| `report-service` | `:8080` from `config.yaml`; `50163` in compose/gateway | compute | `/api/v1/reports*` owner |
+| `knowledge-index-service` | `:8080` from `config.yaml`; `50162` in compose/gateway | compute | `/api/v1/ai/knowledge-bases*` owner for CRUD, documents, and search |
 | `function-runtime-service` | `50190` | compute | User-authored TypeScript/Python function registry and execution runtime |
 
 ### Internal / data-plane binaries (no gateway routes)
@@ -120,10 +120,11 @@ from `services/edge-gateway-service/internal/proxy/router_table.go`:
 - `/api/v1/ml/deployments`, `/api/v1/ml/batch-predictions` -> `model-deployment-service`
 - `/api/v1/ai/evaluations` -> `ai-evaluation-service`
 - `/api/v1/ai/providers` -> `llm-catalog-service`
-- `/api/v1/ai/knowledge-bases/*/search` -> `retrieval-context-service`
+- `/api/v1/ai/knowledge-bases/*/search` -> `knowledge-index-service` (the gateway does not rewrite paths; this service mounts the matching search route)
 - `/api/v1/ai/knowledge-bases` -> `knowledge-index-service`
 - `/api/v1/entity-resolution`, `/api/v1/fusion` -> `entity-resolution-service`
-- `/api/v1/code-repos` -> `code-repository-review-service`; `/api/v1/code-repos/repositories/{id}/branches` uses the `GlobalBranch` upstream alias
+- `/api/v1/global-branches` -> `global-branch-service`
+- `/api/v1/code-repos` -> `code-repository-review-service`; legacy `/api/v1/code-repos/repositories/{id}/branches` remains here because the gateway does not rewrite it to `/api/v1/global-branches`
 - `/api/v1/marketplace`, `/api/v1/federation-product-exchange`, `/api/v1/nexus` -> `federation-product-exchange-service`
 - `/api/v1/nexus/spaces` -> `tenancy-organizations-service`
 - `/api/v1/notifications` -> `notification-alerting-service`
@@ -155,7 +156,7 @@ service that is **not** a separate binary on disk. The mapping is:
 | `ml_service_url` (`:50085`) | `model-catalog-service` |
 | `ai_service_url` (`:50127`) | `agent-runtime-service` |
 | `security_governance_service_url` (`:50093`) | `authorization-policy-service` (absorbed surface) |
-| `cipher_service_url` (`:50093`) | `authorization-policy-service` in code defaults; `cipher-service` exists separately and must be targeted explicitly when deployed |
+| `cipher_service_url` (`:50160`) | `cipher-service` |
 | `oauth_integration_service_url` (`:50112`) | `identity-federation-service` (absorbed surface) |
 | `session_governance_service_url` (`:50112`) | `identity-federation-service` (absorbed surface) |
 | `network_boundary_service_url` (`:50093`) | `authorization-policy-service` in code defaults; `network-boundary-service` exists separately and must be targeted explicitly when deployed |
@@ -174,26 +175,23 @@ service that is **not** a separate binary on disk. The mapping is:
 | `model_serving_service_url` (`:50086`) | `model-deployment-service` (absorbed surface) |
 | `model_inference_history_service_url` (`:50086`) | `model-deployment-service` (absorbed surface) |
 | `prompt_workflow_service_url` (no `UpstreamURLs` field) | `agent-runtime-service` routes own prompt paths directly |
-| `knowledge_index_service_url` (`:50097`) | `knowledge-index-service` upstream alias; `/search` routes to `retrieval-context-service` |
+| `knowledge_index_service_url` (`:50162`) | `knowledge-index-service`; CRUD, documents, and search keep the original `/api/v1/ai/knowledge-bases*` paths |
 | `conversation_state_service_url` (no `UpstreamURLs` field) | `agent-runtime-service` routes conversation paths directly |
 | `document_reporting_service_url` (`:50134`) | `notebook-runtime-service` (absorbed surface) |
 | `streaming_service_url` (no `UpstreamURLs` field) | retired; no surviving gateway branch |
-| `report_service_url` (`:50134`) | `notebook-runtime-service` in code defaults; `report-service` exists separately and must be targeted explicitly when deployed |
+| `report_service_url` (`:50163`) | `report-service` |
 | `geospatial_intelligence_service_url` (`:50131`) | `ontology-exploratory-analysis-service` |
 | `code_repo_service_url` (`:50155`) | `code-repository-review-service` |
-| `global_branch_service_url` (`:50155`) | `code-repository-review-service` in code defaults; `global-branch-service` exists separately and must be targeted explicitly when deployed |
+| `global_branch_service_url` (`:50161`) | `global-branch-service` for `/api/v1/global-branches`; legacy code-repos branches stay on `code_repo_service_url` until a compatible upstream path or rewrite exists |
 | `marketplace_catalog_service_url` (`:50120`) | `federation-product-exchange-service` (absorbed surface) |
 | `product_distribution_service_url` (`:50120`) | `federation-product-exchange-service` (absorbed surface) |
 | `nexus_service_url` (`:50113`) | `tenancy-organizations-service` (Nexus spaces route) |
 
-> **Do not point a real Helm deployment at these legacy URLs.** Point
-> the alias to the same host:port as its resolved owner, or delete the
-> override from `values.yaml`. The default-port values exist purely so
-> a development shell with no overrides still boots cleanly. When a placeholder
-> service has since been added (`cipher-service`, `network-boundary-service`,
-> `knowledge-index-service`, `report-service`, `global-branch-service`), Helm
-> or compose must override the alias if traffic should reach that binary rather
-> than the consolidated owner.
+> **Do not point a real Helm deployment at stale substitute URLs.** Point
+> each alias at its current owner. `cipher-service`, `knowledge-index-service`,
+> `report-service`, and `global-branch-service` now have explicit compose
+> services and gateway defaults; `network_boundary_service_url` is still an
+> authorization-policy alias until its standalone runtime is wired.
 
 ## Cross-Service Dependencies
 
@@ -209,7 +207,7 @@ Configuration files show explicit service-to-service defaults for several domain
 - `object-database-service` depends on audit and notification services; all writes go through `object-database-service`
 - `ontology-query-service` depends on `object-database-service` (fallback point lookups), `ontology-actions-service` (policy filters, S8.1), and AI services
 - `ontology-actions-service` depends on `object-database-service` (mutations) and `ontology-definition-service` (action / function package definitions); owns the actions, funnel, function-runtime and rule (policy / marking) HTTP surfaces and the `actions_log` Cassandra column family (S8.1)
-- reporting routes currently use the gateway `Report` alias; the repository now contains a `report-service` placeholder, while code defaults still point that alias at `notebook-runtime-service`
+- reporting routes use the gateway `Report` alias and compose/defaults point it at `report-service`
 - `notebook-runtime-service` depends on query and AI services
 - marketplace/product-exchange routes are consolidated into `federation-product-exchange-service`
 - app-builder/application-curation/developer-console style routes are consolidated into `application-composition-service`

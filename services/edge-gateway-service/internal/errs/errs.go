@@ -26,10 +26,10 @@ type Inner struct {
 // Stable error codes used across the gateway. Adding new ones is fine;
 // renaming or removing existing codes breaks the frontend.
 const (
-	CodeUnknownServiceRoute      = "unknown_service_route"
-	CodeInvalidUpstreamURI       = "invalid_upstream_uri"
-	CodeBodyTooLarge             = "body_too_large"
-	CodeRateLimitExceeded        = "rate_limit_exceeded"
+	CodeUnknownServiceRoute       = "unknown_service_route"
+	CodeInvalidUpstreamURI        = "invalid_upstream_uri"
+	CodeBodyTooLarge              = "body_too_large"
+	CodeRateLimitExceeded         = "rate_limit_exceeded"
 	CodeScopedSessionMethodDenied = "scoped_session_method_denied"
 	CodeScopedSessionPathDenied   = "scoped_session_path_denied"
 	CodeUpstreamUnavailable       = "upstream_unavailable"

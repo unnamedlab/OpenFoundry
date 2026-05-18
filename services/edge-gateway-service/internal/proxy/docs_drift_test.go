@@ -62,6 +62,7 @@ func upstreamForDocs(t *testing.T) config.UpstreamURLs {
 		Report:                    "Report",
 		GeospatialIntelligence:    "ontology-exploratory-analysis-service",
 		CodeRepo:                  "code-repository-review-service",
+		GlobalBranch:              "global-branch-service",
 		FederationProductExchange: "federation-product-exchange-service",
 		ApplicationComposition:    "application-composition-service",
 		TelemetryGovernance:       "telemetry-governance-service",

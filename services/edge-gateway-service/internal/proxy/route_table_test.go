@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/proxy"
 )
 
 // upstreamServiceMapping pins each gateway upstream slot to the
@@ -41,7 +42,7 @@ var upstreamServiceMapping = []struct {
 	{"AuthorizationPolicy", "authorization-policy-service", "authorization-policy-service"},
 	{"SecurityGovernance", "", "authorization-policy-service"},
 	{"TenancyOrganizations", "tenancy-organizations-service", "tenancy-organizations-service"},
-	{"Cipher", "", "authorization-policy-service"},
+	{"Cipher", "", "cipher-service"},
 	{"ConnectorManagement", "connector-management-service", "connector-management-service"},
 	{"DataConnector", "connector-management-service", "connector-management-service"},
 	{"VirtualTable", "", "connector-management-service"},
@@ -75,13 +76,14 @@ var upstreamServiceMapping = []struct {
 	{"AgentRuntime", "agent-runtime-service", "agent-runtime-service"},
 	{"LLMCatalog", "llm-catalog-service", "llm-catalog-service"},
 	{"RetrievalContext", "retrieval-context-service", "retrieval-context-service"},
+	{"KnowledgeIndex", "", "knowledge-index-service"},
 	{"AIEvaluation", "ai-evaluation-service", "ai-evaluation-service"},
 	{"DocumentReporting", "", "notebook-runtime-service"},
 	{"EntityResolution", "entity-resolution-service", "entity-resolution-service"},
-	{"Report", "", "notebook-runtime-service"},
+	{"Report", "", "report-service"},
 	{"GeospatialIntelligence", "ontology-exploratory-analysis-service", "ontology-exploratory-analysis-service"},
 	{"CodeRepo", "code-repository-review-service", "code-repository-review-service"},
-	{"GlobalBranch", "", "code-repository-review-service"},
+	{"GlobalBranch", "", "global-branch-service"},
 	{"MarketplaceCatalog", "", "federation-product-exchange-service"},
 	{"ProductDistribution", "", "federation-product-exchange-service"},
 	{"FederationProductExchange", "federation-product-exchange-service", "federation-product-exchange-service"},
@@ -101,9 +103,7 @@ var upstreamServiceMapping = []struct {
 // config.yaml, or legacy Rust slices not ported). Listing them here
 // instead of in upstreamServiceMapping keeps the "every field is
 // accounted for" check from drifting.
-var upstreamsWithoutGoService = map[string]string{
-	"KnowledgeIndex": "no compose service is wired for the knowledge-index surface yet",
-}
+var upstreamsWithoutGoService = map[string]string{}
 
 type composeFile struct {
 	Services map[string]struct {
@@ -208,8 +208,21 @@ func servicePortFromConfig(t *testing.T, root, dir string) uint16 {
 		}
 		t.Fatalf("could not resolve const %q in %s", m[1], cfgPath)
 	}
-	t.Fatalf("no parseUint16 PORT default in %s", cfgPath)
-	return 0
+	configYAMLPath := filepath.Join(root, "services", dir, "config.yaml")
+	yamlBody, err := os.ReadFile(configYAMLPath)
+	require.NoErrorf(t, err, "reading %s", configYAMLPath)
+	var raw struct {
+		Server struct {
+			Addr string `yaml:"addr"`
+		} `yaml:"server"`
+	}
+	require.NoErrorf(t, yaml.Unmarshal(yamlBody, &raw), "parsing %s", configYAMLPath)
+	parts := strings.Split(raw.Server.Addr, ":")
+	port := strings.TrimSpace(parts[len(parts)-1])
+	require.NotEmptyf(t, port, "server.addr in %s does not include a port", configYAMLPath)
+	v, err := strconv.ParseUint(port, 10, 16)
+	require.NoErrorf(t, err, "parsing server.addr port from %s", configYAMLPath)
+	return uint16(v)
 }
 
 // portFromURL extracts the port from an upstream URL string.
@@ -222,6 +235,47 @@ func portFromURL(t *testing.T, raw string) uint16 {
 	v, err := strconv.ParseUint(port, 10, 16)
 	require.NoErrorf(t, err, "parsing port from URL %q", raw)
 	return uint16(v)
+}
+
+func TestSelectUpstreamProductOwners(t *testing.T) {
+	t.Parallel()
+	u := config.UpstreamURLs{
+		Report:         "report",
+		KnowledgeIndex: "knowledge-index",
+		GlobalBranch:   "global-branch",
+		CodeRepo:       "code-repo",
+		Cipher:         "cipher",
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "reports", path: "/api/v1/reports/overview", want: u.Report},
+		{name: "knowledge bases CRUD", path: "/api/v1/ai/knowledge-bases", want: u.KnowledgeIndex},
+		{name: "knowledge base documents", path: "/api/v1/ai/knowledge-bases/00000000-0000-0000-0000-000000000001/documents", want: u.KnowledgeIndex},
+		{
+			name: "knowledge base search stays with knowledge-index",
+			path: "/api/v1/ai/knowledge-bases/00000000-0000-0000-0000-000000000001/search",
+			want: u.KnowledgeIndex,
+		},
+		{name: "global branches product route", path: "/api/v1/global-branches", want: u.GlobalBranch},
+		{name: "cipher", path: "/api/v1/auth/cipher/encrypt", want: u.Cipher},
+		{
+			name: "legacy code repo branches remain on code repo without rewrite",
+			path: "/api/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001/branches",
+			want: u.CodeRepo,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, proxy.SelectUpstream(tt.path, u))
+		})
+	}
 }
 
 // TestUpstreamPortsMatchComposeAndServiceDefaults asserts that every

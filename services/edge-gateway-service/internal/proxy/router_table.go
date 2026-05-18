@@ -265,7 +265,7 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/agent-runtime"):
 		return u.AgentRuntime
 	case strings.HasPrefix(path, "/api/v1/ai/knowledge-bases/") && strings.HasSuffix(path, "/search"):
-		return u.RetrievalContext
+		return u.KnowledgeIndex
 	case strings.HasPrefix(path, "/api/v1/ai/knowledge-bases"):
 		return u.KnowledgeIndex
 	// ADR-0030: conversation-state-service retired into agent-runtime-service.
@@ -288,9 +288,11 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	case strings.HasPrefix(path, "/api/v1/geospatial"):
 		return u.GeospatialIntelligence
 
-	case strings.HasPrefix(path, "/api/v1/code-repos/repositories/") &&
-		strings.HasSuffix(path, "/branches"):
+	case strings.HasPrefix(path, "/api/v1/global-branches"):
 		return u.GlobalBranch
+	// The legacy code-repos branch path is intentionally left on the
+	// code-repository-review upstream. global-branch-service only mounts
+	// /api/v1/global-branches and this proxy does not perform path rewrites.
 	case strings.HasPrefix(path, "/api/v1/code-repos"):
 		return u.CodeRepo
 

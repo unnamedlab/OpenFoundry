@@ -618,9 +618,27 @@ services:
     ports:
       - "${OPENFOUNDRY_IDENTITY_FEDERATION_HOST_PORT:-50112}:50112"
 
-  # ── S8 / ADR-0030 (B14) — cipher-service merged →
-  # authorization-policy-service. CIPHER_SERVICE_URL callers route
-  # to authorization-policy-service:50093. ──
+  cipher-service:
+    <<: *app-common
+    profiles: *profiles-foundation
+    build:
+      context: ../..
+      dockerfile: services/cipher-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      HOST: 0.0.0.0
+      PORT: 50160
+      OF_SERVER__ADDR: ":50160"
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_cipher_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+      OF_CIPHER_LOCAL_KEK: ${OPENFOUNDRY_CIPHER_LOCAL_KEK:-openfoundry-dev-local-kek-change-me}
+      OF_CIPHER_AUDIT_FAIL_OPEN: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_CIPHER_HOST_PORT:-50160}:50160"
+
 
   # ── S8 / ADR-0030 (B16) — session-governance-service merged →
   # identity-federation-service. SESSION_GOVERNANCE_SERVICE_URL
@@ -789,9 +807,23 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_started
+      media-transform-runtime-service:
+        condition: service_started
     ports:
       - "${OPENFOUNDRY_MEDIA_SETS_HOST_PORT:-50156}:50156"
       - "${OPENFOUNDRY_MEDIA_SETS_GRPC_HOST_PORT:-50157}:50157"
+
+  media-transform-runtime-service:
+    <<: *app-common
+    profiles: *profiles-data
+    build:
+      context: ../..
+      dockerfile: services/media-transform-runtime-service/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 50173
+    ports:
+      - "${OPENFOUNDRY_MEDIA_TRANSFORM_RUNTIME_HOST_PORT:-50173}:50173"
 
   # ── S8 / ADR-0030 — data-asset-catalog-service and
   # dataset-quality-service merged → dataset-versioning-service.
@@ -1111,6 +1143,24 @@ services:
     ports:
       - "${OPENFOUNDRY_CODE_REPOSITORY_REVIEW_HOST_PORT:-50155}:50155"
 
+  global-branch-service:
+    <<: *app-common
+    profiles: *profiles-experience
+    build:
+      context: ../..
+      dockerfile: services/global-branch-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      PORT: 50161
+      OF_SERVER__ADDR: ":50161"
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_global_branch_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_GLOBAL_BRANCH_HOST_PORT:-50161}:50161"
+
 
   # ── S8 / ADR-0030 — pipeline-authoring-service merged →
   # pipeline-build-service. Authoring routes (job specs, expressions,
@@ -1406,9 +1456,23 @@ services:
   # agent-runtime-service. The source was a substrate-only shim over
   # libs/ai-kernel; downstream callers route to
   # http://agent-runtime-service:50100. ──
-  # ── S8 / ADR-0030 — knowledge-index-service merged into
-  # retrieval-context-service. Downstream callers route to
-  # http://retrieval-context-service:50098. ──
+  knowledge-index-service:
+    <<: *app-common
+    profiles: *profiles-intelligence
+    build:
+      context: ../..
+      dockerfile: services/knowledge-index-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      PORT: 50162
+      OF_SERVER__ADDR: ":50162"
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_knowledge_index_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_KNOWLEDGE_INDEX_HOST_PORT:-50162}:50162"
 
   retrieval-context-service:
     <<: *app-common
@@ -1444,9 +1508,23 @@ services:
   # ── S8 / ADR-0030 (B19) — application-curation-service merged →
   # application-composition-service. ──
 
-  # ── S8 / ADR-0030 (C4) — report-service retired (legacy); domain
-  # covered by the absorbed `document-reporting` module in
-  # `notebook-runtime-service`. ──
+  report-service:
+    <<: *app-common
+    profiles: *profiles-experience
+    build:
+      context: ../..
+      dockerfile: services/report-service/Dockerfile
+    environment:
+      OPENFOUNDRY_ENV: development
+      PORT: 50163
+      OF_SERVER__ADDR: ":50163"
+      DATABASE_URL: postgres://openfoundry:openfoundry@postgres:5432/openfoundry_report_service
+      JWT_SECRET: ${OPENFOUNDRY_JWT_SECRET:-openfoundry-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OPENFOUNDRY_REPORT_HOST_PORT:-50163}:50163"
 
   # ── S8 / ADR-0030 (B21) — marketplace-service, marketplace-catalog-service
   # and product-distribution-service merged → federation-product-exchange-service.
@@ -1555,8 +1633,7 @@ services:
       TENANCY_ORGANIZATIONS_SERVICE_URL: http://tenancy-organizations-service:50113
       # S8 / ADR-0030 (B16): oauth-integration-service merged → identity-federation-service.
       OAUTH_INTEGRATION_SERVICE_URL: http://identity-federation-service:50112
-      # S8 / ADR-0030 (B14): cipher-service merged → authorization-policy-service.
-      CIPHER_SERVICE_URL: http://authorization-policy-service:50093
+      CIPHER_SERVICE_URL: http://cipher-service:50160
       DATA_CONNECTOR_SERVICE_URL: http://connector-management-service:50088
       CONNECTOR_MANAGEMENT_SERVICE_URL: http://connector-management-service:50088
       # S8 / ADR-0030 (B17): virtual-table-service merged → connector-management-service.
@@ -1608,8 +1685,7 @@ services:
       LLM_CATALOG_SERVICE_URL: http://llm-catalog-service:50095
       # S8 / ADR-0030: prompt-workflow-service merged → agent-runtime-service.
       PROMPT_WORKFLOW_SERVICE_URL: http://agent-runtime-service:50127
-      # S8 / ADR-0030: KNOWLEDGE_INDEX_SERVICE_URL retired —
-      # knowledge-index-service merged into retrieval-context-service (50098).
+      KNOWLEDGE_INDEX_SERVICE_URL: http://knowledge-index-service:50162
       RETRIEVAL_CONTEXT_SERVICE_URL: http://retrieval-context-service:50098
       # S8 / ADR-0030: conversation-state-service merged → agent-runtime-service.
       CONVERSATION_STATE_SERVICE_URL: http://agent-runtime-service:50127
@@ -1625,10 +1701,8 @@ services:
       APP_BUILDER_SERVICE_URL: http://application-composition-service:50140
       # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
       APPLICATION_CURATION_SERVICE_URL: http://application-composition-service:50140
-      # S8 / ADR-0030 (C4): report-service retired (legacy); covered by notebook-runtime-service.
-      REPORT_SERVICE_URL: http://notebook-runtime-service:50134
-      # S8 / ADR-0030 — global-branch-service merged → code-repository-review-service.
-      GLOBAL_BRANCH_SERVICE_URL: http://code-repository-review-service:50155
+      REPORT_SERVICE_URL: http://report-service:50163
+      GLOBAL_BRANCH_SERVICE_URL: http://global-branch-service:50161
       # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
       MARKETPLACE_CATALOG_SERVICE_URL: http://federation-product-exchange-service:50120
       # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
@@ -1695,7 +1769,8 @@ services:
       # S8 / ADR-0030 (B15): lineage-deletion-service merged → audit-compliance-service.
       identity-federation-service:
         condition: service_started
-      # S8 / ADR-0030 (B14): cipher-service merged → authorization-policy-service.
+      cipher-service:
+        condition: service_started
       # S8 / ADR-0030 (B16): session-governance-service merged → identity-federation-service.
       authorization-policy-service:
         condition: service_started
@@ -1742,6 +1817,8 @@ services:
       llm-catalog-service:
         condition: service_started
       # S8 / ADR-0030: prompt-workflow-service merged → agent-runtime-service.
+      knowledge-index-service:
+        condition: service_started
       retrieval-context-service:
         condition: service_started
       # S8 / ADR-0030: conversation-state-service merged → agent-runtime-service.
@@ -1755,7 +1832,8 @@ services:
       # S8 / ADR-0030: document-reporting-service merged → notebook-runtime-service.
       # S8 / ADR-0030 (C2): app-builder-service retired (legacy).
       # S8 / ADR-0030 (B19): application-curation-service merged → application-composition-service.
-      # S8 / ADR-0030 (C4): report-service retired (legacy).
+      report-service:
+        condition: service_started
       # S8 / ADR-0030 (B21): marketplace-catalog-service merged → federation-product-exchange-service.
       # S8 / ADR-0030 (B21): product-distribution-service merged → federation-product-exchange-service.
       federation-product-exchange-service:
@@ -1793,6 +1871,8 @@ services:
       telemetry-governance-service:
         condition: service_started
       code-repository-review-service:
+        condition: service_started
+      global-branch-service:
         condition: service_started
     ports:
       - "${OPENFOUNDRY_GATEWAY_HOST_PORT:-8080}:8080"
