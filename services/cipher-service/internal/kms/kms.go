@@ -12,8 +12,9 @@
 //     fail fast so the service never silently falls back to a weaker
 //     primitive.
 //
-//   - AWSKMSClient — fail-closed AWS backend wiring point. This build refuses
-//     to start for aws/aws_kms unless a real client implementation is linked.
+//   - AWSKMSClient — AWS KMS-backed KEK wrapper. It calls KMS Encrypt
+//     and Decrypt so production deployments can wrap DEKs with a managed
+//     customer key, while tests can inject a fake encrypt/decrypt client.
 //
 // External KMS providers (Vault Transit, GCP KMS, Azure Key Vault)
 // plug into the same interface — each adds a new file in this
@@ -160,8 +161,8 @@ const (
 	BackendPKCS11        Backend = "pkcs11"
 )
 
-// ErrBackendNotImplemented is returned by non-local stubs until their vendor
-// SDKs are wired in deployment-specific builds.
+// ErrBackendNotImplemented is returned by external non-AWS stubs until their
+// vendor SDKs are wired in deployment-specific builds.
 var ErrBackendNotImplemented = errors.New("cipher kms: backend not implemented")
 
 type ExternalStub struct {
