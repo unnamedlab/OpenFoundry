@@ -14,22 +14,21 @@ import (
 	"github.com/google/uuid"
 
 	pipelineplan "github.com/openfoundry/openfoundry-go/libs/pipeline-plan"
-	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
 	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/plancomposer"
 )
 
-// ErrPlanCompositionNotImplemented is returned by the temporary
-// distributed_runtime dispatcher when it is asked to submit a run
-// against a DAG node that still ships raw SQL. ADR-0045 Phase C.4.b
-// adds the composer that converts node configs into
-// pipelineplan.Plan values; until then, the DISTRIBUTED execution
-// path is intentionally broken so half-migrated clusters do not
-// silently run the previous Spark contract.
-var ErrPlanCompositionNotImplemented = errors.New("plan composition from node config: not implemented (ADR-0045 Phase C.4.b — composer pending)")
+var ErrLegacySQLDistributedConfig = plancomposer.ErrLegacySQLUnsupported
 
-func composePlanFromNodeConfig(_ DistributedTransformRequest, _ distributedSparkConfig) (pipelineplan.Plan, error) {
-	return pipelineplan.Plan{}, ErrPlanCompositionNotImplemented
+func composePlanFromNodeConfig(req DistributedTransformRequest, cfg distributedSparkConfig, pipelineID, runID string) (pipelineplan.Plan, error) {
+	return plancomposer.Compose(req.Payload, plancomposer.Defaults{
+		PipelineID: pipelineID,
+		RunID:      runID,
+		Catalog:    cfg.Catalog,
+		Namespace:  "default",
+	})
 }
 
 type DistributedTransformRequest struct {
@@ -118,12 +117,7 @@ func (r *SparkFlinkDistributedRunner) runSpark(ctx context.Context, req Distribu
 	namespace := firstNonEmpty(r.cfg.Namespace, os.Getenv("PIPELINE_RUNNER_NAMESPACE"), os.Getenv("SPARK_NAMESPACE"), "openfoundry")
 	image := firstNonEmpty(cfg.RunnerImage, r.cfg.RunnerImage, os.Getenv("PIPELINE_RUNNER_IMAGE"), "localhost:5001/pipeline-runner:dev")
 
-	// Phase C.4.a does not yet ship the composer that turns a DAG node
-	// config into a pipelineplan.Plan — that lands in C.4.b. Until
-	// then, the dispatcher refuses to submit so a half-migrated cluster
-	// surfaces a clear error instead of running a stale Spark
-	// SparkApplication CR or shipping an empty plan downstream.
-	plan, planErr := composePlanFromNodeConfig(req, cfg)
+	plan, planErr := composePlanFromNodeConfig(req, cfg, pipelineID, runID)
 	if planErr != nil {
 		return executor.NodeResult{}, planErr
 	}
@@ -199,16 +193,16 @@ func (r *SparkFlinkDistributedRunner) sparkClient() (dispatchpkg.Client, bool) {
 }
 
 type distributedSparkConfig struct {
-	Engine      string                          `json:"engine,omitempty"`
-	SQL         string                          `json:"sql,omitempty"`
-	Statement   string                          `json:"statement,omitempty"`
-	Format      string                          `json:"format,omitempty"`
-	Catalog     string                          `json:"catalog,omitempty"`
-	CatalogURI  string                          `json:"catalog_uri,omitempty"`
-	S3Endpoint  string                          `json:"s3_endpoint,omitempty"`
+	Engine      string                        `json:"engine,omitempty"`
+	SQL         string                        `json:"sql,omitempty"`
+	Statement   string                        `json:"statement,omitempty"`
+	Format      string                        `json:"format,omitempty"`
+	Catalog     string                        `json:"catalog,omitempty"`
+	CatalogURI  string                        `json:"catalog_uri,omitempty"`
+	S3Endpoint  string                        `json:"s3_endpoint,omitempty"`
 	Resources   dispatchpkg.ResourceOverrides `json:"resources,omitempty"`
-	RunnerImage string                          `json:"runner_image,omitempty"`
-	Application string                          `json:"application_type,omitempty"`
+	RunnerImage string                        `json:"runner_image,omitempty"`
+	Application string                        `json:"application_type,omitempty"`
 }
 
 func shouldUseDistributedRuntime(transformType string, pipelineType string, engine string, payload json.RawMessage, metadata map[string]any) bool {

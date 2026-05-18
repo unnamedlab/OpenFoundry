@@ -15,7 +15,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"sort"
@@ -25,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/plancomposer"
 )
 
 // SparkRuntime is the narrow port the engine needs from the host AppState to
@@ -44,11 +44,11 @@ type SparkRuntime interface {
 // pipeline-build-service handlers serialise the user's pipeline DAG into this
 // shape; the engine reads it back here.
 type distributedComputeNodeConfig struct {
-	SQL         string                       `json:"sql,omitempty"`
-	Format      string                       `json:"format,omitempty"`
-	Catalog     string                       `json:"catalog,omitempty"`
-	CatalogURI  string                       `json:"catalog_uri,omitempty"`
-	S3Endpoint  string                       `json:"s3_endpoint,omitempty"`
+	SQL         string                     `json:"sql,omitempty"`
+	Format      string                     `json:"format,omitempty"`
+	Catalog     string                     `json:"catalog,omitempty"`
+	CatalogURI  string                     `json:"catalog_uri,omitempty"`
+	S3Endpoint  string                     `json:"s3_endpoint,omitempty"`
 	Resources   dispatch.ResourceOverrides `json:"resources,omitempty"`
 	RunnerImage string                     `json:"runner_image,omitempty"`
 	// Application was the Spark application type (Scala / Python) — Phase
@@ -236,31 +236,79 @@ func executeDistributedComputeTransform(ctx context.Context, state any, node *Pi
 		inputDataset = outputDataset
 	}
 
-	image := strings.TrimSpace(cfg.RunnerImage)
-	if image == "" {
-		image = runtime.SparkRunnerImage()
+	image := firstNonEmpty(cfg.RunnerImage, runtime.SparkRunnerImage(), "localhost:5001/pipeline-runner:dev")
+	namespace := firstNonEmpty(runtime.SparkNamespace(), "openfoundry")
+
+	plan, err := plancomposer.Compose(node.Config, plancomposer.Defaults{
+		PipelineID: pipelineID,
+		RunID:      runID,
+		Catalog:    cfg.Catalog,
+		Namespace:  "default",
+	})
+	if err != nil {
+		return TransformResult{}, err
 	}
 
-	// Phase C.4.a does not yet ship the composer that turns a DAG
-	// node config into a pipelineplan.Plan — that lands in C.4.b.
-	// Until then, the engine refuses to submit so a half-migrated
-	// cluster surfaces a clear error instead of running stale Spark
-	// SparkApplication CRs or shipping an empty plan downstream.
-	_ = pipelineID
-	_ = runID
-	_ = inputDataset
-	_ = outputDataset
-	_ = image
-	_ = cfg
-	_ = ctx
-	_ = dispatch.PipelineRunInput{}
-	return TransformResult{}, ErrPlanCompositionNotImplemented
-}
+	input := dispatch.PipelineRunInput{
+		PipelineID:          pipelineID,
+		RunID:               runID,
+		Namespace:           namespace,
+		PipelineRunnerImage: image,
+		InputDatasetRID:     inputDataset,
+		OutputDatasetRID:    outputDataset,
+		Resources:           cfg.Resources,
+		Plan:                plan,
+	}
 
-// ErrPlanCompositionNotImplemented mirrors the handler-side sentinel
-// (see internal/handler/distributed_runtime.go) so the engine path
-// can fail with the same diagnostic until Phase C.4.b lands.
-var ErrPlanCompositionNotImplemented = errors.New("plan composition from node config: not implemented (ADR-0045 Phase C.4.b — composer pending)")
+	name, err := runtime.SparkClient().SubmitPipelineRun(ctx, input)
+	if err != nil {
+		return TransformResult{}, fmt.Errorf("submit pipeline-runner Job: %w", err)
+	}
+
+	timeout := runtime.SparkPollTimeout()
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	pollInterval := runtime.SparkPollInterval()
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		report, err := runtime.SparkClient().GetPipelineRunStatus(ctx, input.Namespace, name)
+		if err != nil {
+			return TransformResult{}, fmt.Errorf("get pipeline-runner Job status: %w", err)
+		}
+		if report != nil {
+			switch report.Status {
+			case dispatch.RunSucceeded:
+				out, _ := json.Marshal(map[string]any{
+					"runtime":        "distributed",
+					"engine":         "spark",
+					"job":            name,
+					"namespace":      input.Namespace,
+					"output_dataset": outputDataset,
+					"transform_type": node.TransformType,
+				})
+				return TransformResult{Output: out}, nil
+			case dispatch.RunFailed:
+				msg := "pipeline-runner Job failed"
+				if report.ErrorMessage != nil && *report.ErrorMessage != "" {
+					msg = *report.ErrorMessage
+				}
+				return TransformResult{}, fmt.Errorf("pipeline-runner Job %s failed: %s", name, msg)
+			}
+		}
+		if time.Now().After(deadline) {
+			return TransformResult{}, fmt.Errorf("pipeline-runner Job %s timed out after %s", name, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return TransformResult{}, ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
 
 func parseDistributedComputeConfig(node *PipelineNode) (distributedComputeNodeConfig, error) {
 	cfg := distributedComputeNodeConfig{}
@@ -311,4 +359,13 @@ func countRowsField(raw json.RawMessage) (int, bool) {
 		return 0, false
 	}
 	return len(rows), true
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

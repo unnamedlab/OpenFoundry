@@ -17,7 +17,7 @@ import (
 )
 
 func TestSubmitSparkRunOK(t *testing.T) {
-	t.Skip("ADR-0045 Phase C.4.a: SubmitSparkRun requires a pipelineplan.Plan now; Phase C.4.b re-targets these assertions once the composer ships.")
+	t.Skip("SubmitSparkRun requires callers to provide a pipelineplan.Plan; this legacy endpoint test still sends the pre-plan payload.")
 	fake := &fakeSparkClient{submittedName: "pipeline-run-p-r"}
 	restore := SetSparkClient(fake)
 	defer restore()
@@ -116,7 +116,7 @@ func validateByRendering(input dispatchpkg.PipelineRunInput) error {
 }
 
 func TestPipelineBuildRunPersistsAndStatusRefreshes(t *testing.T) {
-	t.Skip("ADR-0045 Phase C.4.a: PipelineBuildRun submits Jobs that require a pipelineplan.Plan; Phase C.4.b re-targets this assertion once the composer ships.")
+	t.Skip("PipelineBuildRun submits Jobs that require a pipelineplan.Plan; this legacy endpoint test still sends the pre-plan payload.")
 	runID := "018f7a5c-0000-7000-8000-000000000001"
 	fakeClient := &fakeSparkClient{submittedName: "spark-app", status: &dispatchpkg.RunStatusReport{Status: dispatchpkg.RunRunning}}
 	repo := &fakeSparkSubmissionRepo{submissions: map[string]SparkSubmission{}}
