@@ -75,44 +75,44 @@ func DefaultRateLimit() RateLimitConfig {
 // match the Rust struct fields (snake_case) so a single values.yaml
 // drives both gateways.
 type UpstreamURLs struct {
-	IdentityFederation        string `koanf:"identity_federation_service_url"`
-	OauthIntegration          string `koanf:"oauth_integration_service_url"`
-	SessionGovernance         string `koanf:"session_governance_service_url"`
-	AuthorizationPolicy       string `koanf:"authorization_policy_service_url"`
-	SecurityGovernance        string `koanf:"security_governance_service_url"`
-	TenancyOrganizations      string `koanf:"tenancy_organizations_service_url"`
-	Cipher                    string `koanf:"cipher_service_url"`
-	DataConnector             string `koanf:"data_connector_service_url"`
-	ConnectorManagement       string `koanf:"connector_management_service_url"`
-	VirtualTable              string `koanf:"virtual_table_service_url"`
-	IngestionReplication      string `koanf:"ingestion_replication_service_url"`
-	DatasetVersioning         string `koanf:"dataset_versioning_service_url"`
-	DataAssetCatalog          string `koanf:"data_asset_catalog_service_url"`
-	DatasetQuality            string `koanf:"dataset_quality_service_url"`
-	IcebergCatalog            string `koanf:"iceberg_catalog_service_url"`
-	Query                     string `koanf:"query_service_url"`
-	PipelineAuthoring         string `koanf:"pipeline_authoring_service_url"`
-	PipelineBuild             string `koanf:"pipeline_build_service_url"`
-	PipelineSchedule          string `koanf:"pipeline_schedule_service_url"`
-	Lineage                   string `koanf:"lineage_service_url"`
-	OntologyDefinition        string `koanf:"ontology_definition_service_url"`
-	ObjectDatabase            string `koanf:"object_database_service_url"`
-	OntologyQuery             string `koanf:"ontology_query_service_url"`
-	OntologyActions           string `koanf:"ontology_actions_service_url"`
-	Ontology                  string `koanf:"ontology_service_url"`
-	Workflow                  string `koanf:"workflow_service_url"`
-	Notebook                  string `koanf:"notebook_service_url"`
-	Notification              string `koanf:"notification_service_url"`
-	ApplicationCuration       string `koanf:"application_curation_service_url"`
-	ApplicationComposition    string `koanf:"application_composition_service_url"`
-	ML                        string `koanf:"ml_service_url"`
-	ModelCatalog              string `koanf:"model_catalog_service_url"`
-	ModelDeployment           string `koanf:"model_deployment_service_url"`
-	ModelEvaluation           string `koanf:"model_evaluation_service_url"`
-	ModelServing              string `koanf:"model_serving_service_url"`
-	ModelInferenceHistory     string `koanf:"model_inference_history_service_url"`
-	AI                        string `koanf:"ai_service_url"`
-	LLMCatalog                string `koanf:"llm_catalog_service_url"`
+	IdentityFederation     string `koanf:"identity_federation_service_url"`
+	OauthIntegration       string `koanf:"oauth_integration_service_url"`
+	SessionGovernance      string `koanf:"session_governance_service_url"`
+	AuthorizationPolicy    string `koanf:"authorization_policy_service_url"`
+	SecurityGovernance     string `koanf:"security_governance_service_url"`
+	TenancyOrganizations   string `koanf:"tenancy_organizations_service_url"`
+	Cipher                 string `koanf:"cipher_service_url"`
+	DataConnector          string `koanf:"data_connector_service_url"`
+	ConnectorManagement    string `koanf:"connector_management_service_url"`
+	VirtualTable           string `koanf:"virtual_table_service_url"`
+	IngestionReplication   string `koanf:"ingestion_replication_service_url"`
+	DatasetVersioning      string `koanf:"dataset_versioning_service_url"`
+	DataAssetCatalog       string `koanf:"data_asset_catalog_service_url"`
+	DatasetQuality         string `koanf:"dataset_quality_service_url"`
+	IcebergCatalog         string `koanf:"iceberg_catalog_service_url"`
+	Query                  string `koanf:"query_service_url"`
+	PipelineAuthoring      string `koanf:"pipeline_authoring_service_url"`
+	PipelineBuild          string `koanf:"pipeline_build_service_url"`
+	PipelineSchedule       string `koanf:"pipeline_schedule_service_url"`
+	Lineage                string `koanf:"lineage_service_url"`
+	OntologyDefinition     string `koanf:"ontology_definition_service_url"`
+	ObjectDatabase         string `koanf:"object_database_service_url"`
+	OntologyQuery          string `koanf:"ontology_query_service_url"`
+	OntologyActions        string `koanf:"ontology_actions_service_url"`
+	Ontology               string `koanf:"ontology_service_url"`
+	Workflow               string `koanf:"workflow_service_url"`
+	Notebook               string `koanf:"notebook_service_url"`
+	Notification           string `koanf:"notification_service_url"`
+	ApplicationCuration    string `koanf:"application_curation_service_url"`
+	ApplicationComposition string `koanf:"application_composition_service_url"`
+	ML                     string `koanf:"ml_service_url"`
+	ModelCatalog           string `koanf:"model_catalog_service_url"`
+	ModelDeployment        string `koanf:"model_deployment_service_url"`
+	ModelEvaluation        string `koanf:"model_evaluation_service_url"`
+	ModelServing           string `koanf:"model_serving_service_url"`
+	ModelInferenceHistory  string `koanf:"model_inference_history_service_url"`
+	AI                     string `koanf:"ai_service_url"`
+	LLMCatalog             string `koanf:"llm_catalog_service_url"`
 	// AgentRuntime backs /api/v1/agent-runtime/* and (per ADR-0030,
 	// which retired prompt-workflow-service / conversation-state-service
 	// / tool-registry-service into this binary) absorbs `/api/v1/ai/prompts`.
@@ -155,75 +155,73 @@ type UpstreamURLs struct {
 func DefaultUpstreams() UpstreamURLs {
 	return UpstreamURLs{
 		IdentityFederation: "http://localhost:50112",
-		OauthIntegration:   "http://localhost:50094",
-		SessionGovernance:  "http://localhost:50074",
+		OauthIntegration:   "http://localhost:50112",
+		SessionGovernance:  "http://localhost:50112",
 		// ADR-0030 B14: security-governance-service merged into
 		// authorization-policy-service. The SecurityGovernance alias
 		// shares its port so router_table.go's sec-gov cases still
 		// resolve to the surviving owner.
-		AuthorizationPolicy:       "http://localhost:50115",
-		SecurityGovernance:        "http://localhost:50115",
+		AuthorizationPolicy:       "http://localhost:50093",
+		SecurityGovernance:        "http://localhost:50093",
 		TenancyOrganizations:      "http://localhost:50113",
-		Cipher:                    "http://localhost:50073",
+		Cipher:                    "http://localhost:50093",
 		DataConnector:             "http://localhost:50088",
 		ConnectorManagement:       "http://localhost:50088",
-		VirtualTable:              "http://localhost:50089",
-		IngestionReplication:      "http://localhost:50120",
-		DatasetVersioning:         "http://localhost:50117",
-		DataAssetCatalog:          "http://localhost:50079",
-		DatasetQuality:            "http://localhost:50072",
+		VirtualTable:              "http://localhost:50088",
+		IngestionReplication:      "http://localhost:50090",
+		DatasetVersioning:         "http://localhost:50078",
+		DataAssetCatalog:          "http://localhost:50078",
+		DatasetQuality:            "http://localhost:50078",
 		IcebergCatalog:            "http://localhost:50118",
 		Query:                     "http://localhost:50133",
-		PipelineAuthoring:         "http://localhost:50080",
+		PipelineAuthoring:         "http://localhost:50081",
 		PipelineBuild:             "http://localhost:50081",
-		PipelineSchedule:          "http://localhost:50082",
+		PipelineSchedule:          "http://localhost:50081",
 		Lineage:                   "http://localhost:50083",
-		OntologyDefinition:        "http://localhost:50122",
-		ObjectDatabase:            "http://localhost:50125",
-		OntologyQuery:             "http://localhost:50123",
+		OntologyDefinition:        "http://localhost:50103",
+		ObjectDatabase:            "http://localhost:50104",
+		OntologyQuery:             "http://localhost:50105",
 		OntologyActions:           "http://localhost:50106",
-		Ontology:                  "http://localhost:50122",
+		Ontology:                  "http://localhost:50103",
 		Workflow:                  "http://localhost:50137",
 		Notebook:                  "http://localhost:50134",
 		Notification:              "http://localhost:50114",
-		ApplicationCuration:       "http://localhost:50101",
-		ApplicationComposition:    "http://localhost:50118",
+		ApplicationCuration:       "http://localhost:50140",
+		ApplicationComposition:    "http://localhost:50140",
 		ML:                        "http://localhost:50085",
 		ModelCatalog:              "http://localhost:50085",
 		ModelDeployment:           "http://localhost:50086",
-		ModelEvaluation:           "http://localhost:50091",
-		ModelServing:              "http://localhost:50087",
-		ModelInferenceHistory:     "http://localhost:50092",
+		ModelEvaluation:           "http://localhost:50086",
+		ModelServing:              "http://localhost:50086",
+		ModelInferenceHistory:     "http://localhost:50086",
 		AI:                        "http://localhost:50127",
 		LLMCatalog:                "http://localhost:50095",
 		AgentRuntime:              "http://localhost:50127",
 		KnowledgeIndex:            "http://localhost:50097",
 		RetrievalContext:          "http://localhost:50098",
 		AIEvaluation:              "http://localhost:50075",
-		DocumentReporting:         "http://localhost:50102",
+		DocumentReporting:         "http://localhost:50134",
 		EntityResolution:          "http://localhost:50058",
-		Report:                    "http://localhost:50064",
+		Report:                    "http://localhost:50134",
 		GeospatialIntelligence:    "http://localhost:50131",
 		CodeRepo:                  "http://localhost:50155",
-		GlobalBranch:              "http://localhost:50110",
-		MarketplaceCatalog:        "http://localhost:50066",
-		ProductDistribution:       "http://localhost:50111",
-		FederationProductExchange: "http://localhost:50126",
-		// CheckpointsPurpose is served by audit-compliance-service per
-		// ADR-0030; alias to its port.
-		CheckpointsPurpose: "http://localhost:50116",
-		NetworkBoundary:    "http://localhost:50119",
-		// RetentionPolicy / LineageDeletion are unrouted placeholder slots
-		// (no Go service yet, tracked in upstreamsWithoutGoService).
-		// Their defaults are deliberately unique unused ports so the
-		// port-collision invariant on DefaultUpstreams keeps catching real
-		// drift; pick the next free slot if a Go service is ever wired up.
-		RetentionPolicy: "http://localhost:50068",
-		LineageDeletion: "http://localhost:50069",
-		AuditCompliance: "http://localhost:50116",
-		Audit:           "http://localhost:50116",
-		SDS:                 "http://localhost:50076",
-		Nexus:               "http://localhost:50067",
+		GlobalBranch:              "http://localhost:50155",
+		MarketplaceCatalog:        "http://localhost:50120",
+		ProductDistribution:       "http://localhost:50120",
+		FederationProductExchange: "http://localhost:50120",
+		// CheckpointsPurpose is served by authorization-policy-service;
+		// alias to the gateway compose override target.
+		CheckpointsPurpose: "http://localhost:50093",
+		NetworkBoundary:    "http://localhost:50093",
+		// RetentionPolicy / LineageDeletion / SDS are served by
+		// audit-compliance-service in the compose gateway overrides; keep
+		// their local defaults on the surviving owner too.
+		RetentionPolicy:     "http://localhost:50115",
+		LineageDeletion:     "http://localhost:50115",
+		AuditCompliance:     "http://localhost:50115",
+		Audit:               "http://localhost:50115",
+		SDS:                 "http://localhost:50115",
+		Nexus:               "http://localhost:50113",
 		TelemetryGovernance: "http://localhost:50153",
 	}
 }

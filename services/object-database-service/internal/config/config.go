@@ -42,7 +42,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "object-database-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50125)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50104)
 	cfg.DevMode = parseBool(os.Getenv("OF_DEV_STUB_MODE")) || parseBool(os.Getenv("ALLOW_SUBSTRATE_STUBS"))
 	cfg.Backend = parseBackendMode(os.Getenv("OBJECT_DATABASE_BACKEND"), BackendCassandra)
 	cfg.CassandraContactPoints = os.Getenv("CASSANDRA_CONTACT_POINTS")

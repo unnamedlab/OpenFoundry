@@ -1,4 +1,4 @@
-// Package config resolves iceberg-catalog-service env config.
+// Package config resolves application-composition-service env config.
 package config
 
 import (
@@ -19,7 +19,7 @@ type Config struct {
 	MetricsAddr  string
 	WarehouseURI string
 
-	// Iceberg-specific knobs (mirroring services/iceberg-catalog-service/src/config.rs).
+	// Composition-specific auth and tenant knobs.
 	JWTIssuer            string
 	JWTAudience          string
 	DefaultTokenTTLSecs  int64
@@ -30,10 +30,10 @@ type Config struct {
 
 func FromEnv() (*Config, error) {
 	cfg := &Config{}
-	cfg.Service.Name = "iceberg-catalog-service"
+	cfg.Service.Name = "application-composition-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50118)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50140)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}

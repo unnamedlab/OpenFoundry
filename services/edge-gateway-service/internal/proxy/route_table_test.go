@@ -1,6 +1,8 @@
 package proxy_test
 
 import (
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/openfoundry/openfoundry-go/services/edge-gateway-service/internal/config"
 )
@@ -28,45 +31,69 @@ import (
 // as "unmapped" so the assertion that *every* UpstreamURLs field is
 // accounted for keeps that list honest.
 var upstreamServiceMapping = []struct {
-	field       string // name of the field on config.UpstreamURLs
-	serviceDir  string // dir under services/ that owns this upstream
-	expectedPort uint16 // port parseUint16(os.Getenv("PORT"), …) defaults to
+	field          string // name of the field on config.UpstreamURLs
+	serviceDir     string // optional dir under services/ that owns this upstream
+	composeService string // optional compose service that must provide environment.PORT
 }{
-	{"IdentityFederation", "identity-federation-service", 50112},
-	{"AuthorizationPolicy", "authorization-policy-service", 50115},
-	{"TenancyOrganizations", "tenancy-organizations-service", 50113},
-	{"ConnectorManagement", "connector-management-service", 50088},
-	{"DataConnector", "connector-management-service", 50088},
-	{"IngestionReplication", "ingestion-replication-service", 50120},
-	{"DatasetVersioning", "dataset-versioning-service", 50117},
-	{"IcebergCatalog", "iceberg-catalog-service", 50118},
-	{"Query", "sql-bi-gateway-service", 50133},
-	{"PipelineBuild", "pipeline-build-service", 50081},
-	{"Lineage", "lineage-service", 50083},
-	{"OntologyDefinition", "ontology-definition-service", 50122},
-	{"Ontology", "ontology-definition-service", 50122},
-	{"ObjectDatabase", "object-database-service", 50125},
-	{"OntologyQuery", "ontology-query-service", 50123},
-	{"OntologyActions", "ontology-actions-service", 50106},
-	{"Workflow", "workflow-automation-service", 50137},
-	{"Notebook", "notebook-runtime-service", 50134},
-	{"Notification", "notification-alerting-service", 50114},
-	{"ApplicationComposition", "application-composition-service", 50118},
-	{"ML", "model-catalog-service", 50085},
-	{"ModelCatalog", "model-catalog-service", 50085},
-	{"ModelDeployment", "model-deployment-service", 50086},
-	{"AI", "agent-runtime-service", 50127},
-	{"AgentRuntime", "agent-runtime-service", 50127},
-	{"LLMCatalog", "llm-catalog-service", 50095},
-	{"RetrievalContext", "retrieval-context-service", 50098},
-	{"AIEvaluation", "ai-evaluation-service", 50075},
-	{"EntityResolution", "entity-resolution-service", 50058},
-	{"CodeRepo", "code-repository-review-service", 50155},
-	{"FederationProductExchange", "federation-product-exchange-service", 50126},
-	{"AuditCompliance", "audit-compliance-service", 50116},
-	{"Audit", "audit-compliance-service", 50116},
-	{"CheckpointsPurpose", "audit-compliance-service", 50116},
-	{"TelemetryGovernance", "telemetry-governance-service", 50153},
+	{"IdentityFederation", "identity-federation-service", "identity-federation-service"},
+	{"OauthIntegration", "", "identity-federation-service"},
+	{"SessionGovernance", "", "identity-federation-service"},
+	{"AuthorizationPolicy", "authorization-policy-service", "authorization-policy-service"},
+	{"SecurityGovernance", "", "authorization-policy-service"},
+	{"TenancyOrganizations", "tenancy-organizations-service", "tenancy-organizations-service"},
+	{"Cipher", "", "authorization-policy-service"},
+	{"ConnectorManagement", "connector-management-service", "connector-management-service"},
+	{"DataConnector", "connector-management-service", "connector-management-service"},
+	{"VirtualTable", "", "connector-management-service"},
+	{"IngestionReplication", "ingestion-replication-service", "ingestion-replication-service"},
+	{"DatasetVersioning", "dataset-versioning-service", "dataset-versioning-service"},
+	{"DataAssetCatalog", "", "dataset-versioning-service"},
+	{"DatasetQuality", "", "dataset-versioning-service"},
+	{"IcebergCatalog", "iceberg-catalog-service", ""},
+	{"Query", "sql-bi-gateway-service", "sql-bi-gateway-service"},
+	{"PipelineAuthoring", "", "pipeline-build-service"},
+	{"PipelineBuild", "pipeline-build-service", "pipeline-build-service"},
+	{"PipelineSchedule", "", "pipeline-build-service"},
+	{"Lineage", "lineage-service", "lineage-service"},
+	{"OntologyDefinition", "ontology-definition-service", "ontology-definition-service"},
+	{"Ontology", "ontology-definition-service", "ontology-definition-service"},
+	{"ObjectDatabase", "object-database-service", "object-database-service"},
+	{"OntologyQuery", "ontology-query-service", "ontology-query-service"},
+	{"OntologyActions", "ontology-actions-service", "ontology-actions-service"},
+	{"Workflow", "workflow-automation-service", "workflow-automation-service"},
+	{"Notebook", "notebook-runtime-service", "notebook-runtime-service"},
+	{"Notification", "notification-alerting-service", "notification-alerting-service"},
+	{"ApplicationCuration", "", "application-composition-service"},
+	{"ApplicationComposition", "application-composition-service", "application-composition-service"},
+	{"ML", "model-catalog-service", "model-catalog-service"},
+	{"ModelCatalog", "model-catalog-service", "model-catalog-service"},
+	{"ModelDeployment", "model-deployment-service", "model-deployment-service"},
+	{"ModelEvaluation", "", "model-deployment-service"},
+	{"ModelServing", "", "model-deployment-service"},
+	{"ModelInferenceHistory", "", "model-deployment-service"},
+	{"AI", "agent-runtime-service", "agent-runtime-service"},
+	{"AgentRuntime", "agent-runtime-service", "agent-runtime-service"},
+	{"LLMCatalog", "llm-catalog-service", "llm-catalog-service"},
+	{"RetrievalContext", "retrieval-context-service", "retrieval-context-service"},
+	{"AIEvaluation", "ai-evaluation-service", "ai-evaluation-service"},
+	{"DocumentReporting", "", "notebook-runtime-service"},
+	{"EntityResolution", "entity-resolution-service", "entity-resolution-service"},
+	{"Report", "", "notebook-runtime-service"},
+	{"GeospatialIntelligence", "ontology-exploratory-analysis-service", "ontology-exploratory-analysis-service"},
+	{"CodeRepo", "code-repository-review-service", "code-repository-review-service"},
+	{"GlobalBranch", "", "code-repository-review-service"},
+	{"MarketplaceCatalog", "", "federation-product-exchange-service"},
+	{"ProductDistribution", "", "federation-product-exchange-service"},
+	{"FederationProductExchange", "federation-product-exchange-service", "federation-product-exchange-service"},
+	{"CheckpointsPurpose", "", "authorization-policy-service"},
+	{"NetworkBoundary", "", "authorization-policy-service"},
+	{"RetentionPolicy", "", "audit-compliance-service"},
+	{"LineageDeletion", "", "audit-compliance-service"},
+	{"AuditCompliance", "audit-compliance-service", "audit-compliance-service"},
+	{"Audit", "audit-compliance-service", "audit-compliance-service"},
+	{"SDS", "", "audit-compliance-service"},
+	{"Nexus", "", "tenancy-organizations-service"},
+	{"TelemetryGovernance", "telemetry-governance-service", "telemetry-governance-service"},
 }
 
 // upstreamsWithoutGoService lists UpstreamURLs fields for which no
@@ -74,32 +101,60 @@ var upstreamServiceMapping = []struct {
 // config.yaml, or legacy Rust slices not ported). Listing them here
 // instead of in upstreamServiceMapping keeps the "every field is
 // accounted for" check from drifting.
-var upstreamsWithoutGoService = map[string]struct{}{
-	"OauthIntegration":       {},
-	"SessionGovernance":      {},
-	"SecurityGovernance":     {},
-	"Cipher":                 {}, // stub, addr-based config
-	"VirtualTable":           {},
-	"DataAssetCatalog":       {},
-	"DatasetQuality":         {},
-	"PipelineAuthoring":      {},
-	"PipelineSchedule":       {},
-	"ApplicationCuration":    {},
-	"ModelEvaluation":        {},
-	"ModelServing":           {},
-	"ModelInferenceHistory":  {},
-	"DocumentReporting":      {},
-	"Report":                 {}, // stub, addr-based config
-	"GeospatialIntelligence": {},
-	"GlobalBranch":           {}, // stub, addr-based config
-	"KnowledgeIndex":         {}, // stub, addr-based config
-	"MarketplaceCatalog":     {},
-	"ProductDistribution":    {},
-	"NetworkBoundary":        {}, // stub, addr-based config
-	"RetentionPolicy":        {},
-	"LineageDeletion":        {},
-	"SDS":                    {},
-	"Nexus":                  {},
+var upstreamsWithoutGoService = map[string]string{
+	"KnowledgeIndex": "no compose service is wired for the knowledge-index surface yet",
+}
+
+type composeFile struct {
+	Services map[string]struct {
+		Environment any `yaml:"environment"`
+	} `yaml:"services"`
+}
+
+func loadComposePorts(t *testing.T, root string) map[string]uint16 {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(root, "infra", "compose", "docker-compose.yml"))
+	require.NoError(t, err)
+	var cf composeFile
+	require.NoError(t, yaml.Unmarshal(body, &cf))
+	ports := make(map[string]uint16, len(cf.Services))
+	for name, svc := range cf.Services {
+		port, ok := envPort(svc.Environment)
+		if ok {
+			ports[name] = port
+		}
+	}
+	return ports
+}
+
+func envPort(environment any) (uint16, bool) {
+	switch env := environment.(type) {
+	case map[string]any:
+		if raw, ok := env["PORT"]; ok {
+			return parsePortValue(raw)
+		}
+	case map[any]any:
+		if raw, ok := env["PORT"]; ok {
+			return parsePortValue(raw)
+		}
+	case []any:
+		for _, item := range env {
+			entry, ok := item.(string)
+			if !ok || !strings.HasPrefix(entry, "PORT=") {
+				continue
+			}
+			return parsePortValue(strings.TrimPrefix(entry, "PORT="))
+		}
+	}
+	return 0, false
+}
+
+func parsePortValue(raw any) (uint16, bool) {
+	v, err := strconv.ParseUint(strings.TrimSpace(fmt.Sprint(raw)), 10, 16)
+	if err != nil {
+		return 0, false
+	}
+	return uint16(v), true
 }
 
 // portDefaultRe captures the integer literal in
@@ -157,28 +212,28 @@ func servicePortFromConfig(t *testing.T, root, dir string) uint16 {
 	return 0
 }
 
-// portFromURL extracts the port from a `host:port` URL string. Returns
-// 0 when no port is present.
-func portFromURL(t *testing.T, u string) uint16 {
+// portFromURL extracts the port from an upstream URL string.
+func portFromURL(t *testing.T, raw string) uint16 {
 	t.Helper()
-	idx := strings.LastIndex(u, ":")
-	require.Greaterf(t, idx, -1, "no port in URL %q", u)
-	v, err := strconv.ParseUint(u[idx+1:], 10, 16)
-	require.NoErrorf(t, err, "parsing port from URL %q", u)
+	parsed, err := url.Parse(raw)
+	require.NoErrorf(t, err, "parsing URL %q", raw)
+	port := parsed.Port()
+	require.NotEmptyf(t, port, "no port in URL %q", raw)
+	v, err := strconv.ParseUint(port, 10, 16)
+	require.NoErrorf(t, err, "parsing port from URL %q", raw)
 	return uint16(v)
 }
 
-// TestUpstreamPortsMatchService asserts that every routed upstream in
-// DefaultUpstreams lines up with the destination service's actual
-// `parseUint16("PORT", N)` fallback in its main.go's config package.
+// TestUpstreamPortsMatchComposeAndServiceDefaults asserts that every
+// routed upstream either matches its compose service PORT, its owning
+// service config default, or both.
 //
-// It catches three classes of drift that bit us before: (a) the
-// gateway points at a port no service listens on, (b) the service
-// renames or moves but the gateway routes still target the old port,
-// (c) someone bumps the service default without updating the gateway.
-func TestUpstreamPortsMatchService(t *testing.T) {
+// It catches drift across three sources of truth: gateway defaults,
+// compose PORT values, and service-side parseUint16("PORT", N) fallbacks.
+func TestUpstreamPortsMatchComposeAndServiceDefaults(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
+	composePorts := loadComposePorts(t, root)
 	defaults := config.DefaultUpstreams()
 	defaultsV := reflect.ValueOf(defaults)
 
@@ -187,32 +242,43 @@ func TestUpstreamPortsMatchService(t *testing.T) {
 		t.Run(m.field, func(t *testing.T) {
 			t.Parallel()
 
-			// (a) service-dir exists with the expected config.go.
-			cfgPath := filepath.Join(root, "services", m.serviceDir,
-				"internal", "config", "config.go")
-			_, err := os.Stat(cfgPath)
-			require.NoErrorf(t, err,
-				"%s upstream expects services/%s/internal/config/config.go",
-				m.field, m.serviceDir)
-
-			// (b) parseUint16 default in the service config matches the
-			// expected port.
-			got := servicePortFromConfig(t, root, m.serviceDir)
-			assert.Equalf(t, m.expectedPort, got,
-				"services/%s default PORT mismatch — table says %d, config.go says %d",
-				m.serviceDir, m.expectedPort, got)
-
-			// (c) gateway DefaultUpstreams[field] resolves to the same port.
 			fv := defaultsV.FieldByName(m.field)
 			require.Truef(t, fv.IsValid(),
 				"UpstreamURLs has no field %q (upstreamServiceMapping out of date)",
 				m.field)
 			require.Equalf(t, reflect.String, fv.Kind(),
 				"UpstreamURLs.%s is not a string", m.field)
-			gotURLPort := portFromURL(t, fv.String())
-			assert.Equalf(t, m.expectedPort, gotURLPort,
-				"DefaultUpstreams.%s = %q, expected port %d",
-				m.field, fv.String(), m.expectedPort)
+			defaultPort := portFromURL(t, fv.String())
+
+			if m.composeService != "" {
+				composePort, ok := composePorts[m.composeService]
+				require.Truef(t, ok,
+					"compose service %s for UpstreamURLs.%s has no environment.PORT",
+					m.composeService, m.field)
+				assert.Equalf(t, composePort, defaultPort,
+					"DefaultUpstreams.%s = %q, expected compose %s PORT %d",
+					m.field, fv.String(), m.composeService, composePort)
+			}
+
+			if m.serviceDir == "" {
+				return
+			}
+
+			cfgPath := filepath.Join(root, "services", m.serviceDir,
+				"internal", "config", "config.go")
+			_, err := os.Stat(cfgPath)
+			require.NoErrorf(t, err,
+				"%s upstream expects services/%s/internal/config/config.go",
+				m.field, m.serviceDir)
+			servicePort := servicePortFromConfig(t, root, m.serviceDir)
+			assert.Equalf(t, servicePort, defaultPort,
+				"DefaultUpstreams.%s = %q, expected services/%s default PORT %d",
+				m.field, fv.String(), m.serviceDir, servicePort)
+			if m.composeService != "" {
+				assert.Equalf(t, composePorts[m.composeService], servicePort,
+					"services/%s default PORT must match compose %s PORT",
+					m.serviceDir, m.composeService)
+			}
 		})
 	}
 }

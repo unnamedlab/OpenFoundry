@@ -99,6 +99,6 @@ USER nonroot:nonroot
 WORKDIR /home/nonroot
 STOPSIGNAL SIGTERM
 
-EXPOSE 50122
+EXPOSE 50103
 
 ENTRYPOINT ["/usr/local/bin/service"]

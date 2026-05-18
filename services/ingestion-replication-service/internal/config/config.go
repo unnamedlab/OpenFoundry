@@ -30,7 +30,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "ingestion-replication-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50120)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50090)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}

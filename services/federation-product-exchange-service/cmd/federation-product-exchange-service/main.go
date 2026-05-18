@@ -5,7 +5,7 @@
 //
 // Architecture + 1 vertical slice scope (this iteration):
 //   - Architecture: cmd/main, config, observability, server (substrate
-//     /healthz + /metrics on port 50126), pgxpool + 8 SQL migrations
+//     /healthz + /metrics on port 50120), pgxpool + 8 SQL migrations
 //     copied verbatim spanning marketplace foundation, nexus,
 //     marketplace activation P4, devops fleets + branches, spaces +
 //     admin lifecycle, phase-3 promotion gates + cells, dataset
