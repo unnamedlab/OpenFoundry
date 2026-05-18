@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -24,6 +25,8 @@ type DistributionChannel string
 const (
 	nowEngine = "openfoundry-report-local-v1"
 )
+
+var ErrNotFound = errors.New("report resource not found")
 
 type ReportSection struct {
 	ID          string         `json:"id"`
@@ -225,9 +228,9 @@ func (s *MemoryReportStore) UpdateDefinition(ctx context.Context, id string, pat
 	defer s.mu.Unlock()
 	d, ok := s.defs[id]
 	if !ok {
-		return ReportDefinition{}, fmt.Errorf("not found")
+		return ReportDefinition{}, ErrNotFound
 	}
-	applyPatch(&d, patch)
+	ApplyDefinitionPatch(&d, patch)
 	d.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	s.defs[id] = d
 	return d, nil
@@ -287,8 +290,16 @@ func (h *ReportsHandler) Mount(r chi.Router) {
 }
 
 func (h *ReportsHandler) Overview(w http.ResponseWriter, r *http.Request) {
-	defs, _ := h.Store.ListDefinitions(r.Context())
-	execs, _ := h.Store.ListExecutions(r.Context(), "")
+	defs, err := h.Store.ListDefinitions(r.Context())
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	execs, err := h.Store.ListExecutions(r.Context(), "")
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
 	active := 0
 	mixMap := map[string]bool{}
 	for _, d := range defs {
@@ -332,12 +343,8 @@ func (h *ReportsHandler) CreateDefinition(w http.ResponseWriter, r *http.Request
 		writeError(w, 400, "invalid body")
 		return
 	}
-	if strings.TrimSpace(d.Name) == "" || strings.TrimSpace(d.Owner) == "" || strings.TrimSpace(d.DatasetName) == "" {
-		writeError(w, 400, "name, owner and dataset_name are required")
-		return
-	}
-	if !validGenerator(d.GeneratorKind) {
-		writeError(w, 400, "unsupported generator_kind")
+	if err := validateDefinition(d); err != nil {
+		writeError(w, 400, err.Error())
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -358,24 +365,40 @@ func (h *ReportsHandler) UpdateDefinition(w http.ResponseWriter, r *http.Request
 		writeError(w, 400, "invalid body")
 		return
 	}
-	if raw := p["generator_kind"]; len(raw) > 0 {
-		var g GeneratorKind
-		_ = json.Unmarshal(raw, &g)
-		if !validGenerator(g) {
-			writeError(w, 400, "unsupported generator_kind")
+	id := chi.URLParam(r, "id")
+	current, err := h.Store.GetDefinition(r.Context(), id)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if current == nil {
+		writeError(w, 404, "report definition not found")
+		return
+	}
+	candidate := *current
+	ApplyDefinitionPatch(&candidate, p)
+	if err := validateDefinition(candidate); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	out, err := h.Store.UpdateDefinition(r.Context(), id, p)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, 404, "report definition not found")
 			return
 		}
-	}
-	out, err := h.Store.UpdateDefinition(r.Context(), chi.URLParam(r, "id"), p)
-	if err != nil {
-		writeError(w, 404, "report definition not found")
+		writeError(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, out)
 }
 func (h *ReportsHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	d, err := h.Store.GetDefinition(r.Context(), chi.URLParam(r, "id"))
-	if err != nil || d == nil {
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if d == nil {
 		writeError(w, 404, "report definition not found")
 		return
 	}
@@ -395,8 +418,16 @@ func (h *ReportsHandler) History(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, listResponse{Items: out})
 }
 func (h *ReportsHandler) Schedules(w http.ResponseWriter, r *http.Request) {
-	defs, _ := h.Store.ListDefinitions(r.Context())
-	execs, _ := h.Store.ListExecutions(r.Context(), "")
+	defs, err := h.Store.ListDefinitions(r.Context())
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	execs, err := h.Store.ListExecutions(r.Context(), "")
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
 	b := ScheduleBoard{RecentExecutions: execs}
 	if len(b.RecentExecutions) > 10 {
 		b.RecentExecutions = b.RecentExecutions[:10]
@@ -413,7 +444,11 @@ func (h *ReportsHandler) Schedules(w http.ResponseWriter, r *http.Request) {
 }
 func (h *ReportsHandler) GetExecution(w http.ResponseWriter, r *http.Request) {
 	e, err := h.Store.GetExecution(r.Context(), chi.URLParam(r, "id"))
-	if err != nil || e == nil {
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if e == nil {
 		writeError(w, 404, "report execution not found")
 		return
 	}
@@ -421,7 +456,11 @@ func (h *ReportsHandler) GetExecution(w http.ResponseWriter, r *http.Request) {
 }
 func (h *ReportsHandler) Download(w http.ResponseWriter, r *http.Request) {
 	e, err := h.Store.GetExecution(r.Context(), chi.URLParam(r, "id"))
-	if err != nil || e == nil {
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if e == nil {
 		writeError(w, 404, "report execution not found")
 		return
 	}
@@ -451,7 +490,7 @@ func defaults(d *ReportDefinition) {
 		d.Schedule.Cadence = "manual"
 	}
 }
-func applyPatch(d *ReportDefinition, p map[string]json.RawMessage) {
+func ApplyDefinitionPatch(d *ReportDefinition, p map[string]json.RawMessage) {
 	for k, v := range p {
 		switch k {
 		case "name":
@@ -480,6 +519,16 @@ func applyPatch(d *ReportDefinition, p map[string]json.RawMessage) {
 	}
 	defaults(d)
 }
+func validateDefinition(d ReportDefinition) error {
+	if strings.TrimSpace(d.Name) == "" || strings.TrimSpace(d.Owner) == "" || strings.TrimSpace(d.DatasetName) == "" {
+		return errors.New("name, owner and dataset_name are required")
+	}
+	if !validGenerator(d.GeneratorKind) {
+		return errors.New("unsupported generator_kind")
+	}
+	return nil
+}
+
 func validGenerator(g GeneratorKind) bool {
 	switch g {
 	case "pdf", "excel", "csv", "html", "pptx":

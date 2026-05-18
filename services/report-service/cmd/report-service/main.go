@@ -1,8 +1,7 @@
-// Command report-service is the gateway-backing stub for the
-// `/api/v1/reports` surface. The edge gateway already routes traffic
-// here (see services/edge-gateway-service/internal/proxy/router_table.go,
-// `u.Report` branch); the binary exists so those routes return a
-// structured 501 instead of a 502.
+// Command report-service is the entrypoint for the OpenFoundry reports
+// API. It loads configuration, initializes observability, wires the
+// Postgres-backed report store through the HTTP router, and fails closed
+// in production when no database DSN is configured.
 package main
 
 import (

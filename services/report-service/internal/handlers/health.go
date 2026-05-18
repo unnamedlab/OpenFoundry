@@ -1,4 +1,4 @@
-// Package handlers hosts the HTTP handlers for the report-service stub.
+// Package handlers hosts the HTTP handlers for the report-service.
 package handlers
 
 import (

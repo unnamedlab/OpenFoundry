@@ -20,5 +20,15 @@ telemetry:
   otlp_endpoint: "localhost:4317"
   log_format: "plain"
 
-# Stub milestone surfaced in the 501 placeholder body.
+database:
+  # Honours DATABASE_URL when this stays empty; OF_DATABASE__URL can
+  # override per environment.
+  url: ""
+
+report:
+  # Production must use Postgres. Set OF_REPORT_ALLOW_MEMORY_STORE=true
+  # only for isolated local development or unit tests.
+  allow_memory_store: false
+
+environment: ""
 milestone: "S8.6"

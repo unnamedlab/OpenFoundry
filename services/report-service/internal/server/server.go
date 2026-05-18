@@ -5,30 +5,79 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/report-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/report-service/internal/handlers"
+	"github.com/openfoundry/openfoundry-go/services/report-service/internal/repo"
 )
 
 type Server struct {
 	httpServer *http.Server
 	cfg        *config.Config
 	log        *slog.Logger
+	pool       *pgxpool.Pool
 }
 
-func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (*Server, error) {
+type Option func(*options)
+
+type options struct {
+	store handlers.ReportStore
+}
+
+func WithReportStore(store handlers.ReportStore) Option {
+	return func(o *options) { o.store = store }
+}
+
+func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, opts ...Option) (*Server, error) {
+	if log == nil {
+		log = slog.Default()
+	}
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	store := o.store
+	var pool *pgxpool.Pool
+	if store == nil {
+		var err error
+		store, pool, err = buildStore(context.Background(), cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	jwtCfg := authmw.NewJWTConfig(cfg.JWT.Secret).
 		WithIssuer(cfg.JWT.Issuer).
 		WithAudience(cfg.JWT.Audience)
 
+	r := BuildRouter(cfg, metrics, jwtCfg, store)
+
+	s := &Server{
+		cfg:  cfg,
+		log:  log,
+		pool: pool,
+		httpServer: &http.Server{
+			Addr:              cfg.Server.Addr,
+			Handler:           r,
+			ReadHeaderTimeout: 5 * time.Second,
+		},
+	}
+	return s, nil
+}
+
+func BuildRouter(cfg *config.Config, metrics *observability.Metrics, jwtCfg *authmw.JWTConfig, store handlers.ReportStore) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -37,22 +86,44 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger) (
 	r.Use(chimw.Timeout(30 * time.Second))
 
 	r.Get("/healthz", handlers.Health(cfg.Service.Name, cfg.Service.Version))
-	r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	if metrics != nil {
+		r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	}
 
-	reports := handlers.NewReportsHandler(handlers.NewMemoryReportStore())
+	reports := handlers.NewReportsHandler(store)
 	api := r.With(authmw.Middleware(jwtCfg))
 	api.Route("/api/v1/reports", reports.Mount)
+	return r
+}
 
-	s := &Server{
-		cfg: cfg,
-		log: log,
-		httpServer: &http.Server{
-			Addr:              cfg.Server.Addr,
-			Handler:           r,
-			ReadHeaderTimeout: 5 * time.Second,
-		},
+func buildStore(ctx context.Context, cfg *config.Config) (handlers.ReportStore, *pgxpool.Pool, error) {
+	if cfg.Database.URL != "" {
+		pool, err := pgxpool.New(ctx, cfg.Database.URL)
+		if err != nil {
+			return nil, nil, fmt.Errorf("pgx pool failed: %w", err)
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			return nil, nil, fmt.Errorf("postgres ping failed: %w", err)
+		}
+		if err := repo.Migrate(ctx, pool); err != nil {
+			pool.Close()
+			return nil, nil, fmt.Errorf("migrations failed: %w", err)
+		}
+		return repo.New(pool), pool, nil
 	}
-	return s, nil
+	if allowMemoryStore(cfg) {
+		return handlers.NewMemoryReportStore(), nil, nil
+	}
+	return nil, nil, errors.New("DATABASE_URL or OF_DATABASE__URL is required unless OF_REPORT_ALLOW_MEMORY_STORE=true or OPENFOUNDRY_ENV is dev/test")
+}
+
+func allowMemoryStore(cfg *config.Config) bool {
+	if cfg.Report.AllowMemoryStore {
+		return true
+	}
+	env := strings.ToLower(strings.TrimSpace(cfg.Environment))
+	return env == "dev" || env == "development" || env == "test" || env == "local"
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -81,5 +152,9 @@ func (s *Server) shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	s.log.Info("shutting down")
-	return s.httpServer.Shutdown(ctx)
+	err := s.httpServer.Shutdown(ctx)
+	if s.pool != nil {
+		s.pool.Close()
+	}
+	return err
 }
