@@ -1,6 +1,6 @@
 {
   "schema_version": "2026-05-17.w0.2",
-  "generated_at": "2026-05-17",
+  "generated_at": "2026-05-18",
   "scope": "Public-docs-based parity matrix. The 'rows' array covers Pipeline Builder, Workshop, Geospatial, Data Connection, Ontology Actions, and Functions at feature granularity. The 'module_summary' array rolls up all 25 foundry-*-1to1-checklist.md files so untracked modules (Compass, Slate, Marketplace, Vertex, Cipher, etc.) are not silently reported as 0%.",
   "required_fields": [
     "foundry_feature",
@@ -18,7 +18,7 @@
     "blocked": "Implementation exists behind an unavailable dependency, missing runtime wiring, or an unmounted route."
   },
   "module_summary_method": {
-    "generated_at": "2026-05-17",
+    "generated_at": "2026-05-18",
     "route_count_command": "grep -rE '\\.(Get|Post|Put|Delete|Patch)\\(' services/<svc>/internal/ | wc -l",
     "completion_rule": "An item counts as 'done' only when both a handler file and a corresponding _test.go cover it. Items flagged needs-verification by the auditor are treated as not done in the headline percentage. Counts marked with leading ~ are within +/- 2 items because some checklist entries span multiple services."
   },
@@ -175,16 +175,16 @@
     },
     {
       "module": "Functions Runtime",
-      "status": "todo",
-      "percent_done": 0,
-      "owner": null,
-      "route_count": 0,
-      "items_done": 0,
+      "status": "partial",
+      "percent_done": 18,
+      "owner": "function-runtime-service",
+      "route_count": 10,
+      "items_done": 5,
       "items_total": 27,
       "verified_gaps": [
-        "No dedicated functions-control-service / functions-build-service / functions-runtime-service.",
-        "No isolate / sandbox runtime for TypeScript or Python.",
-        "No ontology read / write client with marking-aware enforcement or staged-write accumulator."
+        "Gateway route registration for /api/v1/functions/* and Helm/ArgoCD wiring are still pending.",
+        "Production isolation is still subprocess-based; deno/v8go, subinterpreters, or wasm isolation remains v1 work.",
+        "Repository blob fetch, ontology read/write client enforcement, staged-write accumulator, and action/Workshop adapters remain incomplete."
       ],
       "checklist": "docs/migration/foundry-functions-runtime-1to1-checklist.md"
     },
@@ -205,16 +205,16 @@
     },
     {
       "module": "Global Branching",
-      "status": "todo",
-      "percent_done": 2,
-      "owner": "global-branch-service (scaffold stub), workflow-automation-service (AIP Logic adapter)",
-      "route_count": 1,
-      "items_done": 1,
+      "status": "partial",
+      "percent_done": 9,
+      "owner": "global-branch-service, code-repository-review-service (legacy route shape), workflow-automation-service (AIP Logic adapter)",
+      "route_count": 11,
+      "items_done": 5,
       "items_total": 56,
       "verified_gaps": [
-        "No branch detail / proposal detail / merge-check UI; taskbar integration absent.",
-        "Only AIP Logic adapter exists; Pipeline Builder / Ontology / Workshop / Functions / Object Views adapters not implemented.",
-        "No atomic branch lifecycle propagation across adapters; no saga / two-phase merge."
+        "Gateway/frontend cutover from the legacy code-repository route shape to global-branch-service is still pending.",
+        "Branch detail / proposal detail / merge-check UI and taskbar integration remain absent.",
+        "Pipeline Builder / Ontology / Workshop / Functions / Object Views adapters, rebase, and atomic cross-application merge propagation are not implemented."
       ],
       "checklist": "docs/migration/foundry-global-branching-1to1-checklist.md"
     },

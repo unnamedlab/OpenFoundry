@@ -26,6 +26,16 @@ to clone Palantir branding, private source code, proprietary assets, or any
 non-public behavior. The target is **functional parity based on public
 Palantir Foundry documentation**.
 
+> **Current OpenFoundry implementation note (2026-05-18).**
+> `services/function-runtime-service` exists and is no longer a missing
+> binary. Its v0 implementation includes a function registry, immutable
+> versions, sync/async invocation, run lookup/listing, Postgres or in-memory
+> persistence, TypeScript/Python subprocess executors, and service-local tests.
+> The remaining P0 integration gaps are edge-gateway registration for
+> `/api/v1/functions/*`, Helm/ArgoCD wiring, production-grade isolation, code
+> repository blob fetch, and adapters from Workshop/Actions/AIP Logic into this
+> runtime.
+
 ## Parity scope boundary
 
 All checklist work is governed by the

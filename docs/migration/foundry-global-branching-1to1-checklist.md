@@ -16,6 +16,15 @@ Palantir Foundry documentation**: the same product concepts, comparable
 end-to-end workflows, compatible resource models where useful, and
 OpenFoundry-native implementation details that can be tested locally.
 
+> **Current OpenFoundry implementation note (2026-05-18).**
+> `services/global-branch-service` is no longer just a scaffold. Milestone A
+> hosts tenant-scoped branch lifecycle CRUD, service participation rows,
+> conflict-aware merge coordination, audit event emission, and integration
+> tests for create → add-participation → merge flows. The remaining P0 gap is
+> integration: the edge gateway and frontend still use the legacy
+> `code-repository-review-service` route shape until the cutover task moves
+> branch product routes to this binary.
+
 ## Parity scope boundary
 
 All checklist work is governed by the

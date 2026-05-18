@@ -7,8 +7,10 @@ links below.
 ## Stack at a glance
 
 - **Backend:** Go (single module rooted at `github.com/openfoundry/openfoundry-go`)
-  with 42 service binaries under [`services/`](services/) and 33
-  shared packages under [`libs/`](libs/). New services are bootstrapped
+  with 50 service directories under [`services/`](services/) and 36
+  shared packages under [`libs/`](libs/). Treat those directories as the
+  source of truth for inventory counts and re-check with `find services`
+  / `find libs` before editing count-sensitive docs. New services are bootstrapped
   from the textual skeleton in
   [`docs/templates/service-skeleton/`](docs/templates/service-skeleton/).
 - **Frontend:** React 19 + Vite + TypeScript in [`apps/web/`](apps/web/).

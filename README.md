@@ -20,7 +20,7 @@
 
 ---
 
-OpenFoundry is an open-source operational data platform inspired by the capability model of Palantir Foundry, implemented as auditable, extensible software. It combines **42 Go microservices**, **33 shared libraries**, Protobuf/OpenAPI contracts, generated SDKs, a **React 19 + Vite + TypeScript** web console, and declarative infrastructure for Kubernetes.
+OpenFoundry is an open-source operational data platform inspired by the capability model of Palantir Foundry, implemented as auditable, extensible software. It combines **50 service directories**, **36 shared libraries**, Protobuf/OpenAPI contracts, generated SDKs, a **React 19 + Vite + TypeScript** web console, and declarative infrastructure for Kubernetes. The implementation inventory is sourced from `services/*` and `libs/*`; re-check it with `find services -mindepth 1 -maxdepth 1 -type d | wc -l` and `find libs -mindepth 1 -maxdepth 1 -type d | wc -l` before editing count-sensitive docs.
 
 The goal is to provide a reproducible foundation for teams that need to connect sources, version datasets, model an ontology, expose APIs, automate workflows, govern access, and operate analytical or AI workloads with end-to-end traceability.
 
