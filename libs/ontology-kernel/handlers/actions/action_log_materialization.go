@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,9 +17,9 @@ import (
 	storage "github.com/openfoundry/openfoundry-go/libs/storage-abstraction"
 )
 
-// ActionLogObjectTypeID is the stable synthetic object type used to expose
-// action submissions as queryable ontology objects. The ID is derived once
-// from OpenFoundry's ontology namespace so every service sees the same type.
+// ActionLogObjectTypeID is the legacy aggregate action-log object type retained
+// for compatibility. SG.39 materializes new submissions into one action-log
+// object type per action type via actionLogObjectTypeIDForAction.
 var ActionLogObjectTypeID = uuid.NewSHA1(domain.OntologyNamespace, []byte("ontology/action-log-record/object-type"))
 
 const actionLogObjectTypeName = "ActionLogRecord"
@@ -43,7 +44,8 @@ func materializeActionLogObject(ctx context.Context, state *ontologykernel.AppSt
 	if state == nil || state.Stores.Definitions == nil || state.Stores.Objects == nil || input.claims == nil {
 		return nil
 	}
-	if err := ensureActionLogObjectType(ctx, state); err != nil {
+	objectTypeID := actionLogObjectTypeIDForAction(input.action)
+	if err := ensureActionLogObjectType(ctx, state, input.action, objectTypeID); err != nil {
 		return err
 	}
 
@@ -58,29 +60,35 @@ func materializeActionLogObject(ctx context.Context, state *ontologykernel.AppSt
 	}
 	targetObjectIDs := actionLogTargetIDs(input.targetObjectID, input.targetObjectIDs)
 	payload := map[string]any{
-		"operation_id":          operationID.String(),
-		"action_id":             input.action.ID.String(),
-		"action_name":           input.action.Name,
-		"action_display_name":   input.action.DisplayName,
-		"action_object_type_id": input.action.ObjectTypeID.String(),
-		"operation_kind":        input.action.OperationKind,
-		"status":                input.status,
-		"failure_type":          optionalFailureType(input.failureType),
-		"error":                 optionalString(input.errorMessage),
-		"applied_by":            input.claims.Sub.String(),
-		"applied_by_email":      input.claims.Email,
-		"applied_by_name":       input.claims.Name,
-		"organization_id":       optionalOrgID(input.claims),
-		"target_object_id":      firstTargetID(targetObjectIDs),
-		"target_object_ids":     targetObjectIDs,
-		"parameters":            jsonAsObjectOrValue(input.parameters),
-		"validation":            coalesceActionLogValue(input.validation),
-		"edits":                 coalesceActionLogValue(input.edits),
-		"preview":               jsonAsAny(input.preview),
-		"justification":         optionalStringPtr(input.justification),
-		"duration_ms":           durationMs,
-		"applied_at":            appliedAt.Format(time.RFC3339Nano),
-		"summary":               actionLogSummary(input.action, input.status, targetObjectIDs, input.claims),
+		"operation_id":               operationID.String(),
+		"action_rid":                 operationID.String(),
+		"action_id":                  input.action.ID.String(),
+		"action_type_rid":            input.action.ID.String(),
+		"action_type_version":        actionTypeVersion(input.action),
+		"action_name":                input.action.Name,
+		"action_display_name":        input.action.DisplayName,
+		"action_object_type_id":      input.action.ObjectTypeID.String(),
+		"edited_object_primary_keys": targetObjectIDs,
+		"parameter_values":           jsonAsObjectOrValue(input.parameters),
+		"context_properties":         actionLogContextProperties(input),
+		"operation_kind":             input.action.OperationKind,
+		"status":                     input.status,
+		"failure_type":               optionalFailureType(input.failureType),
+		"error":                      optionalString(input.errorMessage),
+		"applied_by":                 input.claims.Sub.String(),
+		"applied_by_email":           input.claims.Email,
+		"applied_by_name":            input.claims.Name,
+		"organization_id":            optionalOrgID(input.claims),
+		"target_object_id":           firstTargetID(targetObjectIDs),
+		"target_object_ids":          targetObjectIDs,
+		"parameters":                 jsonAsObjectOrValue(input.parameters),
+		"validation":                 coalesceActionLogValue(input.validation),
+		"edits":                      coalesceActionLogValue(input.edits),
+		"preview":                    jsonAsAny(input.preview),
+		"justification":              optionalStringPtr(input.justification),
+		"duration_ms":                durationMs,
+		"applied_at":                 appliedAt.Format(time.RFC3339Nano),
+		"summary":                    actionLogSummary(input.action, input.status, targetObjectIDs, input.claims),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -91,7 +99,7 @@ func materializeActionLogObject(ctx context.Context, state *ontologykernel.AppSt
 	_, err = state.Stores.Objects.Put(ctx, storage.Object{
 		Tenant:         tenant,
 		ID:             storage.ObjectId(operationID.String()),
-		TypeID:         storage.TypeId(ActionLogObjectTypeID.String()),
+		TypeID:         storage.TypeId(objectTypeID.String()),
 		Payload:        body,
 		OrganizationID: optionalOrgID(input.claims),
 		CreatedAtMs:    ptrInt64(appliedAt.UnixMilli()),
@@ -102,10 +110,42 @@ func materializeActionLogObject(ctx context.Context, state *ontologykernel.AppSt
 	if err != nil {
 		return fmt.Errorf("persist action log object: %w", err)
 	}
+	if err := linkActionLogObjectToEditedObjects(ctx, state, tenant, objectTypeID, operationID, targetObjectIDs, appliedAt); err != nil {
+		return err
+	}
+	if err := materializeLegacyActionLogObject(ctx, state, input, tenant, operationID, body, appliedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
-func ensureActionLogObjectType(ctx context.Context, state *ontologykernel.AppState) error {
+func materializeLegacyActionLogObject(ctx context.Context, state *ontologykernel.AppState, input actionLogMaterializationInput, tenant storage.TenantId, operationID uuid.UUID, body []byte, appliedAt time.Time) error {
+	legacyAction := input.action
+	legacyAction.Name = actionLogObjectTypeName
+	legacyAction.DisplayName = "Action Log Record"
+	if err := ensureActionLogObjectType(ctx, state, legacyAction, ActionLogObjectTypeID); err != nil {
+		return err
+	}
+	legacyObjectID := uuid.NewSHA1(operationID, []byte("legacy-action-log-record"))
+	owner := storage.OwnerId(input.claims.Sub.String())
+	_, err := state.Stores.Objects.Put(ctx, storage.Object{
+		Tenant:         tenant,
+		ID:             storage.ObjectId(legacyObjectID.String()),
+		TypeID:         storage.TypeId(ActionLogObjectTypeID.String()),
+		Payload:        body,
+		OrganizationID: optionalOrgID(input.claims),
+		CreatedAtMs:    ptrInt64(appliedAt.UnixMilli()),
+		UpdatedAtMs:    appliedAt.UnixMilli(),
+		Owner:          &owner,
+		Markings:       []storage.MarkingId{storage.MarkingId("public")},
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("persist legacy action log object: %w", err)
+	}
+	return nil
+}
+
+func ensureActionLogObjectType(ctx context.Context, state *ontologykernel.AppState, action models.ActionType, objectTypeID uuid.UUID) error {
 	if state == nil || state.Stores.Definitions == nil {
 		return nil
 	}
@@ -114,14 +154,15 @@ func ensureActionLogObjectType(ctx context.Context, state *ontologykernel.AppSta
 	title := "summary"
 	icon := "history"
 	color := "#2f6fed"
-	plural := "Action Log Records"
+	plural := "[LOG] " + action.DisplayName + " Records"
+	name := actionLogObjectTypeNameForAction(action)
 	objectType := models.ObjectType{
-		ID:                 ActionLogObjectTypeID,
-		Name:               actionLogObjectTypeName,
-		APIName:            actionLogObjectTypeName,
-		DisplayName:        "Action Log Record",
+		ID:                 objectTypeID,
+		Name:               name,
+		APIName:            name,
+		DisplayName:        "[LOG] " + action.DisplayName,
 		PluralDisplayName:  &plural,
-		Description:        "Materialized ontology action submissions for Workshop and object set analysis.",
+		Description:        "Action log object type generated one-to-one for action type " + action.Name + ".",
 		PrimaryKeyProperty: &primaryKey,
 		PrimaryKey:         primaryKey,
 		TitleProperty:      &title,
@@ -140,19 +181,19 @@ func ensureActionLogObjectType(ctx context.Context, state *ontologykernel.AppSta
 	updated := created
 	if _, err := state.Stores.Definitions.Put(ctx, storage.DefinitionRecord{
 		Kind:        storage.DefinitionKind(domain.ActionRepoObjectKind),
-		ID:          storage.DefinitionId(ActionLogObjectTypeID.String()),
+		ID:          storage.DefinitionId(objectTypeID.String()),
 		Payload:     payload,
 		CreatedAtMs: &created,
 		UpdatedAtMs: &updated,
 	}, nil); err != nil {
 		return fmt.Errorf("persist action log object type: %w", err)
 	}
-	parent := storage.DefinitionId(ActionLogObjectTypeID.String())
+	parent := storage.DefinitionId(objectTypeID.String())
 	for _, spec := range actionLogPropertySpecs() {
-		propertyID := uuid.NewSHA1(ActionLogObjectTypeID, []byte(spec.name))
+		propertyID := uuid.NewSHA1(objectTypeID, []byte(spec.name))
 		property := models.Property{
 			ID:               propertyID,
-			ObjectTypeID:     ActionLogObjectTypeID,
+			ObjectTypeID:     objectTypeID,
 			Name:             spec.name,
 			DisplayName:      spec.displayName,
 			Description:      spec.description,
@@ -190,10 +231,70 @@ type actionLogPropertySpec struct {
 	unique       bool
 }
 
+func actionLogObjectTypeIDForAction(action models.ActionType) uuid.UUID {
+	return uuid.NewSHA1(domain.OntologyNamespace, []byte("ontology/action-log/object-type/"+action.ID.String()))
+}
+
+func actionLogLinkTypeIDForAction(actionObjectTypeID uuid.UUID) storage.LinkTypeId {
+	return storage.LinkTypeId(uuid.NewSHA1(actionObjectTypeID, []byte("edited-object-link")).String())
+}
+
+func actionLogObjectTypeNameForAction(action models.ActionType) string {
+	base := action.Name
+	if base == "" {
+		base = action.ID.String()
+	}
+	return "LOG_" + strings.NewReplacer("-", "_", " ", "_", ".", "_").Replace(base)
+}
+
+func actionTypeVersion(action models.ActionType) int64 {
+	if action.UpdatedAt.IsZero() {
+		return 1
+	}
+	return action.UpdatedAt.UTC().UnixMilli()
+}
+
+func actionLogContextProperties(input actionLogMaterializationInput) map[string]any {
+	return map[string]any{
+		"object_type_id": input.action.ObjectTypeID.String(),
+		"operation_kind": input.action.OperationKind,
+		"status":         input.status,
+		"failure_type":   optionalFailureType(input.failureType),
+	}
+}
+
+func linkActionLogObjectToEditedObjects(ctx context.Context, state *ontologykernel.AppState, tenant storage.TenantId, objectTypeID uuid.UUID, operationID uuid.UUID, targetObjectIDs []string, appliedAt time.Time) error {
+	if state == nil || state.Stores.Links == nil {
+		return nil
+	}
+	linkTypeID := actionLogLinkTypeIDForAction(objectTypeID)
+	from := storage.ObjectId(operationID.String())
+	for _, target := range targetObjectIDs {
+		if target == "" {
+			continue
+		}
+		payload, _ := json.Marshal(map[string]any{"relationship": "action_log_edited_object"})
+		if err := state.Stores.Links.Put(ctx, storage.Link{
+			Tenant:      tenant,
+			LinkType:    linkTypeID,
+			From:        from,
+			To:          storage.ObjectId(target),
+			Payload:     payload,
+			CreatedAtMs: appliedAt.UnixMilli(),
+		}); err != nil {
+			return fmt.Errorf("link action log object to edited object %s: %w", target, err)
+		}
+	}
+	return nil
+}
+
 func actionLogPropertySpecs() []actionLogPropertySpec {
 	return []actionLogPropertySpec{
 		{name: "operation_id", displayName: "Operation ID", propertyType: "string", required: true, unique: true},
+		{name: "action_rid", displayName: "Action RID", propertyType: "string", required: true, unique: true},
 		{name: "action_id", displayName: "Action ID", propertyType: "string", required: true},
+		{name: "action_type_rid", displayName: "Action Type RID", propertyType: "string", required: true},
+		{name: "action_type_version", displayName: "Action Type Version", propertyType: "long", required: true},
 		{name: "action_name", displayName: "Action Name", propertyType: "string", required: true},
 		{name: "action_display_name", displayName: "Action Display Name", propertyType: "string"},
 		{name: "action_object_type_id", displayName: "Action Object Type ID", propertyType: "string"},
@@ -207,7 +308,10 @@ func actionLogPropertySpecs() []actionLogPropertySpec {
 		{name: "organization_id", displayName: "Organization ID", propertyType: "string"},
 		{name: "target_object_id", displayName: "Target Object ID", propertyType: "string"},
 		{name: "target_object_ids", displayName: "Target Object IDs", propertyType: "json"},
+		{name: "edited_object_primary_keys", displayName: "Edited Object Primary Keys", propertyType: "json"},
 		{name: "parameters", displayName: "Parameters", propertyType: "json"},
+		{name: "parameter_values", displayName: "Parameter Values", propertyType: "json"},
+		{name: "context_properties", displayName: "Context Properties", propertyType: "json"},
 		{name: "validation", displayName: "Validation", propertyType: "json"},
 		{name: "edits", displayName: "Edits", propertyType: "json"},
 		{name: "preview", displayName: "Preview", propertyType: "json"},

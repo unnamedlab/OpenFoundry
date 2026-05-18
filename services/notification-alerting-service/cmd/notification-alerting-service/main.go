@@ -87,6 +87,13 @@ func main() {
 		SMTP:          smtpSender,
 		HTTP:          httpClient,
 		Bus:           bus,
+		EmailRedaction: service.EmailRedactionConfig{
+			Mode:             cfg.EmailRedaction.Mode,
+			AllowlistDomains: cfg.EmailRedaction.AllowlistDomains,
+			AllowlistUsers:   cfg.EmailRedaction.AllowlistUsers,
+			RiskAcknowledged: cfg.EmailRedaction.RiskAcknowledged,
+			PlatformBaseURL:  cfg.EmailRedaction.PlatformBaseURL,
+		},
 	}
 
 	metrics := observability.NewMetrics()

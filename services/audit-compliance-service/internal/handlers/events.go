@@ -14,6 +14,7 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/domain/alerting"
+	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/domain/auditmonitoring"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/domain/collector"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/domain/security"
 	"github.com/openfoundry/openfoundry-go/services/audit-compliance-service/internal/models"
@@ -106,6 +107,20 @@ func (h *Handlers) ListEvents(w http.ResponseWriter, r *http.Request) {
 		Items:     filtered,
 		Anomalies: anomalies,
 	})
+}
+
+func (h *Handlers) GetAuditMonitoringStarterPack(w http.ResponseWriter, r *http.Request) {
+	claims, ok := requireAuditLogAccess(w, r)
+	if !ok {
+		return
+	}
+	all, err := h.Repo.ListAuditEvents(r.Context(), 1000)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "database operation failed")
+		return
+	}
+	events := security.FilterEventsForClaims(all, claims)
+	writeJSON(w, http.StatusOK, auditmonitoring.StarterPack(events))
 }
 
 // GetEvent ports `handlers::events::get_event`.

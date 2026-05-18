@@ -356,6 +356,9 @@ func (s *MemoryEgressPolicyStore) DecideApproval(taskID string, decision string,
 				policy.RevokedAt = &now
 			}
 			policy.AuditEvents = append(policy.AuditEvents, auditEvent(actor, "network_egress.approval."+decision, decision, reason, true, map[string]any{"approval_task_id": task.ID, "action": task.Action, "requested_state": task.RequestedState}))
+			if decision == EgressApprovalStatusApproved && task.Action == "state_change" {
+				policy.AuditEvents = append(policy.AuditEvents, auditEvent(actor, lifecycleAuditAction(task.RequestedState), "success", reason, task.RequestedState == EgressPolicyStateRevoked || task.RequestedState == EgressPolicyStatePaused, map[string]any{"state": task.RequestedState, "approval_task_id": task.ID, "approved_via_workflow": true}))
+			}
 			policy = decoratePolicyWithInventory(policy, s.policies)
 			s.policies[policyID] = policy
 			return clonePolicy(policy), cloneApprovalTask(task), nil
@@ -400,7 +403,7 @@ func (s *MemoryEgressPolicyStore) UpdateState(id string, state string, actor str
 	task.DecidedAt = &nowDecision
 	task.DecisionReason = strings.TrimSpace(reason)
 	policy.ApprovalTasks = append(policy.ApprovalTasks, task)
-	policy.AuditEvents = append(policy.AuditEvents, auditEvent(actor, "network_egress.policy.state_changed", "success", reason, state == EgressPolicyStateRevoked || state == EgressPolicyStatePaused, map[string]any{"state": state, "approval_task_id": task.ID}))
+	policy.AuditEvents = append(policy.AuditEvents, auditEvent(actor, lifecycleAuditAction(state), "success", reason, state == EgressPolicyStateRevoked || state == EgressPolicyStatePaused, map[string]any{"state": state, "previous_state": previousState, "approval_task_id": task.ID}))
 	policy = decoratePolicyWithInventory(policy, s.policies)
 	s.policies[id] = policy
 	return clonePolicy(policy), nil
@@ -1337,25 +1340,44 @@ func runtimeAuditEvent(actor string, action string, outcome string, potentialExp
 }
 
 func auditEvent(actor, action, outcome, reason string, highRisk bool, metadata map[string]any) EgressPolicyAuditEvent {
+	potentialExport := potentialDataExportAction(action)
 	return EgressPolicyAuditEvent{
-		ID:         uuid.NewString(),
-		Timestamp:  time.Now().UTC(),
-		ActorID:    actor,
-		Action:     action,
-		Categories: auditCategories(action, highRisk),
-		Outcome:    outcome,
-		Reason:     strings.TrimSpace(reason),
-		HighRisk:   highRisk,
-		Metadata:   metadata,
+		ID:                  uuid.NewString(),
+		Timestamp:           time.Now().UTC(),
+		ActorID:             actor,
+		Action:              action,
+		Categories:          auditCategories(action, highRisk),
+		Outcome:             outcome,
+		Reason:              strings.TrimSpace(reason),
+		HighRisk:            highRisk,
+		PotentialDataExport: potentialExport,
+		Metadata:            metadata,
 	}
+}
+
+func lifecycleAuditAction(state string) string {
+	switch state {
+	case EgressPolicyStatePaused:
+		return "network_egress.policy.paused"
+	case EgressPolicyStateRevoked:
+		return "network_egress.policy.revoked"
+	case EgressPolicyStateActive:
+		return "network_egress.policy.activated"
+	default:
+		return "network_egress.policy.state_changed"
+	}
+}
+
+func potentialDataExportAction(action string) bool {
+	return strings.HasPrefix(action, "network_egress.policy.") || strings.Contains(action, "egress_policy_attached") || strings.Contains(action, "egress_policy_detached")
 }
 
 func auditCategories(action string, highRisk bool) []string {
 	categories := []string{"networkEgress"}
-	if strings.Contains(action, "used") {
+	if strings.Contains(action, "used") || potentialDataExportAction(action) {
 		categories = append(categories, "dataExport")
 	}
-	if strings.Contains(action, "created") || strings.Contains(action, "changed") || strings.Contains(action, "approval") || highRisk {
+	if strings.Contains(action, "created") || strings.Contains(action, "changed") || strings.Contains(action, "approval") || strings.Contains(action, "activated") || strings.Contains(action, "paused") || strings.Contains(action, "revoked") || highRisk {
 		categories = append(categories, "managementPermissions")
 	}
 	return normalizeStringSet(categories)

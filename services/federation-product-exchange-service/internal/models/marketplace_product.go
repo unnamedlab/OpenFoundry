@@ -5,22 +5,30 @@ import (
 	"time"
 )
 
-// ProductResourceType is the discriminator for the four bundle-eligible
-// resource kinds. Mirrors proto/marketplace/v1/product.proto:ResourceType.
+// ProductResourceType is the discriminator for bundle-eligible
+// product and governance resource kinds. Mirrors proto/marketplace/v1/product.proto:ResourceType.
 type ProductResourceType string
 
 const (
-	ProductResourceOntologyType ProductResourceType = "ONTOLOGY_TYPE"
-	ProductResourceActionType   ProductResourceType = "ACTION_TYPE"
-	ProductResourcePipeline     ProductResourceType = "PIPELINE"
-	ProductResourceApp          ProductResourceType = "APP"
+	ProductResourceOntologyType              ProductResourceType = "ONTOLOGY_TYPE"
+	ProductResourceActionType                ProductResourceType = "ACTION_TYPE"
+	ProductResourcePipeline                  ProductResourceType = "PIPELINE"
+	ProductResourceApp                       ProductResourceType = "APP"
+	ProductResourceRestrictedView            ProductResourceType = "RESTRICTED_VIEW"
+	ProductResourceProjectTemplate           ProductResourceType = "PROJECT_TEMPLATE"
+	ProductResourceApplicationAccessMetadata ProductResourceType = "APPLICATION_ACCESS_METADATA"
+	ProductResourceDashboard                 ProductResourceType = "DASHBOARD"
+	ProductResourceGovernanceConfig          ProductResourceType = "GOVERNANCE_CONFIG"
 )
 
-// Valid reports whether t is one of the four supported resource kinds.
+// Valid reports whether t is one of the supported resource kinds.
 func (t ProductResourceType) Valid() bool {
 	switch t {
 	case ProductResourceOntologyType, ProductResourceActionType,
-		ProductResourcePipeline, ProductResourceApp:
+		ProductResourcePipeline, ProductResourceApp,
+		ProductResourceRestrictedView, ProductResourceProjectTemplate,
+		ProductResourceApplicationAccessMetadata, ProductResourceDashboard,
+		ProductResourceGovernanceConfig:
 		return true
 	default:
 		return false
@@ -126,14 +134,14 @@ type InstallProductRequest struct {
 // in the bundle and records the signature that the install path uses
 // to authenticate the payload.
 type ProductManifest struct {
-	ProductRID     string                  `json:"product_rid"`
-	ProductName    string                  `json:"product_name"`
-	Version        string                  `json:"version"`
-	Author         string                  `json:"author"`
-	Description    string                  `json:"description"`
-	SignAlgorithm  string                  `json:"sign_algorithm"`
-	SignedAt       time.Time               `json:"signed_at"`
-	Resources      []ProductManifestEntry  `json:"resources"`
+	ProductRID    string                 `json:"product_rid"`
+	ProductName   string                 `json:"product_name"`
+	Version       string                 `json:"version"`
+	Author        string                 `json:"author"`
+	Description   string                 `json:"description"`
+	SignAlgorithm string                 `json:"sign_algorithm"`
+	SignedAt      time.Time              `json:"signed_at"`
+	Resources     []ProductManifestEntry `json:"resources"`
 }
 
 // ProductManifestEntry pairs the bundle-relative path of a resource

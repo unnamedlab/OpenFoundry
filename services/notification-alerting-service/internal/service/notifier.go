@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	controlbus "github.com/openfoundry/openfoundry-go/libs/event-bus-control"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/ids"
+	controlbus "github.com/openfoundry/openfoundry-go/libs/event-bus-control"
 	"github.com/openfoundry/openfoundry-go/services/notification-alerting-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/notification-alerting-service/internal/repo"
 )
@@ -18,11 +18,12 @@ import (
 // Notifier composes notification creation, channel dispatch and event
 // publishing. The HTTP handlers + websocket hub call into Notifier.
 type Notifier struct {
-	Notifications *repo.NotificationsRepo
-	Preferences   *repo.PreferencesRepo
-	SMTP          *SMTPSender
-	HTTP          *http.Client
-	Bus           *NotificationBus // nil when NATS is unconfigured
+	Notifications  *repo.NotificationsRepo
+	Preferences    *repo.PreferencesRepo
+	SMTP           *SMTPSender
+	HTTP           *http.Client
+	Bus            *NotificationBus // nil when NATS is unconfigured
+	EmailRedaction EmailRedactionConfig
 }
 
 // Create persists the notification, dispatches every channel, records

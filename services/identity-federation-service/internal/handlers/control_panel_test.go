@@ -372,3 +372,103 @@ func TestVisibleFileAccessPresetsUsesPrimaryOrganizationForGuests(t *testing.T) 
 	require.Len(t, resp.Presets, 1)
 	require.Equal(t, "primary", resp.Presets[0].ID)
 }
+
+func TestCrossOrganizationEvaluationHidesHostInternalGroupsForGuests(t *testing.T) {
+	hostOrgID := uuid.New().String()
+	primaryOrgID := uuid.New().String()
+	cfg := CrossOrganizationConfig{
+		Enabled: true,
+		Organizations: []CrossOrganizationBoundary{{
+			OrganizationID:              hostOrgID,
+			DiscoverableOrganizationIDs: []string{primaryOrgID},
+			SharedResourcePrefixes:      []string{"shared/partner/"},
+			VisibleGroupIDs:             []string{"partner-viewers"},
+			HiddenInternalGroupIDs:      []string{"host-admins", "host-finance"},
+			AllowedGuestPresetOrgIDs:    []string{primaryOrgID},
+			SecurityBoundaryDescription: "shared partner space only",
+		}},
+	}
+	kind := "guest_session"
+	claims := controlPanelClaims()
+	claims.SessionKind = &kind
+	resp := evaluateCrossOrganization(cfg, CrossOrganizationEvaluateRequest{
+		HostOrganizationID:    hostOrgID,
+		PrimaryOrganizationID: primaryOrgID,
+		TargetOrganizationID:  primaryOrgID,
+		ResourcePath:          "shared/partner/dataset",
+		RequestedPresetOrgID:  primaryOrgID,
+	}, claims)
+
+	require.True(t, resp.GuestSession)
+	require.True(t, resp.CanDiscoverTargetOrg)
+	require.True(t, resp.CanAccessSharedResource)
+	require.True(t, resp.CanApplyRequestedPreset)
+	require.Equal(t, []string{"partner-viewers"}, resp.VisibleGroupIDs)
+	require.Equal(t, []string{"host-admins", "host-finance"}, resp.HiddenGroupIDs)
+
+	resp = evaluateCrossOrganization(cfg, CrossOrganizationEvaluateRequest{
+		HostOrganizationID:    hostOrgID,
+		PrimaryOrganizationID: primaryOrgID,
+		RequestedPresetOrgID:  hostOrgID,
+	}, claims)
+	require.False(t, resp.CanApplyRequestedPreset)
+}
+
+func TestConsumerModeEvaluationEnforcesApplicationAndResourceBoundaries(t *testing.T) {
+	orgID := uuid.New().String()
+	cfg := ConsumerModeGovernanceConfig{
+		Enabled: true,
+		Organizations: []ConsumerOrganizationConfig{{
+			OrganizationID:                 orgID,
+			PlatformAccessRestricted:       true,
+			UserDiscoveryHidden:            true,
+			GroupDiscoveryHidden:           true,
+			RequiredApplicationPolicyID:    "consumer-default",
+			AllowedApplicationIDs:          []string{"workshop-app"},
+			ConsumerFacingResourcePrefixes: []string{"consumer/project/"},
+			NavigationRestrictions:         []string{"hide-sidebar", "redirect-home"},
+			MonitoringSignals:              []string{"consumer_access_denied"},
+		}},
+	}
+	resp := evaluateConsumerMode(cfg, ConsumerModeEvaluateRequest{OrganizationID: orgID, ApplicationID: "workshop-app", ResourcePath: "consumer/project/object"}, controlPanelClaims())
+	require.True(t, resp.ConsumerMode)
+	require.True(t, resp.PlatformAccessRestricted)
+	require.True(t, resp.DiscoveryHidden)
+	require.True(t, resp.ApplicationAllowed)
+	require.True(t, resp.ResourceGrantConfigured)
+	require.Equal(t, "consumer-default", resp.RequiredApplicationPolicyID)
+
+	resp = evaluateConsumerMode(cfg, ConsumerModeEvaluateRequest{OrganizationID: orgID, ApplicationID: "control-panel", ResourcePath: "internal/project/object"}, controlPanelClaims())
+	require.False(t, resp.ApplicationAllowed)
+	require.False(t, resp.ResourceGrantConfigured)
+}
+
+func TestIdentityCacheDecisionContextFlagsHighRiskExpiredAndInvalidatedInputs(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	cfg := IdentityCacheConfig{
+		Enabled:                true,
+		DefaultTTLSeconds:      300,
+		ObjectPolicyTTLSeconds: 60,
+		HighRiskGroups:         []string{"break-glass"},
+		HighRiskAttributes:     []string{"employment_status"},
+		Invalidations: []IdentityCacheInvalidation{{
+			SubjectID: "user-1",
+			Reason:    "terminated user",
+			CreatedAt: now.Add(-time.Minute),
+		}},
+	}
+	resp := identityCacheDecisionContext(cfg, IdentityCacheDecisionContextRequest{
+		SubjectID:               "user-1",
+		GroupIDs:                []string{"break-glass"},
+		Attributes:              []string{"employment_status"},
+		DecisionComputedAt:      now.Add(-10 * time.Minute),
+		ObjectPolicyEvaluatedAt: now.Add(-2 * time.Minute),
+	}, now)
+
+	require.True(t, resp.RecentInvalidationMatched)
+	require.Contains(t, resp.HighRiskInputs, "group:break-glass")
+	require.Contains(t, resp.HighRiskInputs, "attribute:employment_status")
+	require.Contains(t, resp.ExpiredInputs, "decision")
+	require.Contains(t, resp.ExpiredInputs, "object_policy")
+	require.Contains(t, resp.RecommendedAction, "refresh identity context")
+}

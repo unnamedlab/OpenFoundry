@@ -1,5 +1,5 @@
 // Package products implements the Marketplace Products feature: tar.gz
-// bundling of ontology + actions + pipelines + apps, HMAC-SHA256
+// bundling of ontology, actions, pipelines, apps, and governance resources, HMAC-SHA256
 // signing, object-storage upload, and the install workflow that
 // re-creates the snapshotted resources in a target workspace.
 package products
@@ -42,6 +42,16 @@ func ResourceDir(t models.ProductResourceType) string {
 		return "pipelines"
 	case models.ProductResourceApp:
 		return "apps"
+	case models.ProductResourceRestrictedView:
+		return "governance/restricted-views"
+	case models.ProductResourceProjectTemplate:
+		return "governance/project-templates"
+	case models.ProductResourceApplicationAccessMetadata:
+		return "governance/application-access"
+	case models.ProductResourceDashboard:
+		return "governance/dashboards"
+	case models.ProductResourceGovernanceConfig:
+		return "governance/config"
 	default:
 		return "other"
 	}

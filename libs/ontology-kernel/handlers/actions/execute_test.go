@@ -1291,3 +1291,68 @@ func TestExecuteActionPersistsActionLogAttempt(t *testing.T) {
 		t.Fatalf("payload drift: %+v", payload)
 	}
 }
+
+func TestActionLogMaterializesPerActionTypeAndLinksEditedObjects(t *testing.T) {
+	t.Parallel()
+	state := newTestState(t)
+	action := models.ActionType{
+		ID:            uuid.New(),
+		ObjectTypeID:  uuid.New(),
+		OperationKind: "modify_object",
+		Name:          "close_alerts",
+		DisplayName:   "Close Alerts",
+		UpdatedAt:     time.Unix(1700000000, 0).UTC(),
+	}
+	target := uuid.New()
+	claims := &authmw.Claims{Sub: uuid.New(), Email: "alice@example.com", Roles: []string{"admin"}}
+	if err := materializeActionLogObject(context.Background(), state, actionLogMaterializationInput{
+		action:         action,
+		claims:         claims,
+		targetObjectID: &target,
+		parameters:     json.RawMessage(`{"reason":"done"}`),
+		status:         "success",
+		startedAt:      time.Now().Add(-25 * time.Millisecond),
+	}); err != nil {
+		t.Fatalf("materializeActionLogObject: %v", err)
+	}
+
+	objectTypeID := actionLogObjectTypeIDForAction(action)
+	objects, err := state.Stores.Objects.ListByType(context.Background(), storage.TenantId("default"), storage.TypeId(objectTypeID.String()), storage.Page{Size: 10}, storage.Strong())
+	if err != nil {
+		t.Fatalf("list action log objects: %v", err)
+	}
+	if len(objects.Items) != 1 {
+		t.Fatalf("expected one per-action log object, got %+v", objects.Items)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(objects.Items[0].Payload, &payload); err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	if payload["action_type_rid"] != action.ID.String() || payload["action_type_version"] == nil {
+		t.Fatalf("missing action type fields: %+v", payload)
+	}
+	keys, _ := payload["edited_object_primary_keys"].([]any)
+	if len(keys) != 1 || keys[0] != target.String() {
+		t.Fatalf("edited_object_primary_keys drift: %+v", payload["edited_object_primary_keys"])
+	}
+	links, err := state.Stores.Links.ListOutgoing(context.Background(), storage.TenantId("default"), actionLogLinkTypeIDForAction(objectTypeID), objects.Items[0].ID, storage.Page{Size: 10}, storage.Strong())
+	if err != nil {
+		t.Fatalf("list log links: %v", err)
+	}
+	if len(links.Items) != 1 || links.Items[0].To != storage.ObjectId(target.String()) {
+		t.Fatalf("expected link to edited object, got %+v", links.Items)
+	}
+}
+
+func TestActionLogBackedActionRequiresLogObjectPermission(t *testing.T) {
+	t.Parallel()
+	action := models.ActionType{ID: uuid.New(), Config: json.RawMessage(`{"action_log":{"enabled":true,"enforce_permissions":true}}`)}
+	claims := &authmw.Claims{Sub: uuid.New()}
+	if err := ensureActionActorPermission(claims, action); err == nil || !strings.Contains(err.Error(), "action log object permission") {
+		t.Fatalf("expected missing action log permission, got %v", err)
+	}
+	claims.Permissions = []string{actionLogObjectPermissionKey(action)}
+	if err := ensureActionActorPermission(claims, action); err != nil {
+		t.Fatalf("permission should allow action log backed action: %v", err)
+	}
+}

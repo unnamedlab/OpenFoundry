@@ -1458,6 +1458,49 @@ export interface RetentionJob {
   completed_at?: string | null;
 }
 
+export interface RetentionExecutionItem {
+  id: string;
+  run_id: string;
+  policy_id?: string | null;
+  transaction_id: string;
+  action: 'marked' | 'swept' | string;
+  reason: string;
+  marked_at?: string | null;
+  recoverable_until?: string | null;
+  swept_at?: string | null;
+  requires_delete_transaction: boolean;
+}
+
+export interface RetentionExecutionRun {
+  id: string;
+  org_id?: string | null;
+  dataset_rid: string;
+  status: string;
+  dry_run: boolean;
+  marked_transaction_count: number;
+  swept_transaction_count: number;
+  delete_transaction_count: number;
+  recovery_window_days: number;
+  remediation_deadline?: string | null;
+  irreversible_after?: string | null;
+  warnings: string[];
+  items: RetentionExecutionItem[];
+  created_by: string;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface RunRetentionExecutionParams {
+  dataset_rid: string;
+  as_of_days?: number;
+  recovery_window_days?: number;
+  dry_run?: boolean;
+  project_id?: string;
+  marking_id?: string;
+  space_id?: string;
+  org_id?: string;
+}
+
 export interface RunRetentionJobParams {
   policy_id: string;
   target_dataset_id?: string;
@@ -1558,6 +1601,14 @@ export function listRetentionJobs() {
 
 export function runRetentionJob(params: RunRetentionJobParams) {
   return api.post<RetentionJob>(`/retention/jobs`, params);
+}
+
+export function listRetentionExecutions() {
+  return api.get<RetentionExecutionRun[]>(`/retention/executions`);
+}
+
+export function runRetentionExecution(params: RunRetentionExecutionParams) {
+  return api.post<RetentionExecutionRun>(`/retention/executions`, params);
 }
 
 // ─── P6 — Dataset health (Foundry "Data Health" + "Health checks") ────────

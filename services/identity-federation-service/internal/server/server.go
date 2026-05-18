@@ -224,6 +224,10 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Post("/control-panel/application-access/change-requests/{id}/decision", controlPanel.DecideApplicationAccessChangeRequest)
 		api.Post("/application-access/evaluate", controlPanel.EvaluateApplicationAccess)
 		api.Post("/file-access-presets/visible", controlPanel.VisibleFileAccessPresets)
+		api.Post("/cross-organization/evaluate", controlPanel.EvaluateCrossOrganization)
+		api.Post("/consumer-mode/evaluate", controlPanel.EvaluateConsumerMode)
+		api.Post("/control-panel/identity-cache/decision-context", controlPanel.IdentityCacheDecisionContext)
+		api.Post("/control-panel/identity-cache/invalidate", controlPanel.InvalidateIdentityCache)
 
 		// Streaming-profile CRUD parked here per ADR-0046. When the
 		// streaming WG picks up ADR-0035 P3 these routes will move to
@@ -276,7 +280,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	// are listed below as bearer-protected.
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "identity",
-		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/third-party-applications", "/api/v1/oauth2/authorize", "/api/v1/oauth2/authorizations", "/api/v1/control-panel", "/api/v1/application-access", "/api/v1/file-access-presets", "/api/v1/restricted-views"},
+		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/third-party-applications", "/api/v1/oauth2/authorize", "/api/v1/oauth2/authorizations", "/api/v1/control-panel", "/api/v1/application-access", "/api/v1/file-access-presets", "/api/v1/cross-organization", "/api/v1/consumer-mode", "/api/v1/restricted-views"},
 		Tags:      []string{"identity"},
 	}); err != nil {
 		panic("identity-federation-service: capability ingest failed: " + err.Error())

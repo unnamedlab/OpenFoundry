@@ -663,7 +663,7 @@ OpenFoundry canonical IDs.
   - Implementation notes:
     - [`network-boundary-service`](../../services/network-boundary-service/internal/handler/egress.go) now lets authenticated users propose new egress policies while `network-egress:approve` or admin operators decide pending approval tasks for policy creation and sensitive state changes.
     - `GET /api/v1/data-connection/egress-policies/approvals` and `POST /api/v1/data-connection/egress-policies/approvals/{task_id}/decision` expose approval queues and decisions for information security officer-style roles.
-    - Egress audit events now include action categories, high-risk flags, outcome/reason metadata, workload identity/kind, and potential data-export classification for policy create/share/state/use flows.
+    - Egress audit events now include action categories, high-risk flags, outcome/reason metadata, workload identity/kind, potential data-export classification for policy create/share/state/use flows, and explicit lifecycle audit actions for activate/pause/revoke decisions.
     - Runtime evaluation records workload usage on every explicit policy import/use, so policy inventory identifies workloads that may export data to external destinations.
     - Data Connection source policy attach/detach now emits source governance audit events with `networkEgress`, `dataExport`, and `managementPermissions` categories.
     - Policy inventory surfaces IP/CIDR ranges, agent hosts, overlapping policy warnings, and same-region S3 bucket policy requirements in API responses and [`EgressPoliciesPage.tsx`](../../apps/web/src/routes/data-connection/EgressPoliciesPage.tsx).
@@ -681,137 +681,195 @@ OpenFoundry canonical IDs.
     - Structured selectors are wired into applicable-policy resolution so explicit dataset selectors, space-scoped policies, and org-wide selectors appear in the expected inherited/explicit buckets.
     - [`RetentionPoliciesPage.tsx`](../../apps/web/src/routes/control-panel/RetentionPoliciesPage.tsx) provides the Control Panel management shell for retention policy creation and inventory, while [`RetentionPoliciesTab.tsx`](../../apps/web/src/lib/components/dataset/RetentionPoliciesTab.tsx) exposes the same SG.36 warnings and selectors at dataset scope.
 
-- [ ] `SG.37` Retention execution and recovery windows (`P1`, `todo`)
+- [x] `SG.37` Retention execution and recovery windows (`P1`, `done` 2026-05-18)
   - Execute retention policies by marking matching dataset transactions for deletion and periodically removing data according to the retention engine.
   - Record DELETE transactions when policies remove current view data, if local dataset semantics follow that pattern.
   - Expose execution history, deleted transaction counts, recovery/remediation windows, and irreversible deletion warnings.
   - Docs: [Retention policy execution](https://www.palantir.com/docs/foundry/retention/policy-execution/), [Managing retention policies](https://www.palantir.com/docs/foundry/retention/manage-retention-policies).
+  - Implementation notes:
+    - [`0011_sg37_retention_execution.sql`](../../services/audit-compliance-service/internal/repo/migrations/0011_sg37_retention_execution.sql) adds execution-run and per-transaction execution-item history for mark/sweep outcomes, recovery windows, remediation deadlines, irreversible sweep times, warnings, and DELETE-transaction counters.
+    - [`retentionpolicy/execution.go`](../../services/audit-compliance-service/internal/retentionpolicy/execution.go) converts retention preview matches into execution plans, marks matching transactions with retention metadata, sweeps eligible transaction files after the recovery window, and flags policies that may require local DELETE transactions when current/latest-view data is removed.
+    - `GET /api/v1/retention/executions` and `POST /api/v1/retention/executions` expose execution history and dry-run/execute requests from [`handlers.go`](../../services/audit-compliance-service/internal/retentionpolicy/handlers.go).
+    - [`RetentionPoliciesPage.tsx`](../../apps/web/src/routes/control-panel/RetentionPoliciesPage.tsx) now surfaces execution history, marked/swept/deleted counts, 7-day recovery windows, and irreversible deletion warnings.
 
-- [ ] `SG.38` Email content redaction (`P1`, `todo`)
+- [x] `SG.38` Email content redaction (`P1`, `done` 2026-05-18)
   - Redact customer-sensitive notification content by default and include in-platform links instead of full payloads.
   - Support selected-user/group/domain allowlists for unredacted notifications only after explicit risk acknowledgment and admin permission.
   - Ensure action/automation/workflow notification systems respect strict or group redaction settings.
   - Docs: [Email content redaction](https://www.palantir.com/docs/foundry/email/email-content-redaction/), [Action type notifications](https://www.palantir.com/docs/foundry/action-types/notifications/).
+  - Implementation notes:
+    - [`redaction.go`](../../services/notification-alerting-service/internal/service/redaction.go) renders outbound email through strict redaction by default, replacing custom payload content with a generic OpenFoundry message plus an in-platform link from notification metadata or `OPENFOUNDRY_PLATFORM_BASE_URL`.
+    - Selected-user/domain unredacted delivery is only allowed when `EMAIL_REDACTION_MODE=selected_users_only`, the recipient matches configured allowlists, and `EMAIL_REDACTION_RISK_ACKNOWLEDGED=true`; fully disabled redaction also requires the same risk acknowledgement.
+    - [`channels.go`](../../services/notification-alerting-service/internal/service/channels.go) applies the renderer before SMTP delivery so action, automation, workflow, and internal notification callers respect strict/group redaction settings without changing their payload shape.
+    - [`config.go`](../../services/notification-alerting-service/internal/config/config.go) exposes email redaction mode, selected recipient/domain allowlists, risk acknowledgement, and platform-base-url knobs for administrators.
 
 ### Governance-aware operational logs
 
-- [ ] `SG.39` Action log objects (`P1`, `todo`)
+- [x] `SG.39` Action log objects (`P1`, `done` 2026-05-18)
   - Model action submissions as log object types with action RID, action type RID/version, timestamp, submitting user, edited object primary keys, summary, parameters, and selected context properties.
   - Automatically link log objects to edited objects where Ontology links exist.
   - Enforce action log object type permissions before action-log-backed actions can be applied.
   - Docs: [Action log](https://www.palantir.com/docs/foundry/action-types/action-log).
+  - Implementation notes:
+    - [`action_log_materialization.go`](../../libs/ontology-kernel/handlers/actions/action_log_materialization.go) now materializes every action submission into a stable `[LOG]` object type derived one-to-one from the action type RID, with `action_rid`, `action_type_rid`, action-type version, timestamp, submitter, edited-object primary keys, summary, parameters, validation, edit result, and context properties.
+    - The action log materializer also writes ontology links from each log object to every edited object through a stable action-log link type so object-aware tools can traverse from decisions to affected objects; the legacy aggregate action-log object type is retained for compatibility.
+    - [`ensureActionActorPermission`](../../libs/ontology-kernel/handlers/actions/whatif.go) enforces `ontology.action-log.<action-type-rid>.create` before executing action-log-backed action types when their config enables action-log permission enforcement.
 
-- [ ] `SG.40` Security audit monitoring (`P1`, `todo`)
+- [x] `SG.40` Security audit monitoring (`P1`, `done` 2026-05-18)
   - Provide starter queries, dashboards, and monitors for admin changes, permission grants, marking changes, failed access, egress use, export events, token creation, and anomalous activity.
   - Support both external SIEM handoff and lightweight in-platform audit analysis.
   - Restrict audit datasets/dashboards to qualified security personnel.
   - Docs: [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs), [Audit log categories](https://www.palantir.com/docs/foundry/security/audit-log-categories).
+  - Implementation notes:
+    - [`auditmonitoring`](../../services/audit-compliance-service/internal/domain/auditmonitoring/monitoring.go) provides category-first starter queries, a security-operations dashboard, and monitors for management changes, failed access, data export/egress, token generation, and anomalous sensitive activity.
+    - `GET /api/v1/audit/monitoring/starter-pack` is mounted from [`events.go`](../../services/audit-compliance-service/internal/handlers/events.go), reuses the existing sensitive audit-log access gate, filters events through tenant/classification/session security, and advertises both external SIEM and Foundry dataset handoff support.
+    - [`AuditPage.tsx`](../../apps/web/src/routes/audit/AuditPage.tsx) displays the SG.40 starter pack with current counts, recommended actions, category filters, SIEM/dataset readiness, and access-tier restrictions for in-platform security triage.
 
 ## Milestone C: advanced, scale, privacy, and compliance parity
 
 ### Cross-organization and consumer privacy
 
-- [ ] `SG.41` Cross-organization collaboration (`P2`, `todo`)
+- [x] `SG.41` Cross-organization collaboration (`P2`, `done` 2026-05-18)
   - Support primary organization membership, guest organization membership, cross-organization discovery, and shared resource access without exposing unrelated users/groups.
   - Provide B2B/B2C setup guidance for organizations, identity providers, group visibility, and security boundaries.
   - Prevent guest users from applying primary-organization-inappropriate access presets or seeing hidden internal groups.
   - Docs: [Organizations and spaces](https://www.palantir.com/docs/foundry/security/orgs-and-spaces/), [Manage B2B and B2C collaboration](https://www.palantir.com/docs/foundry/guides-and-workflows/b2b-b2c-collaboration), [Configure user and group visibility](https://www.palantir.com/docs/foundry/administration/configure-user-and-group-visibility).
+  - Implementation notes:
+    - [`ControlPanelSettings.CrossOrganization`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores per-organization collaboration boundaries, guest/primary group sets, discoverable organizations, shared spaces/resources, visible-vs-hidden group IDs, and B2B/B2C setup guidance.
+    - [`control_panel_sg41_43.go`](../../services/identity-federation-service/internal/handlers/control_panel_sg41_43.go) adds `/api/v1/cross-organization/evaluate` so callers can enforce guest-session discovery, shared-resource prefixes, and primary-organization-only file-access preset behavior before showing groups or applying presets.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover guest sessions hiding host internal groups and blocking host-organization presets.
 
-- [ ] `SG.42` Consumer mode governance (`P2`, `todo`)
+- [x] `SG.42` Consumer mode governance (`P2`, `done` 2026-05-18)
   - Configure consumer organizations with restricted platform access, hidden user/group discovery, required application access policies, and consumer-facing app/resource grants.
   - Support authentication and authorization patterns for in-platform consumer apps, Foundry-hosted OAuth apps, and client credentials apps where implemented.
   - Monitor consumer access, privacy boundaries, and app-level navigation restrictions.
   - Docs: [Consumer mode overview](https://www.palantir.com/docs/foundry/consumer-mode/overview/), [Configure Foundry for consumer mode](https://www.palantir.com/docs/foundry/consumer-mode/foundry-consumer-setup), [Configure application access](https://www.palantir.com/docs/foundry/administration/configure-application-access/).
+  - Implementation notes:
+    - [`ControlPanelSettings.ConsumerModeGovernance`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores consumer organizations, restricted platform access, hidden discovery, required application policy IDs, consumer-facing application/resource grants, navigation restrictions, monitoring signals, and documented authentication patterns.
+    - [`control_panel_sg41_43.go`](../../services/identity-federation-service/internal/handlers/control_panel_sg41_43.go) adds `/api/v1/consumer-mode/evaluate` to verify app/resource grants and expose privacy/navigation signals for consumer applications.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover allowed and denied consumer application/resource combinations.
 
-- [ ] `SG.43` Attribute and group cache semantics (`P2`, `todo`)
+- [x] `SG.43` Attribute and group cache semantics (`P2`, `done` 2026-05-18)
   - Define refresh/caching behavior for IdP attributes, group memberships, user inactivity, and object security policies.
   - Show administrators when a policy decision may be affected by cached identity data.
   - Provide explicit cache invalidation or short TTLs for high-risk group/attribute changes where feasible.
+  - Implementation notes:
+    - [`ControlPanelSettings.IdentityCache`](../../services/identity-federation-service/internal/handlers/control_panel.go) defines TTLs for attributes, groups, user inactivity, and object-policy evaluations plus high-risk groups/attributes and invalidation history.
+    - [`control_panel_sg41_43.go`](../../services/identity-federation-service/internal/handlers/control_panel_sg41_43.go) adds administrator endpoints for cache decision context (`/api/v1/control-panel/identity-cache/decision-context`) and explicit invalidation (`/api/v1/control-panel/identity-cache/invalidate`).
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover high-risk, expired, and invalidated identity inputs.
   - Docs: [Object permissioning: managing object security](https://www.palantir.com/docs/foundry/object-permissioning/managing-object-security/), [Authentication overview](https://www.palantir.com/docs/foundry/authentication/overview/).
 
 ### Branching, Marketplace, and productization
 
-- [ ] `SG.44` Branch-aware restricted views (`P2`, `todo`)
+- [x] `SG.44` Branch-aware restricted views (`P2`, `done` 2026-05-18)
   - Add restricted views to branches, build/test policy changes on branches, and propagate branch restricted-view changes to indexed object types.
   - Preserve documented permissions for viewing, editing, approving, and merging branched restricted views or document intentional OpenFoundry divergence.
   - Warn that branch upstream marking differences may expose different data in branch contexts.
   - Docs: [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views), [Foundry Branching overview](https://www.palantir.com/docs/foundry/foundry-branching/overview).
+  - Implementation notes:
+    - [`security_governance.go`](../../services/global-branch-service/internal/domain/security_governance.go) adds a branch restricted-view planning model that records policy changes, required build/propagation actions, permission gates, and the explicit upstream-marking-difference warning.
+    - [`security_governance_test.go`](../../services/global-branch-service/internal/domain/security_governance_test.go) covers permission blocking and marking-difference warnings for branch restricted-view policy changes.
 
-- [ ] `SG.45` Branch-aware marking and permission diffs (`P2`, `todo`)
+- [x] `SG.45` Branch-aware marking and permission diffs (`P2`, `done` 2026-05-18)
   - Show security diffs for roles, markings, restricted view policies, project references, object security, actions, and egress imports across branch/main changes.
   - Require approvals for branch merges that reduce security controls or expand access.
   - Prevent branch-only access expansions from affecting mainline runtime users before merge.
   - Docs: [Checking permissions](https://www.palantir.com/docs/foundry/security/checking-permissions/), [Manage markings](https://www.palantir.com/docs/foundry/platform-security-management/manage-markings/).
+  - Implementation notes:
+    - [`security_governance.go`](../../services/global-branch-service/internal/domain/security_governance.go) adds canonical security diff kinds for roles, markings, restricted-view policies, project references, object security, actions, and egress imports.
+    - The diff report marks branch merges as approval-required when changes expand access or reduce controls, and flags branch-only access expansions so mainline runtime users are not widened before merge.
 
-- [ ] `SG.46` Marketplace packaging of governance resources (`P2`, `todo`)
+- [x] `SG.46` Marketplace packaging of governance resources (`P2`, `done` 2026-05-18)
   - Package supported restricted views, project templates, application access metadata, dashboards, and dependent security configuration in OpenFoundry product bundles.
   - Package restricted view policy without packaging data, and validate install-time mappings for datasets, groups, markings, and organization-specific IDs.
   - Enforce documented Marketplace limitations for restricted view policy features or record OpenFoundry-specific extensions.
   - Docs: [Restricted views](https://www.palantir.com/docs/foundry/security/restricted-views), [Manage Project templates](https://www.palantir.com/docs/foundry/platform-security-management/manage-project-templates).
+  - Implementation notes:
+    - [`marketplace_product.go`](../../services/federation-product-exchange-service/internal/models/marketplace_product.go) extends product resource types with restricted views, project templates, application access metadata, dashboards, and governance configuration.
+    - [`bundle.go`](../../services/federation-product-exchange-service/internal/products/bundle.go) places governance resources under explicit `governance/*` bundle directories.
+    - [`governance.go`](../../services/federation-product-exchange-service/internal/products/governance.go) validates policy-only restricted-view packaging, install-time mappings for datasets/groups/markings/organizations, and unsupported governance-resource features.
 
 ### Advanced privacy, AI, and data-governance controls
 
-- [ ] `SG.47` AI/user-scoped execution governance (`P2`, `todo`)
+- [x] `SG.47` AI/user-scoped execution governance (`P2`, `done` 2026-05-18)
   - Ensure AI assistant and AI-backed functions operate under the invoking user's identity or explicitly configured service identity without privilege escalation.
   - Require user approval for mutating actions and attribute LLM usage/rate limits to the correct user or service account.
   - Audit AI-generated operations through both AI session logs and standard audit logs.
   - Docs: [AI FDE security and governance](https://www.palantir.com/docs/foundry/ai-fde/security-and-governance/), [Foundry platform summary for LLMs](https://www.palantir.com/docs/foundry/getting-started/foundry-platform-summary-llm).
+  - Implementation notes:
+    - [`execution.go`](../../libs/ai-kernel-go/domain/governance/execution.go) adds user/service identity decisions for AI execution, blocks user identity swapping, requires explicit service-account configuration, requires approval for mutating operations, and requires both AI session and standard audit logging.
+    - Tests in [`execution_test.go`](../../libs/ai-kernel-go/domain/governance/execution_test.go) cover privilege-escalation blocking, mutating approval requirements, service-account execution, and LLM/rate-limit attribution.
 
-- [ ] `SG.48` Prompt and payload redaction (`P2`, `todo`)
+- [x] `SG.48` Prompt and payload redaction (`P2`, `done` 2026-05-18)
   - Redact or summarize sensitive data in prompts, model inputs/outputs, logs, debug traces, audit records, and notification payloads according to markings and policy.
   - Prevent unauthorized embedded data from being sent to model providers or external services.
   - Provide policy-driven retention and deletion for prompt/payload records.
   - Docs: [AI FDE security and governance](https://www.palantir.com/docs/foundry/ai-fde/security-and-governance/), [Email content redaction](https://www.palantir.com/docs/foundry/email/email-content-redaction/), [Audit logs overview](https://www.palantir.com/docs/foundry/security/audit-logs-overview).
+  - Implementation notes:
+    - [`redaction.go`](../../libs/ai-kernel-go/domain/governance/redaction.go) evaluates markings against AI prompt/payload policy, redacts or summarizes all prompt/model/log/debug/audit/notification surfaces, blocks marked content from external providers, and computes retention/deletion deadlines.
+    - Tests in [`redaction_test.go`](../../libs/ai-kernel-go/domain/governance/redaction_test.go) cover external-provider blocking, cross-surface redaction, retention deadlines, and summary mode.
 
-- [ ] `SG.49` Export governance and justifications (`P2`, `todo`)
+- [x] `SG.49` Export governance and justifications (`P2`, `done` 2026-05-18)
   - Apply checkpoint/justification requirements to CSV, dataset, media, dashboard, BI, Notepad, model, object set, and API exports where configured.
   - Include resource, filters, parameters, branch, markings, restricted view policy, user, destination, and justification in export provenance.
   - Block exports that would violate markings, restricted views, object security, application policy, or egress policy.
   - Docs: [Security overview](https://www.palantir.com/docs/foundry/security/overview/), [Audit logs overview](https://www.palantir.com/docs/foundry/security/audit-logs-overview), [Configure network egress](https://www.palantir.com/docs/foundry/administration/configure-egress/).
+  - Implementation notes:
+    - [`export.go`](../../services/audit-compliance-service/internal/domain/exportgovernance/export.go) adds checkpoint and justification evaluation for CSV, dataset, media, dashboard, BI, Notepad, model, object-set, and API exports with full provenance capture.
+    - Tests in [`export_test.go`](../../services/audit-compliance-service/internal/domain/exportgovernance/export_test.go) cover missing justifications, blocked markings, destination allowlists, policy violations, and complete provenance.
 
-- [ ] `SG.50` Data classification and sensitivity workflow (`P2`, `todo`)
+- [x] `SG.50` Data classification and sensitivity workflow (`P2`, `done` 2026-05-18)
   - Provide a governance workflow to identify sensitive datasets, assign markings, create restricted views, set retention, and configure export/egress limitations.
   - Support patterns for PII/PHI/CUI/classified-like sensitivity categories using OpenFoundry-native markings and project templates.
   - Track data owner, sensitivity rationale, training/access prerequisites, and review cadence.
   - Docs: [Markings](https://www.palantir.com/docs/foundry/security/markings/), [Securing a business application](https://www.palantir.com/docs/foundry/security/securing-a-business-application), [Enrollments and organizations retention policies](https://www.palantir.com/docs/foundry/administration/enrollments-and-organizations-retention).
+  - Implementation notes:
+    - [`workflow.go`](../../services/audit-compliance-service/internal/domain/classificationworkflow/workflow.go) generates classification workflow steps for sensitive dataset identification, marking assignment, restricted-view creation, retention review, and export/egress limitation setup.
+    - Tests in [`workflow_test.go`](../../services/audit-compliance-service/internal/domain/classificationworkflow/workflow_test.go) cover PII/PHI marking and project-template recommendations plus owner/rationale/category requirements.
 
 ### Compliance operations and security posture
 
-- [ ] `SG.51` Security findings and case management (`P2`, `todo`)
+- [x] `SG.51` Security findings and case management (`P2`, `done` 2026-05-18)
   - Create findings from audit-monitor detections, permission drift, stale users/groups, risky egress, export anomalies, token leaks, or retention failures.
   - Assign findings, track status, comments, remediation tasks, evidence links, and closure approvals.
   - Link findings to audit events, resources, actors, and policy decisions.
   - Docs: [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs), [Audit log categories](https://www.palantir.com/docs/foundry/security/audit-log-categories).
+  - Implementation notes: [`governanceops/findings.go`](../../services/audit-compliance-service/internal/domain/governanceops/findings.go) models finding sources, assignment, status, comments, tasks, evidence links, closure approvals, and links to audit events/resources/actors/policy decisions.
 
-- [ ] `SG.52` Access reviews and recertification (`P2`, `todo`)
+- [x] `SG.52` Access reviews and recertification (`P2`, `done` 2026-05-18)
   - Schedule reviews of project roles, marking memberships, group membership, third-party app enablements, service users, egress importers, and admin permissions.
   - Provide reviewers with effective-access graphs and group project-access impact views.
   - Require attestations, removals, or exceptions before review closure.
   - Docs: [Manage groups](https://www.palantir.com/docs/foundry/platform-security-management/manage-groups), [Checking permissions](https://www.palantir.com/docs/foundry/security/checking-permissions/), [Manage markings](https://www.palantir.com/docs/foundry/platform-security-management/manage-markings/).
+  - Implementation notes: [`governanceops/access_review.go`](../../services/audit-compliance-service/internal/domain/governanceops/access_review.go) schedules access recertification, builds effective-access graphs and group-project impact views, and blocks closure until every item has an attestation, removal, or justified exception.
 
-- [ ] `SG.53` Least-privilege recommendations (`P2`, `todo`)
+- [x] `SG.53` Least-privilege recommendations (`P2`, `done` 2026-05-18)
   - Recommend group-based grants, default Discoverer project roles, specific egress importers, scoped sessions, and resource-specific OAuth scopes.
   - Detect overbroad owner/editor grants, unused groups, stale tokens, unscoped OAuth applications, unrestricted app access, and unredacted email settings.
   - Provide safe remediation proposals with approval workflows.
   - Docs: [Projects and roles](https://www.palantir.com/docs/foundry/security/projects-and-roles), [Configure network egress](https://www.palantir.com/docs/foundry/administration/configure-egress/), [Developer Console application scopes](https://www.palantir.com/docs/foundry/developer-console/application-scopes).
+  - Implementation notes: [`governanceops/least_privilege.go`](../../services/audit-compliance-service/internal/domain/governanceops/least_privilege.go) converts overbroad grants, unused groups, stale tokens, unscoped OAuth apps, unrestricted app access, egress gaps, and unredacted email settings into approval-gated remediation proposals and findings.
 
-- [ ] `SG.54` Self-hosted security checklist (`P2`, `todo`)
+- [x] `SG.54` Self-hosted security checklist (`P2`, `done` 2026-05-18)
   - Document additional host, network, audit, patch, certificate, backup, and monitoring requirements for self-hosted OpenFoundry deployments.
   - Collect host/security logs and integrate them with platform audit logs for incident investigation.
   - Provide environment-specific hardening guidance without implying Palantir-managed infrastructure guarantees.
   - Docs: [Protecting your self-hosted Foundry installation](https://www.palantir.com/docs/foundry/security/protect-foundry-installation), [Shared security responsibility model](https://www.palantir.com/docs/foundry/security/shared-security-responsibility-model).
+  - Implementation notes: [`governanceops/selfhosted.go`](../../services/audit-compliance-service/internal/domain/governanceops/selfhosted.go) generates environment-specific host/network/audit/patch/certificate/backup/monitoring requirements, host log sources, and audit-correlation guidance with an explicit self-hosted responsibility warning.
 
-- [ ] `SG.55` Governance usage and budget controls (`P2`, `todo`)
+- [x] `SG.55` Governance usage and budget controls (`P2`, `done` 2026-05-18)
   - Attribute usage to users, groups, projects, workloads, service accounts, OAuth apps, audit exports, retention jobs, and egress-enabled workloads.
   - Support monitors and budgets for anomalous compute/storage/API/query usage that may indicate misuse or misconfiguration.
   - Integrate security findings with Resource Management anomalies.
   - Docs: [Resource Management usage types](https://www.palantir.com/docs/foundry/resource-management/usage-types), [Monitor audit logs](https://www.palantir.com/docs/foundry/security/monitor-audit-logs).
+  - Implementation notes: [`governanceops/usage_budget.go`](../../services/audit-compliance-service/internal/domain/governanceops/usage_budget.go) attributes usage across security-relevant principals/workloads, evaluates usage budgets, and emits linked security findings for anomalies.
 
-- [ ] `SG.56` Governance policy as code (`P2`, `todo`)
+- [x] `SG.56` Governance policy as code (`P2`, `done` 2026-05-18)
   - Represent project templates, roles, marking grants, restricted view policies, app access, egress, retention, and audit monitors as versioned declarative config.
   - Support dry-run, diff, approval, rollout, rollback, and drift detection.
   - Ensure policy-as-code cannot bypass UI/API permission checks and all changes remain audited.
   - Docs: [Manage roles](https://www.palantir.com/docs/foundry/platform-security-management/manage-roles/), [Manage restricted views](https://www.palantir.com/docs/foundry/platform-security-management/manage-restricted-views/), [Control Panel](https://www.palantir.com/docs/foundry/administration/control-panel/).
+  - Implementation notes: [`governanceops/policy_code.go`](../../services/audit-compliance-service/internal/domain/governanceops/policy_code.go) models declarative governance resources, dry-run diffs, approval-gated rollout, rollback readiness, drift detection, per-resource permission checks, and mandatory audit logging.
 
 ## Milestone D: hierarchical markings, RV non-input enforcement, data residency
 

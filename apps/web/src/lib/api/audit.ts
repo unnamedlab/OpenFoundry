@@ -293,6 +293,52 @@ export interface GdprEraseResponse {
 	legal_hold: boolean;
 }
 
+export interface AuditMonitoringQuery {
+	id: string;
+	title: string;
+	description: string;
+	categories: string[];
+	query: string;
+}
+
+export interface AuditMonitorDefinition {
+	id: string;
+	title: string;
+	description: string;
+	severity: string;
+	categories: string[];
+	query_id: string;
+	schedule: string;
+	recommended_action: string;
+	current_count: number;
+}
+
+export interface AuditMonitoringWidget {
+	id: string;
+	title: string;
+	description: string;
+	query_id: string;
+	chart: string;
+}
+
+export interface AuditMonitoringDashboard {
+	id: string;
+	title: string;
+	description: string;
+	widgets: AuditMonitoringWidget[];
+}
+
+export interface AuditMonitoringStarterPack {
+	access_tier: string;
+	restricted_to: string[];
+	external_siem_supported: boolean;
+	foundry_dataset_supported: boolean;
+	queries: AuditMonitoringQuery[];
+	dashboards: AuditMonitoringDashboard[];
+	monitors: AuditMonitorDefinition[];
+	audit_excerpt: AuditEvent[];
+}
+
 export function getOverview() {
 	return api.get<AuditOverview>('/audit/overview');
 }
@@ -357,6 +403,10 @@ export function appendEvent(body: {
 
 export function listCollectors() {
 	return api.get<CollectorStatus[]>('/audit/collectors');
+}
+
+export function getAuditMonitoringStarterPack() {
+	return api.get<AuditMonitoringStarterPack>('/audit/monitoring/starter-pack');
 }
 
 export function listAnomalies() {
