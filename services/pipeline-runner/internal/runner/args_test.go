@@ -2,6 +2,7 @@ package runner
 
 import (
 	"encoding/base64"
+	"os"
 	"strings"
 	"testing"
 
@@ -172,8 +173,33 @@ func TestLoadPlanFromEnv_happyPath(t *testing.T) {
 func TestLoadPlanFromEnv_emptyEnv(t *testing.T) {
 	t.Setenv(EnvPipelinePlanB64, "")
 	_, err := loadPlanFromEnv()
-	if err == nil || !strings.Contains(err.Error(), "env var is empty") {
-		t.Fatalf("expected empty-env error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no Plan source") {
+		t.Fatalf("expected no-Plan-source error, got %v", err)
+	}
+}
+
+func TestLoadPlanFromFile_happyPath(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/plan.json"
+	if err := os.WriteFile(path, []byte(`{"pipeline_id":"p","run_id":"r","ops":[`+
+		`{"id":"src","kind":"read_table","read_table":{"catalog":"c","namespace":"n","table":"t"}},`+
+		`{"id":"sink","kind":"write_table","inputs":["src"],"write_table":{"catalog":"c","namespace":"n","table":"t","mode":"append"}}`+
+		`]}`), 0o644); err != nil {
+		t.Fatalf("write plan file: %v", err)
+	}
+	plan, err := loadPlanFromFile(path)
+	if err != nil {
+		t.Fatalf("loadPlanFromFile: %v", err)
+	}
+	if plan.PipelineID != "p" || len(plan.Ops) != 2 {
+		t.Errorf("decoded plan mismatch: %+v", plan)
+	}
+}
+
+func TestLoadPlanFromFile_missingFile(t *testing.T) {
+	_, err := loadPlanFromFile("/nonexistent/plan.json")
+	if err == nil || !strings.Contains(err.Error(), "read plan file") {
+		t.Fatalf("expected read error, got %v", err)
 	}
 }
 

@@ -1,4 +1,32 @@
-# `pipeline-runner-spark` (Scala 2.12 / Spark 3.5)
+# `pipeline-runner-spark` — superseded by ADR-0045
+
+> **SUPERSEDED.** This Scala module is retired by ADR-0045 and is no
+> longer used by the runtime. Phase D of the same ADR removes the
+> directory entirely; until that PR lands the code stays in-tree as
+> a reference for the migration.
+>
+> The runtime now uses [`services/pipeline-runner`](../pipeline-runner/)
+> (Go, distroless), which executes a typed
+> [`pipelineplan.Plan`](../../libs/pipeline-plan/) via
+> [`libs/pipeline-runtime`](../../libs/pipeline-runtime/) against Iceberg.
+> Submission goes through `services/pipeline-build-service`'s
+> [`internal/dispatch`](../pipeline-build-service/internal/dispatch/)
+> as a `batch/v1 Job`, not a `SparkApplication` CR.
+>
+> Migration map (see
+> [ADR-0045](../../docs/architecture/adr/ADR-0045-eliminate-pipeline-runner-spark-pure-go-runtime.md)
+> and the
+> [Phase 0 inventory](../../docs/migration/pipeline-runner-spark-to-go-inventory.md)):
+>
+> | Was (Scala main) | Now |
+> |---|---|
+> | `com.openfoundry.pipeline.PipelineRunner` | `services/pipeline-runner` decoding a `pipelineplan.Plan` |
+> | `com.openfoundry.indexer.IcebergToObjectStoreIndexer` | `services/iceberg-object-indexer` (Phase A, PR #55) |
+> | `com.openfoundry.audit.ActionLogStreamSink` | `services/action-log-sink` (Phase B, PR #66) |
+
+---
+
+# `pipeline-runner-spark` (Scala 2.12 / Spark 3.5) — historical
 
 Companion JAR consumed by the Go [`pipeline-runner`](../pipeline-runner/) at
 runtime via `spark-submit --class com.openfoundry.pipeline.PipelineRunner`.

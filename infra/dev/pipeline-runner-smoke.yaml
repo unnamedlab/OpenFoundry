@@ -1,0 +1,126 @@
+# pipeline-runner smoke test — ADR-0045 Phase C.6.
+#
+# Replaces the prior infra/dev/spark-smoke.yaml SparkApplication CR.
+# Runs the Go pipeline-runner against the smallest possible Plan
+# (one row through the runtime) so an operator can validate that the
+# image, the ConfigMap mount, and the catalog connection all wire
+# together before applying the production PoC pipelines.
+#
+# What the Plan does:
+#   read_table(lakekeeper.default.online_retail_raw)
+#     → limit 1
+#     → write_table(lakekeeper.default.pipeline_runner_smoke, append)
+#
+# Usage:
+#   kubectl apply -f infra/dev/pipeline-runner-smoke.yaml
+#   kubectl -n openfoundry logs -l openfoundry.io/pipeline-id=smoke -f
+#   # Job should finish in seconds. Then drop the smoke table:
+#   #   from a catalog client: DROP TABLE lakekeeper.default.pipeline_runner_smoke;
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeline-runner-smoke
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: smoke
+data:
+  plan.json: |
+    {
+      "pipeline_id": "smoke",
+      "run_id": "001",
+      "ops": [
+        {
+          "id": "src",
+          "kind": "read_table",
+          "read_table": {"catalog": "lakekeeper", "namespace": "default", "table": "online_retail_raw"}
+        },
+        {
+          "id": "l",
+          "kind": "limit",
+          "inputs": ["src"],
+          "limit": {"n": 1}
+        },
+        {
+          "id": "sink",
+          "kind": "write_table",
+          "inputs": ["l"],
+          "write_table": {"catalog": "lakekeeper", "namespace": "default", "table": "pipeline_runner_smoke", "mode": "append"}
+        }
+      ]
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pipeline-runner-smoke
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: smoke
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        openfoundry.io/component: pipeline-runner
+        openfoundry.io/pipeline-id: smoke
+    spec:
+      restartPolicy: Never
+      serviceAccountName: pipeline-runner
+      volumes:
+        - name: plan
+          configMap:
+            name: pipeline-runner-smoke
+      containers:
+        - name: pipeline-runner
+          image: registry.registry.svc.cluster.local:5000/openfoundry/pipeline-runner:0.1.0
+          imagePullPolicy: Always
+          args:
+            - "--pipeline-id"
+            - "smoke"
+            - "--run-id"
+            - "001"
+            - "--input-dataset"
+            - "lakekeeper.default.online_retail_raw"
+            - "--output-dataset"
+            - "lakekeeper.default.pipeline_runner_smoke"
+            - "--catalog-uri"
+            - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+            - "--catalog-warehouse"
+            - "openfoundry"
+            - "--catalog-credential"
+            - "lakekeeper:s"
+            - "--oauth-token-uri"
+            - "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+            - "--oauth-scope"
+            - "openid"
+            - "--table-writer-url"
+            - "http://iceberg-catalog-service.openfoundry.svc:8080"
+            - "--plan-file"
+            - "/etc/pipeline/plan.json"
+            - "--log-format"
+            - "json"
+          volumeMounts:
+            - name: plan
+              mountPath: /etc/pipeline
+              readOnly: true
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID,     optional: true}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY, optional: true}}}
+            - {name: AWS_REGION, value: "us-east-1"}
+            - {name: AWS_S3_FORCE_PATH_STYLE, value: "true"}
+            - {name: AWS_ENDPOINT_URL_S3, value: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"}
+          ports:
+            - {name: metrics, containerPort: 9090, protocol: TCP}
+          resources:
+            requests: {cpu: "100m", memory: "128Mi"}
+            limits:   {cpu: "500m", memory: "512Mi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: {drop: ["ALL"]}

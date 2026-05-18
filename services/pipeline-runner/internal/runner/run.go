@@ -30,6 +30,14 @@ import (
 // The runner decodes it on boot and executes via libs/pipeline-runtime.
 const EnvPipelinePlanB64 = "PIPELINE_PLAN_B64"
 
+// EnvPipelinePlanFile is the env var that points at a JSON file
+// containing the pipelineplan.Plan. Dev YAMLs (infra/dev/*.yaml,
+// Phase C.6) prefer this shape because a ConfigMap-mounted file
+// stays human-readable in `kubectl describe configmap` — the
+// base64 env var path is intended for the dispatcher's generated
+// Jobs.
+const EnvPipelinePlanFile = "PIPELINE_PLAN_FILE"
+
 // Run drives the entire orchestration: argument logging, plan
 // decoding, provider wiring, and pipelineruntime.Executor invocation.
 // `--smoke` short-circuits the providers and only validates the plan;
@@ -77,7 +85,7 @@ func Run(args Args) error {
 }
 
 func runWork(ctx context.Context, args Args, log *slog.Logger) error {
-	plan, err := loadPlanFromEnv()
+	plan, err := loadPlan(args)
 	if err != nil {
 		return fmt.Errorf("load plan: %w", err)
 	}
@@ -126,13 +134,38 @@ func runWork(ctx context.Context, args Args, log *slog.Logger) error {
 	return nil
 }
 
+// loadPlan resolves the Plan from the three accepted sources in
+// priority order: --plan-file flag, PIPELINE_PLAN_FILE env var, then
+// PIPELINE_PLAN_B64 env var. The dispatcher uses the env-var
+// base64 path; dev YAMLs prefer --plan-file (ConfigMap mount) so
+// the Plan JSON stays readable in kubectl describe.
+func loadPlan(args Args) (pipelineplan.Plan, error) {
+	if path := firstNonEmpty(args.PlanFile, os.Getenv(EnvPipelinePlanFile)); path != "" {
+		return loadPlanFromFile(path)
+	}
+	return loadPlanFromEnv()
+}
+
+// loadPlanFromFile reads the JSON plan from `path`.
+func loadPlanFromFile(path string) (pipelineplan.Plan, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return pipelineplan.Plan{}, fmt.Errorf("read plan file %s: %w", path, err)
+	}
+	var plan pipelineplan.Plan
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		return pipelineplan.Plan{}, fmt.Errorf("unmarshal plan from %s: %w", path, err)
+	}
+	return plan, nil
+}
+
 // loadPlanFromEnv decodes the base64-JSON env var the dispatcher
 // populates. Empty or malformed values surface as a typed error so
 // the operator runbook can pinpoint the bad Job.
 func loadPlanFromEnv() (pipelineplan.Plan, error) {
 	raw := os.Getenv(EnvPipelinePlanB64)
 	if raw == "" {
-		return pipelineplan.Plan{}, fmt.Errorf("%s env var is empty (dispatcher must populate the base64-encoded plan)", EnvPipelinePlanB64)
+		return pipelineplan.Plan{}, fmt.Errorf("no Plan source: set --plan-file, %s, or %s (dispatcher populates the base64 env var)", EnvPipelinePlanFile, EnvPipelinePlanB64)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {

@@ -1,360 +1,428 @@
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
+# OpenFoundry PoC pipelines — ADR-0045 Phase C.6.
+#
+# Replaces the prior shape (sparkoperator.k8s.io/v1beta2 SparkApplication
+# CRs that ran the Scala pipeline-runner-spark JAR with --inline-sql)
+# with the Phase C runtime: a `batch/v1 Job` per pipeline running the
+# Go pipeline-runner binary, with the `pipelineplan.Plan` published as
+# a ConfigMap mounted at /etc/pipeline/plan.json. The runner consumes
+# the file via `--plan-file`.
+#
+# Pipelines in scope for Phase C.6 (per docs/migration/pipeline-runner-spark-to-go-inventory.md):
+#   1. online-retail-clean       — bucket (a): SELECT + WHERE + projection + derived `revenue`
+#   2. online-retail-returns     — bucket (a): same as #1 with `WHERE quantity < 0`
+#   3. online-retail-cust        — bucket (b): GROUP BY customer_id + SUM + COUNT_DISTINCT
+#
+# Deferred (with deliberate reason — see the matching inventory doc):
+#   * online-retail-anomalies    — bucket (b) BUT requires CROSS JOIN with a
+#                                  global-stats subquery. The v1 operator
+#                                  vocabulary in libs/pipeline-plan does not
+#                                  ship `join` (deferred to v2). When that
+#                                  ships, this pipeline becomes a two-stage
+#                                  decomposition: write_table(stats) →
+#                                  cross-join(stats, transactions_clean).
+#   * online-retail-ingest       — bucket (b) CSV DataSource API. Phase 0
+#                                  inventory: re-route the CSV ingest through
+#                                  connector-management-service instead of
+#                                  through the pipeline runtime. Out of
+#                                  scope for the runner migration.
+#
+# Usage:
+#   # 1. Make sure object-database-service / Lakekeeper / iceberg-catalog-service are running.
+#   kubectl -n openfoundry get pods | grep -E 'object-database|iceberg-catalog'
+#   kubectl -n lakekeeper get pods
+#   # 2. Apply this manifest:
+#   kubectl apply -f infra/dev/poc-pipeline-nodes.yaml
+#   # 3. Watch each pipeline Job to completion:
+#   kubectl -n openfoundry get jobs -l openfoundry.io/component=pipeline-runner -w
+#   kubectl -n openfoundry logs -l openfoundry.io/pipeline-id=online-retail-clean -f
+#   # 4. Verify the output tables exist in the catalog.
+#
+# Image tag follows the Phase A k3s convention
+# (memory: openfoundry_dev_k3s_deployment): localhost:5001/<svc>:0.1.0 for
+# the host-side push, then `registry.registry.svc.cluster.local:5000/<svc>`
+# in cluster manifests; `imagePullPolicy: Always` so a same-tag rebuild is
+# re-pulled.
+---
+# =====================================================================
+# 1. online-retail-clean
+#    Reads lakekeeper.default.online_retail_raw, drops rows with non-
+#    positive quantity/price, projects the cleaned columns and adds a
+#    derived `revenue = quantity * price` column. Equivalent to the SQL
+#    the prior SparkApplication shipped via --inline-sql.
+# =====================================================================
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: poc-transactions-clean
+  name: pipeline-online-retail-clean
   namespace: openfoundry
   labels:
-    openfoundry.io/component: pipeline-run
-    openfoundry.io/pipeline-id: "online-retail-clean"
-spec:
-  type: Scala
-  mode: cluster
-  image: localhost:5001/pipeline-runner:dev-003148
-  imagePullPolicy: IfNotPresent
-  mainClass: "com.openfoundry.pipeline.PipelineRunner"
-  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
-  arguments:
-    - "--pipeline-id"
-    - "online-retail-clean"
-    - "--run-id"
-    - "001"
-    - "--input-dataset"
-    - "lakekeeper.default.online_retail_raw"
-    - "--output-dataset"
-    - "lakekeeper.default.transactions_clean"
-    - "--catalog"
-    - "lakekeeper"
-    - "--catalog-uri"
-    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    - "--inline-format"
-    - "iceberg"
-    - "--inline-sql"
-    - >-
-      SELECT
-        CONCAT(invoice, '_', stockcode) AS transaction_id,
-        invoice,
-        stockcode,
-        description,
-        quantity,
-        invoice_date,
-        price,
-        customer_id,
-        country,
-        CAST(quantity * price AS DOUBLE) AS revenue
-      FROM lakekeeper.default.online_retail_raw
-      WHERE quantity > 0 AND price > 0 AND customer_id IS NOT NULL
-  sparkVersion: "3.5.4"
-  restartPolicy: { type: Never }
-  timeToLiveSeconds: 1800
-  driver:
-    cores: 1
-    coreRequest: "200m"
-    memory: "512m"
-    serviceAccount: spark
-    env:
-      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
-      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
-  executor:
-    cores: 1
-    coreRequest: "200m"
-    instances: 1
-    memory: "3g"
-    env:
-      - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID } } }
-      - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY } } }
-  sparkConf:
-    spark.sql.extensions: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
-    spark.sql.catalog.lakekeeper: "org.apache.iceberg.spark.SparkCatalog"
-    spark.sql.catalog.lakekeeper.type: "rest"
-    spark.sql.catalog.lakekeeper.uri: "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    spark.sql.catalog.lakekeeper.warehouse: "openfoundry"
-    spark.sql.catalog.lakekeeper.credential: "lakekeeper:s"
-    spark.sql.catalog.lakekeeper.oauth2-server-uri: "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
-    spark.sql.catalog.lakekeeper.scope: "openid"
-    spark.sql.defaultCatalog: "lakekeeper"
-    spark.hadoop.fs.s3a.endpoint: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"
-    spark.hadoop.fs.s3a.path.style.access: "true"
-    spark.executor.memoryOverhead: "768m"
-    spark.kubernetes.executor.deleteOnTermination: "false"
-    spark.sql.parquet.enableVectorizedReader: "false"
-    spark.sql.iceberg.vectorization.enabled: "false"
-    spark.driver.memoryOverhead: "256m"
-    spark.hadoop.fs.s3a.aws.credentials.provider: "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: online-retail-clean
+data:
+  plan.json: |
+    {
+      "pipeline_id": "online-retail-clean",
+      "run_id": "001",
+      "ops": [
+        {
+          "id": "src",
+          "kind": "read_table",
+          "read_table": {"catalog": "lakekeeper", "namespace": "default", "table": "online_retail_raw"}
+        },
+        {
+          "id": "f1",
+          "kind": "filter",
+          "inputs": ["src"],
+          "filter": {"expr": "quantity > 0 AND price > 0"}
+        },
+        {
+          "id": "p1",
+          "kind": "project",
+          "inputs": ["f1"],
+          "project": {
+            "columns": [
+              {"name": "invoice"},
+              {"name": "stockcode"},
+              {"name": "description"},
+              {"name": "quantity"},
+              {"name": "invoice_date"},
+              {"name": "price"},
+              {"name": "customer_id"},
+              {"name": "country"},
+              {"name": "revenue", "expr": "quantity * price"}
+            ]
+          }
+        },
+        {
+          "id": "sink",
+          "kind": "write_table",
+          "inputs": ["p1"],
+          "write_table": {"catalog": "lakekeeper", "namespace": "default", "table": "transactions_clean", "mode": "create_or_replace"}
+        }
+      ]
+    }
 ---
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: poc-returns
+  name: pipeline-online-retail-clean
   namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: online-retail-clean
 spec:
-  type: Scala
-  mode: cluster
-  image: localhost:5001/pipeline-runner:dev-003148
-  imagePullPolicy: IfNotPresent
-  mainClass: "com.openfoundry.pipeline.PipelineRunner"
-  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
-  arguments:
-    - "--pipeline-id"
-    - "online-retail-returns"
-    - "--run-id"
-    - "001"
-    - "--input-dataset"
-    - "lakekeeper.default.online_retail_raw"
-    - "--output-dataset"
-    - "lakekeeper.default.returns"
-    - "--catalog"
-    - "lakekeeper"
-    - "--catalog-uri"
-    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    - "--inline-format"
-    - "iceberg"
-    - "--inline-sql"
-    - >-
-      SELECT
-        CONCAT(invoice, '_', stockcode) AS transaction_id,
-        invoice, stockcode, description, quantity,
-        invoice_date, price, customer_id, country,
-        CAST(quantity * price AS DOUBLE) AS revenue
-      FROM lakekeeper.default.online_retail_raw
-      WHERE quantity < 0
-  sparkVersion: "3.5.4"
-  restartPolicy: { type: Never }
-  timeToLiveSeconds: 1800
-  driver:
-    cores: 1
-    coreRequest: 200m
-    memory: 512m
-    serviceAccount: spark
-    env:
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_ACCESS_KEY_ID
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_SECRET_ACCESS_KEY
-  executor:
-    cores: 1
-    coreRequest: 200m
-    instances: 1
-    memory: "3g"
-    env:
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_ACCESS_KEY_ID
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_SECRET_ACCESS_KEY
-  sparkConf:
-    spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
-    spark.sql.catalog.lakekeeper: org.apache.iceberg.spark.SparkCatalog
-    spark.sql.catalog.lakekeeper.type: rest
-    spark.sql.catalog.lakekeeper.uri: http://lakekeeper.lakekeeper.svc:8181/catalog
-    spark.sql.catalog.lakekeeper.warehouse: openfoundry
-    spark.sql.catalog.lakekeeper.credential: lakekeeper:s
-    spark.sql.catalog.lakekeeper.oauth2-server-uri: http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token
-    spark.sql.catalog.lakekeeper.scope: openid
-    spark.sql.defaultCatalog: lakekeeper
-    spark.hadoop.fs.s3a.endpoint: http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80
-    spark.hadoop.fs.s3a.path.style.access: 'true'
-    spark.executor.memoryOverhead: "768m"
-    spark.kubernetes.executor.deleteOnTermination: "false"
-    spark.sql.parquet.enableVectorizedReader: "false"
-    spark.sql.iceberg.vectorization.enabled: "false"
-    spark.driver.memoryOverhead: "256m"
-    spark.hadoop.fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        openfoundry.io/component: pipeline-runner
+        openfoundry.io/pipeline-id: online-retail-clean
+    spec:
+      restartPolicy: Never
+      serviceAccountName: pipeline-runner
+      volumes:
+        - name: plan
+          configMap:
+            name: pipeline-online-retail-clean
+      containers:
+        - name: pipeline-runner
+          image: registry.registry.svc.cluster.local:5000/openfoundry/pipeline-runner:0.1.0
+          imagePullPolicy: Always
+          args:
+            - "--pipeline-id"
+            - "online-retail-clean"
+            - "--run-id"
+            - "001"
+            - "--input-dataset"
+            - "lakekeeper.default.online_retail_raw"
+            - "--output-dataset"
+            - "lakekeeper.default.transactions_clean"
+            - "--catalog-uri"
+            - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+            - "--catalog-warehouse"
+            - "openfoundry"
+            - "--catalog-credential"
+            - "lakekeeper:s"
+            - "--oauth-token-uri"
+            - "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+            - "--oauth-scope"
+            - "openid"
+            - "--table-writer-url"
+            - "http://iceberg-catalog-service.openfoundry.svc:8080"
+            - "--plan-file"
+            - "/etc/pipeline/plan.json"
+            - "--log-format"
+            - "json"
+          volumeMounts:
+            - name: plan
+              mountPath: /etc/pipeline
+              readOnly: true
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID,     optional: true}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY, optional: true}}}
+            - {name: AWS_REGION, value: "us-east-1"}
+            - {name: AWS_S3_FORCE_PATH_STYLE, value: "true"}
+            - {name: AWS_ENDPOINT_URL_S3, value: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"}
+          ports:
+            - {name: metrics, containerPort: 9090, protocol: TCP}
+          resources:
+            requests: {cpu: "200m", memory: "256Mi"}
+            limits:   {cpu: "1",    memory: "1Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: {drop: ["ALL"]}
 ---
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
+# =====================================================================
+# 2. online-retail-returns
+#    Same projection as #1 but keeps the negative-quantity rows.
+# =====================================================================
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: poc-customer-metrics
+  name: pipeline-online-retail-returns
   namespace: openfoundry
-spec:
-  type: Scala
-  mode: cluster
-  image: localhost:5001/pipeline-runner:dev-003148
-  imagePullPolicy: IfNotPresent
-  mainClass: "com.openfoundry.pipeline.PipelineRunner"
-  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
-  arguments:
-    - "--pipeline-id"
-    - "online-retail-cust"
-    - "--run-id"
-    - "001"
-    - "--input-dataset"
-    - "lakekeeper.default.transactions_clean"
-    - "--output-dataset"
-    - "lakekeeper.default.customer_metrics"
-    - "--catalog"
-    - "lakekeeper"
-    - "--catalog-uri"
-    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    - "--inline-format"
-    - "iceberg"
-    - "--inline-sql"
-    - >-
-      SELECT
-        customer_id,
-        SUM(revenue) AS total_revenue,
-        COUNT(DISTINCT invoice) AS num_orders,
-        COUNT(DISTINCT country) AS num_countries
-      FROM lakekeeper.default.transactions_clean
-      GROUP BY customer_id
-  sparkVersion: "3.5.4"
-  restartPolicy: { type: Never }
-  timeToLiveSeconds: 1800
-  driver:
-    cores: 1
-    coreRequest: 200m
-    memory: 512m
-    serviceAccount: spark
-    env:
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_ACCESS_KEY_ID
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_SECRET_ACCESS_KEY
-  executor:
-    cores: 1
-    coreRequest: 200m
-    instances: 1
-    memory: "3g"
-    env:
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_ACCESS_KEY_ID
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_SECRET_ACCESS_KEY
-  sparkConf:
-    spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
-    spark.sql.catalog.lakekeeper: org.apache.iceberg.spark.SparkCatalog
-    spark.sql.catalog.lakekeeper.type: rest
-    spark.sql.catalog.lakekeeper.uri: http://lakekeeper.lakekeeper.svc:8181/catalog
-    spark.sql.catalog.lakekeeper.warehouse: openfoundry
-    spark.sql.catalog.lakekeeper.credential: lakekeeper:s
-    spark.sql.catalog.lakekeeper.oauth2-server-uri: http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token
-    spark.sql.catalog.lakekeeper.scope: openid
-    spark.sql.defaultCatalog: lakekeeper
-    spark.hadoop.fs.s3a.endpoint: http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80
-    spark.hadoop.fs.s3a.path.style.access: 'true'
-    spark.executor.memoryOverhead: "768m"
-    spark.kubernetes.executor.deleteOnTermination: "false"
-    spark.sql.parquet.enableVectorizedReader: "false"
-    spark.sql.iceberg.vectorization.enabled: "false"
-    spark.driver.memoryOverhead: "256m"
-    spark.hadoop.fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: online-retail-returns
+data:
+  plan.json: |
+    {
+      "pipeline_id": "online-retail-returns",
+      "run_id": "001",
+      "ops": [
+        {
+          "id": "src",
+          "kind": "read_table",
+          "read_table": {"catalog": "lakekeeper", "namespace": "default", "table": "online_retail_raw"}
+        },
+        {
+          "id": "f1",
+          "kind": "filter",
+          "inputs": ["src"],
+          "filter": {"expr": "quantity < 0"}
+        },
+        {
+          "id": "p1",
+          "kind": "project",
+          "inputs": ["f1"],
+          "project": {
+            "columns": [
+              {"name": "invoice"},
+              {"name": "stockcode"},
+              {"name": "description"},
+              {"name": "quantity"},
+              {"name": "invoice_date"},
+              {"name": "price"},
+              {"name": "customer_id"},
+              {"name": "country"},
+              {"name": "revenue", "expr": "quantity * price"}
+            ]
+          }
+        },
+        {
+          "id": "sink",
+          "kind": "write_table",
+          "inputs": ["p1"],
+          "write_table": {"catalog": "lakekeeper", "namespace": "default", "table": "transactions_returns", "mode": "create_or_replace"}
+        }
+      ]
+    }
 ---
-apiVersion: sparkoperator.k8s.io/v1beta2
-kind: SparkApplication
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: poc-transactions-anomalies
+  name: pipeline-online-retail-returns
   namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: online-retail-returns
 spec:
-  type: Scala
-  mode: cluster
-  image: localhost:5001/pipeline-runner:dev-003148
-  imagePullPolicy: IfNotPresent
-  mainClass: "com.openfoundry.pipeline.PipelineRunner"
-  mainApplicationFile: "local:///opt/spark/jars/pipeline-runner-spark.jar"
-  arguments:
-    - "--pipeline-id"
-    - "online-retail-anomalies"
-    - "--run-id"
-    - "001"
-    - "--input-dataset"
-    - "lakekeeper.default.transactions_clean"
-    - "--output-dataset"
-    - "lakekeeper.default.transactions_anomalies"
-    - "--catalog"
-    - "lakekeeper"
-    - "--catalog-uri"
-    - "http://lakekeeper.lakekeeper.svc:8181/catalog"
-    - "--inline-format"
-    - "iceberg"
-    - "--inline-sql"
-    - >-
-      WITH stats AS (
-        SELECT AVG(revenue) AS mean_rev, STDDEV(revenue) AS std_rev
-        FROM lakekeeper.default.transactions_clean
-      )
-      SELECT
-        t.transaction_id,
-        t.invoice, t.stockcode, t.description, t.quantity,
-        t.invoice_date, t.price, t.customer_id, t.country,
-        t.revenue,
-        CAST(((t.revenue - s.mean_rev) / NULLIF(s.std_rev, 0)) AS DOUBLE) AS revenue_zscore,
-        CAST(ABS((t.revenue - s.mean_rev) / NULLIF(s.std_rev, 0)) > 3.0 AS BOOLEAN) AS is_anomaly,
-        CAST('pending' AS STRING) AS review_status
-      FROM lakekeeper.default.transactions_clean t
-      CROSS JOIN stats s
-  sparkVersion: "3.5.4"
-  restartPolicy: { type: Never }
-  timeToLiveSeconds: 1800
-  driver:
-    cores: 1
-    coreRequest: 200m
-    memory: 512m
-    serviceAccount: spark
-    env:
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_ACCESS_KEY_ID
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_SECRET_ACCESS_KEY
-  executor:
-    cores: 1
-    coreRequest: 200m
-    instances: 1
-    memory: "3g"
-    env:
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_ACCESS_KEY_ID
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: openfoundry-iceberg
-          key: AWS_SECRET_ACCESS_KEY
-  sparkConf:
-    spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
-    spark.sql.catalog.lakekeeper: org.apache.iceberg.spark.SparkCatalog
-    spark.sql.catalog.lakekeeper.type: rest
-    spark.sql.catalog.lakekeeper.uri: http://lakekeeper.lakekeeper.svc:8181/catalog
-    spark.sql.catalog.lakekeeper.warehouse: openfoundry
-    spark.sql.catalog.lakekeeper.credential: lakekeeper:s
-    spark.sql.catalog.lakekeeper.oauth2-server-uri: http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token
-    spark.sql.catalog.lakekeeper.scope: openid
-    spark.sql.defaultCatalog: lakekeeper
-    spark.hadoop.fs.s3a.endpoint: http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80
-    spark.hadoop.fs.s3a.path.style.access: 'true'
-    spark.executor.memoryOverhead: "768m"
-    spark.kubernetes.executor.deleteOnTermination: "false"
-    spark.sql.parquet.enableVectorizedReader: "false"
-    spark.sql.iceberg.vectorization.enabled: "false"
-    spark.driver.memoryOverhead: "256m"
-    spark.hadoop.fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        openfoundry.io/component: pipeline-runner
+        openfoundry.io/pipeline-id: online-retail-returns
+    spec:
+      restartPolicy: Never
+      serviceAccountName: pipeline-runner
+      volumes:
+        - name: plan
+          configMap:
+            name: pipeline-online-retail-returns
+      containers:
+        - name: pipeline-runner
+          image: registry.registry.svc.cluster.local:5000/openfoundry/pipeline-runner:0.1.0
+          imagePullPolicy: Always
+          args:
+            - "--pipeline-id"
+            - "online-retail-returns"
+            - "--run-id"
+            - "001"
+            - "--input-dataset"
+            - "lakekeeper.default.online_retail_raw"
+            - "--output-dataset"
+            - "lakekeeper.default.transactions_returns"
+            - "--catalog-uri"
+            - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+            - "--catalog-warehouse"
+            - "openfoundry"
+            - "--catalog-credential"
+            - "lakekeeper:s"
+            - "--oauth-token-uri"
+            - "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+            - "--oauth-scope"
+            - "openid"
+            - "--table-writer-url"
+            - "http://iceberg-catalog-service.openfoundry.svc:8080"
+            - "--plan-file"
+            - "/etc/pipeline/plan.json"
+            - "--log-format"
+            - "json"
+          volumeMounts:
+            - name: plan
+              mountPath: /etc/pipeline
+              readOnly: true
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID,     optional: true}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY, optional: true}}}
+            - {name: AWS_REGION, value: "us-east-1"}
+            - {name: AWS_S3_FORCE_PATH_STYLE, value: "true"}
+            - {name: AWS_ENDPOINT_URL_S3, value: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"}
+          ports:
+            - {name: metrics, containerPort: 9090, protocol: TCP}
+          resources:
+            requests: {cpu: "200m", memory: "256Mi"}
+            limits:   {cpu: "1",    memory: "1Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: {drop: ["ALL"]}
 ---
+# =====================================================================
+# 3. online-retail-cust  (customer-metrics)
+#    Aggregates cleaned transactions by customer_id with sum(revenue)
+#    and count_distinct(invoice). Phase C.3 promoted `aggregate` to
+#    `available` so this pipeline runs on the Go runtime end-to-end.
+# =====================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeline-online-retail-cust
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: online-retail-cust
+data:
+  plan.json: |
+    {
+      "pipeline_id": "online-retail-cust",
+      "run_id": "001",
+      "ops": [
+        {
+          "id": "src",
+          "kind": "read_table",
+          "read_table": {"catalog": "lakekeeper", "namespace": "default", "table": "transactions_clean"}
+        },
+        {
+          "id": "agg",
+          "kind": "aggregate",
+          "inputs": ["src"],
+          "aggregate": {
+            "group_by": ["customer_id"],
+            "aggregations": [
+              {"function": "sum",            "source_column": "revenue", "target_column": "total_revenue"},
+              {"function": "count_distinct", "source_column": "invoice", "target_column": "num_orders"},
+              {"function": "count_distinct", "source_column": "country", "target_column": "num_countries"}
+            ]
+          }
+        },
+        {
+          "id": "sink",
+          "kind": "write_table",
+          "inputs": ["agg"],
+          "write_table": {"catalog": "lakekeeper", "namespace": "default", "table": "customer_metrics", "mode": "create_or_replace"}
+        }
+      ]
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pipeline-online-retail-cust
+  namespace: openfoundry
+  labels:
+    openfoundry.io/component: pipeline-runner
+    openfoundry.io/pipeline-id: online-retail-cust
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        openfoundry.io/component: pipeline-runner
+        openfoundry.io/pipeline-id: online-retail-cust
+    spec:
+      restartPolicy: Never
+      serviceAccountName: pipeline-runner
+      volumes:
+        - name: plan
+          configMap:
+            name: pipeline-online-retail-cust
+      containers:
+        - name: pipeline-runner
+          image: registry.registry.svc.cluster.local:5000/openfoundry/pipeline-runner:0.1.0
+          imagePullPolicy: Always
+          args:
+            - "--pipeline-id"
+            - "online-retail-cust"
+            - "--run-id"
+            - "001"
+            - "--input-dataset"
+            - "lakekeeper.default.transactions_clean"
+            - "--output-dataset"
+            - "lakekeeper.default.customer_metrics"
+            - "--catalog-uri"
+            - "http://lakekeeper.lakekeeper.svc:8181/catalog"
+            - "--catalog-warehouse"
+            - "openfoundry"
+            - "--catalog-credential"
+            - "lakekeeper:s"
+            - "--oauth-token-uri"
+            - "http://oidc-stub.lakekeeper.svc.cluster.local:8080/lakekeeper/token"
+            - "--oauth-scope"
+            - "openid"
+            - "--table-writer-url"
+            - "http://iceberg-catalog-service.openfoundry.svc:8080"
+            - "--plan-file"
+            - "/etc/pipeline/plan.json"
+            - "--log-format"
+            - "json"
+          volumeMounts:
+            - name: plan
+              mountPath: /etc/pipeline
+              readOnly: true
+          env:
+            - {name: AWS_ACCESS_KEY_ID,     valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_ACCESS_KEY_ID,     optional: true}}}
+            - {name: AWS_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: openfoundry-iceberg, key: AWS_SECRET_ACCESS_KEY, optional: true}}}
+            - {name: AWS_REGION, value: "us-east-1"}
+            - {name: AWS_S3_FORCE_PATH_STYLE, value: "true"}
+            - {name: AWS_ENDPOINT_URL_S3, value: "http://rook-ceph-rgw-openfoundry-store.rook-ceph.svc:80"}
+          ports:
+            - {name: metrics, containerPort: 9090, protocol: TCP}
+          resources:
+            requests: {cpu: "200m", memory: "256Mi"}
+            limits:   {cpu: "1",    memory: "1Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: {drop: ["ALL"]}

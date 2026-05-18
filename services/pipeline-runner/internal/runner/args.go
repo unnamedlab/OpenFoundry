@@ -42,6 +42,13 @@ type Args struct {
 	// (matches the dev secret used by the Phase B sinks).
 	InternalToken string
 
+	// PlanFile points at a JSON file containing the
+	// pipelineplan.Plan. Dev YAMLs (infra/dev/*.yaml, Phase C.6)
+	// prefer this shape over the dispatcher's PIPELINE_PLAN_B64
+	// env var because a ConfigMap-mounted file stays
+	// human-readable in `kubectl describe configmap`.
+	PlanFile string
+
 	// Smoke skips the Plan execution: validates the Plan only.
 	Smoke bool
 
@@ -71,6 +78,7 @@ func ParseArgs(argv []string) (Args, error) {
 			"--catalog-uri", "--catalog-warehouse", "--catalog-credential",
 			"--oauth-token-uri", "--oauth-scope",
 			"--table-writer-url", "--internal-token",
+			"--plan-file",
 			"--health-addr", "--log-format":
 			if i+1 >= len(argv) {
 				return Args{}, fmt.Errorf("flag %s requires a value", arg)
@@ -99,6 +107,8 @@ func ParseArgs(argv []string) (Args, error) {
 				a.TableWriterURL = val
 			case "--internal-token":
 				a.InternalToken = val
+			case "--plan-file":
+				a.PlanFile = val
 			case "--health-addr":
 				a.HealthAddr = val
 			case "--log-format":
