@@ -131,6 +131,8 @@ type SearchKnowledgeBaseResponse struct {
 	Query           string                  `json:"query"`
 	Results         []KnowledgeSearchResult `json:"results"`
 	RetrievedAt     time.Time               `json:"retrieved_at"`
+	SearchProvider  string                  `json:"search_provider,omitempty"`
+	SearchMode      string                  `json:"search_mode,omitempty"`
 }
 
 const (

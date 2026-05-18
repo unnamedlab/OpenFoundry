@@ -81,6 +81,8 @@ func TestKnowledgeHandlers_CRUDSearchDeleteWithInjectedStores(t *testing.T) {
 	var kb models.KnowledgeBase
 	require.NoError(t, json.NewDecoder(createKBW.Body).Decode(&kb))
 	assert.Equal(t, "Ops KB", kb.Name)
+	assert.Zero(t, kb.DocumentCount)
+	assert.Zero(t, kb.ChunkCount)
 	assert.Equal(t, models.DefaultEmbeddingProvider, kb.EmbeddingProvider)
 	assert.Equal(t, models.DefaultChunkingStrategy, kb.ChunkingStrategy)
 
@@ -105,6 +107,14 @@ func TestKnowledgeHandlers_CRUDSearchDeleteWithInjectedStores(t *testing.T) {
 	assert.Equal(t, "indexed", doc.Status)
 	require.NotEmpty(t, doc.Chunks)
 
+	getKBAfterDocW := httptest.NewRecorder()
+	h.GetKnowledgeBase(getKBAfterDocW, httptest.NewRequest(http.MethodGet, "/", nil), kb.ID)
+	require.Equal(t, http.StatusOK, getKBAfterDocW.Code)
+	var kbAfterDoc models.KnowledgeBase
+	require.NoError(t, json.NewDecoder(getKBAfterDocW.Body).Decode(&kbAfterDoc))
+	assert.Equal(t, int64(1), kbAfterDoc.DocumentCount)
+	assert.Equal(t, int64(doc.ChunkCount), kbAfterDoc.ChunkCount)
+
 	listDocsW := httptest.NewRecorder()
 	h.ListDocuments(listDocsW, httptest.NewRequest(http.MethodGet, "/", nil), kb.ID)
 	require.Equal(t, http.StatusOK, listDocsW.Code)
@@ -122,11 +132,21 @@ func TestKnowledgeHandlers_CRUDSearchDeleteWithInjectedStores(t *testing.T) {
 	var search models.SearchKnowledgeBaseResponse
 	require.NoError(t, json.NewDecoder(searchW.Body).Decode(&search))
 	require.NotEmpty(t, search.Results)
+	assert.Equal(t, "vector-store", search.SearchProvider)
+	assert.Equal(t, "vector", search.SearchMode)
 	assert.Equal(t, doc.ID, search.Results[0].DocumentID)
 
 	deleteDocW := httptest.NewRecorder()
 	h.DeleteDocument(deleteDocW, httptest.NewRequest(http.MethodDelete, "/", nil), kb.ID, doc.ID)
 	require.Equal(t, http.StatusOK, deleteDocW.Code)
+
+	getKBAfterDeleteDocW := httptest.NewRecorder()
+	h.GetKnowledgeBase(getKBAfterDeleteDocW, httptest.NewRequest(http.MethodGet, "/", nil), kb.ID)
+	require.Equal(t, http.StatusOK, getKBAfterDeleteDocW.Code)
+	var kbAfterDeleteDoc models.KnowledgeBase
+	require.NoError(t, json.NewDecoder(getKBAfterDeleteDocW.Body).Decode(&kbAfterDeleteDoc))
+	assert.Zero(t, kbAfterDeleteDoc.DocumentCount)
+	assert.Zero(t, kbAfterDeleteDoc.ChunkCount)
 
 	searchAfterDeleteW := httptest.NewRecorder()
 	h.SearchKnowledgeBase(searchAfterDeleteW, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"query":"scheduler queue lag","min_score":0}`)), kb.ID)
@@ -171,4 +191,35 @@ func TestSearchKnowledgeBase_DefaultsOnDecode(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"query":"hello"}`), &req))
 	assert.Equal(t, models.DefaultSearchTopK, req.TopK)
 	assert.Equal(t, models.DefaultSearchMinScore, req.MinScore)
+}
+
+func TestSearchKnowledgeBase_UsesPersistentDocumentFallbackWithoutVectorStore(t *testing.T) {
+	t.Parallel()
+	store := NewFakeKnowledgeStore()
+	h := &KnowledgeHandlers{Store: store}
+
+	kb, err := store.CreateKnowledgeBase(context.Background(), models.KnowledgeBase{
+		ID:                uuid.New(),
+		Name:              "Fallback KB",
+		Status:            models.DefaultKnowledgeStatus,
+		EmbeddingProvider: models.DefaultEmbeddingProvider,
+		ChunkingStrategy:  models.DefaultChunkingStrategy,
+	})
+	require.NoError(t, err)
+
+	createDocW := httptest.NewRecorder()
+	h.CreateDocument(createDocW, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"title":"Scheduler","content":"The scheduler queue lag runbook restarts workers after checking leases."}`)), kb.ID)
+	require.Equal(t, http.StatusOK, createDocW.Code)
+	var doc models.KnowledgeDocument
+	require.NoError(t, json.NewDecoder(createDocW.Body).Decode(&doc))
+
+	searchW := httptest.NewRecorder()
+	h.SearchKnowledgeBase(searchW, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"query":"queue lag leases","top_k":2,"min_score":0}`)), kb.ID)
+	require.Equal(t, http.StatusOK, searchW.Code)
+	var search models.SearchKnowledgeBaseResponse
+	require.NoError(t, json.NewDecoder(searchW.Body).Decode(&search))
+	require.NotEmpty(t, search.Results)
+	assert.Equal(t, "persistent-documents", search.SearchProvider)
+	assert.Equal(t, "deterministic-rag", search.SearchMode)
+	assert.Equal(t, doc.ID, search.Results[0].DocumentID)
 }

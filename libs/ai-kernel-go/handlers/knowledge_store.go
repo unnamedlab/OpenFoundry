@@ -16,8 +16,8 @@ import (
 )
 
 // KnowledgeStore is the persistence boundary for knowledge-base metadata and
-// documents. Handlers depend on this interface so tests and agent-runtime
-// follow-up wiring can use deterministic in-memory stores instead of Postgres.
+// documents. Handlers depend on this interface so production services can use
+// Postgres while tests can inject deterministic in-memory stores explicitly.
 type KnowledgeStore interface {
 	ListKnowledgeBases(ctx context.Context) ([]models.KnowledgeBase, error)
 	CreateKnowledgeBase(ctx context.Context, kb models.KnowledgeBase) (models.KnowledgeBase, error)
@@ -40,6 +40,10 @@ func (h *KnowledgeHandlers) knowledgeStore() KnowledgeStore {
 // PGKnowledgeStore implements KnowledgeStore on the ai_knowledge_* tables.
 type PGKnowledgeStore struct {
 	Pool *pgxpool.Pool
+}
+
+func NewPGKnowledgeStore(pool *pgxpool.Pool) *PGKnowledgeStore {
+	return &PGKnowledgeStore{Pool: pool}
 }
 
 func (s *PGKnowledgeStore) ListKnowledgeBases(ctx context.Context) ([]models.KnowledgeBase, error) {
@@ -119,9 +123,15 @@ func (s *PGKnowledgeStore) ListDocuments(ctx context.Context, knowledgeBaseID uu
 }
 
 func (s *PGKnowledgeStore) CreateDocument(ctx context.Context, doc models.KnowledgeDocument) (models.KnowledgeDocument, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return models.KnowledgeDocument{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	metadataJSON := jsonOrEmptyObject(rawMessagePtr(doc.Metadata))
 	chunksJSON, _ := json.Marshal(doc.Chunks)
-	row := s.Pool.QueryRow(ctx,
+	row := tx.QueryRow(ctx,
 		`INSERT INTO ai_knowledge_documents
               (id, knowledge_base_id, title, content, source_uri, metadata, status, chunk_count, chunks)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -131,11 +141,14 @@ func (s *PGKnowledgeStore) CreateDocument(ctx context.Context, doc models.Knowle
 	if err != nil {
 		return created, err
 	}
-	_, err = s.Pool.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`UPDATE ai_knowledge_bases
             SET document_count = document_count + 1, chunk_count = chunk_count + $2, updated_at = NOW()
           WHERE id = $1`, doc.KnowledgeBaseID, int64(doc.ChunkCount))
-	return created, err
+	if err != nil {
+		return created, err
+	}
+	return created, tx.Commit(ctx)
 }
 
 func (s *PGKnowledgeStore) GetDocument(ctx context.Context, knowledgeBaseID, documentID uuid.UUID) (*models.KnowledgeDocument, error) {
@@ -152,8 +165,14 @@ func (s *PGKnowledgeStore) GetDocument(ctx context.Context, knowledgeBaseID, doc
 }
 
 func (s *PGKnowledgeStore) DeleteDocument(ctx context.Context, knowledgeBaseID, documentID uuid.UUID) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var chunkCount int64
-	err := s.Pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`DELETE FROM ai_knowledge_documents WHERE knowledge_base_id = $1 AND id = $2 RETURNING chunk_count`, knowledgeBaseID, documentID).Scan(&chunkCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -161,13 +180,16 @@ func (s *PGKnowledgeStore) DeleteDocument(ctx context.Context, knowledgeBaseID, 
 	if err != nil {
 		return err
 	}
-	_, err = s.Pool.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`UPDATE ai_knowledge_bases
             SET document_count = GREATEST(document_count - 1, 0),
                 chunk_count = GREATEST(chunk_count - $2, 0),
                 updated_at = NOW()
           WHERE id = $1`, knowledgeBaseID, chunkCount)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // FakeKnowledgeStore is an in-memory KnowledgeStore for handler tests.

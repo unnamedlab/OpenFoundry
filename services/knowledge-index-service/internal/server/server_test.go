@@ -2,14 +2,17 @@ package server
 
 import (
 	"bytes"
-	"github.com/google/uuid"
-	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
-	"github.com/openfoundry/openfoundry-go/libs/observability"
-	"github.com/openfoundry/openfoundry-go/services/knowledge-index-service/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	aikernel "github.com/openfoundry/openfoundry-go/libs/ai-kernel-go/handlers"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/libs/observability"
+	"github.com/openfoundry/openfoundry-go/services/knowledge-index-service/internal/config"
 )
 
 func ptr(s string) *string { return &s }
@@ -26,7 +29,11 @@ func TestKnowledgeRoutesNo501(t *testing.T) {
 	cfg.Service.Version = "test"
 	cfg.JWT.Secret = "secret"
 	cfg.Server.Addr = "127.0.0.1:0"
-	srv, _ := New(cfg, observability.NewMetrics(), nil)
+	cfg.AllowFakeStore = true
+	srv, err := New(cfg, observability.NewMetrics(), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	tok := token(t, "secret")
 	req := httptest.NewRequest("GET", "/api/v1/ai/knowledge-bases", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -45,5 +52,32 @@ func TestKnowledgeRoutesNo501(t *testing.T) {
 	srv.httpServer.Handler.ServeHTTP(w, req)
 	if w.Code == 501 || w.Code >= 300 {
 		t.Fatalf("create status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestProductionWithoutDatabaseFails(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Service.Name = "knowledge"
+	cfg.Service.Version = "test"
+	cfg.JWT.Secret = "secret"
+	cfg.Server.Addr = "127.0.0.1:0"
+
+	_, err := New(cfg, observability.NewMetrics(), nil)
+	if err == nil {
+		t.Fatal("expected production wiring without database.url to fail")
+	}
+}
+
+func TestFakeStoreRequiresExplicitAllowFlag(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Service.Name = "knowledge"
+	cfg.Service.Version = "test"
+	cfg.JWT.Secret = "secret"
+	cfg.Server.Addr = "127.0.0.1:0"
+	cfg.Database.URL = "postgres://example"
+
+	_, err := New(cfg, observability.NewMetrics(), nil, WithKnowledgeStore(aikernel.NewFakeKnowledgeStore()))
+	if err == nil {
+		t.Fatal("expected injected fake store to require allow_fake_store=true")
 	}
 }

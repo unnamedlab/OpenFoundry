@@ -8,8 +8,8 @@ import (
 )
 
 // EmbedText produces a 12-dim normalised vector. Deterministic and
-// dependency-free — used as the dev/test signal until a real
-// embedding model is wired.
+// dependency-free — used by explicit dev/test stores and by the
+// persistent-document fallback when no external vector backend is configured.
 func EmbedText(content string) []float32 {
 	vector := make([]float32, 12)
 	vectorLen := len(vector)
