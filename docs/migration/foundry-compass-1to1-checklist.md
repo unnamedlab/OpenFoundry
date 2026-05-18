@@ -67,7 +67,7 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 - [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch)
 - [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog)
 - [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash)
-- [Propagate view requirements](https://www.palantir.com/docs/foundry/compass/propagation)
+- [Migrate from and disable "Propagate view requirements" setting](https://www.palantir.com/docs/foundry/platform-security-management/disabling-propagate-view-requirements/)
 
 ### Integrations
 
@@ -174,51 +174,90 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Trash and restore
 
-- [ ] `CMP.12` Trash workflow (`P0`, `todo`)
+- [x] `CMP.12` Trash workflow (`P0`, `done`)
   - Trash a resource (instead of hard-delete) with a configurable retention window (default 30 days).
   - Restore returns the resource to its original path; if the path is gone, restore goes to the project root with a banner.
-  - Docs: [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash).
+  - Implementation: `services/tenancy-organizations-service/internal/repo/migrations/0015_cmp12_trash_workflow.sql` adds `trash_retention_days`, `purge_after`, and original-placement columns to project, folder, and resource-binding trash rows. `DELETE /api/v1/ontology/projects/{id}` now soft-deletes projects instead of hard-deleting them.
+  - API behavior: `DELETE /api/v1/workspace/resources/{kind}/{id}` accepts optional `retention_days` (default `30`, bounded `1..3650`), stores the trash retention window, and updates the Compass search index with `compass.resource.trashed.v1`. `GET /api/v1/workspace/trash` returns retention metadata, `purge_after`, original placement IDs, and a restore-target status.
+  - Restore placement: `POST /api/v1/workspace/resources/{kind}/{id}/restore` returns `{ restored, restored_to_original_path, restored_to_project_id, restored_to_folder_id?, banner? }`. Folders restore to their original parent when it still exists and is not trashed; if the parent path is gone, they restore to the project root and the UI displays the returned banner.
+  - UI: project and project-folder Trash surfaces show retention/purge-after metadata, root-restore warnings, and restore banners from the API.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the Trash workflow contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace -run 'Trash|SoftDelete|Batch|Kind' -count=1`, `go test ./services/tenancy-organizations-service/internal/handlers -run 'Project|Folder|CMP|SG6' -count=1`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/projects/ProjectDetailPage.tsx src/routes/projects/ProjectFolderPage.tsx src/routes/projects/ProjectsListPage.tsx`, and `pnpm --filter @open-foundry/web check`.
+  - Docs: [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel). The older [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash) URL currently redirects to Palantir's 404 page.
 
-- [ ] `CMP.13` Hard delete with audit (`P0`, `todo`)
+- [x] `CMP.13` Hard delete with audit (`P0`, `done`)
   - Hard delete after retention or by admin action emits a marking-aware audit event listing dependents that were affected.
-  - Docs: [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash).
+  - Implementation: `PurgeTrashed` now locks the trashed row, captures a pre-delete snapshot, allows permanent delete only after `purge_after` unless the caller has the `admin` role, cleans directly affected workspace surface rows, folder-scope grants, and search-index rows in the same transaction, and emits `compass.resource.purged` to `audit.events.v1`.
+  - Audit payload: `libs/audit-trail` defines the Compass purge event with `resource_rid`, `project_rid`, `markings_at_event`, `resource_type`, `deleted_at`, `deleted_by`, `purged_by`, `retention_days`, `purge_after`, `purge_mode` (`retention_expired` or `admin_override`), and `affected_dependents`.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the hard-delete audit contract.
+  - Verification: `go test ./libs/audit-trail`, `go test ./services/tenancy-organizations-service/internal/workspace -run 'Trash|Purge|Audit|Kind' -count=1`.
+  - Docs: [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel). The older [Trash and restore](https://www.palantir.com/docs/foundry/compass/trash) URL currently redirects to Palantir's 404 page.
 
 ## Milestone B: links, favorites, propagation, audit, bulk
 
 ### Cross-resource links
 
-- [ ] `CMP.14` Reverse-reference graph (`P1`, `todo`)
+- [x] `CMP.14` Reverse-reference graph (`P1`, `done`)
   - For each resource, the registry tracks which other resources depend on it (e.g. a dashboard depends on a query depends on a dataset).
   - Surface "used by" in resource detail; warn on trash/move operations.
-  - Docs: [Resources, RIDs, and projects](https://www.palantir.com/docs/foundry/compass/resources).
+  - Implementation: `libs/core-models/resource` now declares `ReferenceTargets` per resource type and validates that every target type is registered. `FOUNDRY_QUERY`, `WORKSHOP_DASHBOARD`, and `FOUNDRY_WORKFLOW` are first-class registry entries so dashboard → query → dataset and workflow/pipeline dependencies can be represented instead of falling through to unknown types.
+  - Graph store/API: `services/tenancy-organizations-service/internal/repo/migrations/0016_cmp14_resource_references.sql` adds `compass_resource_references`, a directed edge table where `source` depends on `target`. `GET /api/v1/workspace/resources/{kind}/{id}/references` returns `{ depends_on, used_by }`; `PUT /api/v1/workspace/resources/{kind}/{id}/references` lets owning services/admins replace explicit upstream edges with self-edge and batch-size validation. The read path also derives edges from project resource bindings and `ontology_projects.references`.
+  - UI: `ResourceDetailsPanel` renders "Used by" and "Depends on" sections; `MoveDialog`, `ProjectDetailPage`, and `ProjectFolderPage` preflight the graph and warn when move/trash/purge actions may affect upstream or downstream resources.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the reverse-reference graph contract.
+  - Verification: `go test ./libs/core-models/resource`, `go test ./services/tenancy-organizations-service/internal/server ./services/tenancy-organizations-service/internal/workspace ./libs/core-models/resource`, and `pnpm --filter @open-foundry/web check`.
+  - Docs: [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/), [Compass overview](https://www.palantir.com/docs/foundry/compass/overview), [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel), [Projects & roles](https://www.palantir.com/docs/foundry/security/projects-and-roles). The older [Resources, RIDs, and projects](https://www.palantir.com/docs/foundry/compass/resources) URL currently redirects to Palantir's 404 page.
 
-- [ ] `CMP.15` Stable resource URLs (`P1`, `todo`)
+- [x] `CMP.15` Stable resource URLs (`P1`, `done`)
   - Every app's resource URL contains the RID and not a path slug; renames never invalidate links.
   - Optional human-readable slugs allowed only as visual sugar in the URL.
-  - Docs: [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation).
+  - Implementation: `apps/web/src/lib/compass/stableResourceUrls.ts` centralizes RID-based route construction. Project URLs are `/projects/{projectRid}[--slug]`; folder URLs are `/projects/{projectRid}[--slug]/folders/{folderRid}[--slug]`. Route parsing strips optional `--slug` suffixes before API calls, so renames only change visual sugar and never invalidate links.
+  - Routing: `apps/web/src/router.tsx` accepts canonical folder routes and keeps the legacy `/projects/{project}/{folder}` route working. `ProjectDetailPage` and `ProjectFolderPage` normalize RID/UUID route params before loading resources, while generated links in Home, Projects, Search, Recents, and breadcrumbs now use stable RID paths.
+  - Search/open-with: the frontend resource type registry uses RID templates for app open URLs and folder open-with targets now use `/projects/{project_rid}/folders/{rid}`. `0017_cmp15_stable_resource_urls.sql` rewrites existing Compass search-index `open_url` values to RID-based project/folder routes.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the stable resource URL contract.
+  - Verification: `pnpm --filter @open-foundry/web exec vitest run src/lib/compass/stableResourceUrls.test.ts`, `pnpm --filter @open-foundry/web exec eslint src/lib/compass/stableResourceUrls.ts src/lib/compass/stableResourceUrls.test.ts src/router.tsx src/lib/components/workspace/ProjectBreadcrumb.tsx src/lib/compass/resourceTypeRegistry.ts src/routes/projects/ProjectsListPage.tsx src/routes/projects/ProjectDetailPage.tsx src/routes/projects/ProjectFolderPage.tsx src/routes/recent/RecentPage.tsx src/routes/search/SearchPage.tsx src/routes/Home.tsx src/routes/ontology-manager/OntologyManagerPage.tsx`, and `go test ./services/tenancy-organizations-service/internal/workspace ./libs/core-models/resource`. `pnpm --filter @open-foundry/web check` was attempted twice but hung with no TypeScript output and was terminated to avoid leaving background compiler processes.
+  - Docs: [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/), [Filesystem Get Resource API](https://www.palantir.com/docs/foundry/api/filesystem-v2-resources/resources/get-resource/), [Use Project navigation panel](https://www.palantir.com/docs/foundry/compass/use-project-navigation-panel), [Move and share resources](https://www.palantir.com/docs/foundry/compass/move-and-share-resources/). The older [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation) URL currently redirects to Palantir's 404 page.
 
 ### Favorites and recents
 
-- [ ] `CMP.16` Favorites (`P1`, `todo`)
+- [x] `CMP.16` Favorites (`P1`, `done`)
   - Per-user favorites list with reorderable display and groups (e.g. "My ontologies", "Daily ops").
   - Synced across devices via the user profile store.
-  - Docs: [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation).
+  - Persistence/API: `0018_cmp16_favorites_profile.sql` extends `user_favorites` with `group_id`, `display_order`, and `updated_at`, adds `user_favorite_groups`, and keeps favorites keyed by `(user_id, resource_kind, resource_id)`. `/api/v1/workspace/favorites` remains backward-compatible with `{data:[...]}` while adding `groups`; new endpoints create/list groups and persist favorite/group ordering.
+  - UI: `/favorites` renders profile-synced resource shortcuts grouped by user-defined sections, supports group creation, move-to-group, reorder within groups, group reorder, and removal. The sidebar exposes Favorites, Quicksearch still consumes ordered favorites in jump-to mode, and Compass search rows can add resources with the star action.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the favorites profile contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace -run 'Favorite|Favorites' -count=1`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/favorites/FavoritesPage.tsx src/routes/search/SearchPage.tsx src/router.tsx src/lib/components/Sidebar.tsx src/lib/components/ui/Glyph.tsx`, and `git diff --check`.
+  - Docs: [Orientation and navigation](https://www.palantir.com/docs/foundry/getting-started/orientation-and-nav/), [Compass overview](https://www.palantir.com/docs/foundry/compass/overview), [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/). The older [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation) URL currently redirects to Palantir's 404 page.
 
-- [ ] `CMP.17` Recents (`P1`, `todo`)
+- [x] `CMP.17` Recents (`P1`, `done`)
   - Per-user recents list capped at N items (default 50), ordered by last-opened.
   - Recents respect permission revocations (a recent that became forbidden disappears).
-  - Docs: [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation).
+  - Backend: `resource_access_log` remains the per-user last-opened event stream written by best-effort `POST /api/v1/workspace/recents`. `GET /api/v1/workspace/recents` now evaluates `domain.ListAccessibleProjects`, deduplicates by `(resource_kind, resource_id)`, filters projects/folders/resource bindings/project-bound resources/search-indexed resources through current project visibility and trash state, sorts by `last_accessed_at DESC`, and applies `limit` after visibility filtering (`50` default, `500` maximum).
+  - UI: `/recent` renders the permission-filtered list with stable RID-based links for every supported resource kind, resolves labels when available, and Quicksearch jump-to continues to consume the same server-filtered recents API.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the recents profile contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace -run 'Recent|Recents|ResourceRID' -count=1`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/recent/RecentPage.tsx src/routes/search/SearchPage.tsx`, and `git diff --check`.
+  - Docs: [Orientation and navigation](https://www.palantir.com/docs/foundry/getting-started/orientation-and-nav/), [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Projects and resources](https://www.palantir.com/docs/foundry/getting-started/projects-and-resources/). The older [Cross-app navigation](https://www.palantir.com/docs/foundry/compass/navigation) URL currently redirects to Palantir's 404 page.
 
 ### Propagated view requirements
 
-- [ ] `CMP.18` Propagate view requirements toggle (`P1`, `todo`)
+- [x] `CMP.18` Propagate view requirements toggle (`P1`, `done`)
   - A project (or folder) can opt into "propagate view requirements", which copies its required markings/clearances down to all child resources on create.
   - Documented as deprecation-eligible; clear migration notes in the admin UI.
-  - Docs: [Propagate view requirements](https://www.palantir.com/docs/foundry/compass/propagation).
+  - Backend: migration `0019_cmp18_propagate_view_requirements.sql` adds the legacy project/folder toggle, disabled timestamp, and `view_requirement_marking_rids` snapshots for folders and project resource bindings. New folders inherit the nearest enabled folder requirement or the enabled project markings; resource bindings copy project markings on create. Existing descendants are intentionally left for `CMP.19`.
+  - API/UI: `PATCH /api/v1/projects/{id}/folders/{folder_id}/propagate-view-requirements` manages folder-level compatibility settings, while `PATCH /api/v1/projects/{id}` manages project-level settings. The Control Panel Projects page surfaces the legacy toggle with migration notes and blocks re-enable after disable.
+  - Compatibility rule: new projects default the setting off, disabled settings stamp `propagate_view_requirements_disabled_at`, and re-enabling after disable returns `409` with guidance to migrate to Markings.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the legacy propagation contract.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/models ./services/tenancy-organizations-service/internal/handlers ./services/tenancy-organizations-service/internal/server ./services/tenancy-organizations-service/internal/workspace -run 'CMP18|Propagate|OntologyProject|Folder|SearchIndex' -count=1`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/ontology.ts src/lib/api/tenancy.ts src/routes/control-panel/ProjectsPage.tsx`, and `git diff --check`.
+  - Docs: [Migrate from and disable "Propagate view requirements" setting](https://www.palantir.com/docs/foundry/platform-security-management/disabling-propagate-view-requirements/), [Guidance on removing markings](https://www.palantir.com/docs/foundry/building-pipelines/remove-markings/). The older [Propagate view requirements](https://www.palantir.com/docs/foundry/compass/propagation) URL currently redirects to Palantir's 404 page.
 
-- [ ] `CMP.19` Inheritance audit and re-propagation (`P1`, `todo`)
+- [x] `CMP.19` Inheritance audit and re-propagation (`P1`, `done`)
   - On policy change at a parent, propagate to descendants in the background with progress reporting; emit audit events.
-  - Docs: [Propagate view requirements](https://www.palantir.com/docs/foundry/compass/propagation).
+  - Backend: migration `0020_cmp19_view_requirement_propagation_jobs.sql` adds `compass_view_requirement_propagation_jobs` with `pending/running/succeeded/failed`, parent resource RID, target/previous marking snapshots, processed/changed folder and resource counts, timestamps, and error reporting.
+  - Re-propagation: project and folder propagation policy changes enqueue a background job after the parent update commits. Jobs update descendant folder `view_requirement_marking_rids`, refresh folder search-index entries, update project resource-binding snapshots for project-level jobs, and keep progress counters visible while they run.
+  - Audit: completed jobs emit marking-aware `compass.view_requirements.propagated` events through `audit.events.v1`, including the parent RID, job id, target/previous markings, changed counts, and a capped `affected_dependents` list.
+  - API/UI: `GET /api/v1/projects/{id}/propagate-view-requirements/jobs` and `GET /api/v1/projects/{id}/propagate-view-requirements/jobs/{job_id}` expose progress. The Control Panel Projects page lists recent propagation jobs below the legacy toggle.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the background propagation/audit contract.
+  - Verification: `go test ./libs/audit-trail ./services/tenancy-organizations-service/internal/models ./services/tenancy-organizations-service/internal/handlers ./services/tenancy-organizations-service/internal/server ./services/tenancy-organizations-service/internal/workspace -run 'CMP18|CMP19|Propagate|Propagation|OntologyProject|Folder|CompassView|SearchIndex' -count=1`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/tenancy.ts src/routes/control-panel/ProjectsPage.tsx`, and `git diff --check`.
+  - Docs: [Migrate from and disable "Propagate view requirements" setting](https://www.palantir.com/docs/foundry/platform-security-management/disabling-propagate-view-requirements/), [Guidance on removing markings](https://www.palantir.com/docs/foundry/building-pipelines/remove-markings/). The older [Propagate view requirements](https://www.palantir.com/docs/foundry/compass/propagation) URL currently redirects to Palantir's 404 page.
 
 ### Audit and bulk operations
 

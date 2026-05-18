@@ -1,0 +1,34 @@
+# Defaults shipped inside the container image.
+# Override per-environment via CONFIG_FILE or OF_* env vars.
+
+service:
+  name: function-runtime-service
+  version: 0.1.0
+
+server:
+  addr: ":50190"
+  shutdown_timeout: 15s
+
+jwt:
+  # In production the secret comes from a Kubernetes Secret mounted
+  # as OF_JWT__SECRET, never from this file.
+  secret: ""
+  issuer: "https://auth.openfoundry.local"
+  audience: "openfoundry"
+
+database:
+  # In production, this is set via OF_DATABASE__URL.
+  # Empty value disables Postgres-backed repo and falls back to the
+  # in-memory store (suitable only for local dev / tests).
+  url: ""
+
+executor:
+  default_timeout: 30s
+  max_timeout: 5m
+  memory_limit_mib: 256
+  node_binary: ""    # resolved from $PATH when empty
+  python_binary: ""  # resolved from $PATH when empty
+
+telemetry:
+  otlp_endpoint: "localhost:4317"
+  log_format: "plain"

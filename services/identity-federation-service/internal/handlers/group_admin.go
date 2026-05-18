@@ -56,6 +56,9 @@ func (h *RBAC) SearchGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.OrganizationID = &parsed
 	}
+	if !h.allowGroupDiscovery(w, r, filter.OrganizationID) {
+		return
+	}
 
 	items, total, err := h.Repo.ListGroupsFiltered(r.Context(), filter)
 	if err != nil {
@@ -81,6 +84,9 @@ func (h *RBAC) InspectGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if group == nil {
 		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowGroupDiscovery(w, r, group.OrganizationID) {
 		return
 	}
 	direct, expiring, err := h.Repo.CountGroupMembers(r.Context(), id)
@@ -120,6 +126,18 @@ func (h *RBAC) ListGroupMembers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	group, err := h.Repo.GetGroup(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if group == nil {
+		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowGroupDiscovery(w, r, group.OrganizationID) {
+		return
+	}
 	items, err := h.Repo.ListGroupMembers(r.Context(), id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -133,6 +151,18 @@ func (h *RBAC) ListGroupMembers(w http.ResponseWriter, r *http.Request) {
 func (h *RBAC) ListGroupAdmins(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)
 	if !ok {
+		return
+	}
+	group, err := h.Repo.GetGroup(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if group == nil {
+		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowGroupDiscovery(w, r, group.OrganizationID) {
 		return
 	}
 	admins, err := h.Repo.ListGroupAdmins(r.Context(), id)
@@ -200,6 +230,18 @@ func (h *RBAC) ListGroupParents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	group, err := h.Repo.GetGroup(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if group == nil {
+		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowGroupDiscovery(w, r, group.OrganizationID) {
+		return
+	}
 	items, err := h.Repo.ListGroupParents(r.Context(), id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -211,6 +253,18 @@ func (h *RBAC) ListGroupParents(w http.ResponseWriter, r *http.Request) {
 func (h *RBAC) ListGroupChildren(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(w, r)
 	if !ok {
+		return
+	}
+	group, err := h.Repo.GetGroup(r.Context(), id)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if group == nil {
+		writeJSONErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !h.allowGroupDiscovery(w, r, group.OrganizationID) {
 		return
 	}
 	items, err := h.Repo.ListGroupChildren(r.Context(), id)

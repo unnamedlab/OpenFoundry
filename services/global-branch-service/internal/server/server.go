@@ -1,7 +1,12 @@
 // Package server wires the HTTP router, observability and graceful
-// shutdown for the global-branch-service stub. New product routes go
-// through mountAPIRoutes and currently all answer 501 via
-// handler.NotImplemented.
+// shutdown for the global-branch-service.
+//
+// Routes implement the Global Branching Milestone A surface:
+// lifecycle CRUD on global branches + per-service participation
+// management. The legacy /api/v1/code-repos/.../branches paths owned
+// by code-repository-review-service are NOT mounted here — the
+// gateway routing for them will switch over in a follow-up PR (see
+// internal/README.md).
 package server
 
 import (
@@ -29,31 +34,17 @@ type Server struct {
 }
 
 // New builds a Server with all middleware and routes mounted.
-func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
+//
+// Passing h == nil keeps only the public surface mounted (health,
+// metrics, capability catalog) so the pod stays bootable in smoke
+// configurations without a Postgres DSN. Product routes appear on
+// the catalog only when the handlers are wired.
+func New(cfg *config.Config, h *handler.Handlers, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
 	jwtCfg := authmw.NewJWTConfig(cfg.JWT.Secret).
 		WithIssuer(cfg.JWT.Issuer).
 		WithAudience(cfg.JWT.Audience)
 
-	r := chi.NewRouter()
-	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
-	r.Use(chimw.Recoverer)
-	r.Use(chimw.Compress(5))
-	r.Use(chimw.Timeout(30 * time.Second))
-
-	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
-
-	// Public endpoints (no auth).
-	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
-	r.Method(http.MethodGet, "/metrics", metrics.Handler())
-	for _, p := range probes {
-		caps.RegisterDependency(p)
-	}
-	caps.Mount(r)
-
-	// Authenticated API mount.
-	api := r.With(authmw.Middleware(jwtCfg))
-	mountAPIRoutes(api, caps)
+	r := BuildRouter(cfg, h, metrics, jwtCfg, probes...)
 
 	s := &Server{
 		cfg: cfg,
@@ -65,6 +56,37 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, p
 		},
 	}
 	return s, nil
+}
+
+// BuildRouter assembles the chi router with middleware, capabilities,
+// and product routes. Exposed so handler tests can spin up an
+// httptest.Server pointing at the same routing logic.
+func BuildRouter(cfg *config.Config, h *handler.Handlers, metrics *observability.Metrics, jwtCfg *authmw.JWTConfig, probes ...capabilities.DependencyProbe) http.Handler {
+	r := chi.NewRouter()
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.Recoverer)
+	r.Use(chimw.Compress(5))
+	r.Use(chimw.Timeout(30 * time.Second))
+
+	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+
+	// Public endpoints (no auth).
+	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
+	if metrics != nil {
+		r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	}
+	for _, p := range probes {
+		caps.RegisterDependency(p)
+	}
+	caps.Mount(r)
+
+	if h != nil {
+		api := r.With(authmw.Middleware(jwtCfg))
+		mountAPIRoutes(api, caps, h)
+	}
+
+	return r
 }
 
 // Run blocks until the listener returns or ctx is cancelled.
@@ -97,39 +119,96 @@ func (s *Server) shutdown() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// mountAPIRoutes registers every product route. All endpoints are
-// stubs returning 501 (handler.NotImplemented); they exist so the edge
-// gateway has an upstream to route to instead of 502'ing.
-//
-// Routes mirror the gateway selector
-// (services/edge-gateway-service/internal/proxy/router_table.go:285-287),
-// which sends `/api/v1/code-repos/repositories/{repository}/branches`
-// to this upstream. The catch-all on the same prefix covers nested
-// branch endpoints (e.g. `.../branches/{branch}` once added).
-func mountAPIRoutes(r chi.Router, caps *capabilities.Registry) {
+// mountAPIRoutes registers every product route. Every endpoint requires
+// authentication and tenant scope (claims.OrgID).
+func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, h *handler.Handlers) {
 	caps.MustRegister(r, capabilities.Capability{
-		ID:           "global-branch.repository-branches.list",
-		Method:       http.MethodGet,
-		Path:         "/api/v1/code-repos/repositories/{repository}/branches",
-		Stable:       false,
-		RequiresAuth: true,
-		Summary:      "List branches for a code repository (stub — returns 501).",
-		Tags:         []string{"global-branching", "code-repos", "stub"},
-	}, handler.NotImplemented())
-
-	caps.MustRegister(r, capabilities.Capability{
-		ID:           "global-branch.repository-branches.create",
+		ID:           "global-branch.branches.create",
 		Method:       http.MethodPost,
-		Path:         "/api/v1/code-repos/repositories/{repository}/branches",
+		Path:         "/api/v1/global-branches",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Create a global branch coordinating local branches across services.",
+		Tags:         []string{"global-branching"},
+	}, http.HandlerFunc(h.CreateBranch))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.branches.list",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/global-branches",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "List the caller-tenant's global branches, optionally filtered by status.",
+		Tags:         []string{"global-branching"},
+	}, http.HandlerFunc(h.ListBranches))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.branches.get",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/global-branches/{id}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Fetch a global branch by id.",
+		Tags:         []string{"global-branching"},
+	}, http.HandlerFunc(h.GetBranch))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.branches.update",
+		Method:       http.MethodPatch,
+		Path:         "/api/v1/global-branches/{id}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Update branch metadata (name, description).",
+		Tags:         []string{"global-branching"},
+	}, http.HandlerFunc(h.UpdateBranch))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.branches.abandon",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/global-branches/{id}/abandon",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Abandon an open branch (terminal state).",
+		Tags:         []string{"global-branching", "lifecycle"},
+	}, http.HandlerFunc(h.AbandonBranch))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.branches.merge",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/global-branches/{id}/merge",
 		Stable:       false,
 		RequiresAuth: true,
-		Summary:      "Create a branch on a code repository (stub — returns 501).",
-		Tags:         []string{"global-branching", "code-repos", "stub"},
-	}, handler.NotImplemented())
+		Summary:      "Trigger the coordinated merge across participating services.",
+		Tags:         []string{"global-branching", "lifecycle"},
+	}, http.HandlerFunc(h.MergeBranch))
 
-	// Catch-all under the same prefix so anything the gateway forwards
-	// (current shape: `/api/v1/code-repos/repositories/{id}/branches`,
-	// future nested paths) consistently answers 501 instead of 404.
-	r.HandleFunc("/api/v1/code-repos/repositories/{repository}/branches", handler.NotImplemented())
-	r.HandleFunc("/api/v1/code-repos/repositories/{repository}/branches/*", handler.NotImplemented())
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.participants.add",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/global-branches/{id}/participants",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Register a service participation on a global branch.",
+		Tags:         []string{"global-branching", "participation"},
+	}, http.HandlerFunc(h.AddParticipant))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.participants.remove",
+		Method:       http.MethodDelete,
+		Path:         "/api/v1/global-branches/{id}/participants/{service}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Remove a service participation from a global branch.",
+		Tags:         []string{"global-branching", "participation"},
+	}, http.HandlerFunc(h.RemoveParticipant))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "global-branch.participants.list",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/global-branches/{id}/participants",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "List participations enrolled on a global branch.",
+		Tags:         []string{"global-branching", "participation"},
+	}, http.HandlerFunc(h.ListParticipants))
 }

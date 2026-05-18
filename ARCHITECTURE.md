@@ -137,6 +137,45 @@ and must not drift:
   builds the standard project/folder path from current resource metadata,
   links every ancestor to its open location, and exposes copy-RID actions for
   project and folder crumbs).
+- Compass trash workflow
+  (`services/tenancy-organizations-service/internal/workspace` soft-deletes
+  project, folder, and resource-binding rows with `trash_retention_days` and
+  `purge_after`; restore keeps the original placement when possible and
+  returns a banner when a folder must be restored to the project root).
+- Compass hard delete audit
+  (`PurgeTrashed` only permanently deletes rows after `purge_after` unless the
+  caller is an admin, removes directly affected Compass surface metadata, and
+  emits `compass.resource.purged` through `audit.events.v1` with project
+  markings and affected dependents).
+- Compass reverse-reference graph
+  (`compass_resource_references` stores directed source-depends-on-target
+  edges; `GET|PUT /api/v1/workspace/resources/{kind}/{id}/references` exposes
+  `depends_on` and `used_by`; the web resource details, move, and trash flows
+  warn when upstream or downstream resources are present).
+- Compass stable resource URLs
+  (`apps/web/src/lib/compass/stableResourceUrls.ts` builds project/folder/app
+  links from immutable RIDs, strips optional human-readable `--slug` suffixes
+  before API calls, and keeps legacy UUID routes as compatibility aliases).
+- Compass favorites
+  (`user_favorites` and `user_favorite_groups` are the user-profile-backed
+  resource shortcut store; `/api/v1/workspace/favorites` lists/adds/removes
+  favorites and persists per-user group/order metadata consumed by `/favorites`
+  and Quicksearch jump-to mode).
+- Compass recents
+  (`resource_access_log` is the per-user last-opened event stream; `/api/v1/workspace/recents`
+  deduplicates by resource, caps responses at 50 by default, sorts by
+  `last_accessed_at DESC`, and filters every row through current project
+  visibility before Quicksearch or `/recent` can render it).
+- Compass propagate view requirements
+  (`tenancy-organizations-service` treats the planned-deprecated Palantir
+  setting as a legacy compatibility toggle. Project/folder rows store enabled
+  state and the non-reenableable `disabled_at` marker; child folders and
+  project resource bindings snapshot inherited view-requirement marking RIDs
+  at create time. Parent policy changes enqueue
+  `compass_view_requirement_propagation_jobs`, expose progress through the
+  projects API, update existing descendants in the background, refresh folder
+  search entries, and emit `compass.view_requirements.propagated` audit
+  events).
 - Dataset RID format `ri.foundry.main.dataset.<uuid-v7>`.
 - Transaction state / type tokens (`open|committed|aborted`,
   `snapshot|append|update|delete`).

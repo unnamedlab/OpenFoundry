@@ -16,19 +16,21 @@ import (
 // the smoke-mode binary (no DATABASE_URL). It is safe for concurrent
 // use.
 type MemoryRepository struct {
-	mu     sync.RWMutex
-	items  map[uuid.UUID]*models.ComputeModule
-	nowFn  func() time.Time
-	uuidFn func() uuid.UUID
+	mu          sync.RWMutex
+	items       map[uuid.UUID]*models.ComputeModule
+	invocations invocationStore
+	nowFn       func() time.Time
+	uuidFn      func() uuid.UUID
 }
 
 // NewMemoryRepository returns an empty store backed by wall-clock and
 // google/uuid. Tests override nowFn/uuidFn via the With* helpers.
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
-		items:  make(map[uuid.UUID]*models.ComputeModule),
-		nowFn:  func() time.Time { return time.Now().UTC() },
-		uuidFn: uuid.New,
+		items:       make(map[uuid.UUID]*models.ComputeModule),
+		invocations: newInvocationStore(),
+		nowFn:       func() time.Time { return time.Now().UTC() },
+		uuidFn:      uuid.New,
 	}
 }
 

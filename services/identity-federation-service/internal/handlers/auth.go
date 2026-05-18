@@ -225,6 +225,50 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ExchangeAPIKey handles POST /api/v1/auth/api-key/exchange.
+//
+// Developer API keys are stored as opaque, revocable secrets. This
+// endpoint validates expiry/revocation/user-active state, then returns
+// a short-lived access JWT that downstream OpenFoundry services can
+// verify with the normal bearer-token middleware.
+func (a *Auth) ExchangeAPIKey(w http.ResponseWriter, r *http.Request) {
+	var body models.ExchangeAPIKeyRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	token := strings.TrimSpace(body.Token)
+	if token == "" {
+		token = bearerTokenFromRequest(r)
+	}
+	if token == "" {
+		writeJSONErr(w, http.StatusBadRequest, "token required")
+		return
+	}
+	key, user, err := a.Repo.FindUsableAPIKeyByHash(r.Context(), hashAPIKey(token), time.Now().UTC())
+	if err != nil {
+		slog.Error("api key exchange", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, "exchange failed")
+		return
+	}
+	if key == nil || user == nil {
+		writeJSONErr(w, http.StatusUnauthorized, "invalid api key")
+		return
+	}
+	access, expiresIn, err := a.Issuer.IssueAccessTokenForAPIKey(user, key)
+	if err != nil {
+		slog.Error("api key access token", slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusUnauthorized, "invalid api key")
+		return
+	}
+	writeJSON(w, http.StatusOK, models.APIKeyTokenResponse{
+		AccessToken: access,
+		TokenType:   "Bearer",
+		ExpiresIn:   expiresIn,
+		APIKey:      *key,
+		Warning:     key.Warning,
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)

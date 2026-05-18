@@ -39,6 +39,8 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		return u.Cipher
 
 	case strings.HasPrefix(path, "/api/v1/control-panel"),
+		strings.HasPrefix(path, "/api/v1/application-access"),
+		strings.HasPrefix(path, "/api/v1/file-access-presets"),
 		strings.HasPrefix(path, "/api/v2/admin/control-panel"):
 		return u.IdentityFederation
 
@@ -216,10 +218,10 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 	case strings.HasPrefix(path, "/api/v1/ontology"):
 		return u.OntologyDefinition
 
+	// ADR-0030: approvals-service retired into workflow-automation-service.
 	case strings.HasPrefix(path, "/api/v1/workflows/approvals"),
-		strings.HasPrefix(path, "/api/v1/approvals"):
-		return u.Approvals
-	case strings.HasPrefix(path, "/api/v1/workflows"):
+		strings.HasPrefix(path, "/api/v1/approvals"),
+		strings.HasPrefix(path, "/api/v1/workflows"):
 		return u.Workflow
 
 	case strings.HasPrefix(path, "/api/v1/notebooks"),
@@ -266,8 +268,9 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		return u.RetrievalContext
 	case strings.HasPrefix(path, "/api/v1/ai/knowledge-bases"):
 		return u.KnowledgeIndex
+	// ADR-0030: conversation-state-service retired into agent-runtime-service.
 	case strings.HasPrefix(path, "/api/v1/ai/conversations"):
-		return u.ConversationState
+		return u.AgentRuntime
 	case strings.HasPrefix(path, "/api/v1/ai/tools"):
 		return u.AI
 	case strings.HasPrefix(path, "/api/v1/ai"):
@@ -277,8 +280,9 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		strings.HasPrefix(path, "/api/v1/fusion"):
 		return u.EntityResolution
 
-	case strings.HasPrefix(path, "/api/v1/streaming"):
-		return u.Streaming
+	// ADR-0030: streaming-service retired; no surviving Go target. Falls
+	// through to 404 / `unknown_service_route`. If the surface is ever
+	// revived, route it through ingestion-replication-service.
 	case strings.HasPrefix(path, "/api/v1/reports"):
 		return u.Report
 	case strings.HasPrefix(path, "/api/v1/geospatial"):
@@ -317,8 +321,9 @@ func SelectUpstream(path string, u config.UpstreamURLs) string {
 		(strings.HasPrefix(path, "/api/v1/apps/") && strings.HasSuffix(path, "/versions")),
 		(strings.HasPrefix(path, "/api/v1/apps/") && strings.HasSuffix(path, "/publish")):
 		return u.ApplicationComposition
+	// ADR-0030: app-builder-service retired into application-composition-service.
 	case strings.HasPrefix(path, "/api/v1/apps"):
-		return u.AppBuilder
+		return u.ApplicationComposition
 	}
 	return ""
 }

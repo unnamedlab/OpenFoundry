@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
+import { evaluateApplicationAccess } from '@/lib/api/control-panel';
 import { useTranslator } from '@/lib/i18n/store';
 import { Glyph, type GlyphName } from './ui/Glyph';
 
@@ -54,6 +55,7 @@ const PRIMARY_NAV: NavItem[] = [
 ];
 
 const SECONDARY_NAV: NavItem[] = [
+  { to: '/favorites', label: 'Favorites', icon: 'star' },
   { to: '/recent', label: 'Recent', icon: 'history' },
   { to: '/projects', label: 'Files', icon: 'folder' },
 ];
@@ -304,6 +306,7 @@ export function Sidebar() {
   const [hoveredAppId, setHoveredAppId] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [favorites, setFavorites] = useState<string[]>(() => readFavorites());
+  const [applicationVisibility, setApplicationVisibility] = useState<Record<string, boolean> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -316,6 +319,28 @@ export function Sidebar() {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadApplicationVisibility() {
+      try {
+        const resp = await evaluateApplicationAccess({ application_ids: LAUNCHER_APPS.map((app) => app.id) });
+        if (cancelled) return;
+        setApplicationVisibility(Object.fromEntries(resp.decisions.map((decision) => [decision.application_id, decision.visible])));
+      } catch {
+        if (!cancelled) setApplicationVisibility(null);
+      }
+    }
+    void loadApplicationVisibility();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const accessibleApps = useMemo(
+    () => (applicationVisibility ? LAUNCHER_APPS.filter((app) => applicationVisibility[app.id] !== false) : LAUNCHER_APPS),
+    [applicationVisibility],
+  );
+
   const toggleFavorite = (id: string) => {
     setFavorites((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -323,9 +348,9 @@ export function Sidebar() {
   const favoriteApps = useMemo(
     () =>
       favorites
-        .map((id) => LAUNCHER_APPS.find((a) => a.id === id))
+        .map((id) => accessibleApps.find((a) => a.id === id))
         .filter((a): a is LauncherApp => Boolean(a)),
-    [favorites],
+    [accessibleApps, favorites],
   );
 
   useEffect(() => {
@@ -341,22 +366,22 @@ export function Sidebar() {
   }, [launcherOpen]);
 
   const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: LAUNCHER_APPS.length };
+    const counts: Record<string, number> = { all: accessibleApps.length };
     for (const c of CATEGORIES) {
       if (c.isHeading || c.id === 'all') continue;
-      counts[c.id] = LAUNCHER_APPS.filter((a) => a.category === c.id).length;
+      counts[c.id] = accessibleApps.filter((a) => a.category === c.id).length;
     }
     return counts;
-  }, []);
+  }, [accessibleApps]);
 
   const visibleApps = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return LAUNCHER_APPS.filter((app) => {
+    return accessibleApps.filter((app) => {
       if (category !== 'all' && app.category !== category) return false;
       if (!term) return true;
       return app.name.toLowerCase().includes(term) || app.description.toLowerCase().includes(term);
     });
-  }, [search, category]);
+  }, [accessibleApps, search, category]);
 
   const groupedApps = useMemo(() => {
     const groups = new Map<string, LauncherApp[]>();
@@ -375,11 +400,11 @@ export function Sidebar() {
   }, [visibleApps]);
 
   const hoveredApp = useMemo(
-    () => LAUNCHER_APPS.find((a) => a.id === hoveredAppId) ?? null,
-    [hoveredAppId],
+    () => accessibleApps.find((a) => a.id === hoveredAppId) ?? null,
+    [accessibleApps, hoveredAppId],
   );
 
-  const promotedApps = useMemo(() => LAUNCHER_APPS.filter((a) => a.promoted), []);
+  const promotedApps = useMemo(() => accessibleApps.filter((a) => a.promoted), [accessibleApps]);
 
   function openLauncher() {
     setSearch('');

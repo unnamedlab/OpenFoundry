@@ -13,10 +13,24 @@ import (
 
 	"github.com/google/uuid"
 
+	pipelineplan "github.com/openfoundry/openfoundry-go/libs/pipeline-plan"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
+	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
-	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
 )
+
+// ErrPlanCompositionNotImplemented is returned by the temporary
+// distributed_runtime dispatcher when it is asked to submit a run
+// against a DAG node that still ships raw SQL. ADR-0045 Phase C.4.b
+// adds the composer that converts node configs into
+// pipelineplan.Plan values; until then, the DISTRIBUTED execution
+// path is intentionally broken so half-migrated clusters do not
+// silently run the previous Spark contract.
+var ErrPlanCompositionNotImplemented = errors.New("plan composition from node config: not implemented (ADR-0045 Phase C.4.b — composer pending)")
+
+func composePlanFromNodeConfig(_ DistributedTransformRequest, _ distributedSparkConfig) (pipelineplan.Plan, error) {
+	return pipelineplan.Plan{}, ErrPlanCompositionNotImplemented
+}
 
 type DistributedTransformRequest struct {
 	Node          executor.NodeContext
@@ -30,7 +44,7 @@ type DistributedTransformRunner interface {
 }
 
 type DistributedRuntimeConfig struct {
-	SparkClientProvider func() (sparkpkg.SparkClient, bool)
+	SparkClientProvider func() (dispatchpkg.Client, bool)
 	Namespace           string
 	RunnerImage         string
 	PollInterval        time.Duration
@@ -101,35 +115,33 @@ func (r *SparkFlinkDistributedRunner) runSpark(ctx context.Context, req Distribu
 		inputDataset = outputDataset
 	}
 
-	appType := sparkpkg.SparkApplicationScala
-	if req.TransformType == "pyspark" || engine == "pyspark" || cfg.Application == "Python" {
-		appType = sparkpkg.SparkApplicationPython
-	} else if cfg.Application != "" {
-		appType = sparkpkg.SparkApplicationType(cfg.Application)
-	}
-
-	namespace := firstNonEmpty(r.cfg.Namespace, os.Getenv("SPARK_NAMESPACE"), "openfoundry-spark")
+	namespace := firstNonEmpty(r.cfg.Namespace, os.Getenv("PIPELINE_RUNNER_NAMESPACE"), os.Getenv("SPARK_NAMESPACE"), "openfoundry")
 	image := firstNonEmpty(cfg.RunnerImage, r.cfg.RunnerImage, os.Getenv("PIPELINE_RUNNER_IMAGE"), "localhost:5001/pipeline-runner:dev")
 
-	input := sparkpkg.PipelineRunInput{
+	// Phase C.4.a does not yet ship the composer that turns a DAG node
+	// config into a pipelineplan.Plan — that lands in C.4.b. Until
+	// then, the dispatcher refuses to submit so a half-migrated cluster
+	// surfaces a clear error instead of running a stale Spark
+	// SparkApplication CR or shipping an empty plan downstream.
+	plan, planErr := composePlanFromNodeConfig(req, cfg)
+	if planErr != nil {
+		return executor.NodeResult{}, planErr
+	}
+
+	input := dispatchpkg.PipelineRunInput{
 		PipelineID:          pipelineID,
 		RunID:               runID,
 		Namespace:           namespace,
-		ApplicationType:     appType,
 		PipelineRunnerImage: image,
 		InputDatasetRID:     inputDataset,
 		OutputDatasetRID:    outputDataset,
 		Resources:           cfg.Resources,
-		Catalog:             cfg.Catalog,
-		CatalogURI:          cfg.CatalogURI,
-		S3Endpoint:          cfg.S3Endpoint,
-		InlineSQL:           firstNonEmpty(cfg.SQL, cfg.Statement),
-		InlineFormat:        cfg.Format,
+		Plan:                plan,
 	}
 
 	name, err := client.SubmitPipelineRun(ctx, input)
 	if err != nil {
-		return executor.NodeResult{}, fmt.Errorf("submit SparkApplication: %w", err)
+		return executor.NodeResult{}, fmt.Errorf("submit pipeline-runner Job: %w", err)
 	}
 
 	timeout := r.cfg.Timeout
@@ -149,7 +161,7 @@ func (r *SparkFlinkDistributedRunner) runSpark(ctx context.Context, req Distribu
 		}
 		if report != nil {
 			switch report.Status {
-			case sparkpkg.SparkRunSucceeded:
+			case dispatchpkg.RunSucceeded:
 				meta := map[string]any{
 					"runtime":           "distributed",
 					"engine":            "spark",
@@ -160,7 +172,7 @@ func (r *SparkFlinkDistributedRunner) runSpark(ctx context.Context, req Distribu
 				}
 				hash := sha256.Sum256([]byte(name + ":" + outputDataset + ":" + req.TransformType))
 				return executor.NodeResult{OutputContentHash: "sha256:" + hex.EncodeToString(hash[:]), Metadata: meta}, nil
-			case sparkpkg.SparkRunFailed:
+			case dispatchpkg.RunFailed:
 				msg := "spark application failed"
 				if report.ErrorMessage != nil && *report.ErrorMessage != "" {
 					msg = *report.ErrorMessage
@@ -179,7 +191,7 @@ func (r *SparkFlinkDistributedRunner) runSpark(ctx context.Context, req Distribu
 	}
 }
 
-func (r *SparkFlinkDistributedRunner) sparkClient() (sparkpkg.SparkClient, bool) {
+func (r *SparkFlinkDistributedRunner) sparkClient() (dispatchpkg.Client, bool) {
 	if r.cfg.SparkClientProvider != nil {
 		return r.cfg.SparkClientProvider()
 	}
@@ -194,7 +206,7 @@ type distributedSparkConfig struct {
 	Catalog     string                          `json:"catalog,omitempty"`
 	CatalogURI  string                          `json:"catalog_uri,omitempty"`
 	S3Endpoint  string                          `json:"s3_endpoint,omitempty"`
-	Resources   sparkpkg.SparkResourceOverrides `json:"resources,omitempty"`
+	Resources   dispatchpkg.ResourceOverrides `json:"resources,omitempty"`
 	RunnerImage string                          `json:"runner_image,omitempty"`
 	Application string                          `json:"application_type,omitempty"`
 }

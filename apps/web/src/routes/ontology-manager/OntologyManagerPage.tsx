@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { projectStablePath } from "@/lib/compass/stableResourceUrls";
 import {
   buildOntologyAuditEventLog,
   buildOntologyCleanupAssistant,
@@ -2518,7 +2519,7 @@ export function OntologyManagerPage() {
                       borderBottom: "1px solid var(--border-subtle)",
                     }}
                   >
-                    <Link to={`/projects/${p.id}`}>
+                    <Link to={projectStablePath(p)}>
                       <strong>{p.display_name || p.slug}</strong>
                     </Link>{" "}
                     · {p.id}

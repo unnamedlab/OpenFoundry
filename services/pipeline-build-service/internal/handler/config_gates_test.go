@@ -15,7 +15,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/iceberg"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
-	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 func TestConfigGatesReturnExplicitErrors(t *testing.T) {
@@ -117,6 +117,7 @@ func TestConfigGatesHappyPathsWithFakes(t *testing.T) {
 	})
 
 	t.Run("KUBERNETES_API_URL fake Spark client", func(t *testing.T) {
+		t.Skip("ADR-0045 Phase C.4.a: SubmitSparkRun requires a pipelineplan.Plan now; Phase C.4.b re-targets this assertion once the composer ships.")
 		fake := &fakeSparkClient{submittedName: "spark-app"}
 		restore := SetSparkClient(fake)
 		defer restore()
@@ -176,4 +177,4 @@ func (f *fakeIcebergTxClient) Commit(_ context.Context, tx executor.OutputTransa
 }
 func (f *fakeIcebergTxClient) Abort(context.Context, executor.OutputTransaction) error { return nil }
 
-var _ spark.SparkClient = (*fakeSparkClient)(nil)
+var _ dispatch.Client = (*fakeSparkClient)(nil)

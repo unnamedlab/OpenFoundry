@@ -48,6 +48,15 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 // Repo bundles the queries this service needs.
 type Repo struct{ Pool *pgxpool.Pool }
 
+// BeginTx starts a pgx transaction with the pool's default options.
+// Callers own the lifecycle — pair every BeginTx with either Commit
+// or Rollback, typically via a deferred rollback that no-ops once the
+// committed flag flips. Used by the SSO handler to bundle the audit
+// outbox emissions for a single login into one transactional batch.
+func (r *Repo) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.Pool.Begin(ctx)
+}
+
 // ─── Users ──────────────────────────────────────────────────────────────
 
 // CountUsers returns the total user count (used by /auth/bootstrap-status

@@ -124,6 +124,40 @@ describe('ApiClient lifecycle hooks', () => {
 
     await expect(client.get('/foo')).rejects.toBeInstanceOf(ApiUnavailableError);
   });
+
+  it('propagates an AbortSignal to fetch and surfaces aborts as AbortError', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async (_url: unknown, init: RequestInit | undefined) => {
+      expect(init?.signal).toBe(controller.signal);
+      controller.abort();
+      throw new DOMException('aborted', 'AbortError');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(client.get('/foo', { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the pre-request hook before issuing the underlying fetch', async () => {
+    const order: string[] = [];
+    client.setPreRequestHook(async () => {
+      order.push('pre-request');
+    });
+    const fetchMock = vi.fn(async () => {
+      order.push('fetch');
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await client.get('/foo');
+
+    expect(order).toEqual(['pre-request', 'fetch']);
+  });
 });
 
 function makeResponse(status: number, body: unknown): Response {

@@ -23,7 +23,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
-	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
+	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 // DB is the pgx/pgxmock surface used by the repository. *pgxpool.Pool and
@@ -1595,7 +1595,7 @@ FROM pipeline_run_submissions WHERE pipeline_run_id=$1`, pipelineRunID).Scan(&su
 }
 
 // UpdateSparkSubmissionStatus refreshes the observed SparkApplication status.
-func (r *Repository) UpdateSparkSubmissionStatus(ctx context.Context, pipelineRunID uuid.UUID, status sparkpkg.SparkRunStatus, errorMessage *string) error {
+func (r *Repository) UpdateSparkSubmissionStatus(ctx context.Context, pipelineRunID uuid.UUID, status dispatchpkg.RunStatus, errorMessage *string) error {
 	_, err := r.db.Exec(ctx, `UPDATE pipeline_run_submissions
 SET status=$2, error_message=$3, last_observed_at=NOW()
 WHERE pipeline_run_id=$1`, pipelineRunID, string(status), errorMessage)
@@ -1628,11 +1628,11 @@ LIMIT $1`, limit)
 	return items, rows.Err()
 }
 
-func sparkStatus(status string) sparkpkg.SparkRunStatus {
-	switch sparkpkg.SparkRunStatus(status) {
-	case sparkpkg.SparkRunSubmitted, sparkpkg.SparkRunRunning, sparkpkg.SparkRunSucceeded, sparkpkg.SparkRunFailed, sparkpkg.SparkRunUnknown:
-		return sparkpkg.SparkRunStatus(status)
+func sparkStatus(status string) dispatchpkg.RunStatus {
+	switch dispatchpkg.RunStatus(status) {
+	case dispatchpkg.RunSubmitted, dispatchpkg.RunRunning, dispatchpkg.RunSucceeded, dispatchpkg.RunFailed, dispatchpkg.RunUnknown:
+		return dispatchpkg.RunStatus(status)
 	default:
-		return sparkpkg.SparkRunUnknown
+		return dispatchpkg.RunUnknown
 	}
 }

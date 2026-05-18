@@ -13,4 +13,9 @@ const (
 	CategoryDataLoad           AuditCategory = "dataLoad"
 	CategoryDataUpdate         AuditCategory = "dataUpdate"
 	CategoryManagementMarkings AuditCategory = "managementMarkings"
+	// CategoryAuthentication groups identity-federation events: SSO
+	// login outcomes, IdP binding mutations, and access-token issuance.
+	// Compliance dashboards filter on this category to derive the
+	// audit_logins / audit_token_issuance feeds.
+	CategoryAuthentication AuditCategory = "authentication"
 )

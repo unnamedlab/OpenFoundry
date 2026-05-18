@@ -218,14 +218,16 @@ func TestProxyZeroTrustScopeBlocksDisallowedMethod(t *testing.T) {
 
 	allowedPath := "/api/v1/datasets"
 	allowedMethod := "GET"
+	accessUse := "access"
 	c := &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   time.Now().Unix(),
-		EXP:   time.Now().Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "guest@example.com",
-		Name:  "Guest",
-		Roles: []string{"guest"},
+		Sub:      uuid.New(),
+		IAT:      time.Now().Unix(),
+		EXP:      time.Now().Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "guest@example.com",
+		Name:     "Guest",
+		Roles:    []string{"guest"},
+		TokenUse: &accessUse,
 		SessionScope: &authmw.SessionScope{
 			AllowedMethods:      []string{allowedMethod},
 			AllowedPathPrefixes: []string{allowedPath},
@@ -282,6 +284,7 @@ func TestProxyInjectsTenantHeaders(t *testing.T) {
 	defer gw.Close()
 
 	orgID := uuid.New()
+	accessUse := "access"
 	c := &authmw.Claims{
 		Sub:        uuid.New(),
 		IAT:        time.Now().Unix(),
@@ -290,6 +293,7 @@ func TestProxyInjectsTenantHeaders(t *testing.T) {
 		Email:      "user@example.com",
 		Roles:      []string{"member"},
 		OrgID:      &orgID,
+		TokenUse:   &accessUse,
 		Attributes: json.RawMessage(`{"tenant_tier":"team"}`),
 	}
 	tok, err := authmw.EncodeToken(jwt, c)
@@ -334,6 +338,133 @@ func TestProxyBodyTooLargeReturns413(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(respBody, &env))
 	assert.Equal(t, "body_too_large", env.Error.Code)
+}
+
+// captureHeadersUpstream returns a test upstream that records the
+// inbound request's headers into the supplied pointer.
+func captureHeadersUpstream(t *testing.T, captured *http.Header) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*captured = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestHeaderStrippingOnAnonymous verifies that a client cannot forge
+// gateway-asserted x-openfoundry-* identity headers by attaching them
+// to an anonymous (no-Authorization) request.
+func TestHeaderStrippingOnAnonymous(t *testing.T) {
+	t.Parallel()
+	var captured http.Header
+	upstream := captureHeadersUpstream(t, &captured)
+	gw, _ := newGateway(t, upstream.URL, upstream.URL)
+	defer gw.Close()
+
+	req, _ := http.NewRequest("GET", gw.URL+"/api/v1/datasets/abc/files", nil)
+	req.Header.Set(proxy.HdrAuthSub, "00000000-0000-0000-0000-000000000bad")
+	req.Header.Set(proxy.HdrTenantScope, "evil-tenant")
+	req.Header.Set(proxy.HdrAllowedMarkings, "TS_SCI")
+	req.Header.Set(proxy.HdrOrgID, "00000000-0000-0000-0000-0000000000ff")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NotNil(t, captured)
+
+	// Forged HdrAuthSub / HdrOrgID must not leak through — the anonymous
+	// path writes neither, so they must end up empty downstream.
+	assert.Empty(t, captured.Get(proxy.HdrAuthSub),
+		"client-supplied x-openfoundry-auth-sub leaked to upstream")
+	assert.Empty(t, captured.Get(proxy.HdrOrgID),
+		"client-supplied x-openfoundry-org-id leaked to upstream")
+	// HdrTenantScope and HdrAllowedMarkings are written by the anonymous
+	// path; the forged value must be replaced, not preserved.
+	assert.NotEqual(t, "evil-tenant", captured.Get(proxy.HdrTenantScope),
+		"client-supplied x-openfoundry-tenant-scope leaked to upstream")
+	assert.NotEqual(t, "TS_SCI", captured.Get(proxy.HdrAllowedMarkings),
+		"client-supplied x-openfoundry-allowed-markings leaked to upstream")
+}
+
+// TestHeaderStrippingOnInvalidJWT verifies that an Authorization header
+// carrying an invalid bearer token is rejected with 401, instead of
+// being silently downgraded to anonymous (which would still forward the
+// client's x-openfoundry-* headers if they happened to slip through).
+func TestHeaderStrippingOnInvalidJWT(t *testing.T) {
+	t.Parallel()
+	var captured http.Header
+	upstream := captureHeadersUpstream(t, &captured)
+	gw, _ := newGateway(t, upstream.URL, upstream.URL)
+	defer gw.Close()
+
+	req, _ := http.NewRequest("GET", gw.URL+"/api/v1/datasets/abc/files", nil)
+	req.Header.Set("Authorization", "Bearer not-a-real-jwt")
+	req.Header.Set(proxy.HdrAuthSub, "00000000-0000-0000-0000-000000000bad")
+	req.Header.Set(proxy.HdrTenantScope, "evil-tenant")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	var env struct {
+		Error struct{ Code, Message string }
+	}
+	require.NoError(t, json.Unmarshal(body, &env))
+	assert.Equal(t, "invalid_credentials", env.Error.Code)
+	// The upstream must never have been reached on an invalid credential.
+	assert.Nil(t, captured,
+		"upstream contacted despite invalid bearer token")
+}
+
+// TestHeaderRewriteOnValidJWT verifies that even when a client sends a
+// valid JWT alongside forged x-openfoundry-auth-sub / tenant-scope
+// headers, the values seen by the upstream come from the JWT, never
+// from the client.
+func TestHeaderRewriteOnValidJWT(t *testing.T) {
+	t.Parallel()
+	var captured http.Header
+	upstream := captureHeadersUpstream(t, &captured)
+	gw, jwt := newGateway(t, upstream.URL, upstream.URL)
+	defer gw.Close()
+
+	realSub := uuid.New()
+	realOrg := uuid.New()
+	accessUse := "access"
+	c := &authmw.Claims{
+		Sub:        realSub,
+		IAT:        time.Now().Unix(),
+		EXP:        time.Now().Add(time.Hour).Unix(),
+		JTI:        uuid.New(),
+		Email:      "real-user@example.com",
+		Roles:      []string{"member"},
+		OrgID:      &realOrg,
+		TokenUse:   &accessUse,
+		Attributes: json.RawMessage(`{"tenant_tier":"team"}`),
+	}
+	tok, err := authmw.EncodeToken(jwt, c)
+	require.NoError(t, err)
+
+	forgedSub := uuid.New()
+	req, _ := http.NewRequest("GET", gw.URL+"/api/v1/datasets/abc/files", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set(proxy.HdrAuthSub, forgedSub.String())
+	req.Header.Set(proxy.HdrTenantScope, "evil-tenant")
+	req.Header.Set(proxy.HdrAllowedMarkings, "TS_SCI")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NotNil(t, captured)
+
+	assert.Equal(t, realSub.String(), captured.Get(proxy.HdrAuthSub),
+		"forged x-openfoundry-auth-sub overrode JWT subject")
+	assert.NotEqual(t, "evil-tenant", captured.Get(proxy.HdrTenantScope))
+	assert.Equal(t, realOrg.String(), captured.Get(proxy.HdrTenantScope))
+	assert.NotEqual(t, "TS_SCI", captured.Get(proxy.HdrAllowedMarkings))
 }
 
 // noopRoundTripper exists so we don't accidentally talk to the real network in test setup helpers.

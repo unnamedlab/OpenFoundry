@@ -19,3 +19,14 @@ jwt:
 telemetry:
   otlp_endpoint: "localhost:4317"
   log_format: "plain"
+
+database:
+  # Honours DATABASE_URL when this stays empty (set by the
+  # cipher-service Helm chart in prod).
+  url: ""
+
+kms:
+  # "local" reads OF_CIPHER_LOCAL_KEK (32 hex bytes) at boot. Use
+  # only in dev/test. "aws" is reserved for Milestone C (CIP.20).
+  backend: "local"
+  aws_key_arn: ""

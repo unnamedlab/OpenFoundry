@@ -6,68 +6,43 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
-
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/config"
 )
 
-// TestMountAPIRoutes_BranchesStubReturns501 asserts that the gateway-facing
-// `/branches` route is registered AND answers 501 with the documented
-// stub body, so frontend callers see a stable error code instead of the
-// previous 502 from a missing upstream.
-func TestMountAPIRoutes_BranchesStubReturns501(t *testing.T) {
+// TestBuildRouter_NoHandler_OnlyPublicRoutes confirms that the server
+// stays bootable when no Handlers are wired (smoke mode without a
+// configured DSN). Public surface — /healthz and the capability
+// catalog — must respond; product routes must be absent from the
+// catalog.
+func TestBuildRouter_NoHandler_OnlyPublicRoutes(t *testing.T) {
 	t.Parallel()
-	caps := capabilities.New("global-branch-service", "test")
-	r := chi.NewRouter()
-	caps.Mount(r)
-	mountAPIRoutes(r, caps)
+	cfg := &config.Config{}
+	cfg.Service.Name = "global-branch-service"
+	cfg.Service.Version = "test"
+	jwtCfg := authmw.NewJWTConfig("test-secret")
 
-	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		req := httptest.NewRequest(method, "/api/v1/code-repos/repositories/repo-123/branches", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		if w.Code != http.StatusNotImplemented {
-			t.Fatalf("%s /branches status = %d, want 501", method, w.Code)
-		}
-		var body map[string]string
-		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-		if body["code"] != "not_implemented" || body["service"] != "global-branch-service" || body["milestone"] == "" {
-			t.Fatalf("unexpected body: %+v", body)
-		}
-	}
+	r := BuildRouter(cfg, nil, nil, jwtCfg)
 
-	// Nested branch path (future shape) also 501s instead of 404.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/code-repos/repositories/repo-123/branches/feature-x", nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotImplemented {
-		t.Fatalf("nested branch status = %d, want 501", w.Code)
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("/healthz status=%d want 200", w.Code)
 	}
 
-	// Capability catalog should list the stubbed routes.
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/_meta/capabilities", nil))
 	if w.Code != http.StatusOK {
-		t.Fatalf("/_meta/capabilities = %d", w.Code)
+		t.Fatalf("/_meta/capabilities status=%d", w.Code)
 	}
 	var snap capabilities.Snapshot
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
 		t.Fatalf("decode catalog: %v", err)
 	}
-	want := map[string]bool{
-		"global-branch.repository-branches.list":   false,
-		"global-branch.repository-branches.create": false,
-	}
 	for _, c := range snap.Capabilities {
-		if _, ok := want[c.ID]; ok {
-			want[c.ID] = true
-		}
-	}
-	for id, seen := range want {
-		if !seen {
-			t.Fatalf("capability %s not registered in catalog", id)
+		if c.ID == "global-branch.branches.create" {
+			t.Fatalf("product routes should not be registered when h==nil; saw %s", c.ID)
 		}
 	}
 }

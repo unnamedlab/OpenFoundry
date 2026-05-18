@@ -63,6 +63,9 @@ func (h *RBAC) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "status must be 'active' or 'inactive'")
 		return
 	}
+	if !h.allowUserDiscovery(w, r, filter.OrganizationID) {
+		return
+	}
 
 	users, total, err := h.Repo.ListUsersFiltered(r.Context(), filter)
 	if err != nil {
@@ -167,6 +170,9 @@ func (h *RBAC) InspectUser(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "not found")
 		return
 	}
+	if !h.allowUserDetailDiscovery(w, r, user.ID, user.OrganizationID) {
+		return
+	}
 	roles, err := h.Repo.ListUserRoles(r.Context(), id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, "list roles: "+err.Error())
@@ -211,10 +217,10 @@ func (h *RBAC) InspectUser(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, models.UserInspection{
-		User:               *user,
-		Roles:              roleNames,
-		Groups:             groupBriefs,
-		Tokens:             models.TokenSummary{
+		User:   *user,
+		Roles:  roleNames,
+		Groups: groupBriefs,
+		Tokens: models.TokenSummary{
 			ActiveCount:   tokens.ActiveCount,
 			RevokedCount:  tokens.RevokedCount,
 			NextExpiresAt: tokens.NextExpiresAt,

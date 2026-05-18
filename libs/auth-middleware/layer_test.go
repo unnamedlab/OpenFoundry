@@ -18,14 +18,16 @@ func TestAuthLayerStashesClaimsAndPassesThrough(t *testing.T) {
 	t.Parallel()
 	cfg := authmw.NewJWTConfig("openfoundry-shared-test-secret-do-not-use-in-prod-aaaa")
 	now := time.Now()
+	access := "access"
 	tok, err := authmw.EncodeToken(cfg, &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "tester@openfoundry.test",
-		Name:  "Tester",
-		Roles: []string{"admin"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "tester@openfoundry.test",
+		Name:     "Tester",
+		Roles:    []string{"admin"},
+		TokenUse: &access,
 	})
 	require.NoError(t, err)
 

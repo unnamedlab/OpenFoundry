@@ -73,6 +73,8 @@ type tableRuntimeConfig struct {
 	TableType           string                    `json:"table_type,omitempty"`
 	HostApplication     string                    `json:"host_application,omitempty"`
 	PipelineType        string                    `json:"pipeline_type,omitempty"`
+	GroupBy             []string                  `json:"group_by,omitempty"`
+	Aggregations        []runtimeAggregationFunc  `json:"aggregations,omitempty"`
 }
 
 type runtimeTransformStack struct {
@@ -195,7 +197,7 @@ func newLightweightTableRuntime(functions ...PipelineFunctionRegistry) *lightwei
 
 func (rt *lightweightTableRuntime) Supports(transformType string) bool {
 	switch normaliseTableTransform(transformType) {
-	case "input", "filter", "select", "drop", "rename", "passthrough", "output", "sql", "function", "gpx_parse":
+	case "input", "filter", "select", "drop", "rename", "passthrough", "output", "sql", "function", "gpx_parse", "aggregate":
 		return true
 	default:
 		return false
@@ -244,6 +246,8 @@ func (rt *lightweightTableRuntime) Run(ctx context.Context, node executor.NodeCo
 		rows, err = rt.runFunction(ctx, node, cfg)
 	case "gpx_parse":
 		rows, err = rt.runGPXParse(node, cfg)
+	case "aggregate":
+		rows, err = rt.runAggregate(node, cfg)
 	default:
 		err = fmt.Errorf("unsupported lightweight transform type: %s", transformType)
 	}
@@ -342,7 +346,9 @@ func (cfg tableRuntimeConfig) empty() bool {
 		cfg.Provider == "" &&
 		cfg.TableType == "" &&
 		cfg.HostApplication == "" &&
-		cfg.PipelineType == ""
+		cfg.PipelineType == "" &&
+		len(cfg.GroupBy) == 0 &&
+		len(cfg.Aggregations) == 0
 }
 
 func (cfg tableRuntimeConfig) inlineRows() []pipelineexpression.Row {
@@ -1159,6 +1165,8 @@ func normaliseTableTransform(transformType string) string {
 		return "function"
 	case "gpx_parse", "parse_gpx", "gpx", "gpx_parser":
 		return "gpx_parse"
+	case "aggregate", "group_by", "groupby":
+		return "aggregate"
 	default:
 		return strings.ToLower(strings.TrimSpace(transformType))
 	}

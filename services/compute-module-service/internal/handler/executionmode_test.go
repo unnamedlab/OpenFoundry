@@ -144,11 +144,13 @@ func TestPipelineIOConfigInvalidPayload(t *testing.T) {
 	}
 }
 
-func TestFunctionQueryBlockedOnPipelineMode(t *testing.T) {
-	r, _ := buildTestRouter(t)
+func TestInvokeFunctionBlockedOnPipelineMode(t *testing.T) {
+	r, _, _ := buildTestRouterWithDispatcher(t)
 	pipe := createModule(t, r, models.ExecutionModePipeline)
 
-	w := doJSON(t, r, http.MethodPost, "/api/v1/compute-modules/"+pipe.ID.String()+"/functions/query", map[string]any{"any": "payload"})
+	w := doJSON(t, r, http.MethodPost,
+		"/api/v1/compute-modules/"+pipe.ID.String()+"/functions/echo/invoke",
+		map[string]any{"payload": map[string]any{"any": "payload"}})
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d body=%s", w.Code, w.Body.String())
 	}
@@ -159,19 +161,5 @@ func TestFunctionQueryBlockedOnPipelineMode(t *testing.T) {
 	got := decode[errBody](t, w)
 	if got.RequiredMode != models.ExecutionModeFunction {
 		t.Fatalf("error body should advertise required mode: %+v", got)
-	}
-}
-
-func TestFunctionQueryAcceptedOnFunctionMode(t *testing.T) {
-	r, _ := buildTestRouter(t)
-	fn := createModule(t, r, models.ExecutionModeFunction)
-
-	w := doJSON(t, r, http.MethodPost, "/api/v1/compute-modules/"+fn.ID.String()+"/functions/query", map[string]any{"input": "hi"})
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d body=%s", w.Code, w.Body.String())
-	}
-	ack := decode[handler.FunctionQueryAck](t, w)
-	if !ack.Accepted || ack.ModuleID != fn.ID.String() {
-		t.Fatalf("unexpected ack body: %+v", ack)
 	}
 }

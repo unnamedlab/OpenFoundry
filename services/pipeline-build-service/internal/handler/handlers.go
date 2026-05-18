@@ -35,7 +35,7 @@ import (
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
-	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
+	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 const defaultSSEInitialDelay = 10 * time.Second
@@ -54,13 +54,13 @@ var buildQueryRepository atomic.Value        // stores *buildQuerySlot
 var pipelineAuthoringRepository atomic.Value // stores *pipelineAuthoringSlot
 
 type sparkClientSlot struct {
-	client sparkpkg.SparkClient
+	client dispatchpkg.Client
 }
 
 type SparkSubmissionRepository interface {
 	SaveSparkSubmission(ctx context.Context, submission SparkSubmission) error
 	GetSparkSubmission(ctx context.Context, pipelineRunID uuid.UUID) (*SparkSubmission, error)
-	UpdateSparkSubmissionStatus(ctx context.Context, pipelineRunID uuid.UUID, status sparkpkg.SparkRunStatus, errorMessage *string) error
+	UpdateSparkSubmissionStatus(ctx context.Context, pipelineRunID uuid.UUID, status dispatchpkg.RunStatus, errorMessage *string) error
 	ListSparkSubmissions(ctx context.Context, limit int64) ([]SparkSubmission, error)
 }
 
@@ -68,7 +68,7 @@ type SparkSubmission struct {
 	PipelineRunID  uuid.UUID               `json:"pipeline_run_id"`
 	Namespace      string                  `json:"namespace"`
 	SparkAppName   string                  `json:"spark_app_name"`
-	Status         sparkpkg.SparkRunStatus `json:"status"`
+	Status         dispatchpkg.RunStatus `json:"status"`
 	ErrorMessage   *string                 `json:"error_message,omitempty"`
 	SubmittedAt    *time.Time              `json:"submitted_at,omitempty"`
 	LastObservedAt *time.Time              `json:"last_observed_at,omitempty"`
@@ -142,7 +142,7 @@ func SetJobLogStreamConfig(initialDelay, heartbeatInterval time.Duration) func()
 
 // SetSparkClient injects the Kubernetes/Spark client used by SubmitSparkRun and
 // GetSparkRun. It returns a restore function for tests.
-func SetSparkClient(client sparkpkg.SparkClient) func() {
+func SetSparkClient(client dispatchpkg.Client) func() {
 	previous, _ := sparkClientValue.Load().(*sparkClientSlot)
 	if previous == nil {
 		previous = &sparkClientSlot{}
@@ -768,10 +768,13 @@ type submitSparkRunRequest struct {
 	RunID               string                          `json:"run_id,omitempty"`
 	InputDatasetRID     string                          `json:"input_dataset_rid"`
 	OutputDatasetRID    string                          `json:"output_dataset_rid"`
-	ApplicationType     *sparkpkg.SparkApplicationType  `json:"application_type,omitempty"`
+	// ApplicationType — the Spark application type field is no longer
+	// honoured (ADR-0045 Phase C.4.a removed the SparkApplication CR
+	// path). Kept as a string so legacy wire payloads keep decoding.
+	ApplicationType     *string                          `json:"application_type,omitempty"`
 	PipelineRunnerImage string                          `json:"pipeline_runner_image,omitempty"`
 	Namespace           string                          `json:"namespace,omitempty"`
-	Resources           sparkpkg.SparkResourceOverrides `json:"resources,omitempty"`
+	Resources           dispatchpkg.ResourceOverrides `json:"resources,omitempty"`
 }
 
 func SubmitSparkRun(w http.ResponseWriter, r *http.Request) {
@@ -793,31 +796,28 @@ func SubmitSparkRun(w http.ResponseWriter, r *http.Request) {
 	if shortRunID == "" {
 		shortRunID = strings.ReplaceAll(runID.String(), "-", "")[:12]
 	}
-	appType := sparkpkg.SparkApplicationScala
-	if body.ApplicationType != nil {
-		appType = *body.ApplicationType
-	}
+	_ = body.ApplicationType // Phase C.4.a: SparkApplication CR path removed; field accepted but ignored.
 	image := body.PipelineRunnerImage
 	if image == "" {
 		image = "openfoundry/pipeline-runner:dev"
 	}
 	namespace := body.Namespace
 	if namespace == "" {
-		namespace = "openfoundry-spark"
+		namespace = "openfoundry"
 	}
-	input := sparkpkg.PipelineRunInput{PipelineID: body.PipelineID, RunID: shortRunID, Namespace: namespace, ApplicationType: appType, PipelineRunnerImage: image, InputDatasetRID: body.InputDatasetRID, OutputDatasetRID: body.OutputDatasetRID, Resources: body.Resources}
+	input := dispatchpkg.PipelineRunInput{PipelineID: body.PipelineID, RunID: shortRunID, Namespace: namespace, PipelineRunnerImage: image, InputDatasetRID: body.InputDatasetRID, OutputDatasetRID: body.OutputDatasetRID, Resources: body.Resources}
 	name, err := client.SubmitPipelineRun(r.Context(), input)
 	if err != nil {
 		writeSparkError(w, err)
 		return
 	}
 	if repo, ok := currentSparkSubmissionRepository(); ok {
-		if err := repo.SaveSparkSubmission(r.Context(), SparkSubmission{PipelineRunID: runID, Namespace: namespace, SparkAppName: name, Status: sparkpkg.SparkRunSubmitted}); err != nil {
+		if err := repo.SaveSparkSubmission(r.Context(), SparkSubmission{PipelineRunID: runID, Namespace: namespace, SparkAppName: name, Status: dispatchpkg.RunSubmitted}); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "spark_submission_persist_failed", "detail": err.Error()})
 			return
 		}
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"pipeline_run_id": runID, "namespace": namespace, "spark_app_name": name, "status": string(sparkpkg.SparkRunSubmitted)})
+	writeJSON(w, http.StatusAccepted, map[string]any{"pipeline_run_id": runID, "namespace": namespace, "spark_app_name": name, "status": string(dispatchpkg.RunSubmitted)})
 }
 
 func SubmitPipelineBuildRun(w http.ResponseWriter, r *http.Request) {
@@ -1060,14 +1060,14 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	}
 }
 
-func currentSparkClient() (sparkpkg.SparkClient, bool) {
+func currentSparkClient() (dispatchpkg.Client, bool) {
 	if slot, ok := sparkClientValue.Load().(*sparkClientSlot); ok && slot != nil && slot.client != nil {
 		if _, disabled := slot.client.(noSparkClient); disabled {
 			return nil, false
 		}
 		return slot.client, true
 	}
-	client, err := sparkpkg.NewKubernetesClientFromEnv()
+	client, err := dispatchpkg.NewKubernetesClientFromEnv()
 	if err != nil {
 		return nil, false
 	}
@@ -1082,9 +1082,9 @@ func writeKubeUnavailable(w http.ResponseWriter) {
 }
 
 func writeSparkError(w http.ResponseWriter, err error) {
-	var invalid *sparkpkg.InvalidInputError
-	var render *sparkpkg.RenderError
-	var kube *sparkpkg.KubeError
+	var invalid *dispatchpkg.InvalidInputError
+	var render *dispatchpkg.RenderError
+	var kube *dispatchpkg.KubeError
 	switch {
 	case errors.As(err, &invalid):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_spark_spec", "detail": err.Error()})
@@ -1099,11 +1099,11 @@ func writeSparkError(w http.ResponseWriter, err error) {
 
 type noSparkClient struct{}
 
-func (noSparkClient) SubmitPipelineRun(context.Context, sparkpkg.PipelineRunInput) (string, error) {
-	return "", &sparkpkg.UnavailableError{}
+func (noSparkClient) SubmitPipelineRun(context.Context, dispatchpkg.PipelineRunInput) (string, error) {
+	return "", &dispatchpkg.UnavailableError{}
 }
-func (noSparkClient) GetPipelineRunStatus(context.Context, string, string) (*sparkpkg.SparkRunStatusReport, error) {
-	return nil, &sparkpkg.UnavailableError{}
+func (noSparkClient) GetPipelineRunStatus(context.Context, string, string) (*dispatchpkg.RunStatusReport, error) {
+	return nil, &dispatchpkg.UnavailableError{}
 }
 
 // V1 Builds API wrappers. These mount the Rust `/v1` route group while

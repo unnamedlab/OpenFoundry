@@ -6,6 +6,7 @@ import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { listDatasets, type Dataset } from '@/lib/api/datasets';
 import { listProjects, type OntologyProject } from '@/lib/api/ontology';
 import { listSharedWithMe, type ResourceShare } from '@/lib/api/workspace';
+import { projectStablePath, workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 import { useAuth } from '@/lib/stores/auth';
 
 type SpaceTab = 'data-catalog' | 'portfolios' | 'projects' | 'your-files' | 'shared';
@@ -218,7 +219,7 @@ export function Home() {
         onClose={() => setCreateOpen(false)}
         onCreated={(project) => {
           setCreateOpen(false);
-          navigate(`/projects/${project.id}`);
+          navigate(projectStablePath(project));
         }}
       />
     </section>
@@ -480,7 +481,7 @@ function CollectionsTable({ projects, loading, search }: CollectionsTableProps) 
                     <Glyph name="bookmark" size={16} tone="var(--status-info)" />
                   </span>
                   <div style={{ display: 'grid', gap: 2 }}>
-                    <Link to={`/projects/${project.id}`} className="of-link" style={{ fontWeight: 600 }}>
+                    <Link to={projectStablePath(project)} className="of-link" style={{ fontWeight: 600 }}>
                       {projectName(project)}
                     </Link>
                     <span className="of-text-muted" style={{ fontSize: 11 }}>
@@ -685,9 +686,9 @@ function SharedView({ shared, loading }: { shared: ResourceShare[]; loading: boo
           ) : (
             shared.map((share) => {
               const href = share.resource_kind === 'ontology_project'
-                ? `/projects/${share.resource_id}`
+                ? workspaceResourceStablePath(share.resource_kind, share.resource_id)
                 : share.resource_kind === 'dataset'
-                  ? `/datasets/${share.resource_id}`
+                  ? workspaceResourceStablePath(share.resource_kind, share.resource_id)
                   : null;
               const label = share.resource_id;
               return (

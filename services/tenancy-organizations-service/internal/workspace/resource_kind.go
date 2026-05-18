@@ -28,6 +28,7 @@ const (
 	// these but trash/move are delegated to the resource-owning service.
 	ResourceDataset   ResourceKind = "dataset"
 	ResourcePipeline  ResourceKind = "pipeline"
+	ResourceQuery     ResourceKind = "query"
 	ResourceNotebook  ResourceKind = "notebook"
 	ResourceApp       ResourceKind = "app"
 	ResourceDashboard ResourceKind = "dashboard"
@@ -41,7 +42,7 @@ const (
 // every accepted value (Rust impl returns the same set).
 var allKinds = []ResourceKind{
 	ResourceOntologyProject, ResourceOntologyFolder, ResourceOntologyResourceBinding,
-	ResourceDataset, ResourcePipeline, ResourceNotebook, ResourceApp,
+	ResourceDataset, ResourcePipeline, ResourceQuery, ResourceNotebook, ResourceApp,
 	ResourceDashboard, ResourceReport, ResourceModel, ResourceWorkflow, ResourceOther,
 }
 
@@ -63,6 +64,8 @@ func ParseResourceKind(value string) (ResourceKind, error) {
 		return ResourceDataset, nil
 	case string(ResourcePipeline):
 		return ResourcePipeline, nil
+	case string(ResourceQuery):
+		return ResourceQuery, nil
 	case string(ResourceNotebook):
 		return ResourceNotebook, nil
 	case string(ResourceApp):

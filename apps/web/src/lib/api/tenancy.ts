@@ -240,6 +240,7 @@ export interface ProjectReference {
 
 export interface OntologyProject {
   id: string;
+  rid?: string;
   slug: string;
   display_name: string;
   description: string;
@@ -249,6 +250,9 @@ export interface OntologyProject {
   point_of_contact_user_id?: string | null;
   point_of_contact_email?: string | null;
   references: ProjectReference[];
+  marking_rids?: string[];
+  propagate_view_requirements_enabled?: boolean;
+  propagate_view_requirements_disabled_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -350,6 +354,29 @@ export interface ProjectAccessRequestForm {
   direct_role_reviewers: string[];
 }
 
+export interface ViewRequirementPropagationJob {
+  id: string;
+  project_id: string;
+  parent_resource_kind: 'project' | 'folder';
+  parent_resource_id: string;
+  parent_resource_rid: string;
+  initiated_by: string;
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
+  target_marking_rids: string[];
+  previous_marking_rids: string[];
+  total_folders: number;
+  processed_folders: number;
+  changed_folders: number;
+  total_resources: number;
+  processed_resources: number;
+  changed_resources: number;
+  error_message?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  updated_at: string;
+}
+
 interface DataEnvelope<T> {
   data: T[];
 }
@@ -373,12 +400,32 @@ export async function updateProject(
     point_of_contact_user_id: string | null;
     point_of_contact_email: string | null;
     references: ProjectReference[];
+    propagate_view_requirements_enabled: boolean;
   }>,
 ): Promise<OntologyProject> {
   return api.fetch<OntologyProject>(`/projects/${projectId}`, {
     method: 'PATCH',
     body: patch,
   });
+}
+
+export async function listProjectPropagationJobs(
+  projectId: string,
+  limit = 5,
+): Promise<ViewRequirementPropagationJob[]> {
+  const res = await api.fetch<DataEnvelope<ViewRequirementPropagationJob>>(
+    `/projects/${projectId}/propagate-view-requirements/jobs?limit=${encodeURIComponent(String(limit))}`,
+  );
+  return res.data;
+}
+
+export async function getProjectPropagationJob(
+  projectId: string,
+  jobId: string,
+): Promise<ViewRequirementPropagationJob> {
+  return api.fetch<ViewRequirementPropagationJob>(
+    `/projects/${projectId}/propagate-view-requirements/jobs/${jobId}`,
+  );
 }
 
 export async function listProjectGroupMemberships(

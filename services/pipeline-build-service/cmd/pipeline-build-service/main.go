@@ -26,7 +26,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/postgres"
 	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/server"
-	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 var version = "dev"
@@ -130,11 +130,11 @@ func main() {
 		log.Warn("DATABASE_URL unset — production repositories disabled; supported handlers return explicit 503 instead of fake success")
 	}
 
-	if kubeClient, err := spark.NewKubernetesClientFromEnv(); err == nil {
+	if kubeClient, err := dispatch.NewKubernetesClientFromEnv(); err == nil {
 		handler.SetSparkClient(kubeClient)
-		log.Info("kubernetes SparkApplication client wired")
+		log.Info("kubernetes pipeline-runner Job client wired")
 	} else {
-		log.Warn("kubernetes client unavailable — SparkApplication endpoints return explicit 503", slog.String("error", err.Error()))
+		log.Warn("kubernetes client unavailable — pipeline-runner submission endpoints return explicit 503", slog.String("error", err.Error()))
 	}
 
 	metrics := observability.NewMetrics()

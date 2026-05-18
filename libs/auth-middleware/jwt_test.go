@@ -15,15 +15,24 @@ import (
 
 func sampleClaims(ttl time.Duration) *authmw.Claims {
 	now := time.Now()
+	access := "access"
 	return &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(ttl).Unix(),
-		JTI:   uuid.New(),
-		Email: "demo@example.com",
-		Name:  "Demo User",
-		Roles: []string{"member"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(ttl).Unix(),
+		JTI:      uuid.New(),
+		Email:    "demo@example.com",
+		Name:     "Demo User",
+		Roles:    []string{"member"},
+		TokenUse: &access,
 	}
+}
+
+func sampleClaimsWithUse(ttl time.Duration, tokenUse string) *authmw.Claims {
+	c := sampleClaims(ttl)
+	use := tokenUse
+	c.TokenUse = &use
+	return c
 }
 
 func TestHS256RoundTrip(t *testing.T) {
@@ -106,6 +115,84 @@ func TestMiddlewareInjectsClaims(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestDecodeToken_AcceptsAccessByDefault(t *testing.T) {
+	t.Parallel()
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+
+	tok, err := authmw.EncodeToken(cfg, sampleClaimsWithUse(time.Hour, "access"))
+	require.NoError(t, err)
+
+	decoded, err := authmw.DecodeToken(cfg, tok)
+	require.NoError(t, err)
+	require.NotNil(t, decoded.TokenUse)
+	assert.Equal(t, "access", *decoded.TokenUse)
+}
+
+func TestDecodeToken_RejectsWrongTokenUse(t *testing.T) {
+	t.Parallel()
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+
+	// Default filter is ["access"], so an mfa_challenge token must
+	// not pass standard validation.
+	tok, err := authmw.EncodeToken(cfg, sampleClaimsWithUse(time.Hour, "mfa_challenge"))
+	require.NoError(t, err)
+
+	_, err = authmw.DecodeToken(cfg, tok)
+	require.Error(t, err)
+	assert.True(t, authmw.IsWrongTokenUse(err), "expected wrong-token-use error, got %v", err)
+	assert.False(t, authmw.IsExpired(err))
+
+	// A nil TokenUse must also be rejected — the default filter is
+	// strict equality, not "missing or access".
+	missing := sampleClaims(time.Hour)
+	missing.TokenUse = nil
+	tok2, err := authmw.EncodeToken(cfg, missing)
+	require.NoError(t, err)
+	_, err = authmw.DecodeToken(cfg, tok2)
+	require.Error(t, err)
+	assert.True(t, authmw.IsWrongTokenUse(err))
+}
+
+func TestDecodeToken_RespectsCustomUses(t *testing.T) {
+	t.Parallel()
+	cfg, err := authmw.Generate()
+	require.NoError(t, err)
+
+	refresh := sampleClaimsWithUse(time.Hour, "refresh")
+	tok, err := authmw.EncodeToken(cfg, refresh)
+	require.NoError(t, err)
+
+	// With explicit override, "refresh" now passes.
+	decoded, err := authmw.DecodeToken(cfg, tok, authmw.WithAllowedTokenUses("refresh"))
+	require.NoError(t, err)
+	require.NotNil(t, decoded.TokenUse)
+	assert.Equal(t, "refresh", *decoded.TokenUse)
+
+	// "access" no longer matches the explicit override.
+	accessTok, err := authmw.EncodeToken(cfg, sampleClaimsWithUse(time.Hour, "access"))
+	require.NoError(t, err)
+	_, err = authmw.DecodeToken(cfg, accessTok, authmw.WithAllowedTokenUses("refresh"))
+	require.Error(t, err)
+	assert.True(t, authmw.IsWrongTokenUse(err))
+
+	// WithAnyTokenUse disables the filter entirely.
+	mfaTok, err := authmw.EncodeToken(cfg, sampleClaimsWithUse(time.Hour, "mfa_challenge"))
+	require.NoError(t, err)
+	got, err := authmw.DecodeToken(cfg, mfaTok, authmw.WithAnyTokenUse())
+	require.NoError(t, err)
+	require.NotNil(t, got.TokenUse)
+	assert.Equal(t, "mfa_challenge", *got.TokenUse)
+
+	// Multiple allowed uses, including "access" + "api_key".
+	apiKey := sampleClaimsWithUse(time.Hour, "api_key")
+	apiTok, err := authmw.EncodeToken(cfg, apiKey)
+	require.NoError(t, err)
+	_, err = authmw.DecodeToken(cfg, apiTok, authmw.WithAllowedTokenUses("access", "api_key"))
+	require.NoError(t, err)
 }
 
 func TestPermissionWildcards(t *testing.T) {

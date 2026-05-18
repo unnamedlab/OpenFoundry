@@ -27,6 +27,7 @@ func TestOntologyProjectSG6WireShape(t *testing.T) {
 	contactEmail := "team@example.com"
 	p := models.OntologyProject{
 		ID:                   uuid.New(),
+		RID:                  "ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000010",
 		Slug:                 "fraud",
 		DisplayName:          "Fraud",
 		Description:          "ML scoring",
@@ -38,8 +39,10 @@ func TestOntologyProjectSG6WireShape(t *testing.T) {
 		References: []models.OntologyProjectReference{
 			{Kind: "project", ID: uuid.New(), Label: "Upstream"},
 		},
-		CreatedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		MarkingRIDs:                      []string{"ri.marking.main.marking.pii"},
+		PropagateViewRequirementsEnabled: true,
+		CreatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
 	}
 	out, err := json.Marshal(p)
 	require.NoError(t, err)
@@ -48,6 +51,7 @@ func TestOntologyProjectSG6WireShape(t *testing.T) {
 	for _, k := range []string{
 		"id", "slug", "display_name", "description", "workspace_slug", "owner_id",
 		"default_role", "point_of_contact_user_id", "point_of_contact_email", "references",
+		"rid", "marking_rids", "propagate_view_requirements_enabled",
 		"created_at", "updated_at",
 	} {
 		assert.Contains(t, view, k)
@@ -66,23 +70,25 @@ func TestOntologyProjectFolderCMP5WireShape(t *testing.T) {
 	projectID := uuid.New()
 	parentID := uuid.New()
 	f := models.OntologyProjectFolder{
-		ID:                      id,
-		RID:                     models.FolderRIDFromID(id),
-		ProjectID:               projectID,
-		ProjectRID:              models.ProjectRIDFromID(projectID),
-		ParentFolderID:          &parentID,
-		ParentFolderRID:         models.FolderRIDFromID(parentID),
-		SpaceRID:                models.DefaultProjectSpaceRID,
-		Type:                    models.FolderResourceType,
-		TrashStatus:             models.FolderTrashStatusNotTrashed,
-		InheritsProjectPolicies: true,
-		PolicyOverridesAllowed:  true,
-		Name:                    "Models",
-		Slug:                    "models",
-		Description:             "Production models",
-		CreatedBy:               uuid.New(),
-		CreatedAt:               time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:               time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		ID:                               id,
+		RID:                              models.FolderRIDFromID(id),
+		ProjectID:                        projectID,
+		ProjectRID:                       models.ProjectRIDFromID(projectID),
+		ParentFolderID:                   &parentID,
+		ParentFolderRID:                  models.FolderRIDFromID(parentID),
+		SpaceRID:                         models.DefaultProjectSpaceRID,
+		Type:                             models.FolderResourceType,
+		TrashStatus:                      models.FolderTrashStatusNotTrashed,
+		InheritsProjectPolicies:          true,
+		PolicyOverridesAllowed:           true,
+		PropagateViewRequirementsEnabled: true,
+		ViewRequirementMarkingRIDs:       []string{"ri.marking.main.marking.pii"},
+		Name:                             "Models",
+		Slug:                             "models",
+		Description:                      "Production models",
+		CreatedBy:                        uuid.New(),
+		CreatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC),
 	}
 	out, err := json.Marshal(f)
 	require.NoError(t, err)
@@ -91,6 +97,7 @@ func TestOntologyProjectFolderCMP5WireShape(t *testing.T) {
 	for _, k := range []string{
 		"rid", "project_rid", "parent_folder_rid", "space_rid", "type",
 		"trash_status", "inherits_project_policies", "policy_overrides_allowed",
+		"propagate_view_requirements_enabled", "view_requirement_marking_rids",
 	} {
 		assert.Contains(t, view, k)
 	}

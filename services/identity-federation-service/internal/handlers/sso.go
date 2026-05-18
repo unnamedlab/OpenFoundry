@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/ids"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/oidc"
@@ -19,6 +21,46 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/saml"
 	"github.com/openfoundry/openfoundry-go/services/identity-federation-service/internal/service"
 )
+
+// AuditBatchEmitter atomically publishes one-or-more audit envelopes
+// for a single SSO callback (auth.login, auth.identity_linked when the
+// IdP binding is fresh, and auth.token_issued). The default production
+// implementation — see NewOutboxAuditBatcher — opens a pgx tx,
+// invokes audittrail.EmitToOutbox for each envelope, and commits so
+// the triple either lands together or not at all. Tests inject a
+// recording fake that captures the events without touching Postgres.
+type AuditBatchEmitter func(ctx context.Context, events []audittrail.AuditEvent, auditCtx audittrail.AuditContext) error
+
+// NewOutboxAuditBatcher returns the production-grade AuditBatchEmitter
+// wired to the local outbox.events table. The caller owns repo's
+// lifecycle.
+func NewOutboxAuditBatcher(r *repo.Repo) AuditBatchEmitter {
+	return func(ctx context.Context, events []audittrail.AuditEvent, auditCtx audittrail.AuditContext) error {
+		if len(events) == 0 {
+			return nil
+		}
+		tx, err := r.BeginTx(ctx)
+		if err != nil {
+			return err
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback(ctx)
+			}
+		}()
+		for _, evt := range events {
+			if err := audittrail.EmitToOutbox(ctx, tx, evt, auditCtx); err != nil {
+				return err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	}
+}
 
 // SSO wires the OAuth/OIDC + SAML SSO endpoints. OIDC is slice 5a;
 // SAML is slice 5b. Per-org IdP rows + claim-mapping rules in slice 7.
@@ -31,6 +73,17 @@ type SSO struct {
 	OIDC   *oidc.Service
 	SAML   *saml.Registry
 	Issuer *service.Issuer
+
+	// EmitAudit publishes the auth.* envelopes (auth.login,
+	// auth.identity_linked when firstLink, auth.token_issued)
+	// atomically into the local outbox. Defaults to
+	// NewOutboxAuditBatcher(s.Repo) at boot; tests replace it with a
+	// recording fake so they can assert on the captured events
+	// without spinning up Postgres.
+	EmitAudit AuditBatchEmitter
+	// SourceService is the value placed in the AuditEnvelope's
+	// source_service field. Populated from the service name at boot.
+	SourceService string
 }
 
 // ListProviders handles GET /api/v1/auth/sso/providers.
@@ -138,6 +191,120 @@ func normalizeRedirect(v string) string {
 	return v
 }
 
+// authAuditInput is the in-process tuple the SSO callback hands to
+// emitAuthAudit. Kept private so the audit emission is one struct
+// argument rather than ten positional parameters.
+type authAuditInput struct {
+	User        *models.User
+	Provider    string
+	Subject     string
+	LoginEmail  string
+	FirstLink   bool
+	AuthMethods []string
+	AccessToken string
+}
+
+// emitAuthAudit publishes the auth.* envelopes (auth.login,
+// auth.identity_linked when firstLink, auth.token_issued) via the
+// injected AuditBatchEmitter. Failure is non-fatal — the login already
+// completed by the time we get here, but the audit gap is logged at
+// slog.Error so compliance dashboards can surface it.
+func (s *SSO) emitAuthAudit(r *http.Request, in authAuditInput) {
+	if s.EmitAudit == nil {
+		// Programming error: the boot wiring is missing. Logged so
+		// operators can spot the gap; the user-facing flow is already
+		// done.
+		slog.Error("sso audit: emitter not wired; skipping envelope publication",
+			slog.String("user_id", in.User.ID.String()))
+		return
+	}
+
+	tokenID, tokenExpiresAt, err := s.decodeIssuedToken(in.AccessToken)
+	if err != nil {
+		slog.Error("sso audit: decode access token",
+			slog.String("user_id", in.User.ID.String()),
+			slog.String("error", err.Error()))
+		return
+	}
+
+	tenantID := ""
+	if in.User.OrganizationID != nil {
+		tenantID = in.User.OrganizationID.String()
+	}
+	userIDStr := in.User.ID.String()
+	mfaSatisfied := mfaSatisfiedFromAuthMethods(in.AuthMethods)
+	auditCtx := audittrail.AuditContext{
+		ActorID:       userIDStr,
+		IP:            clientIP(r),
+		UserAgent:     r.UserAgent(),
+		RequestID:     r.Header.Get("X-Request-Id"),
+		SourceService: s.SourceService,
+	}
+
+	events := make([]audittrail.AuditEvent, 0, 3)
+	if in.FirstLink {
+		events = append(events, audittrail.NewIdentityLinked(
+			userIDStr, tenantID, in.Provider, in.Subject, in.LoginEmail,
+		))
+	}
+	events = append(events,
+		audittrail.NewAuthLogin(
+			userIDStr, tenantID, in.Provider, in.Subject, in.LoginEmail,
+			mfaSatisfied, in.AuthMethods,
+		),
+		audittrail.NewTokenIssued(
+			tokenID, userIDStr, tenantID, tokenExpiresAt, in.AuthMethods,
+		),
+	)
+
+	if err := s.EmitAudit(r.Context(), events, auditCtx); err != nil {
+		slog.Error("sso audit: emit envelopes",
+			slog.String("user_id", userIDStr),
+			slog.Int("envelopes", len(events)),
+			slog.String("error", err.Error()))
+	}
+}
+
+// decodeIssuedToken extracts the JTI and EXP from the access token we
+// just minted. The Issuer mints the JWT internally so we have to peek
+// at the encoded form to learn the random JTI — without it the
+// `auth.token_issued` envelope's TokenID would be empty.
+func (s *SSO) decodeIssuedToken(access string) (jti string, exp time.Time, err error) {
+	if s.Issuer == nil || s.Issuer.JWT == nil {
+		return "", time.Time{}, errIssuerNotWired
+	}
+	claims, err := authmw.DecodeToken(s.Issuer.JWT, access)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return claims.JTI.String(), time.Unix(claims.EXP, 0).UTC(), nil
+}
+
+// errIssuerNotWired surfaces the programming-error case where the SSO
+// handler has no Issuer attached. Wrapped here so the slog message
+// stays uniform.
+var errIssuerNotWired = errIssuerNotWiredVal{}
+
+type errIssuerNotWiredVal struct{}
+
+func (errIssuerNotWiredVal) Error() string { return "issuer not wired on SSO handler" }
+
+// mfaSatisfiedFromAuthMethods derives the audit MFA flag from the
+// auth_methods slice attached to the issued JWT. SSO callbacks add
+// "sso" + the provider slug; if MFA was satisfied the originating
+// handler would also include one of the canonical MFA tokens. The
+// list is intentionally conservative — a future MFA-in-SSO flow flips
+// the result automatically once it stamps the right method.
+func mfaSatisfiedFromAuthMethods(methods []string) bool {
+	for _, m := range methods {
+		switch m {
+		case "totp", "webauthn", "mfa":
+			return true
+		}
+	}
+	return false
+}
+
 // Callback handles GET /api/v1/auth/sso/{provider}/callback.
 //
 // Flow:
@@ -179,7 +346,7 @@ func (s *SSO) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.resolveUser(r.Context(), name, claims)
+	user, firstLink, err := s.resolveUser(r.Context(), name, claims)
 	if err != nil {
 		slog.Error("sso callback: resolve user", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
@@ -195,7 +362,8 @@ func (s *SSO) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, refresh, err := s.Issuer.IssueTokens(r.Context(), user, []string{"sso", name})
+	authMethods := []string{"sso", name}
+	access, refresh, err := s.Issuer.IssueTokens(r.Context(), user, authMethods)
 	if err != nil {
 		slog.Error("sso callback: issue tokens", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
@@ -205,6 +373,16 @@ func (s *SSO) Callback(w http.ResponseWriter, r *http.Request) {
 	if err := s.Repo.StampLogin(r.Context(), user.ID, time.Now().UTC(), clientIP(r)); err != nil {
 		slog.Warn("sso callback: stamp login", slog.String("user_id", user.ID.String()), slog.String("error", err.Error()))
 	}
+
+	s.emitAuthAudit(r, authAuditInput{
+		User:        user,
+		Provider:    name,
+		Subject:     claims.Subject,
+		LoginEmail:  claims.Email,
+		FirstLink:   firstLink,
+		AuthMethods: authMethods,
+		AccessToken: access,
+	})
 
 	target, _ := url.Parse(st.RedirectAfter)
 	q := url.Values{}
@@ -273,7 +451,7 @@ func (s *SSO) AssertionConsumerService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.resolveSamlUser(r.Context(), name, identity)
+	user, firstLink, err := s.resolveSamlUser(r.Context(), name, identity)
 	if err != nil {
 		slog.Error("sso acs: resolve user", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
@@ -289,7 +467,8 @@ func (s *SSO) AssertionConsumerService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, refresh, err := s.Issuer.IssueTokens(r.Context(), user, []string{"sso", name})
+	authMethods := []string{"sso", name}
+	access, refresh, err := s.Issuer.IssueTokens(r.Context(), user, authMethods)
 	if err != nil {
 		slog.Error("sso acs: issue tokens", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "internal error")
@@ -300,6 +479,16 @@ func (s *SSO) AssertionConsumerService(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("sso acs: stamp login", slog.String("user_id", user.ID.String()), slog.String("error", err.Error()))
 	}
 
+	s.emitAuthAudit(r, authAuditInput{
+		User:        user,
+		Provider:    name,
+		Subject:     identity.Subject,
+		LoginEmail:  identity.Email,
+		FirstLink:   firstLink,
+		AuthMethods: authMethods,
+		AccessToken: access,
+	})
+
 	target, _ := url.Parse(st.RedirectAfter)
 	q := url.Values{}
 	q.Set("access_token", access)
@@ -309,73 +498,77 @@ func (s *SSO) AssertionConsumerService(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target.String(), http.StatusFound)
 }
 
-// resolveSamlUser is the SAML-flavoured twin of resolveUser. The
-// Identity already carries the canonical subject/email/name shape
-// the slice-5a policy needs, so the body is identical to its OIDC
-// sibling — kept separate so a future change can diverge cleanly.
-func (s *SSO) resolveSamlUser(ctx context.Context, provider string, identity *saml.Identity) (*models.User, error) {
+// resolveSamlUser is the SAML-flavoured twin of resolveUser. Returns
+// `firstLink=true` whenever the (provider, external_id) tuple did not
+// already exist — i.e. this callback is about to bind the SAML
+// subject to a platform user for the first time. The audit pipeline
+// uses that to gate the `auth.identity_linked` emission.
+func (s *SSO) resolveSamlUser(ctx context.Context, provider string, identity *saml.Identity) (user *models.User, firstLink bool, err error) {
 	bind, err := s.Repo.FindExternalIdentity(ctx, provider, identity.Subject)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if bind != nil {
 		u, err := s.Repo.FindUserByID(ctx, bind.UserID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if u != nil {
-			return u, nil
+			return u, false, nil
 		}
 	}
 	if identity.Email != "" {
 		u, err := s.Repo.FindUserByEmail(ctx, identity.Email)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if u != nil {
-			return u, nil
+			return u, true, nil
 		}
 	}
 	id := ids.New()
 	if err := s.Repo.CreateUserForSSO(ctx, id, identity.Email, identity.Name, provider); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return s.Repo.FindUserByID(ctx, id)
+	u, err := s.Repo.FindUserByID(ctx, id)
+	return u, true, err
 }
 
 // resolveUser implements the slice-5a SSO user-resolution policy:
 //
-//  1. (provider, external_id) already binds → that user.
-//  2. claims.email matches an existing user → that user.
-//  3. otherwise → fresh user with auth_source=<provider>, no role.
-func (s *SSO) resolveUser(ctx context.Context, provider string, claims *oidc.Claims) (*models.User, error) {
+//  1. (provider, external_id) already binds → that user (firstLink=false).
+//  2. claims.email matches an existing user → that user (firstLink=true).
+//  3. otherwise → fresh user with auth_source=<provider>, no role
+//     (firstLink=true).
+func (s *SSO) resolveUser(ctx context.Context, provider string, claims *oidc.Claims) (user *models.User, firstLink bool, err error) {
 	bind, err := s.Repo.FindExternalIdentity(ctx, provider, claims.Subject)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if bind != nil {
 		u, err := s.Repo.FindUserByID(ctx, bind.UserID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if u != nil {
-			return u, nil
+			return u, false, nil
 		}
 	}
 
 	if claims.Email != "" {
 		u, err := s.Repo.FindUserByEmail(ctx, claims.Email)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if u != nil {
-			return u, nil
+			return u, true, nil
 		}
 	}
 
 	id := ids.New()
 	if err := s.Repo.CreateUserForSSO(ctx, id, claims.Email, claims.Name, provider); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return s.Repo.FindUserByID(ctx, id)
+	u, err := s.Repo.FindUserByID(ctx, id)
+	return u, true, err
 }

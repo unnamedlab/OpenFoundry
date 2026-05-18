@@ -2256,6 +2256,7 @@ export type OntologyProjectRole = "discoverer" | "viewer" | "editor" | "owner";
 
 export interface OntologyProject {
   id: string;
+  rid?: string;
   slug: string;
   display_name: string;
   description: string;
@@ -2265,6 +2266,9 @@ export interface OntologyProject {
   point_of_contact_user_id?: string | null;
   point_of_contact_email?: string | null;
   references?: Array<{ kind: string; id: string; label?: string }>;
+  marking_rids?: string[];
+  propagate_view_requirements_enabled?: boolean;
+  propagate_view_requirements_disabled_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -2745,11 +2749,16 @@ export function createProject(body: {
   default_role?: OntologyProjectRole;
   template_key?: string;
   template_variables?: Record<string, string>;
+  file_access_preset_id?: string;
+  marking_rids?: string[];
+  propagate_view_requirements_enabled?: boolean;
   folders?: Array<{
     name: string;
     description?: string;
     parent_folder_id?: string | null;
     parent_folder_rid?: string | null;
+    propagate_view_requirements_enabled?: boolean;
+    view_requirement_marking_rids?: string[];
   }>;
 }) {
   return api.post<OntologyProject>("/ontology/projects", body);
@@ -2765,6 +2774,7 @@ export function updateProject(
     display_name?: string;
     description?: string;
     workspace_slug?: string | null;
+    propagate_view_requirements_enabled?: boolean;
   },
 ) {
   return api.patch<OntologyProject>(`/ontology/projects/${id}`, {
@@ -2793,10 +2803,26 @@ export function createProjectFolder(
     description?: string;
     parent_folder_id?: string | null;
     parent_folder_rid?: string | null;
+    propagate_view_requirements_enabled?: boolean;
+    view_requirement_marking_rids?: string[];
   },
 ) {
   return api.post<OntologyProjectFolder>(
     `/ontology/projects/${id}/folders`,
+    body,
+  );
+}
+
+export function updateProjectFolderPropagation(
+  id: string,
+  folderId: string,
+  body: {
+    enabled: boolean;
+    view_requirement_marking_rids?: string[];
+  },
+) {
+  return api.patch<OntologyProjectFolder>(
+    `/ontology/projects/${id}/folders/${folderId}/propagate-view-requirements`,
     body,
   );
 }
@@ -10139,6 +10165,7 @@ export interface OntologyProjectResourceBinding {
   resource_kind: string;
   resource_id: string;
   bound_by: string;
+  view_requirement_marking_rids?: string[];
   created_at: string;
 }
 
@@ -15941,6 +15968,9 @@ export interface OntologyProjectFolder {
   trash_status: "DIRECTLY_TRASHED" | "ANCESTOR_TRASHED" | "NOT_TRASHED";
   inherits_project_policies: boolean;
   policy_overrides_allowed: boolean;
+  propagate_view_requirements_enabled?: boolean;
+  propagate_view_requirements_disabled_at?: string | null;
+  view_requirement_marking_rids?: string[];
   name: string;
   slug: string;
   description: string;

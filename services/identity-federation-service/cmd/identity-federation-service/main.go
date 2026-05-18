@@ -115,7 +115,13 @@ func main() {
 	auth := &handlers.Auth{Repo: r, Issuer: issuer, WebAuthn: waService}
 	mfa := &handlers.MFA{JWT: jwt, Repo: r, Issuer: issuer, Sealer: mfaSealer}
 	wa := &handlers.WebAuthn{JWT: jwt, Repo: r, Service: waService, Issuer: issuer}
-	sso := &handlers.SSO{Repo: r, OIDC: oidcSvc, Issuer: issuer}
+	sso := &handlers.SSO{
+		Repo:          r,
+		OIDC:          oidcSvc,
+		Issuer:        issuer,
+		EmitAudit:     handlers.NewOutboxAuditBatcher(r),
+		SourceService: cfg.Service.Name,
+	}
 	ssoAdmin := handlers.NewSsoAdmin(r, nil)
 	rbac := &handlers.RBAC{Repo: r}
 

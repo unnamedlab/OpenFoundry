@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { createApiKey, revokeApiKey, type ApiKeyWithSecret } from '@api/auth';
+import {
+  createApiKey,
+  revokeApiKey,
+  scanApiKeyLeaks,
+  type ApiKeyLeakWarning,
+  type ApiKeyWithSecret,
+} from '@api/auth';
 import { apiKeysQuery, settingsQueryKeys } from './queries';
 import { SettingsModal } from './SettingsModal';
 import { SettingsSectionHeader } from './SettingsSectionHeader';
@@ -12,7 +18,17 @@ interface ApiKeysSectionProps {
   setError: (msg: string) => void;
 }
 
-const DEFAULT_FORM = { name: '', scopes: '', expires_at: '' };
+function defaultExpiryValue() {
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  expires.setSeconds(0, 0);
+  const offset = expires.getTimezoneOffset();
+  const local = new Date(expires.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function defaultForm() {
+  return { name: '', scopes: '', expires_at: defaultExpiryValue() };
+}
 
 export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
   const qc = useQueryClient();
@@ -22,9 +38,11 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
 
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(DEFAULT_FORM);
+  const [form, setForm] = useState(defaultForm);
   const [newKey, setNewKey] = useState<ApiKeyWithSecret | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [scanContent, setScanContent] = useState('');
+  const [scanWarnings, setScanWarnings] = useState<ApiKeyLeakWarning[] | null>(null);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -46,7 +64,7 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
       }),
     onSuccess: async (data) => {
       setNewKey(data);
-      setForm(DEFAULT_FORM);
+      setForm(defaultForm());
       setOpen(false);
       await qc.invalidateQueries({ queryKey: settingsQueryKeys.apiKeys });
       setNotice('API key created. Copy the token now; it will not be shown again.');
@@ -65,18 +83,31 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
     onError: (err) => setError(err instanceof Error ? err.message : 'Failed to revoke API key'),
   });
 
+  const scanMutation = useMutation({
+    mutationFn: () => scanApiKeyLeaks({ content: scanContent, source: 'settings/api-keys' }),
+    onSuccess: (data) => {
+      setScanWarnings(data.warnings);
+      setNotice(
+        data.warnings.length > 0
+          ? 'Potential token exposure found. Revoke exposed keys and remove them from shared history.'
+          : 'No developer API token pattern found.',
+      );
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : 'Failed to scan content'),
+  });
+
   return (
     <section className="settings-section">
       <SettingsSectionHeader
         title="API keys"
-        description="Issue scoped programmatic credentials for automation and service integrations."
+        description="Issue temporary development credentials that inherit your current permissions."
         filter={{ value: filter, placeholder: 'Filter keys…', onChange: setFilter }}
         actions={
           <button
             type="button"
             className="of-btn of-btn-primary"
             onClick={() => {
-              setForm(DEFAULT_FORM);
+              setForm(defaultForm());
               setOpen(true);
             }}
           >
@@ -84,6 +115,20 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
           </button>
         }
       />
+
+      <div
+        style={{
+          padding: 12,
+          border: '1px solid var(--status-warning)',
+          background: 'var(--status-warning-bg)',
+          borderRadius: 'var(--radius-md)',
+          color: 'var(--status-warning)',
+          fontSize: 13,
+        }}
+      >
+        Developer API tokens are temporary and inherit your permissions. Do not use them in
+        production applications or commit them to shared repositories.
+      </div>
 
       {newKey && (
         <div
@@ -116,6 +161,7 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
           >
             {newKey.token}
           </div>
+          <div style={{ marginTop: 8, color: 'var(--status-warning)' }}>{newKey.warning}</div>
         </div>
       )}
 
@@ -132,7 +178,7 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
               <th style={{ width: '28%' }}>Name</th>
               <th style={{ width: '20%' }}>Prefix</th>
               <th>Scopes</th>
-              <th style={{ width: '20%' }}>Created</th>
+              <th style={{ width: '20%' }}>Expires</th>
               <th style={{ width: '110px' }}></th>
             </tr>
           </thead>
@@ -141,11 +187,17 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
               <tr key={apiKey.id}>
                 <td>
                   <div className="settings-table__name">{apiKey.name}</div>
-                  {apiKey.revoked_at && (
-                    <div className="settings-table__sub" style={{ color: 'var(--status-danger)' }}>
-                      Revoked
-                    </div>
-                  )}
+                  <div
+                    className="settings-table__sub"
+                    style={{
+                      color:
+                        apiKey.status === 'active'
+                          ? 'var(--status-success)'
+                          : 'var(--status-danger)',
+                    }}
+                  >
+                    {apiKey.status}
+                  </div>
                 </td>
                 <td>
                   <span style={{ fontFamily: 'var(--font-mono)' }}>{apiKey.prefix}</span>
@@ -165,17 +217,22 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
                 </td>
                 <td>
                   <span className="of-text-muted">
-                    {new Date(apiKey.created_at).toLocaleString()}
+                    {apiKey.expires_at ? new Date(apiKey.expires_at).toLocaleString() : 'Expired'}
                   </span>
+                  {apiKey.last_used_at && (
+                    <div className="settings-table__sub">
+                      Last used {new Date(apiKey.last_used_at).toLocaleString()}
+                    </div>
+                  )}
                 </td>
                 <td>
                   <button
                     type="button"
                     className="of-btn"
                     onClick={() => revokeMutation.mutate(apiKey.id)}
-                    disabled={revokingId === apiKey.id || apiKey.revoked_at !== null}
+                    disabled={revokingId === apiKey.id || apiKey.status === 'revoked'}
                   >
-                    {apiKey.revoked_at !== null
+                    {apiKey.status === 'revoked'
                       ? 'Revoked'
                       : revokingId === apiKey.id
                         ? 'Revoking…'
@@ -188,13 +245,57 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
         </table>
       )}
 
+      <div style={{ display: 'grid', gap: 10, marginTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--text-strong)' }}>Token exposure check</div>
+            <div className="of-text-muted" style={{ fontSize: 13 }}>
+              Paste a diff, config snippet, or log excerpt to check for committed developer tokens.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="of-btn"
+            onClick={() => scanMutation.mutate()}
+            disabled={!scanContent.trim() || scanMutation.isPending}
+          >
+            {scanMutation.isPending ? 'Scanning…' : 'Scan'}
+          </button>
+        </div>
+        <textarea
+          className="of-input"
+          value={scanContent}
+          onChange={(event) => setScanContent(event.target.value)}
+          placeholder="Paste local diff or file contents"
+          rows={4}
+          style={{ resize: 'vertical' }}
+        />
+        {scanWarnings && (
+          <div className="settings-chip-row">
+            {scanWarnings.length === 0 ? (
+              <span className="of-chip of-status-success">No token pattern found</span>
+            ) : (
+              scanWarnings.map((warning) => (
+                <span
+                  key={`${warning.redacted}-${warning.api_key_id ?? warning.prefix ?? ''}`}
+                  className="of-chip of-status-danger"
+                  title={warning.message}
+                >
+                  {warning.severity}: {warning.redacted}
+                </span>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       <SettingsModal
         open={open}
         title="Create API key"
-        description="Tokens are shown once when issued. Copy and store yours securely."
+        description="Tokens expire within 30 days and are shown once when issued."
         primaryLabel="Create API key"
         primaryBusyLabel="Saving…"
-        primaryDisabled={!form.name.trim()}
+        primaryDisabled={!form.name.trim() || !form.expires_at}
         busy={createMutation.isPending}
         onSubmit={() => createMutation.mutate()}
         onClose={() => setOpen(false)}
@@ -219,12 +320,13 @@ export function ApiKeysSection({ setNotice, setError }: ApiKeysSectionProps) {
           />
         </label>
         <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
-          <span style={{ fontWeight: 500 }}>Expires at (optional)</span>
+          <span style={{ fontWeight: 500 }}>Expires at</span>
           <input
             className="of-input"
             type="datetime-local"
             value={form.expires_at}
             onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))}
+            required
           />
         </label>
       </SettingsModal>

@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 
 import { listProjectFolders, type OntologyProject, type OntologyProjectFolder } from '@/lib/api/ontology';
-import { batchApply, moveResource, type BatchAction, type ResourceKind } from '@/lib/api/workspace';
+import {
+  batchApply,
+  listResourceReferences,
+  moveResource,
+  type BatchAction,
+  type ResourceKind,
+} from '@/lib/api/workspace';
 
 interface BulkTarget {
   kind: ResourceKind;
@@ -22,6 +28,13 @@ interface MoveDialogProps {
   onMoved?: () => void;
 }
 
+interface ReferenceWarningSummary {
+  checked: number;
+  total: number;
+  dependsOn: number;
+  usedBy: number;
+}
+
 export function MoveDialog({
   open,
   resourceKind,
@@ -40,6 +53,7 @@ export function MoveDialog({
   const [folders, setFolders] = useState<OntologyProjectFolder[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [referenceWarning, setReferenceWarning] = useState<ReferenceWarningSummary | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -47,6 +61,7 @@ export function MoveDialog({
     setTargetFolderId('');
     setSubmitting(false);
     setError('');
+    setReferenceWarning(null);
   }, [open, initialProjectId, projects]);
 
   useEffect(() => {
@@ -58,6 +73,39 @@ export function MoveDialog({
       .then(setFolders)
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load folders'));
   }, [open, targetProjectId]);
+
+  useEffect(() => {
+    if (!open) {
+      setReferenceWarning(null);
+      return;
+    }
+    const referencesTargets = isBulk && targets?.length
+      ? targets
+      : resourceKind && resourceId
+        ? [{ kind: resourceKind, id: resourceId, label: resourceLabel ?? 'resource' }]
+        : [];
+    if (referencesTargets.length === 0) {
+      setReferenceWarning(null);
+      return;
+    }
+
+    let cancelled = false;
+    const checkedTargets = referencesTargets.slice(0, 20);
+    Promise.all(
+      checkedTargets.map((target) => listResourceReferences(target.kind, target.id).catch(() => null)),
+    ).then((graphs) => {
+      if (cancelled) return;
+      const dependsOn = graphs.reduce<number>((count, graph) => count + (graph?.depends_on.length ?? 0), 0);
+      const usedBy = graphs.reduce<number>((count, graph) => count + (graph?.used_by.length ?? 0), 0);
+      setReferenceWarning(dependsOn > 0 || usedBy > 0
+        ? { checked: checkedTargets.length, total: referencesTargets.length, dependsOn, usedBy }
+        : null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isBulk, targets, resourceKind, resourceId, resourceLabel]);
 
   async function submit() {
     if (!targetProjectId) { setError('Pick a destination project.'); return; }
@@ -119,6 +167,12 @@ export function MoveDialog({
               ))}
             </select>
           </label>
+          {referenceWarning && (
+            <div style={{ border: '1px solid #f59e0b', background: '#451a03', color: '#fde68a', borderRadius: 6, padding: 8, fontSize: 11 }}>
+              Reference graph: {referenceWarning.usedBy} downstream and {referenceWarning.dependsOn} upstream reference(s) may need review after this move.
+              {referenceWarning.total > referenceWarning.checked ? ` Checked first ${referenceWarning.checked} of ${referenceWarning.total} selected items.` : ''}
+            </div>
+          )}
           {error && <p style={{ color: '#fca5a5', fontSize: 11, margin: 0 }}>{error}</p>}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #1e293b', padding: '12px 16px' }}>

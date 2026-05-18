@@ -82,18 +82,22 @@ func FolderRIDFromID(id uuid.UUID) string {
 //   - References: a JSONB array of {kind, id} pointers to sibling
 //     projects / resources used by this project.
 type OntologyProject struct {
-	ID                   uuid.UUID                  `json:"id"`
-	Slug                 string                     `json:"slug"`
-	DisplayName          string                     `json:"display_name"`
-	Description          string                     `json:"description"`
-	WorkspaceSlug        *string                    `json:"workspace_slug"`
-	OwnerID              uuid.UUID                  `json:"owner_id"`
-	DefaultRole          OntologyProjectRole        `json:"default_role"`
-	PointOfContactUserID *uuid.UUID                 `json:"point_of_contact_user_id,omitempty"`
-	PointOfContactEmail  *string                    `json:"point_of_contact_email,omitempty"`
-	References           []OntologyProjectReference `json:"references"`
-	CreatedAt            time.Time                  `json:"created_at"`
-	UpdatedAt            time.Time                  `json:"updated_at"`
+	ID                                  uuid.UUID                  `json:"id"`
+	RID                                 string                     `json:"rid"`
+	Slug                                string                     `json:"slug"`
+	DisplayName                         string                     `json:"display_name"`
+	Description                         string                     `json:"description"`
+	WorkspaceSlug                       *string                    `json:"workspace_slug"`
+	OwnerID                             uuid.UUID                  `json:"owner_id"`
+	DefaultRole                         OntologyProjectRole        `json:"default_role"`
+	PointOfContactUserID                *uuid.UUID                 `json:"point_of_contact_user_id,omitempty"`
+	PointOfContactEmail                 *string                    `json:"point_of_contact_email,omitempty"`
+	References                          []OntologyProjectReference `json:"references"`
+	MarkingRIDs                         []string                   `json:"marking_rids"`
+	PropagateViewRequirementsEnabled    bool                       `json:"propagate_view_requirements_enabled"`
+	PropagateViewRequirementsDisabledAt *time.Time                 `json:"propagate_view_requirements_disabled_at,omitempty"`
+	CreatedAt                           time.Time                  `json:"created_at"`
+	UpdatedAt                           time.Time                  `json:"updated_at"`
 }
 
 // OntologyProjectReference is the typed shape of one entry inside
@@ -116,55 +120,64 @@ type OntologyProjectMembership struct {
 
 // OntologyProjectResourceBinding mirrors `models::project::OntologyProjectResourceBinding`.
 type OntologyProjectResourceBinding struct {
-	ProjectID    uuid.UUID `json:"project_id"`
-	ResourceKind string    `json:"resource_kind"`
-	ResourceID   uuid.UUID `json:"resource_id"`
-	BoundBy      uuid.UUID `json:"bound_by"`
-	CreatedAt    time.Time `json:"created_at"`
+	ProjectID                  uuid.UUID `json:"project_id"`
+	ResourceKind               string    `json:"resource_kind"`
+	ResourceID                 uuid.UUID `json:"resource_id"`
+	BoundBy                    uuid.UUID `json:"bound_by"`
+	ViewRequirementMarkingRIDs []string  `json:"view_requirement_marking_rids"`
+	CreatedAt                  time.Time `json:"created_at"`
 }
 
 // OntologyProjectFolder mirrors `models::project::OntologyProjectFolder`.
 type OntologyProjectFolder struct {
-	ID                      uuid.UUID  `json:"id"`
-	RID                     string     `json:"rid"`
-	ProjectID               uuid.UUID  `json:"project_id"`
-	ProjectRID              string     `json:"project_rid"`
-	ParentFolderID          *uuid.UUID `json:"parent_folder_id"`
-	ParentFolderRID         string     `json:"parent_folder_rid"`
-	SpaceRID                string     `json:"space_rid"`
-	Type                    string     `json:"type"`
-	TrashStatus             string     `json:"trash_status"`
-	InheritsProjectPolicies bool       `json:"inherits_project_policies"`
-	PolicyOverridesAllowed  bool       `json:"policy_overrides_allowed"`
-	Name                    string     `json:"name"`
-	Slug                    string     `json:"slug"`
-	Description             string     `json:"description"`
-	CreatedBy               uuid.UUID  `json:"created_by"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	ID                                  uuid.UUID  `json:"id"`
+	RID                                 string     `json:"rid"`
+	ProjectID                           uuid.UUID  `json:"project_id"`
+	ProjectRID                          string     `json:"project_rid"`
+	ParentFolderID                      *uuid.UUID `json:"parent_folder_id"`
+	ParentFolderRID                     string     `json:"parent_folder_rid"`
+	SpaceRID                            string     `json:"space_rid"`
+	Type                                string     `json:"type"`
+	TrashStatus                         string     `json:"trash_status"`
+	InheritsProjectPolicies             bool       `json:"inherits_project_policies"`
+	PolicyOverridesAllowed              bool       `json:"policy_overrides_allowed"`
+	PropagateViewRequirementsEnabled    bool       `json:"propagate_view_requirements_enabled"`
+	PropagateViewRequirementsDisabledAt *time.Time `json:"propagate_view_requirements_disabled_at,omitempty"`
+	ViewRequirementMarkingRIDs          []string   `json:"view_requirement_marking_rids"`
+	Name                                string     `json:"name"`
+	Slug                                string     `json:"slug"`
+	Description                         string     `json:"description"`
+	CreatedBy                           uuid.UUID  `json:"created_by"`
+	CreatedAt                           time.Time  `json:"created_at"`
+	UpdatedAt                           time.Time  `json:"updated_at"`
 }
 
 // CreateOntologyProjectFolderRequest is the body of POST /projects/:id/folders.
 type CreateOntologyProjectFolderRequest struct {
-	Name            string     `json:"name"`
-	Description     *string    `json:"description,omitempty"`
-	ParentFolderID  *uuid.UUID `json:"parent_folder_id,omitempty"`
-	ParentFolderRID *string    `json:"parent_folder_rid,omitempty"`
+	Name                             string     `json:"name"`
+	Description                      *string    `json:"description,omitempty"`
+	ParentFolderID                   *uuid.UUID `json:"parent_folder_id,omitempty"`
+	ParentFolderRID                  *string    `json:"parent_folder_rid,omitempty"`
+	PropagateViewRequirementsEnabled *bool      `json:"propagate_view_requirements_enabled,omitempty"`
+	ViewRequirementMarkingRIDs       []string   `json:"view_requirement_marking_rids,omitempty"`
 }
 
 // CreateOntologyProjectRequest is the body of POST /projects.
 type CreateOntologyProjectRequest struct {
-	Slug                 string                               `json:"slug"`
-	DisplayName          *string                              `json:"display_name,omitempty"`
-	Description          *string                              `json:"description,omitempty"`
-	WorkspaceSlug        *string                              `json:"workspace_slug,omitempty"`
-	DefaultRole          *OntologyProjectRole                 `json:"default_role,omitempty"`
-	PointOfContactUserID *uuid.UUID                           `json:"point_of_contact_user_id,omitempty"`
-	PointOfContactEmail  *string                              `json:"point_of_contact_email,omitempty"`
-	TemplateKey          *string                              `json:"template_key,omitempty"`
-	TemplateVariables    map[string]string                    `json:"template_variables,omitempty"`
-	References           []OntologyProjectReference           `json:"references,omitempty"`
-	Folders              []CreateOntologyProjectFolderRequest `json:"folders,omitempty"`
+	Slug                             string                               `json:"slug"`
+	DisplayName                      *string                              `json:"display_name,omitempty"`
+	Description                      *string                              `json:"description,omitempty"`
+	WorkspaceSlug                    *string                              `json:"workspace_slug,omitempty"`
+	DefaultRole                      *OntologyProjectRole                 `json:"default_role,omitempty"`
+	PointOfContactUserID             *uuid.UUID                           `json:"point_of_contact_user_id,omitempty"`
+	PointOfContactEmail              *string                              `json:"point_of_contact_email,omitempty"`
+	TemplateKey                      *string                              `json:"template_key,omitempty"`
+	TemplateVariables                map[string]string                    `json:"template_variables,omitempty"`
+	References                       []OntologyProjectReference           `json:"references,omitempty"`
+	Folders                          []CreateOntologyProjectFolderRequest `json:"folders,omitempty"`
+	FileAccessPresetID               *string                              `json:"file_access_preset_id,omitempty"`
+	MarkingRIDs                      []string                             `json:"marking_rids,omitempty"`
+	PropagateViewRequirementsEnabled *bool                                `json:"propagate_view_requirements_enabled,omitempty"`
 }
 
 // ─── SG.26: project templates ──────────────────────────────────────────
@@ -338,13 +351,51 @@ type ListProjectTemplateApplicationsResponse struct {
 // here, matching `UpdateOrganizationRequest`'s convention in models.go: the
 // triple-state (absent / null / set) is interpreted at the handler layer.
 type UpdateOntologyProjectRequest struct {
-	DisplayName          *string                     `json:"display_name,omitempty"`
-	Description          *string                     `json:"description,omitempty"`
-	WorkspaceSlug        *string                     `json:"workspace_slug,omitempty"`
-	DefaultRole          *OntologyProjectRole        `json:"default_role,omitempty"`
-	PointOfContactUserID **uuid.UUID                 `json:"point_of_contact_user_id,omitempty"`
-	PointOfContactEmail  **string                    `json:"point_of_contact_email,omitempty"`
-	References           *[]OntologyProjectReference `json:"references,omitempty"`
+	DisplayName                      *string                     `json:"display_name,omitempty"`
+	Description                      *string                     `json:"description,omitempty"`
+	WorkspaceSlug                    *string                     `json:"workspace_slug,omitempty"`
+	DefaultRole                      *OntologyProjectRole        `json:"default_role,omitempty"`
+	PointOfContactUserID             **uuid.UUID                 `json:"point_of_contact_user_id,omitempty"`
+	PointOfContactEmail              **string                    `json:"point_of_contact_email,omitempty"`
+	References                       *[]OntologyProjectReference `json:"references,omitempty"`
+	PropagateViewRequirementsEnabled *bool                       `json:"propagate_view_requirements_enabled,omitempty"`
+}
+
+// UpdateProjectFolderPropagationRequest is the body of PATCH
+// /projects/:id/folders/:folder_id/propagate-view-requirements.
+type UpdateProjectFolderPropagationRequest struct {
+	Enabled                    *bool    `json:"enabled"`
+	ViewRequirementMarkingRIDs []string `json:"view_requirement_marking_rids,omitempty"`
+}
+
+// ViewRequirementPropagationJob is the progress record for CMP.19
+// background re-propagation after a project/folder propagation policy
+// change.
+type ViewRequirementPropagationJob struct {
+	ID                  uuid.UUID  `json:"id"`
+	ProjectID           uuid.UUID  `json:"project_id"`
+	ParentResourceKind  string     `json:"parent_resource_kind"`
+	ParentResourceID    uuid.UUID  `json:"parent_resource_id"`
+	ParentResourceRID   string     `json:"parent_resource_rid"`
+	InitiatedBy         uuid.UUID  `json:"initiated_by"`
+	Status              string     `json:"status"`
+	TargetMarkingRIDs   []string   `json:"target_marking_rids"`
+	PreviousMarkingRIDs []string   `json:"previous_marking_rids"`
+	TotalFolders        int        `json:"total_folders"`
+	ProcessedFolders    int        `json:"processed_folders"`
+	ChangedFolders      int        `json:"changed_folders"`
+	TotalResources      int        `json:"total_resources"`
+	ProcessedResources  int        `json:"processed_resources"`
+	ChangedResources    int        `json:"changed_resources"`
+	ErrorMessage        *string    `json:"error_message,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	StartedAt           *time.Time `json:"started_at,omitempty"`
+	FinishedAt          *time.Time `json:"finished_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+type ListViewRequirementPropagationJobsResponse struct {
+	Data []ViewRequirementPropagationJob `json:"data"`
 }
 
 // ListOntologyProjectsQuery is the query string for GET /projects.

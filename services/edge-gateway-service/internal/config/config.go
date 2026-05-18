@@ -101,10 +101,8 @@ type UpstreamURLs struct {
 	OntologyActions           string `koanf:"ontology_actions_service_url"`
 	Ontology                  string `koanf:"ontology_service_url"`
 	Workflow                  string `koanf:"workflow_service_url"`
-	Approvals                 string `koanf:"approvals_service_url"`
 	Notebook                  string `koanf:"notebook_service_url"`
 	Notification              string `koanf:"notification_service_url"`
-	AppBuilder                string `koanf:"app_builder_service_url"`
 	ApplicationCuration       string `koanf:"application_curation_service_url"`
 	ApplicationComposition    string `koanf:"application_composition_service_url"`
 	ML                        string `koanf:"ml_service_url"`
@@ -121,11 +119,9 @@ type UpstreamURLs struct {
 	AgentRuntime              string `koanf:"agent_runtime_service_url"`
 	KnowledgeIndex            string `koanf:"knowledge_index_service_url"`
 	RetrievalContext          string `koanf:"retrieval_context_service_url"`
-	ConversationState         string `koanf:"conversation_state_service_url"`
 	AIEvaluation              string `koanf:"ai_evaluation_service_url"`
 	DocumentReporting         string `koanf:"document_reporting_service_url"`
 	EntityResolution          string `koanf:"entity_resolution_service_url"`
-	Streaming                 string `koanf:"streaming_service_url"`
 	Report                    string `koanf:"report_service_url"`
 	GeospatialIntelligence    string `koanf:"geospatial_intelligence_service_url"`
 	CodeRepo                  string `koanf:"code_repo_service_url"`
@@ -147,43 +143,51 @@ type UpstreamURLs struct {
 // DefaultUpstreams returns the default localhost ports for dev /
 // docker-compose. Production deployments override every field via
 // Helm values.
+//
+// Each non-stub port mirrors the surviving service's own
+// `parseUint16("PORT", N)` default — TestUpstreamPortsMatchService
+// enforces the link, so drift here is caught at PR time. Aliases
+// (e.g. SecurityGovernance pointing at authorization-policy-service's
+// port per ADR-0030 B14, Audit pointing at audit-compliance-service's
+// port) share the surviving owner's port. Stub fields with no Go
+// service yet are tracked in upstreamsWithoutGoService inside
+// route_table_test.go and left on placeholder ports.
 func DefaultUpstreams() UpstreamURLs {
 	return UpstreamURLs{
-		IdentityFederation:        "http://localhost:50112",
-		OauthIntegration:          "http://localhost:50094",
-		SessionGovernance:         "http://localhost:50074",
-		AuthorizationPolicy:       "http://localhost:50093",
+		IdentityFederation: "http://localhost:50112",
+		OauthIntegration:   "http://localhost:50094",
+		SessionGovernance:  "http://localhost:50074",
 		// ADR-0030 B14: security-governance-service merged into
-		// authorization-policy-service. The upstream key is kept as an
-		// alias so router_table.go can keep its sec-gov-specific cases.
-		SecurityGovernance:        "http://localhost:50093",
+		// authorization-policy-service. The SecurityGovernance alias
+		// shares its port so router_table.go's sec-gov cases still
+		// resolve to the surviving owner.
+		AuthorizationPolicy:       "http://localhost:50115",
+		SecurityGovernance:        "http://localhost:50115",
 		TenancyOrganizations:      "http://localhost:50113",
 		Cipher:                    "http://localhost:50073",
 		DataConnector:             "http://localhost:50088",
 		ConnectorManagement:       "http://localhost:50088",
 		VirtualTable:              "http://localhost:50089",
-		IngestionReplication:      "http://localhost:50090",
-		DatasetVersioning:         "http://localhost:50078",
+		IngestionReplication:      "http://localhost:50120",
+		DatasetVersioning:         "http://localhost:50117",
 		DataAssetCatalog:          "http://localhost:50079",
 		DatasetQuality:            "http://localhost:50072",
-		IcebergCatalog:            "http://localhost:8197",
+		IcebergCatalog:            "http://localhost:50118",
 		Query:                     "http://localhost:50133",
 		PipelineAuthoring:         "http://localhost:50080",
 		PipelineBuild:             "http://localhost:50081",
 		PipelineSchedule:          "http://localhost:50082",
 		Lineage:                   "http://localhost:50083",
-		OntologyDefinition:        "http://localhost:50103",
-		ObjectDatabase:            "http://localhost:50104",
-		OntologyQuery:             "http://localhost:50105",
+		OntologyDefinition:        "http://localhost:50122",
+		ObjectDatabase:            "http://localhost:50125",
+		OntologyQuery:             "http://localhost:50123",
 		OntologyActions:           "http://localhost:50106",
-		Ontology:                  "http://localhost:50103",
+		Ontology:                  "http://localhost:50122",
 		Workflow:                  "http://localhost:50137",
-		Approvals:                 "http://localhost:50071",
 		Notebook:                  "http://localhost:50134",
 		Notification:              "http://localhost:50114",
-		AppBuilder:                "http://localhost:50063",
 		ApplicationCuration:       "http://localhost:50101",
-		ApplicationComposition:    "http://localhost:50140",
+		ApplicationComposition:    "http://localhost:50118",
 		ML:                        "http://localhost:50085",
 		ModelCatalog:              "http://localhost:50085",
 		ModelDeployment:           "http://localhost:50086",
@@ -195,27 +199,32 @@ func DefaultUpstreams() UpstreamURLs {
 		AgentRuntime:              "http://localhost:50127",
 		KnowledgeIndex:            "http://localhost:50097",
 		RetrievalContext:          "http://localhost:50098",
-		ConversationState:         "http://localhost:50099",
 		AIEvaluation:              "http://localhost:50075",
 		DocumentReporting:         "http://localhost:50102",
 		EntityResolution:          "http://localhost:50058",
-		Streaming:                 "http://localhost:50121",
 		Report:                    "http://localhost:50064",
 		GeospatialIntelligence:    "http://localhost:50131",
-		CodeRepo:                  "http://localhost:50065",
+		CodeRepo:                  "http://localhost:50155",
 		GlobalBranch:              "http://localhost:50110",
 		MarketplaceCatalog:        "http://localhost:50066",
 		ProductDistribution:       "http://localhost:50111",
-		FederationProductExchange: "http://localhost:50120",
-		CheckpointsPurpose:        "http://localhost:50116",
-		NetworkBoundary:           "http://localhost:50119",
-		RetentionPolicy:           "http://localhost:50117",
-		LineageDeletion:           "http://localhost:50118",
-		AuditCompliance:           "http://localhost:50115",
-		Audit:                     "http://localhost:50115",
-		SDS:                       "http://localhost:50076",
-		Nexus:                     "http://localhost:50067",
-		TelemetryGovernance:       "http://localhost:50153",
+		FederationProductExchange: "http://localhost:50126",
+		// CheckpointsPurpose is served by audit-compliance-service per
+		// ADR-0030; alias to its port.
+		CheckpointsPurpose: "http://localhost:50116",
+		NetworkBoundary:    "http://localhost:50119",
+		// RetentionPolicy / LineageDeletion are unrouted placeholder slots
+		// (no Go service yet, tracked in upstreamsWithoutGoService).
+		// Their defaults are deliberately unique unused ports so the
+		// port-collision invariant on DefaultUpstreams keeps catching real
+		// drift; pick the next free slot if a Go service is ever wired up.
+		RetentionPolicy: "http://localhost:50068",
+		LineageDeletion: "http://localhost:50069",
+		AuditCompliance: "http://localhost:50116",
+		Audit:           "http://localhost:50116",
+		SDS:                 "http://localhost:50076",
+		Nexus:               "http://localhost:50067",
+		TelemetryGovernance: "http://localhost:50153",
 	}
 }
 
@@ -346,10 +355,8 @@ func upstreamMap(u UpstreamURLs) map[string]any {
 		"ontology_actions_service_url":            u.OntologyActions,
 		"ontology_service_url":                    u.Ontology,
 		"workflow_service_url":                    u.Workflow,
-		"approvals_service_url":                   u.Approvals,
 		"notebook_service_url":                    u.Notebook,
 		"notification_service_url":                u.Notification,
-		"app_builder_service_url":                 u.AppBuilder,
 		"application_curation_service_url":        u.ApplicationCuration,
 		"application_composition_service_url":     u.ApplicationComposition,
 		"ml_service_url":                          u.ML,
@@ -363,11 +370,9 @@ func upstreamMap(u UpstreamURLs) map[string]any {
 		"agent_runtime_service_url":               u.AgentRuntime,
 		"knowledge_index_service_url":             u.KnowledgeIndex,
 		"retrieval_context_service_url":           u.RetrievalContext,
-		"conversation_state_service_url":          u.ConversationState,
 		"ai_evaluation_service_url":               u.AIEvaluation,
 		"document_reporting_service_url":          u.DocumentReporting,
 		"entity_resolution_service_url":           u.EntityResolution,
-		"streaming_service_url":                   u.Streaming,
 		"report_service_url":                      u.Report,
 		"geospatial_intelligence_service_url":     u.GeospatialIntelligence,
 		"code_repo_service_url":                   u.CodeRepo,

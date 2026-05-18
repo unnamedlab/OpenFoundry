@@ -23,6 +23,7 @@ import {
   getProjectAccessRequestForm,
   listProjectAccessRequests,
   listProjectGroupMemberships,
+  listProjectPropagationJobs,
   listProjectResourceGrants,
   listProjects,
   updateProject,
@@ -40,6 +41,7 @@ import {
   type ProjectGroupMembership,
   type ProjectResourceGrant,
   type ProjectRole,
+  type ViewRequirementPropagationJob,
 } from '@/lib/api/tenancy';
 
 const ROLE_OPTIONS: ProjectRole[] = ['discoverer', 'viewer', 'editor', 'owner'];
@@ -158,14 +160,31 @@ function ProjectDetail({
   const [pocUserID, setPocUserID] = useState(project.point_of_contact_user_id ?? '');
   const [pocEmail, setPocEmail] = useState(project.point_of_contact_email ?? '');
   const [refsJson, setRefsJson] = useState(JSON.stringify(project.references ?? [], null, 2));
+  const [propagateViewRequirements, setPropagateViewRequirements] = useState(
+    Boolean(project.propagate_view_requirements_enabled),
+  );
+  const [propagationJobs, setPropagationJobs] = useState<ViewRequirementPropagationJob[]>([]);
   const [busy, setBusy] = useState(false);
+
+  const refreshPropagationJobs = useCallback(async () => {
+    try {
+      setPropagationJobs(await listProjectPropagationJobs(project.id));
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : 'Failed to load propagation jobs');
+    }
+  }, [onError, project.id]);
 
   useEffect(() => {
     setDefaultRole(project.default_role);
     setPocUserID(project.point_of_contact_user_id ?? '');
     setPocEmail(project.point_of_contact_email ?? '');
     setRefsJson(JSON.stringify(project.references ?? [], null, 2));
+    setPropagateViewRequirements(Boolean(project.propagate_view_requirements_enabled));
   }, [project]);
+
+  useEffect(() => {
+    void refreshPropagationJobs();
+  }, [refreshPropagationJobs]);
 
   async function save() {
     setBusy(true);
@@ -183,8 +202,10 @@ function ProjectDetail({
         point_of_contact_user_id: pocUserID.trim() || null,
         point_of_contact_email: pocEmail.trim() || null,
         references: parsedRefs,
+        propagate_view_requirements_enabled: propagateViewRequirements,
       });
       onUpdated(updated);
+      await refreshPropagationJobs();
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : 'Failed to save');
     } finally {
@@ -200,6 +221,7 @@ function ProjectDetail({
           <p className="of-text-muted" style={{ fontSize: 12 }}>
             ID <code>{project.id}</code> · slug <code>{project.slug}</code> · owner{' '}
             <code>{project.owner_id}</code>
+            {project.rid && <> · RID <code>{project.rid}</code></>}
           </p>
         </header>
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
@@ -236,6 +258,76 @@ function ProjectDetail({
             />
           </label>
         </div>
+        <section
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: 12,
+            display: 'grid',
+            gap: 8,
+            background: 'var(--bg-subtle)',
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={propagateViewRequirements}
+              disabled={
+                Boolean(project.propagate_view_requirements_disabled_at) &&
+                !project.propagate_view_requirements_enabled
+              }
+              onChange={(event) => setPropagateViewRequirements(event.target.checked)}
+            />
+            Propagate view requirements
+          </label>
+          <p className="of-text-muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.45 }}>
+            Legacy compatibility setting. New child folders and project resource
+            bindings copy the project/folder view requirement markings at create
+            time; existing descendants are left for the migration job. Migrate
+            sensitive data to Markings before disabling this setting.
+          </p>
+          {project.propagate_view_requirements_disabled_at ? (
+            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+              Disabled at <code>{project.propagate_view_requirements_disabled_at}</code>.
+              Once disabled, it cannot be re-enabled.
+            </p>
+          ) : (
+            <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>
+              New projects should leave this off unless migrating an existing
+              Foundry project that still depends on propagated view requirements.
+            </p>
+          )}
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+              <strong style={{ fontSize: 12 }}>Propagation jobs</strong>
+              <button className="of-button of-button--ghost" style={{ fontSize: 12 }} onClick={() => void refreshPropagationJobs()}>
+                Refresh
+              </button>
+            </div>
+            {propagationJobs.length === 0 ? (
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>No propagation jobs yet.</p>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+                {propagationJobs.map((job) => {
+                  const processed = job.processed_folders + job.processed_resources;
+                  const total = job.total_folders + job.total_resources;
+                  return (
+                    <li key={job.id} style={{ fontSize: 12, display: 'grid', gap: 2 }}>
+                      <span>
+                        <code>{job.status}</code> · {processed}/{total} processed · changed{' '}
+                        {job.changed_folders + job.changed_resources}
+                      </span>
+                      <span className="of-text-muted">
+                        {job.parent_resource_kind} · <code>{job.parent_resource_rid}</code>
+                      </span>
+                      {job.error_message && <span className="of-status-danger">{job.error_message}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
         <label style={{ fontSize: 12 }}>
           References (JSON array of {`{kind, id, label?}`})
           <textarea

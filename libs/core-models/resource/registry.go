@@ -23,16 +23,19 @@ const (
 	TypeFoundryBuild        TypeID = "FOUNDRY_BUILD"
 	TypeFoundryJob          TypeID = "FOUNDRY_JOB"
 	TypeFoundrySchedule     TypeID = "FOUNDRY_SCHEDULE"
+	TypeFoundryQuery        TypeID = "FOUNDRY_QUERY"
 	TypeFoundrySource       TypeID = "FOUNDRY_SOURCE"
 	TypeFoundryVirtualTable TypeID = "FOUNDRY_VIRTUAL_TABLE"
 	TypeStreamsStream       TypeID = "STREAMS_STREAM"
 	TypeOntologyObjectType  TypeID = "ONTOLOGY_OBJECT_TYPE"
 	TypeOntologyActionType  TypeID = "ONTOLOGY_ACTION_TYPE"
 	TypeWorkshopApp         TypeID = "WORKSHOP_APP"
+	TypeWorkshopDashboard   TypeID = "WORKSHOP_DASHBOARD"
 	TypeReportReport        TypeID = "REPORT_REPORT"
 	TypeNotepadDocument     TypeID = "NOTEPAD_NOTEPAD"
 	TypeNotebookNotebook    TypeID = "NOTEBOOK_NOTEBOOK"
 	TypeModelsModel         TypeID = "MODELS_MODEL"
+	TypeFoundryWorkflow     TypeID = "FOUNDRY_WORKFLOW"
 )
 
 // Action is an operation Compass can expose for a resource type.
@@ -65,17 +68,25 @@ type RIDNamespace struct {
 	ResourceType string `json:"resource_type"`
 }
 
+// ReferenceTarget declares one kind of resource a type may depend on.
+type ReferenceTarget struct {
+	Relationship string `json:"relationship"`
+	TargetType   TypeID `json:"target_type"`
+	Required     bool   `json:"required,omitempty"`
+}
+
 // TypeDefinition is one central registry entry for a resource type.
 type TypeDefinition struct {
-	ID                 TypeID         `json:"id"`
-	DisplayName        string         `json:"display_name"`
-	OwningService      string         `json:"owning_service"`
-	RIDService         string         `json:"rid_service"`
-	RIDResourceType    string         `json:"rid_resource_type"`
-	RIDAliases         []RIDNamespace `json:"rid_aliases,omitempty"`
-	DefaultIcon        string         `json:"default_icon"`
-	SupportedActions   []Action       `json:"supported_actions"`
-	OpenAppURLTemplate string         `json:"open_app_url_template"`
+	ID                 TypeID            `json:"id"`
+	DisplayName        string            `json:"display_name"`
+	OwningService      string            `json:"owning_service"`
+	RIDService         string            `json:"rid_service"`
+	RIDResourceType    string            `json:"rid_resource_type"`
+	RIDAliases         []RIDNamespace    `json:"rid_aliases,omitempty"`
+	DefaultIcon        string            `json:"default_icon"`
+	SupportedActions   []Action          `json:"supported_actions"`
+	OpenAppURLTemplate string            `json:"open_app_url_template"`
+	ReferenceTargets   []ReferenceTarget `json:"reference_targets,omitempty"`
 }
 
 // Supports reports whether the resource type exposes an action.
@@ -133,6 +144,14 @@ func (d TypeDefinition) validate() error {
 			return fmt.Errorf("resource type %s unsupported action %q", d.ID, action)
 		}
 	}
+	for _, target := range d.ReferenceTargets {
+		if strings.TrimSpace(target.Relationship) == "" {
+			return fmt.Errorf("resource type %s reference target missing relationship", d.ID)
+		}
+		if target.TargetType == "" {
+			return fmt.Errorf("resource type %s reference target missing target_type", d.ID)
+		}
+	}
 	return nil
 }
 
@@ -167,12 +186,20 @@ func NewRegistry(definitions ...TypeDefinition) (*Registry, error) {
 		}
 		definition.SupportedActions = append([]Action(nil), definition.SupportedActions...)
 		definition.RIDAliases = append([]RIDNamespace(nil), definition.RIDAliases...)
+		definition.ReferenceTargets = append([]ReferenceTarget(nil), definition.ReferenceTargets...)
 		out.byID[definition.ID] = definition
 		for _, namespace := range definition.namespaces() {
 			if existing, exists := out.byNamespace[namespace]; exists {
 				return nil, fmt.Errorf("RID namespace ri.%s.<instance>.%s already registered to %s", namespace.Service, namespace.ResourceType, existing)
 			}
 			out.byNamespace[namespace] = definition.ID
+		}
+	}
+	for _, definition := range out.byID {
+		for _, target := range definition.ReferenceTargets {
+			if _, exists := out.byID[target.TargetType]; !exists {
+				return nil, fmt.Errorf("resource type %s reference target %s is not registered", definition.ID, target.TargetType)
+			}
 		}
 	}
 	return out, nil
@@ -267,6 +294,7 @@ func PlaceholderDefinition() TypeDefinition {
 func copyDefinition(definition TypeDefinition) TypeDefinition {
 	definition.SupportedActions = append([]Action(nil), definition.SupportedActions...)
 	definition.RIDAliases = append([]RIDNamespace(nil), definition.RIDAliases...)
+	definition.ReferenceTargets = append([]ReferenceTarget(nil), definition.ReferenceTargets...)
 	return definition
 }
 
@@ -292,6 +320,12 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "project",
 			SupportedActions:   common,
 			OpenAppURLTemplate: "/projects/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "contains", TargetType: TypeCompassFolder},
+				{Relationship: "contains", TargetType: TypeFoundryDataset},
+				{Relationship: "contains", TargetType: TypeFoundryPipeline},
+				{Relationship: "references", TargetType: TypeCompassProject},
+			},
 		},
 		{
 			ID:                 TypeCompassFolder,
@@ -323,6 +357,10 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "graph",
 			SupportedActions:   common,
 			OpenAppURLTemplate: "/pipelines/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "reads", TargetType: TypeFoundryDataset},
+				{Relationship: "writes", TargetType: TypeFoundryDataset},
+			},
 		},
 		{
 			ID:                 TypeFoundryBuild,
@@ -353,6 +391,24 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "clock",
 			SupportedActions:   []Action{ActionRename, ActionTrash, ActionRestore, ActionShare},
 			OpenAppURLTemplate: "/schedules/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "runs", TargetType: TypeFoundryPipeline},
+				{Relationship: "runs", TargetType: TypeFoundryWorkflow},
+			},
+		},
+		{
+			ID:                 TypeFoundryQuery,
+			DisplayName:        "Query",
+			OwningService:      "query-engine-service",
+			RIDService:         "foundry",
+			RIDResourceType:    "query",
+			DefaultIcon:        "query",
+			SupportedActions:   common,
+			OpenAppURLTemplate: "/queries/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "reads", TargetType: TypeFoundryDataset},
+				{Relationship: "reads", TargetType: TypeFoundryVirtualTable},
+			},
 		},
 		{
 			ID:                 TypeFoundrySource,
@@ -413,6 +469,27 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "app",
 			SupportedActions:   common,
 			OpenAppURLTemplate: "/apps/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "embeds", TargetType: TypeFoundryDataset},
+				{Relationship: "embeds", TargetType: TypeOntologyObjectType},
+				{Relationship: "invokes", TargetType: TypeOntologyActionType},
+				{Relationship: "embeds", TargetType: TypeReportReport},
+				{Relationship: "embeds", TargetType: TypeWorkshopDashboard},
+			},
+		},
+		{
+			ID:                 TypeWorkshopDashboard,
+			DisplayName:        "Dashboard",
+			OwningService:      "application-composition-service",
+			RIDService:         "foundry",
+			RIDResourceType:    "dashboard",
+			DefaultIcon:        "graph",
+			SupportedActions:   common,
+			OpenAppURLTemplate: "/dashboards/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "reads", TargetType: TypeFoundryQuery},
+				{Relationship: "reads", TargetType: TypeFoundryDataset},
+			},
 		},
 		{
 			ID:                 TypeReportReport,
@@ -423,6 +500,10 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "document",
 			SupportedActions:   common,
 			OpenAppURLTemplate: "/reports/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "reads", TargetType: TypeFoundryQuery},
+				{Relationship: "reads", TargetType: TypeFoundryDataset},
+			},
 		},
 		{
 			ID:                 TypeNotepadDocument,
@@ -443,6 +524,10 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "code",
 			SupportedActions:   common,
 			OpenAppURLTemplate: "/notebooks/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "reads", TargetType: TypeFoundryDataset},
+				{Relationship: "writes", TargetType: TypeFoundryDataset},
+			},
 		},
 		{
 			ID:                 TypeModelsModel,
@@ -453,6 +538,23 @@ func DefaultDefinitions() []TypeDefinition {
 			DefaultIcon:        "cube",
 			SupportedActions:   common,
 			OpenAppURLTemplate: "/ml?model={rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "trained_from", TargetType: TypeFoundryDataset},
+			},
+		},
+		{
+			ID:                 TypeFoundryWorkflow,
+			DisplayName:        "Workflow",
+			OwningService:      "workflow-orchestration-service",
+			RIDService:         "foundry",
+			RIDResourceType:    "workflow",
+			DefaultIcon:        "list",
+			SupportedActions:   common,
+			OpenAppURLTemplate: "/workflows/{rid}",
+			ReferenceTargets: []ReferenceTarget{
+				{Relationship: "runs", TargetType: TypeFoundryPipeline},
+				{Relationship: "reads", TargetType: TypeFoundryDataset},
+			},
 		},
 	}
 }

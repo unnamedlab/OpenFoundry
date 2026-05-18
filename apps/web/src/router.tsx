@@ -55,6 +55,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/recent/RecentPage')).RecentPage }),
       },
       {
+        path: 'favorites',
+        lazy: async () => ({ Component: (await import('./routes/favorites/FavoritesPage')).FavoritesPage }),
+      },
+      {
         path: 'settings',
         lazy: async () => ({ Component: (await import('./routes/settings/SettingsPage')).SettingsPage }),
       },
@@ -311,6 +315,22 @@ export const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('./routes/control-panel/ScopedSessionsPage')).ScopedSessionsPage }),
       },
       {
+        path: 'control-panel/application-access',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/ApplicationAccessPage')).ApplicationAccessPage }),
+      },
+      {
+        path: 'control-panel/third-party-applications',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/ThirdPartyApplicationsPage')).ThirdPartyApplicationsPage }),
+      },
+      {
+        path: 'control-panel/member-discovery',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/MemberDiscoveryPage')).MemberDiscoveryPage }),
+      },
+      {
+        path: 'control-panel/file-access-presets',
+        lazy: async () => ({ Component: (await import('./routes/control-panel/FileAccessPresetsPage')).FileAccessPresetsPage }),
+      },
+      {
         path: 'functions',
         lazy: async () => ({ Component: (await import('./routes/functions/FunctionsPage')).FunctionsPage }),
       },
@@ -409,6 +429,10 @@ export const router = createBrowserRouter([
       {
         path: 'projects/:projectId',
         lazy: async () => ({ Component: (await import('./routes/projects/ProjectDetailPage')).ProjectDetailPage }),
+      },
+      {
+        path: 'projects/:projectId/folders/:folderId',
+        lazy: async () => ({ Component: (await import('./routes/projects/ProjectFolderPage')).ProjectFolderPage }),
       },
       {
         path: 'projects/:projectId/:folderId',

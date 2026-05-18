@@ -27,6 +27,10 @@ type Issuer struct {
 // the concrete struct.
 func (i *Issuer) AccessTokenTTL() time.Duration { return i.AccessTTL }
 
+// RefreshTokenTTL exposes the configured refresh-token lifetime to
+// OAuth grant handlers that persist their own refresh-token table.
+func (i *Issuer) RefreshTokenTTL() time.Duration { return i.RefreshTTL }
+
 // IssueTokens creates an access JWT + refresh token for a user.
 //
 // `authMethods` lists the methods that authenticated this session
@@ -192,6 +196,89 @@ func (i *Issuer) encodeAccessForUser(user *models.User, authMethods []string, sc
 	return authmw.EncodeToken(i.JWT, c)
 }
 
+// IssueAccessTokenForAPIKey exchanges a usable developer API key for
+// a normal access JWT. Downstream services can keep requiring
+// token_use="access", while the api_key_id/auth_methods claims retain
+// the audit trail back to the revocable opaque key.
+func (i *Issuer) IssueAccessTokenForAPIKey(user *models.User, key *models.APIKey) (string, int64, error) {
+	now := time.Now().UTC()
+	exp := now.Add(i.AccessTTL)
+	if key.ExpiresAt != nil && key.ExpiresAt.Before(exp) {
+		exp = *key.ExpiresAt
+	}
+	if !exp.After(now) {
+		return "", 0, ErrRefreshTokenInvalid
+	}
+	apiKeyID := key.ID
+	tokenUse := "access"
+	c := &authmw.Claims{
+		Sub:         user.ID,
+		IAT:         now.Unix(),
+		EXP:         exp.Unix(),
+		ISS:         maybe(i.JWT.Issuer),
+		AUD:         maybe(i.JWT.Audience),
+		JTI:         uuid.New(),
+		Email:       user.Email,
+		Name:        user.Name,
+		Roles:       append([]string(nil), key.RolesSnapshot...),
+		Permissions: append([]string(nil), key.PermissionsSnapshot...),
+		OrgID:       user.OrganizationID,
+		Attributes:  user.Attributes,
+		AuthMethods: []string{"api_key"},
+		TokenUse:    &tokenUse,
+		APIKeyID:    &apiKeyID,
+	}
+	if c.Attributes == nil {
+		c.Attributes = json.RawMessage(`{}`)
+	}
+	encoded, err := authmw.EncodeToken(i.JWT, c)
+	if err != nil {
+		return "", 0, fmt.Errorf("encode api key access token: %w", err)
+	}
+	return encoded, int64(exp.Sub(now).Seconds()), nil
+}
+
+// IssueAccessTokenForOAuthClient issues the access JWT returned from
+// third-party OAuth grants. Roles are intentionally empty: downstream
+// authorization should observe only the narrowed OAuth scope set in
+// Permissions, which has already been intersected with the
+// user/service account's permissions, the application's max scopes,
+// and the request scope.
+func (i *Issuer) IssueAccessTokenForOAuthClient(user *models.User, app *models.ThirdPartyApplication, scopes []string, authMethods []string, maxExpiry *time.Time) (string, int64, error) {
+	now := time.Now().UTC()
+	exp := now.Add(i.AccessTTL)
+	if maxExpiry != nil && maxExpiry.Before(exp) {
+		exp = *maxExpiry
+	}
+	if !exp.After(now) {
+		return "", 0, ErrRefreshTokenInvalid
+	}
+	tokenUse := "access"
+	sessionKind := "oauth_third_party_application"
+	c := &authmw.Claims{
+		Sub:         user.ID,
+		IAT:         now.Unix(),
+		EXP:         exp.Unix(),
+		ISS:         maybe(i.JWT.Issuer),
+		AUD:         maybe(i.JWT.Audience),
+		JTI:         uuid.New(),
+		Email:       user.Email,
+		Name:        user.Name,
+		Roles:       []string{},
+		Permissions: append([]string(nil), scopes...),
+		OrgID:       user.OrganizationID,
+		Attributes:  oauthTokenAttributes(user.Attributes, app, scopes),
+		AuthMethods: append([]string(nil), authMethods...),
+		TokenUse:    &tokenUse,
+		SessionKind: &sessionKind,
+	}
+	encoded, err := authmw.EncodeToken(i.JWT, c)
+	if err != nil {
+		return "", 0, fmt.Errorf("encode oauth access token: %w", err)
+	}
+	return encoded, int64(exp.Sub(now).Seconds()), nil
+}
+
 func marshalSessionScope(scope *authmw.SessionScope) (json.RawMessage, error) {
 	if scope == nil {
 		return nil, nil
@@ -236,6 +323,26 @@ func maybe(s string) *string {
 }
 
 func strPtr(s string) *string { return &s }
+
+func oauthTokenAttributes(raw json.RawMessage, app *models.ThirdPartyApplication, scopes []string) json.RawMessage {
+	attrs := make(map[string]any)
+	if len(raw) > 0 && string(raw) != "null" {
+		_ = json.Unmarshal(raw, &attrs)
+	}
+	if attrs == nil {
+		attrs = make(map[string]any)
+	}
+	if app != nil {
+		attrs["oauth_client_id"] = app.ClientID
+		attrs["third_party_application_id"] = app.ID.String()
+	}
+	attrs["oauth_scopes"] = append([]string(nil), scopes...)
+	out, err := json.Marshal(attrs)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return out
+}
 
 // Sentinel errors returned by RefreshTokens.
 type sentinel string

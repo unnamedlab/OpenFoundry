@@ -265,6 +265,169 @@ The create-project modal sends the selected template key and shows the
 template's default role, groups, markings, constraints, and folder count
 before the project is created.
 
+## Application access controls (SG.27)
+
+Application access lives in the identity service Control Panel settings
+as an organization UX-scope policy, not as a data authorization system.
+It controls whether platform applications are visible in the launcher,
+sidebar, or direct navigation surfaces; every backend API and resource
+request must still pass the normal server-side permission checks.
+
+- `ApplicationAccessConfig` stores the application catalog, lifecycle
+  stage, default visibility, allow/block rules, approval policy,
+  pending change requests, and decision history.
+- Rules can match application IDs, lifecycle stages, organization IDs,
+  user IDs, and group IDs. Block rules take precedence. When default
+  visibility is `hidden`, a matching allow rule is required.
+- `POST /api/v1/application-access/evaluate` returns an explicit
+  `ux_scope_only` decision with matched rule IDs and names, allowing app
+  shells to hide platform surfaces without widening or replacing
+  authorization.
+- The web sidebar evaluates launcher entries against that endpoint and
+  hides applications denied by UX-scope rules.
+- `PUT /api/v1/control-panel` generates a change request and history
+  entry for application-access edits. Configuration changes self-approve
+  by default; approval-policy changes can require a distinct reviewer.
+- The Control Panel page at
+  [`/control-panel/application-access`](../../apps/web/src/routes/control-panel/ApplicationAccessPage.tsx)
+  exposes the JSON editor, visibility evaluator, pending approvals, and
+  history.
+
+> Parity reference:
+> [Configure application access](https://www.palantir.com/docs/foundry/administration/configure-application-access/) ·
+> [Approvals overview](https://www.palantir.com/docs/foundry/approvals/overview/).
+
+## User and group visibility controls (SG.28)
+
+Member discovery settings live in Control Panel as privacy controls for
+organization-scoped user and group lookup. They do not change roles,
+group membership, resource ACLs, markings, restricted views, or any
+other authorization state.
+
+- `MemberDiscoveryConfig` stores global defaults plus per-organization
+  `discover_users`, `discover_groups`, and `consumer_mode_boundary`
+  overrides.
+- Non-admin user/group list, search, detail, and inspection endpoints
+  return `member_discovery_disabled` when discovery is disabled for the
+  caller's organization.
+- Administrators keep visibility through `admin`, `organization_admin`,
+  `control_panel:*`, `users:*`, or `groups:*` grants, matching the
+  documented rule that administrative functions continue to work.
+- Every denial includes the warning that existing permissions remain in
+  force while user-defined logic depending on user/group lookup may fail.
+- The Control Panel page at
+  [`/control-panel/member-discovery`](../../apps/web/src/routes/control-panel/MemberDiscoveryPage.tsx)
+  edits defaults, organization overrides, consumer-mode boundary notes,
+  and history.
+
+> Parity reference:
+> [Configure user and group visibility](https://www.palantir.com/docs/foundry/administration/configure-user-and-group-visibility) ·
+> [Configure Foundry for consumer mode](https://www.palantir.com/docs/foundry/consumer-mode/foundry-consumer-setup).
+
+## File access presets (SG.29)
+
+File access presets live in Control Panel as named resource-creation
+shortcuts for mandatory markings and local classification controls. A
+preset is configuration only: it pre-fills supported creation forms, but
+does not grant membership in a marking and does not bypass resource
+authorization.
+
+- `FileAccessPresetConfig` stores enabled state, the primary-org guest
+  behavior, ordered presets, local access controls, supported resource
+  kinds, organization scoping, and retained change history.
+- `POST /api/v1/file-access-presets/visible` is the user-facing
+  evaluation endpoint. It returns only presets the caller can apply for
+  the requested resource kind and effective organization.
+- Visibility requires `Apply marking` permission for every marking in
+  the preset. OpenFoundry accepts global `markings:apply` /
+  `markings:write` / `markings:manage` grants or per-marking apply IDs
+  carried in claims.
+- Guest sessions resolve presets against the caller's primary
+  organization rather than the host organization when a primary
+  organization is known.
+- The create-project modal consumes the visibility endpoint for the
+  `project` resource kind and sends selected preset markings to
+  `POST /api/v1/projects`; tenancy merges those markings with any
+  project-template markings before indexing the project.
+- The Control Panel page at
+  [`/control-panel/file-access-presets`](../../apps/web/src/routes/control-panel/FileAccessPresetsPage.tsx)
+  edits presets, local controls JSON, default ordering, org scope,
+  supported resource kinds, and history.
+
+> Parity reference:
+> [Configure file access presets](https://www.palantir.com/docs/foundry/administration/configure-file-access-presets/) ·
+> [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+
+## Developer API Token Governance (SG.30)
+
+Developer API tokens are temporary user-generated credentials for local
+development. They are not production application credentials: use OAuth
+clients or service users for production integrations.
+
+- `POST /api/v1/api-keys` creates an opaque `ofapikey_...` secret,
+  returns it once, and persists only its SHA-256 hash plus a visible
+  prefix.
+- Creation requires an explicit `expires_at` within 30 days. The token
+  stores role and permission snapshots from the creating user; requested
+  scopes must be a subset of those effective permissions unless the user
+  is an administrator.
+- `POST /api/v1/auth/api-key/exchange` turns a usable opaque key into a
+  short-lived access JWT with `auth_methods=["api_key"]` and
+  `api_key_id` for audit correlation. Exchange fails after expiry,
+  revocation, owner disablement/deletion, or 30 days without a
+  successful owner login.
+- `GET /api/v1/api-keys` lists metadata and status only. The plaintext
+  secret is never shown again after creation. `DELETE /api/v1/api-keys/{id}`
+  revokes a key without deleting its audit metadata.
+- `POST /api/v1/api-keys/leak-scan` checks local snippets or diffs for
+  `ofapikey_...` patterns, redacts matches, and escalates warnings when
+  the visible prefix matches one of the caller's known keys.
+- The Settings API key panel requires expiry at creation, shows the
+  non-production warning, exposes revoke controls, and includes the
+  local token exposure check.
+
+> Parity reference:
+> [API authentication](https://www.palantir.com/docs/foundry/api/v2/general/overview/authentication/) ·
+> [Manage users](https://www.palantir.com/docs/foundry/platform-security-management/manage-users).
+
+## Third-Party Application Registration (SG.31)
+
+Third-party application registration is the durable OAuth2 client
+registry for integrations that should use production OAuth flows rather
+than developer API tokens. Developer Console is the preferred
+management surface; Control Panel remains available as a fallback when
+Developer Console is not enabled locally.
+
+- `POST /api/v1/third-party-applications` registers an OAuth2 client
+  with owner users, managing organization, discovery organizations,
+  redirect URIs, requested scopes, client type, and enabled grant types.
+- Confidential clients receive a one-time `of3pa_secret_...` client
+  secret. OpenFoundry stores only the SHA-256 hash, visible prefix, and
+  credential timestamp. Secrets can be rotated through
+  `POST /api/v1/third-party-applications/{id}/rotate-secret`.
+- Public clients are limited to `authorization_code` and require PKCE in
+  the downstream authorization flow. `client_credentials` is accepted
+  only for confidential clients.
+- When a confidential client enables `client_credentials`, identity
+  creates a service user whose username is the generated client ID. The
+  service user starts with no resource access; administrators must grant
+  roles/permissions explicitly.
+- `PUT /api/v1/third-party-applications/{id}/organizations/{org}/enablement`
+  records organization-specific enablement, project-scope placeholders,
+  marking restrictions, and organization-consent flags. SG.32 consumes
+  this when implementing authorization-code consent and token issuance.
+- Administration is gated by the third-party application administrator
+  role or OAuth client management permissions (`oauth_clients:manage` /
+  `third_party_applications:manage`), with read-only listing allowed via
+  the matching read permissions.
+- The Control Panel fallback UI lives at
+  [`/control-panel/third-party-applications`](../../apps/web/src/routes/control-panel/ThirdPartyApplicationsPage.tsx).
+
+> Parity reference:
+> [Third-party applications overview](https://www.palantir.com/docs/foundry/platform-security-third-party/third-party-apps-overview/) ·
+> [Registering third-party applications](https://www.palantir.com/docs/foundry/platform-security-third-party/register-3pa/) ·
+> [Writing OAuth2 clients for Foundry](https://www.palantir.com/docs/foundry/platform-security-third-party/writing-oauth2-clients).
+
 ## Why this matters
 
 This gives OpenFoundry a strong foundation for identity-aware operational workflows, not only for simple API authentication.

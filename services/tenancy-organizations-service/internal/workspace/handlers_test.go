@@ -29,6 +29,7 @@ func TestParseResourceKindLegacyAliases(t *testing.T) {
 		"ontology_resource_binding": workspace.ResourceOntologyResourceBinding,
 		"dataset":                   workspace.ResourceDataset,
 		"pipeline":                  workspace.ResourcePipeline,
+		"query":                     workspace.ResourceQuery,
 		"notebook":                  workspace.ResourceNotebook,
 		"app":                       workspace.ResourceApp,
 		"dashboard":                 workspace.ResourceDashboard,
@@ -65,10 +66,30 @@ func TestUserFavoriteJSONShape(t *testing.T) {
 	require.NoError(t, err)
 	var view map[string]any
 	require.NoError(t, json.Unmarshal(out, &view))
-	for _, k := range []string{"user_id", "resource_kind", "resource_id", "created_at"} {
+	for _, k := range []string{"user_id", "resource_kind", "resource_id", "group_id", "display_order", "created_at", "updated_at"} {
 		assert.Contains(t, view, k)
 	}
 	assert.Equal(t, "dataset", view["resource_kind"])
+	assert.Nil(t, view["group_id"])
+	assert.Equal(t, float64(0), view["display_order"])
+}
+
+func TestFavoriteGroupJSONShape(t *testing.T) {
+	t.Parallel()
+	g := workspace.FavoriteGroup{
+		ID: uuid.New(), UserID: uuid.New(), Name: "Daily ops", DisplayOrder: 1000,
+		CreatedAt: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC),
+	}
+	out, err := json.Marshal(g)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, k := range []string{"id", "user_id", "name", "display_order", "created_at", "updated_at"} {
+		assert.Contains(t, view, k)
+	}
+	assert.Equal(t, "Daily ops", view["name"])
+	assert.Equal(t, float64(1000), view["display_order"])
 }
 
 func TestRecentEntryJSONShape(t *testing.T) {
@@ -93,6 +114,7 @@ func TestListEnvelopeIsData(t *testing.T) {
 	var view map[string]any
 	require.NoError(t, json.Unmarshal(out, &view))
 	assert.Contains(t, view, "data", "workspace surface uses {data:[...]} (NOT {items}) — pinned for wire-compat with Rust impl")
+	assert.Contains(t, view, "groups", "CMP.16 adds profile groups without replacing the existing data envelope")
 	assert.NotContains(t, view, "items")
 }
 
@@ -137,6 +159,45 @@ func TestCreateFavoriteRejectsNilResourceID(t *testing.T) {
 	h.CreateFavorite(rec, req)
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "resource_id")
+}
+
+func TestCreateFavoriteGroupRequiresName(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/workspace/favorites/groups",
+		strings.NewReader(`{"name":"   "}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.CreateFavoriteGroup(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "name required")
+}
+
+func TestUpdateFavoriteOrderRejectsUnknownKind(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("PUT", "/workspace/favorites/order",
+		strings.NewReader(`{"items":[{"resource_kind":"banana","resource_id":"`+uuid.New().String()+`","display_order":1000}]}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.UpdateFavoriteOrder(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "banana")
+}
+
+func TestUpdateFavoriteGroupsOrderRejectsNilID(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("PUT", "/workspace/favorites/groups/order",
+		strings.NewReader(`{"groups":[{"id":"00000000-0000-0000-0000-000000000000","display_order":1000}]}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.UpdateFavoriteGroupsOrder(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "group id")
 }
 
 func TestRecordAccessRejectsUnknownKind(t *testing.T) {

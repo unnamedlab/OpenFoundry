@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -43,7 +44,11 @@ const folderSelectColumns = `f.id, f.rid, f.project_id, f.parent_folder_id,
         COALESCE(parent.rid, 'ri.compass.main.project.' || f.project_id::text),
         COALESCE(p.space_rid, 'ri.compass.main.folder.default-space'),
         f.name, f.slug, f.description, f.created_by, f.is_deleted,
-        COALESCE(p.resource_level_role_grants_allowed, TRUE), f.created_at, f.updated_at`
+        COALESCE(p.resource_level_role_grants_allowed, TRUE),
+        COALESCE(f.propagate_view_requirements_enabled, FALSE),
+        f.propagate_view_requirements_disabled_at,
+        COALESCE(f.view_requirement_marking_rids, '[]'::jsonb),
+        f.created_at, f.updated_at`
 
 // ─── slug + folder-name normalisation ───────────────────────────────────
 
@@ -174,9 +179,13 @@ func authClaims(w http.ResponseWriter, r *http.Request) (*authmw.Claims, bool) {
 
 func loadProject(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.OntologyProject, error) {
 	row := pool.QueryRow(ctx,
-		`SELECT id, slug, display_name, description, workspace_slug, owner_id,
+		`SELECT id, COALESCE(rid, 'ri.compass.main.project.' || id::text),
+		        slug, display_name, description, workspace_slug, owner_id,
 		        default_role, point_of_contact_user_id, point_of_contact_email,
-		        "references", created_at, updated_at
+		        "references", COALESCE(marking_rids, '[]'::jsonb),
+		        COALESCE(propagate_view_requirements_enabled, FALSE),
+		        propagate_view_requirements_disabled_at,
+		        created_at, updated_at
 		 FROM ontology_projects
 		 WHERE id = $1 AND is_deleted = FALSE`,
 		id,
@@ -202,11 +211,13 @@ func scanProjectRow(row projectScannable) (*models.OntologyProject, error) {
 	p := &models.OntologyProject{}
 	var defaultRole string
 	var refs []byte
+	var markings []byte
 	err := row.Scan(
-		&p.ID, &p.Slug, &p.DisplayName, &p.Description,
+		&p.ID, &p.RID, &p.Slug, &p.DisplayName, &p.Description,
 		&p.WorkspaceSlug, &p.OwnerID,
 		&defaultRole, &p.PointOfContactUserID, &p.PointOfContactEmail,
-		&refs, &p.CreatedAt, &p.UpdatedAt,
+		&refs, &markings, &p.PropagateViewRequirementsEnabled,
+		&p.PropagateViewRequirementsDisabledAt, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -222,6 +233,10 @@ func scanProjectRow(row projectScannable) (*models.OntologyProject, error) {
 	}
 	if p.References == nil {
 		p.References = []models.OntologyProjectReference{}
+	}
+	p.MarkingRIDs = decodeStringSliceJSON(markings)
+	if p.MarkingRIDs == nil {
+		p.MarkingRIDs = []string{}
 	}
 	return p, nil
 }
@@ -241,11 +256,14 @@ func loadProjectFolder(ctx context.Context, q folderQueryRower, projectID, folde
 func scanProjectFolderRow(row projectScannable) (*models.OntologyProjectFolder, error) {
 	f := &models.OntologyProjectFolder{}
 	var isDeleted bool
+	var viewRequirementMarkings []byte
 	err := row.Scan(
 		&f.ID, &f.RID, &f.ProjectID, &f.ParentFolderID,
 		&f.ParentFolderRID, &f.SpaceRID,
 		&f.Name, &f.Slug, &f.Description, &f.CreatedBy, &isDeleted,
-		&f.PolicyOverridesAllowed, &f.CreatedAt, &f.UpdatedAt,
+		&f.PolicyOverridesAllowed, &f.PropagateViewRequirementsEnabled,
+		&f.PropagateViewRequirementsDisabledAt, &viewRequirementMarkings,
+		&f.CreatedAt, &f.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -269,6 +287,10 @@ func scanProjectFolderRow(row projectScannable) (*models.OntologyProjectFolder, 
 		f.TrashStatus = models.FolderTrashStatusDirectTrash
 	}
 	f.InheritsProjectPolicies = true
+	f.ViewRequirementMarkingRIDs = decodeStringSliceJSON(viewRequirementMarkings)
+	if f.ViewRequirementMarkingRIDs == nil {
+		f.ViewRequirementMarkingRIDs = []string{}
+	}
 	return f, nil
 }
 
@@ -353,12 +375,29 @@ func insertProjectFolder(
 	}
 	folderID := ids.New()
 	folderRID := models.FolderRIDFromID(folderID)
+	inheritedMarkings, err := inheritedViewRequirementMarkings(ctx, tx, projectID, parentFolderID)
+	if err != nil {
+		return nil, fmt.Errorf("load inherited view requirements: %w", err)
+	}
+	viewRequirementMarkings := inheritedMarkings
+	if folder.ViewRequirementMarkingRIDs != nil {
+		viewRequirementMarkings = folder.ViewRequirementMarkingRIDs
+	}
+	viewRequirementMarkingsJSON, err := jsonStringSlice(viewRequirementMarkings)
+	if err != nil {
+		return nil, fmt.Errorf("encode view requirement markings: %w", err)
+	}
+	propagateViewRequirements := false
+	if folder.PropagateViewRequirementsEnabled != nil {
+		propagateViewRequirements = *folder.PropagateViewRequirementsEnabled
+	}
 	row := tx.QueryRow(ctx,
 		`WITH inserted AS (
 		     INSERT INTO ontology_project_folders (
-		         id, rid, project_id, parent_folder_id, name, slug, description, created_by
+		         id, rid, project_id, parent_folder_id, name, slug, description, created_by,
+		         propagate_view_requirements_enabled, view_requirement_marking_rids
 		     )
-		     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
 		     RETURNING *
 		 )
 		 SELECT `+folderSelectColumns+`
@@ -366,6 +405,7 @@ func insertProjectFolder(
 		   JOIN ontology_projects p ON p.id = f.project_id
 		   LEFT JOIN ontology_project_folders parent ON parent.id = f.parent_folder_id`,
 		folderID, folderRID, projectID, parentFolderID, name, slug, description, createdBy,
+		propagateViewRequirements, viewRequirementMarkingsJSON,
 	)
 	return scanProjectFolderRow(row)
 }
@@ -443,9 +483,13 @@ func (h *ProjectsHandlers) ListProjects(w http.ResponseWriter, r *http.Request) 
 	pattern := "%" + search + "%"
 
 	rows, err := h.Pool.Query(r.Context(),
-		`SELECT id, slug, display_name, description, workspace_slug, owner_id,
+		`SELECT id, COALESCE(rid, 'ri.compass.main.project.' || id::text),
+		        slug, display_name, description, workspace_slug, owner_id,
 		        default_role, point_of_contact_user_id, point_of_contact_email,
-		        "references", created_at, updated_at
+		        "references", COALESCE(marking_rids, '[]'::jsonb),
+		        COALESCE(propagate_view_requirements_enabled, FALSE),
+		        propagate_view_requirements_disabled_at,
+		        created_at, updated_at
 		 FROM ontology_projects
 		 WHERE is_deleted = FALSE
 		   AND (slug ILIKE $1 OR display_name ILIKE $1)
@@ -565,6 +609,20 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode references: %s", err))
 		return
 	}
+	markingRIDs := normalizeStringValues(body.MarkingRIDs)
+	if len(markingRIDs) > 0 && !canApplyProjectCreationMarkings(claims, markingRIDs) {
+		writeJSONErr(w, http.StatusForbidden, "missing permission markings:apply for file access preset markings")
+		return
+	}
+	markingRIDsJSON, err := json.Marshal(markingRIDs)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode marking_rids: %s", err))
+		return
+	}
+	propagateViewRequirements := false
+	if body.PropagateViewRequirementsEnabled != nil {
+		propagateViewRequirements = *body.PropagateViewRequirementsEnabled
+	}
 
 	tx, err := h.Pool.Begin(r.Context())
 	if err != nil {
@@ -578,10 +636,12 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO ontology_projects
 		   (id, rid, slug, display_name, description, workspace_slug, owner_id,
-		    default_role, point_of_contact_user_id, point_of_contact_email, "references")
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
+		    default_role, point_of_contact_user_id, point_of_contact_email, "references", marking_rids,
+		    propagate_view_requirements_enabled)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13)`,
 		projectID, projectRID, slug, displayName, description, workspaceSlug, claims.Sub,
-		string(defaultRole), body.PointOfContactUserID, body.PointOfContactEmail, refsJSON,
+		string(defaultRole), body.PointOfContactUserID, body.PointOfContactEmail, refsJSON, markingRIDsJSON,
+		propagateViewRequirements,
 	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to create ontology project: %s", err))
 		return
@@ -622,6 +682,12 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	if len(markingRIDs) > 0 {
+		if err := mergeProjectMarkingRIDs(r.Context(), tx, projectID, markingRIDs); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if err := workspace.UpsertProjectSearchIndexTx(r.Context(), tx, projectID, workspace.ResourceSearchEventCreated); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
 		return
@@ -637,6 +703,194 @@ func (h *ProjectsHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusCreated, project)
+}
+
+func mergeProjectMarkingRIDs(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, markingRIDs []string) error {
+	markingRIDs = normalizeStringValues(markingRIDs)
+	if len(markingRIDs) == 0 {
+		return nil
+	}
+	var raw []byte
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(marking_rids, '[]'::jsonb)
+		   FROM ontology_projects
+		  WHERE id = $1`,
+		projectID,
+	).Scan(&raw); err != nil {
+		return fmt.Errorf("load project markings: %w", err)
+	}
+	existing := []string{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &existing); err != nil {
+			return fmt.Errorf("decode project markings: %w", err)
+		}
+	}
+	merged, err := json.Marshal(normalizeStringValues(append(existing, markingRIDs...)))
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE ontology_projects
+		    SET marking_rids = $2::jsonb, updated_at = NOW()
+		  WHERE id = $1`,
+		projectID, merged,
+	); err != nil {
+		return fmt.Errorf("merge project markings: %w", err)
+	}
+	return nil
+}
+
+func decodeStringSliceJSON(raw []byte) []string {
+	values := []string{}
+	if len(raw) == 0 {
+		return values
+	}
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return []string{}
+	}
+	return normalizeStringValues(values)
+}
+
+func jsonStringSlice(values []string) ([]byte, error) {
+	normalized := normalizeStringValues(values)
+	if normalized == nil {
+		normalized = []string{}
+	}
+	return json.Marshal(normalized)
+}
+
+func resolveProjectPropagationPatch(enabled bool, disabledAt *time.Time, requested bool, explicit bool, now time.Time) (bool, *time.Time, int, string) {
+	if !explicit {
+		return enabled, disabledAt, 0, ""
+	}
+	if requested {
+		if disabledAt != nil {
+			return enabled, disabledAt, http.StatusConflict, "propagate view requirements cannot be re-enabled after it has been disabled; migrate to Markings instead"
+		}
+		return true, nil, 0, ""
+	}
+	if enabled && disabledAt == nil {
+		disabled := now.UTC()
+		return false, &disabled, 0, ""
+	}
+	return false, disabledAt, 0, ""
+}
+
+func loadProjectPropagationSource(ctx context.Context, q folderQueryRower, projectID uuid.UUID) (bool, []string, error) {
+	var enabled bool
+	var markings []byte
+	err := q.QueryRow(ctx,
+		`SELECT COALESCE(propagate_view_requirements_enabled, FALSE),
+		        COALESCE(marking_rids, '[]'::jsonb)
+		   FROM ontology_projects
+		  WHERE id = $1 AND is_deleted = FALSE`,
+		projectID,
+	).Scan(&enabled, &markings)
+	if err != nil {
+		return false, nil, err
+	}
+	return enabled, decodeStringSliceJSON(markings), nil
+}
+
+func inheritedViewRequirementMarkings(
+	ctx context.Context,
+	q folderQueryRower,
+	projectID uuid.UUID,
+	parentFolderID *uuid.UUID,
+) ([]string, error) {
+	if parentFolderID != nil {
+		var enabled bool
+		var markings []byte
+		err := q.QueryRow(ctx,
+			`SELECT COALESCE(propagate_view_requirements_enabled, FALSE),
+			        COALESCE(view_requirement_marking_rids, '[]'::jsonb)
+			   FROM ontology_project_folders
+			  WHERE project_id = $1 AND id = $2 AND is_deleted = FALSE`,
+			projectID, *parentFolderID,
+		).Scan(&enabled, &markings)
+		if err != nil {
+			return nil, err
+		}
+		if enabled {
+			return decodeStringSliceJSON(markings), nil
+		}
+	}
+	enabled, markings, err := loadProjectPropagationSource(ctx, q, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return []string{}, nil
+	}
+	return markings, nil
+}
+
+func canApplyProjectCreationMarkings(claims *authmw.Claims, markingRIDs []string) bool {
+	if len(markingRIDs) == 0 {
+		return true
+	}
+	if hasAnyPermissionKey(claims, "markings:apply", "markings:write", "markings:manage") {
+		return true
+	}
+	allowed := projectCreationApplyMarkingIDsFromClaims(claims)
+	for _, markingRID := range markingRIDs {
+		if !containsStringFold(allowed, markingRID) {
+			return false
+		}
+	}
+	return true
+}
+
+func projectCreationApplyMarkingIDsFromClaims(claims *authmw.Claims) []string {
+	if claims == nil {
+		return []string{}
+	}
+	values := []string{}
+	for _, permission := range claims.Permissions {
+		permission = strings.TrimSpace(permission)
+		parts := strings.Split(permission, ":")
+		if len(parts) == 3 && (parts[0] == "marking" || parts[0] == "markings") && parts[2] == "apply" {
+			values = append(values, parts[1])
+			continue
+		}
+		if strings.HasPrefix(permission, "markings:apply:") {
+			values = append(values, strings.TrimPrefix(permission, "markings:apply:"))
+		}
+	}
+	if len(claims.Attributes) > 0 {
+		var attrs map[string]any
+		if err := json.Unmarshal(claims.Attributes, &attrs); err == nil {
+			for _, key := range []string{"apply_marking_ids", "marking_apply_ids", "appliable_marking_ids", "allowed_apply_marking_ids"} {
+				values = appendProjectCreationAttributeStrings(values, attrs[key])
+			}
+		}
+	}
+	return normalizeStringValues(values)
+}
+
+func appendProjectCreationAttributeStrings(values []string, raw any) []string {
+	switch v := raw.(type) {
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				values = append(values, s)
+			}
+		}
+	case []string:
+		values = append(values, v...)
+	case string:
+		values = append(values, v)
+	}
+	return values
+}
+
+func containsStringFold(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetProject mirrors Rust `get_project`.
@@ -791,6 +1045,38 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode references: %s", err))
 		return
 	}
+	propagateViewRequirements := existing.PropagateViewRequirementsEnabled
+	propagateDisabledAt := existing.PropagateViewRequirementsDisabledAt
+	propagationPolicyTouched := false
+	if rawPropagate, present := raw["propagate_view_requirements_enabled"]; present {
+		propagationPolicyTouched = true
+		var requested bool
+		if err := json.Unmarshal(rawPropagate, &requested); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "propagate_view_requirements_enabled must be a boolean")
+			return
+		}
+		nextEnabled, nextDisabledAt, status, message := resolveProjectPropagationPatch(
+			existing.PropagateViewRequirementsEnabled,
+			existing.PropagateViewRequirementsDisabledAt,
+			requested,
+			true,
+			time.Now(),
+		)
+		if status != 0 {
+			writeJSONErr(w, status, message)
+			return
+		}
+		propagateViewRequirements = nextEnabled
+		propagateDisabledAt = nextDisabledAt
+	}
+	previousPropagationMarkings := []string{}
+	if existing.PropagateViewRequirementsEnabled {
+		previousPropagationMarkings = existing.MarkingRIDs
+	}
+	nextPropagationMarkings := []string{}
+	if propagateViewRequirements {
+		nextPropagationMarkings = existing.MarkingRIDs
+	}
 
 	tx, err := h.Pool.Begin(r.Context())
 	if err != nil {
@@ -808,10 +1094,13 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		     point_of_contact_user_id = $6,
 		     point_of_contact_email = $7,
 		     "references" = $8::jsonb,
+		     propagate_view_requirements_enabled = $9,
+		     propagate_view_requirements_disabled_at = $10,
 		     updated_at = NOW()
 		 WHERE id = $1`,
 		id, displayName, description, workspaceSlug,
 		string(defaultRole), pocUserID, pocEmail, refsJSON,
+		propagateViewRequirements, propagateDisabledAt,
 	); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to update ontology project: %s", err))
 		return
@@ -820,10 +1109,29 @@ func (h *ProjectsHandlers) UpdateProject(w http.ResponseWriter, r *http.Request)
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index ontology project: %s", err))
 		return
 	}
+	var propagationJob *models.ViewRequirementPropagationJob
+	if propagationPolicyTouched && !sameStringSlice(previousPropagationMarkings, nextPropagationMarkings) {
+		propagationJob, err = insertViewRequirementPropagationJobTx(
+			r.Context(),
+			tx,
+			id,
+			viewReqParentProject,
+			id,
+			existing.RID,
+			claims.Sub,
+			nextPropagationMarkings,
+			previousPropagationMarkings,
+		)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue view requirement propagation job: %s", err))
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit ontology project transaction: %s", err))
 		return
 	}
+	h.launchViewRequirementPropagationJob(propagationJob)
 	updated, err := loadProject(r.Context(), h.Pool, id)
 	if err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, err.Error())
@@ -1174,6 +1482,147 @@ func (h *ProjectsHandlers) CreateProjectFolder(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusCreated, folder)
 }
 
+// UpdateProjectFolderPropagation updates the legacy folder-level
+// "Propagate view requirements" compatibility setting. The setting is
+// deprecation-bound: once disabled, it cannot be re-enabled.
+func (h *ProjectsHandlers) UpdateProjectFolderPropagation(w http.ResponseWriter, r *http.Request) {
+	claims, ok := authClaims(w, r)
+	if !ok {
+		return
+	}
+	projectID, ok := parseUUIDParam(w, r, "id", "id")
+	if !ok {
+		return
+	}
+	folderID, ok := parseUUIDParam(w, r, "folder_id", "folder_id")
+	if !ok {
+		return
+	}
+	var body models.UpdateProjectFolderPropagationRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.Enabled == nil {
+		writeJSONErr(w, http.StatusBadRequest, "enabled is required")
+		return
+	}
+	project, err := loadProject(r.Context(), h.Pool, projectID)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if project == nil {
+		writeJSONErr(w, http.StatusNotFound, "ontology project not found")
+		return
+	}
+	if err := ensureProjectOwnerOrAdmin(project, claims); err != nil {
+		writeJSONErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	folder, err := loadProjectFolder(r.Context(), h.Pool, projectID, folderID)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if folder == nil {
+		writeJSONErr(w, http.StatusNotFound, "ontology project folder not found")
+		return
+	}
+	enabled, disabledAt, status, message := resolveProjectPropagationPatch(
+		folder.PropagateViewRequirementsEnabled,
+		folder.PropagateViewRequirementsDisabledAt,
+		*body.Enabled,
+		true,
+		time.Now(),
+	)
+	if status != 0 {
+		writeJSONErr(w, status, message)
+		return
+	}
+	markings := body.ViewRequirementMarkingRIDs
+	if markings == nil {
+		if enabled && len(folder.ViewRequirementMarkingRIDs) == 0 {
+			inherited, err := inheritedViewRequirementMarkings(r.Context(), h.Pool, projectID, folder.ParentFolderID)
+			if err != nil {
+				writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load inherited view requirements: %s", err))
+				return
+			}
+			markings = inherited
+		} else {
+			markings = folder.ViewRequirementMarkingRIDs
+		}
+	}
+	markingsJSON, err := jsonStringSlice(markings)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode view requirement markings: %s", err))
+		return
+	}
+	previousPropagationMarkings := []string{}
+	if folder.PropagateViewRequirementsEnabled {
+		previousPropagationMarkings = folder.ViewRequirementMarkingRIDs
+	}
+	nextPropagationMarkings := []string{}
+	if enabled {
+		nextPropagationMarkings = markings
+	}
+	tx, err := h.Pool.Begin(r.Context())
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to start folder propagation transaction: %s", err))
+		return
+	}
+	defer tx.Rollback(context.Background())
+	if _, err := tx.Exec(r.Context(),
+		`UPDATE ontology_project_folders
+		    SET propagate_view_requirements_enabled = $3,
+		        propagate_view_requirements_disabled_at = $4,
+		        view_requirement_marking_rids = $5::jsonb,
+		        updated_at = NOW()
+		  WHERE project_id = $1 AND id = $2 AND is_deleted = FALSE`,
+		projectID, folderID, enabled, disabledAt, markingsJSON,
+	); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to update folder propagation setting: %s", err))
+		return
+	}
+	if err := workspace.UpsertFolderSearchIndexTx(r.Context(), tx, folderID, workspace.ResourceSearchEventUpdated); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to index folder propagation setting: %s", err))
+		return
+	}
+	var propagationJob *models.ViewRequirementPropagationJob
+	if !sameStringSlice(previousPropagationMarkings, nextPropagationMarkings) {
+		propagationJob, err = insertViewRequirementPropagationJobTx(
+			r.Context(),
+			tx,
+			projectID,
+			viewReqParentFolder,
+			folderID,
+			folder.RID,
+			claims.Sub,
+			nextPropagationMarkings,
+			previousPropagationMarkings,
+		)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to enqueue view requirement propagation job: %s", err))
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to commit folder propagation transaction: %s", err))
+		return
+	}
+	h.launchViewRequirementPropagationJob(propagationJob)
+	updated, err := loadProjectFolder(r.Context(), h.Pool, projectID, folderID)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if updated == nil {
+		writeJSONErr(w, http.StatusNotFound, "ontology project folder not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // ─── resource bindings ─────────────────────────────────────────────────
 
 // ListProjectResources mirrors Rust `list_project_resources`.
@@ -1201,7 +1650,9 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	}
 
 	rows, err := h.Pool.Query(r.Context(),
-		`SELECT project_id, resource_kind, resource_id, bound_by, created_at
+		`SELECT project_id, resource_kind, resource_id, bound_by,
+		        COALESCE(view_requirement_marking_rids, '[]'::jsonb),
+		        created_at
 		 FROM ontology_project_resources
 		 WHERE project_id = $1 AND is_deleted = FALSE
 		 ORDER BY created_at DESC`,
@@ -1216,10 +1667,12 @@ func (h *ProjectsHandlers) ListProjectResources(w http.ResponseWriter, r *http.R
 	out := make([]models.OntologyProjectResourceBinding, 0)
 	for rows.Next() {
 		var b models.OntologyProjectResourceBinding
-		if err := rows.Scan(&b.ProjectID, &b.ResourceKind, &b.ResourceID, &b.BoundBy, &b.CreatedAt); err != nil {
+		var markings []byte
+		if err := rows.Scan(&b.ProjectID, &b.ResourceKind, &b.ResourceID, &b.BoundBy, &markings, &b.CreatedAt); err != nil {
 			writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to list ontology project resources: %s", err))
 			return
 		}
+		b.ViewRequirementMarkingRIDs = decodeStringSliceJSON(markings)
 		out = append(out, b)
 	}
 	if err := rows.Err(); err != nil {
@@ -1286,20 +1739,42 @@ func (h *ProjectsHandlers) BindProjectResource(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	_, viewRequirementMarkings, err := loadProjectPropagationSource(r.Context(), h.Pool, projectID)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load project propagation setting: %s", err))
+		return
+	}
+	projectPropagates := project.PropagateViewRequirementsEnabled
+	if !projectPropagates {
+		viewRequirementMarkings = []string{}
+	}
+	viewRequirementMarkingsJSON, err := jsonStringSlice(viewRequirementMarkings)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("encode view requirement markings: %s", err))
+		return
+	}
+
 	row := h.Pool.QueryRow(r.Context(),
-		`INSERT INTO ontology_project_resources (project_id, resource_kind, resource_id, bound_by)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO ontology_project_resources
+		     (project_id, resource_kind, resource_id, bound_by, view_requirement_marking_rids)
+		 VALUES ($1, $2, $3, $4, $5::jsonb)
 		 ON CONFLICT (resource_kind, resource_id)
-		 DO UPDATE SET project_id = EXCLUDED.project_id, bound_by = EXCLUDED.bound_by, created_at = NOW()
-		 RETURNING project_id, resource_kind, resource_id, bound_by, created_at`,
-		projectID, resourceKind.String(), body.ResourceID, claims.Sub,
+		 DO UPDATE SET project_id = EXCLUDED.project_id,
+		               bound_by = EXCLUDED.bound_by,
+		               view_requirement_marking_rids = EXCLUDED.view_requirement_marking_rids,
+		               created_at = NOW()
+		 RETURNING project_id, resource_kind, resource_id, bound_by,
+		           COALESCE(view_requirement_marking_rids, '[]'::jsonb), created_at`,
+		projectID, resourceKind.String(), body.ResourceID, claims.Sub, viewRequirementMarkingsJSON,
 	)
 	binding := &models.OntologyProjectResourceBinding{}
+	var bindingMarkings []byte
 	if err := row.Scan(&binding.ProjectID, &binding.ResourceKind, &binding.ResourceID,
-		&binding.BoundBy, &binding.CreatedAt); err != nil {
+		&binding.BoundBy, &bindingMarkings, &binding.CreatedAt); err != nil {
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to bind ontology resource to project: %s", err))
 		return
 	}
+	binding.ViewRequirementMarkingRIDs = decodeStringSliceJSON(bindingMarkings)
 	writeJSON(w, http.StatusOK, binding)
 }
 
@@ -1329,14 +1804,16 @@ func (h *ProjectsHandlers) UnbindProjectResource(w http.ResponseWriter, r *http.
 	}
 
 	row := h.Pool.QueryRow(r.Context(),
-		`SELECT project_id, resource_kind, resource_id, bound_by, created_at
+		`SELECT project_id, resource_kind, resource_id, bound_by,
+		        COALESCE(view_requirement_marking_rids, '[]'::jsonb), created_at
 		 FROM ontology_project_resources
 		 WHERE project_id = $1 AND resource_kind = $2 AND resource_id = $3 AND is_deleted = FALSE`,
 		projectID, resourceKind.String(), resourceID,
 	)
 	binding := &models.OntologyProjectResourceBinding{}
+	var bindingMarkings []byte
 	if err := row.Scan(&binding.ProjectID, &binding.ResourceKind, &binding.ResourceID,
-		&binding.BoundBy, &binding.CreatedAt); err != nil {
+		&binding.BoundBy, &bindingMarkings, &binding.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeJSONErr(w, http.StatusNotFound, "ontology project resource binding not found")
 			return
@@ -1344,6 +1821,7 @@ func (h *ProjectsHandlers) UnbindProjectResource(w http.ResponseWriter, r *http.
 		writeJSONErr(w, http.StatusInternalServerError, fmt.Sprintf("failed to load ontology project resource binding: %s", err))
 		return
 	}
+	binding.ViewRequirementMarkingRIDs = decodeStringSliceJSON(bindingMarkings)
 
 	ownerID, err := domain.LoadResourceOwnerID(r.Context(), h.Pool, resourceKind, resourceID)
 	if err != nil {

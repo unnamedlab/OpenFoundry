@@ -14,6 +14,12 @@ export interface ResolvedOpenWithTarget extends OpenWithTarget {
   href: string;
 }
 
+export interface ReferenceTarget {
+  relationship: string;
+  targetType: string;
+  required?: boolean;
+}
+
 export interface ResourceOpenContext {
   rid?: string | null;
   id?: string | null;
@@ -42,6 +48,7 @@ export interface CompassResourceTypeDefinition {
   defaultIcon: GlyphName;
   supportedActions: CompassResourceAction[];
   openAppURLTemplate: string;
+  referenceTargets?: ReferenceTarget[];
   openWith: OpenWithTarget[];
 }
 
@@ -57,6 +64,12 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'project',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/projects/{rid}',
+    referenceTargets: [
+      { relationship: 'contains', targetType: 'folder' },
+      { relationship: 'contains', targetType: 'dataset' },
+      { relationship: 'contains', targetType: 'pipeline' },
+      { relationship: 'references', targetType: 'project' },
+    ],
     openWith: [
       { id: 'project', label: 'Project', icon: 'project', urlTemplate: '/projects/{rid}' },
       { id: 'files', label: 'Files', icon: 'folder-open', urlTemplate: '/projects/{rid}' },
@@ -69,9 +82,9 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     owningService: 'ontology-definition-service',
     defaultIcon: 'folder',
     supportedActions: COMMON_ACTIONS,
-    openAppURLTemplate: '/projects/{project_rid}/{rid}',
+    openAppURLTemplate: '/projects/{project_rid}/folders/{rid}',
     openWith: [
-      { id: 'folder', label: 'Folder', icon: 'folder-open', urlTemplate: '/projects/{project_rid}/{rid}' },
+      { id: 'folder', label: 'Folder', icon: 'folder-open', urlTemplate: '/projects/{project_rid}/folders/{rid}' },
       { id: 'project', label: 'Project', icon: 'project', urlTemplate: '/projects/{project_rid}' },
     ],
   },
@@ -99,6 +112,10 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'graph',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/pipelines/{rid}',
+    referenceTargets: [
+      { relationship: 'reads', targetType: 'dataset' },
+      { relationship: 'writes', targetType: 'dataset' },
+    ],
     openWith: [
       { id: 'pipeline', label: 'Pipeline', icon: 'graph', urlTemplate: '/pipelines/{rid}' },
       { id: 'lineage', label: 'Lineage', icon: 'link', urlTemplate: '/lineage?rid={rid}' },
@@ -132,7 +149,28 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'history',
     supportedActions: ['rename', 'trash', 'restore', 'share'],
     openAppURLTemplate: '/schedules/{rid}',
+    referenceTargets: [
+      { relationship: 'runs', targetType: 'pipeline' },
+      { relationship: 'runs', targetType: 'workflow' },
+    ],
     openWith: [{ id: 'schedule', label: 'Schedule', icon: 'history', urlTemplate: '/schedules/{rid}' }],
+  },
+  {
+    id: 'FOUNDRY_QUERY',
+    type: 'query',
+    displayName: 'Query',
+    owningService: 'query-engine-service',
+    defaultIcon: 'query',
+    supportedActions: COMMON_ACTIONS,
+    openAppURLTemplate: '/queries/{rid}',
+    referenceTargets: [
+      { relationship: 'reads', targetType: 'dataset' },
+      { relationship: 'reads', targetType: 'virtual-table' },
+    ],
+    openWith: [
+      { id: 'query', label: 'Query', icon: 'query', urlTemplate: '/queries/{rid}' },
+      { id: 'quiver', label: 'Quiver', icon: 'query', urlTemplate: '/quiver?query_rid={rid}' },
+    ],
   },
   {
     id: 'FOUNDRY_SOURCE',
@@ -195,6 +233,13 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'app',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/apps/{rid}',
+    referenceTargets: [
+      { relationship: 'embeds', targetType: 'dataset' },
+      { relationship: 'embeds', targetType: 'object-type' },
+      { relationship: 'invokes', targetType: 'action-type' },
+      { relationship: 'embeds', targetType: 'report' },
+      { relationship: 'embeds', targetType: 'dashboard' },
+    ],
     openWith: [{ id: 'app', label: 'Application', icon: 'app', urlTemplate: '/apps/{rid}' }],
   },
   {
@@ -205,6 +250,10 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'document',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/reports/{rid}',
+    referenceTargets: [
+      { relationship: 'reads', targetType: 'query' },
+      { relationship: 'reads', targetType: 'dataset' },
+    ],
     openWith: [{ id: 'report', label: 'Report', icon: 'document', urlTemplate: '/reports/{rid}' }],
   },
   {
@@ -225,6 +274,10 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'code',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/notebooks/{rid}',
+    referenceTargets: [
+      { relationship: 'reads', targetType: 'dataset' },
+      { relationship: 'writes', targetType: 'dataset' },
+    ],
     openWith: [{ id: 'notebook', label: 'Notebook', icon: 'code', urlTemplate: '/notebooks/{rid}' }],
   },
   {
@@ -235,6 +288,10 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'graph',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/dashboards/{rid}',
+    referenceTargets: [
+      { relationship: 'reads', targetType: 'query' },
+      { relationship: 'reads', targetType: 'dataset' },
+    ],
     openWith: [
       { id: 'dashboard', label: 'Dashboard', icon: 'graph', urlTemplate: '/dashboards/{rid}' },
       { id: 'workshop', label: 'Workshop', icon: 'app', urlTemplate: '/apps/{rid}' },
@@ -248,6 +305,7 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'cube',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/ml?model={rid}',
+    referenceTargets: [{ relationship: 'trained_from', targetType: 'dataset' }],
     openWith: [{ id: 'model', label: 'Model catalog', icon: 'cube', urlTemplate: '/ml?model={rid}' }],
   },
   {
@@ -258,6 +316,10 @@ export const COMPASS_RESOURCE_TYPE_REGISTRY: CompassResourceTypeDefinition[] = [
     defaultIcon: 'list',
     supportedActions: COMMON_ACTIONS,
     openAppURLTemplate: '/workflows/{rid}',
+    referenceTargets: [
+      { relationship: 'runs', targetType: 'pipeline' },
+      { relationship: 'reads', targetType: 'dataset' },
+    ],
     openWith: [
       { id: 'workflow', label: 'Workflow', icon: 'list', urlTemplate: '/workflows/{rid}' },
       { id: 'workflow-lineage', label: 'Workflow Lineage', icon: 'graph', urlTemplate: '/lineage?rid={rid}' },
@@ -272,6 +334,28 @@ const RESOURCE_KIND_TO_TYPE: Record<string, string> = {
   ontology_resource_binding: 'unknown',
   project: 'project',
   folder: 'folder',
+};
+const RID_NAMESPACE_BY_TYPE: Record<string, { service: string; resourceType: string }> = {
+  project: { service: 'compass', resourceType: 'project' },
+  folder: { service: 'compass', resourceType: 'folder' },
+  dataset: { service: 'foundry', resourceType: 'dataset' },
+  pipeline: { service: 'foundry', resourceType: 'pipeline' },
+  build: { service: 'foundry', resourceType: 'build' },
+  job: { service: 'foundry', resourceType: 'job' },
+  schedule: { service: 'foundry', resourceType: 'schedule' },
+  query: { service: 'foundry', resourceType: 'query' },
+  source: { service: 'foundry', resourceType: 'source' },
+  'virtual-table': { service: 'foundry', resourceType: 'virtual-table' },
+  stream: { service: 'streams', resourceType: 'stream' },
+  'object-type': { service: 'ontology', resourceType: 'object-type' },
+  'action-type': { service: 'ontology', resourceType: 'action-type' },
+  app: { service: 'foundry', resourceType: 'app' },
+  report: { service: 'foundry', resourceType: 'report' },
+  notepad: { service: 'foundry', resourceType: 'notepad' },
+  notebook: { service: 'foundry', resourceType: 'notebook' },
+  dashboard: { service: 'foundry', resourceType: 'dashboard' },
+  model: { service: 'foundry', resourceType: 'model' },
+  workflow: { service: 'foundry', resourceType: 'workflow' },
 };
 
 export const UNKNOWN_RESOURCE_TYPE: CompassResourceTypeDefinition = {
@@ -335,8 +419,8 @@ export function resourceRIDForKind(kind: string, id: string | null | undefined):
   if (!id) return '';
   if (id.startsWith('ri.')) return id;
   const type = resourceTypeFromKind(kind);
-  if (type === 'project') return `ri.compass.main.project.${id}`;
-  if (type === 'folder') return `ri.compass.main.folder.${id}`;
+  const namespace = RID_NAMESPACE_BY_TYPE[type];
+  if (namespace) return `ri.${namespace.service}.main.${namespace.resourceType}.${id}`;
   return id;
 }
 

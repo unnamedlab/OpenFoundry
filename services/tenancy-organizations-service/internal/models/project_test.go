@@ -43,14 +43,17 @@ func TestOntologyProjectJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	ws := "engineering"
 	in := OntologyProject{
-		ID:            uuid.New(),
-		Slug:          "fraud-models",
-		DisplayName:   "Fraud Models",
-		Description:   "ML scoring",
-		WorkspaceSlug: &ws,
-		OwnerID:       uuid.New(),
-		CreatedAt:     time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
-		UpdatedAt:     time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC),
+		ID:                               uuid.New(),
+		RID:                              "ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000010",
+		Slug:                             "fraud-models",
+		DisplayName:                      "Fraud Models",
+		Description:                      "ML scoring",
+		WorkspaceSlug:                    &ws,
+		OwnerID:                          uuid.New(),
+		MarkingRIDs:                      []string{"ri.marking.main.marking.pii"},
+		PropagateViewRequirementsEnabled: true,
+		CreatedAt:                        time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC),
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
@@ -84,11 +87,12 @@ func TestOntologyProjectMembershipJSONRoundtrip(t *testing.T) {
 func TestOntologyProjectResourceBindingJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	in := OntologyProjectResourceBinding{
-		ProjectID:    uuid.New(),
-		ResourceKind: "dataset",
-		ResourceID:   uuid.New(),
-		BoundBy:      uuid.New(),
-		CreatedAt:    time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC),
+		ProjectID:                  uuid.New(),
+		ResourceKind:               "dataset",
+		ResourceID:                 uuid.New(),
+		BoundBy:                    uuid.New(),
+		ViewRequirementMarkingRIDs: []string{"ri.marking.main.marking.pii"},
+		CreatedAt:                  time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC),
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
@@ -103,23 +107,25 @@ func TestOntologyProjectFolderJSONRoundtrip(t *testing.T) {
 	id := uuid.New()
 	projectID := uuid.New()
 	in := OntologyProjectFolder{
-		ID:                      id,
-		RID:                     FolderRIDFromID(id),
-		ProjectID:               projectID,
-		ProjectRID:              ProjectRIDFromID(projectID),
-		ParentFolderID:          &parent,
-		ParentFolderRID:         FolderRIDFromID(parent),
-		SpaceRID:                DefaultProjectSpaceRID,
-		Type:                    FolderResourceType,
-		TrashStatus:             FolderTrashStatusNotTrashed,
-		InheritsProjectPolicies: true,
-		PolicyOverridesAllowed:  true,
-		Name:                    "Models",
-		Slug:                    "models",
-		Description:             "Production models",
-		CreatedBy:               uuid.New(),
-		CreatedAt:               time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:               time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		ID:                               id,
+		RID:                              FolderRIDFromID(id),
+		ProjectID:                        projectID,
+		ProjectRID:                       ProjectRIDFromID(projectID),
+		ParentFolderID:                   &parent,
+		ParentFolderRID:                  FolderRIDFromID(parent),
+		SpaceRID:                         DefaultProjectSpaceRID,
+		Type:                             FolderResourceType,
+		TrashStatus:                      FolderTrashStatusNotTrashed,
+		InheritsProjectPolicies:          true,
+		PolicyOverridesAllowed:           true,
+		PropagateViewRequirementsEnabled: true,
+		ViewRequirementMarkingRIDs:       []string{"ri.marking.main.marking.pii"},
+		Name:                             "Models",
+		Slug:                             "models",
+		Description:                      "Production models",
+		CreatedBy:                        uuid.New(),
+		CreatedAt:                        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
 	}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
@@ -132,12 +138,16 @@ func TestCreateOntologyProjectRequestJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	dn, desc, ws := "Fraud Models", "ML scoring", "engineering"
 	in := CreateOntologyProjectRequest{
-		Slug:          "fraud-models",
-		DisplayName:   &dn,
-		Description:   &desc,
-		WorkspaceSlug: &ws,
+		Slug:                             "fraud-models",
+		DisplayName:                      &dn,
+		Description:                      &desc,
+		WorkspaceSlug:                    &ws,
+		MarkingRIDs:                      []string{"ri.marking.main.marking.pii"},
+		PropagateViewRequirementsEnabled: boolPtr(true),
 		Folders: []CreateOntologyProjectFolderRequest{{
-			Name: "Models",
+			Name:                             "Models",
+			PropagateViewRequirementsEnabled: boolPtr(true),
+			ViewRequirementMarkingRIDs:       []string{"ri.marking.main.marking.pii"},
 		}},
 	}
 	b, err := json.Marshal(in)
@@ -150,11 +160,57 @@ func TestCreateOntologyProjectRequestJSONRoundtrip(t *testing.T) {
 func TestUpdateOntologyProjectRequestJSONRoundtrip(t *testing.T) {
 	t.Parallel()
 	dn := "Renamed"
-	in := UpdateOntologyProjectRequest{DisplayName: &dn}
+	in := UpdateOntologyProjectRequest{DisplayName: &dn, PropagateViewRequirementsEnabled: boolPtr(false)}
 	b, err := json.Marshal(in)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"display_name":"Renamed"}`, string(b))
+	assert.JSONEq(t, `{"display_name":"Renamed","propagate_view_requirements_enabled":false}`, string(b))
 	var got UpdateOntologyProjectRequest
+	require.NoError(t, json.Unmarshal(b, &got))
+	assert.Equal(t, in, got)
+}
+
+func TestUpdateProjectFolderPropagationRequestJSONRoundtrip(t *testing.T) {
+	t.Parallel()
+	in := UpdateProjectFolderPropagationRequest{
+		Enabled:                    boolPtr(true),
+		ViewRequirementMarkingRIDs: []string{"ri.marking.main.marking.pii"},
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"enabled":true,"view_requirement_marking_rids":["ri.marking.main.marking.pii"]}`, string(b))
+	var got UpdateProjectFolderPropagationRequest
+	require.NoError(t, json.Unmarshal(b, &got))
+	require.NotNil(t, got.Enabled)
+	assert.Equal(t, true, *got.Enabled)
+	assert.Equal(t, in.ViewRequirementMarkingRIDs, got.ViewRequirementMarkingRIDs)
+}
+
+func TestViewRequirementPropagationJobJSONRoundtrip(t *testing.T) {
+	t.Parallel()
+	started := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	in := ViewRequirementPropagationJob{
+		ID:                  uuid.New(),
+		ProjectID:           uuid.New(),
+		ParentResourceKind:  "project",
+		ParentResourceID:    uuid.New(),
+		ParentResourceRID:   "ri.compass.main.project.018f2f1c-aaaa-7bbb-8ccc-000000000019",
+		InitiatedBy:         uuid.New(),
+		Status:              "running",
+		TargetMarkingRIDs:   []string{"ri.marking.main.marking.pii"},
+		PreviousMarkingRIDs: []string{"ri.marking.main.marking.old"},
+		TotalFolders:        3,
+		ProcessedFolders:    1,
+		ChangedFolders:      1,
+		TotalResources:      2,
+		ProcessedResources:  0,
+		ChangedResources:    0,
+		CreatedAt:           started,
+		StartedAt:           &started,
+		UpdatedAt:           started,
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var got ViewRequirementPropagationJob
 	require.NoError(t, json.Unmarshal(b, &got))
 	assert.Equal(t, in, got)
 }
@@ -313,4 +369,8 @@ func TestBindOntologyProjectResourceRequestJSONRoundtrip(t *testing.T) {
 	var got BindOntologyProjectResourceRequest
 	require.NoError(t, json.Unmarshal(b, &got))
 	assert.Equal(t, in, got)
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

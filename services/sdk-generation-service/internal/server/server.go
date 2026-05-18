@@ -21,10 +21,10 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/sdk-generation-service/internal/handlers"
 )
 
-// New builds the http.Server. `gen` is optional; when nil the
-// /api/v1/sdk/generate endpoint is not mounted (e.g. for tests that
-// don't need it).
-func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, gen *handlers.GenerateHandler, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
+// New builds the http.Server. `gen` and `builds` are optional; when
+// nil their endpoint groups are not mounted (e.g. for tests that
+// don't need them).
+func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, gen *handlers.GenerateHandler, builds *handlers.BuildHandlers, m *observability.Metrics, probes ...capabilities.DependencyProbe) *http.Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -55,6 +55,15 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, gen *h
 		// the caller supplied a generator driver.
 		if gen != nil {
 			api.Post("/sdk/generate", gen.Generate)
+		}
+
+		// OSDK build pipeline (v0 TypeScript). Mounted only when the
+		// caller supplied the repo + worker dependencies.
+		if builds != nil {
+			api.Post("/sdks/builds", builds.Create)
+			api.Get("/sdks/builds", builds.List)
+			api.Get("/sdks/builds/{id}", builds.Get)
+			api.Get("/sdks/builds/{id}/artifact", builds.Artifact)
 		}
 	})
 

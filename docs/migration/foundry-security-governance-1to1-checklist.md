@@ -545,43 +545,85 @@ OpenFoundry canonical IDs.
     - [`projects_sg26.go`](../../services/tenancy-organizations-service/internal/handlers/projects_sg26.go) exposes template list/create/get APIs, applies templates during `POST /projects`, creates template folder skeletons, binds generated viewer/editor/owner groups to project roles, records request-form metadata for those groups, applies project marking requirements into `marking_rids`/required markings, and blocks deployment when the caller lacks group, marking, constraint, or project-default permissions.
     - [`CreateProjectModal.tsx`](../../apps/web/src/lib/components/projects/CreateProjectModal.tsx) now sends `template_key` and default role from the template picker, and surfaces template security contents before project creation.
 
-- [ ] `SG.27` Application access controls (`P1`, `todo`)
+- [x] `SG.27` Application access controls (`P1`, `done` 2026-05-17)
   - Configure organization-level platform/application visibility by user or group allow/block rules and lifecycle stage.
   - Generate change requests and keep a historical record for application access changes and approval policy changes.
   - Clearly label application access as UX scope control, not a substitute for server-side permissions.
   - Docs: [Configure application access](https://www.palantir.com/docs/foundry/administration/configure-application-access/), [Approvals overview](https://www.palantir.com/docs/foundry/approvals/overview/).
+  - Implementation notes:
+    - [`ControlPanelSettings.ApplicationAccess`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores the organization catalog, lifecycle stage, default visibility, allow/block rules, approval policy, pending change requests, and immutable history events. Rules match application IDs, lifecycle stages, organization IDs, user IDs, and group IDs; block rules win over allow rules and hidden-by-default mode requires an allow rule.
+    - `PUT /api/v1/control-panel` now creates application-access change requests and records approved/rejected history. Configuration changes self-approve by default; approval-policy changes create a pending request that must be approved by a distinct reviewer when the policy requires it.
+    - `POST /api/v1/application-access/evaluate` evaluates application visibility for the active caller or a supplied user/group/org context and returns matched rule IDs plus an explicit `ux_scope_only` result, so consumers can hide launcher/sidebar entries without treating that answer as data authorization.
+    - [`ApplicationAccessPage.tsx`](../../apps/web/src/routes/control-panel/ApplicationAccessPage.tsx) adds the Control Panel surface at `/control-panel/application-access`: JSON-backed configuration editor, evaluation probe, change-request approval/rejection actions, and history. The page prominently labels application access as UX-scope only and links from the main Control Panel page.
+    - [`Sidebar.tsx`](../../apps/web/src/lib/components/Sidebar.tsx) calls the evaluation endpoint for launcher applications and hides entries denied by application-access rules while leaving backend authorization untouched.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover group block rules, hidden-by-default allowlists, and distinct-reviewer approval-policy changes.
 
-- [ ] `SG.28` User and group visibility controls (`P1`, `todo`)
+- [x] `SG.28` User and group visibility controls (`P1`, `done` 2026-05-17)
   - Allow administrators to disable user and/or group discovery within an organization while preserving administrator visibility.
   - Preserve existing permissions while warning that user-defined logic depending on user/group discovery may fail.
   - Use this as a privacy boundary for consumer-mode or cross-organization use cases.
   - Docs: [Configure user and group visibility](https://www.palantir.com/docs/foundry/administration/configure-user-and-group-visibility), [Configure Foundry for consumer mode](https://www.palantir.com/docs/foundry/consumer-mode/foundry-consumer-setup).
+  - Implementation notes:
+    - [`ControlPanelSettings.MemberDiscovery`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores global defaults, per-organization discover-users/discover-groups overrides, consumer-mode boundary flags, warning text, and change history.
+    - [`member_discovery.go`](../../services/identity-federation-service/internal/handlers/member_discovery.go) gates user/group discovery endpoints for non-admin callers while preserving administrator visibility through `admin`, `organization_admin`, `control_panel:*`, `users:*`, and `groups:*` grants.
+    - User and group search/list/detail/inspection endpoints now return `member_discovery_disabled` with the documented warning when discovery is disabled for the caller's organization. The policy does not mutate roles, memberships, group grants, resource ACLs, or restricted-view authorization.
+    - [`MemberDiscoveryPage.tsx`](../../apps/web/src/routes/control-panel/MemberDiscoveryPage.tsx) adds the Control Panel surface at `/control-panel/member-discovery`, with default toggles, organization overrides, consumer-mode boundary labeling, notes, and history.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover history/warning persistence and non-admin blocking with admin visibility preserved.
 
-- [ ] `SG.29` File access presets (`P1`, `todo`)
+- [x] `SG.29` File access presets (`P1`, `done` 2026-05-17)
   - Configure access presets that apply a named set of markings or local classification controls during resource creation where supported.
   - Enforce preset visibility based on apply-marking permission for every marking in the preset.
   - Support default preset ordering and guest-organization behavior when OpenFoundry implements multi-organization guests.
   - Docs: [Configure file access presets](https://www.palantir.com/docs/foundry/administration/configure-file-access-presets/), [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+  - Implementation notes:
+    - [`ControlPanelSettings.FileAccessPresets`](../../services/identity-federation-service/internal/handlers/control_panel.go) stores enabled state, warning text, guest primary-organization behavior, ordered presets, local classification controls, supported resource kinds, organization scoping, audit metadata, and change history.
+    - `POST /api/v1/file-access-presets/visible` returns only presets visible to the caller for the requested organization/resource kind. A preset is omitted unless the caller has global `markings:apply`/`markings:write`/`markings:manage` or per-marking apply grants for every marking in the preset.
+    - Guest sessions use the supplied/derived primary organization when selecting presets, matching the documented rule that guests see presets from their primary organization rather than the host organization.
+    - [`FileAccessPresetsPage.tsx`](../../apps/web/src/routes/control-panel/FileAccessPresetsPage.tsx) adds the Control Panel UI at `/control-panel/file-access-presets`, including preset editing, local controls JSON, default ordering, known-marking lookup, visibility probe, and history.
+    - [`CreateProjectModal.tsx`](../../apps/web/src/lib/components/projects/CreateProjectModal.tsx) consumes visible project presets and sends the selected preset's markings during project creation. [`CreateProject`](../../services/tenancy-organizations-service/internal/handlers/projects.go) stores those markings in `marking_rids`, requires apply-marking permission, and merges them with template-applied markings.
+    - Tests in [`control_panel_test.go`](../../services/identity-federation-service/internal/handlers/control_panel_test.go) cover history/order normalization, all-markings apply-permission visibility, and primary-organization behavior for guest sessions.
 
 ### OAuth, tokens, and third-party applications
 
-- [ ] `SG.30` Developer API token governance (`P1`, `todo`)
+- [x] `SG.30` Developer API token governance (`P1`, `done` 2026-05-17)
   - Allow users to create, view, and revoke temporary API tokens with explicit expiry and warnings against production use.
   - Ensure temporary tokens inherit the creating user's permissions and become unusable after expiry, revocation, or user inactivity/disablement.
   - Detect and warn on committed/shared-token patterns where local secret scanning exists.
   - Docs: [API authentication](https://www.palantir.com/docs/foundry/api/v2/general/overview/authentication/), [Manage users](https://www.palantir.com/docs/foundry/platform-security-management/manage-users).
+  - Implementation notes:
+    - [`api_keys`](../../services/identity-federation-service/internal/repo/migrations/0019_sg30_developer_api_tokens.sql) now stores visible prefixes, scope/permission/role snapshots, explicit expirations, status metadata, and the non-production warning while retaining only the SHA-256 token hash.
+    - `POST /api/v1/api-keys` requires `expires_at`, caps developer token TTL at 30 days, derives scopes from the caller's current role/permission snapshot, and returns the plaintext `ofapikey_...` secret exactly once.
+    - `POST /api/v1/auth/api-key/exchange` validates the opaque token against expiry, revocation, owner disablement/deletion, and the documented 30-day inactivity rule before issuing a short-lived access JWT carrying `auth_methods=["api_key"]` and `api_key_id`.
+    - `GET /api/v1/api-keys` and `DELETE /api/v1/api-keys/{id}` provide token metadata viewing and revocation; expired/revoked keys are unusable even when their hash remains for auditability.
+    - `POST /api/v1/api-keys/leak-scan` detects `ofapikey_...` patterns in pasted local diffs/config snippets, redacts matches, and escalates warnings when a match has the caller's known prefix. The Settings API key panel exposes expiry-required creation, warnings, revocation, and local exposure checks.
 
-- [ ] `SG.31` Third-party application registration (`P1`, `todo`)
+- [x] `SG.31` Third-party application registration (`P1`, `done` 2026-05-17)
   - Register OAuth2 third-party applications with owners, redirect URIs, client type, enabled grants, scopes, service user, credentials, and organization enablement.
   - Gate administration by third-party application administrator and OAuth client management permissions.
   - Support Developer Console-first management while providing Control Panel fallback where local product decisions allow it.
   - Docs: [Third-party applications overview](https://www.palantir.com/docs/foundry/platform-security-third-party/third-party-apps-overview/), [Writing OAuth2 clients for Foundry](https://www.palantir.com/docs/foundry/platform-security-third-party/writing-oauth2-clients).
+  - Implementation notes:
+    - [`third_party_applications`](../../services/identity-federation-service/internal/repo/migrations/0020_sg31_third_party_applications.sql) stores OAuth client registrations with client ID, client type, grants, redirect URIs, scopes, owner users, managing organization, discovery organizations, optional service user, secret prefix/hash metadata, and Developer Console-first management metadata.
+    - Confidential clients receive a one-time `of3pa_secret_...` client secret; only the SHA-256 hash and visible prefix are persisted. `POST /api/v1/third-party-applications/{id}/rotate-secret` rotates the secret and returns the new value once.
+    - `client_credentials` is rejected for public clients. Confidential clients that enable `client_credentials` get an OpenFoundry service user whose username matches the generated client ID, mirroring the documented service-user grant behavior.
+    - `PUT /api/v1/third-party-applications/{id}/organizations/{organization_id}/enablement` records per-organization enablement, project scope placeholders, marking restrictions, and organization-consent flags for the SG.32 authorization/consent flow.
+    - Administration routes are gated by `admin`, `third_party_application_admin` / `third_party_application_administrator`, or `oauth_clients:manage` / `third_party_applications:manage`; read-only listing also accepts `oauth_clients:read` / `third_party_applications:read`.
+    - [`ThirdPartyApplicationsPage.tsx`](../../apps/web/src/routes/control-panel/ThirdPartyApplicationsPage.tsx) adds the Control Panel fallback at `/control-panel/third-party-applications`, with registration, one-time secret display, rotation, revocation, and organization enablement controls.
 
-- [ ] `SG.32` Third-party application enablement and consent (`P1`, `todo`)
+- [x] `SG.32` Third-party application enablement and consent (`P1`, `done` 2026-05-18)
   - Require organization-specific application enablement before users can authorize an OAuth application.
   - Implement authorization-code consent prompts, CSRF state validation, PKCE, refresh-token scopes, and revocation.
   - Ensure token capabilities are the intersection of user/service permissions, application maximum scope, and requested scope.
   - Docs: [Enabling third-party applications](https://www.palantir.com/docs/foundry/platform-security-third-party/enabling-3pa-access/), [Developer Console application scopes](https://www.palantir.com/docs/foundry/developer-console/application-scopes), [API authentication](https://www.palantir.com/docs/foundry/api/v2/general/overview/authentication/).
+  - Implementation notes:
+    - [`0021_sg32_third_party_oauth_consent.sql`](../../services/identity-federation-service/internal/repo/migrations/0021_sg32_third_party_oauth_consent.sql) adds one-time authorization codes, OAuth refresh tokens, consent records, expiry indexes, token-family replay revocation, and per-user authorization listing metadata.
+    - `GET /api/v1/oauth2/authorize` validates bearer identity, organization-specific app enablement, registered redirect URI, explicit authorization-code scope, non-empty CSRF `state`, and S256 PKCE before returning a consent prompt with requested, granted, and missing scopes.
+    - `POST /api/v1/oauth2/authorize/consent` records user consent and returns a short-lived `ofoauth_code_...` authorization code plus the redirect URI carrying `code` and echoed `state`; denial returns an `access_denied` redirect payload.
+    - `POST /api/v1/oauth2/token` supports `authorization_code`, `refresh_token`, and `client_credentials`; confidential clients authenticate with their one-time/rotated secret, public clients rely on PKCE, refresh tokens rotate, and reuse kills the refresh-token family.
+    - Access JWTs issued through OAuth carry empty role sets and permissions equal only to the computed scope intersection of subject permissions, application maximum scopes, existing refresh-token scopes when applicable, and requested scopes. Client-credentials tokens use the registered service user and still require organization enablement.
+    - `POST /api/v1/oauth2/revoke`, `GET /api/v1/oauth2/authorizations`, and `DELETE /api/v1/oauth2/authorizations/{id}` provide token and user-facing authorization revocation. User deactivation/deletion also revokes third-party OAuth refresh tokens.
+    - Disabling an application's organization enablement or revoking the application revokes matching third-party OAuth refresh tokens so old authorizations do not become active again after re-enablement.
+    - Tests in [`third_party_oauth_test.go`](../../services/identity-federation-service/internal/handlers/third_party_oauth_test.go) cover scope intersection, admin scope bounding, S256 PKCE verification, OAuth client authentication, and organization enablement lookup.
 
 - [ ] `SG.33` Service users and client credentials (`P1`, `todo`)
   - Create service users for confidential OAuth applications and client-credentials workloads.

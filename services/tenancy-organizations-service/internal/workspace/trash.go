@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 )
 
@@ -191,8 +192,18 @@ func (h *Handlers) PurgeResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rowsAffected, err := h.Repo.PurgeTrashed(r.Context(), kind, resourceID)
+	rowsAffected, err := h.Repo.PurgeTrashed(
+		r.Context(),
+		kind,
+		resourceID,
+		auditCtxFromWorkspaceRequest(claims, r),
+		claims.HasRole("admin"),
+	)
 	if err != nil {
+		if errors.Is(err, ErrTrashRetentionActive) {
+			writeJSONErr(w, http.StatusConflict, "resource is still within the trash retention window")
+			return
+		}
 		slog.Error("purge resource", slog.String("error", err.Error()))
 		writeJSONErr(w, http.StatusInternalServerError, "failed to purge resource")
 		return
@@ -391,16 +402,34 @@ func (r *Repo) RestoreTrashed(ctx context.Context, kind ResourceKind, resourceID
 // `is_deleted = TRUE` guard ensures live rows can never be purged
 // through this endpoint — destructive deletes go through
 // SoftDeleteResource → PurgeResource, never directly.
-func (r *Repo) PurgeTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID) (int64, error) {
+func (r *Repo) PurgeTrashed(ctx context.Context, kind ResourceKind, resourceID uuid.UUID, auditCtx audittrail.AuditContext, isAdmin bool) (int64, error) {
 	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback(context.Background())
 
+	snapshot, err := r.loadTrashPurgeSnapshotTx(ctx, tx, kind, resourceID)
+	if err != nil {
+		return 0, err
+	}
+	if snapshot == nil {
+		return 0, nil
+	}
+	purgeMode, err := snapshot.purgeMode(time.Now().UTC(), isAdmin)
+	if err != nil {
+		return 0, err
+	}
+	if err := deleteWorkspaceSurfaceDependentsTx(ctx, tx, string(kind), resourceID); err != nil {
+		return 0, err
+	}
+
 	var rowsAffected int64
 	switch kind {
 	case ResourceOntologyProject:
+		if err := deleteProjectChildWorkspaceSurfaceDependentsTx(ctx, tx, resourceID); err != nil {
+			return 0, err
+		}
 		if err := DeleteProjectSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventPurged); err != nil {
 			return 0, err
 		}
@@ -412,6 +441,9 @@ func (r *Repo) PurgeTrashed(ctx context.Context, kind ResourceKind, resourceID u
 		}
 		rowsAffected = ct.RowsAffected()
 	case ResourceOntologyFolder:
+		if err := deleteFolderScopedGrantsTx(ctx, tx, resourceID); err != nil {
+			return 0, err
+		}
 		if err := DeleteFolderSearchIndexTx(ctx, tx, resourceID, ResourceSearchEventPurged); err != nil {
 			return 0, err
 		}
@@ -435,6 +467,10 @@ func (r *Repo) PurgeTrashed(ctx context.Context, kind ResourceKind, resourceID u
 	}
 	if rowsAffected == 0 {
 		return 0, nil
+	}
+	event := snapshot.auditEvent(auditCtx.ActorID, purgeMode)
+	if err := audittrail.EmitToOutbox(ctx, tx, event, auditCtx); err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err

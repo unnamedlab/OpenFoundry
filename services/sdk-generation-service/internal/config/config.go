@@ -15,9 +15,19 @@ type Config struct {
 		Host string
 		Port uint16
 	}
-	DatabaseURL  string
-	JWTSecret    string
-	MetricsAddr  string
+	DatabaseURL string
+	JWTSecret   string
+	MetricsAddr string
+
+	// OntologyServiceURL is the gateway-fronted address of
+	// ontology-definition-service. When empty the worker falls back
+	// to ontologyclient.StubClient so the dev build still works
+	// without standing up the producer side.
+	OntologyServiceURL   string
+	OntologyServiceToken string
+	// ArtifactDir is where the worker writes generated tarballs. The
+	// HTTP /artifact endpoint reads files back from the same path.
+	ArtifactDir string
 }
 
 // FromEnv resolves config. Required: DATABASE_URL, JWT_SECRET.
@@ -37,6 +47,9 @@ func FromEnv() (*Config, error) {
 		return nil, &MissingEnvError{Key: "JWT_SECRET"}
 	}
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
+	cfg.OntologyServiceURL = os.Getenv("ONTOLOGY_SERVICE_URL")
+	cfg.OntologyServiceToken = os.Getenv("ONTOLOGY_SERVICE_TOKEN")
+	cfg.ArtifactDir = defaultStr(os.Getenv("OSDK_ARTIFACT_DIR"), "/var/openfoundry/sdk-artifacts")
 	return cfg, nil
 }
 

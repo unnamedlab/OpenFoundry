@@ -54,6 +54,12 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Compress(5))
 	r.Use(chimw.Timeout(30 * time.Second))
 	controlPanel := handlers.NewControlPanel()
+	if rbac != nil {
+		rbac.ControlPanel = controlPanel
+		if auth != nil {
+			rbac.OAuthIssuer = auth.Issuer
+		}
+	}
 	var scopedSessions *handlers.ScopedSessions
 	if auth != nil && auth.Repo != nil && auth.Issuer != nil {
 		scopedSessions = handlers.NewScopedSessions(controlPanel, auth.Repo, auth.Issuer)
@@ -93,6 +99,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		api.Post("/register", auth.Register)
 		api.Post("/login", auth.Login)
 		api.Post("/token/refresh", auth.Refresh)
+		api.Post("/api-key/exchange", auth.ExchangeAPIKey)
 		api.Post("/mfa/totp/complete-login", mfa.CompleteLogin)
 		api.Post("/mfa/webauthn/login/challenge", wa.LoginChallenge)
 		api.Post("/mfa/webauthn/login/finish", wa.LoginFinish)
@@ -104,6 +111,14 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		// Returns provider responses through IntoResponse() so no
 		// secrets leak.
 		api.Post("/sso/troubleshoot", ssoAdmin.Troubleshoot)
+	})
+
+	// OAuth2 token endpoints for third-party applications. The
+	// authorization/consent endpoints are bearer-protected below, but
+	// token exchange and revocation authenticate the OAuth client.
+	r.Route("/api/v1/oauth2", func(api chi.Router) {
+		api.Post("/token", rbac.OAuthToken)
+		api.Post("/revoke", rbac.OAuthRevoke)
 	})
 
 	// /api/v1/auth/mfa/* — bearer-protected MFA management.
@@ -176,13 +191,43 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 
 		api.Get("/api-keys", rbac.ListAPIKeys)
 		api.Post("/api-keys", rbac.CreateAPIKey)
+		api.Post("/api-keys/leak-scan", rbac.ScanAPIKeyLeaks)
 		api.Delete("/api-keys/{id}", rbac.RevokeAPIKey)
+
+		api.Get("/third-party-applications", rbac.ListThirdPartyApplications)
+		api.Post("/third-party-applications", rbac.CreateThirdPartyApplication)
+		api.Get("/third-party-applications/{id}", rbac.GetThirdPartyApplication)
+		api.Patch("/third-party-applications/{id}", rbac.UpdateThirdPartyApplication)
+		api.Delete("/third-party-applications/{id}", rbac.DeleteThirdPartyApplication)
+		api.Post("/third-party-applications/{id}/rotate-secret", rbac.RotateThirdPartyApplicationSecret)
+		api.Put("/third-party-applications/{id}/organizations/{organization_id}/enablement", rbac.UpsertThirdPartyApplicationEnablement)
+		api.Delete("/third-party-applications/{id}/organizations/{organization_id}/enablement", rbac.DisableThirdPartyApplicationEnablement)
+
+		api.Get("/oauth2/authorize", rbac.OAuthAuthorizePrompt)
+		api.Post("/oauth2/authorize/consent", rbac.OAuthConsent)
+		api.Get("/oauth2/authorizations", rbac.ListOAuthAuthorizations)
+		api.Delete("/oauth2/authorizations/{id}", rbac.RevokeOAuthAuthorization)
 
 		api.Get("/control-panel", controlPanel.Get)
 		api.Put("/control-panel", controlPanel.Update)
 		api.Patch("/control-panel", controlPanel.Update)
 		api.Get("/control-panel/upgrade-readiness", controlPanel.UpgradeReadiness)
 		api.Post("/control-panel/identity-provider-mappings/preview", controlPanel.PreviewIdentityProviderMapping)
+		api.Get("/control-panel/application-access/change-requests", controlPanel.ApplicationAccessChangeRequests)
+		api.Post("/control-panel/application-access/change-requests/{id}/decision", controlPanel.DecideApplicationAccessChangeRequest)
+		api.Post("/application-access/evaluate", controlPanel.EvaluateApplicationAccess)
+		api.Post("/file-access-presets/visible", controlPanel.VisibleFileAccessPresets)
+
+		// Streaming-profile CRUD parked here per ADR-0046. When the
+		// streaming WG picks up ADR-0035 P3 these routes will move to
+		// /api/v1/streaming-profiles in ingestion-replication-service.
+		api.Get("/control-panel/streaming-profiles", controlPanel.ListStreamingProfiles)
+		api.Post("/control-panel/streaming-profiles", controlPanel.CreateStreamingProfile)
+		api.Get("/control-panel/streaming-profiles/{id}", controlPanel.GetStreamingProfile)
+		api.Patch("/control-panel/streaming-profiles/{id}", controlPanel.UpdateStreamingProfile)
+		api.Delete("/control-panel/streaming-profiles/{id}", controlPanel.DeleteStreamingProfile)
+		api.Post("/control-panel/streaming-profiles/{id}:pause", controlPanel.PauseStreamingProfile)
+		api.Post("/control-panel/streaming-profiles/{id}:resume", controlPanel.ResumeStreamingProfile)
 
 		if scopedSessions != nil {
 			api.Get("/auth/scoped-sessions", scopedSessions.Options)
@@ -218,12 +263,13 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, auth *handlers.Auth, mfa *ha
 		})
 	})
 
-	// Synthesise capabilities for every mounted route. Anything
-	// under /api/v1/auth/mfa or /api/v1 (excluding the public
-	// /api/v1/auth) requires a Bearer token.
+	// Synthesise capabilities for every mounted route. OAuth token
+	// exchange/revocation stay public at the HTTP layer because they
+	// authenticate the OAuth client; authorize/authorization management
+	// are listed below as bearer-protected.
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "identity",
-		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/control-panel", "/api/v1/restricted-views"},
+		AuthPaths: []string{"/api/v1/auth/mfa", "/api/v1/auth/scoped-sessions", "/api/v1/users", "/api/v1/roles", "/api/v1/groups", "/api/v1/permissions", "/api/v1/api-keys", "/api/v1/third-party-applications", "/api/v1/oauth2/authorize", "/api/v1/oauth2/authorizations", "/api/v1/control-panel", "/api/v1/application-access", "/api/v1/file-access-presets", "/api/v1/restricted-views"},
 		Tags:      []string{"identity"},
 	}); err != nil {
 		panic("identity-federation-service: capability ingest failed: " + err.Error())

@@ -9,18 +9,34 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/domain/function"
+	dispatch "github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/executionmode"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/repo"
 )
 
 // State carries the dependencies every Compute Module handler needs.
 type State struct {
-	Repo repo.Repository
+	Repo       repo.Repository
+	Dispatcher dispatch.Dispatcher
+	// PayloadLimitBytes caps function-mode payloads ingested by handlers.
+	// Zero falls back to dispatch.DefaultBodyLimitBytes.
+	PayloadLimitBytes int64
+	// DispatchTimeout caps the per-call deadline; mirrors the dispatcher's
+	// configured timeout so handler-side context wrapping stays in sync.
+	DispatchTimeout time.Duration
+	// AuditLogger is the slog handle structured audit lines are emitted
+	// on. Falls back to slog.Default() when nil.
+	AuditLogger *slog.Logger
+	// Now overrides the wall clock for deterministic tests.
+	Now func() time.Time
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -62,9 +78,24 @@ func writeRepoError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "compute module is not archived")
 	case errors.Is(err, repo.ErrExecutionModeMismatch):
 		writeError(w, http.StatusConflict, "operation not supported for this execution mode")
+	case errors.Is(err, function.ErrInvocationNotFound):
+		writeError(w, http.StatusNotFound, "invocation not found")
+	case errors.Is(err, function.ErrInvocationTerminal):
+		writeError(w, http.StatusConflict, "invocation has already reached a terminal status")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}
+}
+
+// tenantID resolves the caller's tenant (claims.OrgID) from the JWT.
+// Function-mode invocations require a tenant claim; anonymous and
+// pre-onboarding callers are rejected by the handler.
+func tenantID(r *http.Request) (uuid.UUID, bool) {
+	c, ok := authmw.FromContext(r.Context())
+	if !ok || c.OrgID == nil || *c.OrgID == uuid.Nil {
+		return uuid.UUID{}, false
+	}
+	return *c.OrgID, true
 }
 
 // callerID returns the authenticated caller's UUID, or false when the

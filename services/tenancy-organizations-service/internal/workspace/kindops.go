@@ -23,6 +23,10 @@ var ErrResourceKindUnsupported = errors.New("resource_kind has no trash handler"
 // was never trashed. The HTTP layer maps it to 404.
 var ErrTrashedRowNotFound = errors.New("no trashed row matched")
 
+// ErrFavoriteGroupNotFound is returned when a favorite reorder/create request
+// points at a group outside the caller's user-profile favorites store.
+var ErrFavoriteGroupNotFound = errors.New("favorite group not found")
+
 // TrashExecutor is the slice of pgxpool.Pool the trash handlers need.
 // Narrowed so unit tests can stub it without spinning up Postgres.
 type TrashExecutor interface {

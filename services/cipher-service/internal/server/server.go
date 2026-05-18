@@ -1,8 +1,7 @@
 // Package server wires the HTTP router, observability and graceful
-// shutdown for the cipher-service stub. The shape mirrors
-// docs/templates/service-skeleton/internal/server so platform tooling stays uniform;
-// the only divergence is the route table in `mountAPIRoutes`, which
-// reflects the gateway's `/api/v1/auth/cipher` prefix.
+// shutdown for cipher-service Milestone A. Shape mirrors
+// docs/templates/service-skeleton so platform tooling stays uniform;
+// the route table reflects the gateway's `/api/v1/auth/cipher` prefix.
 package server
 
 import (
@@ -18,8 +17,20 @@ import (
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
+
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/handler"
+)
+
+// Permission keys protecting each route. The gateway maps these onto
+// Cedar policies once libs/authz-cedar-go integrates (CIP.4 in
+// Milestone B). For now they are enforced at the middleware via
+// libs/auth-middleware RequirePermissions, with admin role bypass.
+const (
+	PermKeysRead  = "cipher.keys.read"
+	PermKeysAdmin = "cipher.keys.admin"
+	PermEncrypt   = "cipher.encrypt"
+	PermDecrypt   = "cipher.decrypt"
 )
 
 // Server bundles the lifecycle of the HTTP listener.
@@ -30,11 +41,34 @@ type Server struct {
 }
 
 // New builds a Server with all middleware and routes mounted.
-func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
+//
+// `state` carries the cipher-service dependency bag (repo, KMS, audit
+// recorder); construction lives in cmd/cipher-service/main.go so the
+// wiring choices (Postgres connection, KMS backend) stay close to
+// startup.
+func New(cfg *config.Config, state *handler.State, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
 	jwtCfg := authmw.NewJWTConfig(cfg.JWT.Secret).
 		WithIssuer(cfg.JWT.Issuer).
 		WithAudience(cfg.JWT.Audience)
 
+	r := BuildRouter(cfg, state, metrics, jwtCfg, probes...)
+
+	s := &Server{
+		cfg: cfg,
+		log: log,
+		httpServer: &http.Server{
+			Addr:              cfg.Server.Addr,
+			Handler:           r,
+			ReadHeaderTimeout: 5 * time.Second,
+		},
+	}
+	return s, nil
+}
+
+// BuildRouter assembles the chi router. Exposed so handler tests can
+// exercise the full stack via httptest.NewServer without booting the
+// listener.
+func BuildRouter(cfg *config.Config, state *handler.State, metrics *observability.Metrics, jwtCfg *authmw.JWTConfig, probes ...capabilities.DependencyProbe) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -46,32 +80,17 @@ func New(cfg *config.Config, metrics *observability.Metrics, log *slog.Logger, p
 
 	// Public endpoints (no auth).
 	r.Get("/healthz", handler.Health(cfg.Service.Name, cfg.Service.Version))
-	r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	if metrics != nil {
+		r.Method(http.MethodGet, "/metrics", metrics.Handler())
+	}
 	for _, p := range probes {
 		caps.RegisterDependency(p)
 	}
 	caps.Mount(r)
 
-	// Authenticated API mount.
 	api := r.With(authmw.Middleware(jwtCfg))
-	mountAPIRoutes(api, caps)
-
-	shutdownTimeout := 15 * time.Second
-	if d, err := time.ParseDuration(cfg.Server.ShutdownTimeout); err == nil {
-		shutdownTimeout = d
-	}
-
-	s := &Server{
-		cfg: cfg,
-		log: log,
-		httpServer: &http.Server{
-			Addr:              cfg.Server.Addr,
-			Handler:           r,
-			ReadHeaderTimeout: 5 * time.Second,
-		},
-	}
-	_ = shutdownTimeout
-	return s, nil
+	mountAPIRoutes(api, caps, state)
+	return r
 }
 
 // Run blocks until the listener returns or `ctx` is cancelled.
@@ -104,36 +123,84 @@ func (s *Server) shutdown() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// mountAPIRoutes registers the gateway-facing endpoints. The gateway
-// currently funnels everything under `/api/v1/auth/cipher` to this
-// upstream (see router_table.go), so we register a single catch-all
-// 501 placeholder anchored at that prefix. Each milestone in
-// docs/migration/foundry-cipher-1to1-checklist.md will replace one of
-// these entries with a real handler.
-func mountAPIRoutes(r chi.Router, caps *capabilities.Registry) {
-	const milestone = "A"
+// mountAPIRoutes wires the Milestone A cipher routes under
+// /api/v1/auth/cipher. Every route is gated by libs/auth-middleware's
+// RequirePermissions; admin role bypass is honoured per the package
+// contract.
+func mountAPIRoutes(r chi.Router, caps *capabilities.Registry, state *handler.State) {
+	const basePath = "/api/v1/auth/cipher"
 
-	stub := handler.NotImplemented(milestone)
-
-	caps.MustRegister(r, capabilities.Capability{
-		ID:           "cipher.gateway.stub",
+	// Read paths.
+	read := r.With(authmw.RequirePermissions(PermKeysRead))
+	caps.MustRegister(read, capabilities.Capability{
+		ID:           "cipher.keys.list",
 		Method:       http.MethodGet,
-		Path:         "/api/v1/auth/cipher/*",
-		Stable:       false,
+		Path:         basePath + "/keys",
+		Stable:       true,
 		RequiresAuth: true,
-		Summary:      "501 stub for /api/v1/auth/cipher/* until Milestone A ships.",
-		Tags:         []string{"cipher", "stub"},
-	}, stub)
+		Summary:      "List cipher keys for the caller's tenant (paginated).",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.ListKeys))
+	caps.MustRegister(read, capabilities.Capability{
+		ID:           "cipher.keys.get",
+		Method:       http.MethodGet,
+		Path:         basePath + "/keys/{id}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Fetch a cipher key's registry metadata (never material).",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.GetKey))
 
-	// chi capability registry only records one Method per entry, so the
-	// remaining verbs are bound directly to keep the gateway from
-	// receiving 405s instead of the documented 501 envelope.
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
-		r.Method(method, "/api/v1/auth/cipher/*", stub)
-	}
-	// Match the exact prefix without a trailing path segment as well.
-	r.Get("/api/v1/auth/cipher", stub)
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
-		r.Method(method, "/api/v1/auth/cipher", stub)
-	}
+	// Admin paths.
+	admin := r.With(authmw.RequirePermissions(PermKeysAdmin))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.create",
+		Method:       http.MethodPost,
+		Path:         basePath + "/keys",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Create a tenant-scoped cipher key.",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.CreateKey))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.rotate",
+		Method:       http.MethodPost,
+		Path:         basePath + "/keys/{id}/rotate",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Append a new version to a cipher key; older versions stay decryptable.",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.RotateKey))
+	caps.MustRegister(admin, capabilities.Capability{
+		ID:           "cipher.keys.retire",
+		Method:       http.MethodPost,
+		Path:         basePath + "/keys/{id}/retire",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Retire a cipher key (decrypt-only).",
+		Tags:         []string{"cipher", "keys"},
+	}, http.HandlerFunc(state.RetireKey))
+
+	// Encrypt / decrypt paths gated by their own permissions.
+	encrypt := r.With(authmw.RequirePermissions(PermEncrypt))
+	caps.MustRegister(encrypt, capabilities.Capability{
+		ID:           "cipher.encrypt.batch",
+		Method:       http.MethodPost,
+		Path:         basePath + "/encrypt",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Batch-encrypt up to 64 values; per-item errors reported in-band.",
+		Tags:         []string{"cipher", "batch"},
+	}, http.HandlerFunc(state.Encrypt))
+
+	decrypt := r.With(authmw.RequirePermissions(PermDecrypt))
+	caps.MustRegister(decrypt, capabilities.Capability{
+		ID:           "cipher.decrypt.batch",
+		Method:       http.MethodPost,
+		Path:         basePath + "/decrypt",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Batch-decrypt envelopes; emits one bulk_decrypt audit event.",
+		Tags:         []string{"cipher", "batch"},
+	}, http.HandlerFunc(state.Decrypt))
 }

@@ -25,6 +25,7 @@ import {
   deleteFavorite,
   duplicateResource,
   listFavorites,
+  listResourceReferences,
   listTrash,
   purgeResource,
   recordAccess,
@@ -34,8 +35,12 @@ import {
   type ResourceKind,
   type TrashEntry,
 } from '@/lib/api/workspace';
-import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
+import {
+  folderStablePath,
+  resourceIDFromStableSegment,
+} from '@/lib/compass/stableResourceUrls';
 import { MoveDialog } from '@/lib/components/workspace/MoveDialog';
 import { buildProjectFolderBreadcrumbItems, ProjectBreadcrumb } from '@/lib/components/workspace/ProjectBreadcrumb';
 import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
@@ -82,6 +87,7 @@ type Confirmation =
 const RESOURCE_KIND_OPTIONS: ResourceKind[] = [
   'dataset',
   'pipeline',
+  'query',
   'notebook',
   'app',
   'dashboard',
@@ -104,6 +110,7 @@ const RESOURCE_KIND_LABELS: Record<ResourceKind, string> = {
   ontology_resource_binding: 'Binding',
   dataset: 'Dataset',
   pipeline: 'Pipeline',
+  query: 'Query',
   notebook: 'Notebook',
   app: 'App',
   dashboard: 'Dashboard',
@@ -119,6 +126,7 @@ const RESOURCE_KIND_GLYPH: Record<ResourceKind, GlyphName> = {
   ontology_resource_binding: 'link',
   dataset: 'spreadsheet',
   pipeline: 'graph',
+  query: 'query',
   notebook: 'code',
   app: 'app',
   dashboard: 'graph',
@@ -134,6 +142,7 @@ const RESOURCE_KIND_TONE: Record<ResourceKind, string> = {
   ontology_resource_binding: '#5c7080',
   dataset: '#16a34a',
   pipeline: '#7c3aed',
+  query: '#0369a1',
   notebook: '#0891b2',
   app: '#3f7be0',
   dashboard: '#ea580c',
@@ -160,9 +169,10 @@ function toResourceKind(kind: string): ResourceKind {
 }
 
 function toAccessGraphMemberships(memberships: OntologyProjectMembership[]): AccessGraphMembership[] {
-  return memberships
-    .filter((membership) => membership.role === 'viewer' || membership.role === 'editor' || membership.role === 'owner')
-    .map((membership) => ({ user_id: membership.user_id, role: membership.role }));
+  return memberships.flatMap((membership) => {
+    if (membership.role !== 'viewer' && membership.role !== 'editor' && membership.role !== 'owner') return [];
+    return [{ user_id: membership.user_id, role: membership.role }];
+  });
 }
 
 function fallbackResourceName(kind: string, id: string) {
@@ -193,7 +203,8 @@ function matchesSearch(text: string, search: string) {
 }
 
 export function ProjectDetailPage() {
-  const { projectId = '' } = useParams<{ projectId: string }>();
+  const { projectId: projectParam = '' } = useParams<{ projectId: string }>();
+  const projectRouteID = resourceIDFromStableSegment(projectParam);
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('cover-page');
   const [refsExpanded, setRefsExpanded] = useState(true);
@@ -249,6 +260,7 @@ export function ProjectDetailPage() {
   const [moveTarget, setMoveTarget] = useState<ProjectResourceView | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectResourceView | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
+  const [confirmReferenceWarning, setConfirmReferenceWarning] = useState('');
   const [trashRowMenu, setTrashRowMenu] = useState<string | null>(null);
 
   async function refreshFolders(projectRid = project?.id) {
@@ -278,7 +290,7 @@ export function ProjectDetailPage() {
   }
 
   async function loadAll() {
-    if (!projectId) return;
+    if (!projectRouteID) return;
     setLoading(true);
     setError('');
     try {
@@ -291,10 +303,10 @@ export function ProjectDetailPage() {
         nextFavorites,
         nextTrash,
       ] = await Promise.all([
-        getProject(projectId),
-        listProjectFolders(projectId).catch(() => [] as OntologyProjectFolder[]),
-        listProjectResources(projectId).catch(() => [] as OntologyProjectResourceBinding[]),
-        listProjectMemberships(projectId).catch(() => [] as OntologyProjectMembership[]),
+        getProject(projectRouteID),
+        listProjectFolders(projectRouteID).catch(() => [] as OntologyProjectFolder[]),
+        listProjectResources(projectRouteID).catch(() => [] as OntologyProjectResourceBinding[]),
+        listProjectMemberships(projectRouteID).catch(() => [] as OntologyProjectMembership[]),
         listProjects({ per_page: 200 }).catch(() => ({ data: [] as OntologyProject[] })),
         listFavorites({ limit: 500 }).catch(() => []),
         listTrash({ limit: 300 }).catch(() => [] as TrashEntry[]),
@@ -324,12 +336,12 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     void loadAll();
-  }, [projectId]);
+  }, [projectRouteID]);
 
   useEffect(() => {
-    if (!projectId) return;
-    recordAccess({ resource_kind: 'ontology_project', resource_id: projectId }).catch(() => {});
-  }, [projectId]);
+    if (!project?.id) return;
+    recordAccess({ resource_kind: 'ontology_project', resource_id: project.id }).catch(() => {});
+  }, [project?.id]);
 
   useEffect(() => {
     if (resources.length === 0) {
@@ -627,12 +639,54 @@ export function ProjectDetailPage() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    setConfirmReferenceWarning('');
+    if (!confirm) return () => { cancelled = true; };
+
+    const target = (() => {
+      if (confirm.kind === 'project-delete' && project) {
+        return { kind: 'ontology_project' as ResourceKind, id: project.id };
+      }
+      if (confirm.kind === 'resource-delete') {
+        return { kind: confirm.resource.summary.kind, id: confirm.resource.summary.id };
+      }
+      if (confirm.kind === 'trash-purge') {
+        return { kind: confirm.entry.resource_kind, id: confirm.entry.resource_id };
+      }
+      return null;
+    })();
+    if (!target) return () => { cancelled = true; };
+
+    listResourceReferences(target.kind, target.id)
+      .then((graph) => {
+        if (cancelled) return;
+        const downstream = graph.used_by.length;
+        const upstream = graph.depends_on.length;
+        if (downstream === 0 && upstream === 0) return;
+        setConfirmReferenceWarning(
+          `Reference graph: ${downstream} downstream and ${upstream} upstream reference(s) may need review.`,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setConfirmReferenceWarning('');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [confirm, project]);
+
+  function withReferenceWarning(message: string) {
+    return confirmReferenceWarning ? `${message}\n${confirmReferenceWarning}` : message;
+  }
+
   function confirmationCopy() {
     if (!confirm) return null;
     if (confirm.kind === 'project-delete') {
       return {
         title: 'Move project to trash',
-        message: `Move ${project?.display_name || project?.slug || 'this project'} to trash?`,
+        message: withReferenceWarning(`Move ${project?.display_name || project?.slug || 'this project'} to trash?`),
         confirmLabel: 'Delete project',
         danger: true,
       };
@@ -640,7 +694,7 @@ export function ProjectDetailPage() {
     if (confirm.kind === 'resource-delete') {
       return {
         title: 'Delete resource',
-        message: `Move ${confirm.resource.summary.name} to trash?`,
+        message: withReferenceWarning(`Move ${confirm.resource.summary.name} to trash?`),
         confirmLabel: 'Delete',
         danger: true,
       };
@@ -656,7 +710,7 @@ export function ProjectDetailPage() {
     if (confirm.kind === 'trash-purge') {
       return {
         title: 'Permanently delete',
-        message: `Permanently delete ${confirm.entry.display_name || confirm.entry.resource_id}?`,
+        message: withReferenceWarning(`Permanently delete ${confirm.entry.display_name || confirm.entry.resource_id}?`),
         confirmLabel: 'Purge',
         danger: true,
       };
@@ -1985,7 +2039,7 @@ function FolderRow({
     <tr>
       <td>
         <Link
-          to={`/projects/${project.id}/${folder.id}`}
+          to={folderStablePath(project, folder)}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#1c2127', textDecoration: 'none' }}
         >
           <Glyph name="folder" size={16} tone="#cf923f" filled={false} />

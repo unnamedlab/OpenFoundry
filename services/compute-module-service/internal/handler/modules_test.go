@@ -14,21 +14,52 @@ import (
 	"github.com/google/uuid"
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
+	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/domain/function"
+	dispatch "github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/executionmode"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/handler"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/repo"
 )
 
+// fakeDispatcher is the test dispatcher: tests stage a result; Dispatch
+// returns the staged result/err and records the last invocation it saw.
+type fakeDispatcher struct {
+	last   *function.FunctionInvocation
+	result dispatch.Result
+	err    error
+	calls  int
+}
+
+func (f *fakeDispatcher) Dispatch(_ context.Context, inv *function.FunctionInvocation) (dispatch.Result, error) {
+	f.calls++
+	f.last = inv.Clone()
+	return f.result, f.err
+}
+
+func (f *fakeDispatcher) Cancel(_ context.Context, _ uuid.UUID) error { return nil }
+
 func buildTestRouter(t *testing.T) (http.Handler, *uuid.UUID) {
+	r, _, caller := buildTestRouterWithDispatcher(t)
+	return r, caller
+}
+
+func buildTestRouterWithDispatcher(t *testing.T) (http.Handler, *fakeDispatcher, *uuid.UUID) {
 	t.Helper()
 	store := repo.NewMemoryRepository()
-	state := &handler.State{Repo: store}
+	disp := &fakeDispatcher{result: dispatch.Result{Status: function.StatusSucceeded, Payload: []byte(`{"ok":true}`)}}
+	state := &handler.State{
+		Repo:              store,
+		Dispatcher:        disp,
+		PayloadLimitBytes: dispatch.DefaultBodyLimitBytes,
+		DispatchTimeout:   2 * time.Second,
+	}
 
 	r := chi.NewRouter()
 	caller := uuid.New()
+	tenant := uuid.New()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			claims := &authmw.Claims{Sub: caller, Email: "tester@openfoundry.local"}
+			claims := &authmw.Claims{Sub: caller, OrgID: &tenant, Email: "tester@openfoundry.local"}
 			ctx := authmw.ContextWithClaims(req.Context(), claims)
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
@@ -45,7 +76,11 @@ func buildTestRouter(t *testing.T) (http.Handler, *uuid.UUID) {
 	r.Get("/api/v1/compute-modules/{id}/execution-mode", state.GetExecutionMode)
 	r.Put("/api/v1/compute-modules/{id}/pipeline-io", state.SetPipelineIOConfig)
 	r.Delete("/api/v1/compute-modules/{id}/pipeline-io", state.ClearPipelineIOConfig)
-	r.Post("/api/v1/compute-modules/{id}/functions/query", state.QueryFunction)
+	r.Post("/api/v1/compute-modules/{module_id}/functions/{name}/invoke", state.InvokeFunction)
+	r.Post("/api/v1/compute-modules/{module_id}/functions/{name}/invoke-async", state.InvokeFunctionAsync)
+	r.Get("/api/v1/compute-modules/invocations", state.ListInvocations)
+	r.Get("/api/v1/compute-modules/invocations/{invocation_id}", state.GetInvocation)
+	r.Post("/api/v1/compute-modules/invocations/{invocation_id}/cancel", state.CancelInvocation)
 	r.Put("/api/v1/compute-modules/{id}/container-image", state.SetContainerImage)
 	r.Get("/api/v1/compute-modules/{id}/container-image", state.GetContainerImage)
 	r.Delete("/api/v1/compute-modules/{id}/container-image", state.ClearContainerImage)
@@ -55,7 +90,7 @@ func buildTestRouter(t *testing.T) (http.Handler, *uuid.UUID) {
 	r.Delete("/api/v1/compute-modules/{id}/runtime", state.ClearRuntimeConfig)
 	r.Post("/api/v1/compute-modules/runtime/validate", state.ValidateRuntimeConfig)
 
-	return r, &caller
+	return r, disp, &caller
 }
 
 func doJSON(t *testing.T, r http.Handler, method, path string, body any) *httptest.ResponseRecorder {

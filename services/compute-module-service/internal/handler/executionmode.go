@@ -110,50 +110,6 @@ func (s *State) ClearPipelineIOConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// FunctionQueryAck is the placeholder response surfaced before the
-// function gateway lands in CM.6 / CM.8. It exists today so the
-// execution-mode guard has a real endpoint to defend.
-type FunctionQueryAck struct {
-	ModuleID string `json:"module_id"`
-	Accepted bool   `json:"accepted"`
-	Pending  string `json:"pending,omitempty"`
-}
-
-// QueryFunction handles POST /api/v1/compute-modules/{id}/functions/query.
-//
-// CM.2 enforces the mode boundary only: pipeline-mode modules are
-// rejected with 409 Conflict (the body identifies the offending
-// execution mode), and function-mode modules receive a 202 Accepted
-// placeholder pointing at CM.6/CM.8. The real dispatcher will replace
-// this body once those items land.
-func (s *State) QueryFunction(w http.ResponseWriter, r *http.Request) {
-	if _, ok := callerID(r); !ok {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	id, ok := pathUUID(w, r)
-	if !ok {
-		return
-	}
-	m, err := s.Repo.Get(r.Context(), id)
-	if err != nil {
-		writeRepoError(w, err)
-		return
-	}
-	if err := executionmode.EnsureFunctionMode(m); err != nil {
-		writeExecutionModeError(w, err)
-		return
-	}
-	// Drain & ignore the body for now — function spec/dispatcher
-	// validation lands in CM.6 and CM.8.
-	_ = r.Body.Close()
-	writeJSON(w, http.StatusAccepted, FunctionQueryAck{
-		ModuleID: m.ID.String(),
-		Accepted: true,
-		Pending:  "function dispatcher not implemented yet (tracked by CM.6/CM.8)",
-	})
-}
-
 type executionModeErrorBody struct {
 	Error         string               `json:"error"`
 	RequiredMode  models.ExecutionMode `json:"required_mode"`

@@ -164,38 +164,88 @@ type GroupNestedEdge struct {
 // project access lookups (cross-service via tenancy-organizations-
 // service).
 type GroupInspection struct {
-	Group               Group               `json:"group"`
-	DirectMemberCount   int                 `json:"direct_member_count"`
-	ExpiringMemberCount int                 `json:"expiring_member_count"`
-	Admins              []GroupAdmin        `json:"admins"`
-	Parents             []GroupBrief        `json:"parents"`
-	Children            []GroupBrief        `json:"children"`
-	ProjectAccessHint   string              `json:"project_access_hint"`
+	Group               Group        `json:"group"`
+	DirectMemberCount   int          `json:"direct_member_count"`
+	ExpiringMemberCount int          `json:"expiring_member_count"`
+	Admins              []GroupAdmin `json:"admins"`
+	Parents             []GroupBrief `json:"parents"`
+	Children            []GroupBrief `json:"children"`
+	ProjectAccessHint   string       `json:"project_access_hint"`
 }
 
 // APIKey mirrors `models::api_key::ApiKey`. The plaintext token is
 // never persisted; `key_hash` is the SHA-256 of it.
 type APIKey struct {
-	ID         uuid.UUID  `json:"id"`
-	UserID     uuid.UUID  `json:"user_id"`
-	Name       string     `json:"name"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	ID                  uuid.UUID  `json:"id"`
+	UserID              uuid.UUID  `json:"user_id"`
+	Name                string     `json:"name"`
+	Prefix              string     `json:"prefix"`
+	Scopes              []string   `json:"scopes"`
+	PermissionsSnapshot []string   `json:"permissions_snapshot,omitempty"`
+	RolesSnapshot       []string   `json:"roles_snapshot,omitempty"`
+	Warning             string     `json:"warning"`
+	Status              string     `json:"status"`
+	LastUsedAt          *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt           *time.Time `json:"expires_at,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	RevokedAt           *time.Time `json:"revoked_at,omitempty"`
 }
 
 // CreateAPIKeyRequest / Response. Response includes the plaintext
 // token ONCE — clients must persist it.
 type CreateAPIKeyRequest struct {
 	Name      string     `json:"name"`
+	Scopes    []string   `json:"scopes,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 type CreateAPIKeyResponse struct {
-	APIKey APIKey `json:"api_key"`
-	Token  string `json:"token"` // plaintext, returned ONCE
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Prefix    string    `json:"prefix"`
+	Token     string    `json:"token"` // plaintext, returned ONCE
+	Scopes    []string  `json:"scopes"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	Warning   string    `json:"warning"`
 }
+
+// ExchangeAPIKeyRequest exchanges a user-generated developer API key
+// for a short-lived access JWT. The raw key may also be supplied in an
+// Authorization: Bearer header; Token is for clients that cannot set
+// custom headers easily.
+type ExchangeAPIKeyRequest struct {
+	Token string `json:"token"`
+}
+
+type APIKeyTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int64  `json:"expires_in"`
+	APIKey      APIKey `json:"api_key"`
+	Warning     string `json:"warning"`
+}
+
+type APIKeyLeakWarning struct {
+	Source   string     `json:"source,omitempty"`
+	Prefix   string     `json:"prefix,omitempty"`
+	Redacted string     `json:"redacted"`
+	Severity string     `json:"severity"`
+	Message  string     `json:"message"`
+	APIKeyID *uuid.UUID `json:"api_key_id,omitempty"`
+}
+
+type APIKeyLeakScanRequest struct {
+	Content string `json:"content"`
+	Source  string `json:"source,omitempty"`
+}
+
+type APIKeyLeakScanResponse struct {
+	Warnings []APIKeyLeakWarning `json:"warnings"`
+	Patterns []string            `json:"patterns"`
+}
+
+const DeveloperAPIKeyWarning = "Developer API tokens inherit your current permissions, are temporary, and must not be used in production applications or committed to shared or public repositories. Store them in environment variables during development and revoke them when no longer needed."
 
 // UpdateUserRequest is the body of PATCH /users/{id}.
 //
@@ -237,13 +287,13 @@ type PreregisterUserRequest struct {
 // IncludeDeleted defaults to false so admin listings hide soft-
 // deleted users; pass `?include_deleted=true` to show them.
 type ListUsersFilter struct {
-	Query           string
-	OrganizationID  *uuid.UUID
-	Realm           string
-	Status          string // "" | "active" | "inactive"
-	IncludeDeleted  bool
-	Limit           int
-	Offset          int
+	Query          string
+	OrganizationID *uuid.UUID
+	Realm          string
+	Status         string // "" | "active" | "inactive"
+	IncludeDeleted bool
+	Limit          int
+	Offset         int
 }
 
 // ListUsersResponse is the wire shape of GET /users. SG.4 swapped
@@ -261,10 +311,10 @@ type ListUsersResponse struct {
 // session. Cross-service guest memberships are populated by the UI
 // (it lives in tenancy-organizations-service).
 type UserInspection struct {
-	User              User              `json:"user"`
-	Roles             []string          `json:"roles"`
-	Groups            []GroupBrief      `json:"groups"`
-	Tokens            TokenSummary      `json:"tokens"`
+	User               User              `json:"user"`
+	Roles              []string          `json:"roles"`
+	Groups             []GroupBrief      `json:"groups"`
+	Tokens             TokenSummary      `json:"tokens"`
 	ExternalIdentities []ExternalBinding `json:"external_identities"`
 }
 

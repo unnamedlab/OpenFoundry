@@ -304,6 +304,72 @@ set without changing the user's underlying marking memberships.
 > [Configure scoped sessions](https://www.palantir.com/docs/foundry/administration/configure-scoped-sessions/) ·
 > [Markings](https://www.palantir.com/docs/foundry/security/markings/).
 
+### 7. Application access controls
+
+Application access narrows the visible platform surface for an
+organization, user, group, or lifecycle stage. It is intentionally
+modeled as UX scope only:
+
+- Control Panel stores the application catalog, lifecycle stage,
+  default visibility, and allow/block rules. Block rules override allow
+  rules; hidden-by-default mode requires a matching allow rule.
+- Every application-access response carries the warning that backend
+  services still enforce server-side permissions for data and actions.
+- `POST /api/v1/application-access/evaluate` returns the visibility
+  decision, matched rules, lifecycle stage, and `ux_scope_only=true` for
+  app shells and portals.
+- The web sidebar uses that evaluation to hide denied launcher entries
+  while direct backend requests continue through normal authorization.
+- Configuration changes and approval-policy changes produce change
+  requests plus retained history; approval-policy edits can require a
+  distinct reviewer before the proposed policy is applied.
+
+> Parity reference:
+> [Configure application access](https://www.palantir.com/docs/foundry/administration/configure-application-access/) ·
+> [Approvals overview](https://www.palantir.com/docs/foundry/approvals/overview/).
+
+### 8. User and group visibility
+
+User and group visibility controls reduce information disclosure inside
+consumer-mode and private organizations without altering authorization:
+
+- Control Panel stores global member-discovery defaults and
+  per-organization user/group discovery overrides.
+- Non-admin discovery endpoints for users and groups fail with
+  `member_discovery_disabled` when the caller's organization is private.
+- Admins retain full visibility for operational management.
+- Denials include a warning that existing permissions are preserved, but
+  user-defined logic that depends on user or group lookup can fail.
+
+> Parity reference:
+> [Configure user and group visibility](https://www.palantir.com/docs/foundry/administration/configure-user-and-group-visibility) ·
+> [Configure Foundry for consumer mode](https://www.palantir.com/docs/foundry/consumer-mode/foundry-consumer-setup).
+
+### 9. File access presets
+
+File access presets are Control Panel shortcuts for supported
+resource-creation flows. They do not replace markings, roles, restricted
+views, or scoped sessions; they only pre-fill a named set of markings or
+local classification controls before a resource is created.
+
+- Control Panel stores ordered presets with titles, descriptions,
+  marking IDs, local access controls, organization scope, supported
+  resource kinds, and history.
+- Users see only presets whose markings they are allowed to apply.
+  Apply/manage permissions do not imply marking membership or access to
+  marked data.
+- The first visible preset in configured order becomes the default
+  selection for compatible creation flows.
+- Guest sessions resolve preset configuration through the primary
+  organization when multi-organization guest context is available.
+- Project creation is the first supported OpenFoundry flow: selected
+  preset markings are written to project `marking_rids` and merged with
+  template markings before indexing.
+
+> Parity reference:
+> [Configure file access presets](https://www.palantir.com/docs/foundry/administration/configure-file-access-presets/) ·
+> [Markings](https://www.palantir.com/docs/foundry/security/markings/).
+
 ### Audit and traceability
 
 Every security-relevant decision — login, role grant, marking apply,

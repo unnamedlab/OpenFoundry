@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { folderStablePath, projectStablePath } from '@/lib/compass/stableResourceUrls';
+import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 
 export interface BreadcrumbItem {
@@ -33,11 +35,11 @@ interface ProjectBreadcrumbFolder {
 }
 
 export function projectRIDFromID(id: string) {
-  return `ri.compass.main.project.${id}`;
+  return resourceRIDForKind('ontology_project', id);
 }
 
 export function folderRIDFromID(id: string) {
-  return `ri.compass.main.folder.${id}`;
+  return resourceRIDForKind('ontology_folder', id);
 }
 
 export function buildProjectFolderBreadcrumbItems(
@@ -50,7 +52,7 @@ export function buildProjectFolderBreadcrumbItems(
     {
       id: project.id,
       label: project.display_name || project.slug || project.id,
-      href: `/projects/${project.id}`,
+      href: projectStablePath(project),
       rid: project.rid || projectRIDFromID(project.id),
       kind: 'project',
       icon: 'project',
@@ -61,7 +63,7 @@ export function buildProjectFolderBreadcrumbItems(
     items.push({
       id: folder.id,
       label: folder.name,
-      href: `/projects/${project.id}/${folder.id}`,
+      href: folderStablePath(project, folder),
       rid: folder.rid || folderRIDFromID(folder.id),
       kind: 'folder',
       icon: 'folder',

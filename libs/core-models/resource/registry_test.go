@@ -99,6 +99,35 @@ func TestAllDefinitionsAreSortedCopies(t *testing.T) {
 	assert.NotEqual(t, len(definitions[0].SupportedActions), len(next.SupportedActions))
 }
 
+func TestRegistryTracksReferenceTargets(t *testing.T) {
+	t.Parallel()
+
+	definition, ok := resource.DefaultRegistry().Lookup(resource.TypeWorkshopDashboard)
+	require.True(t, ok)
+
+	assert.Contains(t, definition.ReferenceTargets, resource.ReferenceTarget{
+		Relationship: "reads",
+		TargetType:   resource.TypeFoundryQuery,
+	})
+	assert.Contains(t, definition.ReferenceTargets, resource.ReferenceTarget{
+		Relationship: "reads",
+		TargetType:   resource.TypeFoundryDataset,
+	})
+}
+
+func TestRegistryRejectsUnregisteredReferenceTarget(t *testing.T) {
+	t.Parallel()
+
+	definition := minimalDefinition("TYPE_A", "foundry", "type-a")
+	definition.ReferenceTargets = []resource.ReferenceTarget{{
+		Relationship: "reads",
+		TargetType:   "MISSING_TYPE",
+	}}
+	_, err := resource.NewRegistry(definition)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reference target MISSING_TYPE is not registered")
+}
+
 func minimalDefinition(id resource.TypeID, service, resourceType string) resource.TypeDefinition {
 	return resource.TypeDefinition{
 		ID:                 id,

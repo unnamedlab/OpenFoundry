@@ -3,8 +3,11 @@ import { useEffect, useState } from 'react';
 import {
   createFavorite,
   deleteFavorite,
+  listResourceReferences,
   listResourceShares,
   type ResourceKind,
+  type ResourceReferenceEdge,
+  type ResourceReferenceGraph,
   type ResourceShare,
 } from '@/lib/api/workspace';
 import { OpenWithMenu } from './OpenWithMenu';
@@ -43,6 +46,18 @@ function fmtDate(v: string | null | undefined) {
   catch { return v; }
 }
 
+function formatRelationship(value: string) {
+  return value.replaceAll('_', ' ');
+}
+
+function referenceItemLabel(edge: ResourceReferenceEdge, direction: 'depends-on' | 'used-by') {
+  const node = direction === 'used-by' ? edge.source : edge.target;
+  return {
+    title: node.display_name || node.resource_rid || node.resource_id,
+    subtitle: `${formatRelationship(edge.relationship)} · ${node.resource_kind}`,
+  };
+}
+
 export function ResourceDetailsPanel({
   open,
   resource,
@@ -53,19 +68,30 @@ export function ResourceDetailsPanel({
   onFavoriteToggle,
 }: ResourceDetailsPanelProps) {
   const [shares, setShares] = useState<ResourceShare[]>([]);
+  const [referenceGraph, setReferenceGraph] = useState<ResourceReferenceGraph | null>(null);
   const [loading, setLoading] = useState(false);
+  const [referencesLoading, setReferencesLoading] = useState(false);
   const [error, setError] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
 
   useEffect(() => {
-    if (!open || !resource) { setShares([]); return; }
+    if (!open || !resource) {
+      setShares([]);
+      setReferenceGraph(null);
+      return;
+    }
     setLoading(true);
+    setReferencesLoading(true);
     setError('');
     listResourceShares(resource.kind, resource.id)
       .then(setShares)
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load shares'))
       .finally(() => setLoading(false));
+    listResourceReferences(resource.kind, resource.id)
+      .then(setReferenceGraph)
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load references'))
+      .finally(() => setReferencesLoading(false));
   }, [open, resource]);
 
   async function toggleFavorite() {
@@ -148,6 +174,53 @@ export function ResourceDetailsPanel({
             ))}
           </div>
         )}
+
+        <section>
+          <p className="of-eyebrow" style={{ fontSize: 10 }}>
+            Used by ({referenceGraph?.used_by.length ?? 0})
+          </p>
+          {referencesLoading && <p className="of-text-muted" style={{ fontSize: 11, fontStyle: 'italic' }}>Loading…</p>}
+          <ul style={{ paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 4, marginTop: 6 }}>
+            {(referenceGraph?.used_by ?? []).slice(0, 6).map((edge) => {
+              const item = referenceItemLabel(edge, 'used-by');
+              return (
+                <li key={`${edge.source.resource_kind}:${edge.source.resource_id}:${edge.relationship}`} style={{ background: '#1e293b', padding: '6px 8px', borderRadius: 4, fontSize: 11 }}>
+                  <div style={{ fontWeight: 600 }}>{item.title}</div>
+                  <div className="of-text-muted" style={{ fontSize: 10 }}>{item.subtitle}{edge.derived ? ' · derived' : ''}</div>
+                </li>
+              );
+            })}
+            {referenceGraph && referenceGraph.used_by.length > 6 && (
+              <li className="of-text-muted" style={{ fontSize: 11 }}>+{referenceGraph.used_by.length - 6} more</li>
+            )}
+            {referenceGraph && referenceGraph.used_by.length === 0 && !referencesLoading && (
+              <li className="of-text-muted" style={{ fontSize: 11, fontStyle: 'italic' }}>No downstream references.</li>
+            )}
+          </ul>
+        </section>
+
+        <section>
+          <p className="of-eyebrow" style={{ fontSize: 10 }}>
+            Depends on ({referenceGraph?.depends_on.length ?? 0})
+          </p>
+          <ul style={{ paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 4, marginTop: 6 }}>
+            {(referenceGraph?.depends_on ?? []).slice(0, 6).map((edge) => {
+              const item = referenceItemLabel(edge, 'depends-on');
+              return (
+                <li key={`${edge.target.resource_kind}:${edge.target.resource_id}:${edge.relationship}`} style={{ background: '#1e293b', padding: '6px 8px', borderRadius: 4, fontSize: 11 }}>
+                  <div style={{ fontWeight: 600 }}>{item.title}</div>
+                  <div className="of-text-muted" style={{ fontSize: 10 }}>{item.subtitle}{edge.derived ? ' · derived' : ''}</div>
+                </li>
+              );
+            })}
+            {referenceGraph && referenceGraph.depends_on.length > 6 && (
+              <li className="of-text-muted" style={{ fontSize: 11 }}>+{referenceGraph.depends_on.length - 6} more</li>
+            )}
+            {referenceGraph && referenceGraph.depends_on.length === 0 && !referencesLoading && (
+              <li className="of-text-muted" style={{ fontSize: 11, fontStyle: 'italic' }}>No upstream references.</li>
+            )}
+          </ul>
+        </section>
 
         <section>
           <p className="of-eyebrow" style={{ fontSize: 10 }}>Shares ({shares.length})</p>

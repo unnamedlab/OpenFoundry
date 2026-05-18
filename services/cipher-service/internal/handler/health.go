@@ -1,4 +1,3 @@
-// Package handler hosts the HTTP handlers for the cipher-service stub.
 package handler
 
 import (

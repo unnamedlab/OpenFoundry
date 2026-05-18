@@ -1,8 +1,8 @@
 // Command global-branch-service is the entrypoint for the OpenFoundry
-// global branching service. It currently ships as a stub that returns
-// 501 Not Implemented on every product path so the edge gateway has
-// something to route to (see ADR-0030 and
-// docs/migration/foundry-global-branching-1to1-checklist.md).
+// global branching service. It hosts the Milestone A surface — global
+// branch lifecycle CRUD + per-service participation coordination —
+// described in
+// docs/migration/foundry-global-branching-1to1-checklist.md.
 package main
 
 import (
@@ -13,8 +13,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	"github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/handler"
+	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/server"
 )
 
@@ -51,7 +57,32 @@ func main() {
 
 	metrics := observability.NewMetrics()
 
-	srv, err := server.New(cfg, metrics, log)
+	// Database wiring. Empty DSN keeps the binary bootable in smoke
+	// tests where Postgres is not provisioned (no product route works
+	// without a pool, but /healthz and /metrics still do).
+	var (
+		pool    *pgxpool.Pool
+		dbProbe []capabilities.DependencyProbe
+		h       *handler.Handlers
+	)
+	if cfg.DatabaseURL != "" {
+		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Error("pgx pool failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		defer pool.Close()
+		if err := repo.Migrate(ctx, pool); err != nil {
+			log.Error("migrations failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		h = handler.NewHandlers(repo.New(pool))
+		dbProbe = append(dbProbe, probes.Postgres("primary", pool))
+	} else {
+		log.Warn("OF_DATABASE_URL not set; product routes will be unmounted until configured")
+	}
+
+	srv, err := server.New(cfg, h, metrics, log, dbProbe...)
 	if err != nil {
 		log.Error("server build failed", slog.String("error", err.Error()))
 		os.Exit(1)

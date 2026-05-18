@@ -2,8 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { BulkActionsToolbar, type BulkAction } from '@/lib/components/workspace/BulkActionsToolbar';
-import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { resourceRIDForKind } from '@/lib/compass/resourceTypeRegistry';
+import {
+  folderStablePath,
+  projectStablePath,
+  resourceIDFromStableSegment,
+  resourceLocatorFromStableSegment,
+} from '@/lib/compass/stableResourceUrls';
 import { FolderTree } from '@/lib/components/workspace/FolderTree';
 import { MoveDialog } from '@/lib/components/workspace/MoveDialog';
 import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
@@ -25,6 +31,7 @@ import {
 import {
   batchApply,
   duplicateResource,
+  listResourceReferences,
   recordAccess,
   softDeleteResource,
   type ResourceKind,
@@ -74,6 +81,7 @@ const SUPPORTED_RESOURCE_KINDS: ResourceKind[] = [
   'ontology_resource_binding',
   'dataset',
   'pipeline',
+  'query',
   'notebook',
   'app',
   'dashboard',
@@ -112,7 +120,9 @@ function isDescendantFolder(folders: OntologyProjectFolder[], sourceId: string, 
 }
 
 export function ProjectFolderPage() {
-  const { projectId = '', folderId = '' } = useParams<{ projectId: string; folderId: string }>();
+  const { projectId: projectParam = '', folderId: folderParam = '' } = useParams<{ projectId: string; folderId: string }>();
+  const projectRouteID = resourceIDFromStableSegment(projectParam);
+  const folderRouteID = resourceLocatorFromStableSegment(folderParam);
   const navigate = useNavigate();
   const [project, setProject] = useState<OntologyProject | null>(null);
   const [projects, setProjects] = useState<OntologyProject[]>([]);
@@ -130,16 +140,17 @@ export function ProjectFolderPage() {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ExplorerItem | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [deleteReferenceWarning, setDeleteReferenceWarning] = useState('');
 
   async function load() {
-    if (!projectId) return;
+    if (!projectRouteID) return;
     setLoading(true);
     setError('');
     try {
       const [p, f, r, ps] = await Promise.all([
-        getProject(projectId),
-        listProjectFolders(projectId),
-        listProjectResources(projectId).catch(() => [] as OntologyProjectResourceBinding[]),
+        getProject(projectRouteID),
+        listProjectFolders(projectRouteID),
+        listProjectResources(projectRouteID).catch(() => [] as OntologyProjectResourceBinding[]),
         listProjects({ per_page: 200 }).catch(() => null),
       ]);
       setProject(p);
@@ -155,21 +166,21 @@ export function ProjectFolderPage() {
 
   useEffect(() => {
     void load();
-  }, [projectId]);
+  }, [projectRouteID]);
 
   useEffect(() => {
-    if (!folderId) return;
-    recordAccess({ resource_kind: 'ontology_folder', resource_id: folderId }).catch(() => {});
-  }, [folderId]);
+    if (!folderRouteID) return;
+    recordAccess({ resource_kind: 'ontology_folder', resource_id: folderRouteID }).catch(() => {});
+  }, [folderRouteID]);
 
-  const folder = useMemo(() => folders.find((f) => f.id === folderId) ?? null, [folders, folderId]);
+  const folder = useMemo(() => folders.find((f) => f.id === folderRouteID) ?? null, [folders, folderRouteID]);
   const childFolders = useMemo(
-    () => folders.filter((f) => f.parent_folder_id === folderId).sort((a, b) => a.name.localeCompare(b.name)),
-    [folders, folderId],
+    () => folders.filter((f) => f.parent_folder_id === folderRouteID).sort((a, b) => a.name.localeCompare(b.name)),
+    [folders, folderRouteID],
   );
   const breadcrumbItems = useMemo(
-    () => (project ? buildProjectFolderBreadcrumbItems(project, folders, folderId) : []),
-    [folders, folderId, project],
+    () => (project ? buildProjectFolderBreadcrumbItems(project, folders, folderRouteID) : []),
+    [folders, folderRouteID, project],
   );
   const breadcrumbLocation = useMemo(
     () => breadcrumbItems.filter((item) => item.kind === 'project' || item.kind === 'folder').map((item) => item.label).join(' / '),
@@ -212,6 +223,39 @@ export function ProjectFolderPage() {
 
   const selectedItems = useMemo(() => items.filter((item) => selectedKeys.has(item.key)), [items, selectedKeys]);
   const selectedFoldersOnly = selectedItems.length > 0 && selectedItems.every((item) => item.type === 'folder');
+
+  useEffect(() => {
+    const targets = deleteTarget
+      ? [deleteTarget]
+      : bulkDeleteOpen
+        ? selectedItems.slice(0, 20)
+        : [];
+    setDeleteReferenceWarning('');
+    if (targets.length === 0) return;
+
+    let cancelled = false;
+    Promise.all(
+      targets.map((item) => {
+        const kind = item.type === 'folder' ? item.operationKind : item.shareKind;
+        return listResourceReferences(kind, item.id).catch(() => null);
+      }),
+    ).then((graphs) => {
+      if (cancelled) return;
+      const downstream = graphs.reduce<number>((count, graph) => count + (graph?.used_by.length ?? 0), 0);
+      const upstream = graphs.reduce<number>((count, graph) => count + (graph?.depends_on.length ?? 0), 0);
+      if (downstream === 0 && upstream === 0) return;
+      const suffix = bulkDeleteOpen && selectedItems.length > targets.length
+        ? ` Checked first ${targets.length} of ${selectedItems.length} selected items.`
+        : '';
+      setDeleteReferenceWarning(
+        `\nReference graph: ${downstream} downstream and ${upstream} upstream reference(s) may need review.${suffix}`,
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deleteTarget, bulkDeleteOpen, selectedItems]);
 
   useEffect(() => {
     const visibleKeys = new Set(items.map((item) => item.key));
@@ -274,6 +318,16 @@ export function ProjectFolderPage() {
     if (!project) return [];
     if (!item || item.operationKind === 'ontology_folder') return [project];
     return projects.length ? projects : [project];
+  }
+
+  function projectPath() {
+    return project ? projectStablePath(project) : '/projects';
+  }
+
+  function folderPathByID(id: string) {
+    const target = folders.find((candidate) => candidate.id === id);
+    if (!project || !target) return projectPath();
+    return folderStablePath(project, target);
   }
 
   function canMoveItemToFolder(item: ExplorerItem | null, targetFolderId: string) {
@@ -372,7 +426,7 @@ export function ProjectFolderPage() {
         target_folder_id: targetFolderId,
       }]);
       await refreshAfterMutation();
-      if (item.id === folderId && targetFolderId) navigate(`/projects/${project.id}/${targetFolderId}`);
+      if (item.id === folderRouteID && targetFolderId) navigate(folderPathByID(targetFolderId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Move failed');
     } finally {
@@ -383,7 +437,7 @@ export function ProjectFolderPage() {
   function handleRowAction(item: ExplorerItem, action: string) {
     if (!project) return;
     if (action === 'open') {
-      if (item.type === 'folder') navigate(`/projects/${project.id}/${item.id}`);
+      if (item.type === 'folder') navigate(folderStablePath(project, item.folder));
       else setDetailsResource(resourceSummary(item));
     } else if (action === 'details') {
       setDetailsResource(resourceSummary(item));
@@ -433,8 +487,8 @@ export function ProjectFolderPage() {
   if (!folder) {
     return (
       <section className="of-page" style={{ padding: 24 }}>
-        <Link to={`/projects/${project.id}`} style={{ color: 'var(--text-muted)', fontSize: 13 }}>{project.display_name || project.slug}</Link>
-        <p className="of-status-danger" style={{ marginTop: 12 }}>Folder {folderId} not found in this project.</p>
+        <Link to={projectStablePath(project)} style={{ color: 'var(--text-muted)', fontSize: 13 }}>{project.display_name || project.slug}</Link>
+        <p className="of-status-danger" style={{ marginTop: 12 }}>Folder {folderRouteID} not found in this project.</p>
       </section>
     );
   }
@@ -505,7 +559,7 @@ export function ProjectFolderPage() {
               folders={folders}
               selectedId={folder.id}
               rootLabel={project.display_name || project.slug}
-              onSelect={(id) => navigate(id ? `/projects/${project.id}/${id}` : `/projects/${project.id}`)}
+              onSelect={(id) => navigate(id ? folderPathByID(id) : projectStablePath(project))}
               canDrop={(id) => selectedItems.length === 1 && selectedItems[0].type === 'folder' && !isDescendantFolder(folders, selectedItems[0].id, id)}
               onDrop={(id) => {
                 if (selectedItems.length === 1) void moveFolderByTree(id, selectedItems[0]);
@@ -686,7 +740,7 @@ export function ProjectFolderPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         title={deleteTarget?.type === 'folder' ? 'Move folder to trash' : 'Remove resource binding'}
-        message={deleteTarget ? `${deleteTarget.name} will be removed from this folder view.` : ''}
+        message={deleteTarget ? `${deleteTarget.name} will be removed from this folder view.${deleteReferenceWarning}` : ''}
         confirmLabel={deleteTarget?.type === 'folder' ? 'Move to trash' : 'Remove'}
         danger
         busy={busy}
@@ -699,7 +753,7 @@ export function ProjectFolderPage() {
       <ConfirmDialog
         open={bulkDeleteOpen}
         title="Move selected items to trash"
-        message={`${selectedItems.length} selected item(s) will be removed.`}
+        message={`${selectedItems.length} selected item(s) will be removed.${deleteReferenceWarning}`}
         confirmLabel="Move to trash"
         danger
         busy={busy}

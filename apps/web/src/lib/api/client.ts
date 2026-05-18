@@ -5,6 +5,11 @@ interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   skipAuthHooks?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface CallOptions {
+  signal?: AbortSignal;
 }
 
 type PreRequestHook = () => void | Promise<void>;
@@ -82,8 +87,12 @@ export class ApiClient {
         method: options.method ?? 'GET',
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: options.signal,
       });
     } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        throw cause;
+      }
       throw new ApiUnavailableError(0, extractService(path), 'Network error', { cause });
     }
 
@@ -120,24 +129,24 @@ export class ApiClient {
     return response;
   }
 
-  get<T>(path: string) {
-    return this.fetch<T>(path);
+  get<T>(path: string, options?: CallOptions) {
+    return this.fetch<T>(path, { signal: options?.signal });
   }
 
-  post<T>(path: string, body: unknown) {
-    return this.fetch<T>(path, { method: 'POST', body });
+  post<T>(path: string, body: unknown, options?: CallOptions) {
+    return this.fetch<T>(path, { method: 'POST', body, signal: options?.signal });
   }
 
-  put<T>(path: string, body: unknown) {
-    return this.fetch<T>(path, { method: 'PUT', body });
+  put<T>(path: string, body: unknown, options?: CallOptions) {
+    return this.fetch<T>(path, { method: 'PUT', body, signal: options?.signal });
   }
 
-  patch<T>(path: string, body: unknown) {
-    return this.fetch<T>(path, { method: 'PATCH', body });
+  patch<T>(path: string, body: unknown, options?: CallOptions) {
+    return this.fetch<T>(path, { method: 'PATCH', body, signal: options?.signal });
   }
 
-  delete<T>(path: string) {
-    return this.fetch<T>(path, { method: 'DELETE' });
+  delete<T>(path: string, options?: CallOptions) {
+    return this.fetch<T>(path, { method: 'DELETE', signal: options?.signal });
   }
 }
 

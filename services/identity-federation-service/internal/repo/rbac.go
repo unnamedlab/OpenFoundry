@@ -186,6 +186,13 @@ func (r *Repo) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
 	); err != nil {
 		return fmt.Errorf("revoke refresh tokens: %w", err)
 	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE third_party_oauth_refresh_tokens SET revoked_at = $2
+		 WHERE subject_user_id = $1 AND revoked_at IS NULL`,
+		id, now,
+	); err != nil {
+		return fmt.Errorf("revoke oauth refresh tokens: %w", err)
+	}
 	return tx.Commit(ctx)
 }
 
@@ -211,6 +218,13 @@ func (r *Repo) RevokeAllUserRefreshTokens(ctx context.Context, userID uuid.UUID,
 		userID, at,
 	)
 	if err != nil {
+		return 0, err
+	}
+	if _, err := r.Pool.Exec(ctx,
+		`UPDATE third_party_oauth_refresh_tokens SET revoked_at = $2
+		 WHERE subject_user_id = $1 AND revoked_at IS NULL`,
+		userID, at,
+	); err != nil {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
@@ -319,7 +333,7 @@ func (r *Repo) CountActiveAPIKeys(ctx context.Context, userID uuid.UUID) (int, e
 	err := r.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM api_keys
 		 WHERE user_id = $1 AND revoked_at IS NULL
-		   AND (expires_at IS NULL OR expires_at > NOW())`,
+		   AND expires_at IS NOT NULL AND expires_at > NOW()`,
 		userID,
 	).Scan(&count)
 	if err != nil {
@@ -435,6 +449,61 @@ func (r *Repo) ListUserRoles(ctx context.Context, userID uuid.UUID) ([]models.Ro
 		out = append(out, role)
 	}
 	return out, rows.Err()
+}
+
+// ListUserSecuritySnapshot returns the role names and permission keys
+// a developer API token should inherit at creation time. The token
+// keeps this snapshot until it expires or is revoked.
+func (r *Repo) ListUserSecuritySnapshot(ctx context.Context, userID uuid.UUID) ([]string, []string, error) {
+	roleRows, err := r.Pool.Query(ctx,
+		`SELECT r.name
+		 FROM roles r
+		 INNER JOIN user_roles ur ON ur.role_id = r.id
+		 WHERE ur.user_id = $1
+		 ORDER BY r.name`,
+		userID,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer roleRows.Close()
+	roles := make([]string, 0)
+	for roleRows.Next() {
+		var role string
+		if err := roleRows.Scan(&role); err != nil {
+			return nil, nil, err
+		}
+		roles = append(roles, role)
+	}
+	if err := roleRows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	permRows, err := r.Pool.Query(ctx,
+		`SELECT DISTINCT p.resource || ':' || p.action AS permission
+		 FROM permissions p
+		 INNER JOIN role_permissions rp ON rp.permission_id = p.id
+		 INNER JOIN user_roles ur ON ur.role_id = rp.role_id
+		 WHERE ur.user_id = $1
+		 ORDER BY permission`,
+		userID,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer permRows.Close()
+	permissions := make([]string, 0)
+	for permRows.Next() {
+		var permission string
+		if err := permRows.Scan(&permission); err != nil {
+			return nil, nil, err
+		}
+		permissions = append(permissions, permission)
+	}
+	if err := permRows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return roles, permissions, nil
 }
 
 // AssignRoleToUser is idempotent.
@@ -1075,9 +1144,18 @@ func jsonOrNil(b []byte) any {
 
 // ─── API keys ───────────────────────────────────────────────────────────
 
+const apiKeySelectColumns = `id, user_id, name, prefix, scopes,
+	permissions_snapshot, roles_snapshot, warning,
+	CASE
+		WHEN revoked_at IS NOT NULL THEN 'revoked'
+		WHEN expires_at IS NULL OR expires_at <= NOW() THEN 'expired'
+		ELSE 'active'
+	END AS status,
+	last_used_at, expires_at, created_at, revoked_at`
+
 func (r *Repo) ListAPIKeys(ctx context.Context, userID uuid.UUID) ([]models.APIKey, error) {
 	rows, err := r.Pool.Query(ctx,
-		`SELECT id, user_id, name, last_used_at, expires_at, created_at, revoked_at
+		`SELECT `+apiKeySelectColumns+`
 		 FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
 		userID,
 	)
@@ -1088,7 +1166,7 @@ func (r *Repo) ListAPIKeys(ctx context.Context, userID uuid.UUID) ([]models.APIK
 	out := make([]models.APIKey, 0)
 	for rows.Next() {
 		var k models.APIKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.RevokedAt); err != nil {
+		if err := scanAPIKey(&k, rows); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
@@ -1098,21 +1176,22 @@ func (r *Repo) ListAPIKeys(ctx context.Context, userID uuid.UUID) ([]models.APIK
 
 // CreateAPIKey persists a hashed token. Returns the row + caller is
 // expected to render the plaintext (which it generated).
-func (r *Repo) CreateAPIKey(ctx context.Context, userID uuid.UUID, name, keyHash string, expiresAt *time.Time) (*models.APIKey, error) {
+func (r *Repo) CreateAPIKey(ctx context.Context, userID uuid.UUID, name, keyHash, prefix string, scopes, permissionsSnapshot, rolesSnapshot []string, expiresAt time.Time) (*models.APIKey, error) {
 	id := uuid.New()
 	_, err := r.Pool.Exec(ctx,
-		`INSERT INTO api_keys (id, user_id, name, key_hash, expires_at)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		id, userID, name, keyHash, expiresAt,
+		`INSERT INTO api_keys
+			(id, user_id, name, key_hash, prefix, scopes, permissions_snapshot, roles_snapshot, expires_at, warning)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		id, userID, name, keyHash, prefix, scopes, permissionsSnapshot, rolesSnapshot, expiresAt, models.DeveloperAPIKeyWarning,
 	)
 	if err != nil {
 		return nil, err
 	}
 	row := r.Pool.QueryRow(ctx,
-		`SELECT id, user_id, name, last_used_at, expires_at, created_at, revoked_at
+		`SELECT `+apiKeySelectColumns+`
 		 FROM api_keys WHERE id = $1`, id)
 	k := &models.APIKey{}
-	if err := row.Scan(&k.ID, &k.UserID, &k.Name, &k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.RevokedAt); err != nil {
+	if err := scanAPIKey(k, row); err != nil {
 		return nil, err
 	}
 	return k, nil
@@ -1124,4 +1203,71 @@ func (r *Repo) RevokeAPIKey(ctx context.Context, userID, id uuid.UUID, at time.T
 		id, userID, at,
 	)
 	return err
+}
+
+// FindUsableAPIKeyByHash resolves an opaque developer API key to the
+// persisted key and active user. Keys are unusable after explicit
+// revocation, expiry, user disablement/deletion, or 30 days without a
+// successful login by the owning user.
+func (r *Repo) FindUsableAPIKeyByHash(ctx context.Context, keyHash string, now time.Time) (*models.APIKey, *models.User, error) {
+	row := r.Pool.QueryRow(ctx,
+		`SELECT
+			k.id, k.user_id, k.name, k.prefix, k.scopes,
+			k.permissions_snapshot, k.roles_snapshot, k.warning,
+			CASE
+				WHEN k.revoked_at IS NOT NULL THEN 'revoked'
+				WHEN k.expires_at IS NULL OR k.expires_at <= $2 THEN 'expired'
+				ELSE 'active'
+			END AS status,
+			k.last_used_at, k.expires_at, k.created_at, k.revoked_at,
+			u.id, u.email, u.username, u.name, u.password_hash,
+			u.is_active, u.auth_source, u.realm, u.mfa_enforced, u.organization_id, u.attributes,
+			u.last_login_at, u.last_login_ip, u.preregistered, u.invited_by, u.deleted_at,
+			u.created_at, u.updated_at
+		 FROM api_keys k
+		 INNER JOIN users u ON u.id = k.user_id
+		 WHERE k.key_hash = $1
+		   AND k.revoked_at IS NULL
+		   AND k.expires_at IS NOT NULL
+		   AND k.expires_at > $2
+		   AND u.is_active = TRUE
+		   AND u.deleted_at IS NULL
+		   AND u.last_login_at IS NOT NULL
+		   AND u.last_login_at >= ($2::timestamptz - INTERVAL '30 days')`,
+		keyHash, now,
+	)
+	key := &models.APIKey{}
+	user := &models.User{}
+	err := row.Scan(
+		&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.Scopes,
+		&key.PermissionsSnapshot, &key.RolesSnapshot, &key.Warning, &key.Status,
+		&key.LastUsedAt, &key.ExpiresAt, &key.CreatedAt, &key.RevokedAt,
+		&user.ID, &user.Email, &user.Username, &user.Name, &user.PasswordHash,
+		&user.IsActive, &user.AuthSource, &user.Realm, &user.MFAEnforced, &user.OrganizationID, &user.Attributes,
+		&user.LastLoginAt, &user.LastLoginIP, &user.Preregistered, &user.InvitedBy, &user.DeletedAt,
+		&user.CreatedAt, &user.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := r.Pool.Exec(ctx, `UPDATE api_keys SET last_used_at = $2 WHERE id = $1`, key.ID, now); err != nil {
+		return nil, nil, err
+	}
+	key.LastUsedAt = &now
+	return key, user, nil
+}
+
+type apiKeyScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanAPIKey(k *models.APIKey, row apiKeyScanner) error {
+	return row.Scan(
+		&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.Scopes,
+		&k.PermissionsSnapshot, &k.RolesSnapshot, &k.Warning, &k.Status,
+		&k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt, &k.RevokedAt,
+	)
 }

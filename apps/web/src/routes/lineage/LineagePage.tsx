@@ -14,7 +14,7 @@ import { CytoscapeCanvas } from '@components/CytoscapeCanvas';
 import { ResourceHealthStatusBadge } from '@/lib/components/health/HealthReportsPanel';
 import { ResourceHealthChecksPanel } from '@/lib/components/health/ResourceHealthChecksPanel';
 import { ScheduleSidebar } from '@/lib/components/lineage/ScheduleSidebar';
-import { ConfirmDialog } from '@/lib/components/workspace/ConfirmDialog';
+import { ConfirmDialog } from '@/lib/components/ConfirmDialog';
 import { listDatasetBuildsV1, listBuildsV1, type Build, type CreateBuildResponse } from '@/lib/api/buildsV1';
 import { runBuildWithExpectationGates } from '@/lib/api/data-expectations';
 import {

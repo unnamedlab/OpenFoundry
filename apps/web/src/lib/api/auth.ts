@@ -200,6 +200,10 @@ export interface ApiKeyRecord {
   name: string;
   prefix: string;
   scopes: string[];
+  permissions_snapshot?: string[];
+  roles_snapshot?: string[];
+  warning: string;
+  status: 'active' | 'expired' | 'revoked';
   expires_at: string | null;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -214,6 +218,21 @@ export interface ApiKeyWithSecret {
   scopes: string[];
   expires_at: string | null;
   created_at: string;
+  warning: string;
+}
+
+export interface ApiKeyLeakWarning {
+  source?: string;
+  prefix?: string;
+  redacted: string;
+  severity: 'high' | 'critical';
+  message: string;
+  api_key_id?: string;
+}
+
+export interface ApiKeyLeakScanResponse {
+  warnings: ApiKeyLeakWarning[];
+  patterns: string[];
 }
 
 export interface MfaStatusResponse {
@@ -524,6 +543,10 @@ export function createApiKey(data: { name: string; scopes: string[]; expires_at?
 
 export function revokeApiKey(apiKeyId: string) {
   return api.delete<void>(`/api-keys/${apiKeyId}`);
+}
+
+export function scanApiKeyLeaks(data: { content: string; source?: string }) {
+  return api.post<ApiKeyLeakScanResponse>('/api-keys/leak-scan', data);
 }
 
 export function listSsoProviders() {

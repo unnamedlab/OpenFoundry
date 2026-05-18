@@ -17,6 +17,7 @@ import {
   type ResourceShare,
   type TrashEntry,
 } from '@/lib/api/workspace';
+import { projectStablePath, workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 import { useCurrentUser } from '@/lib/stores/auth';
 
 type Section = 'portfolios' | 'projects' | 'your-files' | 'shared' | 'trash';
@@ -63,7 +64,7 @@ function trashRetentionLabel(entry: TrashEntry) {
 }
 
 function sharedResourceHref(share: ResourceShare): string | null {
-  if (share.resource_kind === 'ontology_project') return `/projects/${share.resource_id}`;
+  if (share.resource_kind === 'ontology_project') return workspaceResourceStablePath(share.resource_kind, share.resource_id);
   return null;
 }
 
@@ -647,7 +648,7 @@ export function ProjectsListPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={(project) => {
           setCreateOpen(false);
-          navigate(`/projects/${project.id}`);
+          navigate(projectStablePath(project));
         }}
       />
 
@@ -798,7 +799,7 @@ function ProjectsTable({
                     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                       <ProjectGlyphIcon />
                       <div>
-                        <Link to={`/projects/${project.id}`} className="of-link">
+                        <Link to={projectStablePath(project)} className="of-link">
                           {projectName(project)}
                         </Link>
                         <div className="of-text-soft" style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 10 }}>

@@ -18,6 +18,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/config"
+	dispatch "github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/executionmode"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/handler"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/repo"
 )
@@ -74,7 +75,15 @@ func BuildRouter(cfg *config.Config, store repo.Repository, metrics *observabili
 	}
 	caps.Mount(r)
 
-	state := &handler.State{Repo: store}
+	resolver := dispatch.NewStaticEndpointResolver()
+	dispatcher := dispatch.NewHTTPDispatcher(resolver, dispatch.HTTPDispatcherConfig{})
+
+	state := &handler.State{
+		Repo:              store,
+		Dispatcher:        dispatcher,
+		PayloadLimitBytes: dispatch.DefaultBodyLimitBytes,
+		DispatchTimeout:   dispatch.DefaultDispatchTimeout,
+	}
 
 	api := r.With(authmw.Middleware(jwtCfg))
 	mountModuleRoutes(api, caps, state)
@@ -233,14 +242,54 @@ func mountModuleRoutes(r chi.Router, caps *capabilities.Registry, state *handler
 	}, http.HandlerFunc(state.ClearPipelineIOConfig))
 
 	caps.MustRegister(r, capabilities.Capability{
-		ID:           "compute-module.modules.functions.query",
+		ID:           "compute-module.modules.functions.invoke",
 		Method:       http.MethodPost,
-		Path:         "/api/v1/compute-modules/{id}/functions/query",
-		Stable:       false,
+		Path:         "/api/v1/compute-modules/{module_id}/functions/{name}/invoke",
+		Stable:       true,
 		RequiresAuth: true,
-		Summary:      "Query a Compute Module function (function execution mode only; full dispatcher tracked by CM.6/CM.8).",
+		Summary:      "Invoke a Compute Module function synchronously (function execution mode only).",
 		Tags:         []string{"compute-modules", "function-mode"},
-	}, http.HandlerFunc(state.QueryFunction))
+	}, http.HandlerFunc(state.InvokeFunction))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "compute-module.modules.functions.invoke_async",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/compute-modules/{module_id}/functions/{name}/invoke-async",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Enqueue a Compute Module function invocation; returns an invocation handle for polling.",
+		Tags:         []string{"compute-modules", "function-mode"},
+	}, http.HandlerFunc(state.InvokeFunctionAsync))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "compute-module.invocations.get",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/compute-modules/invocations/{invocation_id}",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Fetch a function-mode invocation by id.",
+		Tags:         []string{"compute-modules", "function-mode"},
+	}, http.HandlerFunc(state.GetInvocation))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "compute-module.invocations.cancel",
+		Method:       http.MethodPost,
+		Path:         "/api/v1/compute-modules/invocations/{invocation_id}/cancel",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "Cancel a queued or running invocation (best-effort).",
+		Tags:         []string{"compute-modules", "function-mode"},
+	}, http.HandlerFunc(state.CancelInvocation))
+
+	caps.MustRegister(r, capabilities.Capability{
+		ID:           "compute-module.invocations.list",
+		Method:       http.MethodGet,
+		Path:         "/api/v1/compute-modules/invocations",
+		Stable:       true,
+		RequiresAuth: true,
+		Summary:      "List invocations scoped to the caller's tenant (filter by module/status).",
+		Tags:         []string{"compute-modules", "function-mode"},
+	}, http.HandlerFunc(state.ListInvocations))
 
 	caps.MustRegister(r, capabilities.Capability{
 		ID:           "compute-module.modules.container_image.set",

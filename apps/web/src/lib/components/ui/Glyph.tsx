@@ -1,7 +1,7 @@
 export type GlyphName =
   | 'menu' | 'home' | 'folder' | 'folder-open' | 'history' | 'search' | 'graph' | 'list' | 'cube'
   | 'database' | 'sparkles' | 'code' | 'settings' | 'ontology' | 'query' | 'bell'
-  | 'help' | 'users' | 'chevron-down' | 'chevron-right' | 'chevron-left' | 'plus'
+  | 'help' | 'users' | 'chevron-down' | 'chevron-up' | 'chevron-right' | 'chevron-left' | 'plus'
   | 'x' | 'logout' | 'bookmark' | 'object' | 'link' | 'artifact' | 'run' | 'image'
   | 'audio' | 'video' | 'document' | 'spreadsheet' | 'email' | 'app' | 'check'
   | 'tag' | 'trash' | 'star' | 'star-filled' | 'eye' | 'lock' | 'shield' | 'shield-plus'
@@ -49,6 +49,7 @@ const PATHS: Record<string, string[]> = {
   help: ['M12 17h.01', 'M9.4 9a2.6 2.6 0 1 1 4.1 2.1c-.9.6-1.5 1.1-1.5 2.4'],
   users: ['M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M16 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M4.8 18.5a4.2 4.2 0 0 1 8.4 0', 'M13.2 18.5a3.3 3.3 0 0 1 6.1-1.7'],
   'chevron-down': ['M6 9l6 6 6-6'],
+  'chevron-up': ['M6 15l6-6 6 6'],
   'chevron-right': ['M9 6l6 6-6 6'],
   'chevron-left': ['M15 6l-6 6 6 6'],
   app: ['M3.5 5.5h17v11h-17z', 'M9 19h6', 'M12 16.5v2.5'],

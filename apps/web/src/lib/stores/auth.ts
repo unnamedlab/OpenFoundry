@@ -1,3 +1,8 @@
+// TODO(security): access/refresh tokens are persisted in localStorage, which
+// exposes them to any script with XSS reach. Migrate to httpOnly cookies set
+// by identity-federation-service (on /auth/login, /auth/refresh) and forwarded
+// by the edge gateway. That requires coordinated backend changes, so it is
+// tracked separately from this auth-lifecycle pass.
 import { useEffect } from 'react';
 import { useSyncExternalStore } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -28,7 +33,17 @@ import { applyUserLocalePreference } from '../i18n/store';
 
 const ACCESS_TOKEN_KEY = 'of_access_token';
 const REFRESH_TOKEN_KEY = 'of_refresh_token';
+const EXPIRES_AT_KEY = 'of_access_token_expires_at';
 const PENDING_MFA_KEY = 'of_pending_mfa';
+
+// Subtracted from the response's expires_in when computing the persisted
+// expiry timestamp so we never treat the token as valid up to the last second
+// of its real lifetime.
+const TOKEN_SKEW_MS = 30_000;
+
+// If the cached access token will expire inside this window, trigger a
+// pro-active refresh before the next outbound request.
+const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 
 type AuthFlowResult = { status: 'authenticated' } | MfaRequiredResponse;
 type PendingMfaChallenge = MfaRequiredResponse & { received_at: number };
@@ -71,16 +86,38 @@ function setSnapshot(next: Partial<AuthSnapshot>) {
   listeners.forEach((l) => l());
 }
 
-function persistTokens(access: string, refresh: string) {
+function persistTokens(access: string, refresh: string, expiresInSec: number) {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem(ACCESS_TOKEN_KEY, access);
   localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+  const expiresAt = Date.now() + expiresInSec * 1000 - TOKEN_SKEW_MS;
+  localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt));
 }
 
 function clearTokens() {
   if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(EXPIRES_AT_KEY);
+}
+
+function getStoredRefreshToken(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function getStoredExpiresAt(): number | null {
+  if (typeof localStorage === 'undefined') return null;
+  const raw = localStorage.getItem(EXPIRES_AT_KEY);
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+export function isAccessTokenExpiringSoon(): boolean {
+  const expiresAt = getStoredExpiresAt();
+  if (expiresAt === null) return false;
+  return expiresAt - Date.now() < TOKEN_REFRESH_THRESHOLD_MS;
 }
 
 function isPendingChallengeExpired(challenge: PendingMfaChallenge) {
@@ -136,7 +173,54 @@ function hydratePendingChallenge() {
 function setSession(resp: TokenResponse) {
   api.setToken(resp.access_token);
   setSnapshot({ token: resp.access_token });
-  persistTokens(resp.access_token, resp.refresh_token);
+  persistTokens(resp.access_token, resp.refresh_token, resp.expires_in);
+}
+
+let pendingRefresh: Promise<string | null> | null = null;
+
+function forceLogoutRedirect() {
+  api.setToken(null);
+  setSnapshot({ token: null, user: null });
+  clearTokens();
+  clearPendingChallenge();
+  const target = (typeof globalThis !== 'undefined' ? globalThis.location : undefined) as
+    | { assign?: (url: string) => void }
+    | undefined;
+  if (target && typeof target.assign === 'function') {
+    target.assign('/auth/login');
+  }
+}
+
+// Singleton-style proactive refresh: concurrent callers share the same
+// in-flight promise so we never fire two POST /auth/refresh in parallel.
+export function refreshAccessToken(): Promise<string | null> {
+  if (pendingRefresh) return pendingRefresh;
+  pendingRefresh = (async () => {
+    try {
+      const refresh = getStoredRefreshToken();
+      if (!refresh) {
+        forceLogoutRedirect();
+        return null;
+      }
+      try {
+        // skipAuthHooks avoids re-entering the pre-request hook from inside
+        // the refresh call itself.
+        const resp = await api.fetch<TokenResponse>('/auth/refresh', {
+          method: 'POST',
+          body: { refresh_token: refresh },
+          skipAuthHooks: true,
+        });
+        setSession(resp);
+        return resp.access_token;
+      } catch {
+        forceLogoutRedirect();
+        return null;
+      }
+    } finally {
+      pendingRefresh = null;
+    }
+  })();
+  return pendingRefresh;
 }
 
 function updateCurrentUserProfile(profile: UserProfile) {
@@ -313,6 +397,18 @@ async function restore() {
 
   return restorePromise;
 }
+
+api.setPreRequestHook(async () => {
+  if (isAccessTokenExpiringSoon() && getStoredRefreshToken()) {
+    await refreshAccessToken();
+  }
+});
+api.setRefreshHandler(() => refreshAccessToken());
+api.setLogoutHandler(() => {
+  api.setToken(null);
+  setSnapshot({ token: null, user: null });
+  clearTokens();
+});
 
 export const auth = {
   subscribe,

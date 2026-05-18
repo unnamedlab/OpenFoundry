@@ -35,7 +35,6 @@ func upstreamFor(t *testing.T) config.UpstreamURLs {
 	u.OntologyQuery = "ontology-query"
 	u.ObjectDatabase = "object-db"
 	u.OntologyDefinition = "ontology-def"
-	u.Approvals = "approvals"
 	u.Workflow = "workflow"
 	u.Notebook = "notebook"
 	u.Notification = "notif"
@@ -47,17 +46,14 @@ func upstreamFor(t *testing.T) config.UpstreamURLs {
 	u.AgentRuntime = "agent-runtime"
 	u.RetrievalContext = "retrieval"
 	u.KnowledgeIndex = "knowledge"
-	u.ConversationState = "conv"
 	u.AI = "ai"
 	u.EntityResolution = "entity-res"
-	u.Streaming = "streaming"
 	u.Report = "report"
 	u.GeospatialIntelligence = "geo"
 	u.GlobalBranch = "branch"
 	u.CodeRepo = "code-repo"
 	u.FederationProductExchange = "marketplace"
 	u.ApplicationComposition = "app-comp"
-	u.AppBuilder = "app-builder"
 	u.TelemetryGovernance = "telemetry"
 	return u
 }
@@ -76,6 +72,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/api-keys", "id-fed"},
 		{"/api/v1/auth/cipher", "cipher"},
 		{"/api/v1/users/me", "id-fed"},
+		{"/api/v1/application-access/evaluate", "id-fed"},
+		{"/api/v1/file-access-presets/visible", "id-fed"},
 		{"/api/v1/users/abc/roles", "authz"},
 		{"/api/v1/roles", "authz"},
 		{"/api/v1/permissions/x", "authz"},
@@ -121,9 +119,11 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ontology/interfaces", "ontology-def"},
 		{"/api/v1/ontology/types", "ontology-def"},
 		{"/api/v1/ontology/anything-else", "ontology-def"},
-		// workflows/notebooks
-		{"/api/v1/workflows/approvals/x", "approvals"},
-		{"/api/v1/approvals/x", "approvals"},
+		// workflows/notebooks (ADR-0030: approvals-service retired into
+		// workflow-automation-service; both /workflows/approvals and the
+		// /approvals alias resolve to workflow now).
+		{"/api/v1/workflows/approvals/x", "workflow"},
+		{"/api/v1/approvals/x", "workflow"},
 		{"/api/v1/workflows/instances", "workflow"},
 		{"/api/v1/notebooks/abc", "notebook"},
 		{"/api/v1/notepad/abc", "notebook"},
@@ -142,10 +142,12 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/agent-runtime/agents", "agent-runtime"},
 		{"/api/v1/ai/knowledge-bases/abc/search", "retrieval"},
 		{"/api/v1/ai/knowledge-bases", "knowledge"},
-		{"/api/v1/ai/conversations", "conv"},
+		// ADR-0030: conversation-state-service retired into agent-runtime-service.
+		{"/api/v1/ai/conversations", "agent-runtime"},
 		{"/api/v1/ai/anything", "ai"},
-		// streaming/reports/geo
-		{"/api/v1/streaming/foo", "streaming"},
+		// ADR-0030: streaming-service retired with no Go successor — the
+		// route returns the empty string (404 / unknown_service_route).
+		{"/api/v1/streaming/foo", ""},
 		{"/api/v1/reports", "report"},
 		{"/api/v1/geospatial/x", "geo"},
 		// code repo
@@ -163,7 +165,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/apps/abc/pages/page-1", "app-comp"},
 		{"/api/v1/apps/abc/slate-package", "app-comp"},
 		{"/api/v1/apps/abc/publish", "app-comp"},
-		{"/api/v1/apps", "app-builder"},
+		// ADR-0030: app-builder-service retired into application-composition-service.
+		{"/api/v1/apps", "app-comp"},
 		// no rule
 		{"/healthz", ""},
 		{"/api/v1/totally-unknown", ""},

@@ -15,6 +15,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"sort"
@@ -23,15 +24,15 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 // SparkRuntime is the narrow port the engine needs from the host AppState to
 // dispatch SparkApplication submissions. Implemented by the production
-// pipeline-build-service AppState (which embeds spark.SparkClient + the
+// pipeline-build-service AppState (which embeds dispatch.Client + the
 // per-cluster defaults); satisfied in tests by a thin in-memory fake.
 type SparkRuntime interface {
-	SparkClient() spark.SparkClient
+	SparkClient() dispatch.Client
 	SparkNamespace() string
 	SparkRunnerImage() string
 	SparkPollInterval() time.Duration
@@ -48,9 +49,13 @@ type distributedComputeNodeConfig struct {
 	Catalog     string                       `json:"catalog,omitempty"`
 	CatalogURI  string                       `json:"catalog_uri,omitempty"`
 	S3Endpoint  string                       `json:"s3_endpoint,omitempty"`
-	Resources   spark.SparkResourceOverrides `json:"resources,omitempty"`
-	RunnerImage string                       `json:"runner_image,omitempty"`
-	Application spark.SparkApplicationType   `json:"application_type,omitempty"`
+	Resources   dispatch.ResourceOverrides `json:"resources,omitempty"`
+	RunnerImage string                     `json:"runner_image,omitempty"`
+	// Application was the Spark application type (Scala / Python) — Phase
+	// C.4.a deletes the SparkApplication CR path; the Go pipeline-runner
+	// is the only execution mode going forward, so this field is now
+	// ignored. Kept here only so legacy node-config JSON keeps unmarshalling.
+	Application string `json:"application_type,omitempty"`
 }
 
 // nodeFingerprint mirrors `pub fn node_fingerprint`. Hashes the node
@@ -236,73 +241,26 @@ func executeDistributedComputeTransform(ctx context.Context, state any, node *Pi
 		image = runtime.SparkRunnerImage()
 	}
 
-	input := spark.PipelineRunInput{
-		PipelineID:          pipelineID,
-		RunID:               runID,
-		Namespace:           runtime.SparkNamespace(),
-		ApplicationType:     cfg.Application,
-		PipelineRunnerImage: image,
-		InputDatasetRID:     inputDataset,
-		OutputDatasetRID:    outputDataset,
-		Resources:           cfg.Resources,
-		Catalog:             cfg.Catalog,
-		CatalogURI:          cfg.CatalogURI,
-		S3Endpoint:          cfg.S3Endpoint,
-		InlineSQL:           cfg.SQL,
-		InlineFormat:        cfg.Format,
-	}
-
-	client := runtime.SparkClient()
-	name, err := client.SubmitPipelineRun(ctx, input)
-	if err != nil {
-		return TransformResult{}, fmt.Errorf("submit SparkApplication: %w", err)
-	}
-
-	pollInterval := runtime.SparkPollInterval()
-	if pollInterval <= 0 {
-		pollInterval = 5 * time.Second
-	}
-	pollTimeout := runtime.SparkPollTimeout()
-	if pollTimeout <= 0 {
-		pollTimeout = 30 * time.Minute
-	}
-	deadline := time.Now().Add(pollTimeout)
-
-	for {
-		report, err := client.GetPipelineRunStatus(ctx, runtime.SparkNamespace(), name)
-		if err != nil {
-			return TransformResult{}, fmt.Errorf("get SparkApplication status: %w", err)
-		}
-		if report != nil {
-			switch report.Status {
-			case spark.SparkRunSucceeded:
-				output, _ := json.Marshal(map[string]any{
-					"spark_application": name,
-					"namespace":         runtime.SparkNamespace(),
-					"run_id":            runID,
-					"output_dataset":    outputDataset,
-				})
-				return TransformResult{Output: output}, nil
-			case spark.SparkRunFailed:
-				msg := "spark application failed"
-				if report.ErrorMessage != nil && *report.ErrorMessage != "" {
-					msg = *report.ErrorMessage
-				}
-				return TransformResult{}, fmt.Errorf("SparkApplication %s failed: %s", name, msg)
-			}
-		}
-
-		if time.Now().After(deadline) {
-			return TransformResult{}, fmt.Errorf("SparkApplication %s timed out after %s", name, pollTimeout)
-		}
-
-		select {
-		case <-ctx.Done():
-			return TransformResult{}, ctx.Err()
-		case <-time.After(pollInterval):
-		}
-	}
+	// Phase C.4.a does not yet ship the composer that turns a DAG
+	// node config into a pipelineplan.Plan — that lands in C.4.b.
+	// Until then, the engine refuses to submit so a half-migrated
+	// cluster surfaces a clear error instead of running stale Spark
+	// SparkApplication CRs or shipping an empty plan downstream.
+	_ = pipelineID
+	_ = runID
+	_ = inputDataset
+	_ = outputDataset
+	_ = image
+	_ = cfg
+	_ = ctx
+	_ = dispatch.PipelineRunInput{}
+	return TransformResult{}, ErrPlanCompositionNotImplemented
 }
+
+// ErrPlanCompositionNotImplemented mirrors the handler-side sentinel
+// (see internal/handler/distributed_runtime.go) so the engine path
+// can fail with the same diagnostic until Phase C.4.b lands.
+var ErrPlanCompositionNotImplemented = errors.New("plan composition from node config: not implemented (ADR-0045 Phase C.4.b — composer pending)")
 
 func parseDistributedComputeConfig(node *PipelineNode) (distributedComputeNodeConfig, error) {
 	cfg := distributedComputeNodeConfig{}

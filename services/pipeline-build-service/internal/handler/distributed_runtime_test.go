@@ -11,51 +11,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
-	sparkpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/spark"
+	dispatchpkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
-func TestSparkFlinkDistributedRunnerSubmitsSparkThroughRuntimePort(t *testing.T) {
-	fake := &fakeSparkClient{submittedName: "spark-app", status: &sparkpkg.SparkRunStatusReport{Status: sparkpkg.SparkRunSucceeded}}
+// TestSparkFlinkDistributedRunnerSurfacesPlanCompositionTODO asserts
+// the C.4.a transitional behaviour: the dispatcher refuses to submit
+// any Spark-like node because the composer that builds a
+// pipelineplan.Plan from the DAG node config has not landed yet
+// (Phase C.4.b). The two previous tests verified the SparkApplication
+// CR fields (InlineSQL, Catalog, ApplicationType, ExecutorInstances)
+// which have all been removed from PipelineRunInput.
+func TestSparkFlinkDistributedRunnerSurfacesPlanCompositionTODO(t *testing.T) {
+	fake := &fakeSparkClient{submittedName: "should-not-submit", status: &dispatchpkg.RunStatusReport{Status: dispatchpkg.RunSucceeded}}
 	runner := NewSparkFlinkDistributedRunner(DistributedRuntimeConfig{
-		SparkClientProvider: func() (sparkpkg.SparkClient, bool) { return fake, true },
-		Namespace:           "cluster-ns",
-		RunnerImage:         "runner:unit",
-		PollInterval:        time.Nanosecond,
-		Timeout:             time.Second,
-	})
-
-	result, err := runner.RunDistributedTransform(context.Background(), DistributedTransformRequest{
-		Node: executor.NodeContext{
-			BuildID: uuid.MustParse("11111111-2222-3333-4444-555555555555"),
-			Node: executor.Node{
-				ID:        "spark-output",
-				DependsOn: []string{"ri.dataset.main.trails"},
-				Outputs:   []executor.OutputTransaction{{DatasetRID: "ri.dataset.main.out"}},
-			},
-		},
-		Payload:       json.RawMessage(`{"engine":"spark","sql":"SELECT * FROM trails","catalog":"lake","catalog_uri":"http://lake","s3_endpoint":"http://s3","resources":{"executor_instances":3}}`),
-		TransformType: "output_dataset",
-		Engine:        "spark",
-	})
-
-	require.NoError(t, err)
-	require.NotEmpty(t, result.OutputContentHash)
-	require.Equal(t, "distributed", result.Metadata["runtime"])
-	require.Equal(t, "spark", result.Metadata["engine"])
-	require.Equal(t, "spark-app", result.Metadata["spark_application"])
-	require.Equal(t, "cluster-ns", fake.submitted.Namespace)
-	require.Equal(t, "runner:unit", fake.submitted.PipelineRunnerImage)
-	require.Equal(t, "ri.dataset.main.trails", fake.submitted.InputDatasetRID)
-	require.Equal(t, "ri.dataset.main.out", fake.submitted.OutputDatasetRID)
-	require.Equal(t, "SELECT * FROM trails", fake.submitted.InlineSQL)
-	require.Equal(t, "lake", fake.submitted.Catalog)
-	require.Equal(t, uint32(3), fake.submitted.Resources.ExecutorInstances)
-}
-
-func TestSparkFlinkDistributedRunnerSubmitsPySparkApplication(t *testing.T) {
-	fake := &fakeSparkClient{submittedName: "pyspark-app", status: &sparkpkg.SparkRunStatusReport{Status: sparkpkg.SparkRunSucceeded}}
-	runner := NewSparkFlinkDistributedRunner(DistributedRuntimeConfig{
-		SparkClientProvider: func() (sparkpkg.SparkClient, bool) { return fake, true },
+		SparkClientProvider: func() (dispatchpkg.Client, bool) { return fake, true },
 		Namespace:           "cluster-ns",
 		RunnerImage:         "runner:unit",
 		PollInterval:        time.Nanosecond,
@@ -64,19 +33,20 @@ func TestSparkFlinkDistributedRunnerSubmitsPySparkApplication(t *testing.T) {
 
 	_, err := runner.RunDistributedTransform(context.Background(), DistributedTransformRequest{
 		Node: executor.NodeContext{
-			BuildID: uuid.MustParse("21111111-2222-3333-4444-555555555555"),
+			BuildID: uuid.MustParse("11111111-2222-3333-4444-555555555555"),
 			Node: executor.Node{
-				ID:        "py",
-				DependsOn: []string{"ri.dataset.main.input"},
-				Outputs:   []executor.OutputTransaction{{DatasetRID: "ri.dataset.main.output"}},
+				ID:        "spark-output",
+				DependsOn: []string{"ri.dataset.main.trails"},
+				Outputs:   []executor.OutputTransaction{{DatasetRID: "ri.dataset.main.out"}},
 			},
 		},
-		Payload:       json.RawMessage(`{"engine":"pyspark"}`),
-		TransformType: "pyspark",
+		Payload:       json.RawMessage(`{"engine":"spark","sql":"SELECT * FROM trails"}`),
+		TransformType: "output_dataset",
+		Engine:        "spark",
 	})
 
-	require.NoError(t, err)
-	require.Equal(t, sparkpkg.SparkApplicationPython, fake.submitted.ApplicationType)
+	require.ErrorIs(t, err, ErrPlanCompositionNotImplemented)
+	require.Equal(t, "", fake.submitted.PipelineID, "no Job should have been submitted")
 }
 
 func TestSparkFlinkDistributedRunnerFlinkIsExplicitlyAdapterGated(t *testing.T) {

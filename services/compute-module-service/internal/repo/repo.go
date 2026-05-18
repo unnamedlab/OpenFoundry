@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/domain/function"
 	"github.com/openfoundry/openfoundry-go/services/compute-module-service/internal/models"
 )
 
@@ -98,4 +99,53 @@ type Repository interface {
 	// ClearRuntimeConfig removes the runtime configuration from the
 	// module.
 	ClearRuntimeConfig(ctx context.Context, id uuid.UUID, actor uuid.UUID) (*models.ComputeModule, error)
+
+	// CreateInvocation persists a freshly minted FunctionInvocation in
+	// status=queued. The repo assigns the timestamps it owns
+	// (ScheduledAt) and returns the stored row.
+	CreateInvocation(ctx context.Context, inv function.FunctionInvocation) (*function.FunctionInvocation, error)
+
+	// MarkInvocationRunning flips the row to status=running and stamps
+	// StartedAt. Already-terminal rows return ErrInvocationTerminal.
+	MarkInvocationRunning(ctx context.Context, id uuid.UUID) (*function.FunctionInvocation, error)
+
+	// CompleteInvocation moves the row to a terminal status and
+	// persists result/error/cost metadata.
+	CompleteInvocation(ctx context.Context, id uuid.UUID, update InvocationCompletion) (*function.FunctionInvocation, error)
+
+	// CancelInvocation flips a queued/running row to status=cancelled
+	// and stamps FinishedAt. Terminal rows return ErrInvocationTerminal.
+	CancelInvocation(ctx context.Context, id uuid.UUID, actor uuid.UUID) (*function.FunctionInvocation, error)
+
+	// GetInvocation returns the stored row by id.
+	GetInvocation(ctx context.Context, id uuid.UUID) (*function.FunctionInvocation, error)
+
+	// ListInvocations paginates invocations using cursor pagination,
+	// optionally filtered by module / tenant / status.
+	ListInvocations(ctx context.Context, filter InvocationFilter, page Page) (InvocationListResult, error)
+}
+
+// InvocationCompletion is the partial update applied to a row by
+// CompleteInvocation.
+type InvocationCompletion struct {
+	Status       function.Status
+	Result       []byte
+	ErrorMessage string
+	CostUnits    int64
+}
+
+// InvocationFilter narrows ListInvocations. Zero value lists every
+// invocation across every tenant — callers are expected to scope by
+// tenant from the request claims.
+type InvocationFilter struct {
+	ModuleID *uuid.UUID
+	TenantID *uuid.UUID
+	Status   *function.Status
+}
+
+// InvocationListResult bundles one page of invocations with a cursor
+// for the next page (nil when exhausted).
+type InvocationListResult struct {
+	Items      []*function.FunctionInvocation
+	NextCursor *string
 }

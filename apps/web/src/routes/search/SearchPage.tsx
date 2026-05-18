@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError } from '@/lib/api/client';
 import { searchOntology, type SearchResult } from '@/lib/api/ontology';
 import {
+  createFavorite,
   listFavorites,
   listRecents,
   recordAccess,
@@ -18,6 +19,7 @@ import {
   getResourceTypeDefinition,
   openURLForCompassResource,
 } from '@/lib/compass/resourceTypeRegistry';
+import { workspaceResourceStablePath } from '@/lib/compass/stableResourceUrls';
 import { Glyph, type GlyphName } from '@/lib/components/ui/Glyph';
 import { OpenWithMenu } from '@/lib/components/workspace/OpenWithMenu';
 
@@ -190,6 +192,10 @@ function ridLocator(value: string): string {
   return value;
 }
 
+function looksLikeUUID(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function compactRID(value: string): string {
   const parts = value.split('.');
   if (parts.length >= 5 && parts[0] === 'ri') {
@@ -230,14 +236,7 @@ function resourceKindLabel(kind: ResourceKind): string {
 }
 
 function hrefForWorkspaceResource(kind: ResourceKind, id: string): string {
-  if (kind === 'ontology_project') return `/projects/${id}`;
-  if (kind === 'dataset') return `/datasets/${id}`;
-  if (kind === 'pipeline') return `/pipelines/${id}`;
-  if (kind === 'notebook') return `/notebooks/${id}`;
-  if (kind === 'app') return `/apps/${id}`;
-  if (kind === 'report') return `/reports/${id}`;
-  if (kind === 'model') return `/ml?model=${encodeURIComponent(id)}`;
-  return `/search?q=${encodeURIComponent(id)}`;
+  return workspaceResourceStablePath(kind, id);
 }
 
 function glyphForWorkspaceResource(kind: ResourceKind): GlyphName {
@@ -1152,6 +1151,18 @@ function CompassResourceRow({ result }: { result: CompassSearchResult }) {
   const markings = result.marking_rids.slice(0, 4);
   const hiddenMarkings = result.marking_rids.length - markings.length;
   const tags = result.tags.slice(0, 3);
+  const [favoriteState, setFavoriteState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const favoriteResourceID = ridLocator(result.rid);
+  const canFavorite = looksLikeUUID(favoriteResourceID);
+
+  function favoriteResult() {
+    const resourceKind = resourceKindForCompassType(result.type);
+    if (!canFavorite) return;
+    setFavoriteState('saving');
+    createFavorite({ resource_kind: resourceKind, resource_id: favoriteResourceID })
+      .then(() => setFavoriteState('saved'))
+      .catch(() => setFavoriteState('idle'));
+  }
 
   return (
     <article className="of-quicksearch__row of-quicksearch__row--resource">
@@ -1189,6 +1200,16 @@ function CompassResourceRow({ result }: { result: CompassSearchResult }) {
           <Glyph name="history" size={13} /> {formatDateTime(result.last_modified_at)}
         </span>
         <span className="of-quicksearch__rowChip">{definition.displayName}</span>
+        <button
+          type="button"
+          className="of-icon-button"
+          title={canFavorite ? (favoriteState === 'saved' ? 'Saved to favorites' : 'Add to favorites') : 'Resource cannot be favorited'}
+          aria-label={canFavorite ? (favoriteState === 'saved' ? 'Saved to favorites' : 'Add to favorites') : 'Resource cannot be favorited'}
+          onClick={favoriteResult}
+          disabled={!canFavorite || favoriteState === 'saving' || favoriteState === 'saved'}
+        >
+          <Glyph name={favoriteState === 'saved' ? 'star-filled' : 'star'} size={14} />
+        </button>
         <OpenWithMenu
           resourceKind={result.type}
           resourceId={ridLocator(result.rid) || result.rid}

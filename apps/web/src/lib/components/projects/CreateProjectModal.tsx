@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import {
+  listVisibleFileAccessPresets,
+  type FileAccessPreset,
+} from '@/lib/api/control-panel';
+import {
   createProject,
   listProjectTemplates,
   type OntologyProjectRole,
@@ -107,6 +111,9 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
   const [spaceId, setSpaceId] = useState<string>('');
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [template, setTemplate] = useState<ProjectTemplate | null>(null);
+  const [accessPresets, setAccessPresets] = useState<FileAccessPreset[]>([]);
+  const [selectedAccessPresetID, setSelectedAccessPresetID] = useState('');
+  const [accessPresetWarning, setAccessPresetWarning] = useState('');
   const [loadingDirectory, setLoadingDirectory] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
 
@@ -127,19 +134,30 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
     setAdvancedOpen(false);
     setDefaultRole('editor');
     setTemplate(null);
+    setAccessPresets([]);
+    setSelectedAccessPresetID('');
+    setAccessPresetWarning('');
     setSubmitError('');
     setSubmitting(false);
 
     let cancelled = false;
     setLoadingDirectory(true);
     setDirectoryError('');
-    Promise.all([listSpaces().catch(() => ({ items: [] as NexusSpace[] })), listProjectTemplates()])
-      .then(([spaceResp, templateResp]) => {
+    Promise.all([
+      listSpaces().catch(() => ({ items: [] as NexusSpace[] })),
+      listProjectTemplates(),
+      listVisibleFileAccessPresets({ organization_id: user?.organization_id ?? undefined, resource_kind: 'project' }).catch(() => null),
+    ])
+      .then(([spaceResp, templateResp, presetResp]) => {
         if (cancelled) return;
         const spaceList = spaceResp.items;
         setSpaces(spaceList);
         if (spaceList.length > 0) setSpaceId(spaceList[0].id);
         setTemplates(templateResp);
+        const presets = presetResp?.presets ?? [];
+        setAccessPresets(presets);
+        setSelectedAccessPresetID(presetResp?.default_preset_id ?? presets[0]?.id ?? '');
+        setAccessPresetWarning(presetResp?.warning ?? '');
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -174,6 +192,7 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
     setSubmitting(true);
     setSubmitError('');
     try {
+      const selectedAccessPreset = accessPresets.find((preset) => preset.id === selectedAccessPresetID);
       const project = await createProject({
         slug: deriveSlug(name),
         display_name: name.trim(),
@@ -181,6 +200,8 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
         workspace_slug: selectedSpace?.slug,
         default_role: defaultRole,
         template_key: template.key,
+        file_access_preset_id: selectedAccessPreset?.id,
+        marking_rids: selectedAccessPreset?.marking_ids,
       });
       onCreated(project);
     } catch (cause) {
@@ -273,6 +294,10 @@ export function CreateProjectModal({ open, onClose, onCreated }: CreateProjectMo
             onToggleAdvanced={() => setAdvancedOpen((open) => !open)}
             defaultRole={defaultRole}
             onDefaultRoleChange={setDefaultRole}
+            accessPresets={accessPresets}
+            selectedAccessPresetID={selectedAccessPresetID}
+            onAccessPresetChange={setSelectedAccessPresetID}
+            accessPresetWarning={accessPresetWarning}
             spaceLabel={selectedSpace?.display_name || selectedSpace?.slug || 'Default'}
             submitting={submitting}
             error={submitError}
@@ -438,6 +463,10 @@ function FormStep({
   onToggleAdvanced,
   defaultRole,
   onDefaultRoleChange,
+  accessPresets,
+  selectedAccessPresetID,
+  onAccessPresetChange,
+  accessPresetWarning,
   spaceLabel,
   submitting,
   error,
@@ -452,6 +481,10 @@ function FormStep({
   onToggleAdvanced: () => void;
   defaultRole: DefaultRole;
   onDefaultRoleChange: (role: DefaultRole) => void;
+  accessPresets: FileAccessPreset[];
+  selectedAccessPresetID: string;
+  onAccessPresetChange: (id: string) => void;
+  accessPresetWarning: string;
   spaceLabel: string;
   submitting: boolean;
   error: string;
@@ -560,6 +593,38 @@ function FormStep({
                   <option value="owner">{ROLE_LABEL.owner}</option>
                 </select>
               </label>
+              {accessPresets.length > 0 ? (
+                <label style={{ display: 'grid', gap: 4 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>File access preset</span>
+                  <select
+                    value={selectedAccessPresetID}
+                    onChange={(event) => onAccessPresetChange(event.target.value)}
+                    disabled={submitting}
+                    style={{
+                      padding: '6px 10px',
+                      border: '1px solid var(--border-default)',
+                      borderRadius: 4,
+                      fontSize: 13,
+                      background: '#fff',
+                    }}
+                  >
+                    <option value="">No preset</option>
+                    {accessPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.title}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedAccessPresetID ? (
+                    <span style={{ fontSize: 11, color: '#5f6b7a' }}>
+                      Applies {(accessPresets.find((preset) => preset.id === selectedAccessPresetID)?.marking_ids.length ?? 0)} markings during project creation.
+                    </span>
+                  ) : null}
+                  {accessPresetWarning ? (
+                    <span style={{ fontSize: 11, color: '#5f6b7a' }}>{accessPresetWarning}</span>
+                  ) : null}
+                </label>
+              ) : null}
             </div>
           ) : null}
         </div>

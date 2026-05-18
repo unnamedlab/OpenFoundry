@@ -35,6 +35,12 @@ type Config struct {
 		OTLPEndpoint string `koanf:"otlp_endpoint"`
 		LogFormat    string `koanf:"log_format"`
 	} `koanf:"telemetry"`
+
+	// DatabaseURL is the Postgres DSN used by the repo layer. Empty
+	// values are tolerated in dev/test (the binary skips the pool
+	// init); production deployments inject the value via
+	// OF_DATABASE_URL.
+	DatabaseURL string `koanf:"database_url"`
 }
 
 // Load resolves configuration following the standard precedence:

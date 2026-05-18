@@ -130,7 +130,20 @@ func EncodeToken(c *JWTConfig, claims *Claims) (string, error) {
 }
 
 // DecodeToken validates the signed token and returns the embedded Claims.
-func DecodeToken(c *JWTConfig, token string) (*Claims, error) {
+//
+// In addition to signature, issuer, audience, and expiry checks, the
+// decoder enforces a `token_use` filter. The effective filter is
+// derived from opts via [WithAllowedTokenUses] / [WithAnyTokenUse];
+// when no option is applied the default is []string{"access"} so
+// tokens with `token_use` of "mfa_challenge", "refresh", "api_key",
+// etc. are rejected on standard /api/v1 routes.
+func DecodeToken(c *JWTConfig, token string, opts ...Option) (*Claims, error) {
+	var o Options
+	for _, fn := range opts {
+		fn(&o)
+	}
+	allowed, anyUse := o.effectiveAllowedUses()
+
 	parser := jwt.NewParser(jwt.WithValidMethods([]string{string(c.Algorithm())}))
 	wrapper := &jwtClaimsWrapper{Claims: &Claims{}}
 	parsed, err := parser.ParseWithClaims(token, wrapper, func(t *jwt.Token) (any, error) {
@@ -161,6 +174,22 @@ func DecodeToken(c *JWTConfig, token string) (*Claims, error) {
 	}
 	if wrapper.Claims.IsExpired() {
 		return nil, &JWTError{Kind: errKindExpired}
+	}
+	if !anyUse {
+		tu := ""
+		if wrapper.Claims.TokenUse != nil {
+			tu = *wrapper.Claims.TokenUse
+		}
+		match := false
+		for _, want := range allowed {
+			if tu == want {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return nil, &JWTError{Kind: errKindWrongTokenUse, Cause: fmt.Errorf("token_use %q not in allowed set", tu)}
+		}
 	}
 	return wrapper.Claims, nil
 }
@@ -205,12 +234,18 @@ type errKind int
 const (
 	errKindInvalid errKind = iota
 	errKindExpired
+	errKindWrongTokenUse
 )
 
 func (e *JWTError) Error() string {
 	switch e.Kind {
 	case errKindExpired:
 		return "token expired"
+	case errKindWrongTokenUse:
+		if e.Cause != nil {
+			return fmt.Sprintf("invalid token: %s", e.Cause)
+		}
+		return "invalid token: token_use not allowed"
 	default:
 		if e.Cause != nil {
 			return fmt.Sprintf("invalid token: %s", e.Cause)
@@ -228,4 +263,31 @@ func IsExpired(err error) bool {
 		return false
 	}
 	return je.Kind == errKindExpired
+}
+
+// IsWrongTokenUse reports whether err is a JWTError raised because
+// the `token_use` claim was outside the allowed set configured via
+// [WithAllowedTokenUses]. Useful when an anonymous-allowed middleware
+// wants to distinguish "no token" from "wrong-kind token" in logs.
+func IsWrongTokenUse(err error) bool {
+	var je *JWTError
+	if !errors.As(err, &je) {
+		return false
+	}
+	return je.Kind == errKindWrongTokenUse
+}
+
+// classifyError maps a DecodeToken error to a stable, low-cardinality
+// reason label suitable for Prometheus.
+func classifyError(err error) string {
+	var je *JWTError
+	if errors.As(err, &je) {
+		switch je.Kind {
+		case errKindExpired:
+			return "expired"
+		case errKindWrongTokenUse:
+			return "wrong_token_use"
+		}
+	}
+	return "invalid"
 }

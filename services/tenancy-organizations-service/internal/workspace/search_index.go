@@ -262,6 +262,7 @@ func loadFolderSearchEntryTx(ctx context.Context, tx pgx.Tx, folderID uuid.UUID)
 		        COALESCE(p.rid, 'ri.compass.main.project.' || p.id::text),
 		        COALESCE(p.organization_rids, '[]'::jsonb),
 		        COALESCE(p.marking_rids, '[]'::jsonb),
+		        COALESCE(f.view_requirement_marking_rids, '[]'::jsonb),
 		        f.updated_at,
 		        f.created_by,
 		        COALESCE(f.description, ''),
@@ -274,15 +275,16 @@ func loadFolderSearchEntryTx(ctx context.Context, tx pgx.Tx, folderID uuid.UUID)
 		folderID,
 	)
 	var (
-		entry      ResourceSearchEntry
-		projectID  uuid.UUID
-		projectRID string
-		orgJSON    []byte
-		markJSON   []byte
+		entry       ResourceSearchEntry
+		projectID   uuid.UUID
+		projectRID  string
+		orgJSON     []byte
+		markJSON    []byte
+		viewReqJSON []byte
 	)
 	if err := row.Scan(
 		&entry.ResourceRID, &entry.DisplayName, &projectID, &projectRID,
-		&orgJSON, &markJSON, &entry.LastModifiedAt, &entry.OwnerID,
+		&orgJSON, &markJSON, &viewReqJSON, &entry.LastModifiedAt, &entry.OwnerID,
 		&entry.Summary, &entry.OpenURL, &entry.IsDeleted,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -294,7 +296,10 @@ func loadFolderSearchEntryTx(ctx context.Context, tx pgx.Tx, folderID uuid.UUID)
 	entry.OwningProjectID = &projectID
 	entry.OwningProjectRID = &projectRID
 	entry.OrganizationRIDs = decodeStringArrayJSON(orgJSON)
-	entry.MarkingRIDs = decodeStringArrayJSON(markJSON)
+	entry.MarkingRIDs = normalizeStringSlice(append(
+		decodeStringArrayJSON(markJSON),
+		decodeStringArrayJSON(viewReqJSON)...,
+	))
 	entry.Tags = []string{}
 	entry.Normalize()
 	return &entry, nil
