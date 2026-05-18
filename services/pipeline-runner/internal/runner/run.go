@@ -2,67 +2,55 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	// Side-effect import registers the S3 / GCS / Azure / in-memory
+	// scheme handlers with apache/iceberg-go's io subsystem. Without
+	// it any Scan whose table metadata lives on s3:// fails with
+	// `ErrIOSchemeNotFound: scheme s3`. Phase A discovered this gap.
+	_ "github.com/apache/iceberg-go/io/gocloud"
+
+	pipelineplan "github.com/openfoundry/openfoundry-go/libs/pipeline-plan"
+	pipelineruntime "github.com/openfoundry/openfoundry-go/libs/pipeline-runtime"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-runner/internal/providers"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-runner/internal/server"
 )
 
-// envHealthAddr names the env var that overrides the default
-// /healthz + /metrics bind address. PORT is honored as a fallback to
-// match the k8s downward API convention used by sibling sinks.
-const (
-	envHealthAddr     = "OF_PIPELINE_RUNNER_HEALTH_ADDR"
-	envHealthPort     = "PORT"
-	defaultHealthAddr = "0.0.0.0:9090"
-)
+// EnvPipelinePlanB64 is the env var the dispatcher (ADR-0045 Phase
+// C.4.a) populates with the base64-encoded pipelineplan.Plan JSON.
+// The runner decodes it on boot and executes via libs/pipeline-runtime.
+const EnvPipelinePlanB64 = "PIPELINE_PLAN_B64"
 
-// Spark integration mode. Override with OF_PIPELINE_RUNNER_SPARK_MODE
-// in the SparkApplication spec when integration tests need a
-// hermetic stub. Production always uses "spark-submit".
-const (
-	envSparkMode    = "OF_PIPELINE_RUNNER_SPARK_MODE"
-	envSparkSubmit  = "OF_PIPELINE_RUNNER_SPARK_SUBMIT"
-	envSparkAppJar  = "OF_PIPELINE_RUNNER_SPARK_JAR"
-	envSparkMain    = "OF_PIPELINE_RUNNER_SPARK_MAIN_CLASS"
-	envExtraConfArg = "OF_PIPELINE_RUNNER_EXTRA_CONF"
-)
-
-// sparkSubmitDefault matches the upstream apache/spark layout.
-const (
-	sparkSubmitDefault    = "/opt/spark/bin/spark-submit"
-	sparkAppJarDefault    = "/opt/spark/jars/pipeline-runner-spark.jar"
-	sparkMainClassDefault = "com.openfoundry.pipeline.PipelineRunner"
-)
-
-// Run drives the entire orchestration: argument logging, spec
-// resolution, and Spark submission.
-//
-// Spark itself has no Go runtime; the actual `df.writeTo(...).append()`
-// pathway lives in the Scala JAR shipped alongside this binary. Go's
-// job is to materialise the resolved SQL into a JSON file that the
-// Scala main reads from /tmp/spec.json — a much smaller surface than
-// re-implementing Spark's catalog handshake.
-//
-// `OF_PIPELINE_RUNNER_SPARK_MODE=stub` short-circuits the fork and
-// just prints the resolved spec; that mode is what integration tests
-// run with so CI does not need a full Spark image.
+// Run drives the entire orchestration: argument logging, plan
+// decoding, provider wiring, and pipelineruntime.Executor invocation.
+// `--smoke` short-circuits the providers and only validates the plan;
+// integration CI runs with that mode so it does not need a live
+// Iceberg catalog.
 func Run(args Args) error {
-	log(args, fmt.Sprintf("starting (smoke=%t, version=%s)", args.Smoke, args.Version))
+	log := buildLogger(args)
+	log.Info("pipeline-runner starting",
+		slog.Bool("smoke", args.Smoke),
+		slog.String("version", args.Version),
+		slog.String("pipeline_id", args.PipelineID),
+		slog.String("run_id", args.RunID),
+		slog.String("input_dataset", args.InputDataset),
+		slog.String("output_dataset", args.OutputDataset),
+	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	addr := healthAddr()
-	httpSrv := server.New(addr, "pipeline-runner", args.Version)
-	log(args, fmt.Sprintf("health/metrics listening on %s", addr))
+	httpSrv := server.New(args.HealthAddr, "pipeline-runner", args.Version)
+	log.Info("health/metrics listening", slog.String("addr", args.HealthAddr))
 
 	var wg sync.WaitGroup
 	httpErr := make(chan error, 1)
@@ -75,7 +63,7 @@ func Run(args Args) error {
 		close(httpErr)
 	}()
 
-	runErr := runWork(ctx, args)
+	runErr := runWork(ctx, args, log)
 	cancel()
 	wg.Wait()
 
@@ -88,114 +76,98 @@ func Run(args Args) error {
 	return nil
 }
 
-func runWork(ctx context.Context, args Args) error {
-	spec, err := ResolveSpec(ctx, args)
+func runWork(ctx context.Context, args Args, log *slog.Logger) error {
+	plan, err := loadPlanFromEnv()
 	if err != nil {
-		return err
+		return fmt.Errorf("load plan: %w", err)
 	}
-	log(args, fmt.Sprintf(
-		"resolved transform: format=%s sql=%s",
-		spec.Format, preview(spec.SQL),
-	))
-
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(envSparkMode))) {
-	case "", "spark-submit":
-		return submitToSpark(ctx, args, spec)
-	case "stub":
-		log(args, "stub mode: skipping spark-submit (resolved spec dumped above)")
-		return nil
-	default:
-		return fmt.Errorf("unknown %s value: %q", envSparkMode, os.Getenv(envSparkMode))
+	if errs := plan.Validate(); errs != nil {
+		return fmt.Errorf("plan invalid: %w", errs)
 	}
-}
-
-// healthAddr resolves the bind address for /healthz + /metrics from
-// OF_PIPELINE_RUNNER_HEALTH_ADDR (full host:port) or PORT (port only),
-// falling back to 0.0.0.0:9090 — matches the sink services.
-func healthAddr() string {
-	if v := strings.TrimSpace(os.Getenv(envHealthAddr)); v != "" {
-		return v
-	}
-	if p := strings.TrimSpace(os.Getenv(envHealthPort)); p != "" {
-		return "0.0.0.0:" + p
-	}
-	return defaultHealthAddr
-}
-
-func submitToSpark(ctx context.Context, args Args, spec TransformSpec) error {
-	submit := envOrDefault(envSparkSubmit, sparkSubmitDefault)
-	jar := envOrDefault(envSparkAppJar, sparkAppJarDefault)
-	mainClass := envOrDefault(envSparkMain, sparkMainClassDefault)
-
-	cmd := exec.CommandContext(ctx, submit,
-		"--class", mainClass,
-		"--conf", "spark.sql.catalog."+args.Catalog+"=org.apache.iceberg.spark.SparkCatalog",
-		"--conf", "spark.sql.catalog."+args.Catalog+".type=rest",
-		"--conf", "spark.sql.catalog."+args.Catalog+".uri="+args.CatalogURI,
-		"--conf", "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-	)
-
-	if extra := strings.TrimSpace(os.Getenv(envExtraConfArg)); extra != "" {
-		for _, conf := range strings.Split(extra, " ") {
-			conf = strings.TrimSpace(conf)
-			if conf != "" {
-				cmd.Args = append(cmd.Args, "--conf", conf)
-			}
-		}
-	}
-
-	cmd.Args = append(cmd.Args,
-		jar,
-		"--pipeline-id", args.PipelineID,
-		"--run-id", args.RunID,
-		"--input-dataset", args.InputDataset,
-		"--output-dataset", args.OutputDataset,
-		"--catalog", args.Catalog,
-		"--catalog-uri", args.CatalogURI,
-		"--inline-sql", spec.SQL,
-		"--inline-format", spec.Format,
+	log.Info("plan decoded",
+		slog.Int("ops", len(plan.Ops)),
+		slog.String("plan_pipeline_id", plan.PipelineID),
+		slog.String("plan_run_id", plan.RunID),
 	)
 	if args.Smoke {
-		cmd.Args = append(cmd.Args, "--smoke")
+		log.Info("smoke mode: skipping execution after plan validation")
+		return nil
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
+	reader, err := providers.OpenIcebergReader(ctx, providers.IcebergReaderConfig{
+		CatalogName:   firstCatalogNameInPlan(plan),
+		CatalogURI:    args.CatalogURI,
+		Warehouse:     args.CatalogWarehouse,
+		Credential:    args.CatalogCredential,
+		OAuthTokenURI: args.OAuthTokenURI,
+		OAuthScope:    args.OAuthScope,
+	})
+	if err != nil {
+		return fmt.Errorf("open iceberg reader: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
 
-	log(args, fmt.Sprintf("invoking spark-submit: %s", submit))
+	writer, err := providers.NewHTTPWriter(providers.HTTPWriterConfig{
+		TableWriterURL: args.TableWriterURL,
+		CatalogURL:     args.CatalogURI,
+		Warehouse:      args.CatalogWarehouse,
+		InternalToken:  args.InternalToken,
+	})
+	if err != nil {
+		return fmt.Errorf("open http writer: %w", err)
+	}
+
+	exec := &pipelineruntime.Executor{Reader: reader, Writer: writer}
 	start := time.Now()
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("spark-submit failed after %s: %w", time.Since(start).Round(time.Millisecond), err)
+	if err := exec.Run(ctx, plan); err != nil {
+		return fmt.Errorf("execute plan after %s: %w", time.Since(start).Round(time.Millisecond), err)
 	}
-	log(args, fmt.Sprintf("spark-submit exited cleanly in %s", time.Since(start).Round(time.Millisecond)))
+	log.Info("plan executed", slog.Duration("duration", time.Since(start).Round(time.Millisecond)))
 	return nil
 }
 
-func envOrDefault(key, def string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
+// loadPlanFromEnv decodes the base64-JSON env var the dispatcher
+// populates. Empty or malformed values surface as a typed error so
+// the operator runbook can pinpoint the bad Job.
+func loadPlanFromEnv() (pipelineplan.Plan, error) {
+	raw := os.Getenv(EnvPipelinePlanB64)
+	if raw == "" {
+		return pipelineplan.Plan{}, fmt.Errorf("%s env var is empty (dispatcher must populate the base64-encoded plan)", EnvPipelinePlanB64)
 	}
-	return def
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return pipelineplan.Plan{}, fmt.Errorf("decode %s base64: %w", EnvPipelinePlanB64, err)
+	}
+	var plan pipelineplan.Plan
+	if err := json.Unmarshal(decoded, &plan); err != nil {
+		return pipelineplan.Plan{}, fmt.Errorf("unmarshal plan JSON: %w", err)
+	}
+	return plan, nil
 }
 
-// preview is a one-line, length-capped rendering of an arbitrary
-// SQL string for stdout. Spark Operator surfaces stdout via
-// `kubectl logs`; the Foundry-style live log viewer pin-folds by
-// pipeline_id / run_id, so we keep the prefix machine-parseable.
-func preview(sql string) string {
-	flat := strings.ReplaceAll(sql, "\n", " ")
-	flat = strings.Join(strings.Fields(flat), " ")
-	const max = 200
-	if len(flat) <= max {
-		return flat
+// firstCatalogNameInPlan returns the catalog the Plan's first source
+// op references. The IcebergReader is constructed with that catalog
+// name; mismatched ops surface as providers.ErrUnknownCatalog at
+// Scan time. v2 may support multiple catalogs per Plan.
+func firstCatalogNameInPlan(plan pipelineplan.Plan) string {
+	for _, op := range plan.Ops {
+		if op.Kind == pipelineplan.KindReadTable && op.ReadTable != nil {
+			return op.ReadTable.Catalog
+		}
 	}
-	return flat[:max] + "… (" + fmt.Sprintf("%d more", len(flat)-max) + ")"
+	return ""
 }
 
-func log(args Args, msg string) {
-	fmt.Printf(
-		"[pipeline-runner pipeline_id=%s run_id=%s] %s\n",
-		args.PipelineID, args.RunID, msg,
+func buildLogger(args Args) *slog.Logger {
+	var h slog.Handler
+	if args.LogFormat == "json" {
+		h = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	} else {
+		h = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	}
+	return slog.New(h).With(
+		slog.String("service", "pipeline-runner"),
+		slog.String("pipeline_id", args.PipelineID),
+		slog.String("run_id", args.RunID),
 	)
 }
