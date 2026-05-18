@@ -184,3 +184,76 @@ export function archiveEvaluationSuite(id: string) {
 export function restoreEvaluationSuite(id: string) {
   return api.post<EvaluationSuite>(`/agent-runtime/eval-suites/${encodeURIComponent(id)}/restore`, {});
 }
+
+export interface RunEvaluationSuiteRequest {
+  target_ids?: string[];
+  test_case_ids?: string[];
+  target_versions?: Record<string, string>;
+  iterations?: number;
+  parallelization?: number;
+  execution_mode?: 'user_scoped' | 'project_scoped';
+  input_mappings?: Record<string, Record<string, string>>;
+  target_models?: Record<string, string>;
+  metadata?: Record<string, unknown>;
+  results_dataset_rid?: string | null;
+}
+
+export interface EvaluationRunResponse {
+  id: string;
+  suite_id: string;
+  status: 'queued' | 'running' | 'completed' | 'error' | string;
+  started_at?: string;
+  completed_at?: string;
+  result_dataset_rid?: string | null;
+  summary?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface EvaluationResultsDatasetRequest {
+  dataset_rid: string;
+  write_mode?: 'append' | 'overwrite' | string;
+  include_debug_outputs?: boolean;
+  include_intermediate_parameters?: boolean;
+}
+
+export interface CreateEvaluationExperimentRequest {
+  dimensions: Array<Record<string, unknown>>;
+  base_config?: RunEvaluationSuiteRequest;
+  max_runs?: number;
+  budget_policy?: Record<string, unknown>;
+}
+
+export interface EvaluationAnalyzerJobRequest {
+  run_id: string;
+  model?: string;
+  max_categories?: number;
+  max_failing_test_cases?: number;
+}
+
+export function runEvaluationSuite(id: string, body: RunEvaluationSuiteRequest = {}) {
+  return api.post<EvaluationRunResponse>(`/agent-runtime/eval-suites/${encodeURIComponent(id)}/runs`, body);
+}
+
+export function getEvaluationRun(suiteId: string, runId: string) {
+  return api.get<EvaluationRunResponse>(`/agent-runtime/eval-suites/${encodeURIComponent(suiteId)}/runs/${encodeURIComponent(runId)}`);
+}
+
+export function getEvaluationRunResults(suiteId: string, runId: string) {
+  return api.get<Record<string, unknown>>(`/agent-runtime/eval-suites/${encodeURIComponent(suiteId)}/runs/${encodeURIComponent(runId)}/results`);
+}
+
+export function configureEvaluationResultsDataset(id: string, body: EvaluationResultsDatasetRequest) {
+  return api.post<EvaluationSuite>(`/agent-runtime/eval-suites/${encodeURIComponent(id)}/results-dataset`, body);
+}
+
+export function createEvaluationExperiment(id: string, body: CreateEvaluationExperimentRequest) {
+  return api.post<Record<string, unknown>>(`/agent-runtime/eval-suites/${encodeURIComponent(id)}/experiments`, body);
+}
+
+export function runEvaluationExperimentApi(id: string, experimentId: string) {
+  return api.post<Record<string, unknown>>(`/agent-runtime/eval-suites/${encodeURIComponent(id)}/experiments/${encodeURIComponent(experimentId)}/runs`, {});
+}
+
+export function createEvaluationAnalyzerJob(id: string, body: EvaluationAnalyzerJobRequest) {
+  return api.post<Record<string, unknown>>(`/agent-runtime/eval-suites/${encodeURIComponent(id)}/analyzer-jobs`, body);
+}

@@ -382,6 +382,15 @@ const LOGIC_SECURITY_POLICY: LogicFileSecurityPolicy = {
   allowedResultDatasetRids: [DEFAULT_RUN_HISTORY_DATASET_RID],
   projectImportedResourceIds: LOGIC_PROJECT_SECURITY_RESOURCES,
   markingAccessibleResourceIds: LOGIC_PROJECT_SECURITY_RESOURCES,
+  sensitivePropertiesByObjectType: {
+    Customer: ['status', 'openCases'],
+    Shipment: ['riskScore'],
+  },
+  broadObjectAccessThreshold: 5,
+  promptReviewRequired: true,
+  redactionPolicyId: 'logic-customer-minimization-v1',
+  modelAllowlist: ['gpt-4.1-mini', 'gpt-4.1'],
+  exportLoggingRestricted: true,
 };
 
 type ConfigTab = 'inputs' | 'blocks' | 'outputs';
@@ -2031,19 +2040,31 @@ function RunHistoryPanel({ runs, hiddenCount, datasetRows }: {
   );
 }
 
+function metricValueLabel(metric: LogicMetricsSummary['operationalHealth']['metrics'][number]) {
+  if (metric.id === 'token_compute_usage') return `${computeSecondsLabel(metric.value)} · ${metric.unit}`;
+  if (metric.unit === 'percent') return `${metric.value}%`;
+  if (metric.unit === 'milliseconds') return `${metric.value} ms`;
+  return `${metric.value} ${metric.unit.replace('_', ' ')}`;
+}
+
 function MetricsPanel({ metrics, window, onWindowChange }: {
   metrics: LogicMetricsSummary;
   window: LogicMetricsWindow;
   onWindowChange: (window: LogicMetricsWindow) => void;
 }) {
+  const healthTone = metrics.operationalHealth.status === 'healthy' ? 'success' : 'warning';
   return (
     <section className="of-panel" style={{ padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <div className="of-eyebrow">Metrics</div>
-          <h2 className="of-heading-md" style={{ margin: 0 }}>Basic Logic metrics</h2>
+          <h2 className="of-heading-md" style={{ margin: 0 }}>Logic operational health</h2>
+          <p className="of-text-muted" style={{ margin: '4px 0 0' }}>
+            Near-real-time style health across failure rate, P95 duration, token/compute usage, tool calls, model availability, dataset writes, and automation backlog.
+          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StatusPill tone={healthTone}>{metrics.operationalHealth.status}</StatusPill>
           <StatusPill tone="info">viewer permission required</StatusPill>
           <select className="of-input" value={window} onChange={(event) => onWindowChange(event.target.value as LogicMetricsWindow)} style={{ width: 120 }}>
             {(['24h', '7d', '30d', '90d'] as LogicMetricsWindow[]).map((entry) => (
@@ -2054,22 +2075,54 @@ function MetricsPanel({ metrics, window, onWindowChange }: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(160px, 1fr))', gap: 10, marginTop: 12 }}>
         <div className="of-panel-muted" style={{ padding: 10 }}>
-          <p className="of-eyebrow">Succeeded</p>
-          <strong style={{ fontSize: 22 }}>{metrics.successCount}</strong>
-        </div>
-        <div className="of-panel-muted" style={{ padding: 10 }}>
-          <p className="of-eyebrow">Failed</p>
-          <strong style={{ fontSize: 22 }}>{metrics.failureCount}</strong>
+          <p className="of-eyebrow">Failure rate</p>
+          <strong style={{ fontSize: 22 }}>{metrics.failureRate}%</strong>
+          <p className="of-text-muted" style={{ margin: '6px 0 0' }}>{metrics.failureCount} failed / {metrics.successCount + metrics.failureCount} completed.</p>
         </div>
         <div className="of-panel-muted" style={{ padding: 10 }}>
           <p className="of-eyebrow">P95 duration</p>
           <strong style={{ fontSize: 22 }}>{metrics.p95DurationMs === null ? '—' : `${metrics.p95DurationMs} ms`}</strong>
         </div>
         <div className="of-panel-muted" style={{ padding: 10 }}>
-          <p className="of-eyebrow">Recent runs</p>
-          <strong style={{ fontSize: 22 }}>{metrics.recentRuns.length}</strong>
+          <p className="of-eyebrow">Compute usage</p>
+          <strong style={{ fontSize: 22 }}>{computeSecondsLabel(metrics.totalComputeSeconds)}</strong>
+          <p className="of-text-muted" style={{ margin: '6px 0 0' }}>{metrics.totalPromptTokensEstimate} estimated prompt tokens.</p>
+        </div>
+        <div className="of-panel-muted" style={{ padding: 10 }}>
+          <p className="of-eyebrow">Automation backlog</p>
+          <strong style={{ fontSize: 22 }}>{metrics.automationProposalBacklog}</strong>
+          <p className="of-text-muted" style={{ margin: '6px 0 0' }}>Open staged proposals.</p>
         </div>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 1.2fr) minmax(280px, 0.8fr)', gap: 10, marginTop: 12 }}>
+        <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <p className="of-eyebrow">Health checks</p>
+            <span className="of-text-muted">{metrics.recentRuns.length} recent visible run{metrics.recentRuns.length === 1 ? '' : 's'}</span>
+          </div>
+          {metrics.operationalHealth.metrics.map((metric) => (
+            <div key={metric.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', fontSize: 12 }}>
+              <span>{metric.label}</span>
+              <strong>{metricValueLabel(metric)}</strong>
+              <StatusPill tone={metric.status === 'healthy' ? 'success' : 'warning'}>{metric.status}</StatusPill>
+            </div>
+          ))}
+        </div>
+        <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8 }}>
+          <p className="of-eyebrow">Surface in</p>
+          {metrics.operationalHealth.surfaces.map((surface) => (
+            <div key={surface.id} className="of-panel" style={{ padding: 8, display: 'grid', gap: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <strong>{surface.label}</strong>
+                <StatusPill tone={surface.visible ? 'success' : 'warning'}>{surface.visible ? 'visible' : 'hidden'}</StatusPill>
+              </div>
+              <span className="of-text-muted" style={{ fontSize: 12 }}>{surface.href}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 0.8fr) minmax(360px, 1.2fr)', gap: 10, marginTop: 12 }}>
         <div className="of-panel-muted" style={{ padding: 10 }}>
           <p className="of-eyebrow">Failure categories</p>
@@ -2105,7 +2158,6 @@ function MetricsPanel({ metrics, window, onWindowChange }: {
     </section>
   );
 }
-
 function ComputeUsagePanel({ draftUsage, evaluationPlans, latestRun, runs }: {
   draftUsage: LogicComputeUsageSummary;
   evaluationPlans: Record<string, LogicComputeUsageSummary>;
@@ -2299,6 +2351,45 @@ function SecurityPanel({ policy, boundary, decisions }: {
         </div>
       </div>
 
+
+      <div className="of-panel-muted" style={{ padding: 10, display: 'grid', gap: 8, marginTop: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+          <p className="of-eyebrow">Data minimization guardrails</p>
+          <span className="of-text-muted">{boundary.minimizationWarnings.length} warning{boundary.minimizationWarnings.length === 1 ? '' : 's'}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(280px, 1fr)', gap: 8 }}>
+          <div className="of-panel" style={{ padding: 8, display: 'grid', gap: 6 }}>
+            <strong>Exposure inventory</strong>
+            <span className="of-text-muted">{boundary.exposureInventory.prompts.length} prompt block{boundary.exposureInventory.prompts.length === 1 ? '' : 's'} · {boundary.exposureInventory.objectTypes.length} object type{boundary.exposureInventory.objectTypes.length === 1 ? '' : 's'} · {boundary.exposureInventory.actions.length} action{boundary.exposureInventory.actions.length === 1 ? '' : 's'} · {boundary.exposureInventory.functions.length} function{boundary.exposureInventory.functions.length === 1 ? '' : 's'} · {boundary.exposureInventory.mediaReferences.length} media reference{boundary.exposureInventory.mediaReferences.length === 1 ? '' : 's'}</span>
+            {boundary.exposureInventory.prompts.map((prompt) => (
+              <div key={prompt.blockId} style={{ fontSize: 12 }}>
+                <strong>{prompt.blockName}</strong>
+                <span className="of-text-muted"> exposes variables {prompt.variableRefs.join(', ') || 'none'} through {prompt.modelBinding.mode}</span>
+              </div>
+            ))}
+          </div>
+          <div className="of-panel" style={{ padding: 8, display: 'grid', gap: 6 }}>
+            <strong>Governance hooks</strong>
+            {boundary.guardrailHooks.map((hook) => (
+              <div key={hook.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, fontSize: 12 }}>
+                <span>{hook.label}<span className="of-text-muted"> · {hook.detail}</span></span>
+                <StatusPill tone={hook.enabled ? 'success' : 'warning'}>{hook.enabled ? 'enabled' : 'not set'}</StatusPill>
+              </div>
+            ))}
+          </div>
+        </div>
+        {boundary.minimizationWarnings.length > 0 && (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {boundary.minimizationWarnings.map((warning) => (
+              <div key={`${warning.field}-${warning.message}`} className="of-status-warning" style={{ padding: 8, borderRadius: 4, fontSize: 12 }}>
+                <strong>{warning.field}</strong>: {warning.message}
+                {warning.properties?.length ? <span> Sensitive properties: {warning.properties.join(', ')}.</span> : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {boundary.issues.length > 0 && (
         <div className="of-panel" style={{ padding: 10, display: 'grid', gap: 6, marginTop: 12, borderColor: 'var(--status-warning)' }}>
           <strong>Security issues</strong>
@@ -2392,7 +2483,9 @@ export function LogicAuthoringPage() {
       }));
     return limitLogicRunHistoryDatasetRows(rows, runHistoryDatasetConfig.maxRows);
   }, [executionMode, publishedFunctionRid, publishedVersion, runHistoryDatasetConfig, visibleRunHistory]);
-  const logicMetrics = useMemo(() => calculateLogicMetrics(visibleRunHistory, metricsWindow), [metricsWindow, visibleRunHistory]);
+  const logicMetrics = useMemo(() => calculateLogicMetrics(visibleRunHistory, metricsWindow, new Date(), {
+    automationProposalBacklog: automationDraft && automationDraft.editMode === 'stage_for_review' ? 1 : 0,
+  }), [automationDraft, metricsWindow, visibleRunHistory]);
   const logicSecurityBoundary = useMemo(() => buildLogicSecurityBoundary({
     definition: currentDefinition,
     policy: LOGIC_SECURITY_POLICY,
