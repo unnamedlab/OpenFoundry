@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://github.com/openfoundry/openfoundry-go">
-    <img src="images/logo.png" alt="OpenFoundry" width="360" />
+    <img src="images/logo.png" alt="OpenFoundry" width="420" />
   </a>
 
 
