@@ -102,11 +102,15 @@ override → `OF_*` env vars.
 
 | Key | Purpose | Required |
 |---|---|---|
-| `OF_DATABASE_URL` | Postgres DSN | Yes (omitting it leaves product routes unmounted) |
+| `OF_DATABASE_URL` / `DATABASE_URL` | Postgres DSN for the product repository | Yes for normal boot |
+| `OF_ENVIRONMENT` | Runtime environment; `production`/`prod` enables fail-closed production policy | Yes in production |
+| `OF_ALLOW_UNWIRED_PRODUCT_ROUTES` | Explicit non-production smoke mode without DB-backed product routes | No (defaults to `false`) |
 | `OF_JWT__SECRET` | JWT HS256 secret | Yes |
 | `OF_SERVER__ADDR` | Listen address | No (defaults to `:8080`) |
 
-A missing `database_url` keeps the binary bootable for smoke tests
-and leaves `/healthz` + the capability catalog usable. The capability
-snapshot omits the product routes in that mode so observers can see
-the service is in a degraded state.
+The service fails closed when no DB DSN is configured. The only
+exception is explicit non-production smoke mode
+(`OF_ALLOW_UNWIRED_PRODUCT_ROUTES=true` while `OF_ENVIRONMENT` is not
+`production`/`prod`), which leaves `/healthz` and the capability
+catalog usable while omitting product routes from both the router and
+the capability snapshot.

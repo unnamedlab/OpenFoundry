@@ -21,3 +21,9 @@ jwt:
 telemetry:
   otlp_endpoint: "localhost:4317"
   log_format: "plain"
+
+# Set OF_ENVIRONMENT=production in production deployments.
+# Product routes require a real DB unless explicit non-production
+# smoke mode is enabled with OF_ALLOW_UNWIRED_PRODUCT_ROUTES=true.
+environment: "development"
+allow_unwired_product_routes: false
