@@ -10,7 +10,8 @@ import (
 // GalleryCatalog mirrors handlers/catalog.rs GalleryCatalog for the UI-facing
 // connector gallery endpoint.
 type GalleryCatalog struct {
-	Connectors []GalleryConnector `json:"connectors"`
+	Connectors       []GalleryConnector          `json:"connectors"`
+	CapabilityMatrix []ConnectorCapabilityMatrix `json:"capability_matrix,omitempty"`
 }
 
 // GalleryConnector is the compact UI shape derived from a connector contract.
@@ -21,6 +22,18 @@ type GalleryConnector struct {
 	Capabilities []string `json:"capabilities"`
 	Workers      []string `json:"workers"`
 	Available    bool     `json:"available"`
+}
+
+// ConnectorCapabilityMatrix is the UI-facing per-connector implementation
+// matrix for runtime adapter capabilities. False means the service must not
+// silently pretend that capability exists for the connector.
+type ConnectorCapabilityMatrix struct {
+	ConnectorType     string   `json:"connector_type"`
+	DiscoverSources   bool     `json:"discover_sources"`
+	QueryVirtualTable bool     `json:"query_virtual_table"`
+	StreamArrow       bool     `json:"stream_arrow"`
+	BuildIngestSpec   bool     `json:"build_ingest_spec"`
+	Limitations       []string `json:"limitations"`
 }
 
 type ConnectionEffectiveCapabilities struct {

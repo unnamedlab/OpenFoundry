@@ -3319,6 +3319,64 @@ func TestVirtualTableQueryAdapterUnavailableReturnsExplicitError(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "virtual table adapter unavailable for real preview")
 }
 
+func TestVirtualTableQueryErrNotImplementedReturnsServiceUnavailable(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	store.connections[0].ConnectorType = "bigquery"
+	sourceRID := store.connections[0].ID.String()
+	registry := adapters.NewRegistry()
+	registry.MustRegister("bigquery", adapters.SingletonFactory(testConnectionAdapter{queryErr: adapters.ErrNotImplemented}))
+	h := &handlers.Handlers{Repo: store, AdapterRegistry: registry}
+
+	req := withRouteParam(authedReq("POST", "/sources/enable", `{"provider":"BIGQUERY"}`, owner), "source_rid", sourceRID)
+	rec := httptest.NewRecorder()
+	h.EnableVirtualTableSource(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := `{"project_rid":"ri.project.query","locator":{"kind":"tabular","database":"analytics","schema":"public","table":"orders"},"table_type":"TABLE","schema_inferred":[{"name":"ORDER_ID","source_type":"INTEGER","inferred_type":"integer","nullable":false}],"capabilities":{"read":true,"write":true,"incremental":true,"versioning":false,"snapshot_supported":true,"append_only_supported":true}}`
+	req = withRouteParam(authedReq("POST", "/sources/virtual-tables", body, owner), "source_rid", sourceRID)
+	rec = httptest.NewRecorder()
+	h.CreateVirtualTable(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created models.VirtualTable
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	req = withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/query", `{"limit":2}`, owner), "rid", created.RID)
+	rec = httptest.NewRecorder()
+	h.QueryVirtualTable(rec, req)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "virtual table adapter unavailable for real preview")
+}
+
+func TestVirtualTableMetadataPreviewIsExplicitlyDegraded(t *testing.T) {
+	owner := uuid.New()
+	store := newFakeStore(owner)
+	h := &handlers.Handlers{Repo: store}
+	sourceRID := "ri.foundry.main.source." + uuid.NewString()
+	store.links[sourceRID] = models.VirtualTableSourceLink{SourceRID: sourceRID, Provider: "METADATA", VirtualTablesEnabled: true}
+	created, err := store.CreateVirtualTable(context.Background(), sourceRID, owner.String(), &models.CreateVirtualTableRequest{
+		ProjectRID:     "ri.project.metadata",
+		Locator:        models.Locator{Kind: "tabular", Database: "analytics", Schema: "public", Table: "orders"},
+		TableType:      "TABLE",
+		SchemaInferred: json.RawMessage(`[{"name":"ORDER_ID","source_type":"INTEGER","inferred_type":"integer","nullable":false}]`),
+		Capabilities:   json.RawMessage(`{"read":true}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+
+	req := withRouteParam(authedReq("POST", "/virtual-tables/"+created.RID+"/query", `{"limit":2}`, owner), "rid", created.RID)
+	rec := httptest.NewRecorder()
+	h.QueryVirtualTable(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response models.VirtualTableQueryResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.True(t, response.Degraded)
+	assert.Equal(t, "metadata", response.Source)
+	require.NotEmpty(t, response.Limitations)
+	assert.Equal(t, 2, response.RowCount)
+	assert.Contains(t, string(response.Metadata), `"source":"metadata"`)
+	assert.Contains(t, string(response.Metadata), "no remote source data was read")
+}
+
 func TestVirtualTableUpdateDetectionSkipsUnchangedDownstreamBuildsAndShowsLineage(t *testing.T) {
 	owner := uuid.New()
 	store := newFakeStore(owner)
@@ -3706,6 +3764,38 @@ func TestCatalogIncludesAllRustConnectorModules(t *testing.T) {
 	for _, connectorType := range []string{"azure_blob", "bigquery", "csv", "databricks", "excel", "gcs", "generic", "graphql", "iot", "jdbc", "json", "kafka", "kinesis", "ldap", "mssql", "mysql", "odbc", "onelake", "open_table_catalog", "oracle", "parquet", "postgresql", "power_bi", "rest_api", "s3", "salesforce", "sap", "sftp", "snowflake", "tableau"} {
 		require.Contains(t, byType, connectorType)
 	}
+}
+
+func TestConnectorCapabilityMatrixEndpointIncludesImplementedAndLimitedConnectors(t *testing.T) {
+	rec := httptest.NewRecorder()
+	(&handlers.Handlers{}).GetConnectorCapabilityMatrix(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		CapabilityMatrix []models.ConnectorCapabilityMatrix `json:"capability_matrix"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	byType := map[string]models.ConnectorCapabilityMatrix{}
+	for _, capability := range body.CapabilityMatrix {
+		byType[capability.ConnectorType] = capability
+	}
+
+	mysql := byType["mysql"]
+	assert.True(t, mysql.DiscoverSources)
+	assert.True(t, mysql.QueryVirtualTable)
+	assert.True(t, mysql.StreamArrow)
+	assert.True(t, mysql.BuildIngestSpec)
+
+	ldap := byType["ldap"]
+	assert.False(t, ldap.DiscoverSources)
+	assert.False(t, ldap.QueryVirtualTable)
+	assert.NotEmpty(t, ldap.Limitations)
+
+	oracle := byType["oracle"]
+	assert.True(t, oracle.DiscoverSources)
+	assert.True(t, oracle.QueryVirtualTable)
+	assert.False(t, oracle.StreamArrow)
+	assert.False(t, oracle.BuildIngestSpec)
+	assert.NotEmpty(t, oracle.Limitations)
 }
 
 func TestConnectionCapabilitiesCombineContractConfigAndPolicy(t *testing.T) {

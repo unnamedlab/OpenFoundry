@@ -497,5 +497,347 @@
       ],
       "available": true
     }
+  ],
+  "capability_matrix": [
+    {
+      "connector_type": "adls",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "azure_blob",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "bigquery",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "csv",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "databricks",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "db2",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "excel",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "adapter scaffold returns ErrNotImplemented for discover_sources, query_virtual_table, stream_arrow, and build_ingest_spec"
+      ]
+    },
+    {
+      "connector_type": "gcs",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "generic",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "google_cloud_storage",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "graphql",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "adapter scaffold returns ErrNotImplemented for discover_sources, query_virtual_table, stream_arrow, and build_ingest_spec"
+      ]
+    },
+    {
+      "connector_type": "iot",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "jdbc",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "json",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "kafka",
+      "discover_sources": true,
+      "query_virtual_table": true,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "stream_arrow is not implemented",
+        "build_ingest_spec is not implemented"
+      ]
+    },
+    {
+      "connector_type": "kinesis",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "ldap",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "adapter scaffold returns ErrNotImplemented for discover_sources, query_virtual_table, stream_arrow, and build_ingest_spec"
+      ]
+    },
+    {
+      "connector_type": "mssql",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "mysql",
+      "discover_sources": true,
+      "query_virtual_table": true,
+      "stream_arrow": true,
+      "build_ingest_spec": true,
+      "limitations": null
+    },
+    {
+      "connector_type": "odbc",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "onelake",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "open_table_catalog",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "oracle",
+      "discover_sources": true,
+      "query_virtual_table": true,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "stream_arrow is not implemented",
+        "build_ingest_spec is not implemented"
+      ]
+    },
+    {
+      "connector_type": "parquet",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "postgres",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "postgresql",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "power_bi",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "rest_api",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "s3",
+      "discover_sources": true,
+      "query_virtual_table": true,
+      "stream_arrow": false,
+      "build_ingest_spec": true,
+      "limitations": [
+        "stream_arrow is not implemented"
+      ]
+    },
+    {
+      "connector_type": "salesforce",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "sap",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "sftp",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "adapter scaffold returns ErrNotImplemented for discover_sources, query_virtual_table, stream_arrow, and build_ingest_spec"
+      ]
+    },
+    {
+      "connector_type": "snowflake",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    },
+    {
+      "connector_type": "tableau",
+      "discover_sources": false,
+      "query_virtual_table": false,
+      "stream_arrow": false,
+      "build_ingest_spec": false,
+      "limitations": [
+        "runtime adapter capabilities are unknown until the adapter declares Capabilities"
+      ]
+    }
   ]
 }

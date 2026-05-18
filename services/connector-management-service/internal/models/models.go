@@ -4954,6 +4954,7 @@ type ListConnectionsQuery struct {
 type ConnectorContractCatalog struct {
 	Connectors           []ConnectorContractProfile    `json:"connectors"`
 	CertificationSummary ConnectorCertificationSummary `json:"certification_summary"`
+	CapabilityMatrix     []ConnectorCapabilityMatrix   `json:"capability_matrix,omitempty"`
 }
 
 type ConnectorContractProfile struct {
@@ -5161,6 +5162,8 @@ type VirtualTableQueryResponse struct {
 	ComputeLocation string                    `json:"compute_location,omitempty"`
 	Pushdown        *VirtualTablePushdownPlan `json:"pushdown,omitempty"`
 	Limitations     []VirtualTableLimitation  `json:"limitations,omitempty"`
+	Degraded        bool                      `json:"degraded,omitempty"`
+	Source          string                    `json:"source,omitempty"`
 }
 
 type QueryRegistrationBody struct {
