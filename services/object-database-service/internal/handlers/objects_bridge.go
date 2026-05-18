@@ -17,6 +17,7 @@ package handlers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -263,6 +264,7 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 			allItems = append(allItems, toOntologyObject(&full.Items[i]))
 		}
 		filtered, decision := filterOntologyObjectsForRestrictedView(r, policy, allItems)
+		filtered, omittedMarkingCount := filterOntologyObjectsForMarkings(r, filtered)
 		total := len(filtered)
 		start := (page - 1) * int(perPage)
 		end := start + int(perPage)
@@ -278,6 +280,7 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 			"page":                       page,
 			"per_page":                   perPage,
 			"restricted_view_evaluation": decision,
+			"omitted_marking_count":      omittedMarkingCount,
 		})
 		return
 	}
@@ -291,6 +294,7 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 	for i := range res.Items {
 		items = append(items, toOntologyObject(&res.Items[i]))
 	}
+	items, omittedMarkingCount := filterOntologyObjectsForMarkings(r, items)
 
 	total := len(items)
 	if perPage < 5000 || res.NextToken != nil {
@@ -299,15 +303,22 @@ func (h *Handlers) ListObjectsByOntologyType(w http.ResponseWriter, r *http.Requ
 		// whole set in one shot (per_page>=5000 and no continuation).
 		full, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: 1_000_000}, consistency)
 		if err == nil {
-			total = len(full.Items)
+			fullItems := make([]ontologyObject, 0, len(full.Items))
+			for i := range full.Items {
+				fullItems = append(fullItems, toOntologyObject(&full.Items[i]))
+			}
+			visible, omitted := filterOntologyObjectsForMarkings(r, fullItems)
+			total = len(visible)
+			omittedMarkingCount = omitted
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data":     items,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
+		"data":                  items,
+		"total":                 total,
+		"page":                  page,
+		"per_page":              perPage,
+		"omitted_marking_count": omittedMarkingCount,
 	})
 }
 
@@ -320,12 +331,12 @@ func (h *Handlers) GetObjectByOntologyType(w http.ResponseWriter, r *http.Reques
 		writeCedarError(w, err)
 		return
 	}
-	obj, err := h.Objects.Get(r.Context(), tenant, objID, parseConsistency(r.URL.Query().Get("consistency")))
+	obj, err := h.getObjectByTypePrimaryKey(r, tenant, storage.TypeId(typeID), string(objID))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if obj == nil {
+	if obj == nil || !callerCanReadStorageObject(r, obj) {
 		http.NotFound(w, r)
 		return
 	}
@@ -340,6 +351,10 @@ func (h *Handlers) GetObjectByOntologyType(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		out = filtered[0]
+	}
+	if !callerCanReadOntologyObject(r, out) {
+		http.NotFound(w, r)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -367,7 +382,7 @@ func (h *Handlers) UpdateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	existing, err := h.Objects.Get(r.Context(), tenant, objID, parseConsistency(r.URL.Query().Get("consistency")))
+	existing, err := h.getObjectByTypePrimaryKey(r, tenant, typeID, string(objID))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -406,6 +421,7 @@ func (h *Handlers) UpdateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		writeOutcomeResponse(w, outcome)
 		return
 	}
+	h.bustObjectCache(tenant, typeID, string(objID))
 	if outcome.NewVersion > 0 {
 		next.Version = outcome.NewVersion
 	}
@@ -439,6 +455,7 @@ func (h *Handlers) DeleteObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		http.NotFound(w, r)
 		return
 	}
+	h.bustObjectCache(tenant, storage.TypeId(typeID), string(objID))
 	if cascader, ok := h.Links.(storage.IncidentLinkDeleter); ok {
 		if n, cerr := cascader.DeleteIncident(r.Context(), tenant, objID); cerr == nil {
 			w.Header().Set("x-of-cascaded-links", strconv.Itoa(n))
@@ -454,6 +471,17 @@ type queryFilter struct {
 	PropertyName string `json:"property_name"`
 	Operator     string `json:"operator,omitempty"` // equals | contains | gte | lte | gt | lt | in
 	Value        any    `json:"value"`
+}
+
+type queryPredicate struct {
+	Op           string           `json:"op,omitempty"`
+	Operator     string           `json:"operator,omitempty"`
+	PropertyName string           `json:"property_name,omitempty"`
+	Value        any              `json:"value,omitempty"`
+	Children     []queryPredicate `json:"children,omitempty"`
+	And          []queryPredicate `json:"and,omitempty"`
+	Or           []queryPredicate `json:"or,omitempty"`
+	Not          *queryPredicate  `json:"not,omitempty"`
 }
 
 type querySort struct {
@@ -521,7 +549,8 @@ type queryKNNResult struct {
 type queryRequest struct {
 	// Filters is the WorkshopVariable.static_filter[s] shape — the richer
 	// form with `operator` per filter.
-	Filters []queryFilter `json:"filters"`
+	Filters   []queryFilter   `json:"filters"`
+	Predicate *queryPredicate `json:"predicate,omitempty"`
 	// Equals is the existing SPA shape used by lib/api/ontology.ts:queryObjects
 	// — a flat map { property: expected }. Treated as "equals" filters.
 	Equals  map[string]any `json:"equals"`
@@ -540,6 +569,19 @@ type queryRequest struct {
 	RestrictedViewPolicy json.RawMessage    `json:"restricted_view_policy,omitempty"`
 	HiddenColumns        []string           `json:"hidden_columns,omitempty"`
 	MarkingColumns       []string           `json:"marking_columns,omitempty"`
+	Explain              string             `json:"explain,omitempty"`
+	Analyze              bool               `json:"analyze,omitempty"`
+	MaxStalenessMs       int64              `json:"max_staleness_ms,omitempty"`
+}
+
+type objectQueryExecution struct {
+	plan             storage.QueryPlan
+	actuals          storage.QueryActuals
+	budget           *storage.QueryBudget
+	materialized     []storage.MaterializedAggregateResult
+	indexable        bool
+	indexName        string
+	restrictedFilter []string
 }
 
 func matchesFilter(props map[string]any, f queryFilter) bool {
@@ -564,6 +606,8 @@ func matchesFilter(props map[string]any, f queryFilter) bool {
 	switch strings.ToLower(strings.TrimSpace(f.Operator)) {
 	case "contains":
 		return strings.Contains(actualStr, expectedStr)
+	case "starts_with", "prefix":
+		return strings.HasPrefix(actualStr, expectedStr)
 	case "not_equals", "neq", "!=":
 		return actualStr != expectedStr
 	case "gte", ">=":
@@ -582,6 +626,55 @@ func matchesFilter(props map[string]any, f queryFilter) bool {
 		return strings.TrimSpace(toStringValue(actual)) != ""
 	default: // "equals" + unknown
 		return actualStr == expectedStr
+	}
+}
+
+func matchesPredicate(props map[string]any, predicate queryPredicate) bool {
+	op := strings.ToLower(strings.TrimSpace(predicate.Op))
+	if op == "" {
+		op = strings.ToLower(strings.TrimSpace(predicate.Operator))
+	}
+	if len(predicate.And) > 0 {
+		op = "and"
+		predicate.Children = append(predicate.Children, predicate.And...)
+	}
+	if len(predicate.Or) > 0 {
+		op = "or"
+		predicate.Children = append(predicate.Children, predicate.Or...)
+	}
+	if predicate.Not != nil {
+		op = "not"
+	}
+	switch op {
+	case "and", "":
+		if len(predicate.Children) == 0 && predicate.PropertyName != "" {
+			return matchesFilter(props, queryFilter{PropertyName: predicate.PropertyName, Operator: predicate.Operator, Value: predicate.Value})
+		}
+		for _, child := range predicate.Children {
+			if !matchesPredicate(props, child) {
+				return false
+			}
+		}
+		return true
+	case "or":
+		for _, child := range predicate.Children {
+			if matchesPredicate(props, child) {
+				return true
+			}
+		}
+		return false
+	case "not":
+		if predicate.Not == nil {
+			return true
+		}
+		return !matchesPredicate(props, *predicate.Not)
+	case "eq", "equals", "=", "neq", "not_equals", "!=", "gt", ">", "gte", ">=", "lt", "<", "lte", "<=", "in", "contains", "starts_with", "prefix", "is_empty", "is_not_empty":
+		return matchesFilter(props, queryFilter{PropertyName: predicate.PropertyName, Operator: op, Value: predicate.Value})
+	default:
+		if predicate.PropertyName != "" {
+			return matchesFilter(props, queryFilter{PropertyName: predicate.PropertyName, Operator: op, Value: predicate.Value})
+		}
+		return true
 	}
 }
 
@@ -1087,7 +1180,43 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 		page = 1
 	}
 
-	full, err := h.Objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: 1_000_000}, parseConsistency(r.URL.Query().Get("consistency")))
+	consistency := parseConsistency(r.URL.Query().Get("consistency"))
+	if body.MaxStalenessMs > 0 {
+		// OSV2.24: clients opt in to local replica reads by supplying a bounded
+		// staleness hint. The in-process service surface maps that to eventual
+		// consistency; production Cassandra routing pins writes to the primary
+		// region and only serves reads from eligible replicas.
+		consistency = storage.ReadEventual
+	}
+	policy, hasRestrictedPolicy, err := restrictedObjectPolicyForType(h, r, typeID, &body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	restrictedIndexFilters := []string{}
+	if hasRestrictedPolicy {
+		restrictedIndexFilters = restrictedIndexFiltersForQuery(policy.ID, body)
+	}
+	exec := buildObjectQueryExecution(r, h.Objects, tenant, typeID, body, restrictedIndexFilters)
+	callerID, projectID := callerAndProjectFromRequest(r)
+	if limiter, ok := h.Objects.(storage.QueryBudgetEnforcer); ok {
+		budget, err := limiter.ReserveQueryBudget(r.Context(), tenant, projectID, callerID, exec.plan.EstimatedRows)
+		if err != nil {
+			w.Header().Set("Retry-After", strconv.FormatInt(budget.RetryAfterMs/1000, 10))
+			writeError(w, err)
+			return
+		}
+		exec.budget = &budget
+		if budget.SoftWarning {
+			w.Header().Set("x-openfoundry-query-budget-warning", "80-percent")
+		}
+	}
+	if mode := explainMode(r, body); mode == "explain" {
+		writeJSON(w, http.StatusOK, map[string]any{"explain": exec.plan, "budget": exec.budget})
+		return
+	}
+	startedAt := time.Now()
+	full, err := listObjectsForQuery(r, h.Objects, tenant, typeID, body, consistency)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1163,20 +1292,22 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 				break
 			}
 		}
+		if ok && body.Predicate != nil {
+			ok = matchesPredicate(props, *body.Predicate)
+		}
 		if ok {
 			matched = append(matched, toOntologyObject(obj))
 		}
 	}
 
 	var restrictedDecision *restrictedview.Decision
-	if policy, ok, err := restrictedObjectPolicyForType(h, r, typeID, &body); err != nil {
-		writeError(w, err)
-		return
-	} else if ok {
+	if hasRestrictedPolicy {
 		filtered, decision := filterOntologyObjectsForRestrictedView(r, policy, matched)
 		matched = filtered
 		restrictedDecision = &decision
 	}
+	var omittedMarkingCount int
+	matched, omittedMarkingCount = filterOntologyObjectsForMarkings(r, matched)
 
 	knnResults := []queryKNNResult(nil)
 	knnContract := map[string]any(nil)
@@ -1191,6 +1322,23 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 		sortOntologyObjects(matched, body.Sort)
 	}
 	aggregations := computeObjectQueryAggregations(matched, body.Aggregations)
+	if materialized, ok := h.Objects.(storage.MaterializedAggregateStore); ok {
+		for i, spec := range body.Aggregations {
+			groupBy := strings.TrimSpace(spec.Alias)
+			if strings.HasPrefix(groupBy, "group_by:") {
+				groupBy = strings.TrimPrefix(groupBy, "group_by:")
+			} else {
+				groupBy = ""
+			}
+			if result, found, err := materialized.ReadMaterializedAggregate(r.Context(), tenant, typeID, normalizeQueryAggregationFunction(spec.Function), spec.PropertyName, groupBy); err == nil && found {
+				exec.materialized = append(exec.materialized, result)
+				if i < len(aggregations) {
+					aggregations[i].Value = result.Value
+					aggregations[i].Count = int(result.Count)
+				}
+			}
+		}
+	}
 	total := len(matched)
 	start := (page - 1) * int(perPage)
 	end := start + int(perPage)
@@ -1217,6 +1365,18 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 			pageKNNResults = append(pageKNNResults, result)
 		}
 	}
+	wall := time.Since(startedAt)
+	indicesHit := []string{}
+	if exec.indexName != "" {
+		indicesHit = append(indicesHit, exec.indexName)
+	}
+	exec.actuals = storage.QueryActuals{RowsScanned: uint64(len(full.Items)), IndicesHit: indicesHit, RowsReturned: uint64(len(pageItems)), WallTime: wall, WallTimeMs: float64(wall.Microseconds()) / 1000}
+	if recorder, ok := h.Objects.(storage.QueryCostRecorder); ok {
+		_ = recorder.RecordQueryCost(r.Context(), storage.QueryCostRecord{Tenant: tenant, ProjectID: projectID, CallerID: callerID, TypeID: typeID, RowsScanned: exec.actuals.RowsScanned, IndicesHit: indicesHit, RowsReturned: exec.actuals.RowsReturned, WallTime: wall})
+	}
+	if explainMode(r, body) == "analyze" {
+		exec.plan.Mode = "analyze"
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data":                       pageItems,
@@ -1228,6 +1388,12 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 		"linked_edges":               pageLinkedEdges,
 		"knn_results":                pageKNNResults,
 		"restricted_view_evaluation": restrictedDecision,
+		"omitted_marking_count":      omittedMarkingCount,
+		"explain":                    explainPayloadForMode(r, body, exec.plan),
+		"actuals":                    actualsPayloadForMode(r, body, exec.actuals),
+		"query_cost":                 exec.actuals,
+		"query_budget":               exec.budget,
+		"materialized_aggregates":    exec.materialized,
 		"object_set": map[string]any{
 			"object_type_id":      string(typeID),
 			"filters":             body.Filters,
@@ -1240,6 +1406,51 @@ func (h *Handlers) QueryObjectsByOntologyType(w http.ResponseWriter, r *http.Req
 			"knn":                 knnContract,
 		},
 	})
+}
+
+func listObjectsForQuery(r *http.Request, objects storage.ObjectStore, tenant storage.TenantId, typeID storage.TypeId, body queryRequest, consistency storage.ReadConsistency) (storage.PagedResult[storage.Object], error) {
+	if indexed, ok := objects.(storage.PropertyQueryStore); ok {
+		if predicate, ok := indexableQueryPredicate(body); ok {
+			return indexed.QueryByProperty(r.Context(), tenant, typeID, predicate, storage.Page{Size: 1_000_000}, consistency)
+		}
+	}
+	return objects.ListByType(r.Context(), tenant, typeID, storage.Page{Size: 1_000_000}, consistency)
+}
+
+func indexableQueryPredicate(body queryRequest) (storage.PropertyPredicate, bool) {
+	if len(body.SelectedObjectIDs) > 0 || body.SearchAround != nil || body.KNN != nil {
+		return storage.PropertyPredicate{}, false
+	}
+	if len(body.Filters) == 1 && body.Predicate == nil {
+		f := body.Filters[0]
+		if isIndexableOperator(f.Operator) && strings.TrimSpace(f.PropertyName) != "" {
+			return storage.PropertyPredicate{PropertyName: f.PropertyName, Operator: f.Operator, Value: f.Value}, true
+		}
+	}
+	if len(body.Filters) == 0 && body.Predicate != nil {
+		return indexablePredicateNode(*body.Predicate)
+	}
+	return storage.PropertyPredicate{}, false
+}
+
+func indexablePredicateNode(predicate queryPredicate) (storage.PropertyPredicate, bool) {
+	op := strings.ToLower(strings.TrimSpace(predicate.Op))
+	if op == "" {
+		op = strings.ToLower(strings.TrimSpace(predicate.Operator))
+	}
+	if predicate.PropertyName != "" && isIndexableOperator(op) {
+		return storage.PropertyPredicate{PropertyName: predicate.PropertyName, Operator: op, Value: predicate.Value}, true
+	}
+	return storage.PropertyPredicate{}, false
+}
+
+func isIndexableOperator(operator string) bool {
+	switch strings.ToLower(strings.TrimSpace(operator)) {
+	case "", "equals", "eq", "=", "gte", ">=", "lte", "<=", "gt", ">", "lt", "<", "in", "starts_with", "prefix":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handlers) resolveLinkedSearchAround(
@@ -1470,6 +1681,7 @@ func (h *Handlers) CreateObjectByOntologyType(w http.ResponseWriter, r *http.Req
 		writeError(w, err)
 		return
 	}
+	h.bustObjectCache(tenant, typeID, string(id))
 	writeJSON(w, http.StatusCreated, toOntologyObject(&obj))
 }
 
@@ -1492,4 +1704,128 @@ func jwtSubjectUnverified(token string) string {
 		return ""
 	}
 	return strings.TrimSpace(payload.Sub)
+}
+
+func explainMode(r *http.Request, body queryRequest) string {
+	mode := strings.ToLower(strings.TrimSpace(body.Explain))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("explain")))
+	}
+	if body.Analyze || mode == "analyze" || mode == "explain_analyze" || strings.EqualFold(r.URL.Query().Get("explain_analyze"), "true") {
+		return "analyze"
+	}
+	if mode == "true" || mode == "plan" || mode == "explain" {
+		return "explain"
+	}
+	return ""
+}
+
+func callerAndProjectFromRequest(r *http.Request) (string, string) {
+	caller := strings.TrimSpace(r.Header.Get("x-openfoundry-user-id"))
+	if caller == "" {
+		caller = strings.TrimSpace(r.Header.Get("x-of-caller"))
+	}
+	if caller == "" {
+		caller = "anonymous"
+	}
+	project := strings.TrimSpace(r.Header.Get("x-openfoundry-project-id"))
+	if project == "" {
+		project = strings.TrimSpace(r.Header.Get("x-of-project"))
+	}
+	return caller, project
+}
+
+func buildObjectQueryExecution(r *http.Request, objects storage.ObjectStore, tenant storage.TenantId, typeID storage.TypeId, body queryRequest, restrictedFilters []string) objectQueryExecution {
+	mode := explainMode(r, body)
+	predicate, indexable := indexableQueryPredicate(body)
+	indexName := ""
+	estimatedRows := uint64(1_000_000)
+	accessPath := "objects_by_type_scan"
+	predicateText := ""
+	if indexable {
+		indexName = "ontology_indexes.object_property_index"
+		accessPath = "property_index_lookup"
+		predicateText = fmt.Sprintf("%s %s %v", predicate.PropertyName, predicate.Operator, predicate.Value)
+		if stats, ok := objects.(storage.StatisticsProvider); ok {
+			if hist, found, err := stats.PropertyHistogram(r.Context(), tenant, typeID, predicate.PropertyName); err == nil && found {
+				estimatedRows = estimateRowsFromHistogram(hist, predicate)
+			}
+		} else {
+			estimatedRows = 1000
+		}
+	}
+	if len(body.SelectedObjectIDs) > 0 && uint64(len(body.SelectedObjectIDs)) < estimatedRows {
+		estimatedRows = uint64(len(body.SelectedObjectIDs))
+		accessPath = "selected_object_ids"
+	}
+	if estimatedRows == 0 {
+		estimatedRows = 1
+	}
+	estimatedTime := 2 + float64(estimatedRows)/2500
+	step := storage.QueryPlanStep{Name: "read_objects", AccessPath: accessPath, IndexName: indexName, Predicate: predicateText, EstimatedRows: estimatedRows, EstimatedTimeMs: estimatedTime, RestrictedFilters: restrictedFilters}
+	plan := storage.QueryPlan{Mode: mode, IndexChoice: accessPath, EstimatedRows: estimatedRows, EstimatedTimeMs: estimatedTime, Steps: []storage.QueryPlanStep{step}}
+	return objectQueryExecution{plan: plan, indexable: indexable, indexName: indexName, restrictedFilter: restrictedFilters}
+}
+
+func estimateRowsFromHistogram(hist storage.PropertyHistogram, predicate storage.PropertyPredicate) uint64 {
+	if hist.TotalRows == 0 {
+		return 1
+	}
+	op := strings.ToLower(strings.TrimSpace(predicate.Operator))
+	if op == "" || op == "equals" || op == "eq" || op == "=" {
+		value := strings.ToLower(strings.TrimSpace(toStringValue(predicate.Value)))
+		for _, bucket := range hist.Buckets {
+			if bucket.Value == value {
+				return maxUint64(bucket.Count, 1)
+			}
+		}
+		if hist.Distinct > 0 {
+			return maxUint64(hist.TotalRows/hist.Distinct, 1)
+		}
+		return 1
+	}
+	if op == "in" {
+		size := uint64(1)
+		if arr, ok := predicate.Value.([]any); ok && len(arr) > 0 {
+			size = uint64(len(arr))
+		}
+		if hist.Distinct > 0 {
+			return maxUint64((hist.TotalRows/hist.Distinct)*size, 1)
+		}
+	}
+	return maxUint64(hist.TotalRows/3, 1)
+}
+
+func maxUint64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func restrictedIndexFiltersForQuery(policyID string, body queryRequest) []string {
+	filters := []string{}
+	if strings.TrimSpace(policyID) != "" {
+		filters = append(filters, "restricted_view_id="+strings.TrimSpace(policyID))
+	}
+	for _, column := range body.MarkingColumns {
+		if trimmed := strings.TrimSpace(column); trimmed != "" {
+			filters = append(filters, "marking_column:"+trimmed)
+		}
+	}
+	return filters
+}
+
+func explainPayloadForMode(r *http.Request, body queryRequest, plan storage.QueryPlan) any {
+	if explainMode(r, body) == "" {
+		return nil
+	}
+	return plan
+}
+
+func actualsPayloadForMode(r *http.Request, body queryRequest, actuals storage.QueryActuals) any {
+	if explainMode(r, body) != "analyze" {
+		return nil
+	}
+	return actuals
 }

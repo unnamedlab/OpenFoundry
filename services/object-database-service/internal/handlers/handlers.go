@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,9 +16,11 @@ import (
 )
 
 type Handlers struct {
-	Objects storage.ObjectStore
-	Links   storage.LinkStore
-	Backend config.BackendMode
+	Objects   storage.ObjectStore
+	Links     storage.LinkStore
+	Backend   config.BackendMode
+	cache     *objectReadCache
+	cacheOnce sync.Once
 	// Cedar guards every ontology handler when set. nil → gate
 	// disabled, preserving the legacy "internal-only, gated by
 	// edge-gateway" deployment shape. See cedar_gate.go.
@@ -170,7 +173,7 @@ func (h *Handlers) GetObject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if obj == nil {
+	if obj == nil || !callerCanReadStorageObject(r, obj) {
 		http.NotFound(w, r)
 		return
 	}
@@ -220,6 +223,9 @@ func (h *Handlers) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outcome, err := h.Objects.Put(r.Context(), obj, body.ExpectedVersion)
+	if err == nil {
+		h.bustObjectCache(tenant, obj.TypeID, string(obj.ID))
+	}
 	if err != nil {
 		writeError(w, err)
 		return
@@ -239,6 +245,7 @@ func (h *Handlers) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	h.bustObjectIDFromCache(tenant, string(id))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -250,7 +257,9 @@ func (h *Handlers) ListByType(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, objectListResponse{Items: res.Items, NextToken: res.NextToken})
+	items, omitted := filterStorageObjectsForCaller(r, res.Items)
+	w.Header().Set("x-openfoundry-omitted-marking-count", strconv.Itoa(omitted))
+	writeJSON(w, http.StatusOK, objectListResponse{Items: items, NextToken: res.NextToken})
 }
 
 func (h *Handlers) ListByOwner(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +270,9 @@ func (h *Handlers) ListByOwner(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, objectListResponse{Items: res.Items, NextToken: res.NextToken})
+	items, omitted := filterStorageObjectsForCaller(r, res.Items)
+	w.Header().Set("x-openfoundry-omitted-marking-count", strconv.Itoa(omitted))
+	writeJSON(w, http.StatusOK, objectListResponse{Items: items, NextToken: res.NextToken})
 }
 
 func (h *Handlers) ListByMarking(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +283,9 @@ func (h *Handlers) ListByMarking(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, objectListResponse{Items: res.Items, NextToken: res.NextToken})
+	items, omitted := filterStorageObjectsForCaller(r, res.Items)
+	w.Header().Set("x-openfoundry-omitted-marking-count", strconv.Itoa(omitted))
+	writeJSON(w, http.StatusOK, objectListResponse{Items: items, NextToken: res.NextToken})
 }
 
 func (h *Handlers) PutLink(w http.ResponseWriter, r *http.Request) {

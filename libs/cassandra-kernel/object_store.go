@@ -25,20 +25,27 @@ import (
 // Index writes are best-effort fan-out (3 unbatched executes
 // across 3 partitions). Drift is repaired by tools/of-cli reindex.
 type ObjectStore struct {
-	session  *gocql.Session
-	keyspace string
+	session       *gocql.Session
+	keyspace      string
+	indexKeyspace string
 }
 
 // NewObjectStore builds a store bound to the standard
 // `ontology_objects` keyspace.
 func NewObjectStore(session *gocql.Session) *ObjectStore {
-	return &ObjectStore{session: session, keyspace: "ontology_objects"}
+	return &ObjectStore{session: session, keyspace: "ontology_objects", indexKeyspace: "ontology_indexes"}
 }
 
 // NewObjectStoreWithKeyspace allows a custom keyspace (multi-tenant
 // override).
 func NewObjectStoreWithKeyspace(session *gocql.Session, keyspace string) *ObjectStore {
-	return &ObjectStore{session: session, keyspace: keyspace}
+	return &ObjectStore{session: session, keyspace: keyspace, indexKeyspace: "ontology_indexes"}
+}
+
+// NewObjectStoreWithKeyspaces allows callers to bind the object rows and OSV2
+// property-index rows to separate keyspaces.
+func NewObjectStoreWithKeyspaces(session *gocql.Session, objectKeyspace, indexKeyspace string) *ObjectStore {
+	return &ObjectStore{session: session, keyspace: objectKeyspace, indexKeyspace: indexKeyspace}
 }
 
 // Compile-time interface assertion.
@@ -51,42 +58,71 @@ var _ repos.ObjectStore = (*ObjectStore)(nil)
 func (s *ObjectStore) cqlInsertIfNotExists() string {
 	return fmt.Sprintf(
 		`INSERT INTO %s.objects_by_id
-            (tenant, object_id, type_id, owner_id, properties, marking,
-             organization_id, revision_number, created_at, updated_at, deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, false) IF NOT EXISTS`,
+            (tenant, type_id, primary_key_hash, object_id, rid, primary_key,
+             owner_id, properties_blob, markings_blob, organizations,
+             revision_number, created_at, updated_at, last_updated,
+             last_updater, deleted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, false) IF NOT EXISTS`,
 		s.keyspace)
 }
 
 func (s *ObjectStore) cqlUpdateIfVersion() string {
 	return fmt.Sprintf(
 		`UPDATE %s.objects_by_id
-            SET type_id = ?, owner_id = ?, properties = ?, marking = ?,
-                organization_id = ?, revision_number = ?, updated_at = ?,
-                deleted = false
-          WHERE tenant = ? AND object_id = ?
+            SET rid = ?, primary_key = ?, owner_id = ?, properties_blob = ?,
+                markings_blob = ?, organizations = ?, revision_number = ?,
+                updated_at = ?, last_updated = ?, last_updater = ?, deleted = false
+          WHERE tenant = ? AND type_id = ? AND primary_key_hash = ? AND object_id = ?
           IF revision_number = ?`, s.keyspace)
 }
 
 func (s *ObjectStore) cqlSelectByID() string {
 	return fmt.Sprintf(
-		`SELECT type_id, owner_id, properties, marking, organization_id,
+		`SELECT type_id, owner_id, properties_blob, markings_blob, organizations,
                 revision_number, created_at, updated_at, deleted
-           FROM %s.objects_by_id WHERE tenant = ? AND object_id = ?`,
+           FROM %s.objects_by_id_by_rid WHERE tenant = ? AND object_id = ?`,
+		s.keyspace)
+}
+
+func (s *ObjectStore) cqlSelectByTypePrimaryKey() string {
+	return fmt.Sprintf(
+		`SELECT owner_id, properties_blob, markings_blob, organizations,
+                revision_number, created_at, updated_at, deleted
+           FROM %s.objects_by_id
+          WHERE tenant = ? AND type_id = ? AND primary_key_hash = ? AND object_id = ?`,
+		s.keyspace)
+}
+
+func (s *ObjectStore) cqlSoftDeleteByTypePrimaryKey() string {
+	return fmt.Sprintf(
+		`UPDATE %s.objects_by_id SET deleted = true, updated_at = ?, last_updated = ?
+          WHERE tenant = ? AND type_id = ? AND primary_key_hash = ? AND object_id = ?`,
 		s.keyspace)
 }
 
 func (s *ObjectStore) cqlSoftDeleteByID() string {
 	return fmt.Sprintf(
-		`UPDATE %s.objects_by_id SET deleted = true, updated_at = ?
+		`UPDATE %s.objects_by_id_by_rid SET deleted = true, updated_at = ?, last_updated = ?
           WHERE tenant = ? AND object_id = ?`, s.keyspace)
+}
+
+func (s *ObjectStore) cqlInsertByRID() string {
+	return fmt.Sprintf(
+		`INSERT INTO %s.objects_by_id_by_rid
+            (tenant, object_id, type_id, primary_key_hash, rid, primary_key,
+             owner_id, properties_blob, markings_blob, organizations,
+             revision_number, created_at, updated_at, last_updated,
+             last_updater, deleted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
+		s.keyspace)
 }
 
 func (s *ObjectStore) cqlInsertIndexByType() string {
 	return fmt.Sprintf(
 		`INSERT INTO %s.objects_by_type
-            (tenant, type_id, updated_at, object_id, owner_id, marking,
-             properties_summary, deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, false)`, s.keyspace)
+            (tenant, type_id, primary_key_hash, updated_at, object_id, owner_id,
+             markings_blob, properties_summary, deleted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, false)`, s.keyspace)
 }
 
 func (s *ObjectStore) cqlInsertIndexByOwner() string {
@@ -105,9 +141,9 @@ func (s *ObjectStore) cqlInsertIndexByMarking() string {
 
 func (s *ObjectStore) cqlSelectByType() string {
 	return fmt.Sprintf(
-		`SELECT object_id, owner_id, marking, properties_summary,
+		`SELECT object_id, owner_id, markings_blob, properties_summary,
                 updated_at, deleted
-           FROM %s.objects_by_type WHERE tenant = ? AND type_id = ?`,
+           FROM %s.objects_by_type WHERE tenant = ? AND type_id = ? AND primary_key_hash = ?`,
 		s.keyspace)
 }
 
@@ -142,17 +178,17 @@ func (s *ObjectStore) Get(
 		Consistency(cqlConsistency(consistency))
 
 	var (
-		typeID       string
-		ownerID      gocql.UUID
-		properties   string
-		marking      []string
-		orgID        *gocql.UUID
-		revision     int64
-		createdAt    time.Time
-		updatedAt    time.Time
-		deleted      bool
+		typeID         string
+		ownerID        gocql.UUID
+		propertiesBlob []byte
+		markingsBlob   []byte
+		orgID          *gocql.UUID
+		revision       int64
+		createdAt      time.Time
+		updatedAt      time.Time
+		deleted        bool
 	)
-	err = q.Scan(&typeID, &ownerID, &properties, &marking, &orgID, &revision, &createdAt, &updatedAt, &deleted)
+	err = q.Scan(&typeID, &ownerID, &propertiesBlob, &markingsBlob, &orgID, &revision, &createdAt, &updatedAt, &deleted)
 	if err == gocql.ErrNotFound {
 		return nil, nil
 	}
@@ -163,9 +199,13 @@ func (s *ObjectStore) Get(
 		return nil, nil
 	}
 
-	var payload json.RawMessage = []byte(properties)
-	if !json.Valid(payload) {
-		return nil, repos.Backendf("invalid stored JSON: not parseable")
+	payload, err := decodePropertiesBlob(propertiesBlob)
+	if err != nil {
+		return nil, repos.Backendf("invalid stored properties_blob: %v", err)
+	}
+	marking, err := decodeMarkingsBlob(markingsBlob)
+	if err != nil {
+		return nil, repos.Backendf("invalid stored markings_blob: %v", err)
 	}
 
 	var orgStr *string
@@ -184,6 +224,74 @@ func (s *ObjectStore) Get(
 		Tenant:         tenant,
 		ID:             id,
 		TypeID:         repos.TypeId(typeID),
+		Version:        uint64(revision),
+		Payload:        payload,
+		OrganizationID: orgStr,
+		CreatedAtMs:    &createdMs,
+		UpdatedAtMs:    updatedAt.UnixMilli(),
+		Owner:          &owner,
+		Markings:       markings,
+	}, nil
+}
+
+// GetByTypeAndPrimaryKey fetches one object through the OSV2 hot-row partition
+// `(tenant, type_id, primary_key_hash)`.
+func (s *ObjectStore) GetByTypeAndPrimaryKey(
+	ctx context.Context,
+	tenant repos.TenantId,
+	typeID repos.TypeId,
+	primaryKey string,
+	consistency repos.ReadConsistency,
+) (*repos.Object, error) {
+	objectUUID, err := parseUUID("primary_key", primaryKey)
+	if err != nil {
+		return nil, err
+	}
+	q := s.session.Query(s.cqlSelectByTypePrimaryKey(), tenantStr(tenant), string(typeID), primaryKeyHashBucket(primaryKey), objectUUID).
+		WithContext(ctx).
+		Consistency(cqlConsistency(consistency))
+	var (
+		ownerID        gocql.UUID
+		propertiesBlob []byte
+		markingsBlob   []byte
+		orgID          *gocql.UUID
+		revision       int64
+		createdAt      time.Time
+		updatedAt      time.Time
+		deleted        bool
+	)
+	if err := q.Scan(&ownerID, &propertiesBlob, &markingsBlob, &orgID, &revision, &createdAt, &updatedAt, &deleted); err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, nil
+		}
+		return nil, driverErr(err)
+	}
+	if deleted {
+		return nil, nil
+	}
+	payload, err := decodePropertiesBlob(propertiesBlob)
+	if err != nil {
+		return nil, repos.Backendf("invalid stored properties_blob: %v", err)
+	}
+	marking, err := decodeMarkingsBlob(markingsBlob)
+	if err != nil {
+		return nil, repos.Backendf("invalid stored markings_blob: %v", err)
+	}
+	var orgStr *string
+	if orgID != nil {
+		s := orgID.String()
+		orgStr = &s
+	}
+	createdMs := createdAt.UnixMilli()
+	owner := repos.OwnerId(ownerID.String())
+	markings := make([]repos.MarkingId, 0, len(marking))
+	for _, m := range marking {
+		markings = append(markings, repos.MarkingId(m))
+	}
+	return &repos.Object{
+		Tenant:         tenant,
+		ID:             repos.ObjectId(objectUUID.String()),
+		TypeID:         typeID,
 		Version:        uint64(revision),
 		Payload:        payload,
 		OrganizationID: orgStr,
@@ -219,30 +327,44 @@ func (s *ObjectStore) Put(
 	if err != nil {
 		return repos.PutOutcome{}, invalidArgf("payload is not serialisable: %v", err)
 	}
+	propertiesBlob, err := encodePropertiesBlob(obj.Payload)
+	if err != nil {
+		return repos.PutOutcome{}, invalidArgf("payload is not serialisable as OSV2 properties_blob: %v", err)
+	}
 	markings := make([]string, 0, len(obj.Markings))
 	for _, m := range obj.Markings {
 		markings = append(markings, string(m))
+	}
+	markingsBlob, err := encodeMarkingsBlob(markings)
+	if err != nil {
+		return repos.PutOutcome{}, invalidArgf("markings are not serialisable as OSV2 markings_blob: %v", err)
 	}
 	updatedAt := time.UnixMilli(obj.UpdatedAtMs).UTC()
 	createdAt := updatedAt
 	if obj.CreatedAtMs != nil {
 		createdAt = time.UnixMilli(*obj.CreatedAtMs).UTC()
 	}
+	primaryKey := string(obj.ID)
 
 	if expectedVersion == nil {
-		// INSERT IF NOT EXISTS path.
 		applied, actual, err := s.applyInsert(ctx, tenantStr(obj.Tenant), objectUUID,
-			string(obj.TypeID), ownerUUID, properties, markings, orgUUID,
-			createdAt, updatedAt)
+			string(obj.TypeID), ownerUUID, propertiesBlob, markingsBlob, orgUUID,
+			createdAt, updatedAt, primaryKey)
 		if err != nil {
 			return repos.PutOutcome{}, err
 		}
 		if !applied {
 			return repos.VersionConflict(0, actual), nil
 		}
+		if err := s.writeObjectRIDMirror(ctx, tenantStr(obj.Tenant), objectUUID, string(obj.TypeID), ownerUUID, propertiesBlob, markingsBlob, orgUUID, uint64(1), createdAt, updatedAt, primaryKey); err != nil {
+			return repos.PutOutcome{}, err
+		}
 		if err := s.writeIndexes(ctx, tenantStr(obj.Tenant), objectUUID,
-			string(obj.TypeID), ownerUUID, markings,
+			string(obj.TypeID), ownerUUID, markings, markingsBlob,
 			truncateSummary(properties), updatedAt); err != nil {
+			return repos.PutOutcome{}, err
+		}
+		if err := s.writePropertyIndexes(ctx, tenantStr(obj.Tenant), objectUUID, string(obj.TypeID), primaryKey, obj.Payload, updatedAt); err != nil {
 			return repos.PutOutcome{}, err
 		}
 		return repos.Inserted(), nil
@@ -251,20 +373,26 @@ func (s *ObjectStore) Put(
 	expected := *expectedVersion
 	newVersion := int64(expected) + 1
 	applied, actual, err := s.applyUpdate(ctx, tenantStr(obj.Tenant), objectUUID,
-		string(obj.TypeID), ownerUUID, properties, markings, orgUUID,
-		newVersion, updatedAt, int64(expected))
+		string(obj.TypeID), ownerUUID, propertiesBlob, markingsBlob, orgUUID,
+		newVersion, updatedAt, int64(expected), primaryKey)
 	if err != nil {
 		return repos.PutOutcome{}, err
 	}
 	if !applied {
 		if actual == 0 {
-			actual = expected // best-effort fallback when LWT didn't surface a value
+			actual = expected
 		}
 		return repos.VersionConflict(expected, actual), nil
 	}
+	if err := s.writeObjectRIDMirror(ctx, tenantStr(obj.Tenant), objectUUID, string(obj.TypeID), ownerUUID, propertiesBlob, markingsBlob, orgUUID, uint64(newVersion), createdAt, updatedAt, primaryKey); err != nil {
+		return repos.PutOutcome{}, err
+	}
 	if err := s.writeIndexes(ctx, tenantStr(obj.Tenant), objectUUID,
-		string(obj.TypeID), ownerUUID, markings,
+		string(obj.TypeID), ownerUUID, markings, markingsBlob,
 		truncateSummary(properties), updatedAt); err != nil {
+		return repos.PutOutcome{}, err
+	}
+	if err := s.writePropertyIndexes(ctx, tenantStr(obj.Tenant), objectUUID, string(obj.TypeID), primaryKey, obj.Payload, updatedAt); err != nil {
 		return repos.PutOutcome{}, err
 	}
 	return repos.Updated(expected, uint64(newVersion)), nil
@@ -276,14 +404,16 @@ func (s *ObjectStore) applyInsert(
 	objectUUID gocql.UUID,
 	typeID string,
 	ownerUUID gocql.UUID,
-	properties string,
-	markings []string,
+	propertiesBlob []byte,
+	markingsBlob []byte,
 	orgUUID *gocql.UUID,
 	createdAt, updatedAt time.Time,
+	primaryKey string,
 ) (applied bool, actualVersion uint64, err error) {
 	q := s.session.Query(s.cqlInsertIfNotExists(),
-		tenant, objectUUID, typeID, ownerUUID, properties, markings,
-		orgUUID, createdAt, updatedAt).
+		tenant, typeID, primaryKeyHashBucket(primaryKey), objectUUID, objectUUID.String(), primaryKey,
+		ownerUUID, propertiesBlob, markingsBlob, orgUUID, createdAt, updatedAt, updatedAt,
+		ownerUUID.String()).
 		WithContext(ctx).
 		SerialConsistency(gocql.LocalSerial)
 
@@ -304,17 +434,18 @@ func (s *ObjectStore) applyUpdate(
 	objectUUID gocql.UUID,
 	typeID string,
 	ownerUUID gocql.UUID,
-	properties string,
-	markings []string,
+	propertiesBlob []byte,
+	markingsBlob []byte,
 	orgUUID *gocql.UUID,
 	newVersion int64,
 	updatedAt time.Time,
 	expectedVersion int64,
+	primaryKey string,
 ) (applied bool, actualVersion uint64, err error) {
 	q := s.session.Query(s.cqlUpdateIfVersion(),
-		typeID, ownerUUID, properties, markings, orgUUID,
-		newVersion, updatedAt,
-		tenant, objectUUID, expectedVersion).
+		objectUUID.String(), primaryKey, ownerUUID, propertiesBlob, markingsBlob, orgUUID,
+		newVersion, updatedAt, updatedAt, ownerUUID.String(),
+		tenant, typeID, primaryKeyHashBucket(primaryKey), objectUUID, expectedVersion).
 		WithContext(ctx).
 		SerialConsistency(gocql.LocalSerial)
 
@@ -354,6 +485,29 @@ func revisionFromCAS(row map[string]any) uint64 {
 	return 0
 }
 
+func (s *ObjectStore) writeObjectRIDMirror(
+	ctx context.Context,
+	tenant string,
+	objectUUID gocql.UUID,
+	typeID string,
+	ownerUUID gocql.UUID,
+	propertiesBlob []byte,
+	markingsBlob []byte,
+	orgUUID *gocql.UUID,
+	version uint64,
+	createdAt, updatedAt time.Time,
+	primaryKey string,
+) error {
+	if err := s.session.Query(s.cqlInsertByRID(),
+		tenant, objectUUID, typeID, primaryKeyHashBucket(primaryKey), objectUUID.String(), primaryKey,
+		ownerUUID, propertiesBlob, markingsBlob, orgUUID, int64(version), createdAt, updatedAt, updatedAt,
+		ownerUUID.String()).
+		WithContext(ctx).Exec(); err != nil {
+		return driverErr(err)
+	}
+	return nil
+}
+
 // writeIndexes performs the 3-table fan-out write that the Rust
 // impl does. We do not LOGGED-batch because the partitions sit
 // across 3 tables (LOGGED batch is the worst case per ADR-0020).
@@ -366,11 +520,12 @@ func (s *ObjectStore) writeIndexes(
 	typeID string,
 	ownerUUID gocql.UUID,
 	markings []string,
+	markingsBlob []byte,
 	propertiesSummary string,
 	updatedAt time.Time,
 ) error {
 	if err := s.session.Query(s.cqlInsertIndexByType(),
-		tenant, typeID, updatedAt, objectUUID, ownerUUID, markings, propertiesSummary).
+		tenant, typeID, primaryKeyHashBucket(objectUUID.String()), updatedAt, objectUUID, ownerUUID, markingsBlob, propertiesSummary).
 		WithContext(ctx).Exec(); err != nil {
 		return driverErr(err)
 	}
@@ -401,13 +556,22 @@ func (s *ObjectStore) Delete(
 	if err != nil {
 		return false, err
 	}
+	existing, err := s.Get(ctx, tenant, id, repos.Strong())
+	if err != nil {
+		return false, err
+	}
+	if existing == nil {
+		return false, nil
+	}
 	now := time.Now().UTC()
-	if err := s.session.Query(s.cqlSoftDeleteByID(), now, tenantStr(tenant), objectUUID).
+	if err := s.session.Query(s.cqlSoftDeleteByID(), now, now, tenantStr(tenant), objectUUID).
 		WithContext(ctx).Exec(); err != nil {
 		return false, driverErr(err)
 	}
-	// Cassandra does not surface rows_affected for non-LWT writes.
-	// Caller is responsible for treating double-deletes as no-ops.
+	if err := s.session.Query(s.cqlSoftDeleteByTypePrimaryKey(), now, now, tenantStr(tenant), string(existing.TypeID), primaryKeyHashBucket(string(id)), objectUUID).
+		WithContext(ctx).Exec(); err != nil {
+		return false, driverErr(err)
+	}
 	return true, nil
 }
 
@@ -419,61 +583,64 @@ func (s *ObjectStore) ListByType(
 	page repos.Page,
 	consistency repos.ReadConsistency,
 ) (repos.PagedResult[repos.Object], error) {
-	pagingState, err := decodePagingState(page.Token)
-	if err != nil {
-		return repos.PagedResult[repos.Object]{}, err
-	}
-
-	q := s.session.Query(s.cqlSelectByType(), tenantStr(tenant), string(typeID)).
-		WithContext(ctx).
-		Consistency(cqlConsistency(consistency)).
-		PageSize(clampPageSize(page.Size))
-	if len(pagingState) > 0 {
-		q = q.PageState(pagingState)
-	}
-	iter := q.Iter()
-
+	// OSV2.1 buckets type partitions by primary_key_hash. The current repository
+	// cursor is still one opaque token, so this read fans out over the 64 buckets
+	// and returns a deterministic bounded page. Stable cross-bucket cursors land
+	// with the OSV2.5 pagination work.
+	limit := clampPageSize(page.Size)
 	out := repos.PagedResult[repos.Object]{Items: []repos.Object{}}
-	var (
-		objectID  gocql.UUID
-		ownerID   gocql.UUID
-		marking   []string
-		summary   *string
-		updatedAt time.Time
-		deleted   bool
-	)
-	for iter.Scan(&objectID, &ownerID, &marking, &summary, &updatedAt, &deleted) {
-		if deleted {
-			continue
+	for bucket := 0; bucket < objectHashBuckets && len(out.Items) < limit; bucket++ {
+		q := s.session.Query(s.cqlSelectByType(), tenantStr(tenant), string(typeID), bucket).
+			WithContext(ctx).
+			Consistency(cqlConsistency(consistency)).
+			PageSize(limit)
+		iter := q.Iter()
+		var (
+			objectID     gocql.UUID
+			ownerID      gocql.UUID
+			markingsBlob []byte
+			summary      *string
+			updatedAt    time.Time
+			deleted      bool
+		)
+		for iter.Scan(&objectID, &ownerID, &markingsBlob, &summary, &updatedAt, &deleted) {
+			if deleted {
+				continue
+			}
+			var payload json.RawMessage = []byte("{}")
+			if summary != nil && json.Valid([]byte(*summary)) {
+				payload = json.RawMessage([]byte(*summary))
+			}
+			owner := repos.OwnerId(ownerID.String())
+			marking, err := decodeMarkingsBlob(markingsBlob)
+			if err != nil {
+				iter.Close()
+				return repos.PagedResult[repos.Object]{}, repos.Backendf("invalid stored markings_blob: %v", err)
+			}
+			markings := make([]repos.MarkingId, 0, len(marking))
+			for _, m := range marking {
+				markings = append(markings, repos.MarkingId(m))
+			}
+			updatedMs := updatedAt.UnixMilli()
+			out.Items = append(out.Items, repos.Object{
+				Tenant:         tenant,
+				ID:             repos.ObjectId(objectID.String()),
+				TypeID:         typeID,
+				Version:        0,
+				Payload:        payload,
+				OrganizationID: organizationIDFromTenant(tenant),
+				CreatedAtMs:    &updatedMs,
+				UpdatedAtMs:    updatedMs,
+				Owner:          &owner,
+				Markings:       markings,
+			})
+			if len(out.Items) >= limit {
+				break
+			}
 		}
-		var payload json.RawMessage = []byte("{}")
-		if summary != nil && json.Valid([]byte(*summary)) {
-			payload = json.RawMessage([]byte(*summary))
+		if err := iter.Close(); err != nil {
+			return repos.PagedResult[repos.Object]{}, driverErr(err)
 		}
-		owner := repos.OwnerId(ownerID.String())
-		markings := make([]repos.MarkingId, 0, len(marking))
-		for _, m := range marking {
-			markings = append(markings, repos.MarkingId(m))
-		}
-		updatedMs := updatedAt.UnixMilli()
-		out.Items = append(out.Items, repos.Object{
-			Tenant:         tenant,
-			ID:             repos.ObjectId(objectID.String()),
-			TypeID:         typeID,
-			Version:        0, // index row does not carry the revision; caller `Get`s for that.
-			Payload:        payload,
-			OrganizationID: organizationIDFromTenant(tenant),
-			CreatedAtMs:    &updatedMs,
-			UpdatedAtMs:    updatedMs,
-			Owner:          &owner,
-			Markings:       markings,
-		})
-	}
-	if pageBytes := iter.PageState(); len(pageBytes) > 0 {
-		out.NextToken = encodePagingState(pageBytes)
-	}
-	if err := iter.Close(); err != nil {
-		return repos.PagedResult[repos.Object]{}, driverErr(err)
 	}
 	return out, nil
 }
@@ -622,4 +789,229 @@ func canonicalJSON(raw json.RawMessage) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+func (s *ObjectStore) cqlSelectPropertyIndexExact() string {
+	return fmt.Sprintf(
+		`SELECT object_id FROM %s.object_property_index
+          WHERE tenant = ? AND type_id = ? AND property_id = ? AND primary_key_hash = ? AND value_key = ?`,
+		s.indexKeyspace)
+}
+
+func (s *ObjectStore) cqlSelectPropertyIndexRangeLower() string {
+	return fmt.Sprintf(
+		`SELECT object_id FROM %s.object_property_index
+          WHERE tenant = ? AND type_id = ? AND property_id = ? AND primary_key_hash = ? AND value_key >= ?`,
+		s.indexKeyspace)
+}
+
+func (s *ObjectStore) cqlSelectPropertyIndexRangeUpper() string {
+	return fmt.Sprintf(
+		`SELECT object_id FROM %s.object_property_index
+          WHERE tenant = ? AND type_id = ? AND property_id = ? AND primary_key_hash = ? AND value_key <= ?`,
+		s.indexKeyspace)
+}
+
+func (s *ObjectStore) cqlSelectPropertyIndexRangeBetween() string {
+	return fmt.Sprintf(
+		`SELECT object_id FROM %s.object_property_index
+          WHERE tenant = ? AND type_id = ? AND property_id = ? AND primary_key_hash = ? AND value_key >= ? AND value_key <= ?`,
+		s.indexKeyspace)
+}
+
+func (s *ObjectStore) cqlInsertPropertyIndex() string {
+	return fmt.Sprintf(
+		`INSERT INTO %s.object_property_index
+            (tenant, type_id, property_id, primary_key_hash, value_kind,
+             value_key, null_value, object_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.indexKeyspace)
+}
+
+func (s *ObjectStore) writePropertyIndexes(ctx context.Context, tenant string, objectUUID gocql.UUID, typeID string, primaryKey string, payload json.RawMessage, updatedAt time.Time) error {
+	terms, err := propertyIndexTerms(payload)
+	if err != nil {
+		return invalidArgf("payload is not indexable as OSV2 property terms: %v", err)
+	}
+	bucket := primaryKeyHashBucket(primaryKey)
+	for _, term := range terms {
+		if err := s.session.Query(s.cqlInsertPropertyIndex(),
+			tenant, typeID, term.PropertyID, bucket, term.ValueKind, term.ValueKey, term.NullValue, objectUUID, updatedAt).
+			WithContext(ctx).Exec(); err != nil {
+			return driverErr(err)
+		}
+	}
+	return nil
+}
+
+// QueryByProperty executes an OSV2.7 property-index lookup and hydrates matching
+// object rows through GetByTypeAndPrimaryKey. It supports exact, range,
+// starts_with and IN-list predicates by fanning out across primary-key buckets.
+func (s *ObjectStore) QueryByProperty(ctx context.Context, tenant repos.TenantId, typeID repos.TypeId, predicate repos.PropertyPredicate, page repos.Page, consistency repos.ReadConsistency) (repos.PagedResult[repos.Object], error) {
+	limit := clampPageSize(page.Size)
+	ids, err := s.queryPropertyIndexIDs(ctx, tenant, typeID, predicate, limit)
+	if err != nil {
+		return repos.PagedResult[repos.Object]{}, err
+	}
+	out := repos.PagedResult[repos.Object]{Items: []repos.Object{}}
+	for _, id := range ids {
+		obj, err := s.GetByTypeAndPrimaryKey(ctx, tenant, typeID, string(id), consistency)
+		if err != nil {
+			return repos.PagedResult[repos.Object]{}, err
+		}
+		if obj != nil && matchesRepoPropertyPredicate(obj.Payload, predicate) {
+			out.Items = append(out.Items, *obj)
+		}
+	}
+	return out, nil
+}
+
+func matchesRepoPropertyPredicate(payload json.RawMessage, predicate repos.PropertyPredicate) bool {
+	var props map[string]any
+	if err := json.Unmarshal(payload, &props); err != nil {
+		return false
+	}
+	actual, ok := props[predicate.PropertyName]
+	if !ok {
+		actual = nil
+	}
+	actualTerm, ok := propertyIndexTermForValue(propertyID(predicate.PropertyName), actual)
+	if !ok {
+		return false
+	}
+	op := strings.ToLower(strings.TrimSpace(predicate.Operator))
+	if op == "" {
+		op = "equals"
+	}
+	switch op {
+	case "equals", "eq", "=":
+		expectedTerm, ok := propertyIndexTermForValue(propertyID(predicate.PropertyName), predicate.Value)
+		return ok && actualTerm.ValueKey == expectedTerm.ValueKey
+	case "gte", ">=":
+		expectedTerm, ok := propertyIndexTermForValue(propertyID(predicate.PropertyName), predicate.Value)
+		return ok && actualTerm.ValueKey >= expectedTerm.ValueKey
+	case "gt", ">":
+		expectedTerm, ok := propertyIndexTermForValue(propertyID(predicate.PropertyName), predicate.Value)
+		return ok && actualTerm.ValueKey > expectedTerm.ValueKey
+	case "lte", "<=":
+		expectedTerm, ok := propertyIndexTermForValue(propertyID(predicate.PropertyName), predicate.Value)
+		return ok && actualTerm.ValueKey <= expectedTerm.ValueKey
+	case "lt", "<":
+		expectedTerm, ok := propertyIndexTermForValue(propertyID(predicate.PropertyName), predicate.Value)
+		return ok && actualTerm.ValueKey < expectedTerm.ValueKey
+	case "in":
+		switch values := predicate.Value.(type) {
+		case []any:
+			for _, value := range values {
+				if matchesRepoPropertyPredicate(payload, repos.PropertyPredicate{PropertyName: predicate.PropertyName, Operator: "equals", Value: value}) {
+					return true
+				}
+			}
+		case []string:
+			for _, value := range values {
+				if matchesRepoPropertyPredicate(payload, repos.PropertyPredicate{PropertyName: predicate.PropertyName, Operator: "equals", Value: value}) {
+					return true
+				}
+			}
+		}
+		return false
+	case "starts_with", "prefix":
+		prefix, ok := predicate.Value.(string)
+		return ok && strings.HasPrefix(actualTerm.ValueKey, strings.ToLower(strings.TrimSpace(prefix)))
+	default:
+		return false
+	}
+}
+
+func (s *ObjectStore) queryPropertyIndexIDs(ctx context.Context, tenant repos.TenantId, typeID repos.TypeId, predicate repos.PropertyPredicate, limit int) ([]repos.ObjectId, error) {
+	property := propertyID(predicate.PropertyName)
+	op := strings.ToLower(strings.TrimSpace(predicate.Operator))
+	if op == "" {
+		op = "equals"
+	}
+	seen := map[repos.ObjectId]struct{}{}
+	out := make([]repos.ObjectId, 0, limit)
+	addRows := func(query string, args ...any) error {
+		iter := s.session.Query(query, args...).WithContext(ctx).PageSize(limit).Iter()
+		var objectID gocql.UUID
+		for iter.Scan(&objectID) {
+			id := repos.ObjectId(objectID.String())
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+			if len(out) >= limit {
+				break
+			}
+		}
+		if err := iter.Close(); err != nil {
+			return driverErr(err)
+		}
+		return nil
+	}
+	queryExactTerm := func(value any) error {
+		term, ok := propertyIndexTermForValue(property, value)
+		if !ok {
+			return nil
+		}
+		for bucket := 0; bucket < objectHashBuckets && len(out) < limit; bucket++ {
+			if err := addRows(s.cqlSelectPropertyIndexExact(), tenantStr(tenant), string(typeID), property, bucket, term.ValueKey); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	switch op {
+	case "equals", "eq", "=":
+		return out, queryExactTerm(predicate.Value)
+	case "in":
+		switch values := predicate.Value.(type) {
+		case []any:
+			for _, value := range values {
+				if err := queryExactTerm(value); err != nil || len(out) >= limit {
+					return out, err
+				}
+			}
+		case []string:
+			for _, value := range values {
+				if err := queryExactTerm(value); err != nil || len(out) >= limit {
+					return out, err
+				}
+			}
+		}
+		return out, nil
+	case "starts_with", "prefix":
+		prefix, ok := predicate.Value.(string)
+		if !ok {
+			return out, nil
+		}
+		lo := strings.ToLower(strings.TrimSpace(prefix))
+		hi := lo + "ÿ"
+		for bucket := 0; bucket < objectHashBuckets && len(out) < limit; bucket++ {
+			if err := addRows(s.cqlSelectPropertyIndexRangeBetween(), tenantStr(tenant), string(typeID), property, bucket, lo, hi); err != nil {
+				return out, err
+			}
+		}
+		return out, nil
+	case "gte", ">=", "gt", ">", "lte", "<=", "lt", "<":
+		term, ok := propertyIndexTermForValue(property, predicate.Value)
+		if !ok {
+			return out, nil
+		}
+		for bucket := 0; bucket < objectHashBuckets && len(out) < limit; bucket++ {
+			var err error
+			switch op {
+			case "gte", ">=", "gt", ">":
+				err = addRows(s.cqlSelectPropertyIndexRangeLower(), tenantStr(tenant), string(typeID), property, bucket, term.ValueKey)
+			default:
+				err = addRows(s.cqlSelectPropertyIndexRangeUpper(), tenantStr(tenant), string(typeID), property, bucket, term.ValueKey)
+			}
+			if err != nil {
+				return out, err
+			}
+		}
+		return out, nil
+	default:
+		return out, nil
+	}
 }
