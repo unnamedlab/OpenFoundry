@@ -9,11 +9,15 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -71,16 +75,12 @@ func main() {
 		&handlers.HTTPFlinkDeployer{BaseURL: os.Getenv("FLINK_RUNTIME_URL")},
 	)
 	store := &repo.Repo{Pool: pool}
-	// Reconciler defaults to LoggingApplier (no-op). When
-	// INGESTION_CONTROL_PLANE_URL is set, swap in the HTTP applier that talks
-	// to the Kubernetes-backed control plane (mirrors the Rust hot-standby
-	// reconcile loop in services/ingestion-replication-service/src/reconcile.rs).
-	reconciler := &reconcile.Reconciler{Logger: log}
-	if cpURL := os.Getenv("INGESTION_CONTROL_PLANE_URL"); cpURL != "" {
-		reconciler.Applier = &reconcile.HTTPApplier{BaseURL: cpURL, Logger: log}
+	reconciler, err := buildReconcilerFromEnv(log, os.Getenv)
+	if err != nil {
+		log.Error("reconciler configuration failed", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
-	_ = reconciler // wired for future reconcile-loop hookup; keeps applier reachable.
-	h := &handlers.Handlers{Repo: store, Runtime: runtime}
+	h := &handlers.Handlers{Repo: store, Runtime: runtime, Reconciler: reconciler}
 	metrics := observability.NewMetrics()
 
 	// IRF-9: schema-validation + history endpoints, backed by the
@@ -123,4 +123,59 @@ func splitCSV(v string) []string {
 		}
 	}
 	return out
+}
+
+func buildReconcilerFromEnv(log *slog.Logger, getenv func(string) string) (*reconcile.Reconciler, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	mode := strings.ToLower(strings.TrimSpace(getenv("INGESTION_RECONCILE_MODE")))
+	cpURL := strings.TrimSpace(getenv("INGESTION_CONTROL_PLANE_URL"))
+	allowNoop := parseBoolEnv(getenv("INGESTION_ALLOW_NOOP_RECONCILER"))
+
+	if cpURL != "" {
+		return &reconcile.Reconciler{Logger: log, Applier: &reconcile.HTTPApplier{
+			BaseURL:    cpURL,
+			HTTPClient: &http.Client{Timeout: reconcileHTTPTimeout(getenv)},
+			Logger:     log,
+		}}, nil
+	}
+
+	if allowNoop || mode == "noop" || mode == "log" || mode == "dev" {
+		log.Warn("INGESTION RECONCILER IS RUNNING IN EXPLICIT NO-OP MODE; CONTROL-PLANE RESOURCES WILL NOT BE MATERIALIZED",
+			slog.String("mode", mode),
+			slog.Bool("allow_noop", allowNoop),
+		)
+		return &reconcile.Reconciler{Logger: log, Applier: &reconcile.LoggingApplier{Logger: log}}, nil
+	}
+	if mode != "" && mode != "http" && mode != "production" {
+		return nil, fmt.Errorf("unsupported INGESTION_RECONCILE_MODE %q (use http/production with INGESTION_CONTROL_PLANE_URL, or explicit noop/log/dev)", mode)
+	}
+	return nil, fmt.Errorf("INGESTION_CONTROL_PLANE_URL is required unless INGESTION_RECONCILE_MODE=noop/log/dev or INGESTION_ALLOW_NOOP_RECONCILER=true is set")
+}
+
+func reconcileHTTPTimeout(getenv func(string) string) time.Duration {
+	v := strings.TrimSpace(getenv("INGESTION_CONTROL_PLANE_TIMEOUT"))
+	if v == "" {
+		return reconcile.DefaultHTTPTimeout
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	if seconds, err := strconv.Atoi(v); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return reconcile.DefaultHTTPTimeout
+}
+
+func parseBoolEnv(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

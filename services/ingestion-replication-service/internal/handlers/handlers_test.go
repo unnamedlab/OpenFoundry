@@ -92,6 +92,7 @@ func TestListIngestJobsRequiresAuth(t *testing.T) {
 }
 
 type fakeStore struct {
+	ingestJobs  map[uuid.UUID]models.IngestJob
 	streams     map[uuid.UUID]models.StreamDefinition
 	cdcStreams  map[uuid.UUID]models.CdcStream
 	checkpoints map[uuid.UUID]models.IncrementalCheckpoint
@@ -106,6 +107,7 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
+		ingestJobs:       map[uuid.UUID]models.IngestJob{},
 		streams:          map[uuid.UUID]models.StreamDefinition{},
 		cdcStreams:       map[uuid.UUID]models.CdcStream{},
 		checkpoints:      map[uuid.UUID]models.IncrementalCheckpoint{},
@@ -117,18 +119,53 @@ func newFakeStore() *fakeStore {
 }
 
 func (f *fakeStore) ListIngestJobs(context.Context, string, string) ([]models.IngestJob, error) {
-	return nil, nil
+	out := make([]models.IngestJob, 0, len(f.ingestJobs))
+	for _, job := range f.ingestJobs {
+		out = append(out, job)
+	}
+	return out, nil
 }
-func (f *fakeStore) GetIngestJob(context.Context, uuid.UUID) (*models.IngestJob, error) {
-	return nil, nil
+func (f *fakeStore) GetIngestJob(_ context.Context, id uuid.UUID) (*models.IngestJob, error) {
+	job, ok := f.ingestJobs[id]
+	if !ok {
+		return nil, nil
+	}
+	return &job, nil
 }
-func (f *fakeStore) CreateIngestJob(context.Context, *models.CreateIngestJobRequest) (*models.IngestJob, error) {
-	return nil, nil
+func (f *fakeStore) CreateIngestJob(_ context.Context, body *models.CreateIngestJobRequest) (*models.IngestJob, error) {
+	now := time.Now().UTC()
+	job := models.IngestJob{ID: uuid.New(), Name: body.Name, Namespace: body.Namespace, Spec: body.Spec, Status: "pending", CreatedAt: now, UpdatedAt: now}
+	f.ingestJobs[job.ID] = job
+	return &job, nil
 }
-func (f *fakeStore) UpdateIngestJob(context.Context, uuid.UUID, *models.UpdateIngestJobRequest) (*models.IngestJob, error) {
-	return nil, nil
+func (f *fakeStore) UpdateIngestJob(_ context.Context, id uuid.UUID, body *models.UpdateIngestJobRequest) (*models.IngestJob, error) {
+	job, ok := f.ingestJobs[id]
+	if !ok {
+		return nil, nil
+	}
+	if body.Status != nil {
+		job.Status = *body.Status
+	}
+	if body.KafkaConnectorName != nil {
+		job.KafkaConnectorName = body.KafkaConnectorName
+	}
+	if body.FlinkDeploymentName != nil {
+		job.FlinkDeploymentName = body.FlinkDeploymentName
+	}
+	if body.Error != nil {
+		job.Error = body.Error
+	}
+	job.UpdatedAt = time.Now().UTC()
+	f.ingestJobs[id] = job
+	return &job, nil
 }
-func (f *fakeStore) DeleteIngestJob(context.Context, uuid.UUID) (bool, error) { return false, nil }
+func (f *fakeStore) DeleteIngestJob(_ context.Context, id uuid.UUID) (bool, error) {
+	if _, ok := f.ingestJobs[id]; !ok {
+		return false, nil
+	}
+	delete(f.ingestJobs, id)
+	return true, nil
+}
 
 func (f *fakeStore) ListStreams(_ context.Context, ownerID uuid.UUID, status string) ([]models.StreamDefinition, error) {
 	out := []models.StreamDefinition{}
@@ -659,4 +696,68 @@ func TestSchemaRegistryHandlersRegisterFetchAndCheckCompatibility(t *testing.T) 
 	h.CheckSchemaCompatibility(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"is_compatible":true`)
+}
+
+type fakeIngestReconciler struct {
+	calls int
+	jobs  []models.IngestJob
+	kc    string
+	fl    string
+	err   error
+}
+
+func (f *fakeIngestReconciler) Apply(_ context.Context, job *models.IngestJob) (string, string, error) {
+	f.calls++
+	if job != nil {
+		f.jobs = append(f.jobs, *job)
+	}
+	if f.err != nil {
+		return "", "", f.err
+	}
+	return f.kc, f.fl, nil
+}
+
+func TestCreateIngestJobReconcilesAndPersistsResourceNames(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	reconciler := &fakeIngestReconciler{kc: "orders-debezium-pg", fl: "orders-iceberg-sink"}
+	h := &handlers.Handlers{Repo: store, Reconciler: reconciler}
+	claims := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/ingest-jobs", strings.NewReader(`{"name":"orders","namespace":"data","spec":{"source":"postgres"}}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), claims))
+	rec := httptest.NewRecorder()
+
+	h.CreateIngestJob(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, 1, reconciler.calls)
+	var got models.IngestJob
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "materialized", got.Status)
+	require.NotNil(t, got.KafkaConnectorName)
+	require.Equal(t, "orders-debezium-pg", *got.KafkaConnectorName)
+	require.NotNil(t, got.FlinkDeploymentName)
+	require.Equal(t, "orders-iceberg-sink", *got.FlinkDeploymentName)
+}
+
+func TestCreateIngestJobReconcileFailurePersistsFailedStatus(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	reconciler := &fakeIngestReconciler{err: assert.AnError}
+	h := &handlers.Handlers{Repo: store, Reconciler: reconciler}
+	claims := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/ingest-jobs", strings.NewReader(`{"name":"orders","namespace":"data","spec":{"source":"postgres"}}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), claims))
+	rec := httptest.NewRecorder()
+
+	h.CreateIngestJob(rec, req)
+
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Equal(t, 1, reconciler.calls)
+	jobs, err := store.ListIngestJobs(context.Background(), "", "")
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	require.Equal(t, "failed", jobs[0].Status)
+	require.NotNil(t, jobs[0].Error)
+	require.Contains(t, *jobs[0].Error, assert.AnError.Error())
 }

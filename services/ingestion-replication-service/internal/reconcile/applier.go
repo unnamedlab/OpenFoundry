@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openfoundry/openfoundry-go/services/ingestion-replication-service/internal/models"
 )
@@ -35,6 +36,10 @@ const DefaultFlinkImage = "apache/flink:1.18-scala_2.12-java11"
 
 // DefaultFlinkVersion is the default Flink version label sent to the operator.
 const DefaultFlinkVersion = "v1_18"
+
+// DefaultHTTPTimeout bounds production control-plane calls when callers do not
+// inject a custom client.
+const DefaultHTTPTimeout = 30 * time.Second
 
 // IngestJobSpec is the JSON-decode shape of `IngestJob.Spec` (json.RawMessage).
 // Mirrors the Rust `proto::IngestJobSpec` struct — see
@@ -233,8 +238,8 @@ func (m *orderedStringMap) UnmarshalJSON(data []byte) error {
 
 // KafkaConnector mirrors the Strimzi KafkaConnector custom resource.
 type KafkaConnector struct {
-	Metadata ObjectMeta          `json:"metadata"`
-	Spec     KafkaConnectorSpec  `json:"spec"`
+	Metadata ObjectMeta         `json:"metadata"`
+	Spec     KafkaConnectorSpec `json:"spec"`
 }
 
 // KafkaConnectorSpec mirrors Rust `crds::KafkaConnectorSpec`.
@@ -374,9 +379,9 @@ func renderPostgresKafkaConnector(spec *IngestJobSpec, pg *PostgresSource, names
 	cfg.set("topic.prefix", topicPrefix)
 
 	labels := map[string]string{
-		"app.kubernetes.io/managed-by":     FieldManager,
-		"ingestion.openfoundry.io/job":     spec.Name,
-		"strimzi.io/cluster":               spec.KafkaConnectCluster,
+		"app.kubernetes.io/managed-by": FieldManager,
+		"ingestion.openfoundry.io/job": spec.Name,
+		"strimzi.io/cluster":           spec.KafkaConnectCluster,
 	}
 
 	return KafkaConnector{
@@ -489,7 +494,7 @@ func (a *HTTPApplier) client() *http.Client {
 	if a != nil && a.HTTPClient != nil {
 		return a.HTTPClient
 	}
-	return http.DefaultClient
+	return &http.Client{Timeout: DefaultHTTPTimeout}
 }
 
 func (a *HTTPApplier) logger() *slog.Logger {
