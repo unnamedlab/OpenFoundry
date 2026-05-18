@@ -4,6 +4,12 @@
 
 ---
 
+## 🧭 Foundry-native reading of this document
+
+This document is an **OpenFoundry implementation map** for the Foundry-native workflow defined in [`00-contrato-foundry-native.md`](00-contrato-foundry-native.md). Customer-facing language must describe Foundry resources first (Data Connection, Dataset, Pipeline, Ontology, Action Type, Workshop, AIP Chatbot, Global Branch); the service names below explain how OpenFoundry implements those resources internally.
+
+---
+
 ## 🧩 Subset of services to spin up ("Foundry Minimum Viable Demo")
 
 ### Layer 1 — Base infrastructure (not OpenFoundry services, these are dependencies)
