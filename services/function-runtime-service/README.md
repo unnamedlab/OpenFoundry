@@ -52,6 +52,7 @@ services/function-runtime-service/
   internal/executor/                       Executor interface + TS/Python stubs (timeouts + rlimit hooks)
   internal/models/                         wire + persistence types
   internal/config/                         koanf-backed config (Config.Load)
+  internal/cipherclient/                   generated cipher namespace templates + caller auth forwarding contract
 ```
 
 ## Run locally
@@ -81,6 +82,10 @@ go run ./services/function-runtime-service/cmd/function-runtime-service \
 
 Every route lives behind `libs/auth-middleware`; the caller's tenant
 is taken from the JWT (`claims.OrgID`), not from request body fields.
+
+## Cipher namespace
+
+The runtime exposes generated TypeScript and Python `cipher` namespaces for user functions: `cipher.encrypt(keyId, value)`, `cipher.decrypt(envelope)`, and `cipher.tokenize(pepperId, value)`. Calls forward the original caller authorization headers to cipher-service so policy checks and audit events run as the invoking user rather than the runtime host.
 
 ## Persistence
 

@@ -55,13 +55,25 @@ func TestMountAPIRoutes_RequiresAuth(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/v1/auth/cipher/algorithms"},
 		{http.MethodGet, "/api/v1/auth/cipher/keys"},
 		{http.MethodPost, "/api/v1/auth/cipher/keys"},
 		{http.MethodGet, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000"},
+		{http.MethodPatch, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000"},
+		{http.MethodDelete, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000"},
 		{http.MethodPost, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000/rotate"},
+		{http.MethodPost, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000/rotate-new"},
+		{http.MethodPost, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000/wrap-for-promotion"},
 		{http.MethodPost, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000/retire"},
+		{http.MethodPost, "/api/v1/auth/cipher/keys/00000000-0000-0000-0000-000000000000/revoke"},
+		{http.MethodPost, "/api/v1/auth/cipher/peppers"},
+		{http.MethodPost, "/api/v1/auth/cipher/peppers/00000000-0000-0000-0000-000000000000/rotate"},
 		{http.MethodPost, "/api/v1/auth/cipher/encrypt"},
+		{http.MethodPost, "/api/v1/auth/cipher/encrypt-batch"},
+		{http.MethodPost, "/api/v1/auth/cipher/tokenize"},
 		{http.MethodPost, "/api/v1/auth/cipher/decrypt"},
+		{http.MethodPost, "/api/v1/auth/cipher/decrypt-batch"},
+		{http.MethodPost, "/api/v1/auth/cipher/decrypt-stream"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {

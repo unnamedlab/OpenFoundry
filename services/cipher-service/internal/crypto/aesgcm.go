@@ -1,25 +1,22 @@
 // Package crypto is the cipher-service's encrypt/decrypt primitive.
-// It binds an unwrapped 32-byte DEK to the on-wire envelope layout the
-// Foundry-Cipher checklist (CIP.3) requires.
+// It binds an unwrapped 32-byte DEK to the self-describing envelope
+// layout the Foundry-Cipher checklist (CIP.3) requires.
 //
-// Envelope wire layout (Milestone A):
-//
-//	+----------------+----------------+----------------+-------------------+
-//	| key_id (16 B)  | version (4 B)  | nonce (12 B)   | ciphertext || tag |
-//	+----------------+----------------+----------------+-------------------+
-//
-// The four-byte version is big-endian. The trailing block is the
-// AES-GCM ciphertext concatenated with the GCM tag (Go's stdlib emits
-// them as a single byte slice). The envelope is intentionally
-// self-describing so any reader with a fresh DEK lookup can decrypt
-// without out-of-band metadata.
+// Envelope wire layout (schema_version=1): the service JSON-encodes
+// {key_id, key_version, algorithm_id, nonce, ciphertext, auth_tag,
+// schema_version}; nonce/ciphertext/auth_tag are base64 strings inside
+// the JSON object. The HTTP layer then base64-encodes the whole JSON
+// object into the single ciphertext string callers store.
 package crypto
 
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
-	"encoding/binary"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -37,9 +34,30 @@ const dekSize = 32
 // service's wire envelope pins 12.
 const nonceSize = 12
 
-// HeaderSize is the fixed-prefix length: key_id (16) + version (4) +
-// nonce (12).
-const HeaderSize = 16 + 4 + nonceSize
+// gcmTagSize is AES-GCM's 16-byte authentication tag size.
+const gcmTagSize = 16
+
+// EnvelopeSchemaVersion is the current self-describing envelope schema.
+const EnvelopeSchemaVersion = 1
+
+// HeaderSize is retained only as the minimum serialized envelope size
+// guard for older tests and callers that treat DecodeHeader as a cheap
+// malformed-input check. Schema v1 envelopes are JSON, not fixed-width.
+const HeaderSize = 1
+
+// Envelope is the JSON object that is base64-encoded by the HTTP API as
+// one ciphertext string. KeyVersion is an OpenFoundry extension that
+// keeps rotated keys self-describing while preserving CIP.3's required
+// fields.
+type Envelope struct {
+	KeyID         string `json:"key_id"`
+	KeyVersion    uint32 `json:"key_version"`
+	AlgorithmID   string `json:"algorithm_id"`
+	Nonce         string `json:"nonce"`
+	Ciphertext    string `json:"ciphertext"`
+	AuthTag       string `json:"auth_tag"`
+	SchemaVersion uint16 `json:"schema_version"`
+}
 
 // NewDEK draws a fresh 32-byte data-encryption key from crypto/rand.
 // Callers wrap the DEK with a KMS Wrap call before persisting.
@@ -51,16 +69,15 @@ func NewDEK() ([]byte, error) {
 	return dek, nil
 }
 
-// Encrypt wraps `plaintext` under `dek` and returns the full
-// self-describing envelope. The DEK must be exactly 32 bytes;
-// callers obtain it by KMS-unwrapping the stored CipherKeyVersion.
-//
-// The nonce is freshly drawn from crypto/rand on every call: re-using
-// a nonce under the same DEK breaks GCM's confidentiality guarantee,
-// so the function never accepts a caller-supplied nonce.
-func Encrypt(keyID uuid.UUID, version uint32, dek, plaintext []byte) ([]byte, error) {
+// Encrypt wraps plaintext under dek and returns the JSON envelope bytes.
+// The handler base64-encodes these bytes into the external ciphertext
+// string. The nonce is freshly drawn for every AES-GCM encryption.
+func Encrypt(keyID uuid.UUID, version uint32, algorithm domain.Algorithm, dek, plaintext []byte) ([]byte, error) {
 	if len(dek) != dekSize {
 		return nil, fmt.Errorf("cipher: DEK must be %d bytes (got %d)", dekSize, len(dek))
+	}
+	if algorithm != domain.AlgorithmAES256GCM && algorithm != domain.AlgorithmAES256SIV {
+		return nil, domain.ErrAlgorithmUnsupported
 	}
 	block, err := aes.NewCipher(dek)
 	if err != nil {
@@ -71,51 +88,107 @@ func Encrypt(keyID uuid.UUID, version uint32, dek, plaintext []byte) ([]byte, er
 		return nil, fmt.Errorf("cipher: gcm init: %w", err)
 	}
 	nonce := make([]byte, nonceSize)
-	if _, err := rand.Read(nonce); err != nil {
+	if algorithm == domain.AlgorithmAES256SIV {
+		nonce = syntheticNonce(dek, additionalData(keyID, version, algorithm), plaintext)
+	} else if _, err := rand.Read(nonce); err != nil {
 		return nil, fmt.Errorf("cipher: read nonce: %w", err)
 	}
-	// AEAD additional data binds key_id+version so an attacker who
-	// swaps the plaintext header (e.g. forges a different key id over
-	// the same ciphertext) trips authentication.
-	header := buildHeader(keyID, version, nonce)
-	ct := aead.Seal(nil, nonce, plaintext, header[:HeaderSize-nonceSize])
-	out := make([]byte, 0, HeaderSize+len(ct))
-	out = append(out, header...)
-	out = append(out, ct...)
+	sealed := aead.Seal(nil, nonce, plaintext, additionalData(keyID, version, algorithm))
+	ciphertext := sealed[:len(sealed)-gcmTagSize]
+	tag := sealed[len(sealed)-gcmTagSize:]
+	env := Envelope{
+		KeyID:         keyID.String(),
+		KeyVersion:    version,
+		AlgorithmID:   string(algorithm),
+		Nonce:         base64.StdEncoding.EncodeToString(nonce),
+		Ciphertext:    base64.StdEncoding.EncodeToString(ciphertext),
+		AuthTag:       base64.StdEncoding.EncodeToString(tag),
+		SchemaVersion: EnvelopeSchemaVersion,
+	}
+	out, err := json.Marshal(env)
+	if err != nil {
+		return nil, fmt.Errorf("cipher: marshal envelope: %w", err)
+	}
 	return out, nil
 }
 
-// DecodeHeader pulls the (key_id, version) tuple out of `envelope`
+// DecodeHeader pulls the (key_id, key_version) tuple out of an envelope
 // without touching the DEK. Used by the handler layer to look the key
 // up before fetching wrapped material from the repo.
 func DecodeHeader(envelope []byte) (uuid.UUID, uint32, error) {
-	if len(envelope) < HeaderSize {
-		return uuid.UUID{}, 0, domain.ErrInvalidEnvelope
+	decoded, err := DecodeEnvelope(envelope)
+	if err != nil {
+		return uuid.UUID{}, 0, err
 	}
-	var id uuid.UUID
-	copy(id[:], envelope[:16])
-	version := binary.BigEndian.Uint32(envelope[16:20])
-	return id, version, nil
+	return decoded.KeyID, decoded.KeyVersion, nil
 }
 
-// Decrypt reverses Encrypt. `expectedKeyID` and `expectedVersion`
-// guard against a wire-tampering caller swapping the envelope header
-// after the fact — both must match what DecodeHeader returned.
-func Decrypt(expectedKeyID uuid.UUID, expectedVersion uint32, dek, envelope []byte) ([]byte, error) {
+// DecodedEnvelope is the validated, binary form of Envelope.
+type DecodedEnvelope struct {
+	KeyID         uuid.UUID
+	KeyVersion    uint32
+	AlgorithmID   domain.Algorithm
+	Nonce         []byte
+	Ciphertext    []byte
+	AuthTag       []byte
+	SchemaVersion uint16
+}
+
+// DecodeEnvelope validates and decodes a schema-v1 JSON envelope.
+func DecodeEnvelope(envelope []byte) (DecodedEnvelope, error) {
 	if len(envelope) < HeaderSize {
-		return nil, domain.ErrInvalidEnvelope
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
 	}
+	var raw Envelope
+	if err := json.Unmarshal(envelope, &raw); err != nil {
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
+	}
+	if raw.SchemaVersion != EnvelopeSchemaVersion || raw.AlgorithmID == "" {
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
+	}
+	keyID, err := uuid.Parse(raw.KeyID)
+	if err != nil || raw.KeyVersion == 0 {
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
+	}
+	nonce, err := base64.StdEncoding.DecodeString(raw.Nonce)
+	if err != nil || len(nonce) != nonceSize {
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(raw.Ciphertext)
+	if err != nil {
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
+	}
+	tag, err := base64.StdEncoding.DecodeString(raw.AuthTag)
+	if err != nil || len(tag) != gcmTagSize {
+		return DecodedEnvelope{}, domain.ErrInvalidEnvelope
+	}
+	return DecodedEnvelope{
+		KeyID:         keyID,
+		KeyVersion:    raw.KeyVersion,
+		AlgorithmID:   domain.Algorithm(raw.AlgorithmID),
+		Nonce:         nonce,
+		Ciphertext:    ciphertext,
+		AuthTag:       tag,
+		SchemaVersion: raw.SchemaVersion,
+	}, nil
+}
+
+// Decrypt reverses Encrypt. expectedKeyID, expectedVersion, and
+// expectedAlgorithm guard against a caller swapping envelope metadata.
+func Decrypt(expectedKeyID uuid.UUID, expectedVersion uint32, expectedAlgorithm domain.Algorithm, dek, envelope []byte) ([]byte, error) {
 	if len(dek) != dekSize {
 		return nil, fmt.Errorf("cipher: DEK must be %d bytes (got %d)", dekSize, len(dek))
 	}
-	var gotID uuid.UUID
-	copy(gotID[:], envelope[:16])
-	gotVersion := binary.BigEndian.Uint32(envelope[16:20])
-	if gotID != expectedKeyID || gotVersion != expectedVersion {
+	decoded, err := DecodeEnvelope(envelope)
+	if err != nil {
+		return nil, err
+	}
+	if decoded.KeyID != expectedKeyID || decoded.KeyVersion != expectedVersion || decoded.AlgorithmID != expectedAlgorithm {
 		return nil, domain.ErrInvalidEnvelope
 	}
-	nonce := envelope[20:HeaderSize]
-	ct := envelope[HeaderSize:]
+	if decoded.AlgorithmID != domain.AlgorithmAES256GCM && decoded.AlgorithmID != domain.AlgorithmAES256SIV {
+		return nil, domain.ErrAlgorithmUnsupported
+	}
 
 	block, err := aes.NewCipher(dek)
 	if err != nil {
@@ -125,25 +198,27 @@ func Decrypt(expectedKeyID uuid.UUID, expectedVersion uint32, dek, envelope []by
 	if err != nil {
 		return nil, fmt.Errorf("cipher: gcm init: %w", err)
 	}
-	// Re-bind the (key_id, version) prefix as additional data; any
-	// tampered prefix surfaces here as authentication failure.
-	header := envelope[:HeaderSize-nonceSize]
-	// aead.Open returns a generic error on tag mismatch / truncation.
-	// We collapse every failure into ErrInvalidEnvelope so callers see
-	// one typed error and timing analysis cannot tell the cases apart.
-	pt, err := aead.Open(nil, nonce, ct, header)
+	sealed := make([]byte, 0, len(decoded.Ciphertext)+len(decoded.AuthTag))
+	sealed = append(sealed, decoded.Ciphertext...)
+	sealed = append(sealed, decoded.AuthTag...)
+	pt, err := aead.Open(nil, decoded.Nonce, sealed, additionalData(decoded.KeyID, decoded.KeyVersion, decoded.AlgorithmID))
 	if err != nil {
 		return nil, domain.ErrInvalidEnvelope
 	}
 	return pt, nil
 }
 
-// buildHeader writes the fixed prefix once so Encrypt/Decrypt agree on
-// byte order. Always returns a HeaderSize-byte slice.
-func buildHeader(keyID uuid.UUID, version uint32, nonce []byte) []byte {
-	header := make([]byte, HeaderSize)
-	copy(header[:16], keyID[:])
-	binary.BigEndian.PutUint32(header[16:20], version)
-	copy(header[20:], nonce)
-	return header
+func additionalData(keyID uuid.UUID, version uint32, algorithm domain.Algorithm) []byte {
+	return []byte(fmt.Sprintf("schema=%d;key_id=%s;key_version=%d;algorithm_id=%s", EnvelopeSchemaVersion, keyID.String(), version, algorithm))
+}
+
+func syntheticNonce(dek, aad, plaintext []byte) []byte {
+	mac := hmac.New(sha256.New, dek)
+	mac.Write([]byte("openfoundry-cipher-aes-siv-v1"))
+	mac.Write(aad)
+	mac.Write(plaintext)
+	sum := mac.Sum(nil)
+	nonce := make([]byte, nonceSize)
+	copy(nonce, sum[:nonceSize])
+	return nonce
 }
