@@ -1,6 +1,6 @@
 # 02 — Architecture and services to spin up
 
-> The OpenFoundry repo has **42 Go microservices** under `services/` (plus the boilerplate `template/`). Spinning up all of them for a demo is unmanageable and, if any one of them fails, it breaks the narrative. This document defines the **minimum viable subset for the PoC (~15 services)** and explicitly leaves the rest off but "listed as available".
+> Snapshot note: this PoC document is intentionally a demo-scope snapshot, not the canonical repository inventory. The current code-first inventory is **50 service directories** under `services/`; use [`docs/reference/repository-layout.md`](../docs/reference/repository-layout.md) for the authoritative service/library list. Spinning up all services for a demo is unmanageable and, if any one of them fails, it breaks the narrative. This document defines the **minimum viable subset for the PoC (~15 services)** and explicitly leaves the rest off but "listed as available".
 
 ---
 
@@ -51,7 +51,7 @@ Full list of real monorepo services that are **not** spun up in the PoC but are 
 
 `ai-evaluation-service`, `ai-sink`, `audit-sink`, `code-repository-review-service`, `compute-module-service`, `entity-resolution-service`, `federation-product-exchange-service`, `media-sets-service`, `media-transform-runtime-service`, `model-catalog-service`, `model-deployment-service`, `notebook-runtime-service`, `reindex-coordinator-service`, `sdk-generation-service`, `solution-design-service`, `sql-bi-gateway-service`, `telemetry-governance-service`.
 
-> 👉 Message to the customer: *"The PoC spins up ~15 services to keep the demo simple. The platform has 42 Go services in the monorepo, grouped into 6 Helm releases (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`), ready to be enabled according to your roadmap."*
+> 👉 Message to the customer: *"The PoC spins up ~15 services to keep the demo simple. The current platform inventory has 50 service directories in the monorepo, grouped into 6 Helm releases (`of-platform`, `of-data-engine`, `of-ontology`, `of-ml-aip`, `of-apps-ops`, `of-web`), ready to be enabled according to your roadmap."*
 
 > 🧹 **Note on names**: earlier versions of this document mentioned services such as `event-streaming-service`, `data-asset-catalog-service`, `dataset-quality-service`, `pipeline-authoring-service`, `pipeline-schedule-service`, `geospatial-intelligence-service`, `app-builder-service`, `ai-application-generation-service`, `mcp-orchestration-service`, `approvals-service` or `session-governance-service`. Those pieces **do not exist as separate binaries**; their capabilities live inside the services listed above (e.g. streaming uses `ingestion-replication-service` + the `event-bus-data` lib; approvals are a workflow step in `workflow-automation-service`).
 

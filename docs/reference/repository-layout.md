@@ -93,7 +93,7 @@ Use this page when you need to quickly answer "where should this change live?"
 | --- | --- |
 | `apps/web` | main product frontend (React 19 + Vite + TypeScript) |
 | `apps/web/src/routes` | route components (Workshop, ontology, datasets, pipelines, AI, audit, …) |
-| `proto/` | Protobuf source of truth; Go generated to `libs/proto-gen/` |
+| `proto/` | 23 Protobuf domains; Go generated to `libs/proto-gen/` |
 | `sdks/typescript`, `sdks/python`, `sdks/java` | generated client SDKs |
 
 ## Tooling
