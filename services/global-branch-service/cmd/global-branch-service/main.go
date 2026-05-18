@@ -1,8 +1,8 @@
 // Command global-branch-service is the entrypoint for the OpenFoundry
-// global branching service. It hosts the Milestone A surface — global
-// branch lifecycle CRUD + per-service participation coordination —
-// described in
-// docs/migration/foundry-global-branching-1to1-checklist.md.
+// global branching service. It hosts the production Global Branching
+// API: global branch lifecycle CRUD plus per-service participation
+// coordination. Product routes require a real Postgres database and
+// are disabled only in explicit non-production smoke mode.
 package main
 
 import (
@@ -57,14 +57,20 @@ func main() {
 
 	metrics := observability.NewMetrics()
 
-	// Database wiring. Empty DSN keeps the binary bootable in smoke
-	// tests where Postgres is not provisioned (no product route works
-	// without a pool, but /healthz and /metrics still do).
+	// Database wiring. Product routes require a real Postgres pool.
+	// Missing DATABASE_URL/OF_DATABASE_URL is permitted only for
+	// explicit non-production smoke mode, where product routes are
+	// intentionally left unmounted.
 	var (
 		pool    *pgxpool.Pool
 		dbProbe []capabilities.DependencyProbe
 		h       *handler.Handlers
 	)
+	if err := cfg.ValidateProductDatabase(); err != nil {
+		log.Error("database configuration invalid", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	if cfg.DatabaseURL != "" {
 		pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
@@ -79,7 +85,11 @@ func main() {
 		h = handler.NewHandlers(repo.New(pool))
 		dbProbe = append(dbProbe, probes.Postgres("primary", pool))
 	} else {
-		log.Warn("OF_DATABASE_URL not set; product routes will be unmounted until configured")
+		log.Warn(
+			"DATABASE_URL/OF_DATABASE_URL not set; explicit smoke/dev mode active and global-branch product routes are unmounted",
+			slog.String("environment", cfg.Environment),
+			slog.Bool("allow_unwired_product_routes", cfg.AllowUnwiredProductRoutes),
+		)
 	}
 
 	srv, err := server.New(cfg, h, metrics, log, dbProbe...)

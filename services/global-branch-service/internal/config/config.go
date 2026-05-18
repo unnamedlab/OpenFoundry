@@ -4,7 +4,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -36,10 +38,19 @@ type Config struct {
 		LogFormat    string `koanf:"log_format"`
 	} `koanf:"telemetry"`
 
-	// DatabaseURL is the Postgres DSN used by the repo layer. Empty
-	// values are tolerated in dev/test (the binary skips the pool
-	// init); production deployments inject the value via
-	// OF_DATABASE_URL.
+	// Environment identifies the runtime environment. Values "prod"
+	// and "production" enable fail-closed boot checks.
+	Environment string `koanf:"environment"`
+
+	// AllowUnwiredProductRoutes is an explicit dev/test smoke-mode
+	// escape hatch. When true outside production, the process may boot
+	// without a DB and product routes remain unmounted.
+	AllowUnwiredProductRoutes bool `koanf:"allow_unwired_product_routes"`
+
+	// DatabaseURL is the Postgres DSN used by the repo layer. Product
+	// routes require a real database; empty values are accepted only
+	// for explicit non-production smoke mode. Production deployments
+	// inject this via OF_DATABASE_URL or DATABASE_URL.
 	DatabaseURL string `koanf:"database_url"`
 }
 
@@ -69,5 +80,46 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+	if strings.TrimSpace(cfg.DatabaseURL) == "" {
+		cfg.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
 	return &cfg, nil
+}
+
+// ErrDatabaseRequired is returned when product routes cannot be safely
+// wired because no real database DSN was configured.
+var ErrDatabaseRequired = errors.New("global-branch-service: database_url required for product routes")
+
+// IsProduction reports whether the runtime environment should use
+// fail-closed production boot policy.
+func (c *Config) IsProduction() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Environment)) {
+	case "prod", "production":
+		return true
+	default:
+		return false
+	}
+}
+
+// ProductRoutesUnwiredAllowed reports whether this process may boot
+// with handlers intentionally unwired for smoke/dev checks. It is
+// always false in production.
+func (c *Config) ProductRoutesUnwiredAllowed() bool {
+	return !c.IsProduction() && c.AllowUnwiredProductRoutes
+}
+
+// ValidateProductDatabase enforces fail-closed startup for the global
+// branch product surface. A real DB is mandatory unless explicit
+// non-production smoke mode is enabled.
+func (c *Config) ValidateProductDatabase() error {
+	if strings.TrimSpace(c.DatabaseURL) != "" {
+		return nil
+	}
+	if c.ProductRoutesUnwiredAllowed() {
+		return nil
+	}
+	if c.IsProduction() {
+		return fmt.Errorf("%w: production environment %q has no DATABASE_URL/OF_DATABASE_URL", ErrDatabaseRequired, c.Environment)
+	}
+	return fmt.Errorf("%w: set DATABASE_URL/OF_DATABASE_URL or enable allow_unwired_product_routes for explicit smoke/dev mode", ErrDatabaseRequired)
 }
