@@ -105,8 +105,7 @@ When updating docs, use this precedence order:
 
 ## Follow-Up Work Recommended
 
-- Add a docs drift checker that fails when repository-layout counts disagree with `services/`, `libs/`, or `proto/`.
+- Keep `make docs-drift-check` in the local/CI gate; it fails when repository-layout counts disagree with `services/`, `libs/`, or `proto/`, when `services-and-ports.md` route examples disagree with `router_table.go`, or when documented ports disagree with service/gateway config defaults.
 - Generate the service inventory table from service-local metadata where possible.
-- Add a route-doc check that compares documented gateway route examples against `router_table.go` test fixtures.
 - Review non-archive pages that still mention retired service names and mark each mention as either a compatibility alias or stale text to remove.
 - Review migration checklists that state “green” test commands from old commits; those should be dated or converted into current verification instructions.

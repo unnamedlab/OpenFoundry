@@ -108,6 +108,11 @@ capabilities-snapshot: ## Regenerate docs/agent-automation/stable-capabilities.j
 capabilities-check: ## Fail if the stable-capabilities snapshot is out of date.
 	$(GO) run ./tools/capabilities-snapshot -check
 
+.PHONY: docs-drift-check
+docs-drift-check: ## Fail if code-first docs inventory, route, or port facts drift.
+	python3 tools/check_docs_drift.py
+	$(GO) test ./services/edge-gateway-service/internal/proxy -run 'TestServicesAndPorts'
+
 # ---------------------------------------------------------------------------
 # Build / test / lint
 # ---------------------------------------------------------------------------
@@ -159,7 +164,7 @@ vet: ## Run `go vet`.
 # Composite gates
 # ---------------------------------------------------------------------------
 .PHONY: ci
-ci: tidy vet lint contracts-check test ## Run the full CI gate locally.
+ci: tidy vet lint contracts-check docs-drift-check test ## Run the full CI gate locally.
 
 .PHONY: clean
 clean: ## Remove build artifacts.

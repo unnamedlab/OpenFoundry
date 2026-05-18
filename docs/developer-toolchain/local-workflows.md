@@ -25,6 +25,7 @@ Important flows include:
 - `make fmt`
 - `make gen`
 - `make capabilities-check`
+- `make docs-drift-check`
 - `make ci`
 - `pnpm --filter @open-foundry/web check`
 - `pnpm --filter @open-foundry/web test:unit`
