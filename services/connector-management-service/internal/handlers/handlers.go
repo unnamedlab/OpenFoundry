@@ -179,11 +179,30 @@ func (h *Handlers) notImplemented(w http.ResponseWriter, r *http.Request, code s
 			return
 		}
 	}
-	writeRoutePending(w, http.StatusNotImplemented, code, "route mounted for Rust parity; implementation pending")
+	writeRoutePending(w, http.StatusNotFound, code, "development authentication route is disabled; no production capability is exposed")
 }
 
 func (h *Handlers) GetConnectorCatalog(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, models.BuildGalleryCatalog())
+	catalog := models.BuildGalleryCatalog()
+	catalog.CapabilityMatrix = h.connectorCapabilityMatrix()
+	writeJSON(w, http.StatusOK, catalog)
+}
+
+func (h *Handlers) GetConnectorCapabilityMatrix(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string][]models.ConnectorCapabilityMatrix{"capability_matrix": h.connectorCapabilityMatrix()})
+}
+
+func (h *Handlers) connectorCapabilityMatrix() []models.ConnectorCapabilityMatrix {
+	profiles := models.ConnectorProfiles()
+	connectorTypes := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		connectorTypes = append(connectorTypes, profile.ConnectorType)
+	}
+	registry := h.AdapterRegistry
+	if registry == nil {
+		registry = adapters.NewRegistry()
+	}
+	return registry.CapabilityMatrix(connectorTypes)
 }
 
 func (h *Handlers) GetSourceHealth(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +311,9 @@ func (h *Handlers) GetSourceHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetConnectorContracts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, models.BuildConnectorContractCatalog())
+	catalog := models.BuildConnectorContractCatalog()
+	catalog.CapabilityMatrix = h.connectorCapabilityMatrix()
+	writeJSON(w, http.StatusOK, catalog)
 }
 
 func (h *Handlers) ListStreamingSources(w http.ResponseWriter, r *http.Request) {
@@ -1990,7 +2011,11 @@ func (h *Handlers) QueryVirtualTable(w http.ResponseWriter, r *http.Request) {
 
 	var adapterLimitations []models.VirtualTableLimitation
 	response := (*models.VirtualTableQueryResponse)(nil)
-	if connection != nil && h.AdapterRegistry != nil {
+	if connection != nil {
+		if h.AdapterRegistry == nil {
+			writeJSONErr(w, http.StatusServiceUnavailable, "virtual table adapter registry unavailable for real preview")
+			return
+		}
 		adapter, err := h.AdapterRegistry.Lookup(connection.ConnectorType)
 		if err == nil {
 			response, err = adapter.QueryVirtualTable(r.Context(), connection, &query, "")
@@ -2008,8 +2033,8 @@ func (h *Handlers) QueryVirtualTable(w http.ResponseWriter, r *http.Request) {
 		adapterLimitations = append(adapterLimitations, models.VirtualTableLimitation{
 			Code:        "virtual_table_metadata_preview",
 			Severity:    "warning",
-			Message:     "No connection is linked; returning metadata-derived preview marked as degraded.",
-			Remediation: "Link a connector connection to run a real adapter preview.",
+			Message:     "No connection is linked; returning degraded metadata-derived sample rows. No remote source data was read.",
+			Remediation: "Link a connector connection to run a real adapter preview against source data.",
 		})
 		response = virtualTableQueryFromMetadata(table, query)
 	}
@@ -2196,8 +2221,11 @@ func virtualTableQueryFromMetadata(table *models.VirtualTable, query models.Virt
 		"adapter":             "openfoundry_virtual_table_preview",
 		"virtual_table_rid":   table.RID,
 		"source_rid":          table.SourceRID,
-		"direct_query":        true,
+		"degraded":            true,
+		"source":              "metadata",
+		"direct_query":        false,
 		"uses_copied_dataset": false,
+		"preview_notice":      "Rows are metadata-derived samples; no remote source data was read.",
 	})
 	return &models.VirtualTableQueryResponse{
 		Selector:        query.Selector,
@@ -2207,6 +2235,8 @@ func virtualTableQueryFromMetadata(table *models.VirtualTable, query models.Virt
 		Rows:            rows,
 		SourceSignature: &signature,
 		Metadata:        metadata,
+		Degraded:        true,
+		Source:          "metadata",
 	}
 }
 
@@ -2265,6 +2295,9 @@ func decorateVirtualTableQueryResponse(table *models.VirtualTable, connection *m
 	response.ComputeLocation = plan.ComputeLocation
 	response.Pushdown = plan
 	response.Limitations = limitations
+	if response.Degraded && response.Source == "" {
+		response.Source = "metadata"
+	}
 	response.Metadata = mergeVirtualTableQueryMetadata(response.Metadata, table, plan, limitations)
 }
 
@@ -2414,7 +2447,9 @@ func mergeVirtualTableQueryMetadata(raw json.RawMessage, table *models.VirtualTa
 	}
 	meta["virtual_table_rid"] = table.RID
 	meta["source_rid"] = table.SourceRID
-	meta["direct_query"] = true
+	if _, ok := meta["direct_query"]; !ok {
+		meta["direct_query"] = true
+	}
 	meta["uses_copied_dataset"] = false
 	meta["compute_location"] = plan.ComputeLocation
 	meta["limitation_count"] = len(limitations)

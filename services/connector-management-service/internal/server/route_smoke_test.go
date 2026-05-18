@@ -19,6 +19,7 @@ func TestRouteSmokeMountsDataConnectionRoutes(t *testing.T) {
 		{http.MethodGet, "/api/v1/webhooks/{id}/history"},
 		{http.MethodPost, "/api/v1/listeners/{id}/events"},
 		{http.MethodGet, "/api/v1/data-connection/catalog"},
+		{http.MethodGet, "/api/v1/data-connection/catalog/capability-matrix"},
 	})
 }
 
