@@ -22,6 +22,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/codesecurity"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/gitstore"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/handlers"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/repo"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/server"
@@ -72,6 +73,8 @@ func main() {
 			Scanner: codesecurity.FakeScanner{},
 			Repo:    securityRepo,
 		},
+		CodeRepositories: &repo.CodeRepositoryRepo{Pool: pool},
+		GitStore:         gitstore.NewBareRepositoryStore(cfg.GitStorageRoot, cfg.GitHTTPBaseURL, cfg.GitSSHBaseURL, cfg.GitSSHEnabled),
 	}
 	metrics := observability.NewMetrics()
 

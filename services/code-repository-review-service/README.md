@@ -2,7 +2,7 @@
 
 ## LLM context
 
-Backs code-security scan creation and review-oriented global-branch metadata endpoints.
+Backs code-security scan creation, review-oriented global-branch metadata endpoints, and managed bare-Git Code Repository hosting.
 
 Agent note: routes are mounted under `/v1`, not `/api/v1`; the edge gateway may add or rewrite prefixes externally.
 
@@ -13,6 +13,9 @@ Agent note: routes are mounted under `/v1`, not `/api/v1`; the edge gateway may 
 ## Current HTTP / runtime surface
 
 - `POST /v1/code-security/scans`
+- `GET /v1/code-repos/templates`
+- `/v1/code-repos/repositories*` (including Git-backed `/files` editor actions)
+- `/v1/code-repos/git/{repository_id}.git*` (Git Smart HTTP; Bearer token or Basic password OIDC JWT)
 - `/v1/global-branches*`
 - `GET /healthz`
 - `GET /healthz/json`
@@ -20,14 +23,14 @@ Agent note: routes are mounted under `/v1`, not `/api/v1`; the edge gateway may 
 
 ## State and dependencies
 
-- Contains `3` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Contains Code Repository, code-security and global-branch SQL migrations; check service migrations before changing persisted models.
 - Main internal packages: `codesecurity`, `config`, `handlers`, `models`, `repo`, `server`, `subscriber`.
 - Local service files present: `Dockerfile`.
 
 ## Configuration signals
 
 Environment variables referenced by the code:
-- `BRANCH_EVENTS_CONSUMER_GROUP`, `DATABASE_URL`, `HOST`, `JWT_SECRET`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_BROKERS`, `PORT`, `SERVICE_ACTOR`
+- `BRANCH_EVENTS_CONSUMER_GROUP`, `CODE_REPOSITORY_GIT_HTTP_BASE_URL`, `CODE_REPOSITORY_GIT_ROOT`, `CODE_REPOSITORY_GIT_SSH_BASE_URL`, `CODE_REPOSITORY_GIT_SSH_ENABLED`, `DATABASE_URL`, `HOST`, `JWT_SECRET`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_BROKERS`, `PORT`, `SERVICE_ACTOR`
 - `SERVICE_VERSION`
 
 ## Build

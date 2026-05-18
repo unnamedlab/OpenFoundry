@@ -20,6 +20,10 @@ type Config struct {
 	Actor                     string
 	KafkaBrokers              []string
 	BranchEventsConsumerGroup string
+	GitStorageRoot            string
+	GitHTTPBaseURL            string
+	GitSSHBaseURL             string
+	GitSSHEnabled             bool
 }
 
 func FromEnv() (*Config, error) {
@@ -33,6 +37,10 @@ func FromEnv() (*Config, error) {
 	cfg.Actor = defaultStr(os.Getenv("SERVICE_ACTOR"), "system")
 	cfg.KafkaBrokers = splitCSV(os.Getenv("KAFKA_BROKERS"))
 	cfg.BranchEventsConsumerGroup = defaultStr(os.Getenv("BRANCH_EVENTS_CONSUMER_GROUP"), "code-repository-review-service.branch-events")
+	cfg.GitStorageRoot = defaultStr(os.Getenv("CODE_REPOSITORY_GIT_ROOT"), "/var/lib/openfoundry/code-repositories")
+	cfg.GitHTTPBaseURL = os.Getenv("CODE_REPOSITORY_GIT_HTTP_BASE_URL")
+	cfg.GitSSHBaseURL = os.Getenv("CODE_REPOSITORY_GIT_SSH_BASE_URL")
+	cfg.GitSSHEnabled = parseBool(os.Getenv("CODE_REPOSITORY_GIT_SSH_ENABLED"))
 
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}
@@ -82,4 +90,13 @@ func splitCSV(v string) []string {
 		}
 	}
 	return out
+}
+
+func parseBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

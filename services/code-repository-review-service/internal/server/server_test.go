@@ -30,6 +30,18 @@ func TestProtectedRoutesRequireBearerToken(t *testing.T) {
 		{http.MethodGet, "/v1/global-branches/00000000-0000-0000-0000-000000000001/resources"},
 		{http.MethodPost, "/v1/global-branches/00000000-0000-0000-0000-000000000001/promote"},
 		{http.MethodPost, "/v1/code-security/scans"},
+		{http.MethodGet, "/v1/code-repos/templates"},
+		{http.MethodGet, "/v1/code-repos/repositories/"},
+		{http.MethodPost, "/v1/code-repos/repositories/"},
+		{http.MethodGet, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001"},
+		{http.MethodGet, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001/files"},
+		{http.MethodPost, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001/files"},
+		{http.MethodPatch, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001"},
+		{http.MethodDelete, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001"},
+		{http.MethodPost, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001/move"},
+		{http.MethodPost, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001/rename"},
+		{http.MethodPost, "/v1/code-repos/repositories/00000000-0000-0000-0000-000000000001/restore"},
+		{http.MethodGet, "/v1/code-repos/git/00000000-0000-0000-0000-000000000001.git/info/refs?service=git-upload-pack"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -38,6 +50,18 @@ func TestProtectedRoutesRequireBearerToken(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 		})
 	}
+}
+
+func TestGitRouteAcceptsBearerOIDCToken(t *testing.T) {
+	jwt := authmw.NewJWTConfig("code-repository-review-router-test-secret")
+	srv := newTestServer(t, jwt)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/code-repos/git/00000000-0000-0000-0000-000000000001.git/info/refs?service=git-upload-pack", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenFor(t, jwt))
+	srv.Handler.ServeHTTP(rec, req)
+
+	require.NotEqual(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 }
 
 func TestPublicRoutesStayPublic(t *testing.T) {

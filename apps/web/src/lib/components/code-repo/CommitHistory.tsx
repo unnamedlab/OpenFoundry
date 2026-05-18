@@ -5,8 +5,7 @@ export interface CommitDraft {
   title: string;
   description: string;
   author_name: string;
-  additions: string;
-  deletions: string;
+  sign_off: boolean;
 }
 
 interface Props {
@@ -17,6 +16,7 @@ interface Props {
   busy?: boolean;
   onDraftChange: (patch: Partial<CommitDraft>) => void;
   onCreateCommit: () => void;
+  pendingFileCount: number;
   onTriggerCi: () => void;
 }
 
@@ -39,6 +39,7 @@ export function CommitHistory({
   busy = false,
   onDraftChange,
   onCreateCommit,
+  pendingFileCount,
   onTriggerCi,
 }: Props) {
   return (
@@ -49,18 +50,18 @@ export function CommitHistory({
             Commits &amp; CI
           </p>
           <h3 className="of-heading-md" style={{ marginTop: 6 }}>
-            History, pipeline triggers, and changed files
+            History, pipeline triggers, and atomic file commits
           </h3>
           <p className="of-text-muted" style={{ marginTop: 4, fontSize: 13 }}>
-            Push synthetic commits into a branch and trigger the package validation pipeline on demand.
+            Commit all pending editor changes in one Git commit and trigger the package validation pipeline on demand.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" onClick={onTriggerCi} disabled={busy} className="of-button" style={{ borderColor: '#c4b5fd', color: '#7c3aed' }}>
             Trigger CI
           </button>
-          <button type="button" onClick={onCreateCommit} disabled={busy} className="of-button of-button--primary" style={{ background: '#7c3aed' }}>
-            Create commit
+          <button type="button" onClick={onCreateCommit} disabled={busy || pendingFileCount === 0} className="of-button of-button--primary" style={{ background: '#7c3aed' }}>
+            Commit {pendingFileCount} file{pendingFileCount === 1 ? '' : 's'}
           </button>
         </div>
       </div>
@@ -112,28 +113,27 @@ export function CommitHistory({
             </label>
             <label style={{ fontSize: 13 }}>
               <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Author</span>
-              <input value={draft.author_name} onChange={(e) => onDraftChange({ author_name: e.target.value })} style={darkInput} />
+              <input value={draft.author_name} onChange={(e) => onDraftChange({ author_name: e.target.value })} style={darkInput} placeholder="Derived from your OIDC identity" />
             </label>
             <label style={{ fontSize: 13, gridColumn: 'span 2' }}>
               <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Title</span>
               <input value={draft.title} onChange={(e) => onDraftChange({ title: e.target.value })} style={darkInput} />
             </label>
             <label style={{ fontSize: 13, gridColumn: 'span 2' }}>
-              <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Description</span>
+              <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Message body</span>
               <textarea
                 value={draft.description}
                 onChange={(e) => onDraftChange({ description: e.target.value })}
                 style={{ ...darkInput, minHeight: 80, resize: 'vertical' }}
               />
             </label>
-            <label style={{ fontSize: 13 }}>
-              <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Additions</span>
-              <input value={draft.additions} onChange={(e) => onDraftChange({ additions: e.target.value })} style={darkInput} />
+            <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, gridColumn: 'span 2' }}>
+              <input type="checkbox" checked={draft.sign_off} onChange={(e) => onDraftChange({ sign_off: e.target.checked })} />
+              Add Signed-off-by trailer using my actor identity
             </label>
-            <label style={{ fontSize: 13 }}>
-              <span style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>Deletions</span>
-              <input value={draft.deletions} onChange={(e) => onDraftChange({ deletions: e.target.value })} style={darkInput} />
-            </label>
+            <p style={{ gridColumn: 'span 2', color: '#c4b5fd', fontSize: 12 }}>
+              {pendingFileCount} pending editor file{pendingFileCount === 1 ? '' : 's'} will be committed atomically.
+            </p>
           </div>
 
           <div>

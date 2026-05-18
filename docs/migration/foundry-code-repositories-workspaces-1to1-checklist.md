@@ -102,36 +102,42 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Repository resource and storage
 
-- [ ] `CRW.1` Code repository resource (`P0`, `todo`)
+- [x] `CRW.1` Code repository resource (`P0`, `done`)
   - CRUD a `code_repository` resource in Compass with name, owner, organizations, markings, default branch, language template, and storage backend reference.
   - Repositories are first-class resources: trash, move, rename, and ACLs all follow Compass conventions.
+  - Implemented in `code-repository-review-service` via `/v1/code-repos/repositories` CRUD, soft-trash/restore, move, rename, and persisted Compass metadata.
   - Docs: [Code Repositories overview](https://www.palantir.com/docs/foundry/code-repositories/overview).
 
-- [ ] `CRW.2` Git storage backend (`P0`, `todo`)
+- [x] `CRW.2` Git storage backend (`P0`, `done`)
   - Each repo is backed by a bare Git repository hosted by `code-repositories-service` (gitea/gitaly-style or a managed go-git server).
   - HTTPS push and pull are accepted with OIDC-backed credentials; SSH is optional and gated behind a feature flag.
+  - Implemented in `code-repository-review-service` with managed bare repositories, Smart HTTP `/v1/code-repos/git/{id}.git`, OIDC bearer/basic-password auth, persisted clone URLs, and optional SSH URL emission behind `CODE_REPOSITORY_GIT_SSH_ENABLED`.
   - Docs: [Code Repositories overview](https://www.palantir.com/docs/foundry/code-repositories/overview).
 
-- [ ] `CRW.3` Per-language repository templates (`P0`, `todo`)
+- [x] `CRW.3` Per-language repository templates (`P0`, `done`)
   - Built-in templates for Python transform, Java transform, SQL transform, R transform, and TypeScript function repos.
   - Template seeds a working `transforms-python` / `transforms-java` / `transforms-sql` / `foundry-functions-typescript` skeleton with sample inputs and a passing build.
+  - Implemented built-ins for Python, Java, SQL, R, and TypeScript function templates; creation seeds an initial Git commit into the managed bare repo and `/v1/code-repos/templates` lists template metadata.
   - Docs: [Repository templates](https://www.palantir.com/docs/foundry/code-repositories/templates).
 
 ### In-browser editor
 
-- [ ] `CRW.4` File tree and code editor (`P0`, `todo`)
+- [x] `CRW.4` File tree and code editor (`P0`, `done`)
   - `apps/web` exposes a per-repo file tree, a Monaco-based editor with per-language syntax, multi-tab editing, save-on-blur, and unsaved-change warnings.
   - Right-click actions: new file, rename, delete, move; preserve Git semantics by routing through the service.
+  - Implemented Monaco-backed multi-tab editing in `apps/web`, unsaved-change warnings, save-on-blur, file-tree context actions, and service-backed Git commits for file save/new/rename/move/delete.
   - Docs: [Code Repositories overview](https://www.palantir.com/docs/foundry/code-repositories/overview).
 
-- [ ] `CRW.5` Branch and tag lifecycle (`P0`, `todo`)
+- [x] `CRW.5` Branch and tag lifecycle (`P0`, `done`)
   - Create, switch, delete, and merge branches via the UI and API. Tag creation with annotated tags for releases; protected tags require permission.
   - Default branch enforcement: deleting the default branch is blocked.
+  - Implemented Git-backed branch list/create/switch/delete/merge and annotated tag list/create APIs plus `apps/web` branch/tag controls; default branch deletion is rejected and protected tag creation requires `code_repository:manage_protected_tags`.
   - Docs: [Tags and releases](https://www.palantir.com/docs/foundry/code-repositories/tags).
 
-- [ ] `CRW.6` Commit, push, and pull (`P0`, `todo`)
+- [x] `CRW.6` Commit, push, and pull (`P0`, `done`)
   - Editor commits land as real Git commits with the actor's identity preserved (no shared bot user). Remote `git push` / `git pull` use ephemeral OIDC tokens.
   - Web UI commit dialog supports message body, sign-off, and atomic multi-file commits.
+  - Implemented actor-stamped Git commits from OIDC claims, branch-aware commit history, atomic multi-file editor commits with message body/sign-off, and Smart HTTP push/pull remains token-gated through bearer/basic-password OIDC credentials.
   - Docs: [Code Repositories overview](https://www.palantir.com/docs/foundry/code-repositories/overview).
 
 ### Build executor and transform publish

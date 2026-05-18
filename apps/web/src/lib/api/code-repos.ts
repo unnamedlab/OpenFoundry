@@ -5,7 +5,7 @@ export interface ListResponse<T> {
 }
 
 export type RepositoryVisibility = 'public' | 'private';
-export type PackageKind = 'connector' | 'transform' | 'widget' | 'app_template' | 'ml_model' | 'ai_agent';
+export type PackageKind = 'connector' | 'transform' | 'widget' | 'app_template' | 'ml_model' | 'ai_agent' | 'function';
 export type MergeRequestStatus = 'open' | 'approved' | 'merged' | 'closed';
 
 export interface RepositoryDefinition {
@@ -14,14 +14,50 @@ export interface RepositoryDefinition {
 	slug: string;
 	description: string;
 	owner: string;
+	organizations?: string[];
+	markings?: string[];
 	default_branch: string;
 	visibility: RepositoryVisibility;
+	language_template?: string;
+	storage_backend_rid?: string;
+	storage_backend?: string;
 	object_store_backend: string;
+	git_storage_path: string;
+	git_http_url: string;
+	git_ssh_url: string;
+	git_ssh_enabled: boolean;
 	package_kind: PackageKind;
 	tags: string[];
 	settings: Record<string, unknown>;
+	compass_project_rid: string;
+	compass_folder_rid: string;
+	acl: Record<string, unknown>;
+	created_by: string;
 	created_at: string;
 	updated_at: string;
+	trashed_at: string | null;
+	trashed_by: string | null;
+}
+
+
+export interface RepositoryTemplateDefinition {
+	id: string;
+	name: string;
+	description: string;
+	language_template: string;
+	package_kind: PackageKind;
+	skeleton: string;
+	build_command: string[];
+}
+
+export interface RepositoryGitBackend {
+	repository_id: string;
+	storage_path: string;
+	http_url: string;
+	ssh_url: string;
+	ssh_enabled: boolean;
+	default_branch: string;
+	oidc_auth_scheme: string;
 }
 
 export interface ReviewerState {
@@ -69,6 +105,18 @@ export interface BranchDefinition {
 	updated_at: string;
 }
 
+
+export interface RepositoryTagDefinition {
+	id: string;
+	repository_id: string;
+	name: string;
+	target_sha: string;
+	message: string;
+	tagger: string;
+	protected: boolean;
+	created_at: string;
+}
+
 export interface CommitDefinition {
 	id: string;
 	repository_id: string;
@@ -96,6 +144,20 @@ export interface CiRun {
 	started_at: string;
 	completed_at: string | null;
 	checks: string[];
+}
+
+
+export type RepositoryFileAction = 'save' | 'new' | 'rename' | 'move' | 'delete';
+
+export interface RepositoryFileMutation {
+	action: RepositoryFileAction;
+	path: string;
+	new_path?: string;
+	content?: string;
+	branch_name?: string;
+	message?: string;
+	author_name?: string;
+	author_email?: string;
 }
 
 export interface RepositoryFile {
@@ -159,19 +221,35 @@ export function listRepositories() {
 	return api.get<ListResponse<RepositoryDefinition>>('/code-repos/repositories');
 }
 
+export function listRepositoryTemplates() {
+	return api.get<ListResponse<RepositoryTemplateDefinition>>('/code-repos/templates');
+}
+
 export function createRepository(body: {
 	name: string;
 	slug: string;
 	description?: string;
 	owner: string;
+	organizations?: string[];
+	markings?: string[];
 	default_branch: string;
 	visibility: RepositoryVisibility;
+	language_template?: string;
+	storage_backend_rid?: string;
+	storage_backend?: string;
 	object_store_backend: string;
 	package_kind: PackageKind;
 	tags?: string[];
 	settings?: Record<string, unknown>;
+	compass_project_rid?: string;
+	compass_folder_rid?: string;
+	acl?: Record<string, unknown>;
 }) {
 	return api.post<RepositoryDefinition>('/code-repos/repositories', body);
+}
+
+export function getRepositoryGit(repositoryId: string) {
+	return api.get<RepositoryGitBackend>(`/code-repos/repositories/${repositoryId}/git`);
 }
 
 export function updateRepository(
@@ -181,12 +259,20 @@ export function updateRepository(
 		slug: string;
 		description: string;
 		owner: string;
+		organizations: string[];
+		markings: string[];
 		default_branch: string;
 		visibility: RepositoryVisibility;
+		language_template: string;
+		storage_backend_rid: string;
+		storage_backend: string;
 		object_store_backend: string;
 		package_kind: PackageKind;
 		tags: string[];
 		settings: Record<string, unknown>;
+		compass_project_rid: string;
+		compass_folder_rid: string;
+		acl: Record<string, unknown>;
 	}>,
 ) {
 	return api.patch<RepositoryDefinition>(`/code-repos/repositories/${id}`, body);
@@ -200,8 +286,25 @@ export function createBranch(repositoryId: string, body: { name: string; base_br
 	return api.post<BranchDefinition>(`/code-repos/repositories/${repositoryId}/branches`, body);
 }
 
-export function listCommits(repositoryId: string) {
-	return api.get<ListResponse<CommitDefinition>>(`/code-repos/repositories/${repositoryId}/commits`);
+export function deleteBranch(repositoryId: string, branchName: string, body: { force?: boolean } = {}) {
+	return api.fetch<{ deleted: string }>(`/code-repos/repositories/${repositoryId}/branches/${encodeURIComponent(branchName)}`, { method: 'DELETE', body });
+}
+
+export function mergeBranch(repositoryId: string, branchName: string, body: { target_branch: string; message?: string; author_name?: string; author_email?: string }) {
+	return api.post<BranchDefinition>(`/code-repos/repositories/${repositoryId}/branches/${encodeURIComponent(branchName)}/merge`, body);
+}
+
+export function listTags(repositoryId: string) {
+	return api.get<ListResponse<RepositoryTagDefinition>>(`/code-repos/repositories/${repositoryId}/tags`);
+}
+
+export function createTag(repositoryId: string, body: { name: string; target?: string; message?: string; tagger_name?: string; tagger_email?: string; protected?: boolean }) {
+	return api.post<RepositoryTagDefinition>(`/code-repos/repositories/${repositoryId}/tags`, body);
+}
+
+export function listCommits(repositoryId: string, branch?: string) {
+	const search = branch ? `?branch=${encodeURIComponent(branch)}` : '';
+	return api.get<ListResponse<CommitDefinition>>(`/code-repos/repositories/${repositoryId}/commits${search}`);
 }
 
 export function createCommit(
@@ -210,21 +313,22 @@ export function createCommit(
 		branch_name: string;
 		title: string;
 		description?: string;
-		author_name: string;
-		additions?: number;
-		deletions?: number;
-		files?: Array<{
-			path: string;
-			content?: string;
-			delete?: boolean;
-		}>;
+		sign_off?: boolean;
+		author_name?: string;
+		author_email?: string;
+		files: RepositoryFileMutation[];
 	},
 ) {
 	return api.post<CommitDefinition>(`/code-repos/repositories/${repositoryId}/commits`, body);
 }
 
-export function listFiles(repositoryId: string) {
-	return api.get<ListResponse<RepositoryFile>>(`/code-repos/repositories/${repositoryId}/files`);
+export function listFiles(repositoryId: string, branch?: string) {
+	const search = branch ? `?branch=${encodeURIComponent(branch)}` : "";
+	return api.get<ListResponse<RepositoryFile>>(`/code-repos/repositories/${repositoryId}/files${search}`);
+}
+
+export function mutateFile(repositoryId: string, body: RepositoryFileMutation) {
+	return api.post<ListResponse<RepositoryFile>>(`/code-repos/repositories/${repositoryId}/files`, body);
 }
 
 export function getDiff(repositoryId: string, branch?: string) {

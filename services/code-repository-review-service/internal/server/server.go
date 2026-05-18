@@ -63,10 +63,36 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 	}
 	caps.Mount(r)
 
+	r.Get("/v1/code-repos/git/*", h.ServeGitHTTP(jwt))
+	r.Post("/v1/code-repos/git/*", h.ServeGitHTTP(jwt))
+
 	r.Route("/v1", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
 
 		api.Post("/code-security/scans", h.CreateCodeSecurityScan)
+		api.Get("/code-repos/templates", h.ListCodeRepositoryTemplates)
+
+		api.Route("/code-repos/repositories", func(cr chi.Router) {
+			cr.Get("/", h.ListCodeRepositories)
+			cr.Post("/", h.CreateCodeRepository)
+			cr.Get("/{id}", h.GetCodeRepository)
+			cr.Get("/{id}/git", h.GetCodeRepositoryGit)
+			cr.Get("/{id}/branches", h.ListCodeRepositoryBranches)
+			cr.Post("/{id}/branches", h.CreateCodeRepositoryBranch)
+			cr.Delete("/{id}/branches/{branch}", h.DeleteCodeRepositoryBranch)
+			cr.Post("/{id}/branches/{branch}/merge", h.MergeCodeRepositoryBranch)
+			cr.Get("/{id}/tags", h.ListCodeRepositoryTags)
+			cr.Post("/{id}/tags", h.CreateCodeRepositoryTag)
+			cr.Get("/{id}/commits", h.ListCodeRepositoryCommits)
+			cr.Post("/{id}/commits", h.CreateCodeRepositoryCommit)
+			cr.Get("/{id}/files", h.ListCodeRepositoryFiles)
+			cr.Post("/{id}/files", h.MutateCodeRepositoryFile)
+			cr.Patch("/{id}", h.UpdateCodeRepository)
+			cr.Delete("/{id}", h.TrashCodeRepository)
+			cr.Post("/{id}/restore", h.RestoreCodeRepository)
+			cr.Post("/{id}/move", h.MoveCodeRepository)
+			cr.Post("/{id}/rename", h.RenameCodeRepository)
+		})
 
 		api.Route("/global-branches", func(gb chi.Router) {
 			gb.Get("/", h.ListGlobalBranches)
@@ -80,7 +106,7 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{
 		IDPrefix:  "code-review",
-		AuthPaths: []string{"/v1/global-branches", "/v1/code-security"},
+		AuthPaths: []string{"/v1/global-branches", "/v1/code-security", "/v1/code-repos"},
 		Tags:      []string{"code"},
 	}); err != nil {
 		panic("code-repository-review-service: capability ingest failed: " + err.Error())
