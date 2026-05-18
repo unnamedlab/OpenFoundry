@@ -33,3 +33,19 @@ func TestListRecentsSQLKindFilterUsesSeparateProjectParam(t *testing.T) {
 	assert.Contains(t, sql, "p.id = ANY($3::uuid[])")
 	assert.Contains(t, sql, "LIMIT $4")
 }
+
+func TestResourceRecommendationsSQLIsPermissionAwareCMP24(t *testing.T) {
+	t.Parallel()
+
+	sql := resourceRecommendationsSQL()
+
+	assert.Contains(t, sql, "owning_project_id = ANY($2::uuid[])")
+	assert.Contains(t, sql, "resource_access_log")
+	assert.Contains(t, sql, "compass_project_follows")
+	assert.Contains(t, sql, "l.user_id <> $1")
+	assert.Contains(t, sql, "LIMIT $3")
+	assert.True(t,
+		strings.Index(sql, "WITH visible AS") < strings.Index(sql, "self_recent AS"),
+		"recommendations must establish visible candidates before reading activity signals",
+	)
+}

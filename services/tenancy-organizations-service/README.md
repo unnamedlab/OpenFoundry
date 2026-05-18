@@ -142,6 +142,18 @@ Projects, folders, resource bindings, project-bound external resources, and
 Compass search-indexed resources all disappear from recents when their project
 access is revoked or the resource is trashed.
 
+## Recommendations contract
+
+`compass_project_follows` stores explicit per-user follows on projects. `GET
+/api/v1/workspace/recommendations` first intersects candidate resources with
+the caller's current accessible projects, then scores visible
+`compass_resource_search_index` entries using collaborator opens from
+`resource_access_log`, the caller's own recent opens, and followed projects.
+The response includes the resource search fields, score, reason, signals,
+collaborator count, and last activity timestamp; it strips long-text bodies the
+same way Compass search does. `GET|POST|DELETE /api/v1/workspace/project-follows`
+manages the explicit follow signal.
+
 ## Reference graph contract
 
 `compass_resource_references` stores explicit directed edges where a source

@@ -296,14 +296,16 @@ func tokenForClaims(t *testing.T, cfg *authmw.JWTConfig, claims *authmw.Claims) 
 
 func testAdminClaims() *authmw.Claims {
 	now := time.Now()
+	accessUse := "access"
 	return &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "route-test@example.com",
-		Name:  "Route Test",
-		Roles: []string{"admin"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "route-test@example.com",
+		Name:     "Route Test",
+		Roles:    []string{"admin"},
+		TokenUse: &accessUse,
 	}
 }
 
@@ -321,6 +323,7 @@ func testClaimsWithSessionScope(scope *authmw.SessionScope, permissions ...strin
 
 func testClaims() *authmw.Claims {
 	now := time.Now()
+	accessUse := "access"
 	return &authmw.Claims{
 		Sub:         uuid.New(),
 		IAT:         now.Unix(),
@@ -330,5 +333,6 @@ func testClaims() *authmw.Claims {
 		Name:        "Route Test",
 		Roles:       []string{},
 		Permissions: []string{},
+		TokenUse:    &accessUse,
 	}
 }

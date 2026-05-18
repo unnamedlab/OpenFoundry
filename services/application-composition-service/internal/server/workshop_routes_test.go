@@ -360,14 +360,16 @@ func testWorkshopRouter(mock pgxmock.PgxPoolIface) (http.Handler, *authmw.JWTCon
 func testWorkshopToken(t *testing.T, jwt *authmw.JWTConfig, subject uuid.UUID) string {
 	t.Helper()
 	now := time.Now()
+	accessUse := "access"
 	token, err := authmw.EncodeToken(jwt, &authmw.Claims{
-		Sub:   subject,
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "builder@example.com",
-		Name:  "Builder",
-		Roles: []string{"builder"},
+		Sub:      subject,
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "builder@example.com",
+		Name:     "Builder",
+		Roles:    []string{"builder"},
+		TokenUse: &accessUse,
 	})
 	require.NoError(t, err)
 	return token
@@ -388,6 +390,10 @@ func testWorkshopTokenWithClaims(t *testing.T, jwt *authmw.JWTConfig, claims *au
 	}
 	if copyClaims.JTI == uuid.Nil {
 		copyClaims.JTI = uuid.New()
+	}
+	if copyClaims.TokenUse == nil {
+		accessUse := "access"
+		copyClaims.TokenUse = &accessUse
 	}
 	token, err := authmw.EncodeToken(jwt, &copyClaims)
 	require.NoError(t, err)

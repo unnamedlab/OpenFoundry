@@ -8,6 +8,7 @@ import {
   createFavorite,
   deleteSavedSearch,
   listFavorites,
+  listRecommendations,
   listRecents,
   listSavedSearches,
   recordAccess,
@@ -16,6 +17,7 @@ import {
   type CompassSearchFacets,
   type CompassSearchResult,
   type RecentEntry,
+  type ResourceRecommendation,
   type ResourceKind,
   type SavedSearch,
   type UserFavorite,
@@ -336,6 +338,20 @@ function shortcutFromRecent(entry: RecentEntry, labels: Map<string, string>): Re
   };
 }
 
+function shortcutFromRecommendation(entry: ResourceRecommendation): ResourceShortcut {
+  const resourceId = ridLocator(entry.rid);
+  const kind = resourceKindForCompassType(entry.type);
+  return {
+    key: `recommendation:${entry.rid}`,
+    label: entry.display_name || compactRID(entry.rid),
+    subtitle: entry.reason || resourceKindLabel(kind),
+    href: openURLForCompassResource(entry),
+    icon: getResourceTypeDefinition(entry.type).defaultIcon,
+    resourceKind: kind,
+    resourceId,
+  };
+}
+
 export function SearchPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -349,6 +365,7 @@ export function SearchPage() {
   const [recent, setRecent] = useState<string[]>(() => loadRecentSearches());
   const [favoriteShortcuts, setFavoriteShortcuts] = useState<ResourceShortcut[]>([]);
   const [recentResourceShortcuts, setRecentResourceShortcuts] = useState<ResourceShortcut[]>([]);
+  const [recommendationShortcuts, setRecommendationShortcuts] = useState<ResourceShortcut[]>([]);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 
   // Per-tab filter state
@@ -411,8 +428,9 @@ export function SearchPage() {
     Promise.all([
       listFavorites({ limit: 8 }).catch(() => [] as UserFavorite[]),
       listRecents({ limit: 8 }).catch(() => [] as RecentEntry[]),
+      listRecommendations({ limit: 6 }).catch(() => [] as ResourceRecommendation[]),
     ])
-      .then(async ([favorites, recents]) => {
+      .then(async ([favorites, recents, recommendations]) => {
         const items = [
           ...favorites.map((entry) => ({ resource_kind: entry.resource_kind, resource_id: entry.resource_id })),
           ...recents.map((entry) => ({ resource_kind: entry.resource_kind, resource_id: entry.resource_id })),
@@ -427,11 +445,13 @@ export function SearchPage() {
         if (cancelled) return;
         setFavoriteShortcuts(favorites.map((entry) => shortcutFromFavorite(entry, labels)));
         setRecentResourceShortcuts(recents.map((entry) => shortcutFromRecent(entry, labels)));
+        setRecommendationShortcuts(recommendations.map(shortcutFromRecommendation));
       })
       .catch(() => {
         if (!cancelled) {
           setFavoriteShortcuts([]);
           setRecentResourceShortcuts([]);
+          setRecommendationShortcuts([]);
         }
       });
     return () => {
@@ -782,6 +802,7 @@ export function SearchPage() {
               recent={recent}
               favorites={favoriteShortcuts}
               resources={recentResourceShortcuts}
+              recommendations={recommendationShortcuts}
               onPick={(q) => {
                 setQuery(q);
                 submit(q);
@@ -876,11 +897,12 @@ interface RecentSearchesViewProps {
   recent: string[];
   favorites: ResourceShortcut[];
   resources: ResourceShortcut[];
+  recommendations: ResourceShortcut[];
   onPick: (q: string) => void;
   onClear: () => void;
 }
 
-function RecentSearchesView({ recent, favorites, resources, onPick, onClear }: RecentSearchesViewProps) {
+function RecentSearchesView({ recent, favorites, resources, recommendations, onPick, onClear }: RecentSearchesViewProps) {
   return (
     <div className="of-quicksearch__recent">
       <div className="of-quicksearch__recentHeader">
@@ -910,6 +932,7 @@ function RecentSearchesView({ recent, favorites, resources, onPick, onClear }: R
       )}
 
       <ResourceShortcutSection title="Favorites" rows={favorites} />
+      <ResourceShortcutSection title="You might want to open" rows={recommendations} />
       <ResourceShortcutSection title="Recent resources" rows={resources} />
     </div>
   );

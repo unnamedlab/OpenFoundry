@@ -31,14 +31,16 @@ func newTestRouter(t *testing.T) (http.Handler, *authmw.JWTConfig) {
 func tokenFor(t *testing.T, jwt *authmw.JWTConfig) string {
 	t.Helper()
 	now := time.Now()
+	accessUse := "access"
 	tok, err := authmw.EncodeToken(jwt, &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "route-test@openfoundry.test",
-		Name:  "Route Test",
-		Roles: []string{"admin"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "route-test@openfoundry.test",
+		Name:     "Route Test",
+		Roles:    []string{"admin"},
+		TokenUse: &accessUse,
 	})
 	require.NoError(t, err)
 	return tok

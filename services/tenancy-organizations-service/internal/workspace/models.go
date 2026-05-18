@@ -135,15 +135,15 @@ type ListSavedSearchesResponse struct {
 }
 
 type ProjectFollow struct {
-	UserID    uuid.UUID `json:"user_id"`
-	ProjectID uuid.UUID `json:"project_id"`
+	UserID     uuid.UUID `json:"user_id"`
+	ProjectID  uuid.UUID `json:"project_id"`
 	ProjectRID *string   `json:"project_rid,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type FollowProjectRequest struct {
-	ProjectID *uuid.UUID `json:"project_id"`
-	ProjectRID *string   `json:"project_rid"`
+	ProjectID  *uuid.UUID `json:"project_id"`
+	ProjectRID *string    `json:"project_rid"`
 }
 
 type ListProjectFollowsResponse struct {

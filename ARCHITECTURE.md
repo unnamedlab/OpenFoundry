@@ -186,6 +186,12 @@ and must not drift:
   deduplicates by resource, caps responses at 50 by default, sorts by
   `last_accessed_at DESC`, and filters every row through current project
   visibility before Quicksearch or `/recent` can render it).
+- Compass recommendations
+  (`compass_project_follows` stores explicit per-user project follows;
+  `/api/v1/workspace/recommendations` scores visible `compass_resource_search_index`
+  rows from collaborator opens, the caller's recent opens, and followed
+  projects, then Quicksearch jump-to mode renders the resulting "you might want
+  to open" list).
 - Compass propagate view requirements
   (`tenancy-organizations-service` treats the planned-deprecated Palantir
   setting as a legacy compatibility toggle. Project/folder rows store enabled

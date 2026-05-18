@@ -143,6 +143,43 @@ func TestSavedSearchJSONShapeCMP23(t *testing.T) {
 	}
 }
 
+func TestResourceRecommendationJSONShapeCMP24(t *testing.T) {
+	t.Parallel()
+	projectID := uuid.New()
+	projectRID := "ri.compass.main.project." + projectID.String()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	rec := workspace.ResourceRecommendation{
+		ResourceSearchEntry: workspace.ResourceSearchEntry{
+			ResourceRID:      "ri.foundry.main.dataset." + uuid.New().String(),
+			ResourceType:     "dataset",
+			DisplayName:      "Daily operations",
+			OwningProjectID:  &projectID,
+			OwningProjectRID: &projectRID,
+			OrganizationRIDs: []string{},
+			MarkingRIDs:      []string{},
+			LastModifiedAt:   now,
+			Tags:             []string{"ops"},
+			Summary:          "Recommended dataset",
+			OpenURL:          "/resources/daily-operations",
+		},
+		Score:             42,
+		Reason:            "Collaborators are opening this",
+		Signals:           []string{"collaborator_activity", "project_follow"},
+		CollaboratorCount: 3,
+		LastActivityAt:    &now,
+	}
+	out, err := json.Marshal(rec)
+	require.NoError(t, err)
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(out, &view))
+	for _, k := range []string{
+		"rid", "type", "display_name", "owning_project_id", "score",
+		"reason", "signals", "collaborator_count", "last_activity_at",
+	} {
+		assert.Contains(t, view, k)
+	}
+}
+
 func TestListEnvelopeIsData(t *testing.T) {
 	t.Parallel()
 	out, err := json.Marshal(workspace.ListFavoritesResponse{Data: []workspace.UserFavorite{}})
@@ -205,6 +242,29 @@ func TestCreateSavedSearchRequiresNameCMP23(t *testing.T) {
 	h.CreateSavedSearch(rec, req)
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "name required")
+}
+
+func TestFollowProjectRequiresAuthCMP24(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	req := httptest.NewRequest("POST", "/workspace/project-follows",
+		strings.NewReader(`{"project_id":"`+uuid.New().String()+`"}`))
+	rec := httptest.NewRecorder()
+	h.FollowProject(rec, req)
+	assert.Equal(t, 401, rec.Code)
+}
+
+func TestFollowProjectRequiresProjectCMP24(t *testing.T) {
+	t.Parallel()
+	h := &workspace.Handlers{}
+	c := &authmw.Claims{Sub: uuid.New()}
+	req := httptest.NewRequest("POST", "/workspace/project-follows",
+		strings.NewReader(`{}`))
+	req = req.WithContext(authmw.ContextWithClaims(context.Background(), c))
+	rec := httptest.NewRecorder()
+	h.FollowProject(rec, req)
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "project_id")
 }
 
 func TestCreateFavoriteRejectsNilResourceID(t *testing.T) {

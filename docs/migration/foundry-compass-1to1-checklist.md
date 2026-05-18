@@ -306,9 +306,14 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ### Recommendations and dependency graph
 
-- [ ] `CMP.24` Resource recommendations (`P2`, `todo`)
+- [x] `CMP.24` Resource recommendations (`P2`, `done`)
   - Per-user "you might want to open" recommendations based on collaborator activity, recent opens, and explicit follows on a project.
   - Privacy-respecting: no surfacing of resources the caller cannot see.
+  - Recommendation engine: `GET /api/v1/workspace/recommendations` builds candidates from `compass_resource_search_index` only after intersecting with the caller's `ListAccessibleProjects` result, then scores resources from collaborator activity in `resource_access_log`, the caller's own recent opens, followed projects, and resource recency. The response includes score, reason, signals, collaborator count, and last activity timestamp while stripping long-text bodies.
+  - Project follows: migration `0023_cmp24_project_follows.sql` adds `compass_project_follows`; `GET|POST|DELETE /api/v1/workspace/project-follows` lists, creates, and removes explicit follows, with follow creation limited to projects the caller can currently access.
+  - UI: Quicksearch jump-to mode now loads recommendations and renders a "You might want to open" section beside Favorites and Recent resources; recommendation clicks record the normal resource-access event.
+  - Documentation: `README.md`, `ARCHITECTURE.md`, `docs/reference/foundry-compatibility-glossary.md`, and `services/tenancy-organizations-service/README.md` define the recommendation and project-follow contracts.
+  - Verification: `go test ./services/tenancy-organizations-service/internal/workspace`, `go test ./services/tenancy-organizations-service/internal/server`, `pnpm --filter @open-foundry/web exec eslint src/lib/api/workspace.ts src/routes/search/SearchPage.tsx`, and `git diff --check`.
   - Docs: [Quicksearch](https://www.palantir.com/docs/foundry/getting-started/quicksearch), [Data Catalog](https://www.palantir.com/docs/foundry/compass/data-catalog).
 
 - [ ] `CMP.25` Dependency graph view (`P2`, `todo`)

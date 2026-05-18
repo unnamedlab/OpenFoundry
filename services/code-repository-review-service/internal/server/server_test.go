@@ -80,14 +80,16 @@ func newTestServer(t *testing.T, jwt *authmw.JWTConfig) *http.Server {
 func tokenFor(t *testing.T, cfg *authmw.JWTConfig) string {
 	t.Helper()
 	now := time.Now()
+	accessUse := "access"
 	tok, err := authmw.EncodeToken(cfg, &authmw.Claims{
-		Sub:   uuid.New(),
-		IAT:   now.Unix(),
-		EXP:   now.Add(time.Hour).Unix(),
-		JTI:   uuid.New(),
-		Email: "router-test@example.com",
-		Name:  "Router Test",
-		Roles: []string{"admin"},
+		Sub:      uuid.New(),
+		IAT:      now.Unix(),
+		EXP:      now.Add(time.Hour).Unix(),
+		JTI:      uuid.New(),
+		Email:    "router-test@example.com",
+		Name:     "Router Test",
+		Roles:    []string{"admin"},
+		TokenUse: &accessUse,
 	})
 	require.NoError(t, err)
 	return tok
