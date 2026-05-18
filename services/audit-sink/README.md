@@ -1,5 +1,29 @@
 # audit-sink (Go)
 
+## LLM quick context (current code)
+
+Consumes audit events, persists them to Postgres/Iceberg/JSONL, and exposes audit-event query/export APIs.
+
+Agent note: both a sink runtime and a read/write HTTP service for /api/v1/audit/events.
+
+Current surface:
+- `GET/POST /api/v1/audit/events`
+- `GET /api/v1/audit/events/export`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `envelope`, `handlers`, `repo`, `runtime`, `server`, `writer`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `AUDIT_SINK_JSONL_PATH`, `DATABASE_URL`, `ICEBERG_CATALOG_URL`, `ICEBERG_WAREHOUSE`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_CLIENT_ID`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_PASSWORD`
+- `KAFKA_SASL_USERNAME`, `KAFKA_SECURITY_PROTOCOL`, `METRICS_ADDR`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Kafka → Iceberg consumer. Subscribes to `audit.events.v1`, batches the
 `AuditEnvelope` records (default: 100k OR 60s, whichever first) and
 appends them to `lakekeeper/of_audit/events`. Closes the loop on

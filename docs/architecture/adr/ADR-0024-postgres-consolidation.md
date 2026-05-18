@@ -126,7 +126,7 @@ read by many services.
 | `ontology_schema`  | `ontology-management-service`          | Object types, link types, action definitions, branch definitions, marking definitions.                            |
 | `dataset_schema`   | `dataset-platform-service`             | Dataset metadata, dataset versions (declarative), schema evolutions.                                              |
 | `auth_schema`      | `identity-federation-service`          | OIDC clients, JWKS keys (encrypted at rest, key custody in Vault), SCIM mappings, role definitions.               |
-| `app_schema`       | `application-composition-service`, `nexus-service` | App templates, page definitions, widget definitions, navigation trees.                                            |
+| `app_schema`       | `application-composition-service`; historical `nexus-service` label maps to `federation-product-exchange-service` / `tenancy-organizations-service` routes | App templates, page definitions, widget definitions, navigation trees.                                            |
 | `pipeline_schema`  | `pipeline-orchestrator-service`        | Pipeline definitions, transformation graphs, schedule definitions (Temporal owns the runtime; this is the spec).  |
 
 **Sizing:** 3 instances, modest CPU/RAM, modest storage. Hot path is

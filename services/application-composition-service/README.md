@@ -1,5 +1,31 @@
 # `application-composition-service` (Go)
 
+## LLM quick context (current code)
+
+Owns App Builder application definitions, pages, templates, widgets, public embeds, and preview metadata.
+
+Agent note: do not confuse with the React frontend in apps/web; this service is the backend app-composition API.
+
+Current surface:
+- `/api/v1/apps*`
+- `/api/v1/apps/from-template`
+- `/api/v1/apps/public/{slug}[/embed]`
+- `/api/v1/widgets*`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `7` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `catalog`, `config`, `handlers`, `models`, `repo`, `server`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `HOST`, `ICEBERG_CATALOG_WAREHOUSE_URI`, `ICEBERG_DEFAULT_TENANT`, `ICEBERG_DEFAULT_TOKEN_TTL_SECS`, `ICEBERG_JWT_AUDIENCE`, `ICEBERG_JWT_ISSUER`, `ICEBERG_LONG_LIVED_TOKEN_TTL_SECS`
+- `JWT_SECRET`, `METRICS_ADDR`, `OAUTH_INTEGRATION_URL`, `OPENFOUNDRY_JWT_SECRET`, `PORT`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Runtime owner for OpenFoundry's Workshop-style application composition surface.
 The service persists apps, pages/widgets inside the app definition, versions,
 publish snapshots, and public runtime loading by slug.

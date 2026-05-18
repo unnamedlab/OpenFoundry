@@ -53,7 +53,7 @@ func TestAggregator_FanOutAndCache(t *testing.T) {
 	// Build minimal UpstreamURLs — most fields stay empty (skipped by
 	// enumerate) and we hijack two arbitrary slots for the fakes.
 	cfg := config.UpstreamURLs{
-		IdentityFederation: a.URL,
+		IdentityFederation:  a.URL,
 		AuthorizationPolicy: b.URL,
 	}
 	agg := New(cfg, 30*time.Second)

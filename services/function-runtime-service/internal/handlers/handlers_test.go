@@ -153,7 +153,7 @@ func TestPublishActivateInvoke_SyncSuccess(t *testing.T) {
 	}
 }
 
-func TestInvoke_FailureMapsTo500(t *testing.T) {
+func TestInvoke_UserFailureMapsTo422(t *testing.T) {
 	t.Parallel()
 	tenant := ids.New()
 	actor := ids.New()
@@ -163,8 +163,8 @@ func TestInvoke_FailureMapsTo500(t *testing.T) {
 
 	inv := do(t, r, http.MethodPost, "/api/v1/functions/"+fn.ID.String()+"/invoke",
 		`{"input":{}}`)
-	if inv.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d body=%s", inv.Code, inv.Body.String())
+	if inv.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d body=%s", inv.Code, inv.Body.String())
 	}
 	var run models.FunctionRun
 	_ = json.Unmarshal(inv.Body.Bytes(), &run)
@@ -243,13 +243,29 @@ func TestNotImplementedRuntimeMapsTo501(t *testing.T) {
 	t.Parallel()
 	tenant := ids.New()
 	actor := ids.New()
-	h, _ := buildHandlers(t, fakeExec{err: executor.ErrNotImplemented})
+	h, _ := buildHandlers(t, fakeExec{err: executor.ErrRuntimeUnavailable})
 	r := buildRouter(tenant, actor, h)
 	fn := mustCreateAndActivate(t, r)
 
 	w := do(t, r, http.MethodPost, "/api/v1/functions/"+fn.ID.String()+"/invoke", `{}`)
-	if w.Code != http.StatusNotImplemented {
+	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 501, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateFunction_RuntimeDisabledMapsTo422(t *testing.T) {
+	t.Parallel()
+	tenant := ids.New()
+	actor := ids.New()
+	h, _ := buildHandlers(t, fakeExec{})
+	h.EnabledRuntime = func(rt models.Runtime) bool { return rt == models.RuntimePython }
+	r := buildRouter(tenant, actor, h)
+
+	w := do(t, r, http.MethodPost, "/api/v1/functions", `{
+        "namespace":"billing","name":"compute","runtime":"ts"
+    }`)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

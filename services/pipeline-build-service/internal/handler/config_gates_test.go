@@ -11,11 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/domain/executor"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/iceberg"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/models"
 	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
-	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 func TestConfigGatesReturnExplicitErrors(t *testing.T) {
@@ -34,7 +34,8 @@ func TestConfigGatesReturnExplicitErrors(t *testing.T) {
 	})
 
 	t.Run("PYTHON_SIDECAR_BINARY", func(t *testing.T) {
-		restore := SetExecutionPorts(ExecutionPorts{Committer: &recordingCommitter{}, Transactions: &recordingTransactions{}})
+		committer := &recordingCommitter{}
+		restore := SetExecutionPorts(ExecutionPorts{Committer: committer, Transactions: &recordingTransactions{}})
 		defer restore()
 
 		rr := httptest.NewRecorder()
@@ -46,6 +47,7 @@ func TestConfigGatesReturnExplicitErrors(t *testing.T) {
 		require.Equal(t, string(models.BuildFailed), payload.State)
 		require.Contains(t, payload.Reasons["py"], "python_sidecar_not_configured")
 		require.Contains(t, payload.Reasons["py"], "PYTHON_SIDECAR_BINARY")
+		require.Empty(t, committer.datasets, "failed transforms must not commit outputs")
 	})
 
 	t.Run("KUBERNETES_API_URL", func(t *testing.T) {
@@ -117,7 +119,7 @@ func TestConfigGatesHappyPathsWithFakes(t *testing.T) {
 	})
 
 	t.Run("KUBERNETES_API_URL fake Spark client", func(t *testing.T) {
-		t.Skip("ADR-0045 Phase C.4.a: SubmitSparkRun requires a pipelineplan.Plan now; Phase C.4.b re-targets this assertion once the composer ships.")
+		t.Skip("SubmitSparkRun requires callers to provide a pipelineplan.Plan; this legacy endpoint test still sends the pre-plan payload.")
 		fake := &fakeSparkClient{submittedName: "spark-app"}
 		restore := SetSparkClient(fake)
 		defer restore()

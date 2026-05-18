@@ -40,15 +40,12 @@ func TestReconcilerUsesConfiguredApplier(t *testing.T) {
 	}
 }
 
-func TestReconcilerFallsBackToLoggingApplier(t *testing.T) {
+func TestReconcilerRequiresConfiguredApplier(t *testing.T) {
 	r := &Reconciler{}
 	job := &models.IngestJob{ID: uuid.New(), Name: "orders"}
-	kc, fl, err := r.Apply(context.Background(), job)
-	if err != nil {
-		t.Fatalf("Apply returned error: %v", err)
-	}
-	if kc != "" || fl != "" {
-		t.Errorf("LoggingApplier should return empty resource names, got (%q, %q)", kc, fl)
+	_, _, err := r.Apply(context.Background(), job)
+	if err == nil {
+		t.Fatal("expected missing applier error, got nil")
 	}
 }
 

@@ -1,5 +1,32 @@
 # `notebook-runtime-service` (Go)
 
+## LLM quick context (current code)
+
+Owns notebooks, cells, sessions, notepad documents, gateway kernel proxying, query/AI helper calls, and notebook runtime state.
+
+Agent note: can run against Jupyter Kernel Gateway and Python sidecar settings.
+
+Current surface:
+- `/api/v1/notebooks*`
+- `/api/v1/notepad/documents*`
+- `/api/v1/kernels* gateway proxy`
+- `POST /api/v1/queries/execute`
+- `POST /api/v1/ai/chat/completions`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `handler`, `kernel`, `kernelgw`, `models`, `repo`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `AI_SERVICE_URL`, `DATABASE_URL`, `DATA_DIR`, `HOST`, `JWT_SECRET`, `KERNEL_GATEWAY_AUTH_TOKEN`, `KERNEL_GATEWAY_HTTP_URL`, `KERNEL_GATEWAY_WS_URL`
+- `KERNEL_GC_INTERVAL_SECONDS`, `KERNEL_IDLE_TIMEOUT_SECONDS`, `NOTEBOOK_RUNTIME_SMOKE_MODE`, `PORT`, `PYTHON_SIDECAR_BINARY`, `PYTHON_SIDECAR_TIMEOUT_SECONDS`, `QUERY_SERVICE_URL`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Notebook + notepad runtime: notebooks, cells, sessions, kernel execution,
 workspace files, notepad documents + presence + export.
 

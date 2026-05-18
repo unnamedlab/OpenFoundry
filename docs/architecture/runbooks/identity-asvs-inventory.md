@@ -50,7 +50,7 @@ follow-up sub-task in `migration-plan-cassandra-foundry-parity.md`.
 
 | ASVS | Control | Gap | Substrate | Follow-up |
 |------|---------|-----|-----------|-----------|
-| 14.2.1 | Minimum 3rd-party dep set | OK | `Cargo.toml` deny.toml | — |
+| 14.2.1 | Minimum 3rd-party dep set | OK | `go.mod`, `go.sum`, dependency review | — |
 
 ## Pre-cutover gates
 

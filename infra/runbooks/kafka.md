@@ -242,7 +242,7 @@ The `CiliumNetworkPolicy` resources in `network-policies.yaml` apply
 pods labeled with:
 
 * `openfoundry.io/kafka-role: producer | consumer | producer-consumer`
-* `openfoundry.io/service: <name>` (dataset-service, lineage-service…)
+* `openfoundry.io/service: <name>` (for example, `dataset-versioning-service`, `lineage-service`…)
 
 When a new service is onboarded:
 

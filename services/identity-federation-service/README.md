@@ -1,5 +1,33 @@
 # identity-federation-service (Go)
 
+## LLM quick context (current code)
+
+Owns identity, auth, SSO/MFA, SCIM, OAuth/client, login/refresh, sessions, and federation surfaces.
+
+Agent note: this is AuthN/identity; authorization decisions live mostly in authorization-policy-service.
+
+Current surface:
+- `/api/v1/auth/*`
+- `/api/v1/auth/sso*`
+- `/api/v1/auth/mfa*`
+- `/api/v1/api-keys*`
+- `OAuth/client and SCIM/federation routes`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `22` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `cedarauthz`, `config`, `handlers`, `jwksrotation`, `models`, `oidc`, `repo`, `saml`, `scim`, `server`, `service`, `sessionscassandra`, `signingkeys`, `webauthn`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `ACCESS_TOKEN_TTL`, `BASE_URL`, `DATABASE_URL`, `HOST`, `JWT_SECRET`, `JWT_SIGNING_SEALING_KEY`, `METRICS_ADDR`, `MFA_AT_REST_KEY`
+- `OIDC_PROVIDERS`, `OPENFOUNDRY_JWT_SECRET`, `PORT`, `REFRESH_TOKEN_TTL`, `SERVICE_VERSION`, `VAULT_ADDR`, `VAULT_K8S_AUTH_MOUNT`, `VAULT_K8S_JWT_PATH`
+- `VAULT_K8S_ROLE`, `VAULT_TOKEN`, `VAULT_TRANSIT_HASH_ALGORITHM`, `VAULT_TRANSIT_MOUNT`, `VAULT_TRANSIT_SIGNATURE_ALGORITHM`, `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_NAME`, `WEBAUTHN_RP_ORIGIN`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Identity & federation: register, login, JWT issuance, refresh-token rotation,
 MFA, WebAuthn, OIDC, SAML helpers, RBAC, restricted views, Cedar admin-policy
 helpers, SCIM handler package, JWKS rotation logic, and Vault Transit signer

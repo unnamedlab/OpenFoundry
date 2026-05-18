@@ -42,6 +42,11 @@ type Store interface {
 	RegisterSchemaVersion(ctx context.Context, name string, body *models.RegisterSchemaVersionRequest, fingerprint string) (*models.SchemaSubject, *models.SchemaVersion, bool, error)
 }
 
+// Reconciler applies materialized control-plane resources for ingest jobs.
+type Reconciler interface {
+	Apply(ctx context.Context, job *models.IngestJob) (kafkaConnector, flinkDeployment string, err error)
+}
+
 // StreamingRuntime hides Kafka/Flink provisioning and CDC registration.
 type StreamingRuntime interface {
 	ProvisionStream(ctx context.Context, stream *models.StreamDefinition) error
@@ -55,8 +60,9 @@ type StreamingRuntime interface {
 }
 
 type Handlers struct {
-	Repo    Store
-	Runtime StreamingRuntime
+	Repo       Store
+	Runtime    StreamingRuntime
+	Reconciler Reconciler
 	// PushURL renders the rotated push URL in the ResetStream response.
 	// Optional — when nil the response carries an empty push_url.
 	PushURL *PushURLBuilder
@@ -133,6 +139,10 @@ func (h *Handlers) CreateIngestJob(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	v, ok := h.reconcileIngestJob(w, r, v)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusCreated, v)
 }
 
@@ -160,7 +170,58 @@ func (h *Handlers) UpdateIngestJob(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusNotFound, "ingest job not found")
 		return
 	}
+	v, ok := h.reconcileIngestJob(w, r, v)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+func (h *Handlers) reconcileIngestJob(w http.ResponseWriter, r *http.Request, job *models.IngestJob) (*models.IngestJob, bool) {
+	if h.Reconciler == nil || job == nil {
+		return job, true
+	}
+	kafka, flink, err := h.Reconciler.Apply(r.Context(), job)
+	if err != nil {
+		errMsg := err.Error()
+		failed := "failed"
+		updated, updateErr := h.Repo.UpdateIngestJob(r.Context(), job.ID, &models.UpdateIngestJobRequest{
+			Status: &failed,
+			Error:  &errMsg,
+		})
+		if updateErr != nil {
+			slog.Error("persist ingest job reconcile failure", slog.String("job_id", job.ID.String()), slog.String("error", updateErr.Error()))
+		} else if updated != nil {
+			job = updated
+		}
+		slog.Error("reconcile ingest job", slog.String("job_id", job.ID.String()), slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusBadGateway, errMsg)
+		return job, false
+	}
+	materialized := "materialized"
+	var kafkaPtr, flinkPtr *string
+	if strings.TrimSpace(kafka) != "" {
+		kafkaPtr = &kafka
+	}
+	if strings.TrimSpace(flink) != "" {
+		flinkPtr = &flink
+	}
+	clearErr := ""
+	updated, err := h.Repo.UpdateIngestJob(r.Context(), job.ID, &models.UpdateIngestJobRequest{
+		Status:              &materialized,
+		KafkaConnectorName:  kafkaPtr,
+		FlinkDeploymentName: flinkPtr,
+		Error:               &clearErr,
+	})
+	if err != nil {
+		slog.Error("persist ingest job reconcile success", slog.String("job_id", job.ID.String()), slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return job, false
+	}
+	if updated != nil {
+		job = updated
+	}
+	return job, true
 }
 
 func (h *Handlers) DeleteIngestJob(w http.ResponseWriter, r *http.Request) {

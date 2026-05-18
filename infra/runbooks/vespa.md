@@ -4,7 +4,7 @@ Date: April 29, 2026
 
 OpenFoundry uses **Vespa.ai** (Apache-2.0) as a hybrid search engine
 (BM25 + ANN over dense embeddings) for the *ontology semantic search*
-layer and for the `ai-service` *knowledge bases* (see
+layer and for `knowledge-index-service` knowledge bases (the retired `ai-service` name is only a gateway legacy alias; see
 `docs/ontology-building/semantic-search.md`).
 
 | Resource                       | Path / name                                                |

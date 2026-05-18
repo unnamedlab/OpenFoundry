@@ -1,5 +1,30 @@
 # network-boundary-service
 
+## LLM quick context (current code)
+
+Owns network-boundary placeholders and data-connection egress policy lifecycle/evaluation APIs.
+
+Agent note: parts are scheduled for consolidation into authorization-policy-service; egress policies are implemented.
+
+Current surface:
+- `/api/v1/network-boundaries* (501 placeholder)`
+- `/api/v1/network-boundary* (501 placeholder)`
+- `/api/v1/data-connection/egress-policies*`
+- `POST /api/v1/data-connection/egress-policies:evaluate-workload`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `config`, `handler`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Backs the `/api/v1/network-boundaries`, `/api/v1/network-boundary` and
 `/api/v1/data-connection/egress-policies` route prefixes that the edge
 gateway fans out to `u.NetworkBoundary`. Without this binary those

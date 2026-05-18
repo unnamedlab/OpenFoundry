@@ -54,6 +54,7 @@ import (
 
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
+	probespkg "github.com/openfoundry/openfoundry-go/libs/capabilities/probes"
 	"github.com/openfoundry/openfoundry-go/libs/core-models/health"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
@@ -88,6 +89,7 @@ func BuildRouter(cfg *config.Config, m *observability.Metrics, probes ...capabil
 
 	// Capability registry — see docs/agent-automation/AGENT-CAPABILITIES-ROADMAP.md (M1.1).
 	caps := capabilities.New(cfg.Service.Name, cfg.Service.Version)
+	caps.RegisterDependency(probespkg.PythonSidecar("python-sidecar", cfg.PythonSidecarBinary))
 	for _, p := range probes {
 		caps.RegisterDependency(p)
 	}

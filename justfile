@@ -79,7 +79,11 @@ vet:
 
 # ── Composite gates ──────────────────────────────────────────────────
 
-# Full local CI gate (tidy + vet + lint + test). Run before pushing.
+# Docs/code drift checks for inventories, gateway routes, and ports.
+docs-drift-check:
+    make docs-drift-check
+
+# Full local CI gate (tidy + vet + lint + docs drift + test). Run before pushing.
 ci:
     make ci
 

@@ -1,5 +1,33 @@
 # notification-alerting-service
 
+## LLM quick context (current code)
+
+Owns notifications, preferences, WebSocket tickets/upgrades, internal notification ingress, and alert delivery settings.
+
+Agent note: SMTP/NATS/OTel are optional integrations via env.
+
+Current surface:
+- `POST /api/v1/notifications/send`
+- `GET/PATCH /api/v1/notifications*`
+- `GET/PUT /api/v1/notifications/preferences`
+- `POST /api/v1/notifications/ws-ticket`
+- `GET /api/v1/notifications/ws`
+- `POST /internal/notifications`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `handlers`, `models`, `openapi`, `repo`, `server`, `service`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `HOST`, `JWT_SECRET`, `METRICS_ADDR`, `NATS_URL`, `OPENFOUNDRY_JWT_SECRET`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `PORT`
+- `SERVICE_VERSION`, `SMTP_FROM_ADDRESS`, `SMTP_FROM_NAME`, `SMTP_HOST`, `SMTP_PASSWORD`, `SMTP_PORT`, `SMTP_USERNAME`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Notification inbox + delivery + websocket fan-out.
 
 ## Endpoints

@@ -249,6 +249,28 @@ services:
     ports:
       - name: http
         containerPort: 8080
+    # KMS/backend values are intentionally operator-controlled. Production
+    # overlays should set OF_KMS__BACKEND=aws_kms (or vault/gcp/azure/pkcs11)
+    # plus the matching key reference, and may add
+    # serviceAccountAnnotations such as eks.amazonaws.com/role-arn for IRSA.
+    # TODO(cipher): add a dependency-aware readiness endpoint that checks
+    # Postgres, Kafka audit publisher, and KMS; /healthz is process-only.
+    env:
+      OF_KMS__BACKEND: local
+      AWS_REGION: ""
+      AWS_ENDPOINT_URL: ""
+    envSecrets:
+      DATABASE_URL:
+        secretName: cipher-db-dsn
+        key: writer_url
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
+      OF_CIPHER_LOCAL_KEK:
+        secretName: cipher-kms
+        key: local_kek
+        optional: true
+    serviceAccountAnnotations: {}
     resources:
       requests:
         cpu: 50m

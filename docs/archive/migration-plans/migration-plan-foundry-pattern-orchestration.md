@@ -630,7 +630,7 @@ Failure modes:
 Context: workers-go/pipeline/workflows/pipeline_run.go orquesta el build y ejecución de
 pipelines. Antes de migrar a Spark, hay que entender qué hace exactamente.
 
-Goal: documento `docs/architecture/refactor/pipeline-worker-inventory.md` con:
+Goal: documento `docs/archive/refactor-worker-inventories/pipeline-worker-inventory.md` con:
 - Lista de workflows definidos (PipelineRun, ...)
 - Lista de activities llamadas (qué servicios Rust)
 - Inputs/outputs (de pipeline-build-service, pipeline-schedule-service)
@@ -646,14 +646,14 @@ Steps:
    - User-triggered → API en pipeline-build-service que crea SparkApp CR
    - Scheduled → CronJob k8s que crea SparkApp CR
 
-Verification: documento en `docs/architecture/refactor/` con tabla de migración.
+Verification: documento en `docs/archive/refactor-worker-inventories/` con tabla de migración.
 
 Failure modes:
 - Si pipeline_run.go usa Temporal-specific features (signals, queries) que no mapean a
   Spark, documentar e investigar workaround. Probable: Workshop UI para queries vivos.
 ```
 
-**Status:** done — see [`docs/architecture/refactor/pipeline-worker-inventory.md`](refactor/pipeline-worker-inventory.md)
+**Status:** done — see [`docs/archive/refactor-worker-inventories/pipeline-worker-inventory.md`](../refactor-worker-inventories/pipeline-worker-inventory.md)
 for the full inventory (workflows, activities, HTTP endpoints, per-node
 transform dispatch, trigger surfaces, and the Temporal → Foundry-pattern
 migration table). Headline finding: `PipelineRun` uses no signals,
@@ -972,7 +972,7 @@ Steps:
 4. Identificar dónde el cursor se persiste hoy (ResumeToken in workflow state) →
    reemplazar por tabla `pg-runtime-config.reindex_jobs`.
 
-Verification: documento `docs/architecture/refactor/reindex-worker-inventory.md`.
+Verification: documento `docs/archive/refactor-worker-inventories/reindex-worker-inventory.md`.
 
 Failure modes: ninguno; planning.
 ```

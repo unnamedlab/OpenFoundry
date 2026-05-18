@@ -2,29 +2,29 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted, amended 2026-05-03 after live repo audit; **partially superseded by [ADR-0040](ADR-0040-virtual-tables-service.md)** (2026-05-04) for the `virtual-table-service` decision. |
+| Status | Accepted, amended 2026-05-03 after live repo audit; historical target-boundary map. Current physical service inventory lives in [`docs/reference/repository-layout.md`](../../reference/repository-layout.md). |
 | Date | 2026-05-02 |
 | Stream | S8.1 (cleanup & hardening) |
 | Supersedes / amends | The 85-service taxonomy in [`microservicios-derivados-desde-foundry-docs.md`](../../archive/microservicios-derivados-desde-foundry-docs.md) and the prompt program in [`prompts-migracion-hasta-85-microservicios.md`](../../archive/prompts-migracion-hasta-85-microservicios.md). |
-| Related ADRs | [ADR-0011](ADR-0011-control-vs-data-bus-contract.md), [ADR-0020](ADR-0020-cassandra-as-operational-store.md), [ADR-0024](ADR-0024-postgres-consolidation.md), [ADR-0040](ADR-0040-virtual-tables-service.md) (supersedes the virtual-tables row of the consolidation map), [ADR-0042](ADR-0042-service-consolidation-map-reconciliation.md). |
+| Related ADRs | [ADR-0011](ADR-0011-control-vs-data-bus-contract.md), [ADR-0020](ADR-0020-cassandra-as-operational-store.md), [ADR-0024](ADR-0024-postgres-consolidation.md), [ADR-0042](ADR-0042-service-consolidation-map-reconciliation.md). |
 
-> **Reader note (2026-05-14):** Two rows of the consolidation map are
-> stale on a live disk audit and should be read in conjunction with
-> their replacement ADRs / READMEs:
->
-> - The `connector-management-service` ← absorbs `virtual-table-service`
->   row below is **reversed** by [ADR-0040](ADR-0040-virtual-tables-service.md),
->   which establishes `virtual-table-service` as a dedicated binary
->   (D-1 of that ADR).
-> - The `federation-product-exchange-service` ← absorbs
->   `marketplace-service`, `marketplace-catalog-service`,
->   `product-distribution-service` row reflects the
->   *consolidation intent*. None of those three names exists on disk
->   today; their surfaces ship inside `federation-product-exchange-service`
->   (verify against [`services-and-ports.md`](../services-and-ports.md)).
+> **Reader note (2026-05-18):** This ADR is a historical target-boundary
+> map, not the current physical service inventory. In the live Go repo,
+> `virtual-table-service` does **not** exist as a binary; the
+> `virtual_table_service_url` gateway legacy alias resolves to
+> `connector-management-service` (verify against
+> [`services-and-ports.md`](../services-and-ports.md)). The
+> `federation-product-exchange-service` ← absorbs `marketplace-service`,
+> `marketplace-catalog-service`, and `product-distribution-service` row
+> remains a consolidation-intent record; none of those three absorbed names
+> exists on disk today.
 >
 > Treat this ADR as the *historical decision* and the linked ADRs +
-> `services-and-ports.md` as the *current state*.
+> `services-and-ports.md` as the *current state*. In particular, current
+> gateway defaults route `cipher_service_url`, `knowledge_index_service_url`,
+> `report_service_url`, and `global_branch_service_url` to real same-named Go
+> binaries; `network_boundary_service_url` remains a legacy alias whose Go
+> default resolves to `authorization-policy-service` unless overridden.
 
 ## Context
 
@@ -83,7 +83,7 @@ the headline groupings are:
 | Target service | Absorbs |
 | --- | --- |
 | `identity-federation-service` | `oauth-integration-service`, `session-governance-service` |
-| `authorization-policy-service` | `cipher-service`, `network-boundary-service`, `checkpoints-purpose-service`, `security-governance-service` |
+| `authorization-policy-service` | `cipher-service` (historical target; current Go `cipher_service_url` default is the real same-named binary), `network-boundary-service` (current Go `network_boundary_service_url` default still resolves here unless overridden), `checkpoints-purpose-service`, `security-governance-service` |
 | `tenancy-organizations-service` | (unchanged) |
 
 ### Audit / governance plane (2 services)
@@ -140,7 +140,7 @@ Postgres runtime tables.
 | --- | --- |
 | `agent-runtime-service` | `tool-registry-service` (S8.1.b), `conversation-state-service`, `prompt-workflow-service` |
 | `llm-catalog-service` | (unchanged) |
-| `retrieval-context-service` | `knowledge-index-service`, `document-intelligence-service` |
+| `retrieval-context-service` | `knowledge-index-service` (historical target; current Go `knowledge_index_service_url` default is the real same-named binary), `document-intelligence-service` |
 | `ai-evaluation-service` | `ai-application-generation-service`, `mcp-orchestration-service` |
 
 ### Analytics & apps plane (5 services)
@@ -170,7 +170,7 @@ Postgres runtime tables.
 
 | Target service | Absorbs |
 | --- | --- |
-| `code-repository-review-service` | `global-branch-service`, `code-security-scanning-service` |
+| `code-repository-review-service` | `global-branch-service` (historical target; current Go `global_branch_service_url` default is the real same-named binary for `/api/v1/global-branches`, with legacy code-repo branch paths left here), `code-security-scanning-service` |
 | `sdk-generation-service` | (unchanged) |
 | `entity-resolution-service` | (unchanged; specialised algorithms) |
 

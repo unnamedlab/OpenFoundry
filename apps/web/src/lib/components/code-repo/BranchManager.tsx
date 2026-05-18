@@ -1,4 +1,4 @@
-import type { BranchDefinition } from '@/lib/api/code-repos';
+import type { BranchDefinition, RepositoryTagDefinition } from '@/lib/api/code-repos';
 
 export interface BranchDraft {
   name: string;
@@ -11,7 +11,12 @@ interface Props {
   draft: BranchDraft;
   busy?: boolean;
   onDraftChange: (patch: Partial<BranchDraft>) => void;
+  tags?: RepositoryTagDefinition[];
   onCreateBranch: () => void;
+  onSwitchBranch?: (branch: string) => void;
+  onDeleteBranch?: (branch: string) => void;
+  onMergeBranch?: (branch: string, target: string) => void;
+  onCreateTag?: (name: string, target: string, message: string, protectedTag: boolean) => void;
 }
 
 const darkInput: React.CSSProperties = {
@@ -25,7 +30,7 @@ const darkInput: React.CSSProperties = {
   outline: 'none',
 };
 
-export function BranchManager({ branches, draft, busy = false, onDraftChange, onCreateBranch }: Props) {
+export function BranchManager({ branches, draft, tags = [], busy = false, onDraftChange, onCreateBranch, onSwitchBranch, onDeleteBranch, onMergeBranch, onCreateTag }: Props) {
   return (
     <section className="of-panel" style={{ padding: 20 }}>
       <div>
@@ -51,16 +56,21 @@ export function BranchManager({ branches, draft, busy = false, onDraftChange, on
                     Head {branch.head_sha} · base {branch.base_branch ?? 'none'}
                   </p>
                 </div>
-                <span
-                  className="of-chip"
-                  style={
-                    branch.is_default
-                      ? { background: '#0c0a09', color: '#f5f5f4', textTransform: 'uppercase', letterSpacing: '0.16em' }
-                      : { background: '#ecfdf5', color: '#047857', textTransform: 'uppercase', letterSpacing: '0.16em' }
-                  }
-                >
-                  {branch.is_default ? 'Default' : 'Feature'}
-                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+                  <span
+                    className="of-chip"
+                    style={
+                      branch.is_default
+                        ? { background: '#0c0a09', color: '#f5f5f4', textTransform: 'uppercase', letterSpacing: '0.16em' }
+                        : { background: '#ecfdf5', color: '#047857', textTransform: 'uppercase', letterSpacing: '0.16em' }
+                    }
+                  >
+                    {branch.is_default ? 'Default' : 'Feature'}
+                  </span>
+                  <button type="button" disabled={busy} onClick={() => onSwitchBranch?.(branch.name)} className="of-chip">Switch</button>
+                  <button type="button" disabled={busy} onClick={() => onMergeBranch?.(branch.name, draft.base_branch || 'main')} className="of-chip">Merge</button>
+                  <button type="button" disabled={busy || branch.is_default} onClick={() => onDeleteBranch?.(branch.name)} className="of-chip">Delete</button>
+                </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
                 <span className="of-chip">Ahead {branch.ahead_by}</span>
@@ -99,6 +109,37 @@ export function BranchManager({ branches, draft, busy = false, onDraftChange, on
               <input type="checkbox" checked={draft.protected} onChange={(e) => onDraftChange({ protected: e.target.checked })} />
               Protected branch
             </label>
+          </div>
+
+
+          <div style={{ marginTop: 18, borderTop: '1px solid #44403c', paddingTop: 14 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#fbbf24' }}>
+              Annotated release tags
+            </p>
+            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+              {tags.map((tag) => (
+                <div key={tag.name} style={{ border: '1px solid #44403c', borderRadius: 12, padding: 10 }}>
+                  <p style={{ fontWeight: 600 }}>{tag.name} {tag.protected ? '🔒' : ''}</p>
+                  <p style={{ color: '#a8a29e', fontSize: 11 }}>{tag.target_sha.slice(0, 12)} · {tag.message || 'release'}</p>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const name = window.prompt('Tag name', 'v0.1.0');
+                if (!name) return;
+                const target = window.prompt('Target branch or SHA', draft.base_branch || 'main') || draft.base_branch || 'main';
+                const message = window.prompt('Tag message', `Release ${name}`) || `Release ${name}`;
+                const protectedTag = window.confirm('Protect this release tag?');
+                onCreateTag?.(name, target, message, protectedTag);
+              }}
+              className="of-button of-button--secondary"
+              style={{ marginTop: 10 }}
+            >
+              Create annotated tag
+            </button>
           </div>
           <button
             type="button"

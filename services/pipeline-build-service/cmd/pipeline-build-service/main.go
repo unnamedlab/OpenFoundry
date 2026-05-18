@@ -21,12 +21,12 @@ import (
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/handler"
 	livellogs "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/logs"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/postgres"
 	runtimepkg "github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/runtime"
 	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/server"
-	"github.com/openfoundry/openfoundry-go/services/pipeline-build-service/internal/dispatch"
 )
 
 var version = "dev"
@@ -59,6 +59,11 @@ func main() {
 
 	var pythonRuntime runtimepkg.TransformExecutor
 	var pyMgr *pythonsidecar.Manager
+	if cfg.RequirePythonSidecar && cfg.PythonSidecarBinary == "" {
+		log.Error("python sidecar required but PYTHON_SIDECAR_BINARY is unset", slog.String("config", "OF_PIPELINE_TRANSFORMS_REQUIRED"))
+		os.Exit(1)
+	}
+
 	if cfg.PythonSidecarBinary != "" {
 		pyMgr, err = pythonsidecar.New(pythonsidecar.Config{
 			BinaryPath:      cfg.PythonSidecarBinary,
@@ -79,7 +84,7 @@ func main() {
 		pythonRuntime = runtimepkg.NewSidecarTransformExecutor(runtimepkg.SidecarTransform{Mgr: pyMgr})
 		log.Info("python sidecar runtime wired")
 	} else {
-		log.Warn("PYTHON_SIDECAR_BINARY unset; Python pipeline transforms require an injected test fake or will fail explicitly")
+		log.Warn("PYTHON_SIDECAR_BINARY unset; Python pipeline transforms are unavailable and jobs will fail with python_sidecar_not_configured")
 	}
 
 	var pool *pgxpool.Pool

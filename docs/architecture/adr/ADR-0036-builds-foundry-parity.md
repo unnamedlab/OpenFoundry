@@ -36,7 +36,7 @@ flowchart TD
     F -->|JoinSet ≤ BUILD_PARALLELISM| G[DispatchingRunner]
     G -- SYNC --> R1[connector-management-service]
     G -- TRANSFORM --> R2[engine::runtime: SQL/Python/WASM]
-    G -- HEALTH_CHECK --> R3[dataset-quality-service]
+    G -- HEALTH_CHECK --> R3[dataset-versioning-service health-check surface]
     G -- ANALYTICAL --> R4[object-set materialise]
     G -- EXPORT --> R5[external destination + ACL]
     G -->|emit| L[CompositeLogSink]
@@ -143,7 +143,7 @@ together"*.
 | Analytical logic kind | `domain::runners::analytical::AnalyticalJobRunner` | ✅ |
 | Export logic kind | `domain::runners::export::ExportJobRunner` | ✅ |
 | Application reference § Builds | `apps/web/src/routes/builds/+page.svelte`, `[rid]/+page.svelte` | ✅ |
-| Health checks FAQ | `services/dataset-quality-service` (POST /v1/datasets/{rid}/health-checks/results, contract owner) | 🟡 |
+| Health checks FAQ | `services/dataset-versioning-service` (current owner for the retired `dataset-quality-service` surface; POST /v1/datasets/{rid}/health-checks/results contract) | 🟡 |
 
 ## Consequences
 

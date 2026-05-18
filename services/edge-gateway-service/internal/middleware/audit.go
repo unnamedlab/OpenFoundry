@@ -16,21 +16,21 @@ import (
 // Field names + types are byte-identical so audit-sink decodes either
 // language's payload through the same schema.
 type gatewayAuditPayload struct {
-	SourceService  string                  `json:"source_service"`
-	Channel        string                  `json:"channel"`
-	Actor          string                  `json:"actor"`
-	Action         string                  `json:"action"`
-	ResourceType   string                  `json:"resource_type"`
-	ResourceID     string                  `json:"resource_id"`
-	Status         string                  `json:"status"`
-	Severity       string                  `json:"severity"`
-	Classification string                  `json:"classification"`
-	SubjectID      *string                 `json:"subject_id,omitempty"`
-	IPAddress      *string                 `json:"ip_address,omitempty"`
-	Location       *string                 `json:"location,omitempty"`
-	Metadata       gatewayAuditMetadata    `json:"metadata"`
-	Labels         []string                `json:"labels"`
-	RetentionDays  int32                   `json:"retention_days"`
+	SourceService  string               `json:"source_service"`
+	Channel        string               `json:"channel"`
+	Actor          string               `json:"actor"`
+	Action         string               `json:"action"`
+	ResourceType   string               `json:"resource_type"`
+	ResourceID     string               `json:"resource_id"`
+	Status         string               `json:"status"`
+	Severity       string               `json:"severity"`
+	Classification string               `json:"classification"`
+	SubjectID      *string              `json:"subject_id,omitempty"`
+	IPAddress      *string              `json:"ip_address,omitempty"`
+	Location       *string              `json:"location,omitempty"`
+	Metadata       gatewayAuditMetadata `json:"metadata"`
+	Labels         []string             `json:"labels"`
+	RetentionDays  int32                `json:"retention_days"`
 }
 
 type gatewayAuditMetadata struct {

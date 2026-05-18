@@ -150,6 +150,20 @@ func (h *PromptsHandlers) CreatePrompt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+// GetPrompt handles `GET /api/v1/prompts/{id}`.
+func (h *PromptsHandlers) GetPrompt(w http.ResponseWriter, r *http.Request, promptID uuid.UUID) {
+	p, err := h.loadPromptRow(r.Context(), promptID)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	if p == nil {
+		writeError(w, http.StatusNotFound, "prompt template not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 // UpdatePrompt handles `PATCH /api/v1/prompts/{id}`. When content,
 // input_variables, OR notes is supplied, appends a new version
 // (latest+1) and bumps latest_version_number; otherwise just

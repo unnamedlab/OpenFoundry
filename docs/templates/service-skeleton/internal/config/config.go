@@ -8,7 +8,7 @@
 //  3. Path passed via CONFIG_FILE env var (optional).
 //  4. OF_<KEY> environment variables (override at runtime).
 //
-// Mirrors the Rust workspace's `config-rs` precedence so deployments
+// Mirrors the standard OpenFoundry Go service precedence so deployments
 // can reuse the same Helm value templates.
 package config
 

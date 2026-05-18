@@ -1,5 +1,32 @@
 # connector-management-service (Go)
 
+## LLM quick context (current code)
+
+Owns Data Connection sources/connectors, credentials, webhooks, sync config, and connector management APIs.
+
+Agent note: prefer Foundry-compatible terms source/source_rid/webhook/output_parameters in new docs and clients.
+
+Current surface:
+- `/api/v1/data-connection*`
+- `/api/v1/sources*`
+- `POST /api/v1/webhooks/{source_id}/invoke`
+- `credential/source management routes`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `27` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `adapters`, `config`, `domain`, `drivers`, `handlers`, `models`, `repo`, `runtime`, `server`, `workers`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `AGENT_STALE_AFTER_SECS`, `ALLOWED_EGRESS_HOSTS`, `ALLOW_PRIVATE_NETWORK_EGRESS`, `CREDENTIAL_ENCRYPTION_KEY`, `DATABASE_URL`, `DATASET_SERVICE_URL`, `HOST`, `INGESTION_REPLICATION_GRPC_URL`
+- `JWT_SECRET`, `MEDIA_SETS_SERVICE_URL`, `METRICS_ADDR`, `NETWORK_BOUNDARY_SERVICE_URL`, `ONTOLOGY_SERVICE_URL`, `OPENFOUNDRY_AUTO_REGISTRATION_INTERVAL_SECS`, `OPENFOUNDRY_DEV_AUTH`, `OPENFOUNDRY_JWT_SECRET`
+- `OPENFOUNDRY_SYNC_SCHEDULER_INTERVAL_SECS`, `OPENFOUNDRY_VENDED_CREDENTIALS_TTL_SECS`, `OUTBOX_ENABLED`, `PIPELINE_SERVICE_URL`, `PORT`, `SECRET_MANAGER_URL`, `SERVICE_VERSION`, `SYNC_POLL_INTERVAL_SECS`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Go runtime for the Foundry Data Connection app migration. The Go service now uses the same runtime configuration names and defaults as the Rust service where those defaults exist.
 
 ## Compatibility naming

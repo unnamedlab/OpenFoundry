@@ -24,8 +24,9 @@ import (
 // exposes.
 type Config struct {
 	Service struct {
-		Name    string `koanf:"name"`
-		Version string `koanf:"version"`
+		Name        string `koanf:"name"`
+		Version     string `koanf:"version"`
+		Environment string `koanf:"environment"`
 	} `koanf:"service"`
 
 	Server struct {
@@ -40,7 +41,8 @@ type Config struct {
 	} `koanf:"jwt"`
 
 	Database struct {
-		URL string `koanf:"url"`
+		URL              string `koanf:"url"`
+		AllowMemoryStore bool   `koanf:"allow_memory_store"`
 	} `koanf:"database"`
 
 	Executor struct {
@@ -52,6 +54,16 @@ type Config struct {
 		// MemoryLimitMiB is enforced via syscall.Setrlimit on linux.
 		// 0 disables the rlimit hook (macOS / dev).
 		MemoryLimitMiB uint64 `koanf:"memory_limit_mib"`
+
+		// EnabledRuntimes is a closed allow-list. Dev defaults to ts+python via
+		// config.yaml; production deployments should set it explicitly.
+		EnabledRuntimes []string `koanf:"enabled_runtimes"`
+
+		MaxStdoutBytes uint64 `koanf:"max_stdout_bytes"`
+		MaxStderrBytes uint64 `koanf:"max_stderr_bytes"`
+
+		AllowRemoteSourceURI   bool `koanf:"allow_remote_source_uri"`
+		RequireBinariesOnStart bool `koanf:"require_binaries_on_start"`
 
 		// NodeBinary / PythonBinary are looked up in $PATH when empty.
 		NodeBinary   string `koanf:"node_binary"`
@@ -83,6 +95,31 @@ func (c *Config) MaxExecutorTimeout() time.Duration {
 	return 5 * time.Minute
 }
 
+// IsProduction reports whether production hardening should fail closed.
+func (c *Config) IsProduction() bool {
+	env := strings.ToLower(strings.TrimSpace(c.Service.Environment))
+	return env == "prod" || env == "production"
+}
+
+// Normalize applies safe defaults for tests and hand-built Config values.
+func (c *Config) Normalize() {
+	if c.Service.Environment == "" {
+		c.Service.Environment = "development"
+	}
+	if len(c.Executor.EnabledRuntimes) == 0 {
+		c.Executor.EnabledRuntimes = []string{"ts", "python"}
+	}
+	if c.Executor.MaxStdoutBytes == 0 {
+		c.Executor.MaxStdoutBytes = 1 << 20
+	}
+	if c.Executor.MaxStderrBytes == 0 {
+		c.Executor.MaxStderrBytes = 1 << 20
+	}
+	if c.IsProduction() {
+		c.Executor.RequireBinariesOnStart = true
+	}
+}
+
 // Load resolves the configuration following the documented precedence.
 func Load(defaultsPath, envPath string) (*Config, error) {
 	k := koanf.New(".")
@@ -106,5 +143,6 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+	cfg.Normalize()
 	return &cfg, nil
 }

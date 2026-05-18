@@ -1,5 +1,27 @@
 # ontology-indexer
 
+## LLM quick context (current code)
+
+Consumes ontology/object change events and updates the configured search backend.
+
+Agent note: no /api/v1 surface; this is a Kafka/search worker with health/metrics.
+
+Current surface:
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `config`, `runtime`, `server`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `HOST`, `INDEXER_DLQ_TOPIC`, `INDEXER_RETRY_INITIAL_BACKOFF`, `INDEXER_RETRY_MAX_ATTEMPTS`, `INDEXER_RETRY_MAX_BACKOFF`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_CONSUMER_GROUP`, `METRICS_ADDR`
+- `PORT`, `SEARCH_API_KEY`, `SEARCH_BACKEND`, `SEARCH_BEARER_TOKEN`, `SEARCH_ENDPOINT`, `SEARCH_PASSWORD`, `SEARCH_USERNAME`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 `ontology-indexer` is a Kafka worker that projects ontology object and link change
 events into the configured search backend. The HTTP server is operational only:
 `/healthz` and `/metrics` do not expose application routes.
@@ -39,3 +61,12 @@ kept but is skipped unless `KAFKA_BOOTSTRAP_SERVERS` is present:
 ```sh
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 go test ./services/ontology-indexer/internal/runtime -run TestConsumerWithRealKafkaValidMalformedAndRetry
 ```
+
+## OSV2 row projection mode
+
+In OSV2 deployments the worker can be wired with a `runtime.StorageProjector`
+(`ObjectStore` plus `LinkStore`) by calling `runtime.RunWithStores`. In this
+mode each Kafka record is applied to OSV2 object/link rows before the search
+projection. The runtime tracks `event_id` values and aggregate versions in the
+projection index, so duplicate producer retries are skipped and Kafka offsets are
+committed only after all configured row and search writes succeed.

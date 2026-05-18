@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://github.com/openfoundry/openfoundry-go">
-    <img src="images/logo.png" alt="OpenFoundry" width="240" />
+    <img src="images/logo.png" alt="OpenFoundry" width="420" />
   </a>
 
 
@@ -20,7 +20,7 @@
 
 ---
 
-OpenFoundry is an open-source operational data platform inspired by the capability model of Palantir Foundry, implemented as auditable, extensible software. It combines **42 Go microservices**, **33 shared libraries**, Protobuf/OpenAPI contracts, generated SDKs, a **React 19 + Vite + TypeScript** web console, and declarative infrastructure for Kubernetes.
+OpenFoundry is an open-source operational data platform inspired by the capability model of Palantir Foundry, implemented as auditable, extensible software. It combines **50 service directories**, **36 shared libraries**, Protobuf/OpenAPI contracts, generated SDKs, a **React 19 + Vite + TypeScript** web console, and declarative infrastructure for Kubernetes.
 
 The goal is to provide a reproducible foundation for teams that need to connect sources, version datasets, model an ontology, expose APIs, automate workflows, govern access, and operate analytical or AI workloads with end-to-end traceability.
 
@@ -205,15 +205,15 @@ Some contracts are pinned by golden tests and must not change without an explici
 - Compass folder resource: `tenancy-organizations-service` owns stable folder `rid` values, project/parent/space RID projection, folder trash status, and inheritance from project policies with folder-scope grant overrides.
 - Compass move/rename: workspace operations may update project/folder parentage, display names, slugs, and derived breadcrumbs, but must not mutate resource RIDs; cross-project folder moves require explicit access-policy and marking confirmations.
 - Compass search index: `tenancy-organizations-service` maintains `compass_resource_search_index` entries for project/folder RIDs and long-text catalog sources such as descriptions, READMEs, ontology object/property descriptions, code repository READMEs, and dashboard descriptions. Writes emit `compass.resource.search.updated.v1` outbox events on create/update/move/trash/restore/purge instead of relying on table polling.
-- Compass search API: `GET /api/v1/compass/search` is permission-aware, supports `q`, `type`, `project`, `owner`, repeated `marking`, `modified`, `limit`, and `cursor`, returns highlighted snippets and facets for type/project/owner/marking/last-modified buckets, and paginates by opaque cursor over text score, last modified time, and RID.
-- Compass search UI shell: `apps/web` route `/search` combines ontology search with `GET /api/v1/compass/search`, keeps the `Cmd/Ctrl+J` global search shell, loads jump-to recents/favorites, displays marking badges and snippet highlights, renders resource facets in the sidebar, and derives resource "Open with" actions from the frontend Compass resource type registry.
+- Compass search API: `GET /api/v1/compass/search` (no current edge-gateway route; handler-level/roadmap surface until `router_table.go` adds a branch) is permission-aware, supports `q`, `type`, `project`, `owner`, repeated `marking`, `modified`, `limit`, and `cursor`, returns highlighted snippets and facets for type/project/owner/marking/last-modified buckets, and paginates by opaque cursor over text score, last modified time, and RID.
+- Compass search UI shell: `apps/web` route `/search` combines ontology search with the handler-level Compass search surface (`GET /api/v1/compass/search` has no current edge-gateway route), keeps the `Cmd/Ctrl+J` global search shell, loads jump-to recents/favorites, displays marking badges and snippet highlights, renders resource facets in the sidebar, and derives resource "Open with" actions from the frontend Compass resource type registry.
 - Compass saved searches: `compass_saved_searches` stores per-user named Quicksearch/Data Catalog queries with tab, type, project, owner, marking, and last-modified filters; `/api/v1/workspace/saved-searches` lists/creates/deletes them for the search sidebar.
 - Compass recommendations: `GET /api/v1/workspace/recommendations` returns permission-filtered "you might want to open" resources scored from collaborator opens, the caller's recent opens, and explicit project follows stored in `compass_project_follows`; Quicksearch jump-to mode renders them beside favorites and recents.
 - Compass open-with menu: `apps/web/src/lib/components/workspace/OpenWithMenu.tsx` is the shared registry-backed launcher for search results, project/folder list views, and resource detail headers; targets resolve from immutable RIDs when present and retain an unknown-resource fallback.
 - Compass breadcrumbs: `apps/web` uses the shared `ProjectBreadcrumb` for project/folder paths, click-to-open navigation, and per-crumb copy-RID actions derived from stable project/folder RIDs.
 - Compass trash workflow: project/folder/resource-binding deletes are soft deletes with configurable `retention_days` (default 30), `purge_after` metadata, search-index trash/restore events, and folder restore fallback to the project root when the original parent path is gone.
 - Compass hard delete audit: permanent deletes are allowed after `purge_after` or by admin override, clean directly affected Compass surface rows, and emit marking-aware `compass.resource.purged` audit events with the dependent rows/resources affected by the purge.
-- Compass resource audit: create, move, rename, trash, restore, purge, share grant/update/revoke, and marking-change mutations emit marking-aware `compass.resource.*` events to `audit.events.v1`; `services/audit-sink` exposes them through `GET /api/v1/audit/events` and NDJSON export.
+- Compass resource audit: create, move, rename, trash, restore, purge, share grant/update/revoke, and marking-change mutations emit marking-aware `compass.resource.*` events to `audit.events.v1`; `audit-compliance-service` owns the public `GET /api/v1/audit/events` route; `services/audit-sink` only consumes `audit.events.v1` into Iceberg for storage/export pipelines.
 - Compass bulk operations: `POST /api/v1/workspace/resources/batch` applies selected search/folder rows as one preflighted move/trash/share batch, aborts before mutation when any row fails policy/confirmation checks, and emits one `compass.resource.bulk_operation` audit event for the batch instead of per-row audit noise.
 - Compass reverse-reference graph: `compass_resource_references` stores directed `source depends on target` edges, the resource registry declares supported reference targets, and workspace APIs/UI expose `depends_on` / `used_by` with move/trash warnings.
 - Compass stable resource URLs: web routes and search/open-with URLs identify resources by RID, with optional slug suffixes treated only as visual sugar so rename and move operations do not invalidate links.
@@ -238,3 +238,4 @@ Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the PR p
 ## License
 
 OpenFoundry is licensed under **AGPL-3.0-only**. See [`LICENSE`](LICENSE).
+

@@ -51,9 +51,10 @@ type Config struct {
 
 	// Python sidecar replaces the former Rust PyO3 embedded interpreter
 	// for pipeline transform execution. Empty disables Python runtime
-	// execution and leaves callers with an explicit runner_not_wired error.
+	// execution and leaves callers with an explicit python_sidecar_not_configured error.
 	PythonSidecarBinary         string
 	PythonSidecarTimeoutSeconds uint32
+	RequirePythonSidecar        bool
 }
 
 func FromEnv() (*Config, error) {
@@ -90,6 +91,7 @@ func FromEnv() (*Config, error) {
 	c.FoundryIcebergCatalogBearer = os.Getenv("FOUNDRY_ICEBERG_CATALOG_BEARER")
 	c.PythonSidecarBinary = os.Getenv("PYTHON_SIDECAR_BINARY")
 	c.PythonSidecarTimeoutSeconds = parseUint32(os.Getenv("PYTHON_SIDECAR_TIMEOUT_SECONDS"), 60)
+	c.RequirePythonSidecar = parseBool(os.Getenv("OF_PIPELINE_TRANSFORMS_REQUIRED"))
 	return c, nil
 }
 
@@ -131,4 +133,13 @@ func parseUint64(v string, fallback uint64) uint64 {
 		return fallback
 	}
 	return n
+}
+
+func parseBool(v string) bool {
+	switch v {
+	case "1", "true", "TRUE", "True", "yes", "YES", "on", "ON":
+		return true
+	default:
+		return false
+	}
 }

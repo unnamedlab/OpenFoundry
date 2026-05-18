@@ -154,6 +154,40 @@ services:
         cpu: "1"
         memory: 1Gi
 
+  function-runtime-service:
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 50190
+        servicePort: 50190
+    # Dedicated user-function runtime. Supported runtimes are ts and python;
+    # the container image must include node/python or these paths must be
+    # overridden to valid binaries. ENABLED_RUNTIMES documents the operator
+    # intent until the binary grows a first-class enabled_runtimes knob.
+    # TODO(function-runtime): add a dependency-aware readiness endpoint that
+    # checks Postgres and runtime binaries; /healthz is process-only.
+    env:
+      ENABLED_RUNTIMES: ts,python
+      OF_EXECUTOR__NODE_BINARY: node
+      OF_EXECUTOR__PYTHON_BINARY: python3
+      OF_EXECUTOR__DEFAULT_TIMEOUT: 30s
+      OF_EXECUTOR__MAX_TIMEOUT: 5m
+      OF_EXECUTOR__MEMORY_LIMIT_MIB: "256"
+    envSecrets:
+      OF_DATABASE__URL:
+        secretName: function-runtime-db-dsn
+        key: writer_url
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
   ontology-query-service:
     replicas: 3
     ports:

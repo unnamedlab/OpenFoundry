@@ -140,7 +140,7 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/ai/providers", "llm-catalog"},
 		{"/api/v1/ai/prompts", "agent-runtime"},
 		{"/api/v1/agent-runtime/agents", "agent-runtime"},
-		{"/api/v1/ai/knowledge-bases/abc/search", "retrieval"},
+		{"/api/v1/ai/knowledge-bases/abc/search", "knowledge"},
 		{"/api/v1/ai/knowledge-bases", "knowledge"},
 		// ADR-0030: conversation-state-service retired into agent-runtime-service.
 		{"/api/v1/ai/conversations", "agent-runtime"},
@@ -151,7 +151,8 @@ func TestSelectUpstream(t *testing.T) {
 		{"/api/v1/reports", "report"},
 		{"/api/v1/geospatial/x", "geo"},
 		// code repo
-		{"/api/v1/code-repos/repositories/abc/branches", "branch"},
+		{"/api/v1/code-repos/repositories/abc/branches", "code-repo"},
+		{"/api/v1/global-branches", "branch"},
 		{"/api/v1/code-repos/repositories/abc/commits", "code-repo"},
 		// marketplace
 		{"/api/v1/marketplace/installs", "marketplace"},

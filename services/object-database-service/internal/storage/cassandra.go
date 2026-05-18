@@ -14,7 +14,7 @@ import (
 // NewCassandraStores adapts the production Cassandra kernel stores to the
 // object-database-service storage interfaces.
 func NewCassandraStores(session *gocql.Session, objectKeyspace, linkKeyspace string) (ObjectStore, LinkStore) {
-	return NewCassandraObjectStore(cassandrakernel.NewObjectStoreWithKeyspace(session, objectKeyspace)),
+	return NewCassandraObjectStore(cassandrakernel.NewObjectStoreWithKeyspaces(session, objectKeyspace, linkKeyspace)),
 		NewCassandraLinkStore(cassandrakernel.NewLinkStoreWithKeyspace(session, linkKeyspace))
 }
 
@@ -29,6 +29,48 @@ func NewCassandraObjectStore(inner repos.ObjectStore) *CassandraObjectStore {
 }
 
 var _ ObjectStore = (*CassandraObjectStore)(nil)
+var _ PointReadStore = (*CassandraObjectStore)(nil)
+var _ PropertyQueryStore = (*CassandraObjectStore)(nil)
+
+type repoPointReadStore interface {
+	GetByTypeAndPrimaryKey(ctx context.Context, tenant repos.TenantId, typeID repos.TypeId, primaryKey string, consistency repos.ReadConsistency) (*repos.Object, error)
+}
+
+func (s *CassandraObjectStore) GetByTypeAndPrimaryKey(ctx context.Context, tenant TenantId, typeID TypeId, primaryKey string, c ReadConsistency) (*Object, error) {
+	point, ok := s.inner.(repoPointReadStore)
+	if !ok {
+		obj, err := s.Get(ctx, tenant, ObjectId(primaryKey), c)
+		if err != nil || obj == nil || obj.TypeID != typeID {
+			return nil, err
+		}
+		return obj, nil
+	}
+	obj, err := point.GetByTypeAndPrimaryKey(ctx, repos.TenantId(tenant), repos.TypeId(typeID), primaryKey, toRepoConsistency(c))
+	if err != nil {
+		return nil, fromRepoError(err)
+	}
+	if obj == nil {
+		return nil, nil
+	}
+	converted := fromRepoObject(*obj)
+	return &converted, nil
+}
+
+type repoPropertyQueryStore interface {
+	QueryByProperty(ctx context.Context, tenant repos.TenantId, typeID repos.TypeId, predicate repos.PropertyPredicate, page repos.Page, consistency repos.ReadConsistency) (repos.PagedResult[repos.Object], error)
+}
+
+func (s *CassandraObjectStore) QueryByProperty(ctx context.Context, tenant TenantId, typeID TypeId, predicate PropertyPredicate, page Page, c ReadConsistency) (PagedResult[Object], error) {
+	indexed, ok := s.inner.(repoPropertyQueryStore)
+	if !ok {
+		return s.ListByType(ctx, tenant, typeID, page, c)
+	}
+	res, err := indexed.QueryByProperty(ctx, repos.TenantId(tenant), repos.TypeId(typeID), repos.PropertyPredicate{PropertyName: predicate.PropertyName, Operator: predicate.Operator, Value: predicate.Value}, toRepoPage(page), toRepoConsistency(c))
+	if err != nil {
+		return PagedResult[Object]{}, fromRepoError(err)
+	}
+	return fromRepoObjectPage(res), nil
+}
 
 func (s *CassandraObjectStore) Get(ctx context.Context, tenant TenantId, id ObjectId, c ReadConsistency) (*Object, error) {
 	obj, err := s.inner.Get(ctx, repos.TenantId(tenant), repos.ObjectId(id), toRepoConsistency(c))

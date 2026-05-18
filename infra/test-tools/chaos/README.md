@@ -33,8 +33,9 @@ The Temporal-history-Pod kill that previously sat on Thursdays was
 deleted in FASE 9 of the Foundry-pattern migration (ADR-0037
 supersedes ADR-0021). The orchestration-plane SPOF coverage moved
 into the dedicated subsuite [`foundry-pattern/`](foundry-pattern/),
-which kills `workflow-automation-service`, `automation-operations-service`,
-the Debezium Connect worker and the Spark Operator controller on
+which kills `workflow-automation-service` (including the saga/approval
+subpackages that absorbed the retired `automation-operations-service` and
+`approvals-service` binaries), the Debezium Connect worker and the Spark Operator controller on
 Mon–Thu 03:00 UTC.
 
 ## Pause / resume

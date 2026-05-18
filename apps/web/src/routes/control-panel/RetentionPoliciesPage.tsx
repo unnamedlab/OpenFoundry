@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom';
 
 import {
   createRetentionPolicy,
+  listRetentionExecutions,
   listRetentionPolicies,
+  runRetentionExecution,
   type RetentionDatasetSelectorKind,
+  type RetentionExecutionRun,
   type RetentionPolicy,
   type RetentionPolicyType,
   type RetentionTransactionSelectorKind,
@@ -14,6 +17,7 @@ const DANGER_ACK = 'DELETE_CURRENT_DATA';
 
 export function RetentionPoliciesPage() {
   const [policies, setPolicies] = useState<RetentionPolicy[]>([]);
+  const [executions, setExecutions] = useState<RetentionExecutionRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -34,6 +38,9 @@ export function RetentionPoliciesPage() {
   const [abortOpenTransactions, setAbortOpenTransactions] = useState(false);
   const [dangerAck, setDangerAck] = useState(false);
   const [legacyYaml, setLegacyYaml] = useState('');
+  const [executionDatasetRid, setExecutionDatasetRid] = useState('');
+  const [executionAsOfDays, setExecutionAsOfDays] = useState(0);
+  const [executionDryRun, setExecutionDryRun] = useState(true);
 
   const summary = useMemo(() => ({
     total: policies.length,
@@ -46,7 +53,9 @@ export function RetentionPoliciesPage() {
     setLoading(true);
     setError('');
     try {
-      setPolicies(await listRetentionPolicies());
+      const [nextPolicies, nextExecutions] = await Promise.all([listRetentionPolicies(), listRetentionExecutions()]);
+      setPolicies(nextPolicies);
+      setExecutions(nextExecutions);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load retention policies');
     } finally {
@@ -57,6 +66,30 @@ export function RetentionPoliciesPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  async function executeRetention() {
+    if (!executionDatasetRid.trim()) {
+      setError('Dataset RID is required to execute retention.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const run = await runRetentionExecution({
+        dataset_rid: executionDatasetRid.trim(),
+        as_of_days: executionAsOfDays,
+        recovery_window_days: 7,
+        dry_run: executionDryRun,
+      });
+      setExecutions((current) => [run, ...current]);
+      setNotice(`Retention execution ${run.id} completed: marked ${run.marked_transaction_count}, swept ${run.swept_transaction_count}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to execute retention policies');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function createPolicy() {
     const dangerous = allowLatestViewDeletion || abortOpenTransactions;
@@ -153,6 +186,40 @@ export function RetentionPoliciesPage() {
           {(allowLatestViewDeletion || abortOpenTransactions) && <label><input type="checkbox" checked={dangerAck} onChange={(e) => setDangerAck(e.target.checked)} /> I understand this can delete current data or abort active writes</label>}
         </div>
         <button type="button" onClick={() => void createPolicy()} disabled={busy} className="of-button of-button--primary" style={{ width: 'fit-content' }}>Create policy</button>
+      </section>
+
+
+      <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+        <div>
+          <p className="of-eyebrow" style={{ margin: 0 }}>SG.37 execution</p>
+          <h2 style={{ margin: '4px 0' }}>Mark-and-sweep execution and recovery windows</h2>
+          <p className="of-text-muted" style={{ margin: 0 }}>Execute active policies against a dataset, mark matching transactions, expose 7-day remediation windows, and warn before irreversible sweep.</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
+          <label style={{ fontSize: 12 }}>Dataset RID<input value={executionDatasetRid} onChange={(e) => setExecutionDatasetRid(e.target.value)} placeholder="ri.datasets.main..." className="of-input" style={{ marginTop: 4 }} /></label>
+          <label style={{ fontSize: 12 }}>As-of days<input type="number" min={0} value={executionAsOfDays} onChange={(e) => setExecutionAsOfDays(Number(e.target.value) || 0)} className="of-input" style={{ marginTop: 4 }} /></label>
+          <label style={{ alignSelf: 'end', fontSize: 12 }}><input type="checkbox" checked={executionDryRun} onChange={(e) => setExecutionDryRun(e.target.checked)} /> Dry run only</label>
+        </div>
+        <button type="button" onClick={() => void executeRetention()} disabled={busy} className="of-button" style={{ width: 'fit-content' }}>Run retention execution</button>
+        <div style={{ overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr>{['Dataset', 'Status', 'Marked', 'Swept', 'DELETE txns', 'Recovery', 'Warnings'].map((h) => <th key={h} style={{ textAlign: 'left', padding: 6, borderBottom: '1px solid var(--border-default)' }}>{h}</th>)}</tr></thead>
+            <tbody>
+              {executions.map((run) => (
+                <tr key={run.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: 6 }}>{run.dataset_rid}</td>
+                  <td style={{ padding: 6 }}>{run.status}{run.dry_run ? ' / dry-run' : ''}</td>
+                  <td style={{ padding: 6 }}>{run.marked_transaction_count}</td>
+                  <td style={{ padding: 6 }}>{run.swept_transaction_count}</td>
+                  <td style={{ padding: 6 }}>{run.delete_transaction_count}</td>
+                  <td style={{ padding: 6 }}>{run.recovery_window_days}d · irreversible {run.irreversible_after ? new Date(run.irreversible_after).toLocaleString() : 'n/a'}</td>
+                  <td style={{ padding: 6, color: run.swept_transaction_count > 0 ? '#b91c1c' : 'var(--text-muted)' }}>{run.warnings?.[0] ?? 'None'}</td>
+                </tr>
+              ))}
+              {executions.length === 0 && <tr><td colSpan={7} className="of-text-muted" style={{ padding: 18, textAlign: 'center' }}>No retention execution history.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="of-panel" style={{ padding: 16, overflow: 'auto' }}>

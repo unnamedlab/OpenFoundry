@@ -75,6 +75,8 @@ func TestEgressPoliciesLifecycleAndRuntimeEnforcement(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policy))
 	require.Equal(t, "pending_approval", policy["state"])
 	require.Equal(t, true, policy["importer_grants_high_risk"])
+	require.Contains(t, rec.Body.String(), `"potential_data_export":true`)
+	require.Contains(t, rec.Body.String(), `"dataExport"`)
 	id, _ := policy["id"].(string)
 	require.NotEmpty(t, id)
 
@@ -92,6 +94,7 @@ func TestEgressPoliciesLifecycleAndRuntimeEnforcement(t *testing.T) {
 
 	rec = serveJSON(r, claims, http.MethodPatch, "/api/v1/data-connection/egress-policies/"+id+"/state", `{"state":"active","reason":"approved"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "network_egress.policy.activated")
 
 	rec = serveJSON(r, claims, http.MethodPost, "/api/v1/data-connection/egress-policies:evaluate-workload", runtime)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -99,12 +102,14 @@ func TestEgressPoliciesLifecycleAndRuntimeEnforcement(t *testing.T) {
 
 	rec = serveJSON(r, claims, http.MethodPatch, "/api/v1/data-connection/egress-policies/"+id+"/state", `{"state":"paused","reason":"maintenance"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "network_egress.policy.paused")
 	rec = serveJSON(r, claims, http.MethodPost, "/api/v1/data-connection/egress-policies:evaluate-workload", runtime)
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "policy_state_paused")
 
 	rec = serveJSON(r, claims, http.MethodPatch, "/api/v1/data-connection/egress-policies/"+id+"/state", `{"state":"revoked","reason":"no longer approved"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "network_egress.policy.revoked")
 	rec = serveJSON(r, claims, http.MethodPatch, "/api/v1/data-connection/egress-policies/"+id+"/state", `{"state":"active","reason":"undo"}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }

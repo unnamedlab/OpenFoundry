@@ -32,9 +32,9 @@ Recover OpenFoundry after a partial or total loss of the control plane, minimizi
 5. Verify the health of:
    - `gateway`
    - `identity-federation-service`
-   - `data-asset-catalog-service`
-   - `ontology-service`
-   - `marketplace-service`
+   - `dataset-versioning-service` (current dataset/catalog owner; retired `data-asset-catalog-service` was a pre-consolidation name)
+   - `ontology-definition-service`, `ontology-query-service`, and `ontology-actions-service` (the current ontology split; retired `ontology-service` was not a single current binary)
+   - `federation-product-exchange-service` (current marketplace/product-exchange owner)
 
 ## Kubernetes procedure
 

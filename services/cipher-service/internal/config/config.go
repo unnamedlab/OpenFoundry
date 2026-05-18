@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -45,13 +46,32 @@ type Config struct {
 		URL string `koanf:"url"`
 	} `koanf:"database"`
 
+	// Governance carries decrypt-budget and anomaly-detection defaults.
+	Governance struct {
+		DefaultDecryptBudget uint32 `koanf:"default_decrypt_budget"`
+		BudgetWindow         string `koanf:"budget_window"`
+		AnomalyBurstLimit    int    `koanf:"anomaly_burst_limit"`
+		AnomalyWindow        string `koanf:"anomaly_window"`
+	} `koanf:"governance"`
+
+	// Audit controls whether critical encrypt/decrypt/tokenize/batch audit
+	// delivery errors fail closed. OF_CIPHER_AUDIT_FAIL_OPEN is accepted as an
+	// explicit dev/test override; production wiring ignores fail-open.
+	Audit struct {
+		FailOpen bool `koanf:"fail_open"`
+	} `koanf:"audit"`
+
 	// KMS picks the backend for wrapping DEKs. "local" reads
-	// OF_CIPHER_LOCAL_KEK from the env (dev/test). "aws" returns
-	// ErrAWSNotImplemented at runtime — config knob today, real
-	// client in Milestone C (CIP.20).
+	// OF_CIPHER_LOCAL_KEK from the env (dev/test). CIP.20 backend
+	// identifiers reserve Vault Transit, AWS KMS, GCP KMS, Azure Key
+	// Vault, and PKCS#11 HSMs for deployment-specific wiring.
 	KMS struct {
-		Backend  string `koanf:"backend"`
+		Backend   string `koanf:"backend"`
 		AWSKeyARN string `koanf:"aws_key_arn"`
+		VaultKey  string `koanf:"vault_key"`
+		GCPKey    string `koanf:"gcp_key"`
+		AzureKey  string `koanf:"azure_key"`
+		PKCS11Key string `koanf:"pkcs11_key"`
 	} `koanf:"kms"`
 }
 
@@ -87,6 +107,13 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	}
 	if cfg.KMS.Backend == "" {
 		cfg.KMS.Backend = "local"
+	}
+	if raw := strings.TrimSpace(os.Getenv("OF_CIPHER_AUDIT_FAIL_OPEN")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse OF_CIPHER_AUDIT_FAIL_OPEN: %w", err)
+		}
+		cfg.Audit.FailOpen = v
 	}
 	return &cfg, nil
 }

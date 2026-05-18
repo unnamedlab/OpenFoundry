@@ -1,5 +1,25 @@
 # `iceberg-object-indexer` (Go)
 
+## LLM quick context (current code)
+
+Background indexer that projects object/ontology changes into Iceberg/object-index tables.
+
+Agent note: not a user-facing API service; health/metrics plus worker runtime.
+
+Current surface:
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `runner`, `server`, `sink`, `source`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+No direct `os.Getenv` / `os.LookupEnv` references were detected in service Go files; inspect shared config loaders if behavior is unclear.
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Reads rows from an Iceberg table via the Lakekeeper REST catalog and
 PUTs each row into `object-database-service` at
 `/api/v1/object-database/objects/{tenant}/{id}`.

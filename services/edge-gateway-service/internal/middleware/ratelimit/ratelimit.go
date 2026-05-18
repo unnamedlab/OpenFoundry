@@ -31,10 +31,10 @@ import (
 
 // Outcome reports the result of a single Allow() check.
 type Outcome struct {
-	Allowed     bool
-	Limit       uint32 // requests-per-minute applied
-	Remaining   uint32 // tokens left in the bucket
-	ResetAfter  time.Duration
+	Allowed    bool
+	Limit      uint32 // requests-per-minute applied
+	Remaining  uint32 // tokens left in the bucket
+	ResetAfter time.Duration
 }
 
 // Store is the rate-limit backend abstraction.

@@ -20,13 +20,13 @@ type fakeSidecarManager struct {
 	result *pythonsidecar.PipelineTransformResult
 	err    error
 
-	seenSource        string
-	seenConfig        []byte
-	seenPrepared      []byte
-	seenInputIDs      []string
-	seenOutputID      string
-	seenTimeout       uint32
-	calls             int
+	seenSource   string
+	seenConfig   []byte
+	seenPrepared []byte
+	seenInputIDs []string
+	seenOutputID string
+	seenTimeout  uint32
+	calls        int
 }
 
 func (f *fakeSidecarManager) ExecutePipeline(
@@ -145,6 +145,7 @@ func TestTransformJobRunnerSidecarErrorBecomesFailedOutcome(t *testing.T) {
 }
 
 func TestTransformJobRunnerStubFlagBypassesSidecar(t *testing.T) {
+	t.Setenv("OPENFOUNDRY_ENV", "test")
 	t.Setenv(transformStubEnvVar, "true")
 	fake := &fakeSidecarManager{}
 	runner := NewTransformJobRunner(fake)
@@ -161,7 +162,7 @@ func TestTransformJobRunnerStubFlagBypassesSidecar(t *testing.T) {
 	}
 }
 
-func TestTransformJobRunnerWithoutSidecarFallsBackToContentHash(t *testing.T) {
+func TestTransformJobRunnerWithoutSidecarFailsClosed(t *testing.T) {
 	t.Parallel()
 	runner := NewTransformJobRunner(nil)
 	out := runner.Run(context.Background(), &JobContext{JobSpec: JobSpec{
@@ -169,8 +170,8 @@ func TestTransformJobRunnerWithoutSidecarFallsBackToContentHash(t *testing.T) {
 		ContentHash: "spec-hash",
 		Config:      json.RawMessage(`{"sql":"select 1"}`),
 	}})
-	if out.Kind != JobOutcomeCompleted || out.OutputContentHash != "spec-hash" {
-		t.Fatalf("nil sidecar must fall back to legacy shim, got %+v", out)
+	if out.Kind != JobOutcomeFailed || !strings.Contains(out.Reason, "transform runtime unavailable") {
+		t.Fatalf("nil sidecar must fail closed, got %+v", out)
 	}
 }
 
@@ -193,5 +194,14 @@ func TestTransformJobRunnerOutcomeHashChangesWithRowCount(t *testing.T) {
 	b := make(99)
 	if a.OutputContentHash == b.OutputContentHash {
 		t.Fatalf("output hash should reflect row count metrics; both = %q", a.OutputContentHash)
+	}
+}
+
+func TestTransformJobRunnerStubFlagFailsInProduction(t *testing.T) {
+	t.Setenv("OPENFOUNDRY_ENV", "production")
+	t.Setenv(transformStubEnvVar, "true")
+	out := NewTransformJobRunner(nil).Run(context.Background(), &JobContext{JobSpec: JobSpec{LogicKind: LogicKindTransform, ContentHash: "spec-hash"}})
+	if out.Kind != JobOutcomeFailed || !strings.Contains(out.Reason, "stub mode is disabled") {
+		t.Fatalf("production stub flag must fail, got %+v", out)
 	}
 }

@@ -24,7 +24,7 @@ To use it:
 
 The resulting binary exposes:
 
-- `GET /healthz` — liveness payload (matches Rust `core_models::health`)
+- `GET /healthz` — liveness payload from `libs/core-models/health`
 - `GET /metrics` — Prometheus scrape endpoint
 - bearer-token authentication via `auth-middleware` on the `/api/*` mount
 

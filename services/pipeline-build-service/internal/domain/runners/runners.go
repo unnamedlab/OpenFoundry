@@ -4,7 +4,7 @@
 //
 // The package owns the job-runner contract, logic-kind validation,
 // dispatching, HTTP-backed SYNC / HEALTH_CHECK / EXPORT runners, and
-// deterministic shims for TRANSFORM / ANALYTICAL. Python sidecar
+// deterministic test/dev shims for TRANSFORM / ANALYTICAL. Python sidecar
 // execution remains behind an explicit interface so the domain
 // runner does not wire sidecar runtime concerns directly.
 package runners
@@ -28,10 +28,9 @@ import (
 	pythonsidecar "github.com/openfoundry/openfoundry-go/libs/python-sidecar"
 )
 
-// transformStubEnvVar forces the TRANSFORM runner to return the legacy
-// deterministic content hash (no sidecar call) when set to "true".
-// Intended for unit tests and local dev that cannot spawn the Python
-// sidecar; production wiring always leaves this unset.
+// transformStubEnvVar forces the TRANSFORM runner to return a deterministic
+// content hash without a sidecar call. It is restricted to unit tests and
+// local/dev runs that cannot spawn the Python sidecar; production rejects it.
 const transformStubEnvVar = "OF_PIPELINE_TRANSFORM_STUB"
 
 // transformSidecarTimeoutSeconds is the per-call hard cap the runner
@@ -334,25 +333,28 @@ type TransformJobRunner struct {
 }
 
 // NewTransformJobRunner wires a TRANSFORM runner to the python-sidecar
-// manager. Pass nil to construct a stub-only runner (used by unit tests
-// and the dispatcher-arity tests in this package).
+// manager. Pass nil to construct a fail-closed runner; tests may still
+// enable OF_PIPELINE_TRANSFORM_STUB in test/dev environments when they need
+// the deterministic no-runtime path.
 func NewTransformJobRunner(pyRuntime PythonRuntime) *TransformJobRunner {
 	return &TransformJobRunner{PyRuntime: pyRuntime}
 }
 
 // Run mirrors the TRANSFORM runner. Order of precedence:
-//  1. `OF_PIPELINE_TRANSFORM_STUB=true` forces the legacy deterministic
-//     content-hash path (tests / dev without a sidecar).
+//  1. `OF_PIPELINE_TRANSFORM_STUB=true` forces the deterministic
+//     content-hash path only in tests / dev without a sidecar.
 //  2. A wired Engine adapter takes priority over the sidecar — the
 //     handler-side adapter already produces its own content hash.
 //  3. A wired PyRuntime invokes the Python sidecar and builds the
 //     output content hash from real metrics (rows + output digest).
-//  4. With neither adapter wired, the runner falls back to the legacy
-//     shim so existing scaffolding (no Python in unit tests) still
-//     completes deterministically.
+//  4. With neither adapter wired, the runner fails closed rather than
+//     reporting a completed transform without executing user code.
 func (r *TransformJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome {
 	if os.Getenv(transformStubEnvVar) == "true" {
-		return r.stubOutcome(jc)
+		if transformStubAllowed() {
+			return r.deterministicTestOutcome(jc)
+		}
+		return Failed("transform runtime unavailable: stub mode is disabled outside test/dev")
 	}
 	if r.Engine != nil {
 		hash, err := r.Engine.RunTransform(ctx, jc)
@@ -368,10 +370,20 @@ func (r *TransformJobRunner) Run(ctx context.Context, jc *JobContext) JobOutcome
 		}
 		return outcome
 	}
-	return r.stubOutcome(jc)
+	return Failed("transform runtime unavailable: no engine or python sidecar configured")
 }
 
-func (r *TransformJobRunner) stubOutcome(jc *JobContext) JobOutcome {
+func transformStubAllowed() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("OPENFOUNDRY_ENV")))
+	switch env {
+	case "test", "testing", "dev", "development", "local":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *TransformJobRunner) deterministicTestOutcome(jc *JobContext) JobOutcome {
 	if jc.JobSpec.ContentHash != "" {
 		return Completed(jc.JobSpec.ContentHash)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config bundles every knob the service consumes.
@@ -32,7 +33,15 @@ type Config struct {
 		FromName    string
 	}
 
-	MetricsAddr string
+	EmailRedaction struct {
+		Mode             string
+		AllowlistDomains []string
+		AllowlistUsers   []string
+		RiskAcknowledged bool
+		PlatformBaseURL  string
+	}
+
+	MetricsAddr  string
 	OTLPEndpoint string
 }
 
@@ -60,6 +69,12 @@ func FromEnv() (*Config, error) {
 	cfg.SMTP.Password = os.Getenv("SMTP_PASSWORD")
 	cfg.SMTP.FromAddress = os.Getenv("SMTP_FROM_ADDRESS")
 	cfg.SMTP.FromName = os.Getenv("SMTP_FROM_NAME")
+
+	cfg.EmailRedaction.Mode = defaultStr(os.Getenv("EMAIL_REDACTION_MODE"), "strict")
+	cfg.EmailRedaction.AllowlistDomains = splitCSV(os.Getenv("EMAIL_REDACTION_ALLOWLIST_DOMAINS"))
+	cfg.EmailRedaction.AllowlistUsers = splitCSV(os.Getenv("EMAIL_REDACTION_ALLOWLIST_USERS"))
+	cfg.EmailRedaction.RiskAcknowledged = parseBool(os.Getenv("EMAIL_REDACTION_RISK_ACKNOWLEDGED"))
+	cfg.EmailRedaction.PlatformBaseURL = os.Getenv("OPENFOUNDRY_PLATFORM_BASE_URL")
 
 	cfg.MetricsAddr = defaultStr(os.Getenv("METRICS_ADDR"), "0.0.0.0:9090")
 	cfg.OTLPEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -96,4 +111,28 @@ func parseUint16(v string, fallback uint16) uint16 {
 		return fallback
 	}
 	return uint16(n)
+}
+
+func splitCSV(v string) []string {
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }

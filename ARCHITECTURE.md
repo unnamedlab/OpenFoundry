@@ -7,9 +7,11 @@ links below.
 ## Stack at a glance
 
 - **Backend:** Go (single module rooted at `github.com/openfoundry/openfoundry-go`)
-  with 42 service binaries under [`services/`](services/) and 33
-  shared packages under [`libs/`](libs/). New services are bootstrapped
-  from the textual skeleton in
+  with 50 service directories under [`services/`](services/) and 36
+  shared libraries under [`libs/`](libs/). Treat
+  [`docs/reference/repository-layout.md`](docs/reference/repository-layout.md)
+  as the code-first inventory source for service/library counts and roles.
+  New services are bootstrapped from the textual skeleton in
   [`docs/templates/service-skeleton/`](docs/templates/service-skeleton/).
 - **Frontend:** React 19 + Vite + TypeScript in [`apps/web/`](apps/web/).
 - **Contracts:** Protobuf in [`proto/`](proto/), Go code generated to
@@ -119,7 +121,7 @@ and must not drift:
   lifecycle mutations so search backends can consume changes without
   resource-table polling).
 - Compass search API
-  ([`GET /api/v1/compass/search`](services/tenancy-organizations-service/internal/workspace)
+  ([handler-level Compass search](services/tenancy-organizations-service/internal/workspace); `GET /api/v1/compass/search` has no current edge-gateway route until `router_table.go` adds a branch)
   intersects all results with project visibility, accepts text/type/project/
   owner/marking/last-modified filters, returns long-text snippets and facets
   for type/project/owner/marking/last-modified buckets, and pages by opaque

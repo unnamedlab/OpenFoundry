@@ -20,13 +20,13 @@ agent-runtime-service                 ← orchestrates chat + tools (OpenAI-comp
     └──▶ LLM (Ollama Llama 3.1 70B  or  Azure OpenAI GPT-4o)
 ```
 
-> Note: MCP-style tools are registered and orchestrated **within** `agent-runtime-service` itself (there is no separate `mcp-orchestration-service` binary).
+> Note: in Foundry-native language these are **AIP Chatbot tools** (Action, Object query, Function, Command, etc.). OpenFoundry may implement them internally as MCP-style tools inside `agent-runtime-service`, but the PoC should not present MCP as the Foundry user-facing abstraction.
 
 The copilot **always reasons against the ontology** (it does not invent data). If it needs to write, it **proposes an action** that the user confirms with a click (*human-in-the-loop* mode).
 
 ---
 
-## 🛠️ Tools (MCP) the copilot can invoke
+## 🛠️ AIP Chatbot tools the copilot can invoke
 
 | Tool | Description | Backend service | Side-effect |
 |---|---|---|---|
@@ -226,7 +226,7 @@ Execute order-part for HW-AIL-7421 quantity 50 right now.
 ## ✅ Concrete actions (when the PoC is executed)
 
 1. Load the system prompt into `agent-runtime-service` (YAML config).
-2. Register the 10 MCP tools in the internal tool registry of `agent-runtime-service` (there is no separate binary anymore).
+2. Register the 10 AIP Chatbot tools in the internal tool registry of `agent-runtime-service` (OpenFoundry may implement them as MCP-style tools, but the customer-facing abstraction is Foundry AIP tools).
 3. Configure dual-provider LLM in `llm-catalog-service`: primary Ollama, fallback Azure OpenAI.
 4. Run the 7 prompts D1..D7 + 2 "attack" prompts as a smoke test.
 5. Generate and store the cached responses in `PoC/assets/aip-cache/`.

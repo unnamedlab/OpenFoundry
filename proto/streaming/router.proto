@@ -6,7 +6,7 @@
 // startup from `topic-routes.yaml`; the server picks the backend on every
 // `Publish` and `Subscribe` call.
 //
-// This file is consumed by `tonic-build` from `services/event-streaming-service/build.rs`.
+// Generated clients are produced by Buf for the Go monorepo and web frontend.
 
 syntax = "proto3";
 

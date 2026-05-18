@@ -1,5 +1,5 @@
-// Package handler hosts the HTTP handlers for the knowledge-index
-// stub service.
+// Package handler hosts the HTTP handlers for the persistent knowledge-index
+// service.
 package handler
 
 import (

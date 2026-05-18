@@ -8,7 +8,7 @@
 //
 //   - `GET /_meta/deps`   — flat list of dependencies + per-probe status.
 //   - `GET /_meta/health` — composite envelope (`status: ok|degraded`)
-//                           reusing the same probe results.
+//     reusing the same probe results.
 //
 // Both endpoints are unauthenticated, like `/healthz`, and intentionally
 // cheap: probes have a per-call timeout (default 1s) and the registry
@@ -44,13 +44,20 @@ type DependencyProbe struct {
 	Kind    DependencyKind
 	Probe   func(ctx context.Context) error
 	Timeout time.Duration // optional; 1s default
+
+	// StatusOnSuccess/StatusOnError let runtime dependencies expose
+	// capability-oriented states such as "available"/"unavailable"
+	// while preserving the default store probe vocabulary of
+	// "ok"/"degraded".
+	StatusOnSuccess string
+	StatusOnError   string
 }
 
 // DependencyStatus is the wire shape served by `GET /_meta/deps`.
 type DependencyStatus struct {
 	Name      string         `json:"name"`
 	Kind      DependencyKind `json:"kind,omitempty"`
-	Status    string         `json:"status"` // "ok" | "degraded"
+	Status    string         `json:"status"` // "ok" | "degraded" | "available" | "unavailable"
 	LatencyMS int64          `json:"latency_ms"`
 	Error     string         `json:"error,omitempty"`
 }
@@ -84,6 +91,12 @@ func (rg *Registry) RegisterDependency(p DependencyProbe) {
 	}
 	if p.Timeout <= 0 {
 		p.Timeout = time.Second
+	}
+	if strings.TrimSpace(p.StatusOnSuccess) == "" {
+		p.StatusOnSuccess = "ok"
+	}
+	if strings.TrimSpace(p.StatusOnError) == "" {
+		p.StatusOnError = "degraded"
 	}
 	rg.mu.Lock()
 	defer rg.mu.Unlock()
@@ -124,7 +137,7 @@ func (rg *Registry) HealthSnapshot(ctx context.Context) Health {
 	deps := rg.Deps(ctx)
 	status := "ok"
 	for _, d := range deps {
-		if d.Status != "ok" {
+		if d.Status != "ok" && d.Status != "available" {
 			status = "degraded"
 			break
 		}
@@ -148,11 +161,11 @@ func runProbe(ctx context.Context, p DependencyProbe, now func() time.Time) Depe
 	st := DependencyStatus{
 		Name:      p.Name,
 		Kind:      p.Kind,
-		Status:    "ok",
+		Status:    p.StatusOnSuccess,
 		LatencyMS: latency,
 	}
 	if err != nil {
-		st.Status = "degraded"
+		st.Status = p.StatusOnError
 		st.Error = err.Error()
 	}
 	return st

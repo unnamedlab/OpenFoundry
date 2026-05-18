@@ -14,9 +14,9 @@ type Config struct {
 		Host string
 		Port uint16
 	}
-	DatabaseURL              string
-	JWTSecret                string
-	MetricsAddr              string
+	DatabaseURL string
+	JWTSecret   string
+	MetricsAddr string
 	// MediaTransformRuntimeURL is the base URL of the
 	// media-transform-runtime-service worker. When unset, defaults
 	// to "http://media-transform-runtime-service:50173" (k8s in-
@@ -50,7 +50,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "media-sets-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50121)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50156)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}
@@ -74,7 +74,7 @@ func FromEnv() (*Config, error) {
 		os.Getenv("MEDIA_RETENTION_REAPER_INTERVAL_SECONDS"), 60,
 	)
 	cfg.ConnectorManagementServiceURL = os.Getenv("CONNECTOR_MANAGEMENT_SERVICE_URL")
-	cfg.GRPCPort = parseUint16(os.Getenv("MEDIA_SETS_GRPC_PORT"), 50122)
+	cfg.GRPCPort = parseUint16(os.Getenv("MEDIA_SETS_GRPC_PORT"), 50157)
 	return cfg, nil
 }
 

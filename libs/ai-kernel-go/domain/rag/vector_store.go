@@ -18,7 +18,7 @@ type VectorStore interface {
 	Search(ctx context.Context, knowledgeBaseID uuid.UUID, queryEmbedding []float32, topK uint32, minScore float32) ([]models.KnowledgeSearchResult, error)
 }
 
-// FakeVectorStore is an in-memory VectorStore for unit tests and local wiring.
+// FakeVectorStore is an in-memory VectorStore for unit tests and explicit local wiring.
 // It stores complete documents and delegates ranking to SearchWithEmbedding so
 // behavior matches the deterministic Rust-compatible RAG retriever.
 type FakeVectorStore struct {

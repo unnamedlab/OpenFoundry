@@ -7,9 +7,17 @@ OpenFoundry supports multiple operating profiles ranging from local development 
 The local stack lives under `infra/`:
 
 - `infra/compose/docker-compose.yml`
-- `infra/docker-compose.dev.yml`
+- `infra/compose/docker-compose.dev.yml`
 
-These files provide the backing services needed for day-to-day development and smoke execution. The `just infra-up` and `just dev-stack` commands are the normal contributor entrypoints. A monitoring overlay will be reintroduced as part of the formal observability work (T17); see `docs/observability/index.md`.
+These files provide the backing services needed for day-to-day development and smoke execution. Use Docker Compose directly for local infrastructure because the root `justfile` is only a shim over Makefile targets and does not define `just infra-up` or `just dev-stack` recipes.
+
+```bash
+docker compose -f infra/compose/docker-compose.yml up -d
+docker compose -f infra/compose/docker-compose.dev.yml up -d
+docker compose -f infra/compose/docker-compose.yml down
+```
+
+A monitoring overlay will be reintroduced as part of the formal observability work (T17); see `docs/observability/index.md`.
 
 ## Kubernetes Via Helm
 

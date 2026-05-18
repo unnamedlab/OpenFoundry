@@ -2,10 +2,9 @@
 //
 // Mirrors the documented Foundry stream settings (Stream type, Partitions,
 // Streaming consistency guarantees) so the control-plane state can be
-// persisted, validated and reconfigured uniformly across Rust services.
+// persisted, validated and reconfigured uniformly across OpenFoundry services.
 //
-// Compiled by `tonic-build` from `services/event-streaming-service/build.rs`
-// alongside `router.proto`.
+// Generated clients are produced by Buf alongside `router.proto`.
 
 syntax = "proto3";
 

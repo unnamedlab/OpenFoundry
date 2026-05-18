@@ -360,6 +360,13 @@ tenant-specific exports, use Palantir branding, or reuse proprietary assets.
 
 ## Suggested service boundaries
 
+> **Reader note (2026-05-18)** — The services in the table below are
+> target decomposition proposals, not a current inventory of binaries.
+> `mcp-ontology-service` and `mcp-platform-service` do not exist as
+> current `services/` directories; the table documents proposed future
+> boundaries. For the canonical service list, see
+> [`docs/reference/repository-layout.md`](../reference/repository-layout.md).
+
 | Surface | Responsibilities |
 | --- | --- |
 | `developer-console-service` | Application CRUD, organization owner, co-maintainers, OAuth2 client registration (confidential + public), scope catalog, redirect URI registry, credential rotation, review workflow, per-application audit feed, per-app token quotas, app analytics aggregation. |

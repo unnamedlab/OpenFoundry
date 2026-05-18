@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 // Python runtime sidecar — the gRPC contract spoken by the Python
-// subprocess that replaces the Rust pyo3 embedded interpreter.
+// subprocess used by Go services for inline Python execution.
 //
 // Three Go services own the lifecycle of one of these sidecars and
 // invoke it via UDS or loopback TCP:
@@ -19,7 +19,7 @@ package runtime;
 // PythonRuntime is the single service exposed by the sidecar binary.
 service PythonRuntimeService {
   // ExecuteInlineFunction runs an ontology inline Python function.
-  // Mirrors `execute_inline_python_function` in the Rust kernel.
+  // Executes the same inline-function envelope used by ontology actions.
   rpc ExecuteInlineFunction(ExecuteInlineFunctionRequest)
       returns (ExecuteInlineFunctionResponse);
 
@@ -42,7 +42,7 @@ service PythonRuntimeService {
 }
 
 // ExecuteInlineFunctionRequest carries the JSON envelope assembled by
-// the Go caller. `input_json` is the same shape Rust passed to PyO3:
+// the Go caller. `input_json` is the ontology action envelope:
 // `{ context: { action, targetObject, parameters, objectSet,
 //    linkedObjects, justification, contextNow }, policy,
 //    functionPackage, serviceToken, ontologyServiceUrl, aiServiceUrl }`.
@@ -61,8 +61,8 @@ message ExecuteInlineFunctionResponse {
   string error = 4;
 }
 
-// ExecutePipelineTransformRequest mirrors the locals injected by the
-// Rust pipeline transform: the user source plus three JSON blobs.
+// ExecutePipelineTransformRequest carries the locals injected by the
+// pipeline transform runtime: the user source plus JSON inputs.
 message ExecutePipelineTransformRequest {
   string source = 1;
   string config_json = 2;

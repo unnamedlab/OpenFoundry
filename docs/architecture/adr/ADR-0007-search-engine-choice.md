@@ -198,7 +198,7 @@ abstraction needs to be reintroduced.
 
 - `infra/compose/docker-compose.yml` — Vespa Lite single-node container (DX) and
   the canonical reference to the production search engine.
-- `infra/docker-compose.dev.yml` — Meilisearch under the optional
+- `infra/compose/docker-compose.dev.yml` — Meilisearch under the optional
   `demo` profile (first-run demo only).
 - `docs/architecture/runtime-topology.md` — shared runtime dependencies.
 - `docs/operations/deployment.md` — local stack and Kubernetes packaging.
@@ -221,7 +221,7 @@ consolidated as follows:
   same engine as the production one described in `infra/runbooks/vespa.md`
   and `infra/helm/infra/charts/vespa/`, which eliminates the
   DX↔production divergence that motivated keeping Meilisearch.
-- **Meilisearch** is moved to `infra/docker-compose.dev.yml` under the
+- **Meilisearch** is moved to `infra/compose/docker-compose.dev.yml` under the
   optional `--profile demo` profile. It only starts up when the
   "first-run demo" is to be reproduced (instant search without JVM); it is
   neither a common DX dependency nor a production one.
@@ -241,7 +241,7 @@ Concrete changes associated with this addendum (2026-04):
 - `infra/compose/docker-compose.yml`: the `meilisearch` service and its
   `meilisearch_data` volume are removed, and the single-node `vespa` service is
   added with a healthcheck against `:19071/state/v1/health` and a `vespa_data` volume.
-- `infra/docker-compose.dev.yml`: `meilisearch` is added with
+- `infra/compose/docker-compose.dev.yml`: `meilisearch` is added with
   `profiles: ["demo"]` and the `meilisearch_data` volume, exclusively for
   the optional demo.
 - Documentation (`docs/operations/deployment.md`,

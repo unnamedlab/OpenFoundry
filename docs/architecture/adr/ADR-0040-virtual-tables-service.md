@@ -1,6 +1,6 @@
 # ADR-0040 — Virtual tables service
 
-**Status:** Draft (P3 — D1.1.9)
+**Status:** Historical draft; superseded by the current Go inventory where `virtual-table-service` is a gateway legacy alias owned by `connector-management-service`
 **Date:** 2026-05-04
 
 ## Context
@@ -32,10 +32,13 @@ can tell what is "doc-aligned by design" vs "implementation choice".
 
 ## Decisions
 
-### D-1: Dedicated `virtual-table-service` (not an extension of `connector-management-service`)
+### D-1: Historical dedicated `virtual-table-service` decision (superseded)
 
-**Decision.** Virtual tables ship in their own service binary
-(`services/virtual-table-service`).
+**Historical decision.** The original draft proposed a separate
+`services/virtual-table-service` binary. That directory does **not** exist
+in the current Go repository; `virtual_table_service_url` is a gateway
+legacy alias whose current owner is `connector-management-service` (see
+`docs/architecture/services-and-ports.md`).
 
 **Why.**
 
@@ -53,15 +56,15 @@ can tell what is "doc-aligned by design" vs "implementation choice".
   using virtual tables. Feature flags isolate the cost in a dedicated
   crate.
 
-**Trade-off.** A second binary means a second migration set and a
-second pod in the helmfile. Mitigated by sharing `libs/auth-middleware`,
-`libs/db-pool`, `libs/audit-trail`, `libs/observability` so the
-operational surface is identical.
+**Historical trade-off.** The separate-binary trade-off below is retained
+for audit context only. The current implementation avoids the second pod by
+serving virtual-table routes from `connector-management-service`, while the
+gateway keeps `virtual_table_service_url` as a legacy alias for Helm parity.
 
 ### D-2: Capability matrix is the single source of truth
 
 **Decision.** The provider × table-type compatibility matrix lives in
-`src/domain/capability_matrix.rs::MATRIX` as a `const` array. Every
+`services/connector-management-service/internal/adapters/capabilities.go`, `services/connector-management-service/internal/domain/update_detection.go`, and the SDK validation surface. Every
 register call reads its capabilities from this table; the UI mirrors
 the same matrix in TypeScript so previews are doc-aligned.
 
@@ -148,9 +151,9 @@ clearance than the source it points to.
 
 ## Consequences
 
-* The matrix lives in three places (Rust `MATRIX`, TypeScript
-  `defaultCapabilities`, doc-conformance tests). Drift is loud — the
-  test fails, the type signatures diverge, and CI breaks. Worth the
+* The matrix lives in connector capability metadata, TypeScript
+  `defaultCapabilities`, and SDK validation tests. Drift is loud — the
+  tests fail, the type signatures diverge, and CI breaks. Worth the
   duplication for a contract this load-bearing.
 * P2.next (live SDK integrations) is gated behind `provider-databricks`
   and `provider-iceberg` cargo features. CI runs the default profile so
@@ -214,10 +217,10 @@ implementation file (or marked deferred). 🟢 Generally available;
 
 | Foundry doc section                                                                   | Status | Implementation                                                                                                           |
 | ------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Core concepts § "Supported sources"                                                   | 🟢     | `services/virtual-table-service/src/connectors/{bigquery,snowflake,s3,gcs,azure_blob,databricks}.rs`                     |
+| Core concepts § "Supported sources"                                                   | 🟢     | `services/connector-management-service` (current owner for the retired `virtual-table-service` surface)                     |
 | Core concepts § "Iceberg catalogs"                                                    | 🟢     | `domain/iceberg_catalogs/{aws_glue,horizon,object_storage,polaris,unity}.rs` + `iceberg_catalog_compat_matrix_matches_doc.rs` |
-| Core concepts § "Supported Foundry workflows"                                         | 🟢     | `services/pipeline-authoring-service/src/domain/virtual_table_nodes.rs` (Streaming + Faster pipelines blocked)            |
-| Core concepts § "Virtual table compatibility matrix"                                  | 🟢     | `domain/capability_matrix.rs` + `tests/capability_matrix_matches_doc.rs`                                                  |
+| Core concepts § "Supported Foundry workflows"                                         | 🟢     | `services/pipeline-build-service/internal/handler/virtual_table_workflow_validation.go` (Streaming + Faster pipelines blocked)            |
+| Core concepts § "Virtual table compatibility matrix"                                  | 🟢     | `services/connector-management-service/internal/adapters/capabilities.go` + SDK validation tests                                                  |
 | Core concepts § "Set up a connection for a virtual table"                             | 🟢     | `apps/web/src/lib/components/data-connection/VirtualTablesTab.svelte`                                                    |
 | Core concepts § "Create virtual tables" (img_003)                                     | 🟢     | `CreateVirtualTableModal.svelte`                                                                                         |
 | Core concepts § "Bulk registration" (img_004)                                         | 🟢     | `BulkRegisterDialog.svelte` + `domain::virtual_tables::bulk_register`                                                    |
@@ -233,18 +236,14 @@ implementation file (or marked deferred). 🟢 Generally available;
 | Transforms / Python § "BigQuery compute pushdown"                                     | 🟢     | `_IbisStub` + `resolve_engine` defaults BigQuery to Ibis                                                                 |
 | Transforms / Python § "Snowflake compute pushdown"                                    | 🟢     | `_SnowparkStub` + `resolve_engine` defaults Snowflake to Snowpark                                                        |
 | Transforms / Python § "Databricks compute pushdown"                                   | 🟢     | `_PySparkStub` + `resolve_engine` defaults Databricks to PySpark                                                         |
-| Pipeline Builder § "Add a virtual table output"                                       | 🟢     | `services/pipeline-authoring-service/src/domain/virtual_table_nodes.rs` (output write_mode validated against matrix)      |
+| Pipeline Builder § "Add a virtual table output"                                       | 🟢     | `services/pipeline-build-service/internal/handler/virtual_table_workflow_validation.go` (output write_mode validated against matrix)      |
 | Connectivity § "Add virtual tables to a Marketplace product"                          | 🔴     | Deferred to D1.4.x (Marketplace P-series); manifest shape sketched in ADR §6                                              |
 | Contour § "Analyze in Contour"                                                        | 🔴     | Capability slice exposed; Contour board wiring deferred to D1.5.x                                                         |
 
 ## Decisions (cumulative)
 
-* **D-1: Dedicated `virtual-table-service`** (not an extension of
-  `connector-management-service`) — separate bounded context + RID
-  prefix + audit stream; Iceberg / Databricks SDK deps stay isolated.
-* **D-2: Capability matrix is the single source of truth** — Rust
-  `MATRIX` + TS `defaultCapabilities` + doc-conformance tests
-  triangulate against the published Foundry table.
+* **D-1: Historical dedicated `virtual-table-service` draft** — superseded; the current repository has no such binary, and the gateway legacy alias resolves to `connector-management-service`.
+* **D-2: Capability matrix is the single source of truth** — Go connector capability metadata + SDK validation tests triangulate against the published Foundry table.
 * **D-3: Iceberg catalogs behind a trait + per-kind module** — five
   doc-listed catalog kinds, `compatibility(provider, catalog)` is
   closed and fails closed for combinations the doc does not bless.
@@ -272,6 +271,6 @@ implementation file (or marked deferred). 🟢 Generally available;
 * **D-9: `@use_external_systems` decorator is build-blocked** — doc §
   "Limitations" prohibits the combination with virtual tables. The
   Python SDK validator emits
-  `VIRTUAL_TABLE_USE_EXTERNAL_SYSTEMS_INCOMPAT`; the Rust
-  `domain::code_imports` validator returns the same code so the build
+  `VIRTUAL_TABLE_USE_EXTERNAL_SYSTEMS_INCOMPAT`; the Go
+  `pipeline-build-service` validator returns the same code so the build
   surface is uniform across CR + author.

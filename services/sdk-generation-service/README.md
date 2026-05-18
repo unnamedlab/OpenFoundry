@@ -1,5 +1,29 @@
 # sdk-generation-service
 
+## LLM quick context (current code)
+
+Owns SDK generation jobs, generated artifacts, OpenAPI/protobuf inputs, and SDK metadata APIs.
+
+Agent note: used by platform tooling to produce TypeScript/Python/Java SDK outputs.
+
+Current surface:
+- `/api/v1/sdk-generation*`
+- `SDK job/artifact routes`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `2` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `generator`, `handlers`, `models`, `ontologyclient`, `repo`, `server`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `HOST`, `JWT_SECRET`, `METRICS_ADDR`, `OF_REPO_ROOT`, `ONTOLOGY_SERVICE_TOKEN`, `ONTOLOGY_SERVICE_URL`, `OPENFOUNDRY_JWT_SECRET`
+- `OSDK_ARTIFACT_DIR`, `PORT`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 SDK + OpenAPI contract generation/publication/versioning service.
 
 Today the binary wires server + auth + metrics so the documented

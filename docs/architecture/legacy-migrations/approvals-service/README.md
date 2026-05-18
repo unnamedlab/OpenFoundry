@@ -4,6 +4,10 @@ This folder collects the **legacy Postgres state** for the approvals
 domain that was authoritative before Stream **S2.5** (see
 `docs/architecture/migration-plan-cassandra-foundry-parity.md`).
 
+> **2026-05-18 inventory note:** `services/approvals-service` no longer exists
+> as a current binary. Approval code now lives under
+> `services/workflow-automation-service/internal/approvals`.
+
 ## What changed
 
 - **Authoritative store** for an approval is now a Temporal workflow
@@ -23,14 +27,14 @@ The DROP migration **MUST NOT** run before:
 
 1. every persisted `workflow_approvals` row with `status='pending'`
    has either been replayed into Temporal or has expired naturally;
-2. all callers of `services/approvals-service/src/handlers/approvals.rs`
-   have switched to `domain::temporal_adapter::ApprovalsAdapter`;
+2. all historical callers of `services/approvals-service/src/handlers/approvals.rs`
+   had switched to `domain::temporal_adapter::ApprovalsAdapter`;
 3. the audit-event consumer reports zero `approval.*` events sourced
    from the Postgres path for at least 7 days.
 
 ## Pointers
 
-- New entry point: [`approvals_service::domain::temporal_adapter::ApprovalsAdapter`](../../../services/approvals-service/src/domain/temporal_adapter.rs).
+- Historical Temporal-era entry point: `approvals_service::domain::temporal_adapter::ApprovalsAdapter` under retired `services/approvals-service`; current approval ownership is `services/workflow-automation-service/internal/approvals`.
 - Worker: [`workers-go/approvals/workflows/approval_request.go`](../../../workers-go/approvals/workflows/approval_request.go).
 - Audit activity: [`workers-go/approvals/activities/activities.go`](../../../workers-go/approvals/activities/activities.go).
 - Plan reference: `docs/architecture/migration-plan-cassandra-foundry-parity.md` §S2.5.

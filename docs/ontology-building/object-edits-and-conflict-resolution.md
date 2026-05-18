@@ -88,7 +88,7 @@ If OpenFoundry wants to grow this area deliberately, the next steps should be:
 2. state how those instructions interact with reindexing
 3. choose conflict strategies at object type or datasource level
 4. expose edit history and revert semantics
-5. connect edit outcomes to audit-service and indexing observability
+5. connect edit outcomes to `audit-compliance-service` and indexing observability
 
 ## Related pages
 

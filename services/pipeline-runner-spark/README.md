@@ -1,5 +1,27 @@
 # `pipeline-runner-spark` — superseded by ADR-0045
 
+## LLM quick context (current code)
+
+Historical Scala/Spark fat-JAR module retained as a migration reference after ADR-0045; the active runtime is the Go `services/pipeline-runner`.
+
+Agent note: this directory is **not** a Go HTTP microservice and should not be treated as the active runtime unless ADR-0045 is reversed.
+
+Current surface:
+- CLI arguments consumed by `PipelineRunner`: `--pipeline-id`, `--run-id`, `--input-dataset`, `--output-dataset`, `--catalog`, `--catalog-uri`, `--inline-sql`, `--inline-format`, and `--smoke`.
+- The historical runner builds a `SparkSession`, configures an Iceberg REST catalog, executes the provided SQL, and writes the final DataFrame to the output Iceberg table.
+- There is no HTTP listener in this directory; `/healthz` and `/metrics` belong to the Go `pipeline-runner` wrapper.
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Scala build files: `build.sbt`, `project/build.properties`, and `project/plugins.sbt`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+- `VERSION` is read by `build.sbt` and the Docker build to stamp the assembled JAR.
+- Spark catalog/S3 details are passed through Spark configuration by the Go orchestrator and Kubernetes/Spark templates, not by `os.Getenv` in this directory.
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 > **SUPERSEDED.** This Scala module is retired by ADR-0045 and is no
 > longer used by the runtime. Phase D of the same ADR removes the
 > directory entirely; until that PR lands the code stays in-tree as

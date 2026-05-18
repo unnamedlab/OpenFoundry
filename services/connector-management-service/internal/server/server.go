@@ -97,6 +97,7 @@ func New(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers, m *obs
 
 		// Data Connection catalog/read surfaces stay open during bring-up, matching Rust's optional auth layer.
 		api.Get("/data-connection/catalog", h.GetConnectorCatalog)
+		api.Get("/data-connection/catalog/capability-matrix", h.GetConnectorCapabilityMatrix)
 		api.Get("/data-connection/catalog/contracts", h.GetConnectorContracts)
 		api.Get("/data-connection/capability-packs", h.ListConnectorCapabilityPacks)
 		api.Get("/data-connection/capability-packs/{connector_type}", h.GetConnectorCapabilityPack)

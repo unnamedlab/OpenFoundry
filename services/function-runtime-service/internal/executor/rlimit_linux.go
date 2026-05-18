@@ -29,7 +29,7 @@ func applyRlimit(cmd *exec.Cmd, lim Limits) {
 	// linux: SysProcAttr.AmbientCaps etc. cannot enforce rlimits
 	// directly. We use Setpgid + Pdeathsig to make sure the kernel
 	// reaps the process group when the parent dies, and rely on the
-	// shell-style RLIMIT_AS hint baked into the env so the script
+	// runtime-specific RLIMIT_AS hint baked into the env so the script
 	// itself can self-limit when supported.
 	//
 	// NB: a full Setrlimit requires a wrapper child (see

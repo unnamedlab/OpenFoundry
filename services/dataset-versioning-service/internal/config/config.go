@@ -32,7 +32,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "dataset-versioning-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50117)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50078)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}

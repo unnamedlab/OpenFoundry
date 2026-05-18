@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { BranchManager, type BranchDraft } from '@/lib/components/code-repo/BranchManager';
 import { CommitHistory, type CommitDraft } from '@/lib/components/code-repo/CommitHistory';
@@ -10,6 +10,8 @@ import { RepoExplorer, type RepositoryDraft } from '@/lib/components/code-repo/R
 import {
   createBranch,
   createComment,
+  createTag,
+  deleteBranch,
   createCommit,
   createMergeRequest,
   createRepository,
@@ -22,7 +24,10 @@ import {
   listFiles,
   listMergeRequests,
   listRepositories,
+  listTags,
+  mergeBranch,
   mergeMergeRequest,
+  mutateFile,
   searchFiles,
   triggerCiRun,
   updateMergeRequest,
@@ -35,7 +40,10 @@ import {
   type MergeRequestStatus,
   type RepositoryDefinition,
   type RepositoryFile,
+  type RepositoryFileAction,
+  type RepositoryFileMutation,
   type RepositoryOverview,
+  type RepositoryTagDefinition,
   type ReviewerState,
   type SearchResult,
 } from '@/lib/api/code-repos';
@@ -65,9 +73,8 @@ function emptyCommitDraft(defaultBranch = 'main'): CommitDraft {
     branch_name: defaultBranch,
     title: 'Refine package manifest defaults',
     description: 'Tightens metadata and manifest defaults ahead of publication.',
-    author_name: 'Platform UI',
-    additions: '24',
-    deletions: '6',
+    author_name: '',
+    sign_off: true,
   };
 }
 
@@ -130,6 +137,7 @@ export function CodeReposPage() {
   const [overview, setOverview] = useState<RepositoryOverview | null>(null);
   const [repositories, setRepositories] = useState<RepositoryDefinition[]>([]);
   const [branches, setBranches] = useState<BranchDefinition[]>([]);
+  const [tags, setTags] = useState<RepositoryTagDefinition[]>([]);
   const [commits, setCommits] = useState<CommitDefinition[]>([]);
   const [files, setFiles] = useState<RepositoryFile[]>([]);
   const [ciRuns, setCiRuns] = useState<CiRun[]>([]);
@@ -149,6 +157,7 @@ export function CodeReposPage() {
   const [repositoryDraft, setRepositoryDraft] = useState<RepositoryDraft>(emptyRepoDraft);
   const [branchDraft, setBranchDraft] = useState<BranchDraft>(emptyBranchDraft);
   const [commitDraft, setCommitDraft] = useState<CommitDraft>(emptyCommitDraft);
+  const [pendingFileChanges, setPendingFileChanges] = useState<RepositoryFileMutation[]>([]);
   const [mergeRequestDraft, setMergeRequestDraft] = useState<MergeRequestDraft>(emptyMergeRequestDraft);
   const [commentDraft, setCommentDraft] = useState<CommentDraft>(() => emptyCommentDraft());
 
@@ -207,13 +216,14 @@ export function CodeReposPage() {
     setMergeRequestDraft(emptyMergeRequestDraft(defaultBranch));
     setDiffBranch(defaultBranch);
 
-    const [branchesResponse, commitsResponse, filesResponse, ciRunsResponse, diffResponse, mergeRequestsResponse] = await Promise.all([
+    const [branchesResponse, commitsResponse, filesResponse, ciRunsResponse, diffResponse, mergeRequestsResponse, tagsResponse] = await Promise.all([
       listBranches(repositoryId),
       listCommits(repositoryId),
       listFiles(repositoryId),
       listCiRuns(repositoryId),
       getDiff(repositoryId, defaultBranch),
       listMergeRequests(repositoryId),
+      listTags(repositoryId),
     ]);
 
     setBranches(branchesResponse.items);
@@ -222,6 +232,7 @@ export function CodeReposPage() {
     setCiRuns(ciRunsResponse.items);
     setDiffPatch(diffResponse.patch);
     setMergeRequests(mergeRequestsResponse.items);
+    setTags(tagsResponse.items);
     setCommitDraft(emptyCommitDraft(preferredCommitBranch(defaultBranch, branchesResponse.items)));
     const initialFilePath = filesResponse.items[0]?.path ?? '';
     setSelectedFilePath(initialFilePath);
@@ -391,6 +402,62 @@ export function CodeReposPage() {
     }
   }
 
+
+  async function switchBranchAction(branchName: string) {
+    if (!selectedRepositoryId) return;
+    setCommitDraft(emptyCommitDraft(branchName));
+    setDiffBranch(branchName);
+    const [filesResponse, diffResponse, commitsResponse] = await Promise.all([
+      listFiles(selectedRepositoryId, branchName),
+      getDiff(selectedRepositoryId, branchName),
+      listCommits(selectedRepositoryId, branchName),
+    ]);
+    setFiles(filesResponse.items);
+    setCommits(commitsResponse.items);
+    setDiffPatch(diffResponse.patch);
+    setSelectedFilePath(filesResponse.items[0]?.path ?? '');
+    notifications.success(`Switched to ${branchName}`);
+  }
+
+  async function deleteBranchAction(branchName: string) {
+    if (!selectedRepositoryId || !window.confirm(`Delete branch ${branchName}?`)) return;
+    try {
+      await deleteBranch(selectedRepositoryId, branchName, { force: false });
+      await loadRepositoryContext(selectedRepositoryId, selectedMergeRequestId || undefined, false);
+      notifications.success(`Deleted branch ${branchName}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete branch';
+      setUiError(message);
+      notifications.error(message);
+    }
+  }
+
+  async function mergeBranchAction(branchName: string, target: string) {
+    if (!selectedRepositoryId) return;
+    try {
+      await mergeBranch(selectedRepositoryId, branchName, { target_branch: target, author_name: 'Platform UI' });
+      await loadRepositoryContext(selectedRepositoryId, selectedMergeRequestId || undefined, false);
+      notifications.success(`Merged ${branchName} into ${target}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to merge branch';
+      setUiError(message);
+      notifications.error(message);
+    }
+  }
+
+  async function createTagAction(name: string, target: string, message: string, protectedTag: boolean) {
+    if (!selectedRepositoryId) return;
+    try {
+      const tag = await createTag(selectedRepositoryId, { name, target, message, protected: protectedTag, tagger_name: 'Platform UI' });
+      setTags((current) => [tag, ...current.filter((entry) => entry.name !== tag.name)]);
+      notifications.success(`Created tag ${name}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : 'Unable to create tag';
+      setUiError(text);
+      notifications.error(text);
+    }
+  }
+
   async function createCommitAction() {
     if (!selectedRepositoryId) {
       notifications.warning('Select a repository before committing');
@@ -398,16 +465,21 @@ export function CodeReposPage() {
     }
     setBusyAction('commit');
     try {
+      if (pendingFileChanges.length === 0) {
+        notifications.warning('Edit one or more files before creating an atomic commit');
+        return;
+      }
       await createCommit(selectedRepositoryId, {
         branch_name: commitDraft.branch_name,
         title: commitDraft.title,
         description: commitDraft.description,
-        author_name: commitDraft.author_name,
-        additions: Number(commitDraft.additions),
-        deletions: Number(commitDraft.deletions),
+        sign_off: commitDraft.sign_off,
+        author_name: commitDraft.author_name || undefined,
+        files: pendingFileChanges.map((change) => ({ ...change, branch_name: commitDraft.branch_name })),
       });
+      setPendingFileChanges([]);
       await loadRepositoryContext(selectedRepositoryId, selectedMergeRequestId || undefined, false);
-      notifications.success(`Created commit ${commitDraft.title} and queued branch CI`);
+      notifications.success(`Created atomic commit ${commitDraft.title}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create commit';
       setUiError(message);
@@ -416,6 +488,58 @@ export function CodeReposPage() {
       setBusyAction('');
     }
   }
+
+
+  async function saveFileAction(file: RepositoryFile, content: string) {
+    if (!selectedRepositoryId) return;
+    setBusyAction('file-save');
+    try {
+      const response = await mutateFile(selectedRepositoryId, {
+        action: 'save',
+        path: file.path,
+        content,
+        branch_name: file.branch_name || currentRepository?.default_branch || 'main',
+        message: `Update ${file.path}`,
+        author_name: undefined,
+      });
+      setFiles(response.items);
+      notifications.success(`Saved ${file.path}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save file';
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function fileTreeAction(action: RepositoryFileAction, path: string, nextPath?: string, content?: string) {
+    if (!selectedRepositoryId) return;
+    setBusyAction(`file-${action}`);
+    try {
+      const response = await mutateFile(selectedRepositoryId, {
+        action,
+        path,
+        new_path: nextPath,
+        content,
+        branch_name: currentRepository?.default_branch || 'main',
+        message: action === 'new' ? `Create ${nextPath ?? path}` : `${action} ${path}`,
+        author_name: undefined,
+      });
+      setFiles(response.items);
+      notifications.success(`${action} ${nextPath ?? path}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `Unable to ${action} file`;
+      setUiError(message);
+      notifications.error(message);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  const updatePendingFileChanges = useCallback((changes: RepositoryFileMutation[]) => {
+    setPendingFileChanges(changes);
+  }, []);
 
   async function triggerCiAction() {
     if (!selectedRepositoryId) {
@@ -649,6 +773,9 @@ export function CodeReposPage() {
           onSelectFile={selectFile}
           onSearchQueryChange={(query) => setSearchQuery(query)}
           onRunSearch={() => void runSearchAction()}
+          onSaveFile={(file, content) => void saveFileAction(file, content)}
+          onFileAction={(action, path, nextPath, content) => void fileTreeAction(action, path, nextPath, content)}
+          onPendingFileChanges={updatePendingFileChanges}
         />
         <DiffViewer
           availableBranches={branchOptions}
@@ -662,10 +789,15 @@ export function CodeReposPage() {
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 0.92fr) minmax(0, 1.08fr)' }}>
         <BranchManager
           branches={branches}
+          tags={tags}
           draft={branchDraft}
           busy={busy}
           onDraftChange={(patch) => setBranchDraft((current) => ({ ...current, ...patch }))}
           onCreateBranch={() => void createBranchAction()}
+          onSwitchBranch={(branch) => void switchBranchAction(branch)}
+          onDeleteBranch={(branch) => void deleteBranchAction(branch)}
+          onMergeBranch={(branch, target) => void mergeBranchAction(branch, target)}
+          onCreateTag={(name, target, message, protectedTag) => void createTagAction(name, target, message, protectedTag)}
         />
         <CommitHistory
           branches={branches}
@@ -675,6 +807,7 @@ export function CodeReposPage() {
           busy={busy}
           onDraftChange={(patch) => setCommitDraft((current) => ({ ...current, ...patch }))}
           onCreateCommit={() => void createCommitAction()}
+          pendingFileCount={pendingFileChanges.length}
           onTriggerCi={() => void triggerCiAction()}
         />
       </div>

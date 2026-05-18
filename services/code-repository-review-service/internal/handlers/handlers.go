@@ -17,6 +17,7 @@ import (
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/outbox"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/codesecurity"
+	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/gitstore"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/models"
 	"github.com/openfoundry/openfoundry-go/services/code-repository-review-service/internal/repo"
 )
@@ -31,10 +32,12 @@ const PromoteEventType = "global.branch.promote.requested.v1"
 
 // Handlers wires repo + pool together.
 type Handlers struct {
-	Repo         *repo.GlobalBranchRepo
-	Pool         *pgxpool.Pool
-	Actor        string
-	CodeSecurity *codesecurity.Service
+	Repo             *repo.GlobalBranchRepo
+	Pool             *pgxpool.Pool
+	Actor            string
+	CodeSecurity     *codesecurity.Service
+	CodeRepositories *repo.CodeRepositoryRepo
+	GitStore         *gitstore.BareRepositoryStore
 }
 
 // --- helpers ------------------------------------------------------------
@@ -57,6 +60,28 @@ func (h *Handlers) requestActor(r *http.Request) string {
 		return claims.Sub.String()
 	}
 	return h.Actor
+}
+
+func (h *Handlers) requestGitAuthor(r *http.Request) (string, string) {
+	if claims, ok := authmw.FromContext(r.Context()); ok {
+		name := strings.TrimSpace(claims.Name)
+		if name == "" {
+			name = strings.TrimSpace(claims.Email)
+		}
+		if name == "" {
+			name = claims.Sub.String()
+		}
+		email := strings.TrimSpace(claims.Email)
+		if email == "" {
+			email = claims.Sub.String() + "@users.openfoundry.local"
+		}
+		return name, email
+	}
+	actor := strings.TrimSpace(h.Actor)
+	if actor == "" {
+		actor = "OpenFoundry Actor"
+	}
+	return actor, actor + "@users.openfoundry.local"
 }
 
 // --- handlers -----------------------------------------------------------

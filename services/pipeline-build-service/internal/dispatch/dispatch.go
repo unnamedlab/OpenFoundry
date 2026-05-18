@@ -151,7 +151,7 @@ func (r ResourceOverrides) withDefaults() ResourceOverrides {
 // PipelineRunInput is everything the dispatcher needs to submit one
 // pipeline-runner Job. The Plan field is the typed operator graph the
 // runner executes; pipeline-build-service composes it from the DAG
-// node configs (Phase C.4.b composer is the upstream of this field).
+// node configs before dispatch.
 type PipelineRunInput struct {
 	PipelineID          string            `json:"pipeline_id"`
 	RunID               string            `json:"run_id"`
@@ -417,7 +417,7 @@ func (c *KubernetesClient) doJSON(ctx context.Context, method, path string, body
 //
 //   - status.succeeded > 0     → SUCCEEDED
 //   - conditions[type=Failed].status=True
-//                              → FAILED (carries condition message)
+//     → FAILED (carries condition message)
 //   - status.active > 0        → RUNNING
 //   - otherwise                → SUBMITTED (Job created, no pod started yet)
 //

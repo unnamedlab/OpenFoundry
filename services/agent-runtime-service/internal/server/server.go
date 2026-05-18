@@ -99,13 +99,15 @@ func buildRouter(cfg *config.Config, jwt *authmw.JWTConfig, h *handlers.Handlers
 		api.Post("/copilot/ask", h.AskCopilot)
 	})
 
-	// ADR-0030: prompt-workflow-service retired into this binary.
-	// Placeholder mount so the edge-gateway returns 501 instead of 502
-	// until the consolidated prompt CRUD surface lands.
+	// ADR-0030: prompt-workflow-service retired into this binary; mount the
+	// ai-kernel prompt-template handlers at the gateway-visible prefix.
 	r.Route("/api/v1/ai/prompts", func(api chi.Router) {
 		api.Use(authmw.Middleware(jwt))
-		api.HandleFunc("/*", h.PromptsNotImplemented)
-		api.HandleFunc("/", h.PromptsNotImplemented)
+		api.Get("/", h.ListPrompts)
+		api.Post("/", h.CreatePrompt)
+		api.Get("/{id}", h.GetPrompt)
+		api.Patch("/{id}", h.UpdatePrompt)
+		api.Post("/{id}/render", h.RenderPrompt)
 	})
 
 	if _, err := caps.IngestChiRoutes(r, capabilities.IngestOptions{

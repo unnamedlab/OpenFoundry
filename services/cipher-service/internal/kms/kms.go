@@ -12,10 +12,9 @@
 //     fail fast so the service never silently falls back to a weaker
 //     primitive.
 //
-//   - AWSKMSStub — placeholder honouring the KMS interface but
-//     returning ErrAWSNotImplemented from every call. Wired so the
-//     server config can declare the backend today; the real client
-//     ships with Milestone C (CIP.20).
+//   - AWSKMSClient — AWS KMS-backed KEK wrapper. It calls KMS Encrypt
+//     and Decrypt so production deployments can wrap DEKs with a managed
+//     customer key, while tests can inject a fake encrypt/decrypt client.
 //
 // External KMS providers (Vault Transit, GCP KMS, Azure Key Vault)
 // plug into the same interface — each adds a new file in this
@@ -70,9 +69,7 @@ var (
 	// bytes that fail AEAD authentication or are too short.
 	ErrWrappedMaterialInvalid = errors.New("cipher kms: wrapped key material is invalid")
 
-	// ErrAWSNotImplemented is the stub-only sentinel returned by
-	// AWSKMSStub until Milestone C wires a real client.
-	ErrAWSNotImplemented = errors.New("cipher kms: aws backend not implemented")
+	ErrAWSKeyMissing = errors.New("cipher kms: aws key ARN is required")
 )
 
 // LocalKMS wraps DEKs with a single 32-byte KEK held in process
@@ -152,23 +149,34 @@ func (l *LocalKMS) Unwrap(wrapped []byte) ([]byte, error) {
 // future production KMS reference.
 func (l *LocalKMS) Ref() string { return l.ref }
 
-// AWSKMSStub honours the KMS interface but is not wired to AWS yet.
-// Construction succeeds; calls return ErrAWSNotImplemented so the
-// server can declare the intent (config-driven backend selection)
-// without shipping the runtime path.
-type AWSKMSStub struct {
-	keyARN string
+// Backend identifies a configured KMS/HSM provider.
+type Backend string
+
+const (
+	BackendLocal         Backend = "local"
+	BackendVaultTransit  Backend = "vault_transit"
+	BackendAWSKMS        Backend = "aws_kms"
+	BackendGCPKMS        Backend = "gcp_kms"
+	BackendAzureKeyVault Backend = "azure_key_vault"
+	BackendPKCS11        Backend = "pkcs11"
+)
+
+// ErrBackendNotImplemented is returned by external non-AWS stubs until their
+// vendor SDKs are wired in deployment-specific builds.
+var ErrBackendNotImplemented = errors.New("cipher kms: backend not implemented")
+
+type ExternalStub struct {
+	backend Backend
+	ref     string
 }
 
-// NewAWSKMSStub records the target ARN so Ref() emits something
-// useful while the real client is still pending (CIP.20).
-func NewAWSKMSStub(keyARN string) *AWSKMSStub {
-	if keyARN == "" {
-		keyARN = "stub"
+func NewExternalStub(backend Backend, ref string) *ExternalStub {
+	if ref == "" {
+		ref = "stub"
 	}
-	return &AWSKMSStub{keyARN: keyARN}
+	return &ExternalStub{backend: backend, ref: ref}
 }
 
-func (s *AWSKMSStub) Wrap(_ []byte) ([]byte, error)   { return nil, ErrAWSNotImplemented }
-func (s *AWSKMSStub) Unwrap(_ []byte) ([]byte, error) { return nil, ErrAWSNotImplemented }
-func (s *AWSKMSStub) Ref() string                     { return "aws:kms:" + s.keyARN }
+func (s *ExternalStub) Wrap(_ []byte) ([]byte, error)   { return nil, ErrBackendNotImplemented }
+func (s *ExternalStub) Unwrap(_ []byte) ([]byte, error) { return nil, ErrBackendNotImplemented }
+func (s *ExternalStub) Ref() string                     { return string(s.backend) + ":" + s.ref }

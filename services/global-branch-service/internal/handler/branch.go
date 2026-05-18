@@ -17,8 +17,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
+	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 
 	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/domain"
 	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/models"
@@ -32,12 +32,12 @@ import (
 // filter on these will key off the string value, not the typed
 // constant.
 const (
-	auditKindBranchCreated           = audittrail.EventKind("global_branch.created")
-	auditKindBranchUpdated           = audittrail.EventKind("global_branch.updated")
-	auditKindBranchAbandoned         = audittrail.EventKind("global_branch.abandoned")
-	auditKindBranchMerged            = audittrail.EventKind("global_branch.merged")
-	auditKindParticipationAdded      = audittrail.EventKind("global_branch.participation_added")
-	auditKindParticipationRemoved    = audittrail.EventKind("global_branch.participation_removed")
+	auditKindBranchCreated        = audittrail.EventKind("global_branch.created")
+	auditKindBranchUpdated        = audittrail.EventKind("global_branch.updated")
+	auditKindBranchAbandoned      = audittrail.EventKind("global_branch.abandoned")
+	auditKindBranchMerged         = audittrail.EventKind("global_branch.merged")
+	auditKindParticipationAdded   = audittrail.EventKind("global_branch.participation_added")
+	auditKindParticipationRemoved = audittrail.EventKind("global_branch.participation_removed")
 )
 
 // SourceService labels audit events emitted by this binary.

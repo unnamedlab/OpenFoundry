@@ -926,7 +926,7 @@ The stub data is gone — re-run the seeder or trigger the Task 1 indexer.
 ### 5.3 Task 3 gotchas
 
 - **Cassandra arm64:** Bitnami publishes multi-arch from 4.1 onward. Earlier tags fail with `exec format error`.
-- **Replication factor 1 in dev:** make sure the keyspace uses `NetworkTopologyStrategy` with `dc1: 1`. The original Rust impl expects it.
+- **Replication factor 1 in dev:** make sure the keyspace uses `NetworkTopologyStrategy` with `dc1: 1`. The current Go services and local fixtures assume that single-node dev shape.
 - **Cassandra start time:** ~60s. The object-database-service readinessProbe must wait for it (otherwise it crashloops forever).
 - **Memory:** if Lima OOMkills Cassandra, lower the heap to 1G and accept the latency.
 

@@ -155,7 +155,7 @@ the disaster-recovery flow with `infra/runbooks/disaster-recovery.md`.
 The first wave (the pilot PR that introduced this directory) wired:
 
 * `identity-federation-service` → `identity-federation-pg`
-* `data-asset-catalog-service`  → `data-asset-catalog-pg`
+* historical `data-asset-catalog-service` → `data-asset-catalog-pg` (that binary no longer exists; current dataset/catalog HTTP ownership is consolidated into `dataset-versioning-service`)
 
 A subsequent bulk PR closed **T13** by generating a `Cluster` manifest
 for **every** bounded context with `services/<svc>/migrations/`, so the

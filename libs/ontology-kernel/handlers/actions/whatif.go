@@ -203,6 +203,12 @@ func DeleteActionWhatIfBranch(state *ontologykernel.AppState) http.HandlerFunc {
 // ensureActionActorPermission checks the actor has the action's
 // permission key (when one is required).
 func ensureActionActorPermission(claims *authmw.Claims, action models.ActionType) error {
+	if actionLogBackedActionEnforcesPermissions(action) {
+		key := actionLogObjectPermissionKey(action)
+		if !claims.HasRole("admin") && !claims.HasPermissionKey(key) {
+			return forbiddenErr("forbidden: missing action log object permission '" + key + "'")
+		}
+	}
 	if action.PermissionKey != nil {
 		if !claims.HasPermissionKey(*action.PermissionKey) {
 			return forbiddenErr("forbidden: missing permission '" + *action.PermissionKey + "'")
@@ -245,3 +251,23 @@ func orJSONNull(raw json.RawMessage) json.RawMessage {
 }
 
 func nowUTC() time.Time { return time.Now().UTC() }
+
+func actionLogBackedActionEnforcesPermissions(action models.ActionType) bool {
+	if len(action.Config) == 0 || string(action.Config) == "null" {
+		return false
+	}
+	var cfg struct {
+		ActionLog *struct {
+			Enabled            bool `json:"enabled"`
+			EnforcePermissions bool `json:"enforce_permissions"`
+		} `json:"action_log"`
+	}
+	if err := json.Unmarshal(action.Config, &cfg); err != nil || cfg.ActionLog == nil {
+		return false
+	}
+	return cfg.ActionLog.Enabled && cfg.ActionLog.EnforcePermissions
+}
+
+func actionLogObjectPermissionKey(action models.ActionType) string {
+	return "ontology.action-log." + action.ID.String() + ".create"
+}

@@ -4,6 +4,10 @@ This folder collects the **legacy Postgres state** for the
 automation-ops control plane that was authoritative before Stream
 **S2.7** (see `docs/architecture/migration-plan-cassandra-foundry-parity.md`).
 
+> **2026-05-18 inventory note:** `services/automation-operations-service` no
+> longer exists as a current binary. Saga/automation-operations code now lives
+> under `services/workflow-automation-service/internal/automationoperations`.
+
 ## What changed
 
 - **Authoritative store** for an automation-ops task is now a Temporal
@@ -33,7 +37,7 @@ NOT** run before:
 
 ## Pointers
 
-- New entry point: [`automation_operations_service::domain::temporal_adapter::AutomationOpsAdapter`](../../../services/automation-operations-service/src/domain/temporal_adapter.rs).
+- Historical Temporal-era entry point: `automation_operations_service::domain::temporal_adapter::AutomationOpsAdapter` under retired `services/automation-operations-service`; current saga ownership is `services/workflow-automation-service/internal/automationoperations`.
 - Worker: [`workers-go/automation-ops/workflows/automation_ops_task.go`](../../../workers-go/automation-ops/workflows/automation_ops_task.go).
 - Plan reference: `docs/architecture/migration-plan-cassandra-foundry-parity.md` §S2.7.
 

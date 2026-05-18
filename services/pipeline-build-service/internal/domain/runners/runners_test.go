@@ -349,8 +349,8 @@ func TestAnalyticalAndTransformRunnersAreNotSkeletonFailures(t *testing.T) {
 		ContentHash: "spec-hash",
 		Config:      []byte(`{"sql":"select 1"}`),
 	}})
-	if transform.Kind != JobOutcomeCompleted || transform.OutputContentHash != "spec-hash" {
-		t.Fatalf("transform shim must use content hash, got %+v", transform)
+	if transform.Kind != JobOutcomeFailed || !strings.Contains(transform.Reason, "transform runtime unavailable") {
+		t.Fatalf("transform runner without runtime must fail closed, got %+v", transform)
 	}
 }
 

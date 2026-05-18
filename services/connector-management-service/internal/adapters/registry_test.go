@@ -159,3 +159,33 @@ func TestEmptyArrowStreamReturnsEOF(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF)
 	require.NoError(t, s.Close())
 }
+
+func TestDefaultCapabilityMatrixDocumentsImplementedAndMissingCapabilities(t *testing.T) {
+	r := adapters.NewRegistry()
+	matrix := r.CapabilityMatrix([]string{"mysql", "ldap", "oracle"})
+	byType := map[string]models.ConnectorCapabilityMatrix{}
+	for _, capability := range matrix {
+		byType[capability.ConnectorType] = capability
+	}
+
+	mysql := byType["mysql"]
+	require.True(t, mysql.DiscoverSources)
+	require.True(t, mysql.QueryVirtualTable)
+	require.True(t, mysql.StreamArrow)
+	require.True(t, mysql.BuildIngestSpec)
+	require.Empty(t, mysql.Limitations)
+
+	ldap := byType["ldap"]
+	require.False(t, ldap.DiscoverSources)
+	require.False(t, ldap.QueryVirtualTable)
+	require.False(t, ldap.StreamArrow)
+	require.False(t, ldap.BuildIngestSpec)
+	require.NotEmpty(t, ldap.Limitations)
+
+	oracle := byType["oracle"]
+	require.True(t, oracle.DiscoverSources)
+	require.True(t, oracle.QueryVirtualTable)
+	require.False(t, oracle.StreamArrow)
+	require.False(t, oracle.BuildIngestSpec)
+	require.NotEmpty(t, oracle.Limitations)
+}

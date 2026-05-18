@@ -239,3 +239,47 @@ type RetentionAppliedEvent struct {
 	PhysicallyDeleted bool      `json:"physically_deleted"`
 	OccurredAt        time.Time `json:"occurred_at"`
 }
+
+// RunRetentionExecutionRequest executes active retention policies against one dataset.
+type RunRetentionExecutionRequest struct {
+	DatasetRid         string     `json:"dataset_rid"`
+	AsOfDays           int64      `json:"as_of_days,omitempty"`
+	RecoveryWindowDays int64      `json:"recovery_window_days,omitempty"`
+	DryRun             bool       `json:"dry_run,omitempty"`
+	ProjectID          *uuid.UUID `json:"project_id,omitempty"`
+	MarkingID          *uuid.UUID `json:"marking_id,omitempty"`
+	SpaceID            *uuid.UUID `json:"space_id,omitempty"`
+	OrgID              *uuid.UUID `json:"org_id,omitempty"`
+}
+
+type RetentionExecutionItem struct {
+	ID                        uuid.UUID  `json:"id"`
+	RunID                     uuid.UUID  `json:"run_id"`
+	PolicyID                  *uuid.UUID `json:"policy_id,omitempty"`
+	TransactionID             uuid.UUID  `json:"transaction_id"`
+	Action                    string     `json:"action"`
+	Reason                    string     `json:"reason"`
+	MarkedAt                  *time.Time `json:"marked_at,omitempty"`
+	RecoverableUntil          *time.Time `json:"recoverable_until,omitempty"`
+	SweptAt                   *time.Time `json:"swept_at,omitempty"`
+	RequiresDeleteTransaction bool       `json:"requires_delete_transaction"`
+}
+
+type RetentionExecutionRun struct {
+	ID                     uuid.UUID                `json:"id"`
+	OrgID                  *uuid.UUID               `json:"org_id,omitempty"`
+	DatasetRid             string                   `json:"dataset_rid"`
+	Status                 string                   `json:"status"`
+	DryRun                 bool                     `json:"dry_run"`
+	MarkedTransactionCount int                      `json:"marked_transaction_count"`
+	SweptTransactionCount  int                      `json:"swept_transaction_count"`
+	DeleteTransactionCount int                      `json:"delete_transaction_count"`
+	RecoveryWindowDays     int64                    `json:"recovery_window_days"`
+	RemediationDeadline    *time.Time               `json:"remediation_deadline,omitempty"`
+	IrreversibleAfter      *time.Time               `json:"irreversible_after,omitempty"`
+	Warnings               []string                 `json:"warnings"`
+	Items                  []RetentionExecutionItem `json:"items"`
+	CreatedBy              string                   `json:"created_by"`
+	CreatedAt              time.Time                `json:"created_at"`
+	CompletedAt            *time.Time               `json:"completed_at,omitempty"`
+}

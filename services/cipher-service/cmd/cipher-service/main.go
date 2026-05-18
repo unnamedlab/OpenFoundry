@@ -7,7 +7,7 @@
 //   - load config (yaml + env)
 //   - initialise observability (slog + OTel)
 //   - open the Postgres pool and apply migrations
-//   - choose a KMS backend (local env-var KEK in dev, AWS stub
+//   - choose a KMS backend (local env-var KEK in dev, AWS KMS
 //     otherwise)
 //   - assemble the handler.State and start the HTTP server
 //
@@ -18,17 +18,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	audittrail "github.com/openfoundry/openfoundry-go/libs/audit-trail"
+	databus "github.com/openfoundry/openfoundry-go/libs/event-bus-data"
 	"github.com/openfoundry/openfoundry-go/libs/observability"
 
+	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/anomaly"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/audit"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/config"
 	"github.com/openfoundry/openfoundry-go/services/cipher-service/internal/handler"
@@ -89,17 +94,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Milestone A wires a no-op audit emitter so the recorder is
-	// safe to call from every handler. A real audittrail.KafkaEmitter
-	// drops in once the cipher service joins the audit bus (cf.
-	// audit-compliance-service); the Recorder interface is stable
-	// so handlers stay unchanged.
-	recorder := audit.NewRecorder(audittrail.NopEmitter{}, log)
+	recorder, closeAudit, err := buildAuditRecorder(cfg, log)
+	if err != nil {
+		log.Error("audit recorder build failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	if closeAudit != nil {
+		defer closeAudit()
+	}
+
+	budgetWindow, _ := time.ParseDuration(cfg.Governance.BudgetWindow)
+	anomalyWindow, _ := time.ParseDuration(cfg.Governance.AnomalyWindow)
 
 	state := &handler.State{
-		Repo:  repo.New(pool),
-		KMS:   kmsImpl,
-		Audit: recorder,
+		Repo:    repo.New(pool),
+		KMS:     kmsImpl,
+		Audit:   recorder,
+		Budgets: handler.NewDecryptBudgetManager(cfg.Governance.DefaultDecryptBudget, budgetWindow),
+		Anomaly: anomaly.NewDetector(cfg.Governance.AnomalyBurstLimit, anomalyWindow, nil),
 	}
 
 	metrics := observability.NewMetrics()
@@ -118,9 +130,8 @@ func main() {
 
 // buildKMS picks the wrapping backend declared in config.
 //
-// "local" is the only fully-functional backend in Milestone A; "aws"
-// returns a stub honouring the interface so the deployment can
-// declare intent today and swap to the real client in Milestone C.
+// "local" is fully functional for dev/test. The aws/aws_kms backend uses
+// AWS KMS Encrypt/Decrypt and supports AWS_ENDPOINT_URL for LocalStack/tests.
 func buildKMS(cfg *config.Config, log *slog.Logger) (kms.KMS, error) {
 	switch cfg.KMS.Backend {
 	case "local", "":
@@ -130,10 +141,28 @@ func buildKMS(cfg *config.Config, log *slog.Logger) (kms.KMS, error) {
 		}
 		log.Info("kms backend ready", slog.String("backend", "local"), slog.String("ref", k.Ref()))
 		return k, nil
-	case "aws":
-		k := kms.NewAWSKMSStub(cfg.KMS.AWSKeyARN)
-		log.Warn("kms backend is the AWS stub — encrypt/decrypt will fail until CIP.20",
-			slog.String("ref", k.Ref()))
+	case "aws", "aws_kms":
+		k, err := kms.NewAWSKMSClient(context.Background(), os.Getenv("AWS_REGION"), cfg.KMS.AWSKeyARN, os.Getenv("AWS_ENDPOINT_URL"))
+		if err != nil {
+			return nil, err
+		}
+		log.Info("kms backend ready", slog.String("backend", "aws_kms"), slog.String("ref", k.Ref()))
+		return k, nil
+	case "vault_transit":
+		k := kms.NewExternalStub(kms.BackendVaultTransit, cfg.KMS.VaultKey)
+		log.Warn("kms backend is a Vault Transit stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "gcp_kms":
+		k := kms.NewExternalStub(kms.BackendGCPKMS, cfg.KMS.GCPKey)
+		log.Warn("kms backend is a GCP KMS stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "azure_key_vault":
+		k := kms.NewExternalStub(kms.BackendAzureKeyVault, cfg.KMS.AzureKey)
+		log.Warn("kms backend is an Azure Key Vault stub", slog.String("ref", k.Ref()))
+		return k, nil
+	case "pkcs11":
+		k := kms.NewExternalStub(kms.BackendPKCS11, cfg.KMS.PKCS11Key)
+		log.Warn("kms backend is a PKCS#11 HSM stub", slog.String("ref", k.Ref()))
 		return k, nil
 	default:
 		return nil, errUnknownBackend(cfg.KMS.Backend)
@@ -145,3 +174,33 @@ type errUnknownBackendT string
 func (e errUnknownBackendT) Error() string { return "unknown KMS backend: " + string(e) }
 
 func errUnknownBackend(b string) error { return errUnknownBackendT(b) }
+
+func buildAuditRecorder(cfg *config.Config, log *slog.Logger) (*audit.Recorder, func(), error) {
+	production := strings.EqualFold(os.Getenv("OPENFOUNDRY_ENV"), "production")
+	requireDelivery := true
+	if cfg.Audit.FailOpen && !production {
+		requireDelivery = false
+	}
+	if cfg.Audit.FailOpen && production {
+		log.Warn("OF_CIPHER_AUDIT_FAIL_OPEN ignored in production — critical cipher audit remains fail-closed")
+	}
+
+	brokers := strings.TrimSpace(os.Getenv("KAFKA_BOOTSTRAP_SERVERS"))
+	if brokers == "" {
+		if production {
+			return nil, nil, errors.New("KAFKA_BOOTSTRAP_SERVERS is required for cipher audit in production")
+		}
+		log.Warn("KAFKA_BOOTSTRAP_SERVERS unset — cipher audit recorder has no emitter in non-production")
+		return audit.NewRecorderWithPolicy(nil, log, requireDelivery), nil, nil
+	}
+	pub, err := databus.NewKafkaPublisher(databus.Config{BootstrapServers: strings.Split(brokers, ",")})
+	if err != nil {
+		return nil, nil, err
+	}
+	emitter, err := audittrail.NewKafkaEmitter(pub, cfg.Service.Name)
+	if err != nil {
+		_ = pub.Close()
+		return nil, nil, err
+	}
+	return audit.NewRecorderWithPolicy(emitter, log, requireDelivery), func() { _ = pub.Close() }, nil
+}

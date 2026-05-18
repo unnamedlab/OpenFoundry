@@ -402,6 +402,13 @@ implementing this checklist.
 
 ## Suggested service boundaries
 
+> **Reader note (2026-05-18)** — The services in the table below are
+> target decomposition proposals, not a current inventory of binaries.
+> `approvals-service` does not exist as a current `services/` directory;
+> the live approval substrate is `workflow-automation-service/internal/approvals`
+> inside `workflow-automation-service`. For the canonical service list, see
+> [`docs/reference/repository-layout.md`](../reference/repository-layout.md).
+
 | Surface | Responsibilities |
 | --- | --- |
 | `approvals-service` | Approval templates, approval tasks, reviewer pools, decisions, SLA tracking, escalation chains, delegation and out-of-office handoff, bulk decisions, reviewer transparency. Composes upstream access-request / Marketplace / dataset-upload / action / branch-merge surfaces. |

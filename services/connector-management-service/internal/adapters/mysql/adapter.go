@@ -27,16 +27,20 @@
 // intentionally not done here because the Rust side does not do it
 // either, and CMA-4 is a wrapper-parity task.
 //
-// Capabilities not exposed by the Rust connector — Arrow IPC streaming
-// and IngestSpec construction — return [adapters.ErrNotImplemented].
+// MySQL additionally materialises bridge query results as real Apache Arrow
+// IPC stream bytes and builds a sanitized ingestion spec for selected tables.
 package mysql
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters"
+	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/arrowipc"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/adapters/catalogbridge"
 	"github.com/openfoundry/openfoundry-go/services/connector-management-service/internal/models"
 )
@@ -101,15 +105,126 @@ func (a *Adapter) QueryVirtualTable(ctx context.Context, c *models.Connection, q
 	return a.bridge.QueryVirtualTable(ctx, c, q)
 }
 
-// StreamArrow returns [adapters.ErrNotImplemented]: the Rust MySQL
-// connector does not expose `stream_arrow_ipc`; sync rows go through
-// `fetch_dataset` (a JSON-over-HTTP path).
-func (a *Adapter) StreamArrow(_ context.Context, _ *models.Connection, _ *adapters.Query, _ string) (adapters.ArrowStream, error) {
-	return nil, adapters.ErrNotImplemented
+// StreamArrow returns a real Apache Arrow IPC stream backed by the same bridge
+// query path as JSON preview. Rows and columns come directly from the adapter
+// result; no pseudo-Arrow JSON envelope is emitted.
+func (a *Adapter) StreamArrow(ctx context.Context, c *models.Connection, q *adapters.Query, agentURL string) (adapters.ArrowStream, error) {
+	res, err := a.QueryVirtualTable(ctx, c, q, agentURL)
+	if err != nil {
+		return nil, err
+	}
+	frame, err := arrowipc.MaterializeResult(res)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: materialize arrow ipc: %w", err)
+	}
+	return &arrowipc.SingleFrameStream{Frame: frame}, nil
 }
 
-// BuildIngestSpec returns [adapters.ErrNotImplemented]: the Rust MySQL
-// connector is not wired into `ingestion_bridge::build_spec`.
-func (a *Adapter) BuildIngestSpec(_ context.Context, _ *models.Connection, _ *adapters.Source) (*adapters.IngestSpec, error) {
-	return nil, adapters.ErrNotImplemented
+// BuildIngestSpec produces the source envelope consumed by the ingestion
+// bridge after validating config and removing credential-like fields.
+func (a *Adapter) BuildIngestSpec(_ context.Context, c *models.Connection, src *adapters.Source) (*adapters.IngestSpec, error) {
+	if c == nil {
+		return nil, errors.New("mysql: connection is nil")
+	}
+	if src == nil {
+		return nil, errors.New("mysql: source is nil")
+	}
+	if err := a.bridge.ValidateConfig(c.Config); err != nil {
+		return nil, err
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(c.Config, &cfg); err != nil {
+		return nil, fmt.Errorf("mysql: invalid config: %w", err)
+	}
+
+	selector := strings.TrimSpace(src.Selector)
+	if selector == "" {
+		selector = trimmedString(cfg["table"])
+	}
+	if selector == "" {
+		return nil, errors.New("mysql: source selector is empty")
+	}
+
+	payload := sanitizeConfig(cfg)
+	payload["connector"] = ConnectorType
+	payload["selector"] = selector
+	payload["table"] = selector
+	if query := trimmedString(cfg["query"]); query != "" {
+		payload["query"] = query
+	}
+	payload["source_identity"] = map[string]any{
+		"connection_id": c.ID.String(),
+		"selector":      selector,
+	}
+	if cursor := firstNonEmptyString(cfg, "cursor", "incremental_cursor"); cursor != "" {
+		payload["incremental"] = map[string]any{"cursor": cursor}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("mysql: marshal ingest spec: %w", err)
+	}
+	return &adapters.IngestSpec{Name: c.Name + "-mysql-ingest", Namespace: "default", Source: ConnectorType, Config: raw}, nil
+}
+
+var secretConfigKeys = map[string]struct{}{
+	"password":    {},
+	"secret":      {},
+	"token":       {},
+	"api_key":     {},
+	"private_key": {},
+	"credential":  {},
+	"credentials": {},
+}
+
+func sanitizeConfig(cfg map[string]any) map[string]any {
+	out := make(map[string]any, len(cfg))
+	for key, value := range cfg {
+		if isSecretKey(key) {
+			continue
+		}
+		out[key] = sanitizeValue(value)
+	}
+	return out
+}
+
+func sanitizeValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return sanitizeConfig(v)
+	case []any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, sanitizeValue(item))
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func isSecretKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	if _, ok := secretConfigKeys[normalized]; ok {
+		return true
+	}
+	return strings.Contains(normalized, "password") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "api_key") ||
+		strings.Contains(normalized, "private_key") ||
+		strings.Contains(normalized, "credential")
+}
+
+func firstNonEmptyString(cfg map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := trimmedString(cfg[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func trimmedString(value any) string {
+	s, _ := value.(string)
+	return strings.TrimSpace(s)
 }

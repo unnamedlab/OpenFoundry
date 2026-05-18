@@ -1,5 +1,27 @@
 # `pipeline-runner` (Go)
 
+## LLM quick context (current code)
+
+Runs pipeline jobs and helper runtime endpoints for pipeline execution.
+
+Agent note: small runtime service; pair with pipeline-build-service for orchestration/state.
+
+Current surface:
+- `pipeline execution runtime routes`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `providers`, `runner`, `server`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `ICEBERG_CATALOG_CREDENTIAL`, `ICEBERG_CATALOG_URL`, `ICEBERG_OAUTH_SCOPE`, `ICEBERG_OAUTH_TOKEN_URI`, `ICEBERG_TABLE_WRITER_URL`, `ICEBERG_WAREHOUSE`, `OF_PIPELINE_RUNNER_HEALTH_ADDR`, `PORT`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Executes a [`pipelineplan.Plan`](../../libs/pipeline-plan/) against
 Iceberg via [`libs/pipeline-runtime`](../../libs/pipeline-runtime/).
 ADR-0045 Phase C.5 — replaces the previous Scala/Spark binary and

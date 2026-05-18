@@ -20,5 +20,12 @@ telemetry:
   otlp_endpoint: "localhost:4317"
   log_format: "plain"
 
-# Stub milestone surfaced in the 501 placeholder body.
+database:
+  # Production deployments must set OF_DATABASE__URL or DATABASE_URL.
+  url: ""
+
+# In-memory persistence is available only when explicitly enabled for local/dev tests.
+allow_fake_store: false
+
+# Platform milestone tag retained for health/config visibility.
 milestone: "S8.6"

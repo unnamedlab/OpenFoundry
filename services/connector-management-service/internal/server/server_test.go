@@ -521,6 +521,6 @@ func TestDevAuthRoutesMountOnlyWhenEnabled(t *testing.T) {
 
 	srv, _, _ = testServer(t, true)
 	rec = exercise(srv.Handler, http.MethodPost, "/api/v1/auth/login", "", "{}")
-	require.Equal(t, http.StatusNotImplemented, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.Contains(t, rec.Body.String(), "dev_auth_pending")
 }

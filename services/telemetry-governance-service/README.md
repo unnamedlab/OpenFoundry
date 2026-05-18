@@ -1,5 +1,30 @@
 # telemetry-governance-service (Go)
 
+## LLM quick context (current code)
+
+Owns telemetry governance and monitoring/health-check/streaming-monitor surfaces.
+
+Agent note: generic feature handlers are mounted under /api/v1/<feature>; monitor-rules/views are explicit.
+
+Current surface:
+- `/api/v1/health-checks*`
+- `/api/v1/monitoring-views*`
+- `/api/v1/monitor-rules*`
+- `/api/v1/streaming-monitors*`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `5` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `handlers`, `models`, `repo`, `server`, `streamingmonitors`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `HOST`, `JWT_SECRET`, `METRICS_ADDR`, `OPENFOUNDRY_JWT_SECRET`, `PORT`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Telemetry permissions, log/metric/event export and governance policies.
 Hosts four foundation CRUDs (parent + child collections) under one
 binary, consolidated per ADR-0030 (S8.1.a).

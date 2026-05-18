@@ -170,7 +170,12 @@ func (n *Notifier) dispatch(
 		if n.SMTP == nil {
 			return skipped("SMTP adapter not configured")
 		}
-		return n.SMTP.SendEmail(ctx, *preference.EmailAddress, notification.Title, notification.Body)
+		rendered := RenderEmailForDelivery(notification, *preference.EmailAddress, n.EmailRedaction)
+		result := n.SMTP.SendEmail(ctx, *preference.EmailAddress, rendered.Subject, rendered.Body)
+		if rendered.Redacted && result.Response != "" {
+			result.Response += "; email content redacted: " + rendered.Reason
+		}
+		return result
 	case "slack":
 		if preference == nil || preference.SlackWebhookURL == nil || *preference.SlackWebhookURL == "" {
 			return skipped("slack webhook not configured")

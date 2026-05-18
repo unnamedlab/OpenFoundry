@@ -64,8 +64,8 @@ at the time of writing):
 | Pipeline runs           | Temporal `PipelineRun` workflow       | `pipeline-build-service` → SparkApplication CR via Spark Operator      |
 | Cron / Time triggers    | Temporal Schedules                    | `schedules-tick` Kubernetes `CronJob` (`libs/event-scheduler`)         |
 | Workflow automation     | Temporal `automation_run` workflow    | `workflow-automation-service` Postgres state machine + Kafka consumer  |
-| Saga / cleanup          | Temporal cleanup-workspace workflow   | `automation-operations-service` + `libs/saga` (LIFO compensation)      |
-| Approvals               | Temporal approvals workflow + signal  | `approvals-service` 5-state machine + `approvals-timeout-sweep` cron   |
+| Saga / cleanup          | Temporal cleanup-workspace workflow   | historical `automation-operations-service`, now `workflow-automation-service/internal/automationoperations` + `libs/saga` (LIFO compensation) |
+| Approvals               | Temporal approvals workflow + signal  | historical `approvals-service`, now `workflow-automation-service/internal/approvals` 5-state machine + `approvals-timeout-sweep` cron |
 | Reindex                 | Temporal `OntologyReindex` (Go)       | `reindex-coordinator-service` Kafka-driven coordinator                 |
 | Idempotency             | Temporal workflow history dedupe      | `libs/idempotency::PgIdempotencyStore` (record-before-process)         |
 | Outbound events         | Direct emit from Temporal activity    | `libs/outbox` INSERT+DELETE same-TX + Debezium EventRouter SMT         |

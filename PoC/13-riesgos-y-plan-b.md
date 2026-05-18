@@ -105,7 +105,7 @@ The presenter says: *"We have a technical issue, let's use the remaining 15 minu
 ## ❓ Likely customer FAQ — prepared answers
 
 ### "How does it compare with real Foundry? Are you at parity?"
-> *"In components, yes: today there are 42 Go services under `services/` covering ingestion, ontology, pipelines, AIP, workflows, governance and publishing. In UX maturity and edge cases we're still behind — expected for an open-source project under active development. The key point: the core works and the customer can contribute or pay to accelerate whatever they need."*
+> *"In components, yes: today there are 50 service directories under `services/` (per [`docs/reference/repository-layout.md`](../docs/reference/repository-layout.md)) covering ingestion, ontology, pipelines, AIP, workflows, governance and publishing. In UX maturity and edge cases we're still behind — expected for an open-source project under active development. The key point: the core works and the customer can contribute or pay to accelerate whatever they need."*
 
 ### "What about the AGPL license?"
 > *"AGPL ensures that any improvements come back to the community. For internal use it does not require you to publish anything. It only applies if you offer OpenFoundry as a SaaS to third parties. For an airline, there's no implication."*

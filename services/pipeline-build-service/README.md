@@ -1,5 +1,36 @@
 # `pipeline-build-service` (Go)
 
+## LLM quick context (current code)
+
+Owns pipeline definitions, builds, schedules, job specs/logs, pipeline type lifecycle, distributed execution dispatch, and pipeline authoring/orchestration APIs.
+
+Agent note: large service with local/Kubernetes/Spark/runner integrations and many migrations.
+
+Current surface:
+- `/api/v1/pipelines*`
+- `/api/v1/builds*`
+- `/api/v1/schedules*`
+- `/api/v1/job-specs*`
+- `pipeline runs/logs/authoring lifecycle routes`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `25` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `dispatch`, `domain`, `handler`, `iceberg`, `logs`, `models`, `plancomposer`, `postgres`, `runtime`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `AI_SERVICE_BEARER`, `AI_SERVICE_URL`, `DATABASE_URL`, `DATASET_SERVICE_BEARER`, `DATASET_SERVICE_URL`, `DATA_DIR`, `DISTRIBUTED_COMPUTE_POLL_INTERVAL_MS`, `DISTRIBUTED_COMPUTE_TIMEOUT_SECS`
+- `DISTRIBUTED_PIPELINE_WORKERS`, `FOUNDRY_ICEBERG_CATALOG_BEARER`, `FOUNDRY_ICEBERG_CATALOG_URL`, `HOST`, `JWT_SECRET`, `KUBECONFIG`, `KUBERNETES_API_URL`, `KUBERNETES_BEARER_TOKEN`
+- `KUBERNETES_SERVICE_HOST`, `KUBERNETES_SERVICE_PORT`, `LOCAL_STORAGE_ROOT`, `OBJECT_DATABASE_SERVICE_BEARER`, `OBJECT_DATABASE_SERVICE_URL`, `ONTOLOGY_DEFINITION_SERVICE_BEARER`, `ONTOLOGY_DEFINITION_SERVICE_URL`, `OPENFOUNDRY_DISTRIBUTED_CLUSTER_SMOKE`
+- `OPENFOUNDRY_DISTRIBUTED_INPUT_DATASET_RID`, `OPENFOUNDRY_DISTRIBUTED_INPUT_TABLE`, `OPENFOUNDRY_DISTRIBUTED_OUTPUT_DATASET_RID`, `OPENFOUNDRY_DISTRIBUTED_OUTPUT_TABLE`, `OPENFOUNDRY_PIPELINE_AIP_PROVIDER_SMOKE`, `OPENFOUNDRY_PIPELINE_LLM_PROVIDER_SMOKE`, `PIPELINE_RUNNER_IMAGE`, `PIPELINE_RUNNER_NAMESPACE`
+- `PORT`, `PYTHON_SIDECAR_BINARY`, `PYTHON_SIDECAR_TIMEOUT_SECONDS`, `S3_ACCESS_KEY`, `S3_ENDPOINT`, `S3_REGION`, `S3_SECRET_KEY`, `SERVICE_VERSION`
+- `SPARK_NAMESPACE`, `STORAGE_BACKEND`, `STORAGE_BUCKET`, `WORKFLOW_SERVICE_URL`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Build / execution side of Pipeline Builder. The Go service now mounts the
 Rust route surface under `/api/v1/data-integration`, `/api/v1/pipeline/builds`
 and `/v1`, while keeping the older `/api/v1/*` compatibility aliases for

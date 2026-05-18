@@ -1,5 +1,29 @@
 # global-branch-service
 
+## LLM quick context (current code)
+
+Coordinates global branches and participants across services.
+
+Agent note: legacy code-repo branch paths are not the source of truth; use /api/v1/global-branches.
+
+Current surface:
+- `/api/v1/global-branches*`
+- `/api/v1/global-branches/{id}/participants*`
+- `/api/v1/global-branches/{id}/merge|abandon`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `1` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `handler`, `models`, `repo`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Cross-application Global Branching surface (parity target tracked in
 [`docs/migration/foundry-global-branching-1to1-checklist.md`](../../docs/migration/foundry-global-branching-1to1-checklist.md)).
 
@@ -78,11 +102,15 @@ override → `OF_*` env vars.
 
 | Key | Purpose | Required |
 |---|---|---|
-| `OF_DATABASE_URL` | Postgres DSN | Yes (omitting it leaves product routes unmounted) |
+| `OF_DATABASE_URL` / `DATABASE_URL` | Postgres DSN for the product repository | Yes for normal boot |
+| `OF_ENVIRONMENT` | Runtime environment; `production`/`prod` enables fail-closed production policy | Yes in production |
+| `OF_ALLOW_UNWIRED_PRODUCT_ROUTES` | Explicit non-production smoke mode without DB-backed product routes | No (defaults to `false`) |
 | `OF_JWT__SECRET` | JWT HS256 secret | Yes |
 | `OF_SERVER__ADDR` | Listen address | No (defaults to `:8080`) |
 
-A missing `database_url` keeps the binary bootable for smoke tests
-and leaves `/healthz` + the capability catalog usable. The capability
-snapshot omits the product routes in that mode so observers can see
-the service is in a degraded state.
+The service fails closed when no DB DSN is configured. The only
+exception is explicit non-production smoke mode
+(`OF_ALLOW_UNWIRED_PRODUCT_ROUTES=true` while `OF_ENVIRONMENT` is not
+`production`/`prod`), which leaves `/healthz` and the capability
+catalog usable while omitting product routes from both the router and
+the capability snapshot.

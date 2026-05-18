@@ -1,5 +1,27 @@
 # compute-module-service
 
+## LLM quick context (current code)
+
+Registers compute modules and related metadata for reusable compute/plugin-like units.
+
+Agent note: current implementation is a compact HTTP service with config.yaml support.
+
+Current surface:
+- `/api/v1/compute-modules*`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `2` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `executionmode`, `handler`, `models`, `repo`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 CRUD and project-placement API for OpenFoundry Compute Module
 resources. Implements item `CM.1` from
 [docs/migration/foundry-compute-modules-1to1-checklist.md](../../docs/migration/foundry-compute-modules-1to1-checklist.md):

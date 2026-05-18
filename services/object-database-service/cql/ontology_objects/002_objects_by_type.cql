@@ -1,18 +1,18 @@
--- 002_objects_by_type.cql — type-tab listing (newest first)
--- Drives: handlers/objects.rs:174 list_by_type, type-tab UI,
---         domain/indexer.rs fan-out into Vespa/OpenSearch.
--- Access pattern: by (tenant, type_id), DESC by updated_at, paged.
+-- 002_objects_by_type.cql — OSV2 type listing / object-type partition fan-out
+-- Access pattern: tenant + type, fan out over primary_key_hash buckets for hot
+-- object types; newest first within each bucket.
 
 CREATE TABLE IF NOT EXISTS ontology_objects.objects_by_type (
     tenant             text,
     type_id            text,
+    primary_key_hash   tinyint,
     updated_at         timestamp,
     object_id          timeuuid,
     owner_id           uuid,
-    marking            frozen<set<text>>,
-    properties_summary text,                -- denormalised projection (UI list cells)
+    markings_blob      blob,
+    properties_summary text,                -- denormalised non-hot projection for UI list cells
     deleted            boolean,
-    PRIMARY KEY ((tenant, type_id), updated_at, object_id)
+    PRIMARY KEY ((tenant, type_id, primary_key_hash), updated_at, object_id)
 )
 WITH CLUSTERING ORDER BY (updated_at DESC, object_id ASC)
  AND compaction = {
@@ -20,4 +20,4 @@ WITH CLUSTERING ORDER BY (updated_at DESC, object_id ASC)
     'sstable_size_in_mb': 160
  }
  AND gc_grace_seconds = 86400
- AND comment = 'S1.1.b — type-tab listing. Drives objects.rs:174 list_by_type. Mitigation hook: re-PK to ((tenant,type_id,day_bucket)) if mean partition > 40 MB.';
+ AND comment = 'OSV2.1 — type-tab listing bucketed by primary-key hash to prevent hot tablets.';

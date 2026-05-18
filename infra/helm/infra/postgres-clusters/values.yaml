@@ -129,6 +129,8 @@ dsnSecrets:
       - sdk_generation
       - solution_design
       - code_repository_review
+      - global_branch
+      - knowledge_index
       - document_reporting
       - analytical_logic
       - event_streaming
@@ -152,6 +154,7 @@ dsnSecrets:
       - code_security_scanning
     pg-runtime-config:
       - agent_runtime
+      - function_runtime
       - notebook_runtime
       - managed_workspace
       - custom_endpoints
@@ -167,6 +170,7 @@ dsnSecrets:
       - automation_operations
       - workflow_trace
       - pipeline_authoring
+      - pipeline_build
       - compute_modules_control_plane
       - compute_modules_runtime
       - sql_bi_gateway

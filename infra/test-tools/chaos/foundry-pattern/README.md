@@ -13,7 +13,7 @@ Foundry-pattern substrate has no single point of failure.
 | File                                   | Target                            | Schedule (UTC) | Success criterion                                                         |
 |----------------------------------------|-----------------------------------|----------------|---------------------------------------------------------------------------|
 | `workflow-automation-kill.yaml`        | one workflow-automation-service Pod | Mon 03:00      | smoke `foundry-pattern-full-flow.json` passes within 90 s                 |
-| `automation-operations-kill.yaml`      | one automation-operations-service Pod | Tue 03:00    | in-flight cleanup_workspace saga reaches a terminal state within 120 s    |
+| `automation-operations-kill.yaml`      | one `workflow-automation-service` Pod exercising the absorbed saga path (retired `automation-operations-service`) | Tue 03:00 | in-flight cleanup_workspace saga reaches a terminal state within 120 s |
 | `debezium-connect-kill.yaml`           | one Debezium Connect worker Pod   | Wed 03:00      | `debezium_metrics_milli_seconds_behind_source` < 5 s within 60 s          |
 | `spark-operator-kill.yaml`             | Spark Operator controller Pod     | Thu 03:00      | in-flight pipeline run reaches `Succeeded` within its existing timeout    |
 

@@ -1,6 +1,6 @@
 // Command edge-gateway-service is the OpenFoundry HTTP edge gateway.
 //
-// What it does
+// # What it does
 //
 // Reverse-proxies every /api/v1, /api/v2/admin, /iceberg/v1 and
 // /v1/iceberg-clients route to the right bounded-context service via

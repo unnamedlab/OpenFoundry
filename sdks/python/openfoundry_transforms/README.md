@@ -100,8 +100,9 @@ target's capability slot does not advertise `append_only_supported`
 
 ## Build-time validation
 
-The SDK exposes the same rules `services/virtual-table-service`
-enforces server-side, so `code-repository-review-service` (or any CI
+The SDK exposes the same rules the current virtual-table owner,
+`services/connector-management-service` (via the `virtual_table_service_url`
+gateway legacy alias), enforces server-side, so `code-repository-review-service` (or any CI
 that loads the transform module) can refuse builds before they hit
 the runtime:
 
@@ -124,8 +125,8 @@ issues = validate_transform(TransformDescriptor(
 The doc § "Limitations" rule — "Transforms that use the
 `use_external_systems` decorator are currently not compatible with
 Virtual Tables" — is enforced uniformly across the Python author
-surface and the Rust validator in
-`services/virtual-table-service/src/domain/code_imports.rs`.
+surface and the Go pipeline-build validator in
+`services/pipeline-build-service/internal/handler/virtual_table_workflow_validation.go`.
 
 ## Tests
 

@@ -1,5 +1,31 @@
 # authorization-policy-service
 
+## LLM quick context (current code)
+
+Evaluates policy decisions, Cedar policy storage, purpose checkpoints, application access, API keys, and policy-administration surfaces.
+
+Agent note: this is the main AuthZ/policy backend, not the edge gateway auth middleware itself.
+
+Current surface:
+- `POST /api/v1/policy-evaluations`
+- `/api/v1/cedar-policies*`
+- `/api/v1/checkpoints-purpose*`
+- `/api/v1/application-access*`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `17` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `handlers`, `models`, `repo`, `server`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `HOST`, `JWT_SECRET`, `METRICS_ADDR`, `NATS_URL`, `OPA_URL`, `OPENFOUNDRY_JWT_SECRET`, `PORT`
+- `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 The platform's authorization decision point (per ADR-0027).
 
 ## Port status (2026-05-07)
@@ -65,9 +91,11 @@ settings during ABAC evaluation.
 | `OPENFOUNDRY_JWT_SECRET` / `JWT_SECRET`  | yes      | —              |
 | `NATS_URL`                               | no       | unset (no publish) |
 | `HOST`                                   | no       | `0.0.0.0`      |
-| `PORT`                                   | no       | `50115`        |
+| `PORT`                                   | no       | `50093`        |
 | `METRICS_ADDR`                           | no       | `0.0.0.0:9090` |
 | `SERVICE_VERSION`                        | no       | `dev`          |
+
+Default tomado de `internal/config/config.go`.
 
 When `NATS_URL` is set, every successful CRUD write publishes to
 `authz.policy.changed` (the subject `libs/authz-cedar-go`'s

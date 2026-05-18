@@ -587,47 +587,65 @@ OpenFoundry canonical IDs.
 
 ### Observability, governance, and security
 
-- [ ] `AIPLE.45` Logic operational health (`P2`, `todo`)
+- [x] `AIPLE.45` Logic operational health (`P2`, `done`)
   - Monitor failure rate, P95 duration, token/compute usage, tool failures, action failures, object query failures, model unavailability, run-history dataset failures, and automation proposal backlog.
   - Surface health in Logic detail, Workflow Lineage-like views, Data Health, and project dashboards.
+  - Added `LogicOperationalHealthMetric`, `LogicOperationalHealthSurface`, and `LogicOperationalHealthSummary` plus an enhanced `calculateLogicMetrics` helper that derives failure rate, P95 duration, prompt-token and compute totals, tool/action/object-query/model/dataset failure counters, and staged automation backlog health.
+  - Wired the Logic Metrics rail to show an operational-health status, health-check grid, near-real-time-style metric surfaces for Logic detail, Workflow Lineage, Data Health, and project dashboards, plus retained failure category and recent-run drilldowns.
+  - Tests cover operational-health metric ids/surfaces, failure-rate math, compute/token accumulation, category-specific failure counters, and critical-status escalation.
   - Docs: [AIP Logic metrics](https://www.palantir.com/docs/foundry/logic/logic-metrics/), [AIP Logic compute usage](https://www.palantir.com/docs/foundry/logic/compute-usage).
 
-- [ ] `AIPLE.46` AIP security and data minimization guardrails (`P2`, `todo`)
+- [x] `AIPLE.46` AIP security and data minimization guardrails (`P2`, `done`)
   - Show all resources, object types, properties, functions, actions, and media references that a Logic file exposes to LLM blocks.
   - Warn when prompts/tools expose broad object sets or sensitive properties.
   - Add policy hooks for redaction, prompt review, model allowlists, and export/logging restrictions where local governance exists.
+  - Extended `LogicFileSecurityPolicy` with local governance hooks and sensitive-property/broad-object thresholds; `buildLogicSecurityBoundary` now returns an LLM exposure inventory, minimization warnings, and hook states for redaction, prompt review, model allowlists, and export/logging restrictions.
+  - Wired the Logic Security rail to summarize prompt/object/action/function/media exposure, show sensitive/broad-access warnings, and display enabled/missing local governance hooks alongside the existing permission/resource-boundary checks.
+  - Tests cover inventory and hook reporting as well as broad object-set and sensitive-property warnings.
   - Docs: [AIP Logic overview](https://www.palantir.com/docs/foundry/logic), [AIP features](https://www.palantir.com/docs/foundry/aip/aip-features/).
 
-- [ ] `AIPLE.47` Audit event stream (`P2`, `todo`)
+- [x] `AIPLE.47` Audit event stream (`P2`, `done`)
   - Emit immutable audit events for Logic creation/edit/publish/delete, tool/resource exposure, execution mode changes, run invocations, action/automation uses, Evals suite changes, evaluator changes, run results, experiments, and result dataset writes.
   - Filter audit by Logic file, suite, target, user, project, model, object type, action type, run, and time window.
+  - Added `AipAuditEvent`, hash-chained immutable append helpers, run-derived audit event emission, and multi-dimensional filtering in `apps/web/src/lib/evals/operations.ts`.
+  - Tests cover immutable/frozen audit records, hash chaining, run/dataset-write event emission, and filtering by suite, target, user, project, model, object/action type, run, and time window.
   - Docs: [AIP Logic execution mode settings](https://www.palantir.com/docs/foundry/logic/execution-mode-settings/), [AIP Evals overview](https://www.palantir.com/docs/foundry/aip-evals/overview/).
 
-- [ ] `AIPLE.48` Branch-aware Evals and result isolation (`P2`, `todo`)
+- [x] `AIPLE.48` Branch-aware Evals and result isolation (`P2`, `done`)
   - Run evaluation suites against branched Logic resources and branch-scoped Ontology/function/action dependencies.
   - Keep branch result datasets and run histories isolated from main unless explicitly published or exported.
   - Compare branch runs to main baselines before merge.
+  - Added `planBranchAwareEvaluationRun`, `runBranchAwareEvaluationSuite`, and `compareBranchEvaluationToMain` helpers that bind branch metadata, branch target versions, dependency scope, isolated branch result datasets, and isolated Logic run-history datasets.
+  - Tests cover branch-scoped planning and baseline comparison before merge.
   - Docs: [Branching AIP Logic](https://www.palantir.com/docs/foundry/logic/branching-logic), [Run an evaluation suite](https://www.palantir.com/docs/foundry/aip-evals/run-suite/).
 
-- [ ] `AIPLE.49` AIP Evals API and SDK surface (`P2`, `todo`)
+- [x] `AIPLE.49` AIP Evals API and SDK surface (`P2`, `done`)
   - Provide OpenFoundry-native APIs for suite CRUD, target functions, test cases, evaluators, run configuration, run execution, result retrieval, result dataset config, experiments, and analyzer jobs.
   - Generate SDK helpers for creating suites, running regression checks, and comparing metrics in CI-like workflows.
+  - Added API-client request/response types and endpoints for run execution, run retrieval, result retrieval, result dataset configuration, experiments, experiment runs, and analyzer jobs; added `AIP_EVALS_API_SURFACE`, SDK suite request creation, regression checks, and metric comparison helpers.
+  - Tests cover the API surface manifest, SDK-created suite request defaults, regression execution, and baseline comparison.
   - Docs: [AIP Evals overview](https://www.palantir.com/docs/foundry/aip-evals/overview/), [Create an evaluation suite](https://www.palantir.com/docs/foundry/aip-evals/create-suite), [Run an evaluation suite](https://www.palantir.com/docs/foundry/aip-evals/run-suite/).
 
-- [ ] `AIPLE.50` Marketplace and reusable evaluator packages (`P2`, `todo`)
+- [x] `AIPLE.50` Marketplace and reusable evaluator packages (`P2`, `done`)
   - Package evaluator functions, test case templates, Logic files, and example suites as OpenFoundry product outputs where DevOps/Marketplace exists.
   - Support installation/remapping of evaluator dependencies and target function placeholders.
+  - Added reusable evaluator package creation and install/remapping helpers that bundle Marketplace evaluator functions, templates, Logic file placeholders, example suites, dependency placeholders, setup steps, and installed evaluator definitions.
+  - Tests cover package construction, evaluator installation, setup steps, and target placeholder remapping.
   - Docs: [Create an evaluation suite](https://www.palantir.com/docs/foundry/aip-evals/create-suite), [AIP features](https://www.palantir.com/docs/foundry/aip/aip-features/).
 
-- [ ] `AIPLE.51` CI/CD and code-authored function parity (`P2`, `todo`)
+- [x] `AIPLE.51` CI/CD and code-authored function parity (`P2`, `done`)
   - Trigger AIP Evals for code-authored functions from code repository published function pages or CI-like checks.
   - Compare code-authored function versions against Logic and agent-like targets in the same suite.
   - Store results as release evidence before publishing function packages.
+  - Added `runCodeFunctionReleaseEvalCheck`, which runs mixed-target suites from a code-function publish surface, compares code-authored functions with Logic/agent-like targets, and emits release evidence with pass-rate gating before package publication.
+  - Tests cover mixed-target code-function release evidence and publish-blocking behavior.
   - Docs: [Create an evaluation suite](https://www.palantir.com/docs/foundry/aip-evals/create-suite), [Run an evaluation suite](https://www.palantir.com/docs/foundry/aip-evals/run-suite/).
 
-- [ ] `AIPLE.52` Cost-aware experiment and eval planning (`P2`, `todo`)
+- [x] `AIPLE.52` Cost-aware experiment and eval planning (`P2`, `done`)
   - Estimate run count, block executions, target invocations, evaluator invocations, LLM/tool usage, and expected cost before running suites or experiments.
   - Enforce per-project or per-user budgets and require confirmation for high-cost experiment grids.
+  - Added `planEvaluationCost`, `planExperimentCost`, `runBudgetedEvaluationSuite`, and `runBudgetedExperiment` helpers that calculate target/evaluator/block/tool counts, compute seconds, estimated cost, budget warnings, and confirmation requirements before execution.
+  - Tests cover suite and experiment cost estimates, budget overruns, and confirmation blocking.
   - Docs: [AIP Logic compute usage](https://www.palantir.com/docs/foundry/logic/compute-usage), [Run experiments](https://www.palantir.com/docs/foundry/aip-evals/experiments/).
 
 ## Milestone D: AIP Console and AIP Now distribution

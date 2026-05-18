@@ -17,6 +17,7 @@ import {
   exportSubjectData,
   generateReport,
   getAuditDeliveryFileContent,
+  getAuditMonitoringStarterPack,
   getCompliancePosture,
   getOverview,
   listAuditDeliveryDestinations,
@@ -36,6 +37,7 @@ import {
   type AuditDeliveryDestination,
   type AuditDeliveryFile,
   type AuditEvent,
+  type AuditMonitoringStarterPack,
   type AuditOverview,
   type AuditPolicy,
   type ClassificationCatalogEntry,
@@ -210,6 +212,7 @@ export function AuditPage() {
   const [governanceTemplates, setGovernanceTemplates] = useState<GovernanceTemplate[]>([]);
   const [governanceApplications, setGovernanceApplications] = useState<GovernanceTemplateApplication[]>([]);
   const [compliancePosture, setCompliancePosture] = useState<CompliancePostureOverview | null>(null);
+  const [monitoringPack, setMonitoringPack] = useState<AuditMonitoringStarterPack | null>(null);
   const [deliveryDestinations, setDeliveryDestinations] = useState<AuditDeliveryDestination[]>([]);
   const [deliveryFiles, setDeliveryFiles] = useState<AuditDeliveryFile[]>([]);
   const [deliveryContentPreview, setDeliveryContentPreview] = useState('');
@@ -248,6 +251,7 @@ export function AuditPage() {
         governanceTemplateResponse,
         governanceApplicationResponse,
         compliancePostureResponse,
+        monitoringPackResponse,
         deliveryDestinationsResponse,
         deliveryFilesResponse,
       ] = await Promise.all([
@@ -261,6 +265,7 @@ export function AuditPage() {
         listGovernanceTemplates(),
         listGovernanceApplications(),
         getCompliancePosture(),
+        getAuditMonitoringStarterPack(),
         listAuditDeliveryDestinations(),
         listAuditDeliveryFiles({ schema_version: 'audit.3' }),
       ]);
@@ -275,6 +280,7 @@ export function AuditPage() {
       setGovernanceTemplates(governanceTemplateResponse);
       setGovernanceApplications(governanceApplicationResponse.items);
       setCompliancePosture(compliancePostureResponse);
+      setMonitoringPack(monitoringPackResponse);
       setDeliveryDestinations(deliveryDestinationsResponse.items);
       setDeliveryFiles(deliveryFilesResponse.items);
 
@@ -637,6 +643,40 @@ export function AuditPage() {
         onApplyTemplate={(slug) => void applyGovernanceTemplateAction(slug)}
         onScan={() => void runSensitiveDataScanAction()}
       />
+
+
+      {monitoringPack && (
+        <section className="of-panel" style={{ padding: 16, display: 'grid', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <p className="of-eyebrow" style={{ margin: 0 }}>SG.40 audit monitoring</p>
+              <h2 style={{ margin: '4px 0' }}>Starter queries, dashboards, and monitors</h2>
+              <p className="of-text-muted" style={{ margin: 0, fontSize: 12 }}>Restricted to {monitoringPack.restricted_to.join(', ')} · tier {monitoringPack.access_tier} · SIEM {monitoringPack.external_siem_supported ? 'ready' : 'not configured'} · Foundry dataset export {monitoringPack.foundry_dataset_supported ? 'ready' : 'not configured'}</p>
+            </div>
+            <span className="of-chip">{monitoringPack.queries.length} queries · {monitoringPack.monitors.length} monitors</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+            {monitoringPack.monitors.map((monitor) => (
+              <div key={monitor.id} className="of-panel-muted" style={{ padding: 12 }}>
+                <p style={{ margin: 0, fontWeight: 700 }}>{monitor.title}</p>
+                <p className="of-text-muted" style={{ margin: '4px 0', fontSize: 12 }}>{monitor.categories.join(', ')} · every {monitor.schedule}</p>
+                <p style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>{monitor.current_count}</p>
+                <p className="of-text-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>{monitor.recommended_action}</p>
+              </div>
+            ))}
+          </div>
+          <details>
+            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Show starter category queries</summary>
+            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+              {monitoringPack.queries.map((query) => (
+                <pre key={query.id} style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12, background: 'var(--surface-muted)', padding: 10, borderRadius: 8 }}>
+                  {query.title}: {query.query}
+                </pre>
+              ))}
+            </div>
+          </details>
+        </section>
+      )}
 
       <AuditDeliveryPanel
         destinations={deliveryDestinations}

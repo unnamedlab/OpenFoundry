@@ -21,8 +21,8 @@ Per-task replacements (FASE 3 – 7 of the migration plan):
 | `pipeline-worker` | `services/pipeline-build-service` (SparkApplication CR submitter) + `schedules-tick` CronJob | Tarea 3.6 |
 | `reindex/` | `services/reindex-coordinator-service` (Kafka-driven, Postgres-resumable) | Tarea 4.3 |
 | `workflow-automation-worker` | `services/workflow-automation-service` (condition consumer + outbox) | Tarea 5.4 |
-| `automation-ops-worker` | `services/automation-operations-service` (saga consumer + `libs/saga::SagaRunner`) | Tarea 6.5 |
-| `approvals-worker` | `services/approvals-service` (`audit_compliance.approval_requests` state machine) + `approvals-timeout-sweep` CronJob | Tarea 7.5 |
+| `automation-ops-worker` | `services/workflow-automation-service/internal/automationoperations` (saga consumer + `libs/saga.Runner`; retired `automation-operations-service` binary) | Tarea 6.5 |
+| `approvals-worker` | `services/workflow-automation-service/internal/approvals` (`workflow_automation.approval_requests` state machine; retired `approvals-service` binary) + `approvals-timeout-sweep` CronJob | Tarea 7.5 |
 
 The Cassandra `temporal_persistence` and `temporal_visibility`
 keyspaces remain after the retirement until an operator runs the
@@ -168,8 +168,8 @@ service READMEs:
 * `services/pipeline-build-service/`
 * `services/reindex-coordinator-service/`
 * `services/workflow-automation-service/`
-* `services/automation-operations-service/`
-* `services/approvals-service/` (plus the
+* historical `services/automation-operations-service/` path; current owner is `services/workflow-automation-service/internal/automationoperations/`
+* historical `services/approvals-service/` path; current owner is `services/workflow-automation-service/internal/approvals/` (plus the
   `infra/helm/apps/of-platform/templates/approvals-timeout-sweep-cronjob.yaml`
   CronJob).
 

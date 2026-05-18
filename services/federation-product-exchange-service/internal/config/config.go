@@ -30,12 +30,12 @@ type Config struct {
 	// (empty → in-memory storage, which is suitable for tests but not
 	// for prod). The four service URLs are the base URLs of the
 	// owner services called by Publish/Install.
-	MarketplaceSignKey         string
-	MarketplaceBundleRoot      string
-	OntologyDefinitionURL      string
-	OntologyActionsURL         string
-	PipelineBuildURL           string
-	ApplicationCompositionURL  string
+	MarketplaceSignKey        string
+	MarketplaceBundleRoot     string
+	OntologyDefinitionURL     string
+	OntologyActionsURL        string
+	PipelineBuildURL          string
+	ApplicationCompositionURL string
 }
 
 func FromEnv() (*Config, error) {
@@ -43,11 +43,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "federation-product-exchange-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	// Rust default port is 50120 but Go ingestion-replication-service
-	// already claims that allocation; the Go port uses 50126 (next
-	// free in the openfoundry-go allocation table). Override via PORT
-	// when running side-by-side with the Rust binary.
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50126)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50120)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	cfg.MarketplaceDatabaseURL = os.Getenv("MARKETPLACE_DATABASE_URL")
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")

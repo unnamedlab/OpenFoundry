@@ -439,7 +439,11 @@ func (h *KnowledgeHandlers) SearchKnowledgeBase(w http.ResponseWriter, r *http.R
 	}
 
 	var results []models.KnowledgeSearchResult
+	searchProvider := "persistent-documents"
+	searchMode := "deterministic-rag"
 	if h.VectorStore != nil {
+		searchProvider = "vector-store"
+		searchMode = "vector"
 		results, err = h.VectorStore.Search(r.Context(), kbID, queryEmbedding, body.TopK, body.MinScore)
 	} else {
 		var docs []models.KnowledgeDocument
@@ -461,6 +465,8 @@ func (h *KnowledgeHandlers) SearchKnowledgeBase(w http.ResponseWriter, r *http.R
 		Query:           body.Query,
 		Results:         results,
 		RetrievedAt:     time.Now().UTC(),
+		SearchProvider:  searchProvider,
+		SearchMode:      searchMode,
 	})
 }
 

@@ -14,36 +14,39 @@ import (
 )
 
 type ControlPanel struct {
-	mu               sync.RWMutex
-	settings         ControlPanelSettings
+	mu                sync.RWMutex
+	settings          ControlPanelSettings
 	streamingProfiles []StreamingProfile
 }
 
 type ControlPanelSettings struct {
-	PlatformName               string                  `json:"platform_name"`
-	SupportEmail               string                  `json:"support_email"`
-	DocsURL                    string                  `json:"docs_url"`
-	StatusPageURL              string                  `json:"status_page_url"`
-	AnnouncementBanner         string                  `json:"announcement_banner"`
-	MaintenanceMode            bool                    `json:"maintenance_mode"`
-	ReleaseChannel             string                  `json:"release_channel"`
-	DefaultRegion              string                  `json:"default_region"`
-	DeploymentMode             string                  `json:"deployment_mode"`
-	AllowSelfSignup            bool                    `json:"allow_self_signup"`
-	SupportedLocales           []string                `json:"supported_locales"`
-	DefaultLocale              string                  `json:"default_locale"`
-	AllowedEmailDomains        []string                `json:"allowed_email_domains"`
-	DefaultAppBranding         json.RawMessage         `json:"default_app_branding"`
-	RestrictedOperations       []string                `json:"restricted_operations"`
-	IdentityProviderMappings   json.RawMessage         `json:"identity_provider_mappings"`
-	ResourceManagementPolicies json.RawMessage         `json:"resource_management_policies"`
-	UpgradeAssistant           json.RawMessage         `json:"upgrade_assistant"`
-	ScopedSessions             ScopedSessionConfig     `json:"scoped_sessions"`
-	ApplicationAccess          ApplicationAccessConfig `json:"application_access"`
-	MemberDiscovery            MemberDiscoveryConfig   `json:"member_discovery"`
-	FileAccessPresets          FileAccessPresetConfig  `json:"file_access_presets"`
-	UpdatedBy                  *string                 `json:"updated_by"`
-	UpdatedAt                  time.Time               `json:"updated_at"`
+	PlatformName               string                       `json:"platform_name"`
+	SupportEmail               string                       `json:"support_email"`
+	DocsURL                    string                       `json:"docs_url"`
+	StatusPageURL              string                       `json:"status_page_url"`
+	AnnouncementBanner         string                       `json:"announcement_banner"`
+	MaintenanceMode            bool                         `json:"maintenance_mode"`
+	ReleaseChannel             string                       `json:"release_channel"`
+	DefaultRegion              string                       `json:"default_region"`
+	DeploymentMode             string                       `json:"deployment_mode"`
+	AllowSelfSignup            bool                         `json:"allow_self_signup"`
+	SupportedLocales           []string                     `json:"supported_locales"`
+	DefaultLocale              string                       `json:"default_locale"`
+	AllowedEmailDomains        []string                     `json:"allowed_email_domains"`
+	DefaultAppBranding         json.RawMessage              `json:"default_app_branding"`
+	RestrictedOperations       []string                     `json:"restricted_operations"`
+	IdentityProviderMappings   json.RawMessage              `json:"identity_provider_mappings"`
+	ResourceManagementPolicies json.RawMessage              `json:"resource_management_policies"`
+	UpgradeAssistant           json.RawMessage              `json:"upgrade_assistant"`
+	ScopedSessions             ScopedSessionConfig          `json:"scoped_sessions"`
+	ApplicationAccess          ApplicationAccessConfig      `json:"application_access"`
+	MemberDiscovery            MemberDiscoveryConfig        `json:"member_discovery"`
+	FileAccessPresets          FileAccessPresetConfig       `json:"file_access_presets"`
+	CrossOrganization          CrossOrganizationConfig      `json:"cross_organization"`
+	ConsumerModeGovernance     ConsumerModeGovernanceConfig `json:"consumer_mode_governance"`
+	IdentityCache              IdentityCacheConfig          `json:"identity_cache"`
+	UpdatedBy                  *string                      `json:"updated_by"`
+	UpdatedAt                  time.Time                    `json:"updated_at"`
 }
 
 type ScopedSessionConfig struct {
@@ -262,28 +265,31 @@ type MemberDiscoveryHistoryEvent struct {
 }
 
 type UpdateControlPanelRequest struct {
-	PlatformName               *string                  `json:"platform_name"`
-	SupportEmail               *string                  `json:"support_email"`
-	DocsURL                    *string                  `json:"docs_url"`
-	StatusPageURL              *string                  `json:"status_page_url"`
-	AnnouncementBanner         *string                  `json:"announcement_banner"`
-	MaintenanceMode            *bool                    `json:"maintenance_mode"`
-	ReleaseChannel             *string                  `json:"release_channel"`
-	DefaultRegion              *string                  `json:"default_region"`
-	DeploymentMode             *string                  `json:"deployment_mode"`
-	AllowSelfSignup            *bool                    `json:"allow_self_signup"`
-	SupportedLocales           *[]string                `json:"supported_locales"`
-	DefaultLocale              *string                  `json:"default_locale"`
-	AllowedEmailDomains        *[]string                `json:"allowed_email_domains"`
-	DefaultAppBranding         *json.RawMessage         `json:"default_app_branding"`
-	RestrictedOperations       *[]string                `json:"restricted_operations"`
-	IdentityProviderMappings   *json.RawMessage         `json:"identity_provider_mappings"`
-	ResourceManagementPolicies *json.RawMessage         `json:"resource_management_policies"`
-	UpgradeAssistant           *json.RawMessage         `json:"upgrade_assistant"`
-	ScopedSessions             *ScopedSessionConfig     `json:"scoped_sessions"`
-	ApplicationAccess          *ApplicationAccessConfig `json:"application_access"`
-	MemberDiscovery            *MemberDiscoveryConfig   `json:"member_discovery"`
-	FileAccessPresets          *FileAccessPresetConfig  `json:"file_access_presets"`
+	PlatformName               *string                       `json:"platform_name"`
+	SupportEmail               *string                       `json:"support_email"`
+	DocsURL                    *string                       `json:"docs_url"`
+	StatusPageURL              *string                       `json:"status_page_url"`
+	AnnouncementBanner         *string                       `json:"announcement_banner"`
+	MaintenanceMode            *bool                         `json:"maintenance_mode"`
+	ReleaseChannel             *string                       `json:"release_channel"`
+	DefaultRegion              *string                       `json:"default_region"`
+	DeploymentMode             *string                       `json:"deployment_mode"`
+	AllowSelfSignup            *bool                         `json:"allow_self_signup"`
+	SupportedLocales           *[]string                     `json:"supported_locales"`
+	DefaultLocale              *string                       `json:"default_locale"`
+	AllowedEmailDomains        *[]string                     `json:"allowed_email_domains"`
+	DefaultAppBranding         *json.RawMessage              `json:"default_app_branding"`
+	RestrictedOperations       *[]string                     `json:"restricted_operations"`
+	IdentityProviderMappings   *json.RawMessage              `json:"identity_provider_mappings"`
+	ResourceManagementPolicies *json.RawMessage              `json:"resource_management_policies"`
+	UpgradeAssistant           *json.RawMessage              `json:"upgrade_assistant"`
+	ScopedSessions             *ScopedSessionConfig          `json:"scoped_sessions"`
+	ApplicationAccess          *ApplicationAccessConfig      `json:"application_access"`
+	MemberDiscovery            *MemberDiscoveryConfig        `json:"member_discovery"`
+	FileAccessPresets          *FileAccessPresetConfig       `json:"file_access_presets"`
+	CrossOrganization          *CrossOrganizationConfig      `json:"cross_organization"`
+	ConsumerModeGovernance     *ConsumerModeGovernanceConfig `json:"consumer_mode_governance"`
+	IdentityCache              *IdentityCacheConfig          `json:"identity_cache"`
 }
 
 type UpgradeReadinessResponse struct {
@@ -358,6 +364,9 @@ func NewControlPanel() *ControlPanel {
 		ApplicationAccess:          defaultApplicationAccessConfig(),
 		MemberDiscovery:            defaultMemberDiscoveryConfig(),
 		FileAccessPresets:          defaultFileAccessPresetConfig(),
+		CrossOrganization:          defaultCrossOrganizationConfig(),
+		ConsumerModeGovernance:     defaultConsumerModeGovernanceConfig(),
+		IdentityCache:              defaultIdentityCacheConfig(),
 		UpdatedAt:                  now,
 	}}
 }
@@ -618,6 +627,27 @@ func applyControlPanelUpdate(settings *ControlPanelSettings, body *UpdateControl
 		if err := applyFileAccessPresetUpdate(settings, *body.FileAccessPresets, claims); err != nil {
 			return err
 		}
+	}
+	if body.CrossOrganization != nil {
+		cfg, err := normalizeCrossOrganizationConfig(*body.CrossOrganization)
+		if err != nil {
+			return err
+		}
+		settings.CrossOrganization = cfg
+	}
+	if body.ConsumerModeGovernance != nil {
+		cfg, err := normalizeConsumerModeGovernanceConfig(*body.ConsumerModeGovernance)
+		if err != nil {
+			return err
+		}
+		settings.ConsumerModeGovernance = cfg
+	}
+	if body.IdentityCache != nil {
+		cfg, err := normalizeIdentityCacheConfig(*body.IdentityCache, settings.IdentityCache)
+		if err != nil {
+			return err
+		}
+		settings.IdentityCache = cfg
 	}
 	return nil
 }

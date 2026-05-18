@@ -21,23 +21,25 @@
 >   `automate.outcome.v1` via the transactional outbox + Debezium.
 > * `automation-ops-worker` (task queue
 >   `openfoundry.automation-ops`) — Tarea 6.5. Saga-driven
->   operations are driven by `automation-operations-service`
->   itself: it consumes `saga.step.requested.v1` from Kafka, runs
+>   operations are driven by `workflow-automation-service`
+>   (`internal/automationoperations`; retired `automation-operations-service`
+>   no longer exists as a binary): it consumes `saga.step.requested.v1` from Kafka, runs
 >   the matching step graph through `libs/saga::SagaRunner`, and
 >   publishes `saga.step.*.v1` lifecycle events via the
 >   transactional outbox. Compensations execute LIFO inside the
 >   runner; the chaos test at
->   `services/automation-operations-service/tests/saga_chaos.rs`
+>   `services/workflow-automation-service/internal/automationoperations`
 >   validates the contract.
 > * `approvals-worker` (task queue `openfoundry.approvals`) — Tarea
->   7.5. Approval lifecycle is driven by `approvals-service`
->   itself: HTTP handlers persist the
+>   7.5. Approval lifecycle is driven by `workflow-automation-service`
+>   (`internal/approvals`; retired `approvals-service` no longer exists as a
+>   binary): HTTP handlers persist the
 >   `audit_compliance.approval_requests` row + the matching
 >   `approval.*.v1` outbox event in one transaction (state machine
 >   via `libs/state-machine::PgStore<ApprovalRequest>`). Timeouts
 >   are owned by the companion `approvals-timeout-sweep` CronJob —
 >   see `templates/approvals-timeout-sweep-cronjob.yaml` and
->   `services/approvals-service/src/bin/approvals_timeout_sweep.rs`.
+>   `services/workflow-automation-service/cmd/approvals-timeout-sweep`.
 >   Audit emission is a synchronous HTTP POST inside the decide
 >   handler; FASE 9 collapses it into a Kafka consumer of
 >   `approval.completed.v1`.

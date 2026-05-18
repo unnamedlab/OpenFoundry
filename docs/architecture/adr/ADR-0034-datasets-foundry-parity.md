@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted |
+| Status | Historical design record; current Go inventory consolidates the retired `dataset-quality-service` surface into `dataset-versioning-service` |
 | Date | 2026-05-03 |
 | Stream | D1.1.1 — Datasets surface |
 | Related | [ADR-0033](ADR-0033-branching-foundry-parity.md), [ADR-0007](ADR-0007-search-engine-choice.md), [ADR-0023](ADR-0023-iceberg-cross-region-dr.md) |
@@ -19,8 +19,9 @@ Foundry-grade surface:
 
 1. **Per-dataset observability.** A QualityDashboard that surfaces
    freshness, last build, schema drift, row/col counts, txn-failure
-   rate, and policy hooks — backed by a `dataset-quality-service`
-   that finally has a real Axum binary, not `fn main(){}`.
+   rate, and policy hooks. Historical drafts called this backing surface
+   `dataset-quality-service`; in the current Go inventory that binary does
+   not exist and the surface is owned by `dataset-versioning-service`.
 2. **API conformance with the Application reference.** Cursor
    pagination on every list endpoint, ETag/304 on resource GETs,
    207 Multi-Status batch reads, and a unified
@@ -34,14 +35,13 @@ Foundry-grade surface:
 Land four parallel changes that together raise the Datasets surface
 to **5/5 parity** with Foundry.
 
-### 1. dataset-quality-service binary
+### 1. Historical dataset-quality surface (now `dataset-versioning-service`)
 
-Wire the existing column-profile/lint handlers into a real Axum
-router and add the Foundry **Data Health** surface on top:
+The historical design proposed wiring column-profile/lint handlers into a separate service. The current repository has no `services/dataset-quality-service` binary; `dataset_quality_service_url` is a gateway legacy alias for `dataset-versioning-service` (see `docs/architecture/services-and-ports.md`). The Foundry **Data Health** surface is therefore described as a dataset-versioning surface:
 
 ```mermaid
 flowchart LR
-  subgraph "dataset-quality-service"
+  subgraph "dataset-versioning-service health-check surface"
     BIN[main.rs<br/>Axum + Postgres] --> ROUTER[build_router]
     ROUTER --> Q[/api/v1/datasets/:id/quality*<br/>quality + lint]
     ROUTER --> H[/v1/datasets/:rid/health<br/>compute_health]
@@ -97,8 +97,8 @@ so the UI never blanks out.
 
 * `services/dataset-versioning-service/tests/api_conformance_*.rs` —
   pagination, etag, 207 batch (Docker-gated).
-* `services/dataset-quality-service/tests/health_freshness_sla.rs`
-  + `schema_drift_detected.rs` — end-to-end against testcontainers.
+* historical `services/dataset-quality-service/tests/health_freshness_sla.rs`
+  + `schema_drift_detected.rs` references are retained as design context; current tests should live with `dataset-versioning-service`.
 * `apps/web/tests/e2e/dataset-quality-dashboard.spec.ts` +
   `dataset-full-journey-5x5.spec.ts` — Playwright walks every tab.
 * This ADR + a parity matrix in the DVS README + a checklist tick.
@@ -110,9 +110,7 @@ so the UI never blanks out.
   (Ontology, ML, Apps) inherits the conformance helpers as a
   template, so they'll arrive at parity faster and with the same
   shape on the wire.
-* `dataset-quality-service` becomes a real service. It gains a Helm
-  rollout, a Prometheus scrape target, and a place in the
-  `of-data-engine` chart ([ADR-0031](ADR-0031-helm-chart-split-five-releases.md)).
+* The separate `dataset-quality-service` rollout described in the original ADR is superseded. Current deployments must treat it as a retired name and route the quality/health surface through `dataset-versioning-service`.
 * Cursor pagination is introduced as in-memory slicing first; SQL
   `LIMIT/OFFSET` push-down is a follow-up (see TODO in
   `handlers/foundry.rs::slice_into_page`). Acceptable because every

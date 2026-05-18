@@ -37,7 +37,7 @@ alert thresholds and makes regression detection unreliable.
 We adopt the following SLOs, SLIs, error budgets and dashboard inventory for
 the data plane. They apply to all production deployments packaged from
 `infra/helm/**`. Local Compose stacks
-(`infra/compose/docker-compose.yml`, `infra/docker-compose.dev.yml`) are
+(`infra/compose/docker-compose.yml`, `infra/compose/docker-compose.dev.yml`) are
 **explicitly out of scope** — they are sized for DX, not for SLO compliance.
 
 ### 1. Latency SLOs per data-plane layer

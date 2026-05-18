@@ -1,5 +1,31 @@
 # tenancy-organizations-service
 
+## LLM quick context (current code)
+
+Owns organizations, enrollments, projects, folders, workspace resources, Compass search, sharing, trash, favorites, recents, access requests, and project access groups.
+
+Agent note: central workspace/Compass tenancy service; many routes are permission filtered.
+
+Current surface:
+- `/api/v1/organizations*`
+- `/api/v1/enrollments*`
+- `/api/v1/projects*`
+- `/api/v1/workspace/resources|favorites|recents|trash*`
+- `GET /api/v1/compass/search`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `24` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `config`, `domain`, `handlers`, `models`, `repo`, `server`, `workspace`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `HOST`, `JWT_SECRET`, `METRICS_ADDR`, `OPENFOUNDRY_JWT_SECRET`, `PORT`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Owns organizations, workspace enrollments, Compass project/folder resources,
 sharing, trash, favorites, recents, reverse references, and the resource-resolve /
 resource-ops helpers.

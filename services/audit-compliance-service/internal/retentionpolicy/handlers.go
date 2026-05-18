@@ -3,6 +3,7 @@
 package retentionpolicy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -180,6 +181,98 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 // RunJobHandler ports `handlers::retention::run_job`.
+func (h *Handlers) RunExecutionHandler(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
+	claims, _ := authmw.FromContext(r.Context())
+	var body models.RunRetentionExecutionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	body.DatasetRid = strings.TrimSpace(body.DatasetRid)
+	if body.DatasetRid == "" {
+		writeJSONErr(w, http.StatusBadRequest, "dataset_rid is required")
+		return
+	}
+	run, err := RunExecution(r.Context(), h.Pool, &body, scope, claims)
+	if err != nil {
+		slog.Error("retention execution", slog.String("summary", func() string {
+			if run != nil {
+				return executionSummary(run)
+			}
+			return ""
+		}()), slog.String("error", err.Error()))
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
+}
+
+func (h *Handlers) ListExecutions(w http.ResponseWriter, r *http.Request) {
+	scope, ok := resolveOrgScope(w, r)
+	if !ok {
+		return
+	}
+	sql := `SELECT id, org_id, dataset_rid, status, dry_run, marked_transaction_count, swept_transaction_count, delete_transaction_count, recovery_window_days, remediation_deadline, irreversible_after, warnings, created_by, created_at, completed_at FROM retention_execution_runs`
+	args := []any{}
+	if !scope.AllOrgs {
+		args = append(args, scope.OrgID)
+		sql += " WHERE org_id = $1 OR org_id IS NULL"
+	}
+	sql += " ORDER BY created_at DESC LIMIT 100"
+	rows, err := h.Pool.Query(r.Context(), sql, args...)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []models.RetentionExecutionRun{}
+	for rows.Next() {
+		var run models.RetentionExecutionRun
+		var warnings json.RawMessage
+		if err := rows.Scan(&run.ID, &run.OrgID, &run.DatasetRid, &run.Status, &run.DryRun, &run.MarkedTransactionCount, &run.SweptTransactionCount, &run.DeleteTransactionCount, &run.RecoveryWindowDays, &run.RemediationDeadline, &run.IrreversibleAfter, &warnings, &run.CreatedBy, &run.CreatedAt, &run.CompletedAt); err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		_ = json.Unmarshal(warnings, &run.Warnings)
+		run.Items = []models.RetentionExecutionItem{}
+		out = append(out, run)
+	}
+	if err := rows.Err(); err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for idx := range out {
+		items, err := loadExecutionItems(r.Context(), h.Pool, out[idx].ID)
+		if err != nil {
+			writeJSONErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out[idx].Items = items
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func loadExecutionItems(ctx context.Context, db *pgxpool.Pool, runID uuid.UUID) ([]models.RetentionExecutionItem, error) {
+	rows, err := db.Query(ctx, `SELECT id, run_id, policy_id, transaction_id, action, reason, marked_at, recoverable_until, swept_at, requires_delete_transaction FROM retention_execution_items WHERE run_id = $1 ORDER BY marked_at NULLS LAST`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []models.RetentionExecutionItem{}
+	for rows.Next() {
+		var item models.RetentionExecutionItem
+		if err := rows.Scan(&item.ID, &item.RunID, &item.PolicyID, &item.TransactionID, &item.Action, &item.Reason, &item.MarkedAt, &item.RecoverableUntil, &item.SweptAt, &item.RequiresDeleteTransaction); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (h *Handlers) RunJobHandler(w http.ResponseWriter, r *http.Request) {
 	scope, ok := resolveOrgScope(w, r)
 	if !ok {

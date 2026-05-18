@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -35,7 +36,16 @@ type Config struct {
 		LogFormat    string `koanf:"log_format"`
 	} `koanf:"telemetry"`
 
-	Milestone string `koanf:"milestone"`
+	Database struct {
+		URL string `koanf:"url"`
+	} `koanf:"database"`
+
+	Report struct {
+		AllowMemoryStore bool `koanf:"allow_memory_store"`
+	} `koanf:"report"`
+
+	Environment string `koanf:"environment"`
+	Milestone   string `koanf:"milestone"`
 }
 
 func Load(defaultsPath, envPath string) (*Config, error) {
@@ -59,6 +69,15 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	var cfg Config
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if cfg.Database.URL == "" {
+		cfg.Database.URL = os.Getenv("DATABASE_URL")
+	}
+	if cfg.Environment == "" {
+		cfg.Environment = os.Getenv("OPENFOUNDRY_ENV")
+	}
+	if !cfg.Report.AllowMemoryStore {
+		cfg.Report.AllowMemoryStore = strings.EqualFold(os.Getenv("OF_REPORT_ALLOW_MEMORY_STORE"), "true")
 	}
 	return &cfg, nil
 }

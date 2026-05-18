@@ -33,11 +33,11 @@ import (
 
 // Server bundles the lifecycle of the listener.
 type Server struct {
-	httpServer    *http.Server
-	cfg           *config.Config
-	log           *slog.Logger
-	natsCloser    func()
-	redisCloser   func()
+	httpServer  *http.Server
+	cfg         *config.Config
+	log         *slog.Logger
+	natsCloser  func()
+	redisCloser func()
 }
 
 // New builds a Server with all middleware mounted.

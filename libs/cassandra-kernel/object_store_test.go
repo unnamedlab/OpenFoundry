@@ -153,3 +153,31 @@ func TestObjectStoreSatisfiesInterface(t *testing.T) {
 	t.Parallel()
 	var _ repos.ObjectStore = (*ObjectStore)(nil)
 }
+
+func TestOSV2PrimaryKeyHashBucketStableAndBounded(t *testing.T) {
+	t.Parallel()
+	got := primaryKeyHashBucket("customer-123")
+	assert.GreaterOrEqual(t, got, 0)
+	assert.Less(t, got, objectHashBuckets)
+	assert.Equal(t, got, primaryKeyHashBucket("customer-123"))
+}
+
+func TestOSV2PropertyIDDoesNotExposeName(t *testing.T) {
+	t.Parallel()
+	got := propertyID("sensitive_property_name")
+	assert.NotContains(t, got, "sensitive_property_name")
+	assert.Equal(t, got, propertyID("sensitive_property_name"))
+}
+
+func TestOSV2PropertiesBlobUsesPropertyIDs(t *testing.T) {
+	t.Parallel()
+	blob, err := encodePropertiesBlob(json.RawMessage(`{"status":"OPEN","score":7,"empty":null}`))
+	require.NoError(t, err)
+	assert.Contains(t, string(blob), "of.osv2.properties.v1")
+	assert.NotContains(t, string(blob), "status")
+	assert.Contains(t, string(blob), propertyID("status"))
+	terms, err := propertyIndexTerms(json.RawMessage(`{"status":"OPEN","score":7,"empty":null}`))
+	require.NoError(t, err)
+	require.Len(t, terms, 3)
+	assert.Contains(t, []string{terms[0].PropertyID, terms[1].PropertyID, terms[2].PropertyID}, propertyID("status"))
+}

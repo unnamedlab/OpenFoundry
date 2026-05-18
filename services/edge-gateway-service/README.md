@@ -1,5 +1,30 @@
 # edge-gateway-service (Go)
 
+## LLM quick context (current code)
+
+Reverse proxy and routing gateway for frontend/API traffic into internal OpenFoundry services.
+
+Agent note: owns routing, prefix rewriting, capability metadata, and fallback/502 behavior; it does not implement every downstream domain.
+
+Current surface:
+- `Reverse-proxies /api/*`
+- `/api/v1/_meta/capabilities`
+- `/api/v1/_meta/health`
+- `/api/v1/_meta/versions`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `config`, `errs`, `handler`, `meta`, `middleware`, `proxy`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `CONFIG_FILE`, `PORT`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 HTTP edge gateway: reverse-proxies every public route to the right
 bounded-context service. Stateless Go service rooted at
 `services/edge-gateway-service/`.

@@ -1,5 +1,27 @@
 # `action-log-sink` (Go)
 
+## LLM quick context (current code)
+
+Consumes action/audit-style event streams and persists action-log envelopes to Iceberg/table-writer or local JSONL for auditability.
+
+Agent note: background sink; no product REST API; exposes only health/metrics.
+
+Current surface:
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `config`, `envelope`, `runtime`, `server`, `writer`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `ACTION_LOG_SINK_JSONL_PATH`, `ACTION_LOG_SINK_TABLE_WRITER_URL`, `ICEBERG_CATALOG_URL`, `ICEBERG_TABLE_WRITER_URL`, `ICEBERG_WAREHOUSE`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_CLIENT_ID`, `KAFKA_SASL_MECHANISM`
+- `KAFKA_SASL_PASSWORD`, `KAFKA_SASL_USERNAME`, `KAFKA_SECURITY_PROTOCOL`, `METRICS_ADDR`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Kafka → Iceberg consumer. Subscribes to `ontology.actions.applied.v1`,
 batches `ActionEnvelope` records (default: 100k OR 60s, whichever
 first) and appends them to `lakekeeper.default.action_log` via the

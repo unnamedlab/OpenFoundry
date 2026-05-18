@@ -5,6 +5,7 @@ This section is the quick lookup area for contributors who already know the plat
 ## Available Reference Pages
 
 - [Repository Layout](/reference/repository-layout)
+- [Documentation vs Code Gap Analysis](/reference/documentation-code-gap-analysis)
 - [API, SDK, and MCP](/reference/api-sdk-mcp)
 - [Foundry Compatibility Glossary](/reference/foundry-compatibility-glossary)
 - [Foundry Public-Docs Parity Policy](/reference/foundry-public-docs-parity-policy)

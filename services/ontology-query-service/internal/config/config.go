@@ -30,7 +30,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "ontology-query-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50123)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50105)
 	cfg.JWTSecret = defaultStr(os.Getenv("OPENFOUNDRY_JWT_SECRET"), os.Getenv("JWT_SECRET"))
 	if cfg.JWTSecret == "" {
 		return nil, &MissingEnvError{Key: "JWT_SECRET"}

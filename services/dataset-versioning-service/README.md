@@ -1,5 +1,30 @@
 # dataset-versioning-service (Go)
 
+## LLM quick context (current code)
+
+Owns datasets, versions, branches, transactions, files, schemas, views, quality, and compatibility aliases for dataset APIs.
+
+Agent note: large dataset backend; do not assume it is only a CRUD service.
+
+Current surface:
+- `/api/v1/datasets*`
+- `/api/v2/datasets* compatibility surface`
+- `branches/transactions/files/schema/views endpoints`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- Contains `27` SQL migration/schema file(s); check service migrations before changing persisted models.
+- Main internal packages: `backingfs`, `config`, `domain`, `handlers`, `models`, `repo`, `runtime`, `server`.
+- Local service files present: `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `DATABASE_URL`, `DATASET_FILES_BASE_DIR`, `DATASET_FILES_BASE_URL`, `HOST`, `JWT_SECRET`, `METRICS_ADDR`, `OPENFOUNDRY_JWT_SECRET`, `PORT`
+- `RETENTION_WORKER_ENABLED`, `RETENTION_WORKER_INTERVAL`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 This Go service is the incremental port of the Rust `dataset-versioning-service`.
 
 ## Port status

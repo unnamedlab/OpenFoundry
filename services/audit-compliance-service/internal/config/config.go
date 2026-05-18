@@ -24,7 +24,7 @@ func FromEnv() (*Config, error) {
 	cfg.Service.Name = "audit-compliance-service"
 	cfg.Service.Version = defaultStr(os.Getenv("SERVICE_VERSION"), "dev")
 	cfg.Server.Host = defaultStr(os.Getenv("HOST"), "0.0.0.0")
-	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50116)
+	cfg.Server.Port = parseUint16(os.Getenv("PORT"), 50115)
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		return nil, &MissingEnvError{Key: "DATABASE_URL"}

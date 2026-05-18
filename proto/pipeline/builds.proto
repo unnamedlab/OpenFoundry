@@ -17,9 +17,9 @@ import "google/protobuf/timestamp.proto";
 //     allowed set are rejected by `domain::job_lifecycle`.
 //
 // This file is the cross-service source of truth for the lifecycle
-// vocabulary. The Rust types in `services/pipeline-build-service/src/
-// models/{build,job}.rs` mirror the field names verbatim so the SQL
-// rows and the proto wire format share a single mental model.
+// vocabulary. The Go pipeline-build-service models and SQL rows keep
+// the same state names so the persisted lifecycle and proto wire format
+// share a single mental model.
 
 // ---------------------------------------------------------------------------
 // Job state machine

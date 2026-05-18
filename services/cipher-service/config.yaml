@@ -20,6 +20,18 @@ telemetry:
   otlp_endpoint: "localhost:4317"
   log_format: "plain"
 
+governance:
+  # 0 disables the default hard cap until per-key/user policy is configured.
+  default_decrypt_budget: 0
+  budget_window: "1h"
+  anomaly_burst_limit: 1000
+  anomaly_window: "1h"
+
+audit:
+  # Critical encrypt/decrypt/tokenize/batch audit delivery fails closed by
+  # default. Dev/test can explicitly set OF_CIPHER_AUDIT_FAIL_OPEN=true.
+  fail_open: false
+
 database:
   # Honours DATABASE_URL when this stays empty (set by the
   # cipher-service Helm chart in prod).
@@ -30,3 +42,7 @@ kms:
   # only in dev/test. "aws" is reserved for Milestone C (CIP.20).
   backend: "local"
   aws_key_arn: ""
+  vault_key: ""
+  gcp_key: ""
+  azure_key: ""
+  pkcs11_key: ""

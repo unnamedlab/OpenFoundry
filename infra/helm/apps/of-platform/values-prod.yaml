@@ -1,6 +1,8 @@
 global:
   deploymentFabric:
     environment: prod
+  kafka:
+    bootstrap: openfoundry-kafka-bootstrap.kafka.svc:9092
 
 services:
   edge-gateway-service:
@@ -13,6 +15,23 @@ services:
       targetMemoryUtilizationPercentage: 80
   identity-federation-service:
     replicas: 3
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+  cipher-service:
+    replicas: 3
+    env:
+      OPENFOUNDRY_ENV: production
+      OF_KMS__BACKEND: aws_kms
+      AWS_REGION: us-east-1
+    envSecrets:
+      OF_KMS__AWS_KEY_ARN:
+        secretName: cipher-kms
+        key: aws_key_arn
+    serviceAccountAnnotations: {}
     autoscaling:
       enabled: true
       minReplicas: 3

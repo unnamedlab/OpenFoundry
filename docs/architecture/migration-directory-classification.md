@@ -8,19 +8,25 @@
 > (e.g. `ai-application-generation-service`, `data-asset-catalog-service`,
 > `marketplace-service`, `mcp-orchestration-service`, `oauth-integration-service`,
 > `scenario-simulation-service`, `checkpoints-purpose-service`,
-> `cipher-service`, `lineage-deletion-service`, `network-boundary-service`,
+> `lineage-deletion-service`,
 > `retention-policy-service`, `sds-service`, `security-governance-service`,
 > `compute-modules-*-service`, `custom-endpoints-service`,
 > `developer-console-service`, `event-ingestion-replication-service`,
 > `execution-observability-service`, `managed-workspace-service`,
-> `monitoring-rules-service`, `pipeline-authoring-service`, `report-service`,
+> `monitoring-rules-service`, `pipeline-authoring-service`,
 > `time-series-data-service`, `automation-operations-service`) **no longer
 > exist as standalone binaries** in the current Go monorepo — their
 > migrations have been merged into the consolidated services listed in
 > ADR-0030 and ADR-0042. Cross-references to `*.rs` files reflect the
 > Rust era of the codebase; the Go ports live under
 > `services/<svc>/internal/repo/migrations/`. For the current per-service
-> migration layout consult the live tree.
+> migration layout consult the live tree. `cipher-service`, `network-boundary-service`,
+> `report-service`, `global-branch-service`, and `knowledge-index-service` do exist
+> in the current Go tree, but gateway alias semantics still differ by key: the
+> `cipher_service_url`, `report_service_url`, `global_branch_service_url`, and
+> `knowledge_index_service_url` defaults route to the same-named binaries, while
+> `network_boundary_service_url` is a legacy alias whose Go default resolves to
+> `authorization-policy-service` unless configuration overrides it.
 
 This catalog is the cleanup baseline for the **56 migration roots**
 called out by the Cassandra/Foundry parity plan. It classifies every
@@ -129,8 +135,9 @@ chain for it.
 ## `legacy-archive`
 
 - `docs/architecture/legacy-migrations/automation-operations-service/`
-- `services/automation-operations-service/migrations`
-  Active again post-FASE 6 (Foundry-pattern migration): hosts the
+- historical `services/automation-operations-service/migrations` path; the
+  current owner is `services/workflow-automation-service/internal/automationoperations`
+  and its migrations live with `workflow-automation-service`. It hosts the
   saga state-machine + audit schema (`saga.state`, `saga_audit_log`)
   that replaced Temporal as the authoritative orchestration store.
 - `docs/architecture/legacy-migrations/event-ingestion-replication-service/`

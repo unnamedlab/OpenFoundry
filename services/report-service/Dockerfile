@@ -58,7 +58,7 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 LABEL org.opencontainers.image.title="openfoundry-report-service" \
-      org.opencontainers.image.description="OpenFoundry report stub backing /api/v1/reports" \
+      org.opencontainers.image.description="OpenFoundry report service backing /api/v1/reports" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}" \

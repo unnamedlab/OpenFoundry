@@ -29,3 +29,15 @@ func TestFromEnvDefaultsPythonSidecarTimeout(t *testing.T) {
 		t.Fatalf("PythonSidecarTimeoutSeconds = %d, want default 60", cfg.PythonSidecarTimeoutSeconds)
 	}
 }
+
+func TestFromEnvReadsRequiredPythonSidecarFlag(t *testing.T) {
+	t.Setenv("OF_PIPELINE_TRANSFORMS_REQUIRED", "true")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if !cfg.RequirePythonSidecar {
+		t.Fatal("RequirePythonSidecar = false, want true")
+	}
+}

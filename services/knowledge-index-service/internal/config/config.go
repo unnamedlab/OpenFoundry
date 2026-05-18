@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -35,6 +36,18 @@ type Config struct {
 		LogFormat    string `koanf:"log_format"`
 	} `koanf:"telemetry"`
 
+	// Database carries the Postgres DSN for persistent knowledge-base metadata
+	// and documents. Override via OF_DATABASE__URL or DATABASE_URL.
+	Database struct {
+		URL string `koanf:"url"`
+	} `koanf:"database"`
+
+	// DatabaseURL is a flat-key compatibility alias for database.url.
+	DatabaseURL string `koanf:"database_url"`
+
+	// AllowFakeStore permits the in-memory store only for explicit local/test use.
+	AllowFakeStore bool `koanf:"allow_fake_store"`
+
 	Milestone string `koanf:"milestone"`
 }
 
@@ -59,6 +72,12 @@ func Load(defaultsPath, envPath string) (*Config, error) {
 	var cfg Config
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if cfg.Database.URL == "" {
+		cfg.Database.URL = cfg.DatabaseURL
+	}
+	if cfg.Database.URL == "" {
+		cfg.Database.URL = os.Getenv("DATABASE_URL")
 	}
 	return &cfg, nil
 }

@@ -58,7 +58,7 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 LABEL org.opencontainers.image.title="openfoundry-knowledge-index-service" \
-      org.opencontainers.image.description="OpenFoundry knowledge-index stub backing /api/v1/ai/knowledge-bases" \
+      org.opencontainers.image.description="OpenFoundry knowledge-index service backing /api/v1/ai/knowledge-bases" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}" \

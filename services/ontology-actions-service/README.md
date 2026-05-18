@@ -1,5 +1,34 @@
 # `ontology-actions-service` (Go)
 
+## LLM quick context (current code)
+
+Owns ontology actions/functions/rules/funnel/storage insight surfaces and sidecar-based action/function execution.
+
+Agent note: has many downstream integrations and dev stub flags; keep actions/functions distinct from ontology-definition schemas.
+
+Current surface:
+- `/api/v1/ontology/actions*`
+- `/api/v1/ontology/actions/{id}/execute|execute-batch|validate`
+- `/api/v1/ontology/functions*`
+- `/api/v1/ontology/rules*`
+- `GET /healthz`
+- `GET /metrics`
+
+State/dependency hints:
+- No SQL migration files live under this service directory.
+- Main internal packages: `config`, `mediafunctions`, `server`.
+- Local service files present: `config.yaml`, `Dockerfile`.
+
+Configuration signals:
+Environment variables referenced by the code:
+- `ACTION_AUDIT_TOPIC`, `AI_SERVICE_URL`, `ALLOW_SUBSTRATE_STUBS`, `AUDIT_SERVICE_URL`, `CASSANDRA_CONTACT_POINTS`, `CASSANDRA_KEYSPACE`, `CASSANDRA_LOCAL_DC`, `CASSANDRA_PASSWORD`
+- `CASSANDRA_USERNAME`, `CONNECTOR_MANAGEMENT_SERVICE_URL`, `DATABASE_URL`, `DATASET_SERVICE_URL`, `ENABLE_PYTHON_PACKAGES`, `GO_WANT_ONTOLOGY_ACTIONS_FAKE_SIDECAR`, `HOST`, `JWT_SECRET`
+- `KAFKA_BOOTSTRAP_SERVERS`, `NODE_RUNTIME_COMMAND`, `NOTIFICATION_SERVICE_URL`, `OF_DEV_STUB_MODE`, `ONTOLOGY_SERVICE_URL`, `PIPELINE_SERVICE_URL`, `PORT`, `PYTHON_PACKAGES_ENABLED`
+- `PYTHON_SIDECAR_ARGS`, `PYTHON_SIDECAR_BIN`, `PYTHON_SIDECAR_BINARY`, `PYTHON_SIDECAR_ENV`, `PYTHON_SIDECAR_TIMEOUT`, `SEARCH_API_KEY`, `SEARCH_AUTH_HEADER`, `SEARCH_BACKEND`
+- `SEARCH_EMBEDDING_PROVIDER`, `SEARCH_ENDPOINT`, `SERVICE_VERSION`
+
+Keep this section in sync when changing routes, config, or persistence behavior.
+
 Sole runtime owner of the consolidated ontology bounded contexts per
 [ADR-0030](../../docs/architecture/adr/ADR-0030-service-consolidation-30-targets.md):
 

@@ -119,6 +119,7 @@ func (r *kafkaGoReader) Close() error {
 }
 
 type ObjectChangedV1 struct {
+	EventID   string          `json:"event_id,omitempty"`
 	Tenant    repos.TenantId  `json:"tenant"`
 	ID        repos.ObjectId  `json:"id"`
 	TypeID    repos.TypeId    `json:"type_id"`
@@ -129,6 +130,7 @@ type ObjectChangedV1 struct {
 }
 
 type LinkChangedV1 struct {
+	EventID  string           `json:"event_id,omitempty"`
 	Tenant   repos.TenantId   `json:"tenant"`
 	ID       repos.ObjectId   `json:"id,omitempty"`
 	LinkType repos.LinkTypeId `json:"link_type"`
@@ -171,6 +173,13 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	return RunWithOptions(ctx, cfg, log, reader, backend, dlq)
 }
 
+// RunWithStores consumes Kafka records and writes both OSV2 row projections and
+// search projections. Offsets are committed only after both configured sinks
+// succeed or after a failed record is sent to the DLQ.
+func RunWithStores(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, stores StorageProjector, dlq DLQPublisher) error {
+	return runWithProjector(ctx, cfg, log, reader, backend, stores, dlq)
+}
+
 // NewSearchBackend builds the concrete search backend selected by service config.
 func NewSearchBackend(cfg *config.Config) (searchabstraction.SearchBackend, error) {
 	if cfg.SearchEndpoint == "" {
@@ -206,11 +215,12 @@ type DLQPublisher interface {
 }
 
 type ProjectionIndex struct {
-	seen map[string]uint64
+	seen      map[string]uint64
+	eventSeen map[string]struct{}
 }
 
 func NewProjectionIndex() *ProjectionIndex {
-	return &ProjectionIndex{seen: map[string]uint64{}}
+	return &ProjectionIndex{seen: map[string]uint64{}, eventSeen: map[string]struct{}{}}
 }
 
 func (p *ProjectionIndex) ShouldApply(tenant repos.TenantId, id repos.ObjectId, version uint64) bool {
@@ -229,6 +239,21 @@ func (p *ProjectionIndex) MarkApplied(tenant repos.TenantId, id repos.ObjectId, 
 	p.seen[projectionKey(tenant, id)] = version
 }
 
+func (p *ProjectionIndex) ShouldApplyEvent(eventID string) bool {
+	if p == nil || strings.TrimSpace(eventID) == "" {
+		return true
+	}
+	_, ok := p.eventSeen[eventID]
+	return !ok
+}
+
+func (p *ProjectionIndex) MarkEventApplied(eventID string) {
+	if p == nil || strings.TrimSpace(eventID) == "" {
+		return
+	}
+	p.eventSeen[eventID] = struct{}{}
+}
+
 func projectionKey(tenant repos.TenantId, id repos.ObjectId) string {
 	return string(tenant) + "\x00" + string(id)
 }
@@ -238,6 +263,10 @@ func RunWithReader(ctx context.Context, cfg *config.Config, log *slog.Logger, re
 }
 
 func RunWithOptions(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, dlq DLQPublisher) error {
+	return runWithProjector(ctx, cfg, log, reader, backend, StorageProjector{}, dlq)
+}
+
+func runWithProjector(ctx context.Context, cfg *config.Config, log *slog.Logger, reader KafkaReader, backend searchabstraction.SearchBackend, stores StorageProjector, dlq DLQPublisher) error {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -269,7 +298,7 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, log *slog.Logger, r
 			}
 			return err
 		}
-		outcome, err := processWithRetry(ctx, backend, projector, msg, log, cfg.RetryMaxAttempts, cfg.RetryInitialBackoff, cfg.RetryMaxBackoff)
+		outcome, err := processWithRetryAndStores(ctx, backend, stores, projector, msg, log, cfg.RetryMaxAttempts, cfg.RetryInitialBackoff, cfg.RetryMaxBackoff)
 		if err != nil {
 			if dlq == nil || cfg.DLQTopic == "" {
 				return err
@@ -287,6 +316,10 @@ func RunWithOptions(ctx context.Context, cfg *config.Config, log *slog.Logger, r
 }
 
 func processWithRetry(ctx context.Context, backend searchabstraction.SearchBackend, projector *ProjectionIndex, msg KafkaMessage, log *slog.Logger, attempts int, initial, max time.Duration) (RecordOutcome, error) {
+	return processWithRetryAndStores(ctx, backend, StorageProjector{}, projector, msg, log, attempts, initial, max)
+}
+
+func processWithRetryAndStores(ctx context.Context, backend searchabstraction.SearchBackend, stores StorageProjector, projector *ProjectionIndex, msg KafkaMessage, log *slog.Logger, attempts int, initial, max time.Duration) (RecordOutcome, error) {
 	if attempts < 1 {
 		attempts = 1
 	}
@@ -300,7 +333,11 @@ func processWithRetry(ctx context.Context, backend searchabstraction.SearchBacke
 	var err error
 	backoff := initial
 	for attempt := 1; attempt <= attempts; attempt++ {
-		outcome, err = ProcessMessageWithProjector(ctx, backend, projector, msg, log)
+		if stores.Enabled() {
+			outcome, err = ProcessMessageWithStores(ctx, backend, stores, projector, msg, log)
+		} else {
+			outcome, err = ProcessMessageWithProjector(ctx, backend, projector, msg, log)
+		}
 		if err == nil {
 			return outcome, nil
 		}

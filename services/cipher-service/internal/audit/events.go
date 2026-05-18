@@ -13,6 +13,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -26,7 +27,12 @@ const (
 	EventCipherKeyCreated  audittrail.EventKind = "cipher.key.created"
 	EventCipherKeyRotated  audittrail.EventKind = "cipher.key.rotated"
 	EventCipherKeyRetired  audittrail.EventKind = "cipher.key.retired"
+	EventCipherKeyRevoked  audittrail.EventKind = "cipher.key.revoked"
 	EventCipherBulkDecrypt audittrail.EventKind = "cipher.bulk_decrypt"
+	EventCipherEncrypt     audittrail.EventKind = "cipher.encrypt"
+	EventCipherDecrypt     audittrail.EventKind = "cipher.decrypt"
+	EventCipherTokenize    audittrail.EventKind = "cipher.tokenize"
+	EventCipherBatch       audittrail.EventKind = "cipher.batch"
 )
 
 // SourceService is the canonical OpenLineage `producer` facet for
@@ -34,12 +40,15 @@ const (
 // without grepping config.
 const SourceService = "cipher-service"
 
-// Recorder is the thin wrapper handlers call. A nil Recorder is a
-// no-op so unit tests don't have to provide an Emitter; the
-// production wiring always supplies one.
+// Recorder is the thin wrapper handlers call. Lifecycle events remain
+// best-effort because the corresponding state changes are not emitted through
+// a transactional outbox here. Critical data operations (encrypt, decrypt,
+// tokenize, and batch summaries) return audit delivery errors so production
+// handlers can fail closed before releasing sensitive material.
 type Recorder struct {
-	Emitter audittrail.Emitter
-	Log     *slog.Logger
+	Emitter         audittrail.Emitter
+	Log             *slog.Logger
+	RequireDelivery bool
 }
 
 // NewRecorder wires a Recorder against the shared audit emitter.
@@ -48,6 +57,13 @@ type Recorder struct {
 // logger so a saturated bus surfaces in service logs.
 func NewRecorder(e audittrail.Emitter, log *slog.Logger) *Recorder {
 	return &Recorder{Emitter: e, Log: log}
+}
+
+// NewRecorderWithPolicy wires a Recorder and controls whether critical audit
+// operations must be delivered. Production callers should set
+// requireDelivery=true; dev/test may explicitly opt into fail-open behavior.
+func NewRecorderWithPolicy(e audittrail.Emitter, log *slog.Logger, requireDelivery bool) *Recorder {
+	return &Recorder{Emitter: e, Log: log, RequireDelivery: requireDelivery}
 }
 
 // keyResourceRID builds the canonical RID for a cipher key. Wire
@@ -99,11 +115,21 @@ func (r *Recorder) KeyRetired(ctx context.Context, actorID uuid.UUID, tenantID, 
 	})
 }
 
+// KeyRevoked records a CIP.17 revoke event.
+func (r *Recorder) KeyRevoked(ctx context.Context, actorID uuid.UUID, tenantID, keyID uuid.UUID, markings []string) {
+	r.emit(ctx, actorID, audittrail.AuditEvent{
+		Kind:            EventCipherKeyRevoked,
+		ResourceRID:     keyResourceRID(keyID),
+		ProjectRID:      tenantProjectRID(tenantID),
+		MarkingsAtEvent: markings,
+	})
+}
+
 // BulkDecrypt records a CIP.8 audit event for a multi-item decrypt
 // batch. Per-item events would amplify volume past audit-sink's
 // budget; the aggregate form keeps the actor + key + count.
-func (r *Recorder) BulkDecrypt(ctx context.Context, actorID uuid.UUID, tenantID uuid.UUID, items int) {
-	r.emit(ctx, actorID, audittrail.AuditEvent{
+func (r *Recorder) BulkDecrypt(ctx context.Context, actorID uuid.UUID, tenantID uuid.UUID, items int) error {
+	return r.emit(ctx, actorID, audittrail.AuditEvent{
 		Kind:        EventCipherBulkDecrypt,
 		ResourceRID: tenantProjectRID(tenantID),
 		ProjectRID:  tenantProjectRID(tenantID),
@@ -114,22 +140,76 @@ func (r *Recorder) BulkDecrypt(ctx context.Context, actorID uuid.UUID, tenantID 
 	})
 }
 
+// Batch records CIP.21 aggregate batch summaries without emitting one audit envelope per item.
+func (r *Recorder) Batch(ctx context.Context, actorID uuid.UUID, tenantID uuid.UUID, operation string, items int, failures int, requestID string) error {
+	return r.emitWithRequest(ctx, actorID, requestID, audittrail.AuditEvent{
+		Kind:        EventCipherBatch,
+		ResourceRID: tenantProjectRID(tenantID),
+		ProjectRID:  tenantProjectRID(tenantID),
+		Name:        operation,
+		Path:        "items=" + uintToStr(uint32(items)) + ";failures=" + uintToStr(uint32(failures)),
+	})
+}
+
+// Operation records CIP.8 per-operation encrypt/decrypt audit details.
+func (r *Recorder) Operation(ctx context.Context, actorID uuid.UUID, tenantID uuid.UUID, keyID uuid.UUID, operation string, algorithm string, resourceRID string, success bool, markingResult string, requestID string, markings []string) error {
+	kind := EventCipherEncrypt
+	switch operation {
+	case "decrypt":
+		kind = EventCipherDecrypt
+	case "tokenize":
+		kind = EventCipherTokenize
+	}
+	if resourceRID == "" {
+		resourceRID = keyResourceRID(keyID)
+	}
+	status := "failure"
+	if success {
+		status = "success"
+	}
+	return r.emitWithRequest(ctx, actorID, requestID, audittrail.AuditEvent{
+		Kind:            kind,
+		ResourceRID:     resourceRID,
+		ProjectRID:      tenantProjectRID(tenantID),
+		MarkingsAtEvent: markings,
+		Name:            algorithm,
+		AccessPattern:   status,
+		Path:            "key=" + keyID.String() + ";marking=" + markingResult,
+	})
+}
+
 // emit is the single point of contact with audittrail.Emitter so
 // failure handling and actor injection stays consistent across events.
-func (r *Recorder) emit(ctx context.Context, actorID uuid.UUID, event audittrail.AuditEvent) {
+func (r *Recorder) emit(ctx context.Context, actorID uuid.UUID, event audittrail.AuditEvent) error {
+	return r.emitWithRequest(ctx, actorID, "", event)
+}
+
+func (r *Recorder) emitWithRequest(ctx context.Context, actorID uuid.UUID, requestID string, event audittrail.AuditEvent) error {
 	if r == nil || r.Emitter == nil {
-		return
+		return r.deliveryError(errors.New("audit emitter is not configured"), event)
 	}
 	auditCtx := audittrail.AuditContext{
 		ActorID:       actorID.String(),
+		RequestID:     requestID,
 		SourceService: SourceService,
 	}
-	if err := r.Emitter.Emit(ctx, event, auditCtx); err != nil && r.Log != nil {
+	if err := r.Emitter.Emit(ctx, event, auditCtx); err != nil {
+		return r.deliveryError(err, event)
+	}
+	return nil
+}
+
+func (r *Recorder) deliveryError(err error, event audittrail.AuditEvent) error {
+	if err != nil && r != nil && r.Log != nil {
 		r.Log.Warn("audit emit failed",
 			slog.String("kind", string(event.Kind)),
 			slog.String("resource", event.ResourceRID),
 			slog.String("error", err.Error()))
 	}
+	if r != nil && r.RequireDelivery {
+		return err
+	}
+	return nil
 }
 
 // tenantProjectRID is the placeholder RID we stamp into ProjectRID

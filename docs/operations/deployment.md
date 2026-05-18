@@ -32,7 +32,7 @@ The Compose stack defines:
 
 > Meilisearch is **no** longer part of the default DX stack. It remains
 > available as a "first-run" demo under the optional
-> `--profile demo` of `infra/docker-compose.dev.yml`; no service or
+> `--profile demo` of `infra/compose/docker-compose.dev.yml`; no service or
 > test depends on it (2026-04 consolidation in
 > [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md)).
 
@@ -42,7 +42,7 @@ The Compose stack defines:
 > OpenSearch — see
 > [ADR-0007](../architecture/adr/ADR-0007-search-engine-choice.md).
 
-Development overrides live in `infra/docker-compose.dev.yml`.
+Development overrides live in `infra/compose/docker-compose.dev.yml`.
 
 ## Kubernetes Packaging
 

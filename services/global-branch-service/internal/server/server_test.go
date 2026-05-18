@@ -9,6 +9,7 @@ import (
 	authmw "github.com/openfoundry/openfoundry-go/libs/auth-middleware"
 	"github.com/openfoundry/openfoundry-go/libs/capabilities"
 	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/config"
+	"github.com/openfoundry/openfoundry-go/services/global-branch-service/internal/handler"
 )
 
 // TestBuildRouter_NoHandler_OnlyPublicRoutes confirms that the server
@@ -45,4 +46,43 @@ func TestBuildRouter_NoHandler_OnlyPublicRoutes(t *testing.T) {
 			t.Fatalf("product routes should not be registered when h==nil; saw %s", c.ID)
 		}
 	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/global-branches", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("product route status=%d want 404 when h==nil", w.Code)
+	}
+}
+
+func TestBuildRouter_WithHandler_ProductCapabilitiesPresent(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	cfg.Service.Name = "global-branch-service"
+	cfg.Service.Version = "test"
+	jwtCfg := authmw.NewJWTConfig("test-secret")
+	h := &handler.Handlers{}
+
+	r := BuildRouter(cfg, h, nil, jwtCfg)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/_meta/capabilities", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("/_meta/capabilities status=%d", w.Code)
+	}
+	var snap capabilities.Snapshot
+	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode catalog: %v", err)
+	}
+	if !hasCapability(snap, "global-branch.branches.create") {
+		t.Fatalf("product capability global-branch.branches.create missing: %#v", snap.Capabilities)
+	}
+}
+
+func hasCapability(snap capabilities.Snapshot, id string) bool {
+	for _, c := range snap.Capabilities {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
 }

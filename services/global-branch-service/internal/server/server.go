@@ -36,9 +36,9 @@ type Server struct {
 // New builds a Server with all middleware and routes mounted.
 //
 // Passing h == nil keeps only the public surface mounted (health,
-// metrics, capability catalog) so the pod stays bootable in smoke
-// configurations without a Postgres DSN. Product routes appear on
-// the catalog only when the handlers are wired.
+// metrics, capability catalog). Main permits that state only for
+// explicit non-production smoke mode; product routes appear in the
+// catalog only when handlers are wired.
 func New(cfg *config.Config, h *handler.Handlers, metrics *observability.Metrics, log *slog.Logger, probes ...capabilities.DependencyProbe) (*Server, error) {
 	jwtCfg := authmw.NewJWTConfig(cfg.JWT.Secret).
 		WithIssuer(cfg.JWT.Issuer).
