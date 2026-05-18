@@ -256,6 +256,41 @@ Phase C ships.
    cannot see. If a bucket (c) pipeline turns up, ADR-0045 returns to
    Proposed for amendment.
 
+## §G. Status as of Phase C.6
+
+ADR-0045 has shipped through Phase C in six sub-PRs. The status of
+the originally-flagged pre-requisites:
+
+| Pre-req | Status |
+|---|---|
+| 1. Promote `aggregate` to available | ✅ Phase C.3 (PR #70) — runtime path in `internal/handler/aggregate_runtime.go`; catalog entry now `available/lightweight_table`. |
+| 2. Re-route CSV ingest via connector-management-service | ⏳ Still pending. `infra/dev/spark-ingest-online-retail.yaml` was deleted in Phase C.6 with a clear pointer; the actual CSV → Iceberg path needs a separate PR against `connector-management-service`. |
+| 3. Authoring-time SQL allowlist | ✅ Phase C.4.b (PR #74) — `internal/planner.ErrFreeFormSQLNotPortable` is returned when any node config carries `sql`/`statement`, with a link to this document. |
+| 4. Live-environment re-confirmation | ⏳ Tied to the smoke gate. The dev k3s cluster needs to be healthy for the YAMLs in `infra/dev/poc-pipeline-nodes.yaml` to be applied; that smoke is the final gate before Phase D removes the Scala module. |
+
+Sub-PR map:
+
+| Phase | PR | Scope |
+|---|---|---|
+| C.1 | #67 | `libs/pipeline-plan` — typed operator-plan schema |
+| C.2 | #69 | `libs/pipeline-runtime` — interpreter |
+| C.3 | #70 | Promote `aggregate` to `available` in the FASTER runtime |
+| C.4.a | #73 | Dispatcher rename (`spark` → `dispatch`) + Job manifest |
+| C.4.b | #74 | `internal/planner` composer (NodeConfig → Plan) |
+| C.5 | #75 | `services/pipeline-runner` rewrite + Iceberg providers |
+| C.6 | this PR | `infra/dev/poc-pipeline-nodes.yaml` migration to Job + ConfigMap shape |
+
+The two PoC pipelines flagged in §E that remain deferred:
+
+- `online-retail-anomalies` — needs CROSS JOIN, which `libs/pipeline-plan`
+  v1 does not ship (the `join` operator is deferred to v2 per Phase 0
+  §D and ADR-0045 § Migration plan / Phase C). When `join` lands the
+  pipeline becomes a two-stage decomposition; for now there is no
+  YAML in `infra/dev/` for it.
+- `online-retail-ingest` — Spark DataSource API. The migration target
+  is `connector-management-service`, not the runner; tracked
+  separately, not in this ADR's scope.
+
 ## Appendix — verified citations
 
 Every line reference in this document was confirmed by direct file
