@@ -38,6 +38,11 @@ type Handlers struct {
 	Now            func() time.Time
 	NewID          func() uuid.UUID
 	AsyncQueue     func(run func())
+
+	// EnabledRuntime, when set, rejects creation/invocation of configured-off
+	// runtimes at the HTTP edge. Nil preserves the historical all-known-runtimes
+	// behavior used by tests.
+	EnabledRuntime func(models.Runtime) bool
 }
 
 // time + id defaults.
@@ -83,6 +88,10 @@ func (h *Handlers) CreateFunction(w http.ResponseWriter, r *http.Request) {
 	}
 	if !body.Runtime.Valid() {
 		writeError(w, http.StatusBadRequest, "unsupported runtime")
+		return
+	}
+	if h.EnabledRuntime != nil && !h.EnabledRuntime(body.Runtime) {
+		writeError(w, http.StatusUnprocessableEntity, "runtime disabled")
 		return
 	}
 	fn := &models.FunctionDefinition{
@@ -322,8 +331,10 @@ func (h *Handlers) invoke(w http.ResponseWriter, r *http.Request, sync bool) {
 	}
 	status := http.StatusOK
 	switch {
-	case errors.Is(execErr, executor.ErrRuntimeUnavailable), errors.Is(execErr, domain.ErrExecutorNotAvailable):
+	case errors.Is(execErr, executor.ErrRuntimeUnavailable):
 		status = http.StatusServiceUnavailable
+	case errors.Is(execErr, domain.ErrExecutorNotAvailable):
+		status = http.StatusUnprocessableEntity
 	case finished.Status == models.RunStatusTimeout:
 		status = http.StatusGatewayTimeout
 	case finished.Status == models.RunStatusFailed:
@@ -477,8 +488,10 @@ func (h *Handlers) mapStoreError(w http.ResponseWriter, op string, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, domain.ErrPreconditionFailed), errors.Is(err, domain.ErrNoActiveVersion):
 		writeError(w, http.StatusPreconditionFailed, err.Error())
-	case errors.Is(err, executor.ErrRuntimeUnavailable), errors.Is(err, domain.ErrExecutorNotAvailable):
+	case errors.Is(err, executor.ErrRuntimeUnavailable):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
+	case errors.Is(err, domain.ErrExecutorNotAvailable):
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		slog.Error(op+" failed", slog.String("error", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal error")

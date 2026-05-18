@@ -253,6 +253,22 @@ func TestNotImplementedRuntimeMapsTo501(t *testing.T) {
 	}
 }
 
+func TestCreateFunction_RuntimeDisabledMapsTo422(t *testing.T) {
+	t.Parallel()
+	tenant := ids.New()
+	actor := ids.New()
+	h, _ := buildHandlers(t, fakeExec{})
+	h.EnabledRuntime = func(rt models.Runtime) bool { return rt == models.RuntimePython }
+	r := buildRouter(tenant, actor, h)
+
+	w := do(t, r, http.MethodPost, "/api/v1/functions", `{
+        "namespace":"billing","name":"compute","runtime":"ts"
+    }`)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestListFunctions_FiltersByTenant(t *testing.T) {
 	t.Parallel()
 	tenantA, tenantB := ids.New(), ids.New()

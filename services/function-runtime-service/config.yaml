@@ -4,6 +4,8 @@
 service:
   name: function-runtime-service
   version: 0.1.0
+  # development|test|production. Production fails closed on missing DB/binaries.
+  environment: development
 
 server:
   addr: ":50190"
@@ -19,13 +21,20 @@ jwt:
 database:
   # In production, this is set via OF_DATABASE__URL.
   # Empty value disables Postgres-backed repo and falls back to the
-  # in-memory store (suitable only for local dev / tests).
+  # in-memory store only when allow_memory_store is true (dev/test).
   url: ""
+  allow_memory_store: false
 
 executor:
+  # Default dev allow-list. Production manifests should set this explicitly.
+  enabled_runtimes: ["ts", "python"]
   default_timeout: 30s
   max_timeout: 5m
   memory_limit_mib: 256
+  max_stdout_bytes: 1048576
+  max_stderr_bytes: 1048576
+  allow_remote_source_uri: false
+  require_binaries_on_start: false
   node_binary: ""    # resolved from $PATH when empty
   python_binary: ""  # resolved from $PATH when empty
 

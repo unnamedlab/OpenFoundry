@@ -6,7 +6,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/function-runtime-service/internal/models"
 )
 
-// PythonProcessExecutor runs Python-authored functions by shelling out to
+// PythonProcessExecutor runs Python-authored functions by launching
 // `python3` (or whatever PythonBinary points at). v0 only — see
 // README.md for the v1 replacement path.
 type PythonProcessExecutor struct {

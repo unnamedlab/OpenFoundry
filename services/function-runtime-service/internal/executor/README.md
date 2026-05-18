@@ -8,8 +8,8 @@ and gated for replacement in v1.
 
 | Runtime | Implementation | Isolation |
 |---|---|---|
-| `ts` | `TSStubExecutor` shells out to `node <script>` | env stripped to `PATH`/`LANG`/`OF_*`; per-run timeout via `context.WithTimeout`; on linux a hint env (`NODE_OPTIONS=--max-old-space-size`) plus `Setpgid` + `Pdeathsig` for reap-on-parent-death |
-| `python` | `PythonStubExecutor` shells out to `python3 <script>` | same env / timeout discipline; no Python-side memory hint yet |
+| `ts` | `TSStubExecutor` launches `node <script>` directly | env stripped to `PATH`/`LANG`/`OF_*`; per-run timeout via `context.WithTimeout`; on linux a hint env (`NODE_OPTIONS=--max-old-space-size`) plus `Setpgid` + `Pdeathsig` for reap-on-parent-death |
+| `python` | `PythonStubExecutor` launches `python3 <script>` directly | same env / timeout discipline; no Python-side memory hint yet |
 
 The shared driver `runScript` is in [executor.go](./executor.go); the
 build-tag-gated rlimit hook is in [rlimit_linux.go](./rlimit_linux.go)

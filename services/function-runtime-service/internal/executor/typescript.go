@@ -6,7 +6,7 @@ import (
 	"github.com/openfoundry/openfoundry-go/services/function-runtime-service/internal/models"
 )
 
-// TSProcessExecutor runs TypeScript-authored functions by shelling out to
+// TSProcessExecutor runs TypeScript-authored functions by launching
 // `node` (or whatever NodeBinary points at). v0 only — see README.md
 // for the v1 replacement path.
 type TSProcessExecutor struct {
