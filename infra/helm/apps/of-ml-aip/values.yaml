@@ -169,10 +169,16 @@ services:
   # Stub binary backing /api/v1/ai/knowledge-bases — exists so the
   # gateway routes return a structured 501 instead of a 502.
   knowledge-index-service:
-    replicas: 1
+    replicas: 2
     ports:
       - name: http
         containerPort: 8080
+    # TODO(knowledge-index): add a dependency-aware readiness endpoint when
+    # the index store is wired; /healthz is process liveness only.
+    envSecrets:
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
     resources:
       requests:
         cpu: 50m

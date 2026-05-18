@@ -330,10 +330,19 @@ services:
   # this entry re-stands the binary so routes stop returning 502 while
   # the GB.* checklist is filled in.
   global-branch-service:
-    replicas: 1
+    replicas: 2
     ports:
       - name: http
         containerPort: 8080
+    # TODO(global-branch): add a dependency-aware readiness endpoint;
+    # /healthz is liveness-only today and does not verify Postgres.
+    envSecrets:
+      OF_DATABASE_URL:
+        secretName: global-branch-db-dsn
+        key: writer_url
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
     resources:
       requests:
         cpu: 50m
@@ -437,10 +446,16 @@ services:
   # serves a structured 501 envelope so the frontend renders a typed
   # error instead.
   report-service:
-    replicas: 1
+    replicas: 2
     ports:
       - name: http
         containerPort: 8080
+    # TODO(report): add a dependency-aware readiness endpoint before
+    # wiring live report storage; /healthz only proves the process is up.
+    envSecrets:
+      OF_JWT__SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
     resources:
       requests:
         cpu: 50m

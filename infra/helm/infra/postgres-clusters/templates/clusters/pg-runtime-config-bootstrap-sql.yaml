@@ -22,6 +22,7 @@ data:
       bc TEXT;
       bcs TEXT[] := ARRAY[
         'agent_runtime',
+        'function_runtime',
         'notebook_runtime',
         'managed_workspace',
         'custom_endpoints',
@@ -37,6 +38,7 @@ data:
         'automation_operations',
         'workflow_trace',
         'pipeline_authoring',
+        'pipeline_build',
         'compute_modules_control_plane',
         'compute_modules_runtime',
         'sql_bi_gateway',

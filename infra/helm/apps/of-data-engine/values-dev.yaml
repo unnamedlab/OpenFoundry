@@ -62,8 +62,6 @@ services:
       DATABASE_READ_URL:
         secretName: sql-bi-gateway-db-dsn
         key: reader_url
-  pipeline-build-service:
-    replicas: 1
   analytical-logic-service:
     envSecrets:
       DATABASE_URL:
@@ -149,6 +147,7 @@ services:
         secretName: iceberg-catalog-db-dsn
         key: reader_url
   pipeline-build-service:
+    replicas: 1
     spark:
       rbac:
         create: false

@@ -265,6 +265,33 @@ services:
     ports:
       - name: http
         containerPort: 8080
+    # Python transforms use the co-process sidecar binary bundled in the
+    # production image. Operators can override these values per environment
+    # if the image path or execution budget changes.
+    # TODO(pipeline-build): expose a readiness endpoint that verifies
+    # Postgres plus the Python sidecar binary; /healthz is process-only.
+    env:
+      DATASET_SERVICE_URL: http://dataset-versioning-service:8080
+      ONTOLOGY_DEFINITION_SERVICE_URL: http://ontology-definition-service:8080
+      OBJECT_DATABASE_SERVICE_URL: http://object-database-service:8080
+      WORKFLOW_SERVICE_URL: http://workflow-automation-service:8080
+      AI_SERVICE_URL: http://agent-runtime-service:8080
+      FOUNDRY_ICEBERG_CATALOG_URL: http://iceberg-catalog-service:8197
+      PYTHON_SIDECAR_BINARY: /opt/pyruntime/bin/openfoundry-pyruntime
+      PYTHON_SIDECAR_TIMEOUT_SECONDS: "60"
+      SPARK_NAMESPACE: openfoundry-spark
+      PIPELINE_RUNNER_IMAGE: ghcr.io/openfoundry/pipeline-runner:0.1.0
+    spark:
+      namespace: openfoundry-spark
+      rbac:
+        create: true
+    envSecrets:
+      DATABASE_URL:
+        secretName: pipeline-build-db-dsn
+        key: writer_url
+      JWT_SECRET:
+        secretName: openfoundry-jwt
+        key: jwt_secret
     resources:
       requests:
         cpu: 200m

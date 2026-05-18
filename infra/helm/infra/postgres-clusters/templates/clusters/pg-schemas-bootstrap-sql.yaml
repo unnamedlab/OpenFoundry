@@ -57,6 +57,8 @@ data:
         'sdk_generation',
         'solution_design',
         'code_repository_review',
+        'global_branch',
+        'knowledge_index',
         'document_reporting',
         'analytical_logic',
         'event_streaming',
